@@ -23,13 +23,13 @@ x-runtime: &runtime
       max-file: "3"
 
 x-api-environment: &api-environment
-  DATABASE_URL: ${DATABASE_URL:?required}
-  AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:?required}
+  DATABASE_URL: ${DATABASE_URL:-postgresql://orbit_app:${SERVICE_PASSWORD_64_DB_APP}@postgres:5432/${POSTGRES_DB:-orbit}}
+  AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:-postgresql://orbit_auth:${SERVICE_PASSWORD_64_DB_AUTH}@postgres:5432/${POSTGRES_DB:-orbit}}
   REDIS_URL: ${REDIS_URL:-redis://redis:6379}
-  AUTH_SECRET: ${AUTH_SECRET:?required}
-  CREDENTIAL_KEY: ${CREDENTIAL_KEY:?required}
-  ORBIT_SETUP_TOKEN: ${ORBIT_SETUP_TOKEN:?required}
-  APP_ORIGIN: ${APP_ORIGIN:?required}
+  AUTH_SECRET: ${AUTH_SECRET:-${SERVICE_REALBASE64_64_AUTH_SECRET}}
+  CREDENTIAL_KEY: ${CREDENTIAL_KEY:-${SERVICE_HEX_64_CREDENTIAL_KEY}}
+  ORBIT_SETUP_TOKEN: ${ORBIT_SETUP_TOKEN:-${SERVICE_PASSWORD_64_ORBIT_SETUP_TOKEN}}
+  APP_ORIGIN: ${APP_ORIGIN:-${SERVICE_URL_WEB_4310}}
   BIND_HOST: 0.0.0.0
   PORT: "4311"
   EXECUTION_MODE: ${EXECUTION_MODE:-test}
@@ -38,7 +38,7 @@ x-api-environment: &api-environment
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_VERIFIED_MODELS: ${OPENAI_VERIFIED_MODELS:-}
   OPENAI_RATE_CARD_JSON: ${OPENAI_RATE_CARD_JSON:-}
-  PUBLISHER_INSTANCE_ID: ${PUBLISHER_INSTANCE_ID:?required}
+  PUBLISHER_INSTANCE_ID: ${PUBLISHER_INSTANCE_ID:-${SERVICE_BASE64_32_PUBLISHER_INSTANCE}}
   QUEUE_NAMESPACE: ${QUEUE_NAMESPACE:-orbit}
 
 services:
@@ -47,10 +47,10 @@ services:
     restart: "no"
     command: ["node_modules/.bin/tsx", "scripts/db-deploy.ts", "--allow-remote-migration"]
     environment:
-      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:?required}
-      DATABASE_URL: ${DATABASE_URL:?required}
-      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:?required}
-      ORBIT_RELEASE_APPROVAL: ${ORBIT_RELEASE_APPROVAL:?required}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgresql://orbit_migrator:${SERVICE_PASSWORD_64_DB_MIGRATOR}@postgres:5432/${POSTGRES_DB:-orbit}}
+      DATABASE_URL: ${DATABASE_URL:-postgresql://orbit_app:${SERVICE_PASSWORD_64_DB_APP}@postgres:5432/${POSTGRES_DB:-orbit}}
+      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:-postgresql://orbit_auth:${SERVICE_PASSWORD_64_DB_AUTH}@postgres:5432/${POSTGRES_DB:-orbit}}
+      ORBIT_RELEASE_APPROVAL: ${ORBIT_RELEASE_APPROVAL:?}
     networks:
       - database
     depends_on:
@@ -111,6 +111,7 @@ services:
     environment:
       ORBIT_API_ORIGIN: http://api:4311
       NEXT_TELEMETRY_DISABLED: "1"
+      SERVICE_URL_WEB_4310: /
     expose:
       - "4310"
     tmpfs:
@@ -133,7 +134,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: orbit_migrator
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?required}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_64_DB_MIGRATOR}}
       POSTGRES_DB: ${POSTGRES_DB:-orbit}
     volumes:
       - orbit_pg:/var/lib/postgresql/data

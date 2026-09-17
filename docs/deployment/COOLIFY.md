@@ -21,8 +21,8 @@ The image contains `tsx` and Prisma as production dependencies because API/worke
 2. Select **+ New**, choose the GitHub source, and select the private repository `eds-labs/eds-orbit`. Authenticate using the existing GitHub App or deploy key with read access only.
 3. Under **Configuration → General**, choose the **Docker Compose** build pack. Set Branch to `main`, Base Directory to `/`, and Docker Compose Location to `docker-compose.yml`. Reload the Compose content from Git after every Compose change.
 4. Keep **Raw Compose Deployment** disabled. Coolify then supplies its managed routing/network labels. Do not add an in-repository Traefik/Caddy proxy or hand-written route labels.
-5. Add `https://eds-orbit.apps.eds-labs.io:4310` in the Domains field for the `web` service only. The `:4310` suffix selects the internal container port; public HTTPS remains on 443. Do not assign domains to API, worker, PostgreSQL, Redis, or migrate.
-6. In Coolify Environment Variables, add every required value below. Mark secrets as secret values in the UI. Do not use a repository `.env` file, host path, or shell history for production secrets.
+5. The Compose definition asks Coolify to generate a domain for the `web` service on internal port `4310`. Override `APP_ORIGIN` and the generated web domain only when the approved public hostname must be exactly `https://eds-orbit.apps.eds-labs.io`. Do not assign domains to API, worker, PostgreSQL, Redis, or migrate.
+6. In Coolify Environment Variables, inspect the generated values and add a non-secret human change reference for the required `ORBIT_RELEASE_APPROVAL`. Coolify generates distinct persistent passwords for the migrator, app and auth roles plus the application secrets. Do not copy generated values into the repository, a host path or shell history.
 7. Before the first deployment, inspect the rendered Compose configuration and image build output. Ensure the approved change reference is present in `ORBIT_RELEASE_APPROVAL`. Start the deployment only under the separate change approval.
 8. After deployment, use Coolify service status and logs to confirm `migrate` completed once, then API/worker/web became healthy. Test an authenticated browser flow at the public HTTPS URL. Record the deployment ID, image digest, migration result, and verification evidence.
 
@@ -30,19 +30,22 @@ Coolify supports Git-based Compose applications: it reads the repository Compose
 
 ## Environment variables
 
-Start from [`.env.example`](../../.env.example); it documents all names without usable secrets.
+The Compose definition uses Coolify's documented `SERVICE_*` variables to generate persistent values for a fresh resource. [`.env.example`](../../.env.example) documents manual overrides without usable secrets.
 
 | Group | Variables | Notes |
 | --- | --- | --- |
-| Required secrets | `DB_PASSWORD`, `AUTH_SECRET`, `CREDENTIAL_KEY`, `ORBIT_SETUP_TOKEN` | `CREDENTIAL_KEY` must be exactly 64 hexadecimal characters; generate every value uniquely. |
-| Required database URLs | `MIGRATION_DATABASE_URL`, `DATABASE_URL`, `AUTH_DATABASE_URL` | All address `postgres:5432/<POSTGRES_DB>`; users are respectively `orbit_migrator`, `orbit_app`, and `orbit_auth`. Use distinct passwords of at least 24 characters. |
-| Required release/runtime | `APP_ORIGIN`, `ORBIT_RELEASE_APPROVAL`, `PUBLISHER_INSTANCE_ID` | Set `APP_ORIGIN=https://eds-orbit.apps.eds-labs.io`. The release approval is a human change reference consumed by the migration job. |
+| Generated secrets | `SERVICE_PASSWORD_64_DB_MIGRATOR`, `SERVICE_PASSWORD_64_DB_APP`, `SERVICE_PASSWORD_64_DB_AUTH`, `SERVICE_REALBASE64_64_AUTH_SECRET`, `SERVICE_HEX_64_CREDENTIAL_KEY`, `SERVICE_PASSWORD_64_ORBIT_SETUP_TOKEN` | Coolify generates and persists separate values. `CREDENTIAL_KEY` resolves to exactly 64 hexadecimal characters. |
+| Generated database URLs | `MIGRATION_DATABASE_URL`, `DATABASE_URL`, `AUTH_DATABASE_URL` | Defaults address `postgres:5432/<POSTGRES_DB>` with users `orbit_migrator`, `orbit_app`, and `orbit_auth`. Each URL reuses only its matching generated password. |
+| Required release/runtime | `ORBIT_RELEASE_APPROVAL` | This remains a manually entered human change reference. `${ORBIT_RELEASE_APPROVAL:?}` blocks a fresh deployment while it is empty. |
+| Generated runtime identity | `APP_ORIGIN`, `PUBLISHER_INSTANCE_ID`, `SERVICE_URL_WEB_4310` | Coolify generates a web URL and stable publisher identity. Override `APP_ORIGIN` when using the approved custom domain. |
 | Internal defaults | `POSTGRES_DB`, `REDIS_URL`, `QUEUE_NAMESPACE` | Defaults are `orbit`, `redis://redis:6379`, and `orbit`; retain Docker service names. |
 | Safety gates | `EXECUTION_MODE`, `ENABLE_EXTERNAL_WRITES`, `LIVE_RAG_EVAL_PASSED` | Defaults keep the system in test mode with external writes and live RAG evaluation disabled. Changing them requires separate authorization. |
 | Optional integration | `OPENAI_API_KEY`, `OPENAI_VERIFIED_MODELS`, `OPENAI_RATE_CARD_JSON` | Leave blank until model, budget, and provider controls have been approved and verified. |
 | Legacy only | `ORBIT_HOSTNAME` | Used only by the old Caddy standalone configuration under `infra/`; Coolify ignores it. |
 
 `ORBIT_IMAGE_TAG` is optional metadata for locally invoked Compose. Coolify builds the Git revision itself. Build arguments are not required and no secret is passed as a Docker build argument.
+
+Coolify preserves existing environment-variable values when a Compose definition is reloaded. A resource created from an older Orbit Compose revision can therefore retain the invalid literal `required`; do not reuse its initialized database volume with newly generated credentials. Prefer a fresh resource after this revision, or use a separately reviewed credential-recovery procedure. Never delete an existing volume without confirming it contains no required data and obtaining explicit approval.
 
 ## Migration, release, and rollback
 
