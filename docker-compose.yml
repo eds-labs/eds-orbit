@@ -2,6 +2,10 @@ name: eds-orbit
 
 x-runtime: &runtime
   image: eds-orbit:${ORBIT_IMAGE_TAG:-0.1.0-rc.1}
+  build:
+    context: .
+    dockerfile: infra/Dockerfile
+    target: runner
   restart: unless-stopped
   init: true
   read_only: true
@@ -59,10 +63,6 @@ services:
 
   api:
     <<: *runtime
-    build:
-      context: .
-      dockerfile: infra/Dockerfile
-      target: runner
     environment: *api-environment
     expose:
       - "4311"
