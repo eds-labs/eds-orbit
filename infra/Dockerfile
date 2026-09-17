@@ -23,9 +23,12 @@ COPY tsconfig.json ./
 COPY scripts ./scripts
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm db:generate && pnpm --dir apps/web build
+FROM builder AS production-dependencies
+ENV CI=true
+RUN --mount=type=cache,id=eds-orbit-pnpm,target=/pnpm/store,sharing=locked pnpm install --prod --frozen-lockfile --offline --store-dir /pnpm/store
 FROM runtime-base AS runner
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 XDG_CACHE_HOME=/tmp/orbit-cache
 WORKDIR /app
-COPY --from=builder --chown=node:node /app /app
+COPY --from=production-dependencies --chown=node:node /app /app
 USER node
 CMD ["node_modules/.bin/tsx", "apps/api/src/main.ts"]

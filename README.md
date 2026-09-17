@@ -50,7 +50,7 @@ Playwright normally uses its installed Chromium. For local testing with an exist
 
 ## Hosting and authority
 
-Use [deployment bootstrap](docs/DEPLOYMENT_BOOTSTRAP.md), [standalone/shared hosting](docs/SHARED_HOST_DEPLOYMENT.md), [operations](docs/OPERATIONS.md), [backup/restore](docs/BACKUP_RESTORE.md), and [upgrades](docs/UPGRADE.md). Production migration and live activation are deliberate operator steps. Development does not authorize changes to existing hosts, Desk, Forecast, DNS, provider accounts or publishing.
+Use the [Coolify Docker Compose deployment guide](docs/deployment/COOLIFY.md) for the production-ready repository configuration, [deployment bootstrap](docs/DEPLOYMENT_BOOTSTRAP.md), [standalone/shared hosting](docs/SHARED_HOST_DEPLOYMENT.md), [operations](docs/OPERATIONS.md), [backup/restore](docs/BACKUP_RESTORE.md), and [upgrades](docs/UPGRADE.md). Production migration and live activation are deliberate operator steps. Development does not authorize changes to existing hosts, Desk, Forecast, DNS, provider accounts or publishing.
 
 Provider states distinguish configured credentials, verified reads, verified writes and reconciled publication. A successful HTTP receipt is not proof of public delivery. Mail and ad activation remain disabled without their own supported provider and mandate; drafts and exports work independently.
 
