@@ -1,0 +1,39 @@
+id: cli-rust-clap
+label: 'CLI: Rust + clap'
+description: "Vordefiniertes Preset für CLI: Rust + clap mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "cli-tool"
+recommended_tools:
+- "Rust"
+- "clap"
+- "cargo test"
+- "cargo clippy"
+- "cargo fmt"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- sehr schnelle, robuste Single-Binary CLI
+- Performance, Speicherverbrauch oder Sicherheit wichtig
+- langfristiges Tooling mit hoher Zuverlässigkeit
+avoid_when:
+- Team will schnell iterieren und kennt Rust nicht
+- Businesslogik liegt vollständig in Python/TypeScript
+platforms:
+- macos
+- windows
+- linux
+language: Rust
+framework: clap
+testing:
+  unit: cargo test
+  lint: cargo clippy
+  format: cargo fmt
+structure_ref: .agentic/app-structures/cli-rust-clap.md
+quality:
+  required_checks:
+  - cargo fmt --check
+  - cargo clippy -- -D warnings
+  - cargo test
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

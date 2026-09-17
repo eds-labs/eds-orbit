@@ -1,0 +1,3 @@
+# ADR 0002: Bounded owner mandates
+
+Observe is the installation default. Owner policy grants only the named project, channels, types, link origins, time interval, frequency and budget. It is not a permission to administer infrastructure. Assisted writes require single-use exact package-hash approval. Autopilot is local test capable; live activation requires independently evidenced model/retrieval/provider checks. No model output changes policy. The executor revalidates just before handing off a side effect; after handoff, compensation/reconciliation is required if the world changes. Unknown provider outcomes remain reserved and never automatically resend. No global exactly-once promise.

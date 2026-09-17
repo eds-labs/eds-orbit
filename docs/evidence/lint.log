@@ -1,0 +1,2 @@
+$ tsc --noEmit && node scripts/source-check.mjs
+Source guard checks passed

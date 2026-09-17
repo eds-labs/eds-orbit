@@ -1,0 +1,38 @@
+# Secrets and local environment files
+.env
+.env.*
+!.env.example
+!.agentic/config/examples/env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Build, coverage and temporary output
+build/
+dist/
+htmlcov/
+.coverage
+coverage.xml
+*.tmp
+*.temp
+node_modules/
+.next/
+coverage/
+playwright-report/
+test-results/
+.runtime/
+*.tsbuildinfo
+packages/db/generated/

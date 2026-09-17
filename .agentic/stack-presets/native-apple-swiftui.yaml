@@ -1,0 +1,41 @@
+id: native-apple-swiftui
+label: 'Native Apple: Swift + SwiftUI'
+description: "Vordefiniertes Preset für Native Apple: Swift + SwiftUI mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "native-app"
+recommended_tools:
+- "Swift"
+- "SwiftUI"
+- "XCTest"
+- "XCUITest"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- iOS, iPadOS, macOS, watchOS oder visionOS als primäre Plattform
+- beste native Apple UX
+- tiefe Integration mit Apple APIs
+- App Store Qualität und Performance wichtig
+avoid_when:
+- gleichzeitig Android/Web mit einer Codebasis priorisiert
+- Team kann kein Swift/Xcode
+platforms:
+- ios
+- ipados
+- macos
+- watchos
+- visionos
+language: Swift
+framework: SwiftUI
+architecture: MVVM or feature-based modular architecture
+backend: Supabase/custom API/CloudKit depending on product
+testing:
+  unit: XCTest
+  ui: XCUITest
+structure_ref: .agentic/app-structures/native-apple-swiftui.md
+quality:
+  required_checks:
+  - xcodebuild test where configured
+  - swiftlint if configured
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codex-project-framework/project-profile.schema.json",
+  "title": "Codex project profile",
+  "type": "object",
+  "required": ["project", "stack", "architecture", "environment", "commands", "security", "quality"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "type", "stage", "description", "priority", "owner"]
+    },
+    "stack": {
+      "type": "object",
+      "required": ["preset", "frontend", "backend", "database", "orm", "auth", "package_manager", "test_runner", "deployment"]
+    },
+    "architecture": {
+      "type": "object",
+      "required": ["style", "api_style", "repository_strategy"]
+    },
+    "environment": {
+      "type": "object",
+      "required": ["default", "production_protected", "deployment_preset"],
+      "properties": {
+        "default": {"enum": ["local", "preview", "staging", "production"]},
+        "production_protected": {"type": "boolean"}
+      }
+    },
+    "commands": {
+      "type": "object",
+      "required": ["install", "dev", "lint", "typecheck", "test", "build"]
+    },
+    "security": {
+      "type": "object",
+      "required": ["risk_level", "tenant_isolation", "secrets_policy"]
+    },
+    "quality": {
+      "type": "object",
+      "required": ["required_checks", "documentation_required"],
+      "properties": {
+        "required_checks": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "documentation_required": {"type": "boolean"}
+      }
+    }
+  },
+  "additionalProperties": true
+}

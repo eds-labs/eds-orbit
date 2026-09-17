@@ -1,0 +1,33 @@
+$ pnpm db:generate && tsc --noEmit && pnpm --dir apps/web build
+$ prisma generate --config packages/db/prisma.config.ts
+Loaded Prisma config from packages/db/prisma.config.ts.
+
+Prisma schema loaded from packages/db/prisma/schema.prisma.
+
+✔ Generated Prisma Client (v7.10.0) to ./node_modules/.pnpm/@prisma+client@7.10.0_prisma@7.10.0_@types+node@22.20.3_@types+react-dom@19.3.0_@types+_d09ae9f16ba9404ebccfd70412096100/node_modules/@prisma/client in 89ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+
+$ next build
+▲ Next.js 16.3.5 (Turbopack)
+✓ Running next.config.ts took 51ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 442ms
+  Running TypeScript ...
+  Finished TypeScript in 782ms ...
+  Collecting page data using 5 workers ...
+  Generating static pages using 5 workers (0/2) ...
+✓ Generating static pages using 5 workers (2/2) in 174ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ○ /_not-found
+├ ƒ /[[...route]]
+└ ƒ /api/[...path]
+
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

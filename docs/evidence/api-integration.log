@@ -1,0 +1,24 @@
+
+ RUN  v5.0.1 /Users/marioeuchner/Documents/ChatGPT/EDS Orbit
+
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > SR02/A11: omitted publish date inherits the saved approved schedule and cannot run early 182ms
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > SR03/A21: oldest idempotency key remains effective beyond 500 jobs 94ms
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > SR04: changing publisher connector changes the approval package 47ms
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > SR01/A12: in-flight or settled reservation never authorizes a second transmission 29ms
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > A20: ambiguous publication is never blindly claimed again 51ms
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > K27/B08: correcting metrics invalidates insight and deletion purges historical memory 43ms
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > A27: experiment with inadequate samples never declares a winner 21ms
+ ✓ apps/api/tests/safety.integration.test.ts > Safety regressions against restricted PostgreSQL roles > B06: seven simulated daily sweeps preserve one bounded durable mission job 47ms
+ ✓ apps/api/tests/core.integration.test.ts > Real PostgreSQL marketing control plane > A04/A07/A26: mission yields evidence, reviewed claims and test publication 74ms
+ ✓ apps/api/tests/core.integration.test.ts > Real PostgreSQL marketing control plane > A08: Observe blocks live write independently of content prompt 27ms
+ ✓ apps/api/tests/core.integration.test.ts > Real PostgreSQL marketing control plane > A09/A11/A21: Assisted needs an exact once-consumed versioned approval 46ms
+ ✓ apps/api/tests/core.integration.test.ts > Real PostgreSQL marketing control plane > A12/K29: parallel reservations cannot exceed daily limit; unknown is reserved 32ms
+ ✓ apps/api/tests/core.integration.test.ts > Real PostgreSQL marketing control plane > A22: pause denies new intents even with valid previous approvals 28ms
+ ✓ apps/api/tests/core.integration.test.ts > Real PostgreSQL marketing control plane > A27/K27: small sample creates hypothesis with explicit limitations 7ms
+ ✓ apps/api/tests/core.integration.test.ts > Real PostgreSQL marketing control plane > K16/K24: revoke invalidates public evidence and content and removes chunks 40ms
+
+ Test Files  2 passed (2)
+      Tests  15 passed (15)
+   Start at  14:20:26
+   Duration  1.40s (tests 83%, import 10%, transform 6%)
+

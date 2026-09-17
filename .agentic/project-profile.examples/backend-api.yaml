@@ -1,0 +1,16 @@
+project:
+  type: "backend-api"
+stack:
+  backend: "FastAPI | Express | NestJS | Spring | Go"
+  database: "PostgreSQL"
+architecture:
+  api_style: "REST"
+quality:
+  require_tests_for_new_logic: true
+api:
+  must_check:
+    - "Input Validation"
+    - "Status Codes"
+    - "AuthZ"
+    - "Idempotenz bei kritischen Writes"
+    - "Transaktionen"

@@ -1,0 +1,103 @@
+
+ RUN  v5.0.1 /Users/marioeuchner/Documents/ChatGPT/EDS Orbit
+
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 127.0.0.1 1ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 10.0.0.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 172.16.0.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 192.168.1.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 169.254.169.254 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 100.64.0.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 0.0.0.0 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 224.0.0.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 198.18.0.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic ::1 3ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic :: 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic fc00::1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic fe80::1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic ::ffff:127.0.0.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 2001:db8::1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > blocks nonpublic 2002:7f00:1:: 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > permits public 8.8.8.8 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > permits public 1.1.1.1 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > permits public 2606:4700:4700::1111 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL http://example.com/docs 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://example.com:8443/docs 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://example.com.evil.test/docs 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://user:pass@example.com/docs 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://example.com/admin 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://example.com/docs/../admin 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://example.com/docs/%252e%252e/admin 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://127.0.0.1/docs 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > rejects disallowed URL https://[::1]/docs 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > pins only fully public DNS answers 1ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > honors specific robots and longest allow prefix 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > discovery rejects external entities and private references 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > bounds adversarial robots wildcard matching 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > bounds stalled DNS 6ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > safe public source fetching > keeps query credentials out of citations 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > preserves headings and table context without scripts or navigation 1ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > treats injected instructions as plain text 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > normalizes repeated imports deterministically 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > bounds long chunks and retains source anchors 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > fuses both search branches without claiming probability 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > caps document dominance and duplicates 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > enforces context token budget 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > validity is half open 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > adjacent fact windows do not conflict 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects incompatible or unusable vectors 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects incompatible or unusable vectors 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects incompatible or unusable vectors 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects incompatible or unusable vectors 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > accepts matching synthetic vectors 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > extracts text from a real synthetic PDF container 294ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > extracts DOCX tables with the real parser 69ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects corrupt PDF with a typed failure 160ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects invalid UTF-8 and unsupported MIME 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects a central-directory underreported count 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects duplicate document entries before Mammoth 0ms
+ ✓ packages/knowledge/tests/algorithms.test.ts > versioned extraction and ranking > rejects a fake ZIP before decompression 0ms
+ ✓ packages/creative/src/creative.test.ts > deterministic original-brand renderer > renders square with expected size, unchanged logo and safe margin 2ms
+ ✓ packages/creative/src/creative.test.ts > deterministic original-brand renderer > renders landscape with expected size, unchanged logo and safe margin 0ms
+ ✓ packages/creative/src/creative.test.ts > deterministic original-brand renderer > renders portrait with expected size, unchanged logo and safe margin 0ms
+ ✓ packages/creative/src/creative.test.ts > deterministic original-brand renderer > renders story with expected size, unchanged logo and safe margin 0ms
+ ✓ packages/creative/src/creative.test.ts > deterministic original-brand renderer > blocks overflow instead of truncating or exporting clipped text 1ms
+ ✓ packages/creative/src/creative.test.ts > deterministic original-brand renderer > escapes script and produces a brief when the source logo is unapproved 0ms
+ ✓ packages/creative/src/creative.test.ts > bounded PNG export > fails closed for omitted brand approval before rasterization 0ms
+ ✓ packages/creative/src/creative.test.ts > bounded PNG export > exports real PNG pixels for square 151ms
+ ✓ packages/creative/src/creative.test.ts > bounded PNG export > exports real PNG pixels for landscape 16ms
+ ✓ packages/creative/src/creative.test.ts > bounded PNG export > exports real PNG pixels for portrait 66ms
+ ✓ packages/creative/src/creative.test.ts > bounded PNG export > exports real PNG pixels for story 70ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > reads integrations and drops unneeded upstream attributes 10ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > encodes draft in one request and treats receipt as accepted only 1ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > encodes schedule in one request and treats receipt as accepted only 1ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > encodes now in one request and treats receipt as accepted only 0ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > holds timeout and 5xx writes unknown without retry or secret propagation 2ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > does not lose an accepted write on malformed receipt 0ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > rejects invalid integration IDs before sending 0ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > handles read range and absent persisted ID without claiming canceled 1ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > requires group-wide delete acknowledgement 0ms
+ ✓ packages/connectors/src/connectors.test.ts > Postiz documented contract > uploads verified binary with multipart, refusing SVG and spoofed PNG 1ms
+ ✓ packages/connectors/src/connectors.test.ts > Matomo read scope > keeps token in body, fixed methods, exact date and site timezone; missing goals stay missing 10ms
+ ✓ packages/connectors/src/connectors.test.ts > Matomo read scope > blocks other sites and write methods without network 0ms
+ ✓ packages/connectors/src/connectors.test.ts > Matomo read scope > does not turn HTTP200 API errors into zero-valued metrics 0ms
+ ✓ packages/connectors/src/connectors.test.ts > Slack request verification and durable replay contract > verifies raw-body HMAC and rejects tampering/stale/future replay 1ms
+ ✓ packages/connectors/src/connectors.test.ts > Slack request verification and durable replay contract > requires mapped actor/resource authorization and atomically claims replay once 0ms
+ ✓ packages/connectors/src/connectors.test.ts > CSV stats and export safety > maps quoted BOM CSV and uses exact money/dedup without cross-project collisions 2ms
+ ✓ packages/connectors/src/connectors.test.ts > CSV stats and export safety > reports correction conflicts and per-row failures without raw sensitive cells 0ms
+ ✓ packages/connectors/src/connectors.test.ts > CSV stats and export safety > keeps missing metrics null and rejects duplicate/missing headers 0ms
+ ✓ packages/connectors/src/connectors.test.ts > CSV stats and export safety > exports a real article bundle and escapes executable preview content 0ms
+ ✓ packages/connectors/src/connectors.test.ts > endpoint boundaries > rejects userinfo, HTTP and query credentials 0ms
+ ✓ packages/connectors/src/connectors.test.ts > endpoint boundaries > blocks loopback and IPv4-mapped loopback without connecting 2ms
+ ✓ packages/connectors/src/http.test.ts > pinned native HTTPS transport > answers both Node DNS callback shapes using the single prechecked IP 8ms
+ ✓ packages/connectors/src/http.test.ts > pinned native HTTPS transport > aborts hung DNS before constructing or sending an HTTP request 1ms
+ ✓ packages/connectors/src/http.test.ts > pinned native HTTPS transport > bounds DNS even when the caller provides no signal 1ms
+ ✓ apps/api/tests/unit.test.ts > A06 task routing and bounded escalation 1ms
+ ✓ apps/api/tests/unit.test.ts > A11 canonical package hash binds data independent of property ordering 5ms
+ ✓ apps/api/tests/unit.test.ts > A25 credential encryption uses random nonce and rejects modifications 0ms
+ ✓ apps/api/tests/unit.test.ts > A24 schemas reject unbounded payload and unexpected tool permissions 2ms
+
+ Test Files  5 passed (5)
+      Tests  94 passed (94)
+   Start at  14:14:45
+   Duration  1.45s (tests 76%, import 13%, transform 9%, setup 1%, worker 1%)
+

@@ -1,0 +1,50 @@
+id: desktop-electron-react
+label: 'Desktop Cross-platform: Electron + React'
+description: "Vordefiniertes Preset für Desktop Cross-platform: Electron + React mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "desktop-app"
+recommended_tools:
+- "React/Vite or Next.js static/export depending on app"
+- "TypeScript"
+- "Electron"
+- "main"
+- "preload"
+- "renderer"
+- "Vitest"
+- "Playwright Electron or Spectron alternative"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- Mac, Windows und Linux aus einer Codebasis
+- bestehende Web-App soll stark wiederverwendet werden
+- Node.js APIs im Desktop-Prozess wichtig
+- Ökosystem/Reife wichtiger als Bundle-Größe
+avoid_when:
+- kleinste App-Größe oder geringster Speicherverbrauch ist Top-Priorität
+- Security-Konfiguration kann nicht sauber gepflegt werden
+platforms:
+- macos
+- windows
+- linux
+frontend:
+  framework: React/Vite or Next.js static/export depending on app
+  language: TypeScript
+native:
+  framework: Electron
+  processes:
+  - main
+  - preload
+  - renderer
+storage: SQLite/local files/custom API
+testing:
+  unit: Vitest
+  e2e: Playwright Electron or Spectron alternative
+structure_ref: .agentic/app-structures/desktop-electron.md
+quality:
+  required_checks:
+  - lint
+  - typecheck
+  - test
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

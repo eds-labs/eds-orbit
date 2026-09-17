@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codex-project-framework/stack-preset.schema.json",
+  "title": "Codex stack preset",
+  "type": "object",
+  "required": [
+    "id",
+    "label",
+    "description",
+    "application_type",
+    "recommended_tools",
+    "deployment_hint",
+    "use_when",
+    "avoid_when",
+    "platforms",
+    "testing",
+    "structure_ref",
+    "quality"
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "label": {"type": "string", "minLength": 1},
+    "description": {"type": "string", "minLength": 1},
+    "application_type": {"type": "string", "minLength": 1},
+    "recommended_tools": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "deployment_hint": {"type": "string", "minLength": 1},
+    "use_when": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "avoid_when": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "platforms": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "testing": {"type": "object", "minProperties": 1},
+    "structure_ref": {"type": "string", "pattern": "^\\.agentic/app-structures/.+\\.md$"},
+    "quality": {
+      "type": "object",
+      "required": ["required_checks", "agentic_rules"],
+      "properties": {
+        "required_checks": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "agentic_rules": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+      }
+    }
+  },
+  "additionalProperties": true
+}

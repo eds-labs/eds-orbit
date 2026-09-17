@@ -1,0 +1,83 @@
+# Connector capabilities and integration boundaries
+
+Documentation checked: 2026-09-17. Source modules: packages/connectors/src and packages/creative/src. These adapters are implemented with isolated contract tests; execution evidence is recorded in the project validation report. No connector is declared live-write-verified by these tests. Existing Codex/ChatGPT credentials were not copied into Orbit.
+
+## Capability matrix
+
+| Adapter | Implemented | Explicit limit / live acceptance dependency |
+| --- | --- | --- |
+| Postiz | Read channels; create draft/schedule/now; multipart media; bounded date-range status reconciliation; group-wide delete acknowledgement | Installed floating image version is not write-tested. No native idempotency or exact-once guarantee. No claim that create acknowledgement means publication. No reschedule endpoint implemented. |
+| Matomo | Read-only allowlisted site reports: visits, page URLs, campaigns, goals and goal definitions | Uses configured site timezone; no site-admin write or WordPress adapter. Up to 1,000 returned rows, completeness not guaranteed. Missing goals/data remain unknown. |
+| Slack | Raw-body HMAC timestamp validation; mapped workspace/user/resource authorization callback; atomic replay callback contract | App runtime must supply a durable unique inbox and actual user/resource mapping. Signature success is not an approval. Outbound delivery and interactive production acceptance are separate. |
+| Ads CSV | Configurable headers/delimiter/decimal separator; source/account/project/date/timezone/currency identity; row errors, exact duplicate detection, correction conflicts and exact minor-unit spend | AdsGram is an import profile, not an assumed API. Caller transactionally persists keys/hashes; conflicts require a correction decision. No cross-source conversion attribution. |
+| Blog | Complete portable article/metadata/asset bundle, checksums and safe escaped HTML preview | No target CMS configured; live adapter remains not_configured. Markdown is untrusted source content and must be sanitized by any eventual publishing renderer. |
+| Template creative | Square, landscape, portrait, story SVG and local PNG; original unchanged logo, safe margins, bounded text layout, checksum and explicit overflow failure | Fixed templates passed local/Linux font and visual checks; conservative text bounds still require editorial review of each real export. The PNG export is suitable for upload transport; provider acceptance remains a separate gate. No image-model call or invented asset. |
+| Email/community/paid ads | Draft/export/import only through the generic content and CSV paths | No live send, public response or paid-account control adapter asserted |
+
+## API entry points
+
+Postiz: createPostizClient({baseUrl,token,fetch?}). The base URL is the approved server's complete public API prefix, e.g. https://postiz.example/public/v1. Methods: listIntegrations(), healthcheck(), createPost(payload), listPosts({startDate,endDate}), findPostStatus(remoteId,range), deletePost(remoteId,{allowGroupDelete:true}), uploadMedia({bytes,mime,filename}). The default request transport requires HTTPS, resolves all addresses, rejects nonpublic ranges, pins the selected DNS answer, refuses redirects, bounds response size and applies timeout. Injected transports are a test/trusted application seam, never a user-editable URL bypass. Private-network self-hosting requires a separately reviewed restricted transport, not relaxing global SSRF defenses.
+
+A Postiz write returns remotePosts and state=accepted. Persist every remote ID and original requested type. Status uses the documented posts list, with the saved remote ID and a window no greater than 32 days. Absence from that list is outcome_unknown, not evidence of cancellation or non-execution. HTTP/network errors are data-minimal ConnectorError values, with code, outcome, retryable and optional status; provider response bodies/tokens are not included. Timeout, 5xx and malformed-success writes are unknown and are never automatically retried. Before reissuing a write, reconcile or require a specific exception decision. A 429 rejection may be retried only by the executor's bounded policy/budget/lease path.
+
+DELETE /posts/:id affects the whole provider group. The executor must first identify and authorize every affected group member. allowGroupDelete acknowledges that semantic; it does not itself establish an owner approval. A deletion acknowledgement does not retract an already published external post. The adapter does not claim pause can revoke every provider side effect.
+
+Matomo: createMatomoClient({baseUrl,token,allowedSiteIds,fetch?}).report({siteId,method,period,date,siteTimezone,goalId?}). Base URL is the installation root, not index.php. It posts token_auth in a form body and never in the URL, restricts methods/site IDs, sends raw metric format, and carries site/date/timezone/provenance alongside data. Reports do not establish business conversions without explicit configured goals and valid tracking. Do not convert HTTP200 API errors, missing fields or empty goal configuration to zero results.
+
+Slack: verifySlackRequest verifies the exact raw body, v0 HMAC and a five-minute past/future window. verifySlackInteraction also requires expectedTeamId, authorize(interaction) and claimReplay(fingerprint,expiry). Implement the latter using a durable atomic unique insert; use a transaction with the approval effect/inbox where possible. authorize must bind Slack user/workspace to the Orbit user, project, resource, action hash, expiry and policy permission. Arbitrary text such as yes is never blanket approval. UI approval remains the fallback.
+
+CSV: importAdsCsv(csv,{projectId,source,accountId,currency,timezone,columns,delimiter?,decimalSeparator?,minorDigits?,existing?}). Mapping requires date and campaignId; optional metrics stay null when absent. Monetary values are integer minor-unit strings, not floating-point money. Use explicit minorDigits for non-two-decimal currencies. Errors expose logical record position/code, not raw row data. Import keys exclude metric values to detect corrected exports, and include tenant/project/account/timezone/currency to avoid false cross-project merges. Persist rows, revisions and unique keys transactionally; never silently overwrite corrections. CSV formulas in numeric cells are rejected, labels remain data and need spreadsheet-safe escaping if later exported.
+
+Blog: exportBlogArticle produces article.md, metadata.json, preview.html and binary assets encoded as base64 with content hashes. It validates filenames, sizes, image signatures and HTTPS source links. Preview is escaped and CSP-restricted. Archive/file persistence and project ownership remain the application responsibility; no path is interpreted as an arbitrary filesystem destination.
+
+Creative: renderTemplate({format,title,subtitle?,cta?,brandName?,logoApproved?}) requires an explicit true logo approval and returns rendered SVG or a blocked_asset creative brief. `await renderRasterTemplate(input)` returns bounded PNG bytes plus dimensions and PNG/SVG hashes. Overflow fails explicitly. Logo provenance and SHA256 are recorded in packages/creative/assets/manifest.json. The byte-identical original is from the local EDS Labs website; public redistribution/trademark rights still require owner confirmation and are not granted by the code license.
+
+## Executor security contract
+
+All external writes, including provider draft creation, media upload and deletion, must run only after fresh server-side identity/project/action/account/policy/content/evidence/budget/pause/health checks. Connector functions are provider transport adapters, not an authorization engine. Store credentials encrypted server-side, never in client bundles, logs, traces or model input. No default adapter invokes paid image/text APIs. Health checks are explicit requests; configuring an adapter does not contact it. read_verified and write_verified are separate persisted runtime attestations with timestamps and version/account scope.
+
+## Primary documentation
+
+- [Postiz create types and payload/receipt](https://docs.postiz.com/public-api/posts/create)
+- [Postiz integrations](https://docs.postiz.com/public-api/integrations/list)
+- [Postiz bounded status listing](https://docs.postiz.com/public-api/posts/list)
+- [Postiz delete group semantics](https://docs.postiz.com/public-api/posts/delete)
+- [Postiz multipart media and MIME types](https://docs.postiz.com/public-api/uploads/upload-file)
+- [Postiz authentication/error overview](https://docs.postiz.com/public-api/introduction)
+- [Matomo reporting parameters and timezone](https://developer.matomo.org/api-reference/api)
+- [Matomo token authentication](https://developer.matomo.org/guides/authentication-in-depth)
+- [Slack raw-body signature and timestamp protocol](https://docs.slack.dev/authentication/verifying-requests-from-slack/)
+
+The installed self-hosted Postiz/Matomo versions still require isolated version-specific acceptance before any live write verification. Provider schemas may change; failures remain explicit and data-minimal.
+
+### Local PNG renderer update
+
+`renderTemplate` and `renderRasterTemplate` require `logoApproved === true`; an absent approval produces `blocked_asset` with a creative brief. The new async PNG renderer accepts only structured template input and rasterizes the fixed, escaped SVG with the integrity-checked original logo. It does not accept arbitrary SVG or external images. Sharp 0.35.4 is pinned in the creative package; this version and Node >=20.9 requirement were verified against the npm version document on 2026-09-17. Pixel count, 10-second processing deadline, PNG output, exact dimensions, and 20 MiB output limit are checked. The caller must persist PNG bytes/base64 and use the PNG hash for package binding; the original SVG hash is retained separately. Different fonts/libvips versions can change raster bytes, so approval binds the actual generated PNG hash. Renderer version is recorded. Provider upload acceptance still requires the separately authorized live connector test.
+
+Sources: [Sharp PNG and buffer API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [npm sharp 0.35.4 version metadata](https://registry.npmjs.org/sharp/0.35.4).
+
+### Slack durable product path
+
+`apps/api/src/modules/slack.ts` implements `configureSlack`, `queueSlackDigest`, `dispatchSlackDigest`, `handleSlackInteraction`, and `markSlackOutcomeUnknown`. Owner configuration requires an explicit expiring team/channel mandate, bot token, signing secret, and Slack-to-Orbit owner mappings. Secrets are encrypted together; configuration performs no network request. Digest messages contain sanitized exception codes and, when enabled, complete reviewed social text without media. Longer/media packages remain in the web review flow. Each button has a persisted package-bound, expiring one-use reference. A new content/evidence/package version blocks both message handoff and approval.
+
+The server exposes the raw signed interaction route at `/api/slack/:workspaceId/:projectId/interactions`; the trusted application proxy preserves the signature and timestamp headers. Sender requests target only `https://slack.com/api/chat.postMessage`, use Bearer authentication and disable automatic link/media unfurls. A receipt requires matching channel and Slack timestamp. Timeout, invalid receipt and interrupted sending stay unknown; no automatic resend occurs. Worker jobs use `slack_notification`. Six real-PostgreSQL tests with injected HTTP verify the internal flow; no real Slack message was sent.
+
+Sources: [Slack chat.postMessage](https://docs.slack.dev/reference/methods/chat.postMessage/), [block action payload](https://docs.slack.dev/reference/interaction-payloads/block_actions-payload/), [signed request verification](https://docs.slack.dev/authentication/verifying-requests-from-slack/).
+
+### Postiz observed write verification
+
+`apps/api/src/modules/postiz-verification.ts` supplies the owner-only product path previously missing between read verification and write verification. `preparePostizVerification` records a fixed short connection-test message, selected explicitly acknowledged sandbox account, instance/connector version/base URL, optional approved PNG asset hash/version, a package hash and a 15-minute expiry. Preparation makes no request. The API actions are `postiz-test-prepare`, `postiz-test-execute` and `postiz-test-reconcile`; records use `connector_verifications`.
+
+Execution requires the exact returned package hash, `confirmPublishExactTest:true`, current owner membership, an unpaused project, `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`. It sends at most one single-account `now` test post. An optional PNG upload is bound to approved stored bytes; its receipt is persisted and dependency/permission checks repeat before post creation. Unknown outcomes and interrupted handoffs are durable and never automatically resent. HTTP acceptance alone does not enable publishing. Separate reconciliation requires the saved remote ID, matching integration and actual `PUBLISHED` state. Only that integration enters `writeVerifiedIntegrationIds`; a PNG proof additionally enters `writeVerifiedMediaIntegrationIds`, with `writeVerifiedInstanceId` binding both to the configured instance.
+
+A text-only proof does not certify media upload, scheduling, rescheduling, analytics or deletion. The test record explicitly asks the owner to review/remove the test post in Postiz afterwards. Automatic deletion is omitted because the provider deletes an entire group and the current status contract cannot prove all current group members. These confirmations are product authorization inputs; none was executed against a real provider during implementation. Default external-write gates remain off.
+
+Eight real-PostgreSQL tests with injected transport verify exact payload/PNG bytes, receipt versus publication distinction, wrong account/absent/pending status, per-account proof, pause/version/expiry/owner checks, changed media after upload, and no resend after uncertainty. Linux ARM64 runtime and four-format rendering subsequently passed in both isolated variants; live provider acceptance remains separate.
+
+### Cancellation control boundary
+
+The current [documented delete endpoint](https://docs.postiz.com/public-api/posts/delete) removes every post in the provider group. The [documented date-range listing](https://docs.postiz.com/public-api/posts/list) exposes post IDs, state and integration, but does not promise complete group membership or a conditional revision token. A single-post creation receipt proves the original request's scope; it cannot prove that another provider-side actor has not changed the group. Consequently the product executor does not expose a cancellation write based only on `acknowledgeWholeGroup:true`. Local unsent work can be blocked, while remote accepted/scheduled/published items retain a cancellation/reconciliation requirement for owner review in Postiz. The low-level adapter's acknowledged DELETE method is implemented and contract-tested, but automatic or owner-click remote group deletion is unsupported until the installed provider version supplies verifiable current scope. Deletion acknowledgement would still not prove removal of a post already released to a social platform.
+
+## Consolidated local regression evidence
+
+On 2026-09-17 at 15:10 Europe/Berlin, the six owned connector/native HTTPS/creative/Slack/Postiz-proof test files passed 50/50 cases (`docs/evidence/connector-creative-slack-postiz.log`). Database paths used isolated real PostgreSQL; provider HTTP was injected and Slack quality eligibility was explicitly simulated only in its dedicated test. Native host PNG rendering passed. Subsequently all four PNG formats passed dimension/hash and visual checks in both Linux ARM64 container variants with installed DejaVu fonts and no font warnings (`docs/evidence/container-acceptance.json`). These results do not certify installed provider versions or real outbound delivery/publication. No actual external test post, Slack message or paid model call was performed.

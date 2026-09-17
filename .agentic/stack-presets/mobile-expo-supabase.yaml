@@ -1,0 +1,46 @@
+id: mobile-expo-supabase
+label: 'Mobile Cross-platform: Expo/React Native + Supabase'
+description: "Vordefiniertes Preset für Mobile Cross-platform: Expo/React Native + Supabase mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "mobile-app"
+recommended_tools:
+- "TypeScript"
+- "Expo / React Native"
+- "Postgres via backend/Supabase"
+- "Vitest/Jest"
+- "Maestro or Detox depending on project"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- iOS und Android aus einer Codebasis
+- Team kann React/TypeScript
+- App braucht Auth, Storage, Push/Device APIs und schnelles Shipping
+- Web-App nutzt bereits TypeScript/Supabase
+avoid_when:
+- extrem plattformspezifische UX oder harte native Performance-Anforderungen
+- Team ist primär Kotlin/Swift/Dart
+platforms:
+- ios
+- android
+- web optional
+language: TypeScript
+framework: Expo / React Native
+routing: Expo Router
+backend: Supabase or custom API
+database: Postgres via backend/Supabase
+local_state:
+- Zustand
+- React Context for simple state
+server_state: TanStack Query
+testing:
+  unit: Vitest/Jest
+  e2e: Maestro or Detox depending on project
+structure_ref: .agentic/app-structures/mobile-expo.md
+quality:
+  required_checks:
+  - lint
+  - typecheck
+  - test
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

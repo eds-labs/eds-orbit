@@ -1,0 +1,47 @@
+id: desktop-tauri-react
+label: 'Desktop Cross-platform: Tauri + React'
+description: "Vordefiniertes Preset für Desktop Cross-platform: Tauri + React mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "desktop-app"
+recommended_tools:
+- "React/Vite or any web framework"
+- "TypeScript"
+- "Tauri"
+- "Rust"
+- "Rust commands callable from frontend"
+- "Vitest"
+- "cargo test"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- Mac, Windows und Linux aus einer Codebasis
+- Web-Frontend Skills vorhanden
+- kleinere Binaries und weniger Runtime-Overhead als Electron wichtig
+- lokale Systemintegration mit Rust-Kommandos
+avoid_when:
+- viel Node.js im Desktop-Prozess benötigt
+- bestehende große Electron-App soll minimal migriert werden
+platforms:
+- macos
+- windows
+- linux
+- mobile optional in Tauri v2
+frontend:
+  framework: React/Vite or any web framework
+  language: TypeScript
+native:
+  framework: Tauri
+  language: Rust
+  commands: Rust commands callable from frontend
+storage: SQLite or local files; sync via custom API/Supabase when needed
+testing:
+  frontend: Vitest
+  rust: cargo test
+structure_ref: .agentic/app-structures/desktop-tauri.md
+quality:
+  required_checks:
+  - pnpm lint/typecheck/test
+  - cargo test
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

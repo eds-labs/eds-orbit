@@ -1,0 +1,40 @@
+name: Orbit acceptance
+on: [push, pull_request, workflow_dispatch]
+permissions: {contents: read}
+concurrency:
+  group: orbit-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: {node-version: '24.18.0'}
+      - run: corepack enable && corepack prepare pnpm@11.19.0 --activate
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:generate
+      - run: pnpm local:setup
+      - run: ORBIT_CONFIG_FILE=.runtime/local.env pnpm api:generate
+      - run: pnpm lint && pnpm typecheck && pnpm test && pnpm build
+      - run: python3 scripts/check-secrets.py && node scripts/dependency-inventory.mjs
+      - run: pnpm audit --audit-level high
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Browser acceptance
+        run: |
+          pnpm exec tsx scripts/seed-e2e.ts
+          pnpm dev > .runtime/ci-services.log 2>&1 &
+          for i in $(seq 1 60); do curl --fail --silent http://localhost:4310/ > /dev/null && break; sleep 1; done
+          pnpm test:e2e
+      - name: Preserve non-secret acceptance artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: orbit-acceptance
+          path: |
+            docs/evidence/
+            .runtime/playwright-results/**/*.png
+          retention-days: 14

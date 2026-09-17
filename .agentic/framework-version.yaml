@@ -1,0 +1,18 @@
+schema_version: "1.0"
+framework:
+  name: "Codex Project Framework"
+  version: "1.1.0"
+  description: "Reusable agentic coding, stack selection and operational governance framework for Codex"
+  created: "2026-07-22"
+  updated: "2026-07-23"
+  compatibility: "Codex projects using AGENTS.md and repository-local skills"
+components:
+  agentic_scaffold:
+    version: "1.0"
+    status: "integrated"
+  stack_presets:
+    version: "1.0"
+    status: "integrated"
+  operational_governance:
+    version: "1.0"
+    status: "integrated"

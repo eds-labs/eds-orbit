@@ -1,0 +1,611 @@
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { randomUUID } from "node:crypto";
+import {
+  createClient,
+  scoped,
+  closeDatabase,
+  type PrismaClient,
+} from "../../../packages/db/src/index.ts";
+import {
+  ingest,
+  setSourceRights,
+  revokeSource,
+  beginIndexBuild,
+  EMBEDDING_PROFILE,
+  getActiveIndex,
+  activateIndexGeneration,
+  validateActiveIndexEvaluation,
+} from "../../../packages/knowledge/src/index.ts";
+import type { Scope } from "../../../packages/schemas/src/index.ts";
+import { create, data, update } from "../src/shared.ts";
+const provider = vi.hoisted(() => ({ generate: vi.fn(), embed: vi.fn() }));
+vi.mock("../../../packages/ai/src/index.ts", () => ({
+  generate: provider.generate,
+  embed: provider.embed,
+  route: () => "synthetic-test-model",
+  estimateCost: () => 1000,
+}));
+import { generateMissionLive } from "../src/modules/generation.ts";
+import { retrieveHybrid } from "../src/modules/retrieval.ts";
+import { embedDocument } from "../src/modules/ingestion.ts";
+import { buildIndexBatch } from "../src/modules/reindex.ts";
+import {
+  queueIndexEvaluation,
+  runIndexEvaluation,
+} from "../src/modules/index-evaluation.ts";
+const enabled = Boolean(
+  process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
+);
+describe.skipIf(!enabled)(
+  "Paid call races / real SQL cost journal / mocked provider only",
+  () => {
+    let auth: PrismaClient,
+      s: Scope,
+      sourceId: string,
+      documentId: string,
+      missionId: string;
+    const run = <T>(fn: Parameters<typeof scoped<T>>[2]) =>
+      scoped(s.workspaceId, s.projectId, fn);
+    const embedding = () => ({
+      vectors: [Array.from({ length: 1536 }, (_, i) => (i === 0 ? 1 : 0))],
+      usage: {
+        model: "text-embedding-3-small",
+        inputTokens: 20,
+        outputTokens: 0,
+        costMicros: 7,
+      },
+    });
+    const generated = () => ({
+      output: {
+        title: "Synthetic output",
+        body: "Approved fixture content.",
+        claims: [{ text: "Fixture style", kind: "style" }],
+      },
+      usage: {
+        model: "synthetic-test-model",
+        inputTokens: 40,
+        outputTokens: 20,
+        costMicros: 77,
+      },
+    });
+    beforeAll(() => {
+      auth = createClient(process.env.TEST_AUTH_DATABASE_URL!);
+    });
+    beforeEach(async () => {
+      provider.generate.mockReset().mockResolvedValue(generated());
+      provider.embed.mockReset().mockResolvedValue(embedding());
+      const user = await auth.user.create({
+        data: {
+          id: randomUUID(),
+          name: "Synthetic paid-race owner",
+          email: randomUUID() + "@example.invalid",
+        },
+      });
+      const workspace = await auth.workspace.create({
+        data: {
+          name: "Synthetic paid-race",
+          members: { create: { userId: user.id, role: "owner" } },
+        },
+      });
+      const project = await auth.project.create({
+        data: {
+          workspaceId: workspace.id,
+          name: "Isolated mocked-provider race",
+          mode: "observe",
+        },
+      });
+      s = {
+        workspaceId: workspace.id,
+        projectId: project.id,
+        userId: user.id,
+        role: "owner",
+      };
+      const past = new Date(Date.now() - 3600000).toISOString(),
+        future = new Date(Date.now() + 86400000).toISOString();
+      await run(async (tx) => {
+        sourceId = (
+          await create(tx, s, "sources", {
+            name: "Approved synthetic source",
+            type: "manual",
+            status: "active",
+            generation: 1,
+            publicUse: true,
+            modelUse: true,
+            authority: "official",
+            maxAgeHours: 168,
+            allowedOrigins: [],
+            allowedPaths: [],
+          })
+        ).id;
+        const doc = await ingest(tx, s, {
+          sourceId,
+          externalId: "paid-race-fixture",
+          title: "PAIDRACE529",
+          text: "PAIDRACE529 verified project guidance for a local fixture.",
+          mimeType: "text/plain",
+          language: "en",
+          validFrom: past,
+        });
+        documentId = doc.documentId;
+        await create(tx, s, "policies", {
+          mode: "observe",
+          channels: ["test"],
+          contentTypes: ["social"],
+          allowedOrigins: [],
+          startAt: past,
+          endAt: future,
+          maxPerDay: 3,
+          minIntervalMinutes: 1,
+          dailyBudgetMicros: 100000,
+          monthlyBudgetMicros: 1000000,
+          perRunBudgetMicros: 10000,
+          approvedPaidTests: true,
+          active: true,
+        });
+        missionId = (
+          await create(tx, s, "missions", {
+            title: "Synthetic paid race",
+            goal: "PAIDRACE529",
+            audience: "Test",
+            language: "en",
+            channels: ["test"],
+            startAt: past,
+            endAt: future,
+            maxContents: 10,
+            targetAction: "read",
+            sourceIds: [sourceId],
+            contentType: "social",
+            status: "ready",
+          })
+        ).id;
+      });
+    });
+    afterAll(async () => {
+      await auth?.$disconnect();
+      await closeDatabase();
+    });
+    async function settled(category: string, cost: bigint) {
+      const rows = await run((tx) =>
+        tx.budgetReservation.findMany({ where: { category } }),
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ state: "settled", settledMicros: cost });
+    }
+    it("A12/SR01: source withdrawal after model response records cost, refuses content, and retry makes no paid call", async () => {
+      const jobId = randomUUID();
+      provider.generate.mockImplementation(async () => {
+        await run((tx) =>
+          setSourceRights(tx, s, sourceId, { modelUse: false }),
+        );
+        return generated();
+      });
+      await expect(generateMissionLive(s, missionId, jobId)).rejects.toThrow(
+        "GENERATION_DEPENDENCY_CHANGED",
+      );
+      await settled("text", 77n);
+      await settled("query_embedding", 7n);
+      expect(
+        await run((tx) => tx.entity.count({ where: { kind: "content" } })),
+      ).toBe(0);
+      await expect(generateMissionLive(s, missionId, jobId)).rejects.toThrow(
+        "RESERVATION_ALREADY_USED",
+      );
+      expect(provider.generate).toHaveBeenCalledTimes(1);
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+    });
+    it("pause during model response refuses output after settling actual usage", async () => {
+      provider.generate.mockImplementation(async () => {
+        await run((tx) =>
+          tx.project.update({
+            where: { id: s.projectId },
+            data: { paused: true, generation: { increment: 1 } },
+          }),
+        );
+        return generated();
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
+      await settled("text", 77n);
+      expect(
+        await run((tx) => tx.entity.count({ where: { kind: "content" } })),
+      ).toBe(0);
+    });
+    it("mission and paid mandate expiry during a response refuse output after settling", async () => {
+      let clock: ReturnType<typeof vi.spyOn> | undefined;
+      provider.generate.mockImplementation(async () => {
+        clock = vi
+          .spyOn(Date, "now")
+          .mockReturnValue(Date.now() + 2 * 86400000);
+        return generated();
+      });
+      try {
+        await expect(
+          generateMissionLive(s, missionId, randomUUID()),
+        ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
+      } finally {
+        clock?.mockRestore();
+      }
+      await settled("text", 77n);
+      expect(
+        await run((tx) => tx.entity.count({ where: { kind: "content" } })),
+      ).toBe(0);
+    });
+    it("query and text share the owner per-run budget instead of each spending the full cap", async () => {
+      await run(async (tx) => {
+        const p = await tx.entity.findFirstOrThrow({
+          where: { kind: "policies" },
+        });
+        await update(tx, s, p, { ...data(p), perRunBudgetMicros: 1000 });
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("RUN_BUDGET_EXCEEDED");
+      await settled("query_embedding", 7n);
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+      expect(provider.generate).not.toHaveBeenCalled();
+      expect(
+        await run((tx) =>
+          tx.budgetReservation.count({ where: { category: "text" } }),
+        ),
+      ).toBe(0);
+    });
+    it("an unresolved prior work package cannot start another paid generation", async () => {
+      await run(async (tx) => {
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        await update(tx, s, mission, {
+          ...data(mission),
+          status: "awaiting_followup",
+          completedRuns: 1,
+        });
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("MISSION_NOT_READY");
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(provider.generate).not.toHaveBeenCalled();
+    });
+    it("unknown provider outcome holds reservation and cannot be silently retried", async () => {
+      provider.generate.mockRejectedValue(
+        new Error("Synthetic transport uncertainty"),
+      );
+      const jobId = randomUUID();
+      await expect(generateMissionLive(s, missionId, jobId)).rejects.toThrow(
+        "MODEL_OUTCOME_OR_COST_UNKNOWN",
+      );
+      const row = await run((tx) =>
+        tx.budgetReservation.findFirstOrThrow({ where: { category: "text" } }),
+      );
+      expect(row).toMatchObject({
+        state: "unknown",
+        settledMicros: null,
+        amountMicros: 1000n,
+      });
+      await expect(generateMissionLive(s, missionId, jobId)).rejects.toThrow(
+        "RESERVATION_ALREADY_USED",
+      );
+      expect(provider.generate).toHaveBeenCalledTimes(1);
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+    });
+    it("query policy pause preserves cost and refuses the now-unapproved evidence result", async () => {
+      provider.embed.mockImplementation(async () => {
+        await run((tx) =>
+          tx.project.update({
+            where: { id: s.projectId },
+            data: { paused: true },
+          }),
+        );
+        return embedding();
+      });
+      await expect(
+        retrieveHybrid(s, {
+          query: "PAIDRACE529",
+          sourceIds: [sourceId],
+          purpose: "public",
+          forModel: true,
+        }),
+      ).rejects.toThrow("QUERY_POLICY_CHANGED");
+      await settled("query_embedding", 7n);
+    });
+    it("K17/K29: revoked source quarantines a successful document embedding result with its cost", async () => {
+      provider.embed.mockImplementation(async () => {
+        await run((tx) => revokeSource(tx, s, sourceId));
+        return embedding();
+      });
+      const jobId = randomUUID();
+      await expect(embedDocument(s, documentId, jobId)).rejects.toThrow(
+        "SOURCE_UNAVAILABLE",
+      );
+      await settled("embedding", 7n);
+      expect(await run((tx) => tx.chunkEmbedding.count())).toBe(0);
+      await expect(embedDocument(s, documentId, jobId)).rejects.toThrow(
+        "DOCUMENT_NOT_FOUND",
+      );
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+    });
+    it("K18/K29: changed source rights quarantine reindex response, preserve charge, and block retry", async () => {
+      const index = await run((tx) =>
+        beginIndexBuild(tx, s, EMBEDDING_PROFILE),
+      );
+      const jobId = randomUUID();
+      provider.embed.mockImplementation(async () => {
+        await run((tx) =>
+          setSourceRights(tx, s, sourceId, { modelUse: false }),
+        );
+        return embedding();
+      });
+      await expect(buildIndexBatch(s, index.id, jobId)).rejects.toThrow(
+        "INDEX_CORPUS_CHANGED",
+      );
+      await settled("reindex", 7n);
+      expect(
+        await run((tx) =>
+          tx.chunkEmbedding.count({
+            where: { indexGeneration: index.generation },
+          }),
+        ),
+      ).toBe(0);
+      await expect(buildIndexBatch(s, index.id, jobId)).rejects.toThrow(
+        "INDEX_CORPUS_CHANGED",
+      );
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+      expect(
+        data(
+          await run((tx) =>
+            tx.entity.findUniqueOrThrow({ where: { id: sourceId } }),
+          ),
+        ).modelUse,
+      ).toBe(false);
+    });
+    async function evaluationFixture() {
+      const privateDoc = await run(async (tx) => {
+        const source = await create(tx, s, "sources", {
+          name: "Internal evaluation fixture",
+          type: "manual",
+          status: "active",
+          generation: 1,
+          publicUse: false,
+          modelUse: true,
+          authority: "official",
+          maxAgeHours: 168,
+          allowedOrigins: [],
+          allowedPaths: [],
+        });
+        return ingest(tx, s, {
+          sourceId: source.id,
+          externalId: "internal-eval",
+          title: "Private evaluation",
+          text: "Internal fixture document.",
+          mimeType: "text/plain",
+          language: "en",
+          validFrom: new Date(Date.now() - 3600000).toISOString(),
+        });
+      });
+      const ids = await run(async (tx) => ({
+        public: (
+          await tx.knowledgeChunk.findFirstOrThrow({
+            where: { documentVersion: { documentId } },
+          })
+        ).id,
+        private: (
+          await tx.knowledgeChunk.findFirstOrThrow({
+            where: { documentVersionId: privateDoc.versionId },
+          })
+        ).id,
+      }));
+      const index = await run((tx) =>
+        beginIndexBuild(tx, s, EMBEDDING_PROFILE),
+      );
+      provider.embed.mockImplementation(async (texts: string[]) => ({
+        ...embedding(),
+        vectors: texts.map(() => embedding().vectors[0]!),
+      }));
+      await buildIndexBatch(s, index.id, randomUUID());
+      provider.embed.mockClear();
+      const input = {
+        indexId: index.id,
+        datasetVersion: "mocked-provider-evaluation-v1",
+        confirmQueriesMayBeSentToOpenAI: true as const,
+        cases: [
+          ...Array.from({ length: 48 }, (_, i) => ({
+            id: "answer-" + i,
+            query: "Synthetic public query " + i,
+            expectedChunkIds: [ids.public],
+            forbiddenChunkIds: [],
+            language: "en" as const,
+            purpose: "public" as const,
+          })),
+          ...Array.from({ length: 16 }, (_, i) => ({
+            id: "deny-" + i,
+            query: "Synthetic private query " + i,
+            expectedChunkIds: [],
+            forbiddenChunkIds: [ids.private],
+            language: "en" as const,
+            purpose: "public" as const,
+          })),
+        ],
+      };
+      return { index, input };
+    }
+    it("index evaluation rejects insufficient negative coverage and denied budget before query transmission", async () => {
+      const { input } = await evaluationFixture();
+      await expect(
+        run((tx) =>
+          queueIndexEvaluation(tx, s, {
+            ...input,
+            cases: input.cases.map((c) => ({ ...c, forbiddenChunkIds: [] })),
+          }),
+        ),
+      ).rejects.toThrow("EVALUATION_CASE_COVERAGE_REQUIRED");
+      const job = await run((tx) => queueIndexEvaluation(tx, s, input));
+      await run(async (tx) => {
+        const policy = await tx.entity.findFirstOrThrow({
+          where: { kind: "policies" },
+        });
+        await update(tx, s, policy, {
+          ...data(policy),
+          approvedPaidTests: false,
+        });
+      });
+      await expect(
+        runIndexEvaluation(s, data(job).resourceId, job.id),
+      ).rejects.toThrow("BUDGET_NOT_APPROVED");
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(
+        await run((tx) =>
+          tx.budgetReservation.count({
+            where: { category: "reindex_evaluation" },
+          }),
+        ),
+      ).toBe(0);
+    });
+    it("64-query mocked evaluation uses two bounded paid batches, persists quality results, and never auto-activates", async () => {
+      const { index, input } = await evaluationFixture();
+      const active = await run((tx) => getActiveIndex(tx, s));
+      const first = await run((tx) => queueIndexEvaluation(tx, s, input));
+      const next = await runIndexEvaluation(
+        s,
+        data(first).resourceId,
+        first.id,
+      );
+      expect(data(next as { data: unknown }).topic).toBe("index_evaluation");
+      const completed = await runIndexEvaluation(
+        s,
+        data(first).resourceId,
+        (next as { id: string }).id,
+      );
+      expect(data(completed as { data: unknown })).toMatchObject({
+        status: "completed",
+        results: [],
+        evaluation: {
+          passed: true,
+          cases: 64,
+          recallAt10: 1,
+          forbiddenHits: 0,
+          providerCostMicros: "21",
+        },
+      });
+      expect(provider.embed).toHaveBeenCalledTimes(2);
+      expect(
+        provider.embed.mock.calls.map((c) => (c[0] as string[]).length),
+      ).toEqual([32, 32]);
+      expect((await run((tx) => getActiveIndex(tx, s))).id).toBe(active.id);
+      expect(
+        (
+          await run((tx) =>
+            tx.knowledgeIndex.findUniqueOrThrow({ where: { id: index.id } }),
+          )
+        ).state,
+      ).toBe("evaluated");
+      await runIndexEvaluation(s, data(first).resourceId, first.id);
+      expect(provider.embed).toHaveBeenCalledTimes(2);
+      vi.stubEnv("LIVE_RAG_EVAL_PASSED", "true");
+      try {
+        expect(
+          (await run((tx) => validateActiveIndexEvaluation(tx, s))).valid,
+        ).toBe(false);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+      await run((tx) => activateIndexGeneration(tx, s, index.id));
+      expect(
+        (await run((tx) => validateActiveIndexEvaluation(tx, s))).valid,
+      ).toBe(true);
+      expect(
+        (
+          await run((tx) =>
+            validateActiveIndexEvaluation(
+              tx,
+              s,
+              new Date(Date.now() + 31 * 86400000),
+            ),
+          )
+        ).valid,
+      ).toBe(false);
+      await run((tx) => setSourceRights(tx, s, sourceId, { publicUse: false }));
+      expect(
+        (await run((tx) => validateActiveIndexEvaluation(tx, s))).reasons,
+      ).toContain("INDEX_EVALUATION_CORPUS_CHANGED");
+    });
+    it("index evaluation quarantines successful query responses after source rights change and preserves cost", async () => {
+      const { index, input } = await evaluationFixture();
+      const job = await run((tx) => queueIndexEvaluation(tx, s, input));
+      provider.embed.mockImplementation(async (texts: string[]) => {
+        await run((tx) =>
+          setSourceRights(tx, s, sourceId, { modelUse: false }),
+        );
+        return {
+          ...embedding(),
+          vectors: texts.map(() => embedding().vectors[0]!),
+        };
+      });
+      await expect(
+        runIndexEvaluation(s, data(job).resourceId, job.id),
+      ).rejects.toThrow("INDEX_CORPUS_CHANGED");
+      await settled("reindex_evaluation", 7n);
+      expect(
+        (
+          await run((tx) =>
+            tx.knowledgeIndex.findUniqueOrThrow({ where: { id: index.id } }),
+          )
+        ).evaluation,
+      ).toBeNull();
+      await expect(
+        runIndexEvaluation(s, data(job).resourceId, job.id),
+      ).rejects.toThrow("INDEX_CORPUS_CHANGED");
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+    });
+    it("a completed generation job resumes the same content without another charge or work package", async () => {
+      const jobId = randomUUID();
+      const original = await generateMissionLive(s, missionId, jobId);
+      const completedMission = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+      );
+      expect(data(completedMission)).toMatchObject({
+        completedRuns: 1,
+        status: "awaiting_followup",
+      });
+      const resumed = await generateMissionLive(s, missionId, jobId);
+      expect(resumed).toEqual(original);
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+      expect(provider.generate).toHaveBeenCalledTimes(1);
+      await settled("query_embedding", 7n);
+      await settled("text", 77n);
+      expect(
+        await run((tx) => tx.entity.count({ where: { kind: "content" } })),
+      ).toBe(1);
+      expect(
+        await run((tx) =>
+          tx.entity.count({ where: { kind: "work_packages" } }),
+        ),
+      ).toBe(1);
+      expect(
+        await run((tx) =>
+          tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+        ),
+      ).toEqual(completedMission);
+    });
+    it("duplicate concurrent generation job cannot pay for the query embedding twice", async () => {
+      const jobId = randomUUID();
+      const results = await Promise.allSettled([
+        generateMissionLive(s, missionId, jobId),
+        generateMissionLive(s, missionId, jobId),
+      ]);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+      expect(provider.generate).toHaveBeenCalledTimes(1);
+      await settled("query_embedding", 7n);
+      await settled("text", 77n);
+    });
+  },
+);

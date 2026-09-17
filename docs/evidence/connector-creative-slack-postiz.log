@@ -1,0 +1,12 @@
+
+ RUN  v5.0.1 /Users/marioeuchner/Documents/ChatGPT/EDS Orbit
+
+
+ Test Files  6 passed (6)
+      Tests  50 passed (50)
+   Start at  15:10:51
+   Duration  2.10s (tests 77%, import 14%, transform 8%, setup 1%, worker 1%)
+
+    Isolate  6 workers spawned · ~51ms startup each (spawn + environment, per file)
+             at least ~254ms faster with isolate: false — reuses workers across files instead of one per file
+

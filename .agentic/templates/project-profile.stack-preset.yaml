@@ -1,0 +1,30 @@
+project:
+  name: "<project-name>"
+  type: "<web-saas|backend-api|mobile-app|desktop-app|data-pipeline|cli|ai-agent-app>"
+  stage: "<prototype|mvp|production|enterprise>"
+
+stack_preset:
+  selected: "<preset-file-without-extension>"
+  reason: "<why this preset fits>"
+  alternatives_considered:
+    - preset: "<other-preset>"
+      reason_not_selected: "<reason>"
+
+platforms:
+  targets:
+    - "<web|ios|android|macos|windows|linux>"
+  primary: "<primary-platform>"
+
+commands:
+  install: "<command>"
+  dev: "<command>"
+  test: "<command>"
+  lint: "<command>"
+  typecheck: "<command>"
+  build: "<command>"
+
+rules:
+  never_modify:
+    - ".env"
+    - "production-secrets/*"
+  destructive_commands_require_confirmation: true

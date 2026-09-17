@@ -1,0 +1,30 @@
+
+ RUN  v5.0.1 /Users/marioeuchner/Documents/ChatGPT/EDS Orbit
+
+ ❯ apps/api/tests/paid.integration.test.ts (11 tests | 1 failed) 1346ms
+   ❯ Paid call races / real SQL cost journal / mocked provider only (11)
+     × 64-query mocked evaluation uses two bounded paid batches, persists quality results, and never auto-activates 275ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  apps/api/tests/paid.integration.test.ts > Paid call races / real SQL cost journal / mocked provider only > 64-query mocked evaluation uses two bounded paid batches, persists quality results, and never auto-activates
+ReferenceError: RETRIEVER_VERSION is not defined
+ ❯ evaluateIndexGeneration packages/knowledge/src/indexes.ts:333:23
+    331|   const passed =
+    332|     answered >= 48 &&
+    333|     input.cases.length - answered >= 12 &&
+       |                       ^
+    334|     recallAt10 >= 0.9 &&
+    335|     forbiddenHits === 0;
+ ❯ apps/api/src/modules/index-evaluation.ts:217:24
+ ❯ Proxy._transactionWithCallback node_modules/.pnpm/@prisma+client@7.10.0_prisma@7.10.0_@types+node@22.20.3_@types+react-dom@19.3.0_@types+_d09ae9f16ba9404ebccfd70412096100/node_modules/@prisma/client/src/runtime/getPrismaClient.ts:861:18
+ ❯ apps/api/tests/paid.integration.test.ts:444:25
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 27 passed (28)
+   Start at  15:06:28
+   Duration  3.75s (tests 89%, import 7%, transform 3%)
+

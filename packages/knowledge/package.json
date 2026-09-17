@@ -1,0 +1,13 @@
+{
+  "name": "@orbit/knowledge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts",
+  "dependencies": {
+    "@orbit/db": "workspace:*",
+    "sanitize-html": "2.17.7",
+    "mammoth": "1.12.3",
+    "pdfjs-dist": "6.3.289"
+  }
+}

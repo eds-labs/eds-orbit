@@ -1,0 +1,21 @@
+project:
+  type: "fullstack-saas"
+stack:
+  frontend: "Next.js"
+  backend: "Node.js / Fastify"
+  database: "PostgreSQL"
+  orm: "Prisma"
+  auth: "Auth.js"
+quality:
+  require_security_review_for_sensitive_domains: true
+saas:
+  tenant_model: "organization"
+  billing_provider: "Stripe"
+  roles:
+    - owner
+    - admin
+    - member
+  must_check:
+    - "Tenant-Isolation bei jedem Datenzugriff"
+    - "Plan-/Feature-Limits"
+    - "AuthZ-Negativtests"

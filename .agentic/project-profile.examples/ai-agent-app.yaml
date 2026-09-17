@@ -1,0 +1,16 @@
+project:
+  type: "ai-agent-app"
+ai:
+  model_provider: "OpenAI"
+  tool_policy: "least-privilege"
+  human_approval_required_for:
+    - "destructive tool calls"
+    - "external writes"
+    - "payments"
+    - "sending messages"
+  must_check:
+    - "Prompt Injection"
+    - "Tool Input Validation"
+    - "Output Validation"
+    - "Cost Controls"
+    - "Tracing/Evals"

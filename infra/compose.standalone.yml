@@ -1,0 +1,20 @@
+services:
+  proxy:
+    image: caddy:2.10.2-alpine@sha256:4c6e91c6ed0e2fa03efd5b44747b625fec79bc9cd06ac5235a779726618e530d
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment: {ORBIT_HOSTNAME: "${ORBIT_HOSTNAME:?required}"}
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data", "caddy_config:/config"]
+    networks: [frontend, egress]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    cpus: 0.5
+    mem_limit: 256m
+    pids_limit: 80
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+volumes:
+  caddy_data:
+  caddy_config:

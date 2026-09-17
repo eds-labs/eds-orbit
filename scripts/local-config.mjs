@@ -1,0 +1,6 @@
+import{randomBytes}from'node:crypto';import{mkdirSync,writeFileSync,existsSync}from'node:fs';
+mkdirSync('.runtime',{recursive:true});if(existsSync('.runtime/local.env')){console.log('Local configuration already exists; preserved.');process.exit(0)}
+const hex=()=>randomBytes(32).toString('hex');const password=hex();const appPassword=hex();const authPassword=hex();
+const entries={DB_PASSWORD:password,APP_DB_PASSWORD:appPassword,AUTH_DB_PASSWORD:authPassword,DATABASE_URL:`postgresql://orbit_app:${appPassword}@127.0.0.1:55432/orbit`,AUTH_DATABASE_URL:`postgresql://orbit_auth:${authPassword}@127.0.0.1:55432/orbit`,MIGRATION_DATABASE_URL:`postgresql://orbit_migrator:${password}@127.0.0.1:55432/orbit`,REDIS_URL:'redis://127.0.0.1:56379',AUTH_SECRET:hex(),CREDENTIAL_KEY:hex(),ORBIT_SETUP_TOKEN:hex(),APP_ORIGIN:'http://localhost:4310',EXECUTION_MODE:'test',ENABLE_EXTERNAL_WRITES:'false',PORT:'4311',PUBLISHER_INSTANCE_ID:hex()};
+for(const key of ['DATABASE_URL','AUTH_DATABASE_URL','MIGRATION_DATABASE_URL']){const u=new URL(entries[key]);u.pathname='/orbit_test';entries['TEST_'+key]=u.toString()}
+writeFileSync('.runtime/local.env',Object.entries(entries).map(([k,v])=>`${k}=${v}`).join('\n')+'\n',{mode:0o600});console.log('Created isolated local configuration; credentials are not printed.');

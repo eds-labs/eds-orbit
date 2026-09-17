@@ -1,0 +1,262 @@
+#0 building with "desktop-linux" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 2.02kB done
+#1 DONE 0.0s
+
+#2 [context package-cache] load .dockerignore
+#2 transferring package-cache: 2B done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+#3 DONE 0.0s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 159B done
+#4 DONE 0.0s
+
+#5 [runtime-base 1/2] FROM docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
+#5 resolve docker.io/library/node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d done
+#5 DONE 0.0s
+
+#6 [runtime-base 2/2] RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates fontconfig fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+#6 CACHED
+
+#7 [builder  1/15] WORKDIR /app
+#7 CACHED
+
+#8 [internal] load build context
+#8 transferring context: 1.43MB 0.0s done
+#8 DONE 0.0s
+
+#9 [builder  3/15] COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+#9 CACHED
+
+#10 [builder  6/15] COPY packages/connectors/package.json ./packages/connectors/package.json
+#10 CACHED
+
+#11 [builder  8/15] COPY packages/db/package.json ./packages/db/package.json
+#11 CACHED
+
+#12 [builder  7/15] COPY packages/creative/package.json ./packages/creative/package.json
+#12 CACHED
+
+#13 [builder  2/15] RUN corepack enable && corepack prepare pnpm@11.19.0 --activate
+#13 CACHED
+
+#14 [builder  5/15] COPY packages/api-client/package.json ./packages/api-client/package.json
+#14 CACHED
+
+#15 [builder  4/15] COPY apps/web/package.json ./apps/web/package.json
+#15 CACHED
+
+#16 [builder  9/15] COPY packages/knowledge/package.json ./packages/knowledge/package.json
+#16 CACHED
+
+#17 [context package-cache] load from client
+#17 transferring package-cache: 15.54MB 2.0s done
+#17 DONE 2.0s
+
+#18 [builder 10/15] RUN --mount=type=cache,id=eds-orbit-pnpm,target=/pnpm/store,sharing=locked --mount=type=cache,id=eds-orbit-registry,target=/root/.cache/pnpm,sharing=locked --mount=type=bind,from=package-cache,source=/seed,target=/seed     if [ -f /seed/v11/index.db ]; then sha256sum /seed/v11/index.db > /tmp/seed-index.sha256; if ! cmp -s /tmp/seed-index.sha256 /pnpm/store/.seed-index.sha256; then cp -a /seed/v11 /pnpm/store/ && cp /tmp/seed-index.sha256 /pnpm/store/.seed-index.sha256; fi; fi &&     if [ -d /seed/metadata ]; then cp -a /seed/metadata/. /root/.cache/pnpm/; fi &&     pnpm install --frozen-lockfile --prefer-offline --store-dir /pnpm/store --network-concurrency=8 --fetch-timeout=600000
+#18 2.891 Scope: all 7 workspace projects
+#18 2.933 ✓ Lockfile passes supply-chain policies (verified 6m ago)
+#18 2.935 Lockfile is up to date, resolution step is skipped
+#18 2.958 Progress: resolved 1, reused 0, downloaded 0, added 0
+#18 2.995 Packages: +399
+#18 2.995 ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#18 3.122 Packages are copied from the content-addressable store to the virtual store.
+#18 3.122   Content-addressable store is at: /pnpm/store/v11
+#18 3.122   Virtual store is at:             node_modules/.pnpm
+#18 3.961 Progress: resolved 399, reused 389, downloaded 0, added 387
+#18 4.962 Progress: resolved 399, reused 389, downloaded 1, added 389
+#18 5.974 Progress: resolved 399, reused 389, downloaded 1, added 390
+#18 8.842 [WARN] Tarball download average speed 35 KiB/s (size 169 KiB) is below 50 KiB/s: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.35.4.tgz (GET)
+#18 8.857 Progress: resolved 399, reused 389, downloaded 2, added 390
+#18 9.858 Progress: resolved 399, reused 389, downloaded 2, added 391
+#18 37.03 [WARN] Tarball download average speed 34 KiB/s (size 1146 KiB) is below 50 KiB/s: https://registry.npmjs.org/@tailwindcss/oxide-linux-arm64-gnu/-/oxide-linux-arm64-gnu-4.3.3.tgz (GET)
+#18 37.07 Progress: resolved 399, reused 389, downloaded 3, added 391
+#18 38.07 Progress: resolved 399, reused 389, downloaded 3, added 392
+#18 81.97 [WARN] Tarball download average speed 44 KiB/s (size 3509 KiB) is below 50 KiB/s: https://registry.npmjs.org/lightningcss-linux-arm64-gnu/-/lightningcss-linux-arm64-gnu-1.33.0.tgz (GET)
+#18 82.02 Progress: resolved 399, reused 389, downloaded 4, added 392
+#18 83.02 Progress: resolved 399, reused 389, downloaded 4, added 393
+#18 94.56 [WARN] Tarball download average speed 46 KiB/s (size 4183 KiB) is below 50 KiB/s: https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.28.2.tgz (GET)
+#18 94.62 Progress: resolved 399, reused 389, downloaded 5, added 393
+#18 95.62 Progress: resolved 399, reused 389, downloaded 5, added 394
+#18 101.3 [WARN] Tarball download average speed 38 KiB/s (size 3500 KiB) is below 50 KiB/s: https://registry.npmjs.org/lightningcss-linux-arm64-gnu/-/lightningcss-linux-arm64-gnu-1.32.0.tgz (GET)
+#18 101.4 Progress: resolved 399, reused 389, downloaded 6, added 394
+#18 102.4 Progress: resolved 399, reused 389, downloaded 6, added 395
+#18 122.8 Progress: resolved 399, reused 389, downloaded 7, added 395
+#18 123.8 Progress: resolved 399, reused 389, downloaded 7, added 396
+#18 141.3 Progress: resolved 399, reused 389, downloaded 8, added 396
+#18 142.3 Progress: resolved 399, reused 389, downloaded 8, added 397
+#18 172.9 Progress: resolved 399, reused 389, downloaded 9, added 397
+#18 173.9 Progress: resolved 399, reused 389, downloaded 9, added 398
+#18 234.7 Progress: resolved 399, reused 389, downloaded 10, added 398
+#18 234.8 Progress: resolved 399, reused 389, downloaded 10, added 399, done
+#18 234.9 .../node_modules/@prisma/engines postinstall$ node scripts/postinstall.js
+#18 235.0 .../node_modules/msgpackr-extract install$ node-gyp-build-optional-packages
+#18 235.0 .../esbuild@0.28.2/node_modules/esbuild postinstall$ node install.js
+#18 235.0 .../esbuild@0.28.2/node_modules/esbuild postinstall: Done
+#18 235.0 .../node_modules/msgpackr-extract install: node:internal/errors:542
+#18 235.0 .../node_modules/msgpackr-extract install:       throw error;
+#18 235.0 .../node_modules/msgpackr-extract install:       ^
+#18 235.0 .../node_modules/msgpackr-extract install: TypeError [ERR_INVALID_ARG_TYPE]: The "id" argument must be of type string. Received undefined
+#18 235.0 .../node_modules/msgpackr-extract install:     at Module.require (node:internal/modules/cjs/loader:1610:3)
+#18 235.0 .../node_modules/msgpackr-extract install:     at require (node:internal/modules/helpers:153:16)
+#18 235.0 .../node_modules/msgpackr-extract install:     at load (/app/node_modules/.pnpm/node-gyp-build-optional-packages@5.2.2/node_modules/node-gyp-build-optional-packages/node-gyp-build.js:28:10)
+#18 235.0 .../node_modules/msgpackr-extract install:     at Object.<anonymous> (/app/node_modules/.pnpm/node-gyp-build-optional-packages@5.2.2/node_modules/node-gyp-build-optional-packages/build-test.js:19:19)
+#18 235.0 .../node_modules/msgpackr-extract install:     at Module._compile (node:internal/modules/cjs/loader:1871:14)
+#18 235.0 .../node_modules/msgpackr-extract install:     at Object..js (node:internal/modules/cjs/loader:2002:10)
+#18 235.0 .../node_modules/msgpackr-extract install:     at Module.load (node:internal/modules/cjs/loader:1594:32)
+#18 235.0 .../node_modules/msgpackr-extract install:     at Module._load (node:internal/modules/cjs/loader:1396:12)
+#18 235.0 .../node_modules/msgpackr-extract install:     at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+#18 235.0 .../node_modules/msgpackr-extract install:     at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5) {
+#18 235.0 .../node_modules/msgpackr-extract install:   code: 'ERR_INVALID_ARG_TYPE'
+#18 235.0 .../node_modules/msgpackr-extract install: }
+#18 235.0 .../node_modules/msgpackr-extract install: Node.js v24.18.0
+#18 235.0 .../node_modules/msgpackr-extract install: The failure above indicates the primary issue with the native builds which are included for all major platforms. Will now attempt to build the package locally in case this can be resolved by re-compiling.
+#18 235.1 .../node_modules/msgpackr-extract install: gyp info it worked if it ends with ok
+#18 235.1 .../node_modules/msgpackr-extract install: gyp info using node-gyp@12.4.0
+#18 235.1 .../node_modules/msgpackr-extract install: gyp info using node@24.18.0 | linux | arm64
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python 
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python --python was not set on the command line
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python Python is not set from environment variable PYTHON
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python checking if "python3" can be used
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python - executable path is ""
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python - "" could not be run
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python checking if "python" can be used
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python - executable path is ""
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python - "" could not be run
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python 
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python **********************************************************
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python You need to install the latest version of Python.
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python Node-gyp should be able to find and use Python. If not,
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python you can try one of the following options:
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python - Use the switch --python="/path/to/pythonexecutable"
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python (accepted by both node-gyp and npm)
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python - Set the environment variable PYTHON
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python For more information consult the documentation at:
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python https://github.com/nodejs/node-gyp#installation
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python **********************************************************
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! find Python 
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! configure error 
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! stack Error: Could not find any Python installation to use
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! stack at PythonFinder.fail (/root/.cache/node/corepack/v1/pnpm/11.19.0/dist/node_modules/node-gyp/lib/find-python.js:300:11)
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! stack at PythonFinder.findPython (/root/.cache/node/corepack/v1/pnpm/11.19.0/dist/node_modules/node-gyp/lib/find-python.js:160:17)
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! stack at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! stack at async configure (/root/.cache/node/corepack/v1/pnpm/11.19.0/dist/node_modules/node-gyp/lib/configure.js:27:18)
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! stack at async run (/root/.cache/node/corepack/v1/pnpm/11.19.0/dist/node_modules/node-gyp/bin/node-gyp.js:81:18)
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! System Linux 6.12.54-linuxkit
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! command "/usr/local/bin/node" "/root/.cache/node/corepack/v1/pnpm/11.19.0/dist/node_modules/node-gyp/bin/node-gyp.js" "rebuild"
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! cwd /app/node_modules/.pnpm/msgpackr-extract@3.0.4/node_modules/msgpackr-extract
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! node -v v24.18.0
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! node-gyp -v v12.4.0
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! $npm_package_name msgpackr-extract
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! $npm_package_version 3.0.4
+#18 235.1 .../node_modules/msgpackr-extract install: gyp ERR! not ok 
+#18 235.1 .../node_modules/msgpackr-extract install: Failed
+#18 262.2 .../node_modules/@prisma/engines postinstall: Done
+#18 262.2 .../node_modules/prisma preinstall$ node scripts/preinstall-entry.js
+#18 262.2 .../node_modules/prisma preinstall: Done
+#18 262.5 
+#18 262.5 dependencies:
+#18 262.5 + @fastify/cors 11.3.0
+#18 262.5 + @fastify/helmet 13.1.1
+#18 262.5 + @fastify/rate-limit 11.2.0
+#18 262.5 + @fastify/swagger 9.8.1
+#18 262.5 + @prisma/adapter-pg 7.10.0
+#18 262.5 + @prisma/client 7.10.0
+#18 262.5 + better-auth 1.7.5
+#18 262.5 + bullmq 6.3.6
+#18 262.5 + csv-parse 7.0.2
+#18 262.5 + fastify 5.12.5
+#18 262.5 + ioredis 6.0.0
+#18 262.5 + ipaddr.js 2.5.0
+#18 262.5 + mammoth 1.12.3
+#18 262.5 + openai 7.17.0
+#18 262.5 + pdfjs-dist 6.3.289
+#18 262.5 + pg 8.23.0
+#18 262.5 + sanitize-html 2.17.7
+#18 262.5 + zod 4.6.5
+#18 262.5 
+#18 262.5 devDependencies:
+#18 262.5 + @playwright/test 1.63.0
+#18 262.5 + @types/node 22.20.3
+#18 262.5 + @types/pg 8.23.1
+#18 262.5 + @types/sanitize-html 2.16.1
+#18 262.5 + openapi-typescript 7.13.0
+#18 262.5 + prettier 3.9.7
+#18 262.5 + prisma 7.10.0
+#18 262.5 + tsx 4.23.13
+#18 262.5 + typescript 6.0.3
+#18 262.5 + vitest 5.0.1
+#18 262.5 
+#18 262.5 Done in 4m 20.2s using pnpm v11.19.0
+#18 DONE 262.7s
+
+#19 [builder 11/15] COPY apps ./apps
+#19 DONE 0.2s
+
+#20 [builder 12/15] COPY packages ./packages
+#20 DONE 0.0s
+
+#21 [builder 13/15] COPY tsconfig.json ./
+#21 DONE 0.0s
+
+#22 [builder 14/15] COPY scripts ./scripts
+#22 DONE 0.0s
+
+#23 [builder 15/15] RUN pnpm db:generate && pnpm --dir apps/web build
+#23 0.389 $ prisma generate --config packages/db/prisma.config.ts
+#23 0.782 Loaded Prisma config from packages/db/prisma.config.ts.
+#23 0.782 
+#23 0.852 Prisma schema loaded from packages/db/prisma/schema.prisma.
+#23 1.042 
+#23 1.042 ✔ Generated Prisma Client (v7.10.0) to ./node_modules/.pnpm/@prisma+client@7.10.0_prisma@7.10.0_@types+node@22.20.3_@types+react-dom@19.3.0_@types+_d09ae9f16ba9404ebccfd70412096100/node_modules/@prisma/client in 135ms
+#23 1.042 
+#23 1.042 Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+#23 1.042 
+#23 1.042 
+#23 1.266 $ next build
+#23 1.421 ▲ Next.js 16.3.5 (Turbopack)
+#23 1.438 ✓ Running next.config.ts took 17ms
+#23 1.441 Attention: Next.js now collects completely anonymous telemetry regarding usage.
+#23 1.441 This information is used to shape Next.js' roadmap and prioritize features.
+#23 1.441 You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+#23 1.441 https://nextjs.org/telemetry
+#23 1.441 
+#23 1.449 
+#23 1.470   Creating an optimized production build ...
+#23 3.875 ✓ Compiled successfully in 1792ms
+#23 3.880   Running TypeScript ...
+#23 5.651   Finished TypeScript in 1771ms ...
+#23 5.652   Collecting page data using 5 workers ...
+#23 5.878   Generating static pages using 5 workers (0/2) ...
+#23 6.047 ✓ Generating static pages using 5 workers (2/2) in 169ms
+#23 6.050   Finalizing page optimization ...
+#23 6.052 
+#23 6.053 Route (app)
+#23 6.053 ┌ ○ /_not-found
+#23 6.053 ├ ƒ /[[...route]]
+#23 6.053 └ ƒ /api/[...path]
+#23 6.053 
+#23 6.053 
+#23 6.053 ○  (Static)   prerendered as static content
+#23 6.053 ƒ  (Dynamic)  server-rendered on demand
+#23 6.053 
+#23 DONE 6.6s
+
+#24 [runner 2/2] COPY --from=builder --chown=node:node /app /app
+#24 DONE 2.3s
+
+#25 exporting to image
+#25 exporting layers
+#25 exporting layers 18.8s done
+#25 exporting manifest sha256:5619256a136a3624bcc320ed00ed7a6cc02ef0f9a0f4f6ca976f5fb5c4d201f1 done
+#25 exporting config sha256:3d26ad1d7738233451c838dabb4a2f859718e6e66ee87ed05f79efe77fc89485 done
+#25 exporting attestation manifest sha256:78aeb47dbc95126bb061f8c12a236fe89045132c56d18c63f1286eaa23e47bea done
+#25 exporting manifest list sha256:c1cef529eadef53d15f3a1a4a9ca4e6c2dba8f8722e56cf30471641b9f7614b9 done
+#25 naming to docker.io/library/eds-orbit:local-rc done
+#25 unpacking to docker.io/library/eds-orbit:local-rc
+#25 unpacking to docker.io/library/eds-orbit:local-rc 4.9s done
+#25 DONE 23.8s

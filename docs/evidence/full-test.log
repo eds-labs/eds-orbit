@@ -1,0 +1,36 @@
+
+ RUN  v5.0.1 /Users/marioeuchner/Documents/ChatGPT/EDS Orbit
+
+ ✓ apps/worker/tests/workflow.integration.test.ts (1 test) 5256ms
+   ✓ Durable real Redis worker lifecycle (1)
+     ✓ A10/A19/A26/B06: real worker plans, retrieves, drafts, reviews, publishes locally, survives restart, then applies revocation 5092ms
+ ✓ packages/knowledge/tests/knowledge.integration.test.ts (82 tests) 3655ms
+ ✓ apps/api/tests/paid.integration.test.ts (14 tests) 1273ms
+ ✓ apps/api/tests/scheduling.integration.test.ts (5 tests) 986ms
+   ✓ A23 real SQL scheduling across Berlin DST and competing campaigns (4)
+     ✓ fall-back stores both 02:30 instants distinctly and never repeats the same package 303ms
+   ✓ A25 authenticated workspace pause (1)
+     ✓ workspace owner fences all projects while a project editor is denied 375ms
+ ✓ apps/api/tests/safety.integration.test.ts (10 tests) 778ms
+ ✓ apps/api/tests/core.integration.test.ts (7 tests) 727ms
+ ✓ packages/knowledge/tests/algorithms.test.ts (55 tests) 553ms
+   ✓ versioned extraction and ranking (21)
+     ✓ extracts text from a real synthetic PDF container 312ms
+ ✓ packages/knowledge/tests/index-generations.integration.test.ts (5 tests) 643ms
+ ✓ apps/api/tests/auth.integration.test.ts (5 tests) 445ms
+ ✓ apps/api/src/modules/slack.integration.test.ts (6 tests) 475ms
+ ✓ apps/api/src/modules/postiz-verification.integration.test.ts (8 tests) 392ms
+ ✓ apps/api/src/modules/editorial.integration.test.ts (6 tests) 272ms
+ ✓ packages/creative/src/creative.test.ts (11 tests) 433ms
+ ✓ apps/api/src/modules/matomo.integration.test.ts (9 tests) 239ms
+ ✓ packages/connectors/src/connectors.test.ts (21 tests) 34ms
+ ✓ packages/connectors/src/matomo.test.ts (1 test) 18ms
+ ✓ apps/api/tests/unit.test.ts (4 tests) 11ms
+ ✓ packages/connectors/src/http.test.ts (3 tests) 11ms
+
+ Test Files  18 passed (18)
+      Tests  253 passed (253)
+   Start at  15:21:41
+   Duration  18.81s (tests 91%, import 8%, transform 1%)
+
+JSON report written to /Users/marioeuchner/Documents/ChatGPT/EDS Orbit/docs/evidence/vitest-results.json

@@ -1,0 +1,457 @@
+{
+  "status": "PASS_TEST",
+  "checkedAt": "2026-09-17T13:35:48.526641+00:00",
+  "image": {
+    "tag": "eds-orbit:local-rc",
+    "id": "sha256:e86ed404b50794cf7e4fdbb7471bb20c79f19c07fc516ed24ec4817bcc4e1a2f",
+    "platform": "linux/arm64",
+    "node": "24.18.0",
+    "pnpm": "11.19.0",
+    "lockfileSha256": "f67a07defac1dec0c6eb79e86749ae81b8b6ca2d5ed5cb122f7b8b96a40a56d4"
+  },
+  "scope": "Two new isolated local Compose projects; no production/provider writes",
+  "variants": {
+    "standalone": {
+      "freshMigrationGrantsAndRoleChecks": true,
+      "httpsAuth": {
+        "variant": "standalone",
+        "checkedAt": "2026-09-17T13:31:39.903Z",
+        "web": true,
+        "anonymousDenied": true,
+        "runtimeProxy": true,
+        "secureSessionCookie": true,
+        "authenticatedProxy": true,
+        "publicSignupDisabled": true,
+        "logoutRevokesSession": true
+      },
+      "runtimeAndRaster": {
+        "checkedAt": "2026-09-17T13:31:16.295Z",
+        "platform": "linux",
+        "architecture": "arm64",
+        "node": "v24.18.0",
+        "uid": 1000,
+        "readOnlyRootVerified": true,
+        "rasters": [
+          {
+            "format": "square",
+            "width": 1080,
+            "height": 1080,
+            "bytes": 54023,
+            "sha256": "7612e3f7b5ed717d6641207840efcd6bee952025fac8daff06b87e58b0979c86",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          },
+          {
+            "format": "landscape",
+            "width": 1200,
+            "height": 630,
+            "bytes": 43558,
+            "sha256": "2a9b239fe473ca004866bc49054e457fb0fe361947e3ffada0096c0e38765806",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          },
+          {
+            "format": "portrait",
+            "width": 1080,
+            "height": 1350,
+            "bytes": 58435,
+            "sha256": "0f13327c8949561d62500e5347b570820b1a216de3b0c3dae14c1c2b2d13b07b",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          },
+          {
+            "format": "story",
+            "width": 1080,
+            "height": 1920,
+            "bytes": 67470,
+            "sha256": "f6ff8370fa6b1f37f211b3551b86ec5067652415f43a34626f458864bcd5b505",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          }
+        ]
+      },
+      "resources": {
+        "variant": "standalone",
+        "checkedAt": "2026-09-17T13:33:57.639796+00:00",
+        "services": [
+          {
+            "name": "/eds-orbit-container-standalone-api-1",
+            "image": "sha256:e86ed404b50794cf7e4fdbb7471bb20c79f19c07fc516ed24ec4817bcc4e1a2f",
+            "user": "node",
+            "state": "running",
+            "health": "healthy",
+            "readonlyRoot": true,
+            "memoryBytes": 805306368,
+            "nanoCpus": 1000000000,
+            "pidsLimit": 180,
+            "capDrop": [
+              "ALL"
+            ],
+            "capAdd": null,
+            "securityOpt": [
+              "no-new-privileges:true"
+            ],
+            "tmpfs": {
+              "/tmp": "size=64m,mode=1777"
+            },
+            "publishedPorts": {
+              "4311/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "14311"
+                }
+              ]
+            },
+            "networks": [
+              "eds-orbit-container-standalone_database",
+              "eds-orbit-container-standalone_egress",
+              "eds-orbit-container-standalone_frontend"
+            ],
+            "cgroup": {
+              "cpu.max": "100000 100000",
+              "memory.max": "805306368",
+              "pids.max": "180"
+            }
+          },
+          {
+            "name": "/eds-orbit-container-standalone-web-1",
+            "image": "sha256:e86ed404b50794cf7e4fdbb7471bb20c79f19c07fc516ed24ec4817bcc4e1a2f",
+            "user": "node",
+            "state": "running",
+            "health": "healthy",
+            "readonlyRoot": true,
+            "memoryBytes": 805306368,
+            "nanoCpus": 1000000000,
+            "pidsLimit": 180,
+            "capDrop": [
+              "ALL"
+            ],
+            "capAdd": null,
+            "securityOpt": [
+              "no-new-privileges:true"
+            ],
+            "tmpfs": {
+              "/app/apps/web/.next/cache": "size=64m,uid=1000,gid=1000,mode=0700",
+              "/tmp": "size=64m,uid=1000,gid=1000,mode=1770"
+            },
+            "publishedPorts": {
+              "4310/tcp": [
+                {
+                  "HostIp": "127.0.0.1",
+                  "HostPort": "14310"
+                }
+              ]
+            },
+            "networks": [
+              "eds-orbit-container-standalone_frontend"
+            ],
+            "cgroup": {
+              "cpu.max": "100000 100000",
+              "memory.max": "805306368",
+              "pids.max": "180"
+            }
+          },
+          {
+            "name": "/eds-orbit-container-standalone-worker-1",
+            "image": "sha256:e86ed404b50794cf7e4fdbb7471bb20c79f19c07fc516ed24ec4817bcc4e1a2f",
+            "user": "node",
+            "state": "running",
+            "health": "healthy",
+            "readonlyRoot": true,
+            "memoryBytes": 1610612736,
+            "nanoCpus": 2000000000,
+            "pidsLimit": 180,
+            "capDrop": [
+              "ALL"
+            ],
+            "capAdd": null,
+            "securityOpt": [
+              "no-new-privileges:true"
+            ],
+            "tmpfs": {
+              "/tmp": "size=64m,mode=1777"
+            },
+            "publishedPorts": {},
+            "networks": [
+              "eds-orbit-container-standalone_database",
+              "eds-orbit-container-standalone_egress"
+            ],
+            "cgroup": {
+              "cpu.max": "200000 100000",
+              "memory.max": "1610612736",
+              "pids.max": "180"
+            }
+          }
+        ],
+        "defaultGates": {
+          "executionMode": "test",
+          "externalWrites": "false",
+          "modelKeyConfigured": false
+        }
+      },
+      "visualReviewFourFormats": true
+    },
+    "shared": {
+      "freshMigrationGrantsAndRoleChecks": true,
+      "httpsAuth": {
+        "variant": "shared",
+        "checkedAt": "2026-09-17T13:34:28.216Z",
+        "web": true,
+        "anonymousDenied": true,
+        "runtimeProxy": true,
+        "originRequired": true,
+        "secureSessionCookie": true,
+        "authenticatedProxy": true,
+        "publicSignupDisabled": true,
+        "logoutRevokesSession": true
+      },
+      "runtimeAndRaster": {
+        "checkedAt": "2026-09-17T13:34:29.369Z",
+        "platform": "linux",
+        "architecture": "arm64",
+        "node": "v24.18.0",
+        "uid": 1000,
+        "readOnlyRootVerified": true,
+        "rasters": [
+          {
+            "format": "square",
+            "width": 1080,
+            "height": 1080,
+            "bytes": 54023,
+            "sha256": "7612e3f7b5ed717d6641207840efcd6bee952025fac8daff06b87e58b0979c86",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          },
+          {
+            "format": "landscape",
+            "width": 1200,
+            "height": 630,
+            "bytes": 43558,
+            "sha256": "2a9b239fe473ca004866bc49054e457fb0fe361947e3ffada0096c0e38765806",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          },
+          {
+            "format": "portrait",
+            "width": 1080,
+            "height": 1350,
+            "bytes": 58435,
+            "sha256": "0f13327c8949561d62500e5347b570820b1a216de3b0c3dae14c1c2b2d13b07b",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          },
+          {
+            "format": "story",
+            "width": 1080,
+            "height": 1920,
+            "bytes": 67470,
+            "sha256": "f6ff8370fa6b1f37f211b3551b86ec5067652415f43a34626f458864bcd5b505",
+            "logoHash": "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            "renderer": {
+              "name": "sharp",
+              "version": "0.35.4",
+              "libvips": "8.18.6"
+            }
+          }
+        ]
+      },
+      "resources": {
+        "variant": "shared",
+        "checkedAt": "2026-09-17T13:34:29.435326+00:00",
+        "services": [
+          {
+            "name": "/eds-orbit-container-shared-api-1",
+            "image": "sha256:e86ed404b50794cf7e4fdbb7471bb20c79f19c07fc516ed24ec4817bcc4e1a2f",
+            "user": "node",
+            "state": "running",
+            "health": "healthy",
+            "readonlyRoot": true,
+            "memoryBytes": 805306368,
+            "nanoCpus": 1000000000,
+            "pidsLimit": 180,
+            "capDrop": [
+              "ALL"
+            ],
+            "capAdd": null,
+            "securityOpt": [
+              "no-new-privileges:true"
+            ],
+            "tmpfs": {
+              "/tmp": "size=64m,mode=1777"
+            },
+            "publishedPorts": {},
+            "networks": [
+              "eds-orbit-container-shared_database",
+              "eds-orbit-container-shared_egress",
+              "eds-orbit-container-shared_frontend"
+            ],
+            "cgroup": {
+              "cpu.max": "100000 100000",
+              "memory.max": "805306368",
+              "pids.max": "180"
+            }
+          },
+          {
+            "name": "/eds-orbit-container-shared-web-1",
+            "image": "sha256:e86ed404b50794cf7e4fdbb7471bb20c79f19c07fc516ed24ec4817bcc4e1a2f",
+            "user": "node",
+            "state": "running",
+            "health": "healthy",
+            "readonlyRoot": true,
+            "memoryBytes": 805306368,
+            "nanoCpus": 1000000000,
+            "pidsLimit": 180,
+            "capDrop": [
+              "ALL"
+            ],
+            "capAdd": null,
+            "securityOpt": [
+              "no-new-privileges:true"
+            ],
+            "tmpfs": {
+              "/app/apps/web/.next/cache": "size=64m,uid=1000,gid=1000,mode=0700",
+              "/tmp": "size=64m,uid=1000,gid=1000,mode=1770"
+            },
+            "publishedPorts": {},
+            "networks": [
+              "eds-orbit-container-shared-20260917",
+              "eds-orbit-container-shared_frontend"
+            ],
+            "cgroup": {
+              "cpu.max": "100000 100000",
+              "memory.max": "805306368",
+              "pids.max": "180"
+            }
+          },
+          {
+            "name": "/eds-orbit-container-shared-worker-1",
+            "image": "sha256:e86ed404b50794cf7e4fdbb7471bb20c79f19c07fc516ed24ec4817bcc4e1a2f",
+            "user": "node",
+            "state": "running",
+            "health": "healthy",
+            "readonlyRoot": true,
+            "memoryBytes": 1610612736,
+            "nanoCpus": 2000000000,
+            "pidsLimit": 180,
+            "capDrop": [
+              "ALL"
+            ],
+            "capAdd": null,
+            "securityOpt": [
+              "no-new-privileges:true"
+            ],
+            "tmpfs": {
+              "/tmp": "size=64m,mode=1777"
+            },
+            "publishedPorts": {},
+            "networks": [
+              "eds-orbit-container-shared_database",
+              "eds-orbit-container-shared_egress"
+            ],
+            "cgroup": {
+              "cpu.max": "200000 100000",
+              "memory.max": "1610612736",
+              "pids.max": "180"
+            }
+          }
+        ],
+        "defaultGates": {
+          "executionMode": "test",
+          "externalWrites": "false",
+          "modelKeyConfigured": false
+        }
+      },
+      "visualReviewFourFormats": true
+    }
+  },
+  "apiBoundedReadLoad": {
+    "checkedAt": "2026-09-17T13:31:40.634Z",
+    "requests": 40,
+    "concurrency": 8,
+    "all200": true,
+    "elapsedMs": 36,
+    "p50Ms": 3,
+    "p95Ms": 10,
+    "maxMs": 23,
+    "scope": "Local liveness reads only; not capacity or workload IO acceptance"
+  },
+  "workerRedisOutageRecovery": {
+    "checkedAt": "2026-09-17T13:32:11.604361+00:00",
+    "redisStoppedAt": "2026-09-17T13:31:40.927870507Z",
+    "unhealthyObservedAfterPollSeconds": 40.34,
+    "unhealthyObservedAt": "2026-09-17T13:32:51.969822+00:00",
+    "healthyAfterRestartSeconds": 30.22,
+    "recoveredAt": "2026-09-17T13:33:22.300722+00:00",
+    "sameWorkerContainer": true
+  },
+  "workerGracefulShutdown": {
+    "status": "exited",
+    "exitCode": 0,
+    "oomKilled": false,
+    "finishedAt": "2026-09-17T13:34:07.23453563Z"
+  },
+  "sharedNetworkIsolation": {
+    "sharedAppPublishedPorts": {
+      "api": {},
+      "web": {},
+      "worker": {},
+      "postgres": {},
+      "redis": {}
+    },
+    "unresolvableFromProxy": {
+      "api": true,
+      "postgres": true,
+      "redis": true
+    },
+    "internalNetworks": {
+      "database": true,
+      "frontend": true
+    },
+    "externalMembers": [
+      "eds-orbit-container-shared-proxy-probe-1",
+      "eds-orbit-container-shared-web-1"
+    ]
+  },
+  "limits": {
+    "load": "40 liveness reads at concurrency 8; no full capacity/IO or co-host workload guarantee",
+    "queue": "Outbox batch40; stops enqueuing when waiting count exceeds200; publishing concurrency2, other topics1; attempts3 with bounded policy/terminal paths",
+    "platform": "Native ARM64 only; AMD64 and production hosts not exercised",
+    "providers": "No actual Postiz/Slack write or paid model/embedding request",
+    "tls": "Actual HTTPS with a private test Caddy local CA trusted only by the test Node process; no public certificate/DNS change"
+  },
+  "cleanup": {
+    "checkedAt": "2026-09-17T13:42:49.838145+00:00",
+    "testContainersRemoved": true,
+    "testNetworksRemoved": true,
+    "testVolumesPreserved": true,
+    "primaryLocalDevelopmentStackUntouched": true
+  }
+}

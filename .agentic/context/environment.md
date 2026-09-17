@@ -1,0 +1,19 @@
+# Environment Notes
+
+## Lokales Setup
+
+- Package Manager: ...
+- Runtime: ...
+- Datenbank: ...
+
+## Häufige Setup-Probleme
+
+- ...
+
+## Testdaten
+
+- ...
+
+## CI/CD
+
+- ...

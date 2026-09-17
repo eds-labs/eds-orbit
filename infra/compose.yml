@@ -1,0 +1,104 @@
+name: eds-orbit
+x-runtime: &runtime
+  image: eds-orbit:0.1.0-rc.1
+  build: {context: .., dockerfile: infra/Dockerfile}
+  restart: unless-stopped
+  read_only: true
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  pids_limit: 180
+  logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+x-api-environment: &api-environment
+  DATABASE_URL: ${DATABASE_URL:?required}
+  AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:?required}
+  REDIS_URL: redis://redis:6379
+  AUTH_SECRET: ${AUTH_SECRET:?required}
+  CREDENTIAL_KEY: ${CREDENTIAL_KEY:?required}
+  ORBIT_SETUP_TOKEN: ${ORBIT_SETUP_TOKEN:?required}
+  APP_ORIGIN: ${APP_ORIGIN:?required}
+  BIND_HOST: 0.0.0.0
+  PORT: 4311
+  EXECUTION_MODE: test
+  ENABLE_EXTERNAL_WRITES: 'false'
+  LIVE_RAG_EVAL_PASSED: 'false'
+  OPENAI_API_KEY: ''
+  OPENAI_VERIFIED_MODELS: ''
+  OPENAI_RATE_CARD_JSON: ''
+  PUBLISHER_INSTANCE_ID: ${PUBLISHER_INSTANCE_ID:?required}
+services:
+  web:
+    <<: *runtime
+    command: ["apps/web/node_modules/.bin/next", "start", "apps/web", "-H", "0.0.0.0", "-p", "4310"]
+    environment: {ORBIT_API_ORIGIN: "http://api:4311", NEXT_TELEMETRY_DISABLED: '1'}
+    tmpfs: ["/tmp:size=64m,uid=1000,gid=1000,mode=1770", "/app/apps/web/.next/cache:size=64m,uid=1000,gid=1000,mode=0700"]
+    networks: [frontend]
+    cpus: 1
+    mem_limit: 768m
+    depends_on: {api: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4310').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"], interval: 30s, timeout: 5s, retries: 3}
+  api:
+    <<: *runtime
+    environment: *api-environment
+    networks: [frontend, database, egress]
+    cpus: 1
+    mem_limit: 768m
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+    healthcheck: {test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4311/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"], interval: 30s, timeout: 5s, retries: 3}
+  worker:
+    <<: *runtime
+    command: ["node_modules/.bin/tsx", "apps/worker/src/main.ts"]
+    environment: *api-environment
+    networks: [database, egress]
+    cpus: 2
+    mem_limit: 1536m
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('node:fs');try{const h=JSON.parse(fs.readFileSync('/tmp/orbit-worker-health.json','utf8'));process.exit(Number.isFinite(h.checkedAt)&&Date.now()-h.checkedAt>=0&&Date.now()-h.checkedAt<30000?0:1)}catch{process.exit(1)}"]
+      interval: 15s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
+  migrate:
+    <<: *runtime
+    profiles: [maintenance]
+    restart: 'no'
+    command: ["node_modules/.bin/tsx", "scripts/db-deploy.ts", "--allow-remote-migration"]
+    environment:
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-}
+      DATABASE_URL: ${DATABASE_URL:?required}
+      AUTH_DATABASE_URL: ${AUTH_DATABASE_URL:?required}
+      ORBIT_RELEASE_APPROVAL: ${ORBIT_RELEASE_APPROVAL:-}
+    networks: [database]
+    cpus: 1
+    mem_limit: 768m
+    depends_on: {postgres: {condition: service_healthy}}
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
+    restart: unless-stopped
+    environment: {POSTGRES_USER: orbit_migrator, POSTGRES_PASSWORD: "${DB_PASSWORD:?required}", POSTGRES_DB: orbit}
+    volumes: ["orbit_pg:/var/lib/postgresql/data"]
+    networks: [database]
+    cpus: 2
+    mem_limit: 2048m
+    pids_limit: 180
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U orbit_migrator -d orbit"], interval: 10s, timeout: 5s, retries: 10}
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+  redis:
+    image: redis:7.4.7-alpine@sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    volumes: ["orbit_redis:/data"]
+    networks: [database]
+    cpus: 0.5
+    mem_limit: 384m
+    pids_limit: 60
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 5s, retries: 10}
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+networks:
+  frontend: {internal: true}
+  database: {internal: true}
+  egress:
+volumes:
+  orbit_pg:
+  orbit_redis:

@@ -1,0 +1,2 @@
+# Managed by Prisma. Security/pgvector objects are versioned in SQL migrations.
+provider = "postgresql"

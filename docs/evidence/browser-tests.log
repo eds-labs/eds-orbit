@@ -1,0 +1,11 @@
+
+Running 4 tests using 1 worker
+
+(node:30097) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓  1 [chromium] › apps/web/tests/workspace.spec.ts:93:3 › Authenticated Orbit workspace, real local API › knowledge → mission → review → approved test publication → revoke, with actual persistent state (6.2s)
+  ✓  2 [chromium] › apps/web/tests/workspace.spec.ts:347:3 › Authenticated Orbit workspace, real local API › 390px responsive, keyboard forms, locale and safe errors (1.3s)
+  ✓  3 [chromium] › apps/web/tests/workspace.spec.ts:429:3 › Authenticated Orbit workspace, real local API › viewer sees read-only controls and server rejects writes (12.2s)
+  ✓  4 [chromium] › apps/web/tests/workspace.spec.ts:485:1 › editable local brief, private community groups, calendar blocks and owner operator boundaries (2.1s)
+
+  4 passed (22.7s)

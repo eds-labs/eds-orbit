@@ -1,0 +1,91 @@
+project:
+  name: EDS Orbit
+  type: ai-agent-app
+  stage: mvp
+  description: Self-hosted bounded marketing workspace with evidence, hybrid retrieval
+    and marketing memory
+  priority: stability-over-speed
+  owner: Mario
+stack:
+  preset: web-next-custom-postgres
+  language: TypeScript
+  runtime: Node.js 24.18.0
+  frontend: Next.js 16.3.5 App Router + Tailwind CSS 4
+  backend: Fastify 5.12.5
+  database: PostgreSQL 17 + pgvector 0.8.6
+  orm: Prisma 7.10.0 with PostgreSQL driver adapter and parameterized vector SQL
+  auth: Better Auth 1.7.5 + database sessions
+  package_manager: pnpm
+  test_runner: Vitest
+  e2e_runner: Playwright
+  deployment: Docker Compose isolated local; protected production single-server
+architecture:
+  style: modular-monolith
+  api_style: REST
+  repository_strategy: monorepo
+  frontend_pattern: Next.js App Router
+  state_management: API-owned persistent state
+  important_boundaries:
+  - Project-scoped PostgreSQL transactions and FORCE RLS
+  - Separate auth and application database roles
+  - Next.js has no database access
+  - Imported knowledge never authorizes tool actions
+  - Live providers require budget and exact owner mandate
+  - Desk and Forecast remain independent
+environment:
+  default: local
+  production_protected: true
+  deployment_preset: docker-compose-single-server
+commands:
+  install: pnpm install --frozen-lockfile
+  dev: pnpm dev
+  lint: pnpm lint
+  format: pnpm format
+  typecheck: pnpm typecheck
+  test: pnpm test
+  test_unit: pnpm test:unit
+  test_integration: pnpm test:integration
+  test_e2e: pnpm test:e2e
+  build: pnpm build
+security:
+  risk_level: high
+  tenant_isolation: row-level
+  secrets_policy: .agentic/config/secrets-policy.md
+protected_paths:
+  never_modify_without_explicit_approval:
+  - .env
+  - .env.*
+  - '**/*secret*'
+  - '**/*private-key*'
+  - '**/*.pem'
+  - production-secrets/**
+  - migrations/**
+  sensitive_domains:
+  - auth
+  - authorization
+  - billing
+  - payments
+  - admin
+  - multi-tenant data access
+quality:
+  required_checks:
+  - lint
+  - typecheck
+  - test
+  - build
+  documentation_required: true
+  require_tests_for_new_logic: true
+  require_regression_test_for_bugfix: true
+  require_docs_for_public_api: true
+  require_security_review_for_sensitive_domains: true
+  require_accessibility_check_for_ui: true
+  prefer_small_diffs: true
+completion:
+  allow_skipping_checks_when:
+  - tooling unavailable
+  - task explicitly docs-only
+  - reason is documented in the final answer
+communication:
+  language: de
+  style: präzise, umsetzungsorientiert, keine unnötige Theorie
+  final_summary_required: true

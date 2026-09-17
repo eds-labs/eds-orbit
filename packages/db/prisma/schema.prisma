@@ -1,0 +1,304 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                 String            @id
+  name               String
+  email              String            @unique
+  emailVerified      Boolean           @default(false)
+  image              String?
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+  sessions           Session[]
+  accounts           Account[]
+  memberships        WorkspaceMember[]
+  projectMemberships ProjectMember[]
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime @db.Timestamptz(3)
+  token     String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime? @db.Timestamptz(3)
+  refreshTokenExpiresAt DateTime? @db.Timestamptz(3)
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Workspace {
+  id        String            @id @default(uuid()) @db.Uuid
+  name      String
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
+  members   WorkspaceMember[]
+  projects  Project[]
+}
+
+model WorkspaceMember {
+  workspaceId String    @db.Uuid
+  userId      String
+  role        String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([userId])
+}
+
+model Project {
+  id               String              @id @default(uuid()) @db.Uuid
+  workspaceId      String              @db.Uuid
+  name             String
+  timezone         String              @default("UTC")
+  language         String              @default("en")
+  mode             String              @default("observe")
+  paused           Boolean             @default(false)
+  generation       Int                 @default(1)
+  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+  workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members          ProjectMember[]
+  entities         Entity[]
+  outbox           Outbox[]
+  budgets          BudgetReservation[]
+  audits           AuditEvent[]
+  knowledgeIndexes KnowledgeIndex[]
+
+  @@unique([workspaceId, id])
+}
+
+model ProjectMember {
+  workspaceId String  @db.Uuid
+  projectId   String  @db.Uuid
+  userId      String
+  role        String
+  project     Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([projectId, userId])
+  @@index([workspaceId, userId])
+}
+
+model Entity {
+  id          String              @id @default(uuid()) @db.Uuid
+  workspaceId String              @db.Uuid
+  projectId   String              @db.Uuid
+  kind        String
+  version     Int                 @default(1)
+  data        Json
+  createdAt   DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime            @updatedAt @db.Timestamptz(3)
+  project     Project             @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  versions    EntityVersion[]
+  documents   KnowledgeDocument[]
+
+  @@unique([projectId, id])
+  @@unique([workspaceId, projectId, id])
+  @@index([workspaceId, projectId, kind])
+}
+
+model EntityVersion {
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  entityId    String   @db.Uuid
+  version     Int
+  data        Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  entity      Entity   @relation(fields: [workspaceId, projectId, entityId], references: [workspaceId, projectId, id], onDelete: Cascade)
+
+  @@id([entityId, version])
+  @@index([workspaceId, projectId])
+}
+
+model Outbox {
+  id           String    @id @default(uuid()) @db.Uuid
+  workspaceId  String    @db.Uuid
+  projectId    String    @db.Uuid
+  topic        String
+  entityId     String    @db.Uuid
+  payload      Json
+  availableAt  DateTime  @default(now()) @db.Timestamptz(3)
+  dispatchedAt DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  project      Project   @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@index([workspaceId, projectId, dispatchedAt, availableAt])
+}
+
+model BudgetReservation {
+  id            String   @id @default(uuid()) @db.Uuid
+  workspaceId   String   @db.Uuid
+  projectId     String   @db.Uuid
+  key           String   @unique
+  amountMicros  BigInt
+  category      String
+  state         String
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  settledMicros BigInt?
+  project       Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@index([workspaceId, projectId, createdAt])
+}
+
+model AuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  actorId     String
+  action      String
+  resourceId  String
+  metadata    Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  project     Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@index([workspaceId, projectId, createdAt])
+}
+
+model KnowledgeDocument {
+  id              String            @id @default(uuid()) @db.Uuid
+  workspaceId     String            @db.Uuid
+  projectId       String            @db.Uuid
+  sourceId        String            @db.Uuid
+  externalId      String
+  activeVersionId String?           @db.Uuid
+  canonicalUrl    String?
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  source          Entity            @relation(fields: [workspaceId, projectId, sourceId], references: [workspaceId, projectId, id], onDelete: Cascade)
+  versions        DocumentVersion[]
+
+  @@unique([workspaceId, projectId, sourceId, externalId])
+  @@unique([workspaceId, projectId, id])
+}
+
+model DocumentVersion {
+  id               String            @id @default(uuid()) @db.Uuid
+  workspaceId      String            @db.Uuid
+  projectId        String            @db.Uuid
+  documentId       String            @db.Uuid
+  version          Int
+  title            String
+  language         String
+  contentHash      String
+  text             String
+  mimeType         String
+  extractorVersion String
+  sourceGeneration Int
+  sourceUpdatedAt  DateTime?         @db.Timestamptz(3)
+  fetchedAt        DateTime          @default(now()) @db.Timestamptz(3)
+  validFrom        DateTime          @default(now()) @db.Timestamptz(3)
+  validUntil       DateTime?         @db.Timestamptz(3)
+  state            String            @default("prepared")
+  document         KnowledgeDocument @relation(fields: [workspaceId, projectId, documentId], references: [workspaceId, projectId, id], onDelete: Cascade)
+  chunks           KnowledgeChunk[]
+
+  @@unique([documentId, version])
+  @@unique([workspaceId, projectId, id])
+  @@index([workspaceId, projectId, contentHash])
+}
+
+model KnowledgeChunk {
+  id                String                   @id @default(uuid()) @db.Uuid
+  workspaceId       String                   @db.Uuid
+  projectId         String                   @db.Uuid
+  documentVersionId String                   @db.Uuid
+  position          Int
+  heading           String
+  anchor            String
+  text              String
+  chunkHash         String
+  language          String
+  tokenEstimate     Int
+  searchVector      Unsupported("tsvector")?
+  identifierVector  Unsupported("tsvector")?
+  documentVersion   DocumentVersion          @relation(fields: [workspaceId, projectId, documentVersionId], references: [workspaceId, projectId, id], onDelete: Cascade)
+  embeddings        ChunkEmbedding[]
+
+  @@unique([documentVersionId, position])
+  @@unique([workspaceId, projectId, id])
+  @@index([workspaceId, projectId])
+}
+
+model ChunkEmbedding {
+  id              String                @id @default(uuid()) @db.Uuid
+  workspaceId     String                @db.Uuid
+  projectId       String                @db.Uuid
+  chunkId         String                @db.Uuid
+  profile         String
+  model           String
+  dimensions      Int
+  indexGeneration Int                   @default(1)
+  vector          Unsupported("vector")
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  index           KnowledgeIndex        @relation(fields: [workspaceId, projectId, profile, indexGeneration], references: [workspaceId, projectId, profile, generation], onDelete: Cascade)
+  chunk           KnowledgeChunk        @relation(fields: [workspaceId, projectId, chunkId], references: [workspaceId, projectId, id], onDelete: Cascade)
+
+  @@unique([chunkId, profile, indexGeneration])
+  @@index([workspaceId, projectId, profile, indexGeneration])
+}
+
+model KnowledgeIndex {
+  id               String           @id @default(uuid()) @db.Uuid
+  workspaceId      String           @db.Uuid
+  projectId        String           @db.Uuid
+  generation       Int
+  profile          String
+  model            String
+  dimensions       Int
+  metric           String           @default("cosine")
+  transformVersion String           @default("structure-v1")
+  state            String           @default("building")
+  manifest         Json
+  manifestHash     String
+  evaluation       Json?
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  activatedAt      DateTime?        @db.Timestamptz(3)
+  project          Project          @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  embeddings       ChunkEmbedding[]
+
+  @@unique([workspaceId, projectId, generation])
+  @@unique([workspaceId, projectId, profile, generation])
+  @@index([workspaceId, projectId, state])
+}

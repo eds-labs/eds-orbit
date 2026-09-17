@@ -1,0 +1,30 @@
+Codex Project Framework Check
+====================================
+[OK]    Pflichtdateien und Pflichtverzeichnisse sind vollständig
+[OK]    Projektprofil enthält alle Pflichtbereiche ohne Platzhalter
+[OK]    Framework-Version 1.1.0 ist über VERSION und Framework-Metadaten konsistent
+[OK]    17 eindeutige Skills mit vollständigem Skill-Vertrag
+[OK]    20 eindeutige Stack-Presets mit vollständigen Metadaten
+[OK]    Alle 20 App-Strukturen sind einem Stack-Preset zugeordnet
+[OK]    Pflichtworkflows vollständig; 11 Workflows insgesamt
+[OK]    Pflicht-Quality-Gates vollständig; 12 Gates insgesamt
+[OK]    Betriebsregeln für Environments, Secrets, Datenbank, Observability, CI/CD und Freigaben vollständig
+[OK]    AGENTS.md referenziert Projektprofil, Routing, Profile, Presets, Rollen, Skills, Policies, Gates und Freigaben
+[OK]    Alle 10 App-Profile existieren und sind in AGENTS.md geroutet
+[OK]    Keine offensichtlich defekten relativen Markdown-Verweise
+[OK]    Alle root-relativen Framework-Pfade in Backticks sind auflösbar
+[OK]    Keine temporären Verzeichnisse, verdächtigen Duplikate, Konfliktmarker oder bekannten Secret-Muster
+[OK]    Projektprofil, Framework-Version und alle Stack-Presets gegen JSON Schema geprüft
+[OK]    37 YAML-Dateien vollständig geparst
+
+Inventory
+  Integrated files: 514
+  Skills: 17
+  Stack presets: 20
+  Workflows: 11
+  Quality gates: 12
+
+Result
+  Errors: 0
+  Warnings: 0
+  Status: PASSED

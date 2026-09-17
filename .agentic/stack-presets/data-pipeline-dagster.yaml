@@ -1,0 +1,40 @@
+id: data-pipeline-dagster
+label: 'Data Pipeline: Dagster'
+description: "Vordefiniertes Preset für Data Pipeline: Dagster mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "data-pipeline"
+recommended_tools:
+- "Python"
+- "Dagster"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- Datenassets, Lineage, Observability und Testbarkeit wichtig
+- moderne Data Platform
+- Python-Team
+- AI-/Analytics-nahe Pipelines
+avoid_when:
+- bestehendes Unternehmen ist vollständig auf Airflow standardisiert
+- rein cron-artige simple Tasks
+platforms:
+- data
+- backend
+language: Python
+orchestrator: Dagster
+storage: Postgres/DuckDB/Snowflake/BigQuery depending on use case
+quality_checks:
+- asset checks
+- schema checks
+- idempotency
+testing:
+  unit: pytest
+  validation: Dagster definitions and asset checks
+structure_ref: .agentic/app-structures/data-pipeline-dagster.md
+quality:
+  required_checks:
+  - pytest
+  - ruff
+  - dagster dev/dagster definitions validate where configured
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

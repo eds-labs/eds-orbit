@@ -1,0 +1,35 @@
+id: data-pipeline-airflow
+label: 'Data Pipeline: Apache Airflow'
+description: "Vordefiniertes Preset für Data Pipeline: Apache Airflow mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "data-pipeline"
+recommended_tools:
+- "Python"
+- "Apache Airflow"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- Batch-orchestrierte Workflows
+- etabliertes DataOps-Ökosystem im Unternehmen
+- viele Operatoren/Provider benötigt
+- Team kennt DAG-basiertes Scheduling
+avoid_when:
+- Asset-zentrierte Lineage und Testbarkeit stehen im Vordergrund
+- kleine Datenjobs ohne Orchestrierungsbedarf
+platforms:
+- data
+language: Python
+orchestrator: Apache Airflow
+storage: Postgres/Snowflake/BigQuery/S3 etc.
+testing:
+  unit: pytest
+  validation: Airflow DAG import and listing checks
+structure_ref: .agentic/app-structures/data-pipeline-airflow.md
+quality:
+  required_checks:
+  - pytest
+  - ruff
+  - airflow dags list/import checks where configured
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

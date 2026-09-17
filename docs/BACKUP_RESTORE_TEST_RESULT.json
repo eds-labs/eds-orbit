@@ -1,0 +1,16 @@
+{
+  "status": "PASS_TEST",
+  "executedAt": "2026-09-17T12:41:35.430Z",
+  "sourceDatabase": "orbit_test",
+  "restoredDatabase": "orbit_restore_test_20260917_1242",
+  "dumpBytes": 303861,
+  "dumpSha256": "888e14b97efda4cc5ddeb1e3a86d0aaf03c9cc99153eb1ea907963c204ad4c9b",
+  "elapsedMs": 456,
+  "externalWrites": false,
+  "publishersStarted": 0,
+  "deletedDatabases": 0,
+  "auditEvents": 3,
+  "documentTombstones": 1,
+  "uncertainPublications": 1,
+  "activeIndexConfigurations": 1
+}

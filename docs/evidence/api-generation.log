@@ -1,0 +1,3 @@
+$ tsx scripts/openapi.ts && openapi-typescript packages/schemas/openapi.json -o packages/api-client/src/generated.ts
+✨ openapi-typescript 7.13.0
+🚀 packages/schemas/openapi.json → packages/api-client/src/generated.ts [34.6ms]

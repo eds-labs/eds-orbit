@@ -1,0 +1,32 @@
+version: 1
+risk_levels:
+  - low
+  - medium
+  - high
+  - critical
+required_core_files:
+  - .agentic/routing/risk-classification.md
+  - .agentic/environments/production.md
+  - .agentic/config/secrets-policy.md
+  - .agentic/database/migration-policy.md
+  - .agentic/security/roles-and-permissions.md
+  - .agentic/security/tenant-isolation.md
+  - .agentic/observability/error-handling.md
+  - .agentic/ci/required-checks.md
+approval_required_for:
+  - production_migration
+  - data_deletion
+  - secrets_change
+  - auth_change
+  - billing_change
+  - admin_bypass
+  - external_paid_provider
+  - irreversible_operation
+skills:
+  - risk-review
+  - production-change
+  - db-migration-review
+  - deployment-plan
+  - new-project-bootstrap
+  - security-threat-model
+  - incident-response

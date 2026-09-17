@@ -1,0 +1,13 @@
+# Orbit database
+
+Schema and client target Prisma 7.10.0 with its PostgreSQL driver adapter. `DATABASE_URL` is the nonprivileged business connection; `AUTH_DATABASE_URL` is the separate limited authentication/control-plane connection; `MIGRATION_DATABASE_URL` belongs only to the one-shot migrator. The application never receives the migration connection.
+
+Generate the client with the root `db:generate` command. The committed initial migration contains generated table DDL plus pgvector, FTS, relational scope constraints, FORCE RLS and append-only audit policies. Future schema changes need additive versioned migrations; editing an already applied initial migration is not an upgrade mechanism.
+
+`scripts/db-deploy.ts` creates missing dedicated role identities, deploys migrations, grants the exact app/auth matrix and verifies using both real role URLs. It never rotates an existing role password. `--grants-only` reapplies/checks grants after an already deployed schema. A remote host additionally requires the `--allow-remote-migration` flag and an `ORBIT_RELEASE_APPROVAL` change reference; the script does not replace the human production approval process.
+
+`scoped(workspaceId, projectId, fn)` is mandatory for business transactions and sets transaction-local context with a project advisory lock. Unscoped access returns no scoped business records. Pass a test Prisma client as the fourth argument for isolated integration tests. `jsonSafe` converts BigInt values to decimal strings for API serialization.
+
+Schema scope: high risk, local new database only. Migration rollback strategy: roll application code back while retaining the additive schema, or a separately reviewed forward fix. No production downgrade/drop is provided. Tests use isolated synthetic databases; production backup and restore acceptance remain deployment gates.
+
+Migration `202609170002_index_generations` is additive and was executed locally after the applied foundation migration. It preserves existing baseline vectors, adds scoped immutable index metadata and a one-active-generation constraint, changes vector storage to dimension-checked generic `vector`, and adds model/profile/dimension plus generation foreign-key constraints. Queries materialize a compatible profile relation before distance computation. No ANN index is enabled, so a 3072-dimensional exact profile does not depend on the HNSW vector typmod limits. Restore acceptance includes index metadata. The migrator must have sufficient administrative scope to backfill all project baseline records despite FORCE RLS; the app/auth roles remain nonprivileged.

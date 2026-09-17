@@ -1,0 +1,38 @@
+id: native-android-kotlin-compose
+label: 'Native Android: Kotlin + Jetpack Compose'
+description: "Vordefiniertes Preset für Native Android: Kotlin + Jetpack Compose mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "native-app"
+recommended_tools:
+- "Kotlin"
+- "Jetpack Compose"
+- "JUnit"
+- "Compose UI tests"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- Android-first oder Android-only
+- beste native Android UX
+- tiefe Android-Integration
+- Material Design/adaptive Android UI wichtig
+avoid_when:
+- iOS muss mit gleicher UI-Codebasis mitgeliefert werden
+- Team kann kein Kotlin/Android
+platforms:
+- android
+language: Kotlin
+framework: Jetpack Compose
+architecture: feature-based + ViewModel + Repository
+backend: Supabase/custom API/Firebase depending on product
+testing:
+  unit: JUnit
+  ui: Compose UI tests
+structure_ref: .agentic/app-structures/native-android-compose.md
+quality:
+  required_checks:
+  - gradle test
+  - lint
+  - ktlint/detekt if configured
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

@@ -1,0 +1,12 @@
+project:
+  type: "data-pipeline"
+data:
+  orchestration: "Airflow | Dagster | Prefect | cron"
+  storage: "S3 | GCS | local | warehouse"
+  warehouse: "BigQuery | Snowflake | Postgres"
+  must_check:
+    - "Idempotenz"
+    - "Backfills"
+    - "Schema Evolution"
+    - "Data Quality Checks"
+    - "Partial Failures"

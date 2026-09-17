@@ -1,0 +1,14 @@
+
+ RUN  v5.0.1 /Users/marioeuchner/Documents/ChatGPT/EDS Orbit
+
+ ✓ apps/api/tests/auth.integration.test.ts > Authentication and project API boundary > A02: requires authenticated session and rejects public registration 4ms
+ ✓ apps/api/tests/auth.integration.test.ts > Authentication and project API boundary > A03/A24: viewer reads assigned project only and cannot inspect another project 80ms
+ ✓ apps/api/tests/auth.integration.test.ts > Authentication and project API boundary > A03: viewer cannot mutate or manage project membership 11ms
+ ✓ apps/api/tests/auth.integration.test.ts > Authentication and project API boundary > A24: cross-origin writes are refused before parsing 0ms
+ ✓ apps/api/tests/auth.integration.test.ts > Authentication and project API boundary > A02: owner can create project with valid member relation and no production defaults 22ms
+
+ Test Files  1 passed (1)
+      Tests  5 passed (5)
+   Start at  14:27:22
+   Duration  1.20s (tests 53%, import 35%, transform 11%)
+

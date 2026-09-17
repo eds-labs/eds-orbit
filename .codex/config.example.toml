@@ -1,0 +1,27 @@
+# Beispiel-Konfiguration für Codex.
+# Kopiere diese Datei bei Bedarf nach `.codex/config.toml` oder übernimm Teile in `~/.codex/config.toml`.
+# Passe sie an deine Codex-Version, Teamvorgaben und dein Sicherheitsmodell an.
+
+# Konservativer Standard: Codex darf im Workspace arbeiten, fragt aber für riskantere Aktionen nach.
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+
+# Optional: Falls dein AGENTS.md sehr bewusst auf weitere Dateien verweist.
+# Standard in Codex ist begrenzt; erhöhe nur, wenn du wirklich größere lokale Anweisungsketten brauchst.
+project_doc_max_bytes = 65536
+project_doc_fallback_filenames = ["TEAM_GUIDE.md", ".agents.md"]
+
+# Optional: Netzwerkzugriff lokal nur aktivieren, wenn dein Workflow das wirklich braucht.
+# [sandbox_workspace_write]
+# network_access = false
+
+# Optional: benannte Subagent-Rollen. Nutze sie nur, wenn deine Codex-Version/Umgebung agents.* unterstützt.
+# [agents.reviewer]
+# description = "Reviews code for correctness, maintainability, security, and test coverage."
+# config_file = "agents/reviewer.config.toml"
+# nickname_candidates = ["reviewer", "critic"]
+#
+# [agents.security]
+# description = "Checks AuthN/AuthZ, injection, secrets, data exposure, and unsafe tool usage."
+# config_file = "agents/security.config.toml"
+# nickname_candidates = ["security", "sec"]

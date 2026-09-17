@@ -1,0 +1,5 @@
+services:
+  web:
+    networks: [frontend, shared_proxy]
+networks:
+  shared_proxy: {external: true, name: "${SHARED_PROXY_NETWORK:?required}"}

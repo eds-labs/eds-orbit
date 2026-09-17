@@ -1,0 +1,3 @@
+# Optional dependencies for full YAML and JSON Schema validation.
+PyYAML>=6.0.2,<7
+jsonschema>=4.23,<5

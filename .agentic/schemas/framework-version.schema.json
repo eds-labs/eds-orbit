@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/codex-project-framework/framework-version.schema.json",
+  "title": "Codex Project Framework version metadata",
+  "type": "object",
+  "required": ["schema_version", "framework", "components"],
+  "properties": {
+    "schema_version": {"type": "string", "minLength": 1},
+    "framework": {
+      "type": "object",
+      "required": ["name", "version", "description", "created", "updated", "compatibility"],
+      "properties": {
+        "name": {"const": "Codex Project Framework"},
+        "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        "description": {"type": "string", "minLength": 1},
+        "created": {"type": "string", "format": "date"},
+        "updated": {"type": "string", "format": "date"},
+        "compatibility": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": true
+    },
+    "components": {
+      "type": "object",
+      "required": ["agentic_scaffold", "stack_presets", "operational_governance"],
+      "properties": {
+        "agentic_scaffold": {"$ref": "#/$defs/component"},
+        "stack_presets": {"$ref": "#/$defs/component"},
+        "operational_governance": {"$ref": "#/$defs/component"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "component": {
+      "type": "object",
+      "required": ["version", "status"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1},
+        "status": {"const": "integrated"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

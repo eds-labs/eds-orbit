@@ -1,0 +1,13 @@
+project:
+  type: "web-frontend"
+stack:
+  frontend: "React | Vue | Svelte | Angular"
+quality:
+  require_accessibility_check_for_ui: true
+frontend:
+  must_check:
+    - "Loading, Empty, Error, Disabled States"
+    - "Responsive Layout"
+    - "Keyboard Navigation"
+    - "Form Validation"
+    - "No unnecessary client state"

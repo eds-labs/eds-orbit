@@ -1,0 +1,73 @@
+id: web-next-custom-postgres
+label: 'Web/SaaS Production: Next.js + eigenes Backend/Postgres'
+description: "Vordefiniertes Preset für Web/SaaS Production: Next.js + eigenes Backend/Postgres mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "fullstack-web"
+recommended_tools:
+- "Next.js App Router"
+- "TypeScript"
+- "Tailwind CSS"
+- "shadcn/ui"
+- "OpenAPI-generated client"
+- "tRPC if full TypeScript monorepo"
+- "Postgres"
+- "Supabase Postgres"
+- "Neon"
+- "AWS RDS"
+- "Cloud SQL"
+- "Drizzle for SQL-close TypeScript; Prisma for schema-first DX"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- klare Trennung zwischen Frontend und Backend gewünscht
+- komplexere Domäne oder mehrere Clients
+- API soll später von Mobile/Desktop/Partnern genutzt werden
+- mehr Kontrolle über Auth, Jobs, Queues und Deployments nötig
+avoid_when:
+- sehr kleines MVP mit wenig Backend-Komplexität
+- Team will keine getrennten Deployments betreiben
+platforms:
+- web
+- backend
+frontend:
+  framework: Next.js App Router
+  language: TypeScript
+  ui:
+  - Tailwind CSS
+  - shadcn/ui
+  api_client:
+  - OpenAPI-generated client
+  - tRPC if full TypeScript monorepo
+backend:
+  options:
+  - Fastify
+  - NestJS
+  - Hono for edge/serverless
+  default: Fastify for lean APIs, NestJS for larger modular systems
+database:
+  engine: Postgres
+  providers:
+  - Supabase Postgres
+  - Neon
+  - AWS RDS
+  - Cloud SQL
+  orm: Drizzle for SQL-close TypeScript; Prisma for schema-first DX
+infra:
+  cache: Redis-compatible cache when needed
+  queue: BullMQ, Temporal, or managed queues depending on complexity
+  deployment:
+  - Vercel/Cloudflare/Fly.io/Render for app
+  - managed Postgres
+testing:
+  unit: Vitest
+  integration: Testcontainers or ephemeral test database
+  e2e: Playwright
+structure_ref: .agentic/app-structures/web-next-custom-postgres.md
+quality:
+  required_checks:
+  - lint
+  - typecheck
+  - test
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

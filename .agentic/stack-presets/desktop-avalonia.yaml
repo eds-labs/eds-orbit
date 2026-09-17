@@ -1,0 +1,38 @@
+id: desktop-avalonia
+label: '.NET Desktop: Avalonia'
+description: "Vordefiniertes Preset für .NET Desktop: Avalonia mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "desktop-app"
+recommended_tools:
+- "C#"
+- "Avalonia UI"
+- "dotnet test"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- .NET/C# Team
+- Desktop-first Windows, macOS, Linux
+- WPF-/XAML-ähnliches Entwicklungsmodell gewünscht
+- Linux-Support wichtig
+avoid_when:
+- Mobile ist gleich wichtig und soll aus gleichem .NET-UI-Stack kommen
+- Team will primär Web-Technologien nutzen
+platforms:
+- windows
+- macos
+- linux
+- mobile/webassembly optional
+language: C#
+framework: Avalonia UI
+architecture: MVVM
+backend: local SQLite/custom API
+testing:
+  unit: dotnet test
+structure_ref: .agentic/app-structures/desktop-avalonia.md
+quality:
+  required_checks:
+  - dotnet build
+  - dotnet test
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

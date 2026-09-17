@@ -1,0 +1,47 @@
+id: backend-nest-postgres
+label: 'Backend API: NestJS + Postgres'
+description: "Vordefiniertes Preset für Backend API: NestJS + Postgres mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "backend-api"
+recommended_tools:
+- "TypeScript"
+- "Node.js LTS"
+- "NestJS"
+- "Postgres"
+- "Prisma or TypeORM; prefer Prisma for modern TS DX"
+- "Jest or Vitest"
+- "Nest testing module + test database"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- größere Backend-App
+- modulare Architektur, DI, Guards, Pipes und klare Layer gewünscht
+- Enterprise-Team oder mehrere Entwickler
+- DDD-ähnliche Struktur hilfreich
+avoid_when:
+- kleine API, bei der Framework-Komplexität bremst
+- edge/serverless-first Runtime
+platforms:
+- backend
+runtime: Node.js LTS
+language: TypeScript
+framework: NestJS
+database:
+  engine: Postgres
+  orm: Prisma or TypeORM; prefer Prisma for modern TS DX
+api:
+  style: REST or GraphQL
+  validation: class-validator/Zod depending on project convention
+  docs: OpenAPI/Swagger
+testing:
+  unit: Jest or Vitest
+  integration: Nest testing module + test database
+structure_ref: .agentic/app-structures/backend-nest.md
+quality:
+  required_checks:
+  - lint
+  - typecheck
+  - test
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

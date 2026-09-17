@@ -1,0 +1,82 @@
+{
+  "version": "2026-09-17.v1",
+  "synthetic": true,
+  "cases": [
+    {
+      "id": "semantic-export-en",
+      "language": "en",
+      "query": "How can I download the measured results?",
+      "relevantDocument": "export-en"
+    },
+    {
+      "id": "semantic-export-de",
+      "language": "de",
+      "query": "Wie kann ich gemessene Ergebnisse herunterladen?",
+      "relevantDocument": "export-de"
+    },
+    {
+      "id": "semantic-roles-en",
+      "language": "en",
+      "query": "Who is allowed to turn on autonomous distribution?",
+      "relevantDocument": "roles-en"
+    },
+    {
+      "id": "semantic-roles-de",
+      "language": "de",
+      "query": "Wer darf die automatische Verteilung einschalten?",
+      "relevantDocument": "roles-de"
+    },
+    {
+      "id": "semantic-pause-en",
+      "language": "en",
+      "query": "How do we stop an already scheduled message?",
+      "relevantDocument": "pause-en"
+    },
+    {
+      "id": "semantic-pause-de",
+      "language": "de",
+      "query": "Wie stoppen wir eine schon terminierte Nachricht?",
+      "relevantDocument": "pause-de"
+    },
+    {
+      "id": "semantic-sources-en",
+      "language": "en",
+      "query": "Can a readable roadmap be announced publicly?",
+      "relevantDocument": "sources-en"
+    },
+    {
+      "id": "semantic-sources-de",
+      "language": "de",
+      "query": "Darf eine lesbare Roadmap öffentlich angekündigt werden?",
+      "relevantDocument": "sources-de"
+    },
+    {
+      "id": "semantic-freshness-en",
+      "language": "en",
+      "query": "Does fetching a page mean its facts were reviewed?",
+      "relevantDocument": "freshness-en"
+    },
+    {
+      "id": "semantic-freshness-de",
+      "language": "de",
+      "query": "Sind Fakten nach dem Seitenabruf bereits geprüft?",
+      "relevantDocument": "freshness-de"
+    },
+    {
+      "id": "semantic-budget-en",
+      "language": "en",
+      "query": "What happens to reserved money after a timeout?",
+      "relevantDocument": "budget-en"
+    },
+    {
+      "id": "semantic-budget-de",
+      "language": "de",
+      "query": "Was passiert nach einem Timeout mit reservierten Kosten?",
+      "relevantDocument": "budget-de"
+    }
+  ],
+  "gate": {
+    "recallAt10": 0.9
+  },
+  "status": "BLOCKED_EXTERNAL_APPROVED_EMBEDDING_BUDGET_REQUIRED"
+}

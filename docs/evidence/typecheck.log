@@ -1,0 +1,2 @@
+$ tsc --noEmit && pnpm --dir apps/web typecheck
+$ tsc --noEmit

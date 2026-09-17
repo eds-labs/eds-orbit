@@ -1,0 +1,48 @@
+id: backend-fastapi-postgres
+label: 'Python Backend: FastAPI + Postgres'
+description: "Vordefiniertes Preset für Python Backend: FastAPI + Postgres mit dokumentierten Einsatzgrenzen, Teststrategie und Betriebsanforderungen."
+application_type: "backend-api"
+recommended_tools:
+- "Python"
+- "FastAPI"
+- "Postgres"
+- "SQLAlchemy or SQLModel"
+- "Alembic"
+- "pytest"
+- "pytest + test database"
+deployment_hint: "Passendes Deployment-Preset auswählen, Zielumgebung validieren und Production-Änderungen nur nach Freigabe ausführen."
+use_when:
+- AI/ML-nahe API
+- Python-Team
+- schnelle API-Entwicklung mit Type Hints
+- Datenverarbeitung und API liegen nah beieinander
+avoid_when:
+- Frontend und Backend sollen vollständig in TypeScript bleiben
+- sehr große klassische Web-App mit Admin/ORM/Batteries included
+platforms:
+- backend
+runtime: Python
+language: Python
+framework: FastAPI
+database:
+  engine: Postgres
+  orm: SQLAlchemy or SQLModel
+  migrations: Alembic
+api:
+  style: REST
+  validation: Pydantic
+  docs: OpenAPI auto docs
+testing:
+  unit: pytest
+  integration: pytest + test database
+structure_ref: .agentic/app-structures/backend-fastapi.md
+quality:
+  required_checks:
+  - ruff
+  - mypy/pyright where configured
+  - pytest
+  agentic_rules:
+  - erst Plan, dann Umsetzung
+  - bestehende Patterns respektieren
+  - keine neue Dependency ohne Begründung
+  - Tests für neue oder geänderte Logik

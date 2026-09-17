@@ -1,0 +1,10 @@
+.git
+.runtime
+.env*
+node_modules
+**/node_modules
+**/.next
+**/design
+**/test-results
+**/playwright-report
+docs/evidence
