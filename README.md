@@ -60,4 +60,4 @@ Provider states distinguish configured credentials, verified reads, verified wri
 
 Adapter authors should follow [connector development](docs/CONNECTOR_DEVELOPMENT.md) and the actual provider capability matrix.
 
-Codex Project Framework1.1.0 was merged missing-only; provenance is in [framework baseline](docs/FRAMEWORK_BASELINE.md). The complete controlling specification is retained in `docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md`. Original EDS Labs marks remain reserved brand assets. No open-source license grant or public repository publication has been assumed; see [license status](LICENSE-STATUS.md). Operational inventory and acceptance evidence require review before any public release.
+Codex Project Framework1.1.0 was merged missing-only; provenance is in [framework baseline](docs/FRAMEWORK_BASELINE.md). The complete controlling specification is retained in `docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md`. Original EDS Labs marks remain reserved brand assets. The repository is private; no open-source license grant has been assumed. See [license status](LICENSE-STATUS.md). Operational inventory and acceptance evidence require review before any public release.

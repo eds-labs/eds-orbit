@@ -33,6 +33,6 @@
 
 ## 5. Public release
 
-Choose the code license and confirm original EDS brand distribution rights. Review inventory/evidence for private operational details before publication. Run CI on the approved repository and retain the tested source/lock/image identifiers. No repository push, public release or production deployment occurred during this implementation.
+Choose the code license and confirm original EDS brand distribution rights. Review inventory/evidence for private operational details before publication. Run CI on the approved repository and retain the tested source/lock/image identifiers. The RC source is pushed privately to `EDS-Labs/eds-orbit`; no public release or production deployment occurred during this implementation.
 
 Evidence and exact remaining acceptance IDs: `ACCEPTANCE_REPORT.md`, `REQUIREMENTS_TRACEABILITY.md`, `RELEASE_READINESS.md`. External rows are A05, A14, A17, H07, H08 and K08; all executable local acceptance rows are complete.

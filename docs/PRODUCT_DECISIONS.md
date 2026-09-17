@@ -15,6 +15,6 @@ Accepted for isolated implementation on 2026-09-17. Risk: high; environment: loc
 | Additional channels | Complete portable blog/newsletter/ad/script drafts and exports. No unspecified CMS/mail/ads write provider is invented. Private community input requires an authorized import and retains its origin; no scraping or automatic replies. |
 | Visual identity | Original EDS logo, Arctic Blue and Liquid Glass, EN/DE and responsive desktop/mobile controls. Four bounded template PNG formats are implemented. Optional generated-image production is not part of this RC. |
 | Hosting | Isolated standalone and shared-host Compose variants tested on Linux ARM64. Shared mode publishes no application/database/Redis host ports. CPU/RAM/PID bounds are measured; disk I/O and sustained production capacity are not guaranteed. |
-| Release rights | Local and unpublished. Code license and original-brand distribution rights require an owner decision before public release. No framework license is assumed to grant rights to all application code or brand assets. |
+| Release rights | Private repository at `EDS-Labs/eds-orbit`. Code license and original-brand distribution rights require an owner decision before any public release. No framework license is assumed to grant rights to all application code or brand assets. |
 
 Detailed tradeoffs are in `docs/adr`, `KNOWLEDGE_ARCHITECTURE.md`, `AUTONOMY_POLICY.md`, `MODEL_ROUTING.md` and `CONNECTOR_CAPABILITIES.md`. Acceptance is recorded separately from these design decisions in `ACCEPTANCE_REPORT.md`.
