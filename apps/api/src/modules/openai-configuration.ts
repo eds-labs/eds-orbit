@@ -13,7 +13,7 @@ const key = z.string().trim().min(20).max(1000);
 export const openAiConfigurationInput = z
   .object({
     apiKey: key.optional(),
-    verifiedModels: z.array(z.string().trim().min(1).max(120)).min(1).max(20),
+    verifiedModels: z.array(z.string().trim().min(1).max(120)).max(20),
     rateCard: rateCardSchema,
     modelRoutes: z.object({
       fast: z.string().trim().min(1).max(120),
@@ -26,13 +26,11 @@ export const openAiConfigurationInput = z
   .superRefine((value, context) => {
     if (new Set(value.verifiedModels).size !== value.verifiedModels.length)
       context.addIssue({ code: "custom", message: "DUPLICATE_MODEL" });
-    if (!Object.keys(value.rateCard).length)
-      context.addIssue({ code: "custom", message: "RATE_CARD_REQUIRED" });
     if (Object.keys(value.rateCard).length > 20)
       context.addIssue({ code: "custom", message: "RATE_CARD_LIMIT" });
     // Escalation remains deliberately unavailable until its model is explicitly verified.
     // `route` enforces that runtime capability gate when an escalation is requested.
-    if ([value.modelRoutes.fast, value.modelRoutes.standard, value.modelRoutes.quality].some((model) => !value.verifiedModels.includes(model)))
+    if (value.verifiedModels.length && [value.modelRoutes.fast, value.modelRoutes.standard, value.modelRoutes.quality].some((model) => !value.verifiedModels.includes(model)))
       context.addIssue({ code: "custom", message: "ROUTED_MODEL_NOT_VERIFIED" });
   });
 
