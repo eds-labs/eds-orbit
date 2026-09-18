@@ -694,7 +694,7 @@ function ImportCenter() {
         ...(row.market ? { market: String(row.market) } : {}), publicUse: row.publicUse === true || row.publicUse === "true",
         modelUse: row.modelUse === true || row.modelUse === "true",
       }));
-      setPayload(JSON.stringify({ name: file.name.replace(/\.(csv|json)$/i, ""), sourceType: "verified_facts", authority: "official", publicUse: false, modelUse: false, documents: [], facts }, null, 2));
+      setPayload(JSON.stringify({ name: file.name.replace(/\.(csv|json)$/i, ""), sourceType: "verified_facts", authority: "official", publicUse: facts.some((row) => row.publicUse), modelUse: facts.some((row) => row.modelUse), documents: [], facts }, null, 2));
       setPreview(null); setFileError(null);
     } catch (error) { setFileError(error instanceof Error ? error.message : "The file could not be read."); }
   };
