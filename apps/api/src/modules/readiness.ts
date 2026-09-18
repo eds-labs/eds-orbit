@@ -2,6 +2,7 @@ import { validateActiveIndexEvaluation } from "../../../../packages/knowledge/sr
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, list } from "../shared.ts";
+import { publicOpenAiConfiguration } from "./openai-configuration.ts";
 export async function readiness(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
@@ -39,9 +40,16 @@ export async function readiness(tx: DbTx, scope: Scope) {
       p.monthlyBudgetMicros > 0 &&
       p.perRunBudgetMicros > 0,
     );
-  const model = Boolean(
-      process.env.OPENAI_API_KEY && process.env.OPENAI_VERIFIED_MODELS,
+  const openAi = publicOpenAiConfiguration(
+      await tx.entity.findFirst({
+        where: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          kind: "openai_configuration",
+        },
+      }),
     ),
+    model = Boolean(openAi.configured && openAi.verifiedModels.length),
     evaluation = await validateActiveIndexEvaluation(tx, scope),
     evals = evaluation.valid;
   const publisher = connectors.find(

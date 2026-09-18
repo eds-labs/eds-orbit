@@ -42,6 +42,10 @@ import {
 } from "./modules/slack.ts";
 import { readiness } from "./modules/readiness.ts";
 import {
+  publicOpenAiConfiguration,
+  saveOpenAiConfiguration,
+} from "./modules/openai-configuration.ts";
+import {
   correctMetric,
   memoryLifecycle,
   evaluateExperiment,
@@ -123,6 +127,7 @@ const factSchema = z
   })
   .strict();
 import { retrieveHybrid } from "./modules/retrieval.ts";
+import { commitKnowledgeImport, importPreview, knowledgeImportInput, retryKnowledgeImport } from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
 export async function buildServer(diagnostic?: (error: unknown) => void) {
@@ -439,6 +444,21 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       exceptions: await list(tx, scope, "exceptions"),
     }));
   });
+  app.get("/api/projects/:projectId/openai-configuration", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, false, true);
+    return scoped(scope.workspaceId, projectId, async (tx) =>
+      publicOpenAiConfiguration(
+        await tx.entity.findFirst({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId,
+            kind: "openai_configuration",
+          },
+        }),
+      ),
+    );
+  });
   app.get("/api/projects/:projectId/knowledge-health", async (req) => {
     const { projectId } = req.params as any,
       scope = await scopeFor(auth, req, projectId);
@@ -746,6 +766,9 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "memory-lifecycle",
       "retention",
       "stop-experiment",
+      "openai-configure",
+      "knowledge-import-commit",
+      "knowledge-import-retry",
     ].includes(action);
     const scope = await scopeFor(
       auth,
@@ -772,6 +795,17 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           .parse(input.sourceIds),
       });
     }
+    if (action === "openai-configure")
+      return scoped(scope.workspaceId, projectId, async (tx) => {
+        const result = await saveOpenAiConfiguration(tx, scope, input);
+        await audit(tx, scope, "openai_configuration.update", "openai_configuration", {
+          configured: result.configured,
+          source: result.source,
+          modelCount: result.verifiedModels.length,
+        });
+        return result;
+      });
+    if (action === "knowledge-import-preview") return importPreview(knowledgeImportInput.parse(input));
     if (action === "import-matomo")
       return importMatomoReport(scope, matomoImportInput.parse(input));
     if (action === "postiz-test-execute")
@@ -882,6 +916,8 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       });
     }
     return scoped(scope.workspaceId, projectId, async (tx) => {
+      if (action === "knowledge-import-commit") return commitKnowledgeImport(tx, scope, knowledgeImportInput.parse(input));
+      if (action === "knowledge-import-retry") return retryKnowledgeImport(tx, scope, schemas.id.parse(input.importId), knowledgeImportInput.parse(input.payload));
       if (action === "editorial-propose-brief")
         return proposeBrief(briefProposalInput.parse(input));
       if (action === "community-import")

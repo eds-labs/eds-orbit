@@ -10,6 +10,7 @@ import { create, data, entity, update, DomainError } from "../shared.ts";
 import { activePolicy } from "./policy.ts";
 import { reserve, markTransmitted, settle } from "./budget.ts";
 import { enqueue } from "./workflow.ts";
+import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 export const indexEvaluationRequest = z
   .object({
     indexId: z.uuid(),
@@ -111,10 +112,12 @@ export async function runIndexEvaluation(
     );
     const cases = r.cases.slice(r.batch * 32, (r.batch + 1) * 32);
     if (!cases.length) throw new DomainError("EVALUATION_BATCH_INVALID");
+    const ai = await runtimeOpenAiConfiguration(tx, s);
     const amount = estimateCost(
       index.model,
       cases.reduce((n: number, c: any) => n + Buffer.byteLength(c.query), 0),
       0,
+      ai,
     );
     const reservation = await reserve(
       tx,
@@ -135,6 +138,7 @@ export async function runIndexEvaluation(
       policyId: p.id,
       policyVersion: p.version,
       reservationId: reservation.id,
+      ai,
     };
   });
   if (!prepared) return { unchanged: true };
@@ -145,6 +149,7 @@ export async function runIndexEvaluation(
       prepared.reservationId,
       true,
       { model: prepared.index.model, dimensions: prepared.index.dimensions },
+      prepared.ai,
     );
   } catch {
     await run((tx) => settle(tx, s, prepared.reservationId, null));

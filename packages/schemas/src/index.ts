@@ -23,6 +23,7 @@ export const collections = [
   "index_evaluations",
   "work_packages",
   "followup_plans",
+  "knowledge_imports",
   "community_questions",
   "community_groups",
 ] as const;

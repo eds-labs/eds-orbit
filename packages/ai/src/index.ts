@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { z } from "zod";
-import { routeTask, embeddingProfile } from "../../config/src/index.ts";
+import { routeTask, embeddingProfile, modelRoutes } from "../../config/src/index.ts";
 const structuredOutput = z.object({
   title: z.string().max(200),
   body: z.string().max(40000),
@@ -26,26 +26,43 @@ export type Rate = {
   outputMicrosPerMillion: number;
   verifiedAt: string;
 };
-export function rateCard(): Record<string, Rate> {
+export const rateCardSchema = z.record(
+  z.string(),
+  z.object({
+    inputMicrosPerMillion: z.number().nonnegative(),
+    outputMicrosPerMillion: z.number().nonnegative(),
+    verifiedAt: z.iso.datetime(),
+  }),
+);
+export type OpenAiRuntimeConfig = {
+  apiKey?: string;
+  verifiedModels: string[];
+  rateCard: Record<string, Rate>;
+  modelRoutes?: Record<keyof typeof modelRoutes, string>;
+};
+export function environmentRuntimeConfig(): OpenAiRuntimeConfig {
   const raw = process.env.OPENAI_RATE_CARD_JSON;
-  if (!raw) throw new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
-  return z
-    .record(
-      z.string(),
-      z.object({
-        inputMicrosPerMillion: z.number().nonnegative(),
-        outputMicrosPerMillion: z.number().nonnegative(),
-        verifiedAt: z.iso.datetime(),
-      }),
-    )
-    .parse(JSON.parse(raw));
+  return {
+    apiKey: process.env.OPENAI_API_KEY,
+    verifiedModels: (process.env.OPENAI_VERIFIED_MODELS ?? "")
+      .split(",")
+      .map((model) => model.trim())
+      .filter(Boolean),
+    rateCard: raw ? rateCardSchema.parse(JSON.parse(raw)) : {},
+  };
+}
+export function rateCard(runtime = environmentRuntimeConfig()): Record<string, Rate> {
+  if (!Object.keys(runtime.rateCard).length)
+    throw new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
+  return runtime.rateCard;
 }
 export function estimateCost(
   model: string,
   inputTokens: number,
   outputTokens: number,
+  runtime = environmentRuntimeConfig(),
 ) {
-  const rate = rateCard()[model];
+  const rate = rateCard(runtime)[model];
   if (!rate || Date.now() - new Date(rate.verifiedAt).valueOf() > 31 * 86400000)
     throw new Error("CURRENT_PRICE_REQUIRED");
   return Math.max(
@@ -57,10 +74,23 @@ export function estimateCost(
     ),
   );
 }
-export function route(task: string, attempt = 0, escalations = 0) {
-  const model = routeTask(task, attempt, escalations);
-  const verified = (process.env.OPENAI_VERIFIED_MODELS ?? "").split(",");
-  if (!verified.includes(model))
+export function route(
+  task: string,
+  attempt = 0,
+  escalations = 0,
+  runtime = environmentRuntimeConfig(),
+) {
+  const defaultModel = routeTask(task, attempt, escalations);
+  const model = runtime.modelRoutes
+    ? attempt === 2
+      ? runtime.modelRoutes.escalation
+      : ["classify", "extract", "metadata"].includes(task)
+        ? runtime.modelRoutes.fast
+        : ["plan", "blog", "review", "conflict"].includes(task)
+          ? runtime.modelRoutes.quality
+          : runtime.modelRoutes.standard
+    : defaultModel;
+  if (!runtime.verifiedModels.includes(model))
     throw new Error("MODEL_CAPABILITY_NOT_VERIFIED");
   return model;
 }
@@ -70,12 +100,14 @@ export async function generate(params: {
   evidence: unknown;
   model: string;
   reservationId: string;
+  runtime?: OpenAiRuntimeConfig;
   signal?: AbortSignal;
 }) {
-  if (!process.env.OPENAI_API_KEY || !params.reservationId)
+  const runtime = params.runtime ?? environmentRuntimeConfig();
+  if (!runtime.apiKey || !params.reservationId)
     throw new Error("PAID_CALL_NOT_AUTHORIZED");
   const api = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: runtime.apiKey,
     maxRetries: 0,
     timeout: 45000,
   });
@@ -136,7 +168,7 @@ export async function generate(params: {
       model: params.model,
       inputTokens,
       outputTokens,
-      costMicros: estimateCost(params.model, inputTokens, outputTokens),
+      costMicros: estimateCost(params.model, inputTokens, outputTokens, runtime),
     },
   };
 }
@@ -145,9 +177,10 @@ export async function embed(
   reservationId: string,
   modelUse: boolean,
   profile: {model:string;dimensions:number}=embeddingProfile,
+  runtime = environmentRuntimeConfig(),
 ) {
   if(!["text-embedding-3-small","text-embedding-3-large"].includes(profile.model)||![1536,3072].includes(profile.dimensions)||(profile.model==="text-embedding-3-small"&&profile.dimensions!==1536))throw new Error("UNSUPPORTED_EMBEDDING_PROFILE");
-  if (!modelUse || !reservationId || !process.env.OPENAI_API_KEY)
+  if (!modelUse || !reservationId || !runtime.apiKey)
     throw new Error("EMBEDDING_NOT_AUTHORIZED");
   if (
     texts.length < 1 ||
@@ -156,13 +189,11 @@ export async function embed(
   )
     throw new Error("EMBEDDING_BATCH_LIMIT");
   if (
-    !(process.env.OPENAI_VERIFIED_MODELS ?? "")
-      .split(",")
-      .includes(profile.model)
+    !runtime.verifiedModels.includes(profile.model)
   )
     throw new Error("EMBEDDING_MODEL_NOT_VERIFIED");
   const api = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey: runtime.apiKey,
     maxRetries: 0,
     timeout: 45000,
   });
@@ -193,6 +224,7 @@ export async function embed(
         profile.model,
         result.usage.total_tokens,
         0,
+        runtime,
       ),
     },
   };

@@ -1037,6 +1037,7 @@ export function ProjectSettings() {
   );
   const policies = useCollection("policies");
   const [policy, setPolicy] = useState(false),
+    [openAi, setOpenAi] = useState(false),
     [selected, setSelected] = useState<Entity | null>(null);
   const d = dashboard.data;
   return (
@@ -1143,6 +1144,10 @@ export function ProjectSettings() {
               <Wallet />
               Set budget and routine boundaries
             </button>
+            <button onClick={() => setOpenAi(true)} disabled={!isOwner}>
+              <Brain />
+              Configure OpenAI
+            </button>
           </div>
         </section>
       </div>
@@ -1185,12 +1190,13 @@ export function ProjectSettings() {
       <BrandApproval />
       <ProjectAdministration />
       <Alert>
-        OpenAI model access and an approved cost limit must be configured on
-        your self-hosted server. Credentials alone do not establish readiness.
-        Paid text, embedding and image operations share the same budget
-        controls.
+        OpenAI credentials, verified models and current prices can be managed
+        here by an owner. The approved daily, monthly and per-run limits remain
+        versioned operating-policy controls. Neither setting enables paid calls
+        or Autopilot by itself.
       </Alert>
       {policy && <PolicyEditor onClose={() => setPolicy(false)} />}
+      {openAi && <OpenAiConfiguration onClose={() => setOpenAi(false)} />}
       {selected && (
         <RecordDetail entity={selected} onClose={() => setSelected(null)} />
       )}
@@ -1198,6 +1204,111 @@ export function ProjectSettings() {
   );
 }
 const BookOpenIcon = FileText;
+type OpenAiConfigurationView = {
+  configured: boolean;
+  source: "orbit" | "environment" | "none";
+  verifiedModels: string[];
+  rateCard: Record<
+    string,
+    {
+      inputMicrosPerMillion: number;
+      outputMicrosPerMillion: number;
+      verifiedAt: string;
+    }
+  >;
+  modelRoutes: { fast: string; standard: string; quality: string; escalation: string };
+  updatedAt?: string;
+};
+function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
+  const { project, refresh } = useWorkspace();
+  const configuration = useResource<OpenAiConfigurationView>(
+    collectionPath(project.id, "openai-configuration"),
+  );
+  const mutation = useMutation(() => {
+    refresh();
+    onClose();
+  });
+  const current = configuration.data;
+  const fields: FormField[] = [
+    {
+      name: "apiKey",
+      label: current?.source === "orbit"
+        ? "OpenAI API key (leave blank to keep the current key)"
+        : "OpenAI API key",
+      type: "password",
+      required: current?.source !== "orbit",
+      min: 20,
+      max: 1000,
+      hint: "Encrypted server-side. It is never displayed after saving.",
+    },
+    {
+      name: "verifiedModels",
+      label: "Verified model IDs (comma separated)",
+      required: true,
+      value: current?.verifiedModels.join(", ") ?? "",
+      placeholder: "gpt-5.6-terra, text-embedding-3-small",
+    },
+    ...(["fast", "standard", "quality", "escalation"] as const).map((route) => ({
+      name: `model-${route}`,
+      label: `${route.charAt(0).toUpperCase() + route.slice(1)} task model`,
+      required: true,
+      value: current?.modelRoutes?.[route] ?? "",
+    })),
+    {
+      name: "rateCard",
+      label: "Current OpenAI rate card (JSON, USD micros per million tokens)",
+      type: "textarea",
+      required: true,
+      value: JSON.stringify(current?.rateCard ?? {}, null, 2),
+      hint: "Each model needs inputMicrosPerMillion, outputMicrosPerMillion and an ISO verifiedAt date.",
+    },
+  ];
+  return (
+    <Modal title="OpenAI configuration" onClose={onClose}>
+      <p className="panel-note">
+        {current?.configured
+          ? `Configured through ${current.source}${current.updatedAt ? ` · updated ${when(current.updatedAt)}` : ""}.`
+          : "No application OpenAI configuration is saved yet."}
+      </p>
+      <Alert>
+        Saving replaces the key immediately for new work. Existing budget,
+        evidence-rights and policy checks still apply before any OpenAI call.
+      </Alert>
+      <DataForm
+        fields={fields}
+        pending={mutation.pending || configuration.loading}
+        error={mutation.error || configuration.error?.message}
+        submitLabel="Save OpenAI configuration"
+        onCancel={onClose}
+        onSubmit={(values) =>
+          mutation.run(() => {
+            let rateCard: unknown;
+            try {
+              rateCard = JSON.parse(String(values.rateCard));
+            } catch {
+              throw new Error("RATE_CARD_JSON_INVALID");
+            }
+            const apiKey = String(values.apiKey).trim();
+            return action(project.id, "openai-configure", {
+              ...(apiKey ? { apiKey } : {}),
+              verifiedModels: String(values.verifiedModels)
+                .split(",")
+                .map((model) => model.trim())
+                .filter(Boolean),
+              rateCard,
+              modelRoutes: {
+                fast: String(values["model-fast"]),
+                standard: String(values["model-standard"]),
+                quality: String(values["model-quality"]),
+                escalation: String(values["model-escalation"]),
+              },
+            });
+          })
+        }
+      />
+    </Modal>
+  );
+}
 function PolicyEditor({ onClose }: { onClose: () => void }) {
   const { project, t, refresh } = useWorkspace();
   const mutation = useMutation(() => {

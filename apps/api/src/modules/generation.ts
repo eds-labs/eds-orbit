@@ -23,6 +23,7 @@ import {
   hash,
 } from "../shared.ts";
 import { policy } from "../../../../packages/schemas/src/index.ts";
+import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 export async function generateMissionLive(
   scope: Scope,
   missionId: string,
@@ -70,7 +71,12 @@ export async function generateMissionLive(
         },
       });
       if (reservation) throw new DomainError("RESERVATION_ALREADY_USED");
-      route(m.contentType === "blog" ? "blog" : "draft");
+      route(
+        m.contentType === "blog" ? "blog" : "draft",
+        0,
+        0,
+        await runtimeOpenAiConfiguration(tx, scope),
+      );
       return mission;
     },
   );
@@ -114,7 +120,8 @@ export async function generateMissionLive(
         throw new DomainError("EVIDENCE_INVALID");
       if (data(evidence).status !== "ready")
         throw new DomainError("INSUFFICIENT_MODEL_APPROVED_EVIDENCE");
-      const model = route(m.contentType === "blog" ? "blog" : "draft");
+      const ai = await runtimeOpenAiConfiguration(tx, scope);
+      const model = route(m.contentType === "blog" ? "blog" : "draft", 0, 0, ai);
       const p = await activePolicy(tx, scope);
       if (!p) throw new DomainError("POLICY_REQUIRED");
       const parsed = policy.parse(
@@ -144,6 +151,7 @@ export async function generateMissionLive(
         Buffer.byteLength(JSON.stringify({ goal, evidence: data(evidence) })) +
           4000,
         1800,
+        ai,
       );
       const reservation = await reserve(
         tx,
@@ -161,6 +169,7 @@ export async function generateMissionLive(
         evidence,
         model,
         reservationId: reservation.id,
+        ai,
         projectGeneration: project.generation,
         policyId: p.id,
         policyVersion: p.version,
@@ -198,6 +207,7 @@ export async function generateMissionLive(
       evidence: data(prepared.evidence),
       model: prepared.model,
       reservationId: prepared.reservationId,
+      runtime: prepared.ai,
     });
   } catch {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>

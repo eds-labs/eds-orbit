@@ -15,6 +15,7 @@ import { reserve, settle, markTransmitted } from "./budget.ts";
 import { activePolicy } from "./policy.ts";
 import { policy } from "../../../../packages/schemas/src/index.ts";
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
+import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 export async function syncSource(scope: Scope, requestId: string) {
   const prepared = await scoped(
     scope.workspaceId,
@@ -99,10 +100,12 @@ export async function embedDocument(
         ),
       );
       const texts = version.chunks.map((x) => x.text);
+      const ai = await runtimeOpenAiConfiguration(tx, scope);
       const amount = estimateCost(
         "text-embedding-3-small",
         texts.reduce((n, x) => n + Buffer.byteLength(x), 0),
         0,
+        ai,
       );
       const reserved = await reserve(
         tx,
@@ -121,6 +124,7 @@ export async function embedDocument(
         reservationId: reserved.id,
         policyId: p.id,
         policyVersion: p.version,
+        ai,
       };
     },
   );
@@ -152,7 +156,7 @@ export async function embedDocument(
   });
   let result: Awaited<ReturnType<typeof embed>>;
   try {
-    result = await embed(prepared.texts, prepared.reservationId, true);
+    result = await embed(prepared.texts, prepared.reservationId, true, undefined, prepared.ai);
   } catch {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),

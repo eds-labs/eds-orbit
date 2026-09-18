@@ -9,6 +9,7 @@ import {
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
 import { reserve, markTransmitted, settle } from "./budget.ts";
 import { activePolicy } from "./policy.ts";
+import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { enqueue } from "./workflow.ts";
 import { data, entity, DomainError } from "../shared.ts";
 /** One bounded batch per durable job. It never activates its own index. */
@@ -70,10 +71,12 @@ export async function buildIndexBatch(
           ),
         ),
       );
+      const ai = await runtimeOpenAiConfiguration(tx, scope);
       const amount = estimateCost(
         index.model,
         texts.reduce((n, t) => n + Buffer.byteLength(t), 0),
         0,
+        ai,
       );
       const reservation = await reserve(
         tx,
@@ -93,6 +96,7 @@ export async function buildIndexBatch(
         reservationId: reservation.id,
         policyId: p.id,
         policyVersion: p.version,
+        ai,
       };
     },
   );
@@ -126,7 +130,7 @@ export async function buildIndexBatch(
     output = await embed(prepared.texts, prepared.reservationId, true, {
       model: prepared.index.model,
       dimensions: prepared.index.dimensions,
-    });
+    }, prepared.ai);
   } catch {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),

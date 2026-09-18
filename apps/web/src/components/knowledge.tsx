@@ -16,6 +16,7 @@ import {
   Pause,
   Trash2,
   FlaskConical,
+  Download,
 } from "lucide-react";
 import {
   action,
@@ -60,11 +61,14 @@ import {
 type Health = Record<string, unknown>;
 export function Knowledge() {
   const { t, locale, project, revision, canEdit, isOwner } = useWorkspace();
-  const [tab, setTab] = useState("sources"),
+  const [tab, setTab] = useState("overview"),
     [add, setAdd] = useState(false);
   const tabs = [
+    ["overview", "Overview"],
     ["sources", t("sources")],
     ["facts", t("factTab")],
+    ["import", "Import"],
+    ["conflicts", "Conflicts"],
     ["library", t("library")],
     ["health", t("health")],
     ["inspector", t("inspector")],
@@ -88,9 +92,15 @@ export function Knowledge() {
           setAdd(false);
         }}
       />
-      {tab === "sources" ? (
+      {tab === "overview" ? (
+        <KnowledgeHealth impact={false} />
+      ) : tab === "sources" ? (
         <Sources />
       ) : tab === "facts" ? (
+        <Facts />
+      ) : tab === "import" ? (
+        <ImportCenter />
+      ) : tab === "conflicts" ? (
         <Facts />
       ) : tab === "library" ? (
         <Library />
@@ -651,6 +661,39 @@ function ImportSource({
       />
     </Modal>
   );
+}
+function ImportCenter() {
+  const { project, locale, refresh, isOwner } = useWorkspace();
+  const history = useCollection("knowledge_imports");
+  const [payload, setPayload] = useState(JSON.stringify({
+    name: "Product documentation", sourceType: "url_list", authority: "website", publicUse: false, modelUse: false,
+    allowedOrigins: [], allowedPaths: ["/"], maxAgeHours: 168,
+    documents: [{ externalId: "page-1", title: "Page title", text: "Paste Markdown, TXT, HTML, or extracted file text here.", mimeType: "text/markdown", language: "en", selected: true }], facts: [],
+  }, null, 2));
+  const [preview, setPreview] = useState<Record<string, any> | null>(null);
+  const mutation = useMutation(() => refresh());
+  const download = (name: string, content: string) => {
+    const a = document.createElement("a"); a.href = `data:text/plain;charset=utf-8,${encodeURIComponent(content)}`; a.download = name; a.click();
+  };
+  const parsed = () => JSON.parse(payload);
+  return <section className="panel stack-gap">
+    <div className="panel-head"><div><h2>{locale === "de" ? "Knowledge Import Center" : "Knowledge Import Center"}</h2><p>{locale === "de" ? "Vorschau und Validierung erfolgen vor dem Commit. Historische Inhalte bleiben getrennt von Faktenbelegen." : "Preview and validation happen before commit. Historical content stays separate from factual evidence."}</p></div></div>
+    <div className="form-actions">
+      <Button variant="outline" onClick={() => download("orbit-verified-facts.csv", "key,value,valueType,language,validFrom,publicUse,modelUse\nproduct.status,active,status,en,2026-01-01T00:00:00.000Z,false,false\n")}><Download data-icon="inline-start" />CSV facts template</Button>
+      <Button variant="outline" onClick={() => download("orbit-verified-facts.json", JSON.stringify({ facts: [{ key: "product.status", value: "active", valueType: "status", language: "en", validFrom: "2026-01-01T00:00:00.000Z", publicUse: false, modelUse: false }] }, null, 2))}><Download data-icon="inline-start" />JSON facts template</Button>
+    </div>
+    <label htmlFor="knowledge-import-payload">Import payload (website/GitBook URLs may be discovered and selected by the importer; files use text or base64 content)</label>
+    <textarea id="knowledge-import-payload" className="input min-h-80 font-mono text-xs" value={payload} onChange={(event) => { setPayload(event.target.value); setPreview(null); }} aria-describedby="knowledge-import-help" />
+    <p id="knowledge-import-help">Source types: website, gitbook, url, url_list, file, verified_facts, historical.</p>
+    {preview && <Alert kind={preview.ready ? "success" : "warning"}>{preview.ready ? `${preview.documents?.length ?? 0} documents and ${preview.factCount ?? 0} facts are ready.` : `Resolve: ${(preview.errors ?? []).map((x: any) => x.code).join(", ")}`}</Alert>}
+    {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+    <div className="form-actions">
+      <Button variant="outline" disabled={mutation.pending} onClick={() => mutation.run(() => action(project.id, "knowledge-import-preview", parsed())).then((value) => { if (value) setPreview(value as Record<string, any>); })}>Preview import</Button>
+      <Button disabled={!isOwner || !preview?.ready || mutation.pending} onClick={() => mutation.run(() => action(project.id, "knowledge-import-commit", parsed())).then(() => setPreview(null))}>Commit selected import</Button>
+    </div>
+    <h3>{locale === "de" ? "Import-Verlauf" : "Import history"}</h3>
+    {history.data?.items.length ? <EntityRows items={history.data.items} fields={["name", "sourceType", "status", "completed", "failed", "completedAt"]} /> : <p>{locale === "de" ? "Noch keine Importe in diesem Projekt." : "No imports for this project yet."}</p>}
+  </section>;
 }
 function Facts() {
   const { t, locale, project, isOwner } = useWorkspace();

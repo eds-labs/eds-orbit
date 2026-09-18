@@ -9,6 +9,7 @@ import {
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { policy } from "../../../../packages/schemas/src/index.ts";
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
+import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { activePolicy } from "./policy.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
 import { data, DomainError, create, entity, hash } from "../shared.ts";
@@ -74,10 +75,12 @@ export async function retrieveHybrid(
         where: { id: scope.projectId },
       });
       if (project.paused) throw new DomainError("PROJECT_PAUSED");
+      const ai = await runtimeOpenAiConfiguration(tx, scope);
       const amount = estimateCost(
         index.model,
         Buffer.byteLength(input.query),
         0,
+        ai,
       );
       const reservation = await reserve(
         tx,
@@ -96,6 +99,7 @@ export async function retrieveHybrid(
         projectGeneration: project.generation,
         policyId: p.id,
         policyVersion: p.version,
+        ai,
       };
     },
   );
@@ -104,7 +108,7 @@ export async function retrieveHybrid(
     result = await embed([input.query], prepared.reservationId, true, {
       model: prepared.index.model,
       dimensions: prepared.index.dimensions,
-    });
+    }, prepared.ai);
   } catch {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),
