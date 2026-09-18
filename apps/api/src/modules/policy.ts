@@ -1,5 +1,7 @@
 import { calendarConflicts } from "./calendar.ts";
+import { invalidateContent } from "./content-invalidation.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
+import { profileGuardrailProblems } from "./marketing-profile.ts";
 import {
   policy as policySchema,
   type Scope,
@@ -129,6 +131,7 @@ export async function checkClaims(
     problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
   if (v.type === "social" && v.body.length > 280)
     problems.push("CHANNEL_LIMIT_EXCEEDED");
+  problems.push(...(await profileGuardrailProblems(tx, scope, v)));
   return { valid: problems.length === 0, problems: [...new Set(problems)] };
 }
 export async function preflight(
@@ -147,6 +150,8 @@ export async function preflight(
     where: { id: scope.projectId },
   });
   if (project.paused) blockers.push("PROJECT_PAUSED");
+  if (!c.synthetic && (!c.missionId || !c.campaignType || !c.profileVersion))
+    blockers.push("CAMPAIGN_MISSION_REQUIRED");
   if (c.missionId) {
     const mission = await entity(tx, scope, "missions", c.missionId),
       m = data(mission);
@@ -248,6 +253,7 @@ export async function preflight(
     const asset = await entity(tx, scope, "assets", c.assetId);
     if (
       !data(asset).usageApproved ||
+      data(asset).assetStatus !== "approved" ||
       data(asset).mime !== "image/png" ||
       !data(asset).base64
     )
@@ -333,22 +339,4 @@ export async function approve(
     userId: scope.userId,
     expiresAt: new Date(Date.now() + 86400000).toISOString(),
   });
-}
-export async function invalidateContent(tx: DbTx, scope: Scope, id: string) {
-  for (const kind of ["approvals", "publications"])
-    for (const row of await list(tx, scope, kind))
-      if (
-        data(row).contentId === id &&
-        ![
-          "published",
-          "published_test",
-          "canceled",
-          "outcome_unknown",
-        ].includes(data(row).status)
-      )
-        await update(tx, scope, row, {
-          ...data(row),
-          status: "blocked_dependency",
-          reason: "CONTENT_CHANGED",
-        });
 }

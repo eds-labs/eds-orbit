@@ -2,6 +2,17 @@
 
 Checkpoint: 2026-09-17, 15:39 Europe/Berlin. Integrated application and both isolated Linux hosting variants passed local acceptance; this is not production authorization.
 
+## Configuration-parity checkpoint (2026-09-18)
+
+The historical acceptance summary below proves the prior backend and UI scope only. It must not be read as proof that the uLiquid marketing-profile workflow was available end to end.
+
+- Implemented locally: versioned owner-only marketing profiles, immutable profile history, product/presale campaign typing, profile-bound content validation, profile-change invalidation, approved-asset status, and campaign-aware publication preflight.
+- Preserved: existing facts, sources, assets, preferences, missions and content are not rewritten by the migration. Legacy human-authored content remains visible but is blocked from publication until an owner explicitly links it to a profile-bound mission.
+- Verified in this checkpoint: generated Prisma client and whole-project TypeScript checks; focused contract tests cover profile and campaign payload bounds.
+- Not yet claimed: a full browser acceptance run for the new configuration flow, an applied local database migration against a disposable database, or external provider capability proof.
+
+See `docs/CONFIGURATION_PARITY.md` for the acceptance matrix and the distinct external gates.
+
 ## Current verified state
 
 - Framework 1.1.0 missing-only merge; actual archive mismatch documented. Full schema/YAML validation:0 errors/0 warnings;12 framework tests passed. Narrow restore-source/evidence filename exceptions retain duplicate-file checks.

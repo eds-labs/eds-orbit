@@ -67,6 +67,7 @@ import {
 } from "./form";
 import {
   BrandApproval,
+  MarketingProfileConfiguration,
   MetricCsvImport,
   PreferenceActions,
   ProjectAdministration,
@@ -1188,6 +1189,7 @@ export function ProjectSettings() {
       </section>
       <RetentionControl />
       <BrandApproval />
+      <MarketingProfileConfiguration />
       <ProjectAdministration />
       <Alert>
         OpenAI credentials, verified models and current prices can be managed

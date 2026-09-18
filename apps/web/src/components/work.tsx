@@ -578,6 +578,10 @@ export function MissionEditor({
 }) {
   const { project, t, locale, isOwner, refresh } = useWorkspace();
   const sources = useCollection("sources");
+  const profile = useResource<{
+    version: number;
+    data: Record<string, unknown>;
+  } | null>(`/projects/${project.id}/marketing-profile`);
   const mutation = useMutation(() => {
     refresh();
     onClose();
@@ -633,6 +637,17 @@ export function MissionEditor({
         "community",
       ]),
       value: "social",
+    },
+    {
+      name: "campaignType",
+      label: de ? "Kampagnenbereich" : "Campaign area",
+      type: "select",
+      value: "product",
+      options: [
+        { value: "product", label: "Product marketing" },
+        { value: "presale", label: "ULIQ presale" },
+      ],
+      hint: "A campaign belongs to exactly one area. Cross-area content is blocked.",
     },
     {
       name: "channels",
@@ -696,8 +711,12 @@ export function MissionEditor({
         onCancel={onClose}
         onSubmit={(v) =>
           mutation
-            .run(() =>
-              post(collectionPath(project.id, "missions"), {
+            .run(() => {
+              if (!profile.data)
+                throw new Error(
+                  "Configure the project marketing profile before creating a campaign.",
+                );
+              return post(collectionPath(project.id, "missions"), {
                 title: str(v, "title"),
                 product: str(v, "product"),
                 allowedTopics: csv(v, "allowedTopics"),
@@ -720,8 +739,10 @@ export function MissionEditor({
                   : {}),
                 sourceIds: [str(v, "sourceId")],
                 contentType: str(v, "contentType"),
-              }),
-            )
+                campaignType: str(v, "campaignType"),
+                profileVersion: profile.data.version,
+              });
+            })
             .then(() => {})
         }
       />
@@ -853,7 +874,8 @@ export function ContentEditor({
 }) {
   const { project, t, refresh } = useWorkspace();
   const evidence = useCollection("evidence"),
-    facts = useCollection("facts");
+    facts = useCollection("facts"),
+    missions = useCollection("missions");
   const mutation = useMutation(() => {
     refresh();
     onClose();
@@ -900,6 +922,18 @@ export function ContentEditor({
       label: "Channel",
       required: true,
       value: d?.channel as string,
+    },
+    {
+      name: "missionId",
+      label: "Campaign",
+      type: "select",
+      required: true,
+      value: d?.missionId as string,
+      options: (missions.data?.items || []).map((mission) => ({
+        value: mission.id,
+        label: `${value(mission, "title")} · ${value(mission, "campaignType", "legacy")}`,
+      })),
+      hint: "Every new draft belongs to one product or presale campaign.",
     },
     {
       name: "evidenceId",
@@ -1067,6 +1101,7 @@ export function ContentEditor({
                 type: str(v, "type"),
                 language: str(v, "language"),
                 channel: str(v, "channel"),
+                missionId: str(v, "missionId"),
                 evidenceId: str(v, "evidenceId"),
                 claims: str(v, "claim")
                   ? [
@@ -1126,7 +1161,17 @@ export function ContentEditor({
                     }
                   : {}),
                 risk: str(v, "risk"),
-                ...(d?.missionId ? { missionId: d.missionId } : {}),
+                ...(() => {
+                  const mission = (missions.data?.items || []).find(
+                    (item) => item.id === str(v, "missionId"),
+                  );
+                  return mission
+                    ? {
+                        campaignType: mission.data.campaignType,
+                        profileVersion: mission.data.profileVersion,
+                      }
+                    : {};
+                })(),
                 ...(d?.assetId ? { assetId: d.assetId } : {}),
               };
               return entity

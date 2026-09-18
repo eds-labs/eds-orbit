@@ -125,6 +125,8 @@ export async function deterministicDraft(
     body = chunk.text.slice(0, 260);
     claims = [{ kind: "quote", text: body, chunkId: chunk.id }];
   }
+  body = `${body}\n${v.targetAction}`;
+  claims.push({ kind: "style", text: v.targetAction });
   const duplicate = (await list(tx, scope, "content")).find(
     (x) => data(x).body === body && data(x).channel === channel,
   );
@@ -150,6 +152,8 @@ export async function deterministicDraft(
     language: v.language,
     channel,
     missionId,
+    campaignType: v.campaignType,
+    profileVersion: v.profileVersion,
     evidenceId,
     claims,
     risk: "routine",

@@ -65,6 +65,21 @@ async function checkedPost(
   ).toBeTruthy();
   return response.json();
 }
+async function checkedPut(
+  request: APIRequestContext,
+  path: string,
+  data: unknown,
+) {
+  const response = await request.put(path, {
+    data,
+    headers: { Origin: "http://localhost:4310" },
+  });
+  expect(
+    response.ok(),
+    `API request ${path} returned ${response.status()}`,
+  ).toBeTruthy();
+  return response.json();
+}
 async function newProject(page: Page, name: string) {
   const project = await checkedPost(page.request, "/api/projects", {
     name,
@@ -169,6 +184,56 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByRole("button", { name: "orbit.browser.status", exact: true }),
     ).toBeVisible();
+    const sourceResponse = await page.request.get(
+      `/api/projects/${projectId}/sources`,
+    );
+    const sourcePayload = await sourceResponse.json();
+    const sourceId = sourcePayload.items.find(
+      (item: { data: { name: string } }) =>
+        item.data.name === "Browser acceptance source",
+    ).id as string;
+    const websiteFact = await checkedPost(
+      page.request,
+      `/api/projects/${projectId}/facts`,
+      {
+        key: "orbit.browser.website",
+        value: "https://orbit.example.test",
+        valueType: "url",
+        language: "en",
+        sourceId,
+        validFrom: new Date(Date.now() - 3600_000).toISOString(),
+        validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(),
+        status: "verified",
+        publicUse: true,
+        modelUse: true,
+      },
+    );
+    await checkedPut(
+      page.request,
+      `/api/projects/${projectId}/marketing-profile`,
+      {
+        productName: "Orbit browser acceptance",
+        contentLanguage: "en",
+        internalLanguage: "en",
+        audience: "Synthetic acceptance audience",
+        positioning: "Synthetic local test workspace",
+        productStrategy: "Explain verified product facts",
+        presaleStrategy: "Use verified presale facts only",
+        voice: ["Clear"],
+        guardrails: ["No return claims"],
+        primaryCtas: ["Learn more."],
+        channelPriority: ["test-social"],
+        notificationPreference: "none",
+        officialLinks: [
+          {
+            label: "Website",
+            url: "https://orbit.example.test",
+            factId: websiteFact.id,
+          },
+        ],
+        assetPolicy: "approved_only",
+      },
+    );
     await page.getByRole("tab", { name: "Inspector", exact: true }).click();
     await page.getByLabel("Test question").fill("orbit.browser.status");
     await page.getByRole("button", { name: "Retrieve evidence" }).click();
@@ -205,9 +270,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .getByLabel("Describe your objective")
       .fill("Explain orbit.browser.status from approved facts.");
     await dialog.getByLabel("Audience").fill("Synthetic acceptance audience");
-    await dialog
-      .getByLabel("Measurable target action")
-      .fill("Read approved documentation");
+    await dialog.getByLabel("Measurable target action").fill("Learn more.");
     await dialog.getByLabel("Allowed channels").fill("test-social");
     await dialog.getByLabel("Maximum content packages").fill("1");
     await dialog
@@ -500,6 +563,48 @@ test("editable local brief, private community groups, calendar blocks and owner 
       maxAgeHours: 168,
     },
   );
+  const websiteFact = await checkedPost(
+    page.request,
+    `/api/projects/${projectId}/facts`,
+    {
+      key: "orbit.editorial.website",
+      value: "https://orbit.example.test/editorial",
+      valueType: "url",
+      language: "en",
+      sourceId: source.id,
+      validFrom: new Date(Date.now() - 3600_000).toISOString(),
+      validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(),
+      status: "verified",
+      publicUse: true,
+      modelUse: true,
+    },
+  );
+  await checkedPut(
+    page.request,
+    `/api/projects/${projectId}/marketing-profile`,
+    {
+      productName: "Orbit editorial acceptance",
+      contentLanguage: "en",
+      internalLanguage: "en",
+      audience: "Synthetic documentation readers",
+      positioning: "Synthetic local test workspace",
+      productStrategy: "Explain verified product facts",
+      presaleStrategy: "Use verified presale facts only",
+      voice: ["Clear"],
+      guardrails: ["No return claims"],
+      primaryCtas: ["Learn more."],
+      channelPriority: ["test-editorial"],
+      notificationPreference: "none",
+      officialLinks: [
+        {
+          label: "Website",
+          url: "https://orbit.example.test/editorial",
+          factId: websiteFact.id,
+        },
+      ],
+      assetPolicy: "approved_only",
+    },
+  );
   await page.goto("/missions");
   await page.getByRole("button", { name: "Start from a brief" }).click();
   let dialog = page.getByRole("dialog");
@@ -524,9 +629,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
     .getByLabel("Allowed topics")
     .fill("document export, documentation");
   await dialog.getByLabel("Audience").fill("Synthetic documentation readers");
-  await dialog
-    .getByLabel("Measurable target action")
-    .fill("Read export documentation");
+  await dialog.getByLabel("Measurable target action").fill("Learn more.");
   await dialog.getByLabel("Allowed channels").fill("test-editorial");
   await dialog.getByLabel("Maximum content packages").fill("1");
   await dialog

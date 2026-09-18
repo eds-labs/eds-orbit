@@ -87,7 +87,14 @@ import {
   exception,
   hash,
 } from "./shared.ts";
-import { approve, preflight, invalidateContent } from "./modules/policy.ts";
+import { approve, preflight } from "./modules/policy.ts";
+import { invalidateContent } from "./modules/content-invalidation.ts";
+import {
+  currentMarketingProfile,
+  saveMarketingProfile,
+  assertCampaignContext,
+  assertContentCampaignContext,
+} from "./modules/marketing-profile.ts";
 import {
   planMission,
   publishIntent,
@@ -127,7 +134,12 @@ const factSchema = z
   })
   .strict();
 import { retrieveHybrid } from "./modules/retrieval.ts";
-import { commitKnowledgeImport, importPreview, knowledgeImportInput, retryKnowledgeImport } from "./modules/knowledge-import.ts";
+import {
+  commitKnowledgeImport,
+  importPreview,
+  knowledgeImportInput,
+  retryKnowledgeImport,
+} from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
 export async function buildServer(diagnostic?: (error: unknown) => void) {
@@ -634,6 +646,21 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       items: await listIndexGenerations(tx, scope),
     }));
   });
+  app.get("/api/projects/:projectId/marketing-profile", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, async (tx) => {
+      const profile = await currentMarketingProfile(tx, scope);
+      return profile ? jsonSafe(profile) : null;
+    });
+  });
+  app.put("/api/projects/:projectId/marketing-profile", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    return scoped(scope.workspaceId, projectId, async (tx) =>
+      jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
+    );
+  });
   app.get("/api/projects/:projectId/:collection", async (req) => {
     const { projectId, collection } = req.params as any;
     schemas.collection.parse(collection);
@@ -655,9 +682,10 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
         return setFact(tx, scope, factSchema.parse(req.body));
       let parsed: Record<string, any>;
       if (collection === "sources") parsed = schemas.source.parse(req.body);
-      else if (collection === "missions")
+      else if (collection === "missions") {
         parsed = { ...schemas.mission.parse(req.body), status: "ready" };
-      else if (collection === "content") {
+        await assertCampaignContext(tx, scope, parsed);
+      } else if (collection === "content") {
         parsed = {
           ...schemas.content.parse(req.body),
           status: "draft",
@@ -665,6 +693,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           synthetic: false,
         };
         await entity(tx, scope, "evidence", parsed.evidenceId);
+        await assertContentCampaignContext(tx, scope, parsed);
       } else if (collection === "policies") {
         parsed = schemas.policy.parse(req.body);
 
@@ -724,6 +753,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       if (row.version !== input.version)
         throw new DomainError("VERSION_CONFLICT", 409);
       await entity(tx, scope, "evidence", input.data.evidenceId);
+      await assertContentCampaignContext(tx, scope, input.data);
       await invalidateContent(tx, scope, id);
       return update(tx, scope, row, {
         ...input.data,
@@ -753,6 +783,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "project-settings",
       "add-member",
       "brand-approval",
+      "asset-status",
       "connector",
       "connector-health",
       "resolve-exception",
@@ -798,14 +829,21 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
     if (action === "openai-configure")
       return scoped(scope.workspaceId, projectId, async (tx) => {
         const result = await saveOpenAiConfiguration(tx, scope, input);
-        await audit(tx, scope, "openai_configuration.update", "openai_configuration", {
-          configured: result.configured,
-          source: result.source,
-          modelCount: result.verifiedModels.length,
-        });
+        await audit(
+          tx,
+          scope,
+          "openai_configuration.update",
+          "openai_configuration",
+          {
+            configured: result.configured,
+            source: result.source,
+            modelCount: result.verifiedModels.length,
+          },
+        );
         return result;
       });
-    if (action === "knowledge-import-preview") return importPreview(knowledgeImportInput.parse(input));
+    if (action === "knowledge-import-preview")
+      return importPreview(knowledgeImportInput.parse(input));
     if (action === "import-matomo")
       return importMatomoReport(scope, matomoImportInput.parse(input));
     if (action === "postiz-test-execute")
@@ -916,8 +954,19 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       });
     }
     return scoped(scope.workspaceId, projectId, async (tx) => {
-      if (action === "knowledge-import-commit") return commitKnowledgeImport(tx, scope, knowledgeImportInput.parse(input));
-      if (action === "knowledge-import-retry") return retryKnowledgeImport(tx, scope, schemas.id.parse(input.importId), knowledgeImportInput.parse(input.payload));
+      if (action === "knowledge-import-commit")
+        return commitKnowledgeImport(
+          tx,
+          scope,
+          knowledgeImportInput.parse(input),
+        );
+      if (action === "knowledge-import-retry")
+        return retryKnowledgeImport(
+          tx,
+          scope,
+          schemas.id.parse(input.importId),
+          knowledgeImportInput.parse(input.payload),
+        );
       if (action === "editorial-propose-brief")
         return proposeBrief(briefProposalInput.parse(input));
       if (action === "community-import")
@@ -1241,6 +1290,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           base64: bytes.toString("base64"),
           source: "template",
           usageApproved: true,
+          assetStatus: "approved",
           approvedBy: scope.userId,
           brandAssetId: i.logoAssetId,
         });
@@ -1257,11 +1307,31 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           type: "original_logo",
           brandName: i.brandName,
           usageApproved: true,
+          assetStatus: "approved",
           sha256:
             "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
           approvedBy: scope.userId,
           source: "EDS Labs local original",
           license: "Brand rights reserved",
+        });
+      }
+      if (action === "asset-status") {
+        const i = z
+          .object({
+            assetId: schemas.id,
+            version: z.number().int().positive(),
+            assetStatus: z.enum(["approved", "reference", "outdated"]),
+          })
+          .strict()
+          .parse(input);
+        const asset = await entity(tx, scope, "assets", i.assetId);
+        if (asset.version !== i.version)
+          throw new DomainError("VERSION_CONFLICT", 409);
+        return update(tx, scope, asset, {
+          ...data(asset),
+          assetStatus: i.assetStatus,
+          assetStatusUpdatedBy: scope.userId,
+          assetStatusUpdatedAt: new Date().toISOString(),
         });
       }
       if (action === "embed-document") {

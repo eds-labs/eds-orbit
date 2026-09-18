@@ -68,6 +68,8 @@ export const mission = z
     contentType: z
       .enum(["social", "blog", "newsletter", "ad", "script", "community"])
       .default("social"),
+    campaignType: z.enum(["product", "presale"]).optional(),
+    profileVersion: z.number().int().positive().optional(),
   })
   .strict()
   .refine((v) => v.endAt > v.startAt, { message: "End must follow start" });
@@ -79,6 +81,8 @@ export const content = z
     language: z.enum(["en", "de"]).default("en"),
     channel: z.string().min(1).max(80),
     missionId: id.optional(),
+    campaignType: z.enum(["product", "presale"]).optional(),
+    profileVersion: z.number().int().positive().optional(),
     evidenceId: id,
     claims: z
       .array(
@@ -160,6 +164,35 @@ export const preference = z
     rule: z.string().min(1).max(2000),
     validUntil: z.iso.datetime(),
     status: z.enum(["proposed", "confirmed", "disabled"]).default("proposed"),
+  })
+  .strict();
+export const marketingProfile = z
+  .object({
+    productName: z.string().min(1).max(300),
+    contentLanguage: z.enum(["en", "de"]),
+    internalLanguage: z.enum(["en", "de"]),
+    audience: z.string().min(1).max(2000),
+    positioning: z.string().min(1).max(2000),
+    productStrategy: z.string().min(1).max(4000),
+    presaleStrategy: z.string().min(1).max(4000),
+    voice: z.array(z.string().min(1).max(300)).min(1).max(30),
+    guardrails: z.array(z.string().min(1).max(500)).min(1).max(50),
+    primaryCtas: z.array(z.string().min(1).max(200)).min(1).max(20),
+    channelPriority: z.array(z.string().min(1).max(80)).min(1).max(10),
+    notificationPreference: z.enum(["telegram", "slack", "none"]),
+    officialLinks: z
+      .array(
+        z
+          .object({
+            label: z.string().min(1).max(120),
+            url: z.url(),
+            factId: id,
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(20),
+    assetPolicy: z.enum(["approved_only"]),
   })
   .strict();
 export const experiment = z

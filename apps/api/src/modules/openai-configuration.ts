@@ -30,7 +30,9 @@ export const openAiConfigurationInput = z
       context.addIssue({ code: "custom", message: "RATE_CARD_REQUIRED" });
     if (Object.keys(value.rateCard).length > 20)
       context.addIssue({ code: "custom", message: "RATE_CARD_LIMIT" });
-    if (Object.values(value.modelRoutes).some((model) => !value.verifiedModels.includes(model)))
+    // Escalation remains deliberately unavailable until its model is explicitly verified.
+    // `route` enforces that runtime capability gate when an escalation is requested.
+    if ([value.modelRoutes.fast, value.modelRoutes.standard, value.modelRoutes.quality].some((model) => !value.verifiedModels.includes(model)))
       context.addIssue({ code: "custom", message: "ROUTED_MODEL_NOT_VERIFIED" });
   });
 

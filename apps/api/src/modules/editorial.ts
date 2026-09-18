@@ -321,6 +321,8 @@ export async function adaptContent(
     evidenceId: p.evidenceId,
     claims,
     ...(p.missionId ? { missionId: p.missionId } : {}),
+    ...(p.campaignType ? { campaignType: p.campaignType } : {}),
+    ...(p.profileVersion ? { profileVersion: p.profileVersion } : {}),
     ...(p.targetUrl ? { targetUrl: p.targetUrl } : {}),
     status: "draft",
     risk: p.risk ?? "routine",
