@@ -776,3 +776,45 @@ test("editable local brief, private community groups, calendar blocks and owner 
     fullPage: true,
   });
 });
+
+test("OpenAI configuration loads a persisted rate card into the settings form", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const projectId = await newProject(
+    page,
+    "EDS Labs · OpenAI settings acceptance",
+  );
+  const verifiedAt = new Date().toISOString();
+  const rateCard = {
+    "gpt-5.6-terra": {
+      inputMicrosPerMillion: 2_000_000,
+      outputMicrosPerMillion: 12_000_000,
+      verifiedAt,
+    },
+  };
+  await checkedPost(
+    page.request,
+    `/api/projects/${projectId}/actions/openai-configure`,
+    {
+      apiKey: "local-test-openai-key".padEnd(20, "x"),
+      verifiedModels: ["gpt-5.6-terra"],
+      rateCard,
+      modelRoutes: {
+        fast: "gpt-5.6-terra",
+        standard: "gpt-5.6-terra",
+        quality: "gpt-5.6-terra",
+        escalation: "gpt-5.6-terra",
+      },
+    },
+  );
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Configure OpenAI" }).click();
+  const dialog = page.getByRole("dialog", { name: "OpenAI configuration" });
+  await expect(
+    dialog.getByLabel(
+      "Current OpenAI rate card (JSON, USD micros per million tokens)",
+    ),
+  ).toHaveValue(JSON.stringify(rateCard, null, 2));
+});

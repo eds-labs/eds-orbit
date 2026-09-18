@@ -1277,6 +1277,7 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         evidence-rights and policy checks still apply before any OpenAI call.
       </Alert>
       <DataForm
+        key={current?.updatedAt ?? "openai-configuration-loading"}
         fields={fields}
         pending={mutation.pending || configuration.loading}
         error={mutation.error || configuration.error?.message}
