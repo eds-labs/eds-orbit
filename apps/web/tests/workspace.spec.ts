@@ -134,6 +134,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .fill("Browser acceptance source");
     await dialog.getByLabel("Source authority").selectOption("official");
     await dialog.getByLabel("Approved for public use").check();
+    await dialog.getByLabel("Approved for model processing").check();
     await dialog
       .getByRole("button", { name: "Add source", exact: true })
       .click();
@@ -157,6 +158,33 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       );
     await dialog.getByRole("button", { name: "Import", exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    const documents = await (
+      await page.request.get(`/api/projects/${projectId}/documents`)
+    ).json();
+    const documentId = documents.items[0].id as string;
+    const unconfirmedEmbedding = await page.request.post(
+      `/api/projects/${projectId}/actions/embed-document`,
+      { data: { documentId } },
+    );
+    expect(unconfirmedEmbedding.status()).toBe(400);
+    await page.getByRole("tab", { name: "Library", exact: true }).click();
+    await page
+      .getByRole("button", {
+        name: "Synthetic public product documentation",
+        exact: true,
+      })
+      .click();
+    await dialog
+      .getByRole("button", { name: "Embed with OpenAI", exact: true })
+      .click();
+    await expect(dialog).toContainText("paid embeddings");
+    await expect(
+      dialog.getByLabel(
+        "I authorize sending this document's extracted passages to OpenAI for paid embeddings.",
+      ),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    await dialog.getByRole("button", { name: "Close dialog" }).click();
     await page.getByRole("tab", { name: "Facts", exact: true }).click();
     await page
       .getByRole("button", { name: "Add fact", exact: true })

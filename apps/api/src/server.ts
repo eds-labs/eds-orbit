@@ -798,6 +798,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "retention",
       "stop-experiment",
       "openai-configure",
+      "embed-document",
       "knowledge-import-commit",
       "knowledge-import-retry",
     ].includes(action);
@@ -1335,8 +1336,15 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
         });
       }
       if (action === "embed-document") {
+        const i = z
+          .object({
+            documentId: schemas.id,
+            confirmEmbeddingMayBeSentToOpenAI: z.literal(true),
+          })
+          .strict()
+          .parse(input);
         const document = await tx.knowledgeDocument.findFirst({
-          where: { id: schemas.id.parse(input.documentId), projectId },
+          where: { id: i.documentId, projectId },
         });
         if (!document) throw new DomainError("NOT_FOUND", 404);
         return enqueue(

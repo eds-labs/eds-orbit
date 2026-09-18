@@ -665,69 +665,286 @@ function ImportSource({
 function ImportCenter() {
   const { project, locale, refresh, isOwner } = useWorkspace();
   const history = useCollection("knowledge_imports");
-  const [payload, setPayload] = useState(JSON.stringify({
-    name: "Product documentation", sourceType: "url_list", authority: "website", publicUse: false, modelUse: false,
-    allowedOrigins: [], allowedPaths: ["/"], maxAgeHours: 168,
-    documents: [{ externalId: "page-1", title: "Page title", text: "Paste Markdown, TXT, HTML, or extracted file text here.", mimeType: "text/markdown", language: "en", selected: true }], facts: [],
-  }, null, 2));
+  const [payload, setPayload] = useState(
+    JSON.stringify(
+      {
+        name: "Product documentation",
+        sourceType: "url_list",
+        authority: "website",
+        publicUse: false,
+        modelUse: false,
+        allowedOrigins: [],
+        allowedPaths: ["/"],
+        maxAgeHours: 168,
+        documents: [
+          {
+            externalId: "page-1",
+            title: "Page title",
+            text: "Paste Markdown, TXT, HTML, or extracted file text here.",
+            mimeType: "text/markdown",
+            language: "en",
+            selected: true,
+          },
+        ],
+        facts: [],
+      },
+      null,
+      2,
+    ),
+  );
   const [preview, setPreview] = useState<Record<string, any> | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const mutation = useMutation(() => refresh());
   const download = (name: string, content: string) => {
-    const a = document.createElement("a"); a.href = `data:text/plain;charset=utf-8,${encodeURIComponent(content)}`; a.download = name; a.click();
+    const a = document.createElement("a");
+    a.href = `data:text/plain;charset=utf-8,${encodeURIComponent(content)}`;
+    a.download = name;
+    a.click();
   };
   const parsed = () => JSON.parse(payload);
   const importFactsFile = async (file: File | null) => {
     if (!file) return;
-    if (file.size > 1_000_000) { setFileError("The file exceeds the 1 MB import limit."); return; }
+    if (file.size > 1_000_000) {
+      setFileError("The file exceeds the 1 MB import limit.");
+      return;
+    }
     try {
       const raw = await file.text();
-      const rows: Record<string, unknown>[] = file.name.toLowerCase().endsWith(".json")
-        ? (() => { const parsed = JSON.parse(raw); return Array.isArray(parsed) ? parsed : parsed.facts; })()
+      const rows: Record<string, unknown>[] = file.name
+        .toLowerCase()
+        .endsWith(".json")
+        ? (() => {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : parsed.facts;
+          })()
         : parseFactCsv(raw);
-      if (!Array.isArray(rows) || !rows.length) throw new Error("No fact rows found.");
+      if (!Array.isArray(rows) || !rows.length)
+        throw new Error("No fact rows found.");
       const facts = rows.map((row) => ({
-        key: String(row.key ?? ""), value: String(row.value ?? ""), valueType: String(row.valueType ?? "text"),
-        language: String(row.language ?? project.language), validFrom: String(row.validFrom ?? new Date().toISOString()),
+        key: String(row.key ?? ""),
+        value: String(row.value ?? ""),
+        valueType: String(row.valueType ?? "text"),
+        language: String(row.language ?? project.language),
+        validFrom: String(row.validFrom ?? new Date().toISOString()),
         ...(row.validUntil ? { validUntil: String(row.validUntil) } : {}),
-        ...(row.currency ? { currency: String(row.currency) } : {}), ...(row.unit ? { unit: String(row.unit) } : {}),
-        ...(row.market ? { market: String(row.market) } : {}), publicUse: row.publicUse === true || row.publicUse === "true",
+        ...(row.currency ? { currency: String(row.currency) } : {}),
+        ...(row.unit ? { unit: String(row.unit) } : {}),
+        ...(row.market ? { market: String(row.market) } : {}),
+        publicUse: row.publicUse === true || row.publicUse === "true",
         modelUse: row.modelUse === true || row.modelUse === "true",
       }));
-      setPayload(JSON.stringify({ name: file.name.replace(/\.(csv|json)$/i, ""), sourceType: "verified_facts", authority: "official", publicUse: facts.some((row) => row.publicUse), modelUse: facts.some((row) => row.modelUse), documents: [], facts }, null, 2));
-      setPreview(null); setFileError(null);
-    } catch (error) { setFileError(error instanceof Error ? error.message : "The file could not be read."); }
+      setPayload(
+        JSON.stringify(
+          {
+            name: file.name.replace(/\.(csv|json)$/i, ""),
+            sourceType: "verified_facts",
+            authority: "official",
+            publicUse: facts.some((row) => row.publicUse),
+            modelUse: facts.some((row) => row.modelUse),
+            documents: [],
+            facts,
+          },
+          null,
+          2,
+        ),
+      );
+      setPreview(null);
+      setFileError(null);
+    } catch (error) {
+      setFileError(
+        error instanceof Error ? error.message : "The file could not be read.",
+      );
+    }
   };
-  return <section className="panel stack-gap">
-    <div className="panel-head"><div><h2>{locale === "de" ? "Knowledge Import Center" : "Knowledge Import Center"}</h2><p>{locale === "de" ? "Vorschau und Validierung erfolgen vor dem Commit. Historische Inhalte bleiben getrennt von Faktenbelegen." : "Preview and validation happen before commit. Historical content stays separate from factual evidence."}</p></div></div>
-    <div className="form-actions">
-      <Button variant="outline" onClick={() => download("orbit-verified-facts.csv", "key,value,valueType,language,validFrom,publicUse,modelUse\nproduct.status,active,status,en,2026-01-01T00:00:00.000Z,false,false\n")}><Download data-icon="inline-start" />CSV facts template</Button>
-      <Button variant="outline" onClick={() => download("orbit-verified-facts.json", JSON.stringify({ facts: [{ key: "product.status", value: "active", valueType: "status", language: "en", validFrom: "2026-01-01T00:00:00.000Z", publicUse: false, modelUse: false }] }, null, 2))}><Download data-icon="inline-start" />JSON facts template</Button>
-    </div>
-    <div className="file-upload">
-      <label htmlFor="verified-facts-file">{locale === "de" ? "Verifizierte Fakten aus CSV oder JSON hochladen" : "Upload verified facts as CSV or JSON"}</label>
-      <Input id="verified-facts-file" type="file" accept=".csv,application/json,.json,text/csv" onChange={(event) => importFactsFile(event.target.files?.[0] ?? null)} />
-      <p>{locale === "de" ? "Maximal 1 MB. Pflichtfelder: key, value; fehlende optionale Werte werden vor der Vorschau angezeigt." : "Maximum 1 MB. Required: key, value; optional values are shown in the preview before commit."}</p>
-    </div>
-    {fileError && <Alert kind="error">{fileError}</Alert>}
-    <label htmlFor="knowledge-import-payload">Import payload (website/GitBook URLs may be discovered and selected by the importer; files use text or base64 content)</label>
-    <textarea id="knowledge-import-payload" className="input min-h-80 font-mono text-xs" value={payload} onChange={(event) => { setPayload(event.target.value); setPreview(null); }} aria-describedby="knowledge-import-help" />
-    <p id="knowledge-import-help">Source types: website, gitbook, url, url_list, file, verified_facts, historical.</p>
-    {preview && <Alert kind={preview.ready ? "success" : "warning"}>{preview.ready ? `${preview.documents?.length ?? 0} documents and ${preview.factCount ?? 0} facts are ready.` : `Resolve: ${(preview.errors ?? []).map((x: any) => x.code).join(", ")}`}</Alert>}
-    {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-    <div className="form-actions">
-      <Button variant="outline" disabled={mutation.pending} onClick={() => mutation.run(() => action(project.id, "knowledge-import-preview", parsed())).then((value) => { if (value) setPreview(value as Record<string, any>); })}>Preview import</Button>
-      <Button disabled={!isOwner || !preview?.ready || mutation.pending} onClick={() => mutation.run(() => action(project.id, "knowledge-import-commit", parsed())).then(() => setPreview(null))}>Commit selected import</Button>
-    </div>
-    <h3>{locale === "de" ? "Import-Verlauf" : "Import history"}</h3>
-    {history.data?.items.length ? <EntityRows items={history.data.items} fields={["name", "sourceType", "status", "completed", "failed", "completedAt"]} /> : <p>{locale === "de" ? "Noch keine Importe in diesem Projekt." : "No imports for this project yet."}</p>}
-  </section>;
+  return (
+    <section className="panel stack-gap">
+      <div className="panel-head">
+        <div>
+          <h2>
+            {locale === "de"
+              ? "Knowledge Import Center"
+              : "Knowledge Import Center"}
+          </h2>
+          <p>
+            {locale === "de"
+              ? "Vorschau und Validierung erfolgen vor dem Commit. Historische Inhalte bleiben getrennt von Faktenbelegen."
+              : "Preview and validation happen before commit. Historical content stays separate from factual evidence."}
+          </p>
+        </div>
+      </div>
+      <div className="form-actions">
+        <Button
+          variant="outline"
+          onClick={() =>
+            download(
+              "orbit-verified-facts.csv",
+              "key,value,valueType,language,validFrom,publicUse,modelUse\nproduct.status,active,status,en,2026-01-01T00:00:00.000Z,false,false\n",
+            )
+          }
+        >
+          <Download data-icon="inline-start" />
+          CSV facts template
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() =>
+            download(
+              "orbit-verified-facts.json",
+              JSON.stringify(
+                {
+                  facts: [
+                    {
+                      key: "product.status",
+                      value: "active",
+                      valueType: "status",
+                      language: "en",
+                      validFrom: "2026-01-01T00:00:00.000Z",
+                      publicUse: false,
+                      modelUse: false,
+                    },
+                  ],
+                },
+                null,
+                2,
+              ),
+            )
+          }
+        >
+          <Download data-icon="inline-start" />
+          JSON facts template
+        </Button>
+      </div>
+      <div className="file-upload">
+        <label htmlFor="verified-facts-file">
+          {locale === "de"
+            ? "Verifizierte Fakten aus CSV oder JSON hochladen"
+            : "Upload verified facts as CSV or JSON"}
+        </label>
+        <Input
+          id="verified-facts-file"
+          type="file"
+          accept=".csv,application/json,.json,text/csv"
+          onChange={(event) => importFactsFile(event.target.files?.[0] ?? null)}
+        />
+        <p>
+          {locale === "de"
+            ? "Maximal 1 MB. Pflichtfelder: key, value; fehlende optionale Werte werden vor der Vorschau angezeigt."
+            : "Maximum 1 MB. Required: key, value; optional values are shown in the preview before commit."}
+        </p>
+      </div>
+      {fileError && <Alert kind="error">{fileError}</Alert>}
+      <label htmlFor="knowledge-import-payload">
+        Import payload (website/GitBook URLs may be discovered and selected by
+        the importer; files use text or base64 content)
+      </label>
+      <textarea
+        id="knowledge-import-payload"
+        className="input min-h-80 font-mono text-xs"
+        value={payload}
+        onChange={(event) => {
+          setPayload(event.target.value);
+          setPreview(null);
+        }}
+        aria-describedby="knowledge-import-help"
+      />
+      <p id="knowledge-import-help">
+        Source types: website, gitbook, url, url_list, file, verified_facts,
+        historical.
+      </p>
+      {preview && (
+        <Alert kind={preview.ready ? "success" : "warning"}>
+          {preview.ready
+            ? `${preview.documents?.length ?? 0} documents and ${preview.factCount ?? 0} facts are ready.`
+            : `Resolve: ${(preview.errors ?? []).map((x: any) => x.code).join(", ")}`}
+        </Alert>
+      )}
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      <div className="form-actions">
+        <Button
+          variant="outline"
+          disabled={mutation.pending}
+          onClick={() =>
+            mutation
+              .run(() =>
+                action(project.id, "knowledge-import-preview", parsed()),
+              )
+              .then((value) => {
+                if (value) setPreview(value as Record<string, any>);
+              })
+          }
+        >
+          Preview import
+        </Button>
+        <Button
+          disabled={!isOwner || !preview?.ready || mutation.pending}
+          onClick={() =>
+            mutation
+              .run(() =>
+                action(project.id, "knowledge-import-commit", parsed()),
+              )
+              .then(() => setPreview(null))
+          }
+        >
+          Commit selected import
+        </Button>
+      </div>
+      <h3>{locale === "de" ? "Import-Verlauf" : "Import history"}</h3>
+      {history.data?.items.length ? (
+        <EntityRows
+          items={history.data.items}
+          fields={[
+            "name",
+            "sourceType",
+            "status",
+            "completed",
+            "failed",
+            "completedAt",
+          ]}
+        />
+      ) : (
+        <p>
+          {locale === "de"
+            ? "Noch keine Importe in diesem Projekt."
+            : "No imports for this project yet."}
+        </p>
+      )}
+    </section>
+  );
 }
 function parseFactCsv(raw: string): Record<string, string>[] {
-  const lines = raw.trim().split(/\r?\n/); if (lines.length < 2) throw new Error("CSV needs a header and at least one row.");
-  const cells = (line: string) => { const values: string[] = []; let value = "", quoted = false; for (let i = 0; i < line.length; i++) { const char = line[i]!; if (char === '"' && line[i + 1] === '"') { value += char; i++; } else if (char === '"') quoted = !quoted; else if (char === "," && !quoted) { values.push(value.trim()); value = ""; } else value += char; } if (quoted) throw new Error("Malformed quoted CSV field."); values.push(value.trim()); return values; };
-  const header = cells(lines[0]!); if (!header.includes("key") || !header.includes("value")) throw new Error("CSV requires key and value columns.");
-  return lines.slice(1).filter(Boolean).map((line) => Object.fromEntries(cells(line).map((value, index) => [header[index] ?? "", value])));
+  const lines = raw.trim().split(/\r?\n/);
+  if (lines.length < 2)
+    throw new Error("CSV needs a header and at least one row.");
+  const cells = (line: string) => {
+    const values: string[] = [];
+    let value = "",
+      quoted = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i]!;
+      if (char === '"' && line[i + 1] === '"') {
+        value += char;
+        i++;
+      } else if (char === '"') quoted = !quoted;
+      else if (char === "," && !quoted) {
+        values.push(value.trim());
+        value = "";
+      } else value += char;
+    }
+    if (quoted) throw new Error("Malformed quoted CSV field.");
+    values.push(value.trim());
+    return values;
+  };
+  const header = cells(lines[0]!);
+  if (!header.includes("key") || !header.includes("value"))
+    throw new Error("CSV requires key and value columns.");
+  return lines
+    .slice(1)
+    .filter(Boolean)
+    .map((line) =>
+      Object.fromEntries(
+        cells(line).map((value, index) => [header[index] ?? "", value]),
+      ),
+    );
 }
 function Facts() {
   const { t, locale, project, isOwner } = useWorkspace();
@@ -1053,7 +1270,7 @@ function FactEditor({
   );
 }
 function Library() {
-  const { project, revision, t, locale } = useWorkspace();
+  const { project, revision, t, locale, isOwner, refresh } = useWorkspace();
   const resource = useResource<{ items: Array<Record<string, unknown>> }>(
     collectionPath(project.id, `documents?revision=${revision}`),
   );
@@ -1085,6 +1302,12 @@ function Library() {
     } as Entity;
   });
   const [selected, setSelected] = useState<Entity | null>(null);
+  const [confirmEmbedding, setConfirmEmbedding] = useState(false);
+  const mutation = useMutation(() => {
+    refresh();
+    resource.refresh();
+    setConfirmEmbedding(false);
+  });
   return (
     <>
       <ResourceError error={resource.error} retry={resource.refresh} />
@@ -1127,6 +1350,54 @@ function Library() {
             <span>Version {selected.version}</span>
           </div>
           <p>{value(selected, "canonicalUrl", "")}</p>
+          {isOwner && (
+            <>
+              {!confirmEmbedding ? (
+                <div className="form-actions">
+                  <Button
+                    variant="outline"
+                    onClick={() => setConfirmEmbedding(true)}
+                  >
+                    Embed with OpenAI
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <Alert kind="warning">
+                    This sends the extracted document passages to OpenAI for
+                    paid embeddings. Current source rights, the active policy,
+                    and the configured budget are checked again by the worker
+                    before transmission.
+                  </Alert>
+                  <DataForm
+                    fields={[
+                      {
+                        name: "confirmEmbeddingMayBeSentToOpenAI",
+                        type: "checkbox",
+                        required: true,
+                        label:
+                          "I authorize sending this document's extracted passages to OpenAI for paid embeddings.",
+                      },
+                    ]}
+                    pending={mutation.pending}
+                    error={mutation.error}
+                    submitLabel="Queue embedding"
+                    onCancel={() => setConfirmEmbedding(false)}
+                    onSubmit={() =>
+                      mutation
+                        .run(() =>
+                          action(project.id, "embed-document", {
+                            documentId: selected.id,
+                            confirmEmbeddingMayBeSentToOpenAI: true,
+                          }),
+                        )
+                        .then(() => {})
+                    }
+                  />
+                </>
+              )}
+            </>
+          )}
           <article className="content-preview">
             {value(selected, "text", value(selected, "preview", ""))}
           </article>
