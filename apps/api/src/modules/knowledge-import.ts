@@ -39,6 +39,15 @@ export const knowledgeImportInput = z.object({
   if (v.sourceType === "historical" && v.authority !== "generated") ctx.addIssue({ code: "custom", message: "HISTORICAL_MUST_BE_GENERATED", path: ["authority"] });
 });
 export type KnowledgeImportInput = z.infer<typeof knowledgeImportInput>;
+const controlledStatuses = new Set(["available", "beta", "planned", "discontinued"]);
+/** Preserve bulk-import values when their source did not provide the units required for a structured fact. */
+export function normalizeBulkFact<T extends { value: string; valueType: string; currency?: string; unit?: string }>(row: T): T {
+  const mustRemainText =
+    (row.valueType === "decimal" && !row.currency && !row.unit) ||
+    (row.valueType === "status" && !controlledStatuses.has(row.value)) ||
+    (row.valueType === "date" && (!/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(row.value) || !Number.isFinite(Date.parse(row.value))));
+  return mustRemainText ? { ...row, valueType: "text" } : row;
+}
 
 function parseCsv(csv: string) {
   const lines = csv.trim().split(/\r?\n/); if (lines.length < 2) throw new Error("MALFORMED_CSV");
@@ -72,7 +81,7 @@ export async function commitKnowledgeImport(tx: DbTx, scope: Scope, raw: unknown
     const extracted = await extractDocument(item.base64 ? Buffer.from(item.base64, "base64") : Buffer.from(item.text ?? ""), item.mimeType);
     await ingest(tx, scope, { sourceId: source.id, externalId: item.externalId, title: item.title, text: extracted.text, mimeType: item.mimeType, language: item.language, canonicalUrl: item.canonicalUrl, sourceUpdatedAt: item.sourceUpdatedAt, expectedGeneration: 1 }); completed++;
   } catch (error) { failures.push({ item: item.externalId, code: error instanceof Error ? error.message : "IMPORT_FAILED" }); }
-  for (const row of i.facts) try { await setFact(tx, scope, { ...row, sourceId: source.id, status: "verified" }); completed++; } catch (error) { failures.push({ item: row.key, code: error instanceof Error ? error.message : "FACT_IMPORT_FAILED" }); }
+  for (const row of i.facts) try { await setFact(tx, scope, { ...normalizeBulkFact(row), sourceId: source.id, status: "verified" }); completed++; } catch (error) { failures.push({ item: row.key, code: error instanceof Error ? error.message : "FACT_IMPORT_FAILED" }); }
   return update(tx, scope, job, { ...data(job), sourceId: source.id, completed, failed: failures.length, failures, status: failures.length ? (completed ? "partial" : "failed") : "completed", completedAt: new Date().toISOString() });
 }
 
