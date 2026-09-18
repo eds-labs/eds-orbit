@@ -34,10 +34,10 @@ The Compose definition uses Coolify's documented `SERVICE_*` variables to genera
 
 | Group | Variables | Notes |
 | --- | --- | --- |
-| Generated secrets | `SERVICE_PASSWORD_64_DB_MIGRATOR`, `SERVICE_PASSWORD_64_DB_APP`, `SERVICE_PASSWORD_64_DB_AUTH`, `SERVICE_REALBASE64_64_AUTH_SECRET`, `SERVICE_HEX_64_CREDENTIAL_KEY`, `SERVICE_PASSWORD_64_ORBIT_SETUP_TOKEN` | Coolify generates and persists separate values. `CREDENTIAL_KEY` resolves to exactly 64 hexadecimal characters. |
+| Generated secrets | `SERVICE_PASSWORD_64_DBMIGRATOR`, `SERVICE_PASSWORD_64_DBAPP`, `SERVICE_PASSWORD_64_DBAUTH`, `SERVICE_REALBASE64_64_AUTHSECRET`, `SERVICE_HEX_64_CREDENTIALKEY`, `SERVICE_PASSWORD_64_ORBITSETUPTOKEN` | Coolify generates and persists separate values. Generator identifiers intentionally contain no underscores because Coolify parses the underscore count. `CREDENTIAL_KEY` resolves to exactly 64 hexadecimal characters. |
 | Generated database URLs | `MIGRATION_DATABASE_URL`, `DATABASE_URL`, `AUTH_DATABASE_URL` | Defaults address `postgres:5432/<POSTGRES_DB>` with users `orbit_migrator`, `orbit_app`, and `orbit_auth`. Each URL reuses only its matching generated password. |
 | Required release/runtime | `ORBIT_RELEASE_APPROVAL` | This remains a manually entered human change reference. `${ORBIT_RELEASE_APPROVAL:?}` blocks a fresh deployment while it is empty. |
-| Generated runtime identity | `APP_ORIGIN`, `PUBLISHER_INSTANCE_ID`, `SERVICE_URL_WEB_4310` | Coolify generates a web URL and stable publisher identity. Override `APP_ORIGIN` when using the approved custom domain. |
+| Generated runtime identity | `APP_ORIGIN`, `PUBLISHER_INSTANCE_ID`, `SERVICE_URL_WEB` | Coolify generates a web URL and stable publisher identity. The port-specific `SERVICE_URL_WEB_4310` entry marks the routed container port, while runtime URL resolution uses `SERVICE_URL_WEB`. Override `APP_ORIGIN` when using the approved custom domain. |
 | Internal defaults | `POSTGRES_DB`, `REDIS_URL`, `QUEUE_NAMESPACE` | Defaults are `orbit`, `redis://redis:6379`, and `orbit`; retain Docker service names. |
 | Safety gates | `EXECUTION_MODE`, `ENABLE_EXTERNAL_WRITES`, `LIVE_RAG_EVAL_PASSED` | Defaults keep the system in test mode with external writes and live RAG evaluation disabled. Changing them requires separate authorization. |
 | Optional integration | `OPENAI_API_KEY`, `OPENAI_VERIFIED_MODELS`, `OPENAI_RATE_CARD_JSON` | Leave blank until model, budget, and provider controls have been approved and verified. |
