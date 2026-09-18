@@ -14,9 +14,17 @@ const document = z.object({
   mimeType: z.enum([MIME.txt, MIME.md, MIME.html, MIME.pdf]), language: z.enum(["en", "de"]),
   canonicalUrl: z.url().optional(), sourceUpdatedAt: z.iso.datetime().optional(), selected: z.boolean().default(true),
 }).strict();
+const factValueType = z.preprocess((value) => {
+  if (value === "string") return "text";
+  if (value === "number") return "decimal";
+  if (value === "boolean") return "status";
+  return value;
+}, z.enum(["text", "decimal", "date", "status", "url"]));
 const fact = z.object({
-  key: z.string().min(1).max(160), value: z.string().min(1).max(1000),
-  valueType: z.enum(["text", "decimal", "date", "status", "url"]), currency: z.string().regex(/^[A-Z]{3}$/).optional(),
+  key: z.string().min(1).max(160), value: z.preprocess((value) =>
+    typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : value,
+  z.string().min(1).max(1000)),
+  valueType: factValueType, currency: z.string().regex(/^[A-Z]{3}$/).optional(),
   unit: z.string().max(50).optional(), language: z.enum(["en", "de"]), market: z.string().max(100).optional(),
   validFrom: z.iso.datetime(), validUntil: z.iso.datetime().optional(), publicUse: z.boolean(), modelUse: z.boolean(),
 }).strict();
