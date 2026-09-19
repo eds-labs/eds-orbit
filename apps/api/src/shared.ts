@@ -189,5 +189,15 @@ export function publicEntity(row: any) {
     const { encryptedCredential, ...safe } = data(row);
     return { ...row, data: safe };
   }
+  if (row.kind === "assets") {
+    const { base64, ...safe } = data(row);
+    return {
+      ...row,
+      data: {
+        ...safe,
+        hasContent: typeof base64 === "string" && base64.length > 0,
+      },
+    };
+  }
   return row;
 }

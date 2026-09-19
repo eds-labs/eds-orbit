@@ -34,6 +34,17 @@ async function assertProfileReferences(
     if (value !== link.url)
       throw new DomainError("OFFICIAL_LINK_FACT_VALUE_MISMATCH", 409);
   }
+  if (profile.visualIdentity.logoAssetId) {
+    const asset = data(
+      await entity(tx, scope, "assets", profile.visualIdentity.logoAssetId),
+    );
+    if (
+      !["logo", "original_logo"].includes(String(asset.type)) ||
+      asset.usageApproved !== true ||
+      asset.assetStatus !== "approved"
+    )
+      throw new DomainError("APPROVED_LOGO_ASSET_REQUIRED", 409);
+  }
 }
 
 export async function saveMarketingProfile(

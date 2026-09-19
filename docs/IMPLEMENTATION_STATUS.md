@@ -13,6 +13,14 @@ The historical acceptance summary below proves the prior backend and UI scope on
 
 See `docs/CONFIGURATION_PARITY.md` for the acceptance matrix and the distinct external gates.
 
+## Brand kit and image-generation checkpoint (2026-09-19)
+
+- Implemented locally: project visual identity (bounded colors, local font presets, design rules and selected approved logo), owner-only PNG/JPEG/WebP asset upload, metadata-stripping PNG normalization, project-scoped protected previews, asset rights/status audit, and deterministic brand-aware creative composition.
+- Added the optional OpenAI GPT Image 2.5 path with Flare as default and Sunburst selectable. The Settings UI can retain the shared OpenAI key or save a separate encrypted image key later; neither key is returned after saving.
+- Safety boundaries: model allowlist, dated non-zero per-image ceiling, active policy, atomic budget reservation, exact per-request prompt/cost confirmation, rate limit, no generated logo/copy, normalized output, provenance, and separate approval before use.
+- Focused local verification passed 34/34 tests covering brand schema bounds, raster normalization/MIME rejection, response byte redaction, image configuration and explicit confirmation, prompt constraints and brand-aware rendering. Whole-project lint, TypeScript, production build and bounded secret scan passed. The full Vitest run passed 275/276 tests; the unchanged synthetic PDF extraction test failed with `PDF_NOT_EXTRACTABLE` both in the suite and in isolation, and no `packages/knowledge` source was changed by this feature.
+- No API key was created or stored, no paid image request was made, and no production deployment or migration was performed in this checkpoint.
+
 ## Current verified state
 
 - Framework 1.1.0 missing-only merge; actual archive mismatch documented. Full schema/YAML validation:0 errors/0 warnings;12 framework tests passed. Narrow restore-source/evidence filename exceptions retain duplicate-file checks.

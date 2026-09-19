@@ -21,6 +21,7 @@ export type FormField = {
     | "number"
     | "datetime-local"
     | "url"
+    | "file"
     | "textarea"
     | "select"
     | "checkbox";
@@ -32,9 +33,10 @@ export type FormField = {
   max?: number;
   step?: string;
   placeholder?: string;
+  accept?: string;
   showWhen?: { name: string; values: string[] };
 };
-export type FormValues = Record<string, string | boolean>;
+export type FormValues = Record<string, string | boolean | File>;
 export function DataForm({
   fields,
   onSubmit,
@@ -69,7 +71,9 @@ export function DataForm({
       values[field.name] =
         field.type === "checkbox"
           ? f.has(field.name)
-          : String(f.get(field.name) || "");
+          : field.type === "file"
+            ? (f.get(field.name) as File)
+            : String(f.get(field.name) || "");
     void onSubmit(values);
   }
   return (
@@ -149,6 +153,7 @@ export function DataForm({
                   max={field.max}
                   step={field.step}
                   placeholder={field.placeholder}
+                  accept={field.accept}
                   autoComplete={
                     field.type === "password"
                       ? "new-password"

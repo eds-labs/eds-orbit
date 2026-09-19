@@ -512,7 +512,7 @@ export function PostizVerification({ connector }: { connector: Entity }) {
     (a) =>
       a.data.mime === "image/png" &&
       a.data.usageApproved === true &&
-      typeof a.data.base64 === "string",
+      a.data.hasContent === true,
   );
   const packetAsset =
     packet?.data.asset && typeof packet.data.asset === "object"
@@ -670,7 +670,7 @@ export function PostizVerification({ connector }: { connector: Entity }) {
                   {previewAsset ? (
                     <img
                       className="creative-preview"
-                      src={`data:image/png;base64,${String(previewAsset.data.base64)}`}
+                      src={`/api/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(previewAsset.id)}/content`}
                       alt="Prepared sandbox verification asset"
                     />
                   ) : (

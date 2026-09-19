@@ -31,9 +31,29 @@ it("accepts a bounded versioned marketing profile contract", () => {
     productName: "uLiquid",
     notificationPreference: "telegram",
     assetPolicy: "approved_only",
+    visualIdentity: {
+      primaryColor: "#0969FF",
+      headingFont: "Inter",
+      designRules: ["Preserve the approved logo unchanged."],
+    },
   });
   expect(() =>
     marketingProfile.parse({ ...profile, externalBudget: 1 }),
+  ).toThrow();
+});
+
+it("rejects unbounded brand colors and unsupported font presets", () => {
+  expect(() =>
+    marketingProfile.parse({
+      ...profile,
+      visualIdentity: { primaryColor: "javascript:alert(1)" },
+    }),
+  ).toThrow();
+  expect(() =>
+    marketingProfile.parse({
+      ...profile,
+      visualIdentity: { headingFont: "Remote Web Font" },
+    }),
   ).toThrow();
 });
 

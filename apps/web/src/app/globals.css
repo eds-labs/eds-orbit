@@ -2603,6 +2603,52 @@ body:has(dialog[open]) {
   height: 60px;
   width: 60px;
 }
+.asset-library {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+.asset-card {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+.asset-card > img,
+.asset-placeholder {
+  width: 88px;
+  height: 88px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+  background: #f6fbff;
+}
+.asset-placeholder {
+  display: grid;
+  place-items: center;
+  color: var(--muted-foreground);
+}
+.asset-placeholder svg {
+  width: 28px;
+  height: 28px;
+}
+.asset-card p {
+  margin: 5px 0 10px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.asset-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
 @media (max-width: 760px) {
   .brand-approval {
     flex-wrap: wrap;

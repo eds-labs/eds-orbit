@@ -46,6 +46,12 @@ import {
   saveOpenAiConfiguration,
 } from "./modules/openai-configuration.ts";
 import {
+  assetBytes,
+  brandAssetUploadInput,
+  normalizeBrandAsset,
+} from "./modules/assets.ts";
+import { generateProjectImage } from "./modules/image-generation.ts";
+import {
   correctMetric,
   memoryLifecycle,
   evaluateExperiment,
@@ -662,6 +668,64 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
     );
   });
+  app.post(
+    "/api/projects/:projectId/assets/upload",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      const normalized = await normalizeBrandAsset(
+        brandAssetUploadInput.parse(req.body),
+      );
+      const row = await scoped(scope.workspaceId, projectId, async (tx) => {
+        const asset = await create(tx, scope, "assets", {
+          ...normalized,
+          assetStatus: "reference",
+          usageApproved: false,
+          uploadedBy: scope.userId,
+          uploadedAt: new Date().toISOString(),
+        });
+        await audit(tx, scope, "asset.upload", asset.id, {
+          type: normalized.type,
+          sha256: normalized.sha256,
+          bytes: normalized.bytes,
+        });
+        return asset;
+      });
+      return reply.code(201).send(publicEntity(row));
+    },
+  );
+  app.get(
+    "/api/projects/:projectId/assets/:assetId/content",
+    async (req, reply) => {
+      const { projectId, assetId } = req.params as {
+        projectId: string;
+        assetId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId);
+      const content = await scoped(scope.workspaceId, projectId, async (tx) =>
+        assetBytes(
+          data(await entity(tx, scope, "assets", schemas.id.parse(assetId))),
+        ),
+      );
+      return reply
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("X-Content-Type-Options", "nosniff")
+        .type(content.mime)
+        .send(content.bytes);
+    },
+  );
+  app.post(
+    "/api/projects/:projectId/images/generate",
+    { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      return reply.send(
+        publicEntity(await generateProjectImage(scope, req.body)),
+      );
+    },
+  );
   app.get("/api/projects/:projectId/:collection", async (req) => {
     const { projectId, collection } = req.params as any;
     schemas.collection.parse(collection);
@@ -1275,27 +1339,68 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
             subtitle: z.string().max(500).optional(),
             format: z.enum(["square", "landscape", "portrait", "story"]),
             logoAssetId: schemas.id.optional(),
+            visualAssetId: schemas.id.optional(),
           })
           .strict()
           .parse(input);
-        const brand = i.logoAssetId
-          ? await entity(tx, scope, "assets", i.logoAssetId)
+        const profileRow = await currentMarketingProfile(tx, scope);
+        if (!profileRow)
+          throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
+        const profileData = schemas.marketingProfile.parse(profileRow.data);
+        const logoAssetId =
+          i.logoAssetId ?? profileData.visualIdentity.logoAssetId;
+        const brand = logoAssetId
+          ? await entity(tx, scope, "assets", logoAssetId)
           : null;
+        const visual = i.visualAssetId
+          ? await entity(tx, scope, "assets", i.visualAssetId)
+          : null;
+        const brandData = data(brand),
+          visualData = data(visual);
+        if (
+          brand &&
+          (!["logo", "original_logo"].includes(String(brandData.type)) ||
+            brandData.usageApproved !== true ||
+            brandData.assetStatus !== "approved")
+        )
+          throw new DomainError("APPROVED_LOGO_ASSET_REQUIRED", 409);
+        if (
+          visual &&
+          (["logo", "original_logo"].includes(String(visualData.type)) ||
+            visualData.usageApproved !== true ||
+            visualData.assetStatus !== "approved")
+        )
+          throw new DomainError("APPROVED_VISUAL_ASSET_REQUIRED", 409);
         const result = await renderRasterTemplate({
           ...i,
-          logoApproved: data(brand).usageApproved === true,
+          brandName: profileData.productName,
+          logoApproved: brandData.usageApproved === true,
+          logoDataUri: brandData.base64
+            ? `data:${brandData.mime};base64,${brandData.base64}`
+            : undefined,
+          logoHash: brandData.sha256,
+          visualDataUri: visualData.base64
+            ? `data:${visualData.mime};base64,${visualData.base64}`
+            : undefined,
+          visualHash: visualData.sha256,
+          palette: profileData.visualIdentity,
         });
         if (result.status === "blocked_asset") return result;
         const { bytes, ...metadata } = result;
-        return create(tx, scope, "assets", {
-          ...metadata,
-          base64: bytes.toString("base64"),
-          source: "template",
-          usageApproved: true,
-          assetStatus: "approved",
-          approvedBy: scope.userId,
-          brandAssetId: i.logoAssetId,
-        });
+        return publicEntity(
+          await create(tx, scope, "assets", {
+            ...metadata,
+            base64: bytes.toString("base64"),
+            source: "template",
+            usageApproved: true,
+            assetStatus: "approved",
+            approvedBy: scope.userId,
+            brandAssetId: logoAssetId,
+            visualAssetId: i.visualAssetId,
+            profileVersion: profileRow.version,
+            validUses: ["social", "blog", "newsletter", "ad"],
+          }),
+        );
       }
       if (action === "brand-approval") {
         const i = z
@@ -1305,17 +1410,19 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           })
           .strict()
           .parse(input);
-        return create(tx, scope, "assets", {
-          type: "original_logo",
-          brandName: i.brandName,
-          usageApproved: true,
-          assetStatus: "approved",
-          sha256:
-            "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
-          approvedBy: scope.userId,
-          source: "EDS Labs local original",
-          license: "Brand rights reserved",
-        });
+        return publicEntity(
+          await create(tx, scope, "assets", {
+            type: "original_logo",
+            brandName: i.brandName,
+            usageApproved: true,
+            assetStatus: "approved",
+            sha256:
+              "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+            approvedBy: scope.userId,
+            source: "EDS Labs local original",
+            license: "Brand rights reserved",
+          }),
+        );
       }
       if (action === "asset-status") {
         const i = z
@@ -1323,18 +1430,31 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
             assetId: schemas.id,
             version: z.number().int().positive(),
             assetStatus: z.enum(["approved", "reference", "outdated"]),
+            confirmUsageRights: z.boolean().optional(),
           })
           .strict()
           .parse(input);
         const asset = await entity(tx, scope, "assets", i.assetId);
         if (asset.version !== i.version)
           throw new DomainError("VERSION_CONFLICT", 409);
-        return update(tx, scope, asset, {
+        if (i.assetStatus === "approved" && i.confirmUsageRights !== true)
+          throw new DomainError("ASSET_RIGHTS_CONFIRMATION_REQUIRED", 409);
+        const updated = await update(tx, scope, asset, {
           ...data(asset),
           assetStatus: i.assetStatus,
+          usageApproved:
+            i.assetStatus === "approved"
+              ? i.confirmUsageRights === true
+              : false,
           assetStatusUpdatedBy: scope.userId,
           assetStatusUpdatedAt: new Date().toISOString(),
         });
+        await audit(tx, scope, "asset.status_update", asset.id, {
+          from: data(asset).assetStatus,
+          to: i.assetStatus,
+          usageApproved: data(updated).usageApproved,
+        });
+        return publicEntity(updated);
       }
       if (action === "embed-document") {
         const i = z

@@ -166,6 +166,28 @@ export const preference = z
     status: z.enum(["proposed", "confirmed", "disabled"]).default("proposed"),
   })
   .strict();
+const brandColor = z.string().regex(/^#[0-9A-F]{6}$/i);
+export const visualIdentity = z
+  .object({
+    primaryColor: brandColor.default("#0969FF"),
+    secondaryColor: brandColor.default("#254D66"),
+    accentColor: brandColor.default("#45C2FF"),
+    backgroundColor: brandColor.default("#F6FBFF"),
+    surfaceColor: brandColor.default("#FFFFFF"),
+    textColor: brandColor.default("#071522"),
+    headingFont: z
+      .enum(["Inter", "DejaVu Sans", "Arial", "system-ui"])
+      .default("Inter"),
+    bodyFont: z
+      .enum(["Inter", "DejaVu Sans", "Arial", "system-ui"])
+      .default("Inter"),
+    logoAssetId: id.optional(),
+    designRules: z
+      .array(z.string().min(1).max(300))
+      .max(20)
+      .default(["Preserve the approved logo unchanged."]),
+  })
+  .strict();
 export const marketingProfile = z
   .object({
     productName: z.string().min(1).max(300),
@@ -192,6 +214,17 @@ export const marketingProfile = z
       )
       .min(1)
       .max(20),
+    visualIdentity: visualIdentity.default({
+      primaryColor: "#0969FF",
+      secondaryColor: "#254D66",
+      accentColor: "#45C2FF",
+      backgroundColor: "#F6FBFF",
+      surfaceColor: "#FFFFFF",
+      textColor: "#071522",
+      headingFont: "Inter",
+      bodyFont: "Inter",
+      designRules: ["Preserve the approved logo unchanged."],
+    }),
     assetPolicy: z.enum(["approved_only"]),
   })
   .strict();

@@ -66,6 +66,7 @@ import {
   type FormValues,
 } from "./form";
 import {
+  BrandAssetLibrary,
   BrandApproval,
   MarketingProfileConfiguration,
   MetricCsvImport,
@@ -1189,6 +1190,7 @@ export function ProjectSettings() {
       </section>
       <RetentionControl />
       <BrandApproval />
+      <BrandAssetLibrary />
       <MarketingProfileConfiguration />
       <ProjectAdministration />
       <Alert>
@@ -1209,6 +1211,9 @@ const BookOpenIcon = FileText;
 type OpenAiConfigurationView = {
   configured: boolean;
   source: "orbit" | "environment" | "none";
+  textKeyConfigured: boolean;
+  imageKeyConfigured: boolean;
+  dedicatedImageKeyConfigured: boolean;
   verifiedModels: string[];
   rateCard: Record<
     string,
@@ -1218,7 +1223,17 @@ type OpenAiConfigurationView = {
       verifiedAt: string;
     }
   >;
-  modelRoutes: { fast: string; standard: string; quality: string; escalation: string };
+  modelRoutes: {
+    fast: string;
+    standard: string;
+    quality: string;
+    escalation: string;
+  };
+  imageGeneration: {
+    model: string;
+    maxCostMicrosPerImage: number;
+    pricingVerifiedAt?: string;
+  };
   updatedAt?: string;
 };
 function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
@@ -1234,14 +1249,24 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
   const fields: FormField[] = [
     {
       name: "apiKey",
-      label: current?.source === "orbit"
-        ? "OpenAI API key (leave blank to keep the current key)"
-        : "OpenAI API key",
+      label:
+        current?.source === "orbit"
+          ? "OpenAI API key (leave blank to keep the current key)"
+          : "Shared OpenAI API key (optional when an image key is entered)",
       type: "password",
-      required: current?.source !== "orbit",
       min: 20,
       max: 1000,
       hint: "Encrypted server-side. It is never displayed after saving.",
+    },
+    {
+      name: "imageApiKey",
+      label: current?.dedicatedImageKeyConfigured
+        ? "Dedicated OpenAI image API key (leave blank to keep it)"
+        : "Dedicated OpenAI image API key (optional)",
+      type: "password",
+      min: 20,
+      max: 1000,
+      hint: "Encrypted server-side. When blank, image generation uses the shared OpenAI key. A separate project key makes provider-side cost tracking easier.",
     },
     {
       name: "verifiedModels",
@@ -1250,12 +1275,56 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
       value: current?.verifiedModels.join(", ") ?? "",
       placeholder: "gpt-5.6-terra, text-embedding-3-small",
     },
-    ...(["fast", "standard", "quality", "escalation"] as const).map((route) => ({
-      name: `model-${route}`,
-      label: `${route.charAt(0).toUpperCase() + route.slice(1)} task model`,
+    ...(["fast", "standard", "quality", "escalation"] as const).map(
+      (route) => ({
+        name: `model-${route}`,
+        label: `${route.charAt(0).toUpperCase() + route.slice(1)} task model`,
+        required: true,
+        value: current?.modelRoutes?.[route] ?? "",
+      }),
+    ),
+    {
+      name: "imageModel",
+      label: "GPT Image 2.5 model",
+      type: "select",
+      value: current?.imageGeneration?.model || "gpt-image-2.5-flare",
+      options: [
+        {
+          value: "gpt-image-2.5-flare",
+          label: "GPT Image 2.5 Flare · fast generation",
+        },
+        {
+          value: "gpt-image-2.5-sunburst",
+          label: "GPT Image 2.5 Sunburst · precise editing",
+        },
+        {
+          value: "gpt-image-2.5-flare-2026-09-08",
+          label: "Flare · pinned 2026-09-08",
+        },
+        {
+          value: "gpt-image-2.5-sunburst-2026-09-08",
+          label: "Sunburst · pinned 2026-09-08",
+        },
+      ],
+    },
+    {
+      name: "imageMaxCost",
+      label: "Maximum reserved cost per image (USD; 0 disables)",
+      type: "number",
+      min: 0,
+      max: 10,
+      step: "0.001",
+      value: (current?.imageGeneration?.maxCostMicrosPerImage || 0) / 1_000_000,
       required: true,
-      value: current?.modelRoutes?.[route] ?? "",
-    })),
+      hint: "This is a conservative per-image ceiling. Project daily, monthly and per-run budgets still apply.",
+    },
+    {
+      name: "imagePricingVerifiedAt",
+      label: "Image price ceiling verified at (ISO timestamp)",
+      value: current?.imageGeneration?.pricingVerifiedAt || "",
+      placeholder: "2026-09-19T12:00:00.000Z",
+      hint: "Required when the per-image ceiling is above zero; expires after 31 days.",
+    },
     {
       name: "rateCard",
       label: "Current OpenAI rate card (JSON, USD micros per million tokens)",
@@ -1271,9 +1340,15 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         {current?.configured
           ? `Configured through ${current.source}${current.updatedAt ? ` · updated ${when(current.updatedAt)}` : ""}.`
           : "No application OpenAI configuration is saved yet."}
+        {current?.dedicatedImageKeyConfigured
+          ? " A dedicated image key is active."
+          : current?.imageKeyConfigured
+            ? " Image generation uses the shared key."
+            : " Image generation has no usable key."}
       </p>
       <Alert>
-        Saving replaces the key immediately for new work. Existing budget,
+        A newly entered key replaces only its matching shared or image key for
+        new work. Blank key fields keep saved keys. Existing budget,
         evidence-rights and policy checks still apply before any OpenAI call.
       </Alert>
       <DataForm
@@ -1292,8 +1367,10 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
               throw new Error("RATE_CARD_JSON_INVALID");
             }
             const apiKey = String(values.apiKey).trim();
+            const imageApiKey = String(values.imageApiKey).trim();
             return action(project.id, "openai-configure", {
               ...(apiKey ? { apiKey } : {}),
+              ...(imageApiKey ? { imageApiKey } : {}),
               verifiedModels: String(values.verifiedModels)
                 .split(",")
                 .map((model) => model.trim())
@@ -1304,6 +1381,19 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
                 standard: String(values["model-standard"]),
                 quality: String(values["model-quality"]),
                 escalation: String(values["model-escalation"]),
+              },
+              imageGeneration: {
+                model: String(values.imageModel),
+                maxCostMicrosPerImage: Math.round(
+                  Number(values.imageMaxCost) * 1_000_000,
+                ),
+                ...(String(values.imagePricingVerifiedAt).trim()
+                  ? {
+                      pricingVerifiedAt: new Date(
+                        String(values.imagePricingVerifiedAt),
+                      ).toISOString(),
+                    }
+                  : {}),
               },
             });
           })

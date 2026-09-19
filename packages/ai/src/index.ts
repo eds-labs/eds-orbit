@@ -1,6 +1,10 @@
 import OpenAI from "openai";
 import { z } from "zod";
-import { routeTask, embeddingProfile, modelRoutes } from "../../config/src/index.ts";
+import {
+  routeTask,
+  embeddingProfile,
+  modelRoutes,
+} from "../../config/src/index.ts";
 const structuredOutput = z.object({
   title: z.string().max(200),
   body: z.string().max(40000),
@@ -34,24 +38,58 @@ export const rateCardSchema = z.record(
     verifiedAt: z.iso.datetime(),
   }),
 );
+export const imageModelSchema = z.enum([
+  "gpt-image-2.5-flare",
+  "gpt-image-2.5-flare-2026-09-08",
+  "gpt-image-2.5-sunburst",
+  "gpt-image-2.5-sunburst-2026-09-08",
+]);
+export const imageGenerationConfigurationSchema = z
+  .object({
+    model: imageModelSchema.default("gpt-image-2.5-flare"),
+    maxCostMicrosPerImage: z.number().int().min(0).max(10_000_000).default(0),
+    pricingVerifiedAt: z.iso.datetime().optional(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.maxCostMicrosPerImage > 0 && !value.pricingVerifiedAt)
+      context.addIssue({
+        code: "custom",
+        message: "IMAGE_PRICE_DATE_REQUIRED",
+      });
+  });
 export type OpenAiRuntimeConfig = {
   apiKey?: string;
+  imageApiKey?: string;
   verifiedModels: string[];
   rateCard: Record<string, Rate>;
   modelRoutes?: Record<keyof typeof modelRoutes, string>;
+  imageGeneration?: z.infer<typeof imageGenerationConfigurationSchema>;
 };
 export function environmentRuntimeConfig(): OpenAiRuntimeConfig {
   const raw = process.env.OPENAI_RATE_CARD_JSON;
   return {
     apiKey: process.env.OPENAI_API_KEY,
+    imageApiKey: process.env.OPENAI_IMAGE_API_KEY,
     verifiedModels: (process.env.OPENAI_VERIFIED_MODELS ?? "")
       .split(",")
       .map((model) => model.trim())
       .filter(Boolean),
     rateCard: raw ? rateCardSchema.parse(JSON.parse(raw)) : {},
+    imageGeneration: imageGenerationConfigurationSchema.parse({
+      model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2.5-flare",
+      maxCostMicrosPerImage: Number(
+        process.env.OPENAI_IMAGE_MAX_COST_MICROS || 0,
+      ),
+      ...(process.env.OPENAI_IMAGE_PRICE_VERIFIED_AT
+        ? { pricingVerifiedAt: process.env.OPENAI_IMAGE_PRICE_VERIFIED_AT }
+        : {}),
+    }),
   };
 }
-export function rateCard(runtime = environmentRuntimeConfig()): Record<string, Rate> {
+export function rateCard(
+  runtime = environmentRuntimeConfig(),
+): Record<string, Rate> {
   if (!Object.keys(runtime.rateCard).length)
     throw new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
   return runtime.rateCard;
@@ -168,7 +206,12 @@ export async function generate(params: {
       model: params.model,
       inputTokens,
       outputTokens,
-      costMicros: estimateCost(params.model, inputTokens, outputTokens, runtime),
+      costMicros: estimateCost(
+        params.model,
+        inputTokens,
+        outputTokens,
+        runtime,
+      ),
     },
   };
 }
@@ -176,10 +219,17 @@ export async function embed(
   texts: string[],
   reservationId: string,
   modelUse: boolean,
-  profile: {model:string;dimensions:number}=embeddingProfile,
+  profile: { model: string; dimensions: number } = embeddingProfile,
   runtime = environmentRuntimeConfig(),
 ) {
-  if(!["text-embedding-3-small","text-embedding-3-large"].includes(profile.model)||![1536,3072].includes(profile.dimensions)||(profile.model==="text-embedding-3-small"&&profile.dimensions!==1536))throw new Error("UNSUPPORTED_EMBEDDING_PROFILE");
+  if (
+    !["text-embedding-3-small", "text-embedding-3-large"].includes(
+      profile.model,
+    ) ||
+    ![1536, 3072].includes(profile.dimensions) ||
+    (profile.model === "text-embedding-3-small" && profile.dimensions !== 1536)
+  )
+    throw new Error("UNSUPPORTED_EMBEDDING_PROFILE");
   if (!modelUse || !reservationId || !runtime.apiKey)
     throw new Error("EMBEDDING_NOT_AUTHORIZED");
   if (
@@ -188,9 +238,7 @@ export async function embed(
     texts.some((x) => x.length > 32000)
   )
     throw new Error("EMBEDDING_BATCH_LIMIT");
-  if (
-    !runtime.verifiedModels.includes(profile.model)
-  )
+  if (!runtime.verifiedModels.includes(profile.model))
     throw new Error("EMBEDDING_MODEL_NOT_VERIFIED");
   const api = new OpenAI({
     apiKey: runtime.apiKey,
@@ -227,5 +275,78 @@ export async function embed(
         runtime,
       ),
     },
+  };
+}
+
+export async function generateImage(params: {
+  prompt: string;
+  size: "1024x1024" | "1536x1024" | "1024x1536";
+  quality: "low" | "medium" | "high";
+  background: "opaque" | "transparent";
+  reservationId: string;
+  runtime?: OpenAiRuntimeConfig;
+  user: string;
+  signal?: AbortSignal;
+}) {
+  const runtime = params.runtime ?? environmentRuntimeConfig();
+  const configured = imageGenerationConfigurationSchema.parse(
+    runtime.imageGeneration ?? {},
+  );
+  const apiKey = runtime.imageApiKey ?? runtime.apiKey;
+  if (!apiKey || !params.reservationId)
+    throw new Error("PAID_CALL_NOT_AUTHORIZED");
+  if (
+    configured.maxCostMicrosPerImage <= 0 ||
+    !configured.pricingVerifiedAt ||
+    Date.now() - new Date(configured.pricingVerifiedAt).valueOf() >
+      31 * 86400000
+  )
+    throw new Error("CURRENT_IMAGE_PRICE_LIMIT_REQUIRED");
+  if (!runtime.verifiedModels.includes(configured.model))
+    throw new Error("IMAGE_MODEL_NOT_VERIFIED");
+  const api = new OpenAI({
+    apiKey,
+    maxRetries: 0,
+    timeout: 120000,
+  });
+  const response = await api.images.generate(
+    {
+      model: configured.model,
+      prompt: params.prompt,
+      size: params.size,
+      quality: params.quality,
+      background: params.background,
+      output_format: "png",
+      moderation: "auto",
+      n: 1,
+      user: params.user,
+    },
+    { signal: params.signal },
+  );
+  const encoded = response.data?.[0]?.b64_json;
+  if (!encoded) throw new Error("IMAGE_OUTPUT_MISSING");
+  const bytes = Buffer.from(encoded, "base64");
+  if (
+    !bytes.length ||
+    bytes.length > 20 * 1024 * 1024 ||
+    bytes.toString("base64") !== encoded ||
+    bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
+  )
+    throw new Error("IMAGE_OUTPUT_INVALID");
+  return {
+    bytes,
+    model: configured.model,
+    size: response.size ?? params.size,
+    quality: response.quality ?? params.quality,
+    background: response.background ?? params.background,
+    usage: response.usage
+      ? {
+          inputTokens: response.usage.input_tokens,
+          inputTextTokens: response.usage.input_tokens_details.text_tokens,
+          inputImageTokens: response.usage.input_tokens_details.image_tokens,
+          outputTokens: response.usage.output_tokens,
+          totalTokens: response.usage.total_tokens,
+        }
+      : null,
   };
 }

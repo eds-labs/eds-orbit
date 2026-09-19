@@ -3,7 +3,9 @@ import { useState } from "react";
 import {
   Download,
   FileText,
+  Image as ImageIcon,
   Plus,
+  Sparkles,
   Settings,
   UserPlus,
   Upload,
@@ -42,6 +44,15 @@ const profileCsv = (value: string) =>
     .split("\n")
     .map((item) => item.trim())
     .filter(Boolean);
+async function fileBase64(file: File) {
+  if (!file.size || file.size > 1_000_000)
+    throw new Error("ASSET_UPLOAD_TOO_LARGE");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let offset = 0; offset < bytes.length; offset += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
+  return btoa(binary);
+}
 
 export function MarketingProfileConfiguration() {
   const { project, isOwner, refresh } = useWorkspace();
@@ -57,6 +68,18 @@ export function MarketingProfileConfiguration() {
   });
   const [editing, setEditing] = useState(false);
   const current = profile.data?.data;
+  const visual = current?.visualIdentity || {};
+  const logoOptions = (assets.data?.items || [])
+    .filter(
+      (asset) =>
+        ["logo", "original_logo"].includes(String(asset.data.type)) &&
+        asset.data.assetStatus === "approved" &&
+        asset.data.usageApproved === true,
+    )
+    .map((asset) => ({
+      value: asset.id,
+      label: value(asset, "name", value(asset, "brandName", "Approved logo")),
+    }));
   const factOptions = (facts.data?.items || [])
     .filter(
       (fact) =>
@@ -117,6 +140,83 @@ export function MarketingProfileConfiguration() {
       type: "textarea",
       required: true,
       value: profileLines(current?.voice),
+    },
+    {
+      name: "primaryColor",
+      label: "Primary brand color",
+      required: true,
+      value: visual.primaryColor || "#0969FF",
+      placeholder: "#0969FF",
+    },
+    {
+      name: "secondaryColor",
+      label: "Secondary brand color",
+      required: true,
+      value: visual.secondaryColor || "#254D66",
+      placeholder: "#254D66",
+    },
+    {
+      name: "accentColor",
+      label: "Accent color",
+      required: true,
+      value: visual.accentColor || "#45C2FF",
+      placeholder: "#45C2FF",
+    },
+    {
+      name: "backgroundColor",
+      label: "Background color",
+      required: true,
+      value: visual.backgroundColor || "#F6FBFF",
+      placeholder: "#F6FBFF",
+    },
+    {
+      name: "surfaceColor",
+      label: "Surface color",
+      required: true,
+      value: visual.surfaceColor || "#FFFFFF",
+      placeholder: "#FFFFFF",
+    },
+    {
+      name: "textColor",
+      label: "Text color",
+      required: true,
+      value: visual.textColor || "#071522",
+      placeholder: "#071522",
+    },
+    {
+      name: "headingFont",
+      label: "Heading font preset",
+      type: "select",
+      value: visual.headingFont || "Inter",
+      options: ["Inter", "DejaVu Sans", "Arial", "system-ui"].map((font) => ({
+        value: font,
+        label: font,
+      })),
+    },
+    {
+      name: "bodyFont",
+      label: "Body font preset",
+      type: "select",
+      value: visual.bodyFont || "Inter",
+      options: ["Inter", "DejaVu Sans", "Arial", "system-ui"].map((font) => ({
+        value: font,
+        label: font,
+      })),
+    },
+    {
+      name: "logoAssetId",
+      label: "Default approved logo",
+      type: "select",
+      value: visual.logoAssetId || "",
+      options: logoOptions,
+      hint: "Upload and approve additional logo variants in the asset library.",
+    },
+    {
+      name: "designRules",
+      label: "Visual brand rules (one per line)",
+      type: "textarea",
+      value: profileLines(visual.designRules),
+      hint: "Only rules confirmed by the brand owner belong here.",
     },
     {
       name: "guardrails",
@@ -217,7 +317,10 @@ export function MarketingProfileConfiguration() {
           </div>
           <div>
             <strong>Brand &amp; voice</strong>
-            <p>{(current.voice || []).join(" · ")}</p>
+            <p>
+              {(current.voice || []).join(" · ")} ·{" "}
+              {visual.primaryColor || "#0969FF"}
+            </p>
           </div>
           <div>
             <strong>Official links</strong>
@@ -301,6 +404,20 @@ export function MarketingProfileConfiguration() {
                       channelPriority: profileCsv(str(v, "channelPriority")),
                       notificationPreference: str(v, "notificationPreference"),
                       officialLinks,
+                      visualIdentity: {
+                        primaryColor: str(v, "primaryColor"),
+                        secondaryColor: str(v, "secondaryColor"),
+                        accentColor: str(v, "accentColor"),
+                        backgroundColor: str(v, "backgroundColor"),
+                        surfaceColor: str(v, "surfaceColor"),
+                        textColor: str(v, "textColor"),
+                        headingFont: str(v, "headingFont"),
+                        bodyFont: str(v, "bodyFont"),
+                        ...(str(v, "logoAssetId")
+                          ? { logoAssetId: str(v, "logoAssetId") }
+                          : {}),
+                        designRules: profileCsv(str(v, "designRules")),
+                      },
                       assetPolicy: "approved_only",
                     }),
                   });
@@ -591,7 +708,6 @@ export function CreativeRenderer({
       title="Creative production"
       description="Template rendering preserves the approved logo. Missing rights produce a creative brief, never a fabricated finished asset."
       onClose={() => {
-        if (download) URL.revokeObjectURL(download);
         onClose();
       }}
       wide
@@ -631,14 +747,33 @@ export function CreativeRenderer({
             options: (assets.data?.items || [])
               .filter(
                 (e) =>
-                  e.data.type === "original_logo" &&
-                  e.data.usageApproved === true,
+                  ["logo", "original_logo"].includes(String(e.data.type)) &&
+                  e.data.usageApproved === true &&
+                  e.data.assetStatus === "approved",
               )
               .map((e) => ({
                 value: e.id,
                 label: value(e, "name", value(e, "brandName", "Original logo")),
               })),
             hint: "Original branding and usage rights are required.",
+          },
+          {
+            name: "visualAssetId",
+            label: "Approved visual asset (optional)",
+            type: "select",
+            options: (assets.data?.items || [])
+              .filter(
+                (e) =>
+                  !["logo", "original_logo"].includes(String(e.data.type)) &&
+                  e.data.usageApproved === true &&
+                  e.data.assetStatus === "approved" &&
+                  e.data.hasContent === true,
+              )
+              .map((e) => ({
+                value: e.id,
+                label: value(e, "name", value(e, "filename", "Visual asset")),
+              })),
+            hint: "The image is composed behind the protected text surface.",
           },
         ]}
         pending={mutation.pending}
@@ -654,28 +789,24 @@ export function CreativeRenderer({
                 ...(str(v, "logoAssetId")
                   ? { logoAssetId: str(v, "logoAssetId") }
                   : {}),
+                ...(str(v, "visualAssetId")
+                  ? { visualAssetId: str(v, "visualAssetId") }
+                  : {}),
               }),
             )
             .then((r) => {
               if (r) {
+                const response = r as Record<string, any>;
                 const data = (
-                  r.data && typeof r.data === "object" ? r.data : r
+                  response.data && typeof response.data === "object"
+                    ? response.data
+                    : response
                 ) as Record<string, unknown>;
-                setResult(data);
-                if (
-                  typeof data.base64 === "string" &&
-                  data.mime === "image/png"
-                ) {
-                  if (download) URL.revokeObjectURL(download);
-                  const bytes = Uint8Array.from(atob(data.base64), (c) =>
-                    c.charCodeAt(0),
-                  );
+                setResult({ ...data, assetId: response.id });
+                if (response.id && data.mime === "image/png")
                   setDownload(
-                    URL.createObjectURL(
-                      new Blob([bytes], { type: "image/png" }),
-                    ),
+                    `/api/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(String(response.id))}/content`,
                   );
-                }
               }
             })
         }
@@ -778,6 +909,322 @@ export function BrandApproval() {
                 )
                 .then((r) => {
                   if (r) setOpen(false);
+                })
+            }
+          />
+        </Modal>
+      )}
+    </section>
+  );
+}
+
+type OpenAiImageConfiguration = {
+  configured: boolean;
+  imageGeneration?: {
+    model: string;
+    maxCostMicrosPerImage: number;
+    pricingVerifiedAt?: string;
+  };
+};
+
+export function BrandAssetLibrary() {
+  const { project, isOwner, refresh } = useWorkspace();
+  const assets = useCollection("assets");
+  const openAi = useResource<OpenAiImageConfiguration>(
+    isOwner ? collectionPath(project.id, "openai-configuration") : null,
+  );
+  const mutation = useMutation(() => {
+    assets.refresh();
+    refresh();
+  });
+  const [mode, setMode] = useState<"upload" | "generate" | null>(null);
+  const imageConfig = openAi.data?.imageGeneration;
+  const imageReady = Boolean(
+    openAi.data?.configured &&
+    imageConfig?.maxCostMicrosPerImage &&
+    imageConfig.pricingVerifiedAt,
+  );
+  const contentUrl = (asset: Entity) =>
+    asset.data.type === "original_logo"
+      ? "/brand/logo-layer-stack-mark.svg"
+      : `/api/projects/${encodeURIComponent(project.id)}/assets/${encodeURIComponent(asset.id)}/content`;
+  return (
+    <section className="panel administration-panel">
+      <div className="panel-head">
+        <div>
+          <h2>Brand kit &amp; asset library</h2>
+          <p>
+            Project-scoped originals, rights, approved variants and generated
+            artwork.
+          </p>
+        </div>
+        {isOwner && (
+          <div className="page-actions">
+            <Button variant="outline" onClick={() => setMode("upload")}>
+              <Upload data-icon="inline-start" /> Upload asset
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => setMode("generate")}
+              disabled={!imageReady}
+              title={
+                imageReady
+                  ? undefined
+                  : "Configure an OpenAI image model and cost ceiling first"
+              }
+            >
+              <Sparkles data-icon="inline-start" /> Generate with OpenAI
+            </Button>
+          </div>
+        )}
+      </div>
+      {!imageReady && isOwner && (
+        <Alert kind="warning">
+          OpenAI image generation remains disabled until an owner stores a key,
+          verifies a GPT Image 2.5 model and sets a current maximum cost per
+          image.
+        </Alert>
+      )}
+      <div className="asset-library">
+        {(assets.data?.items || []).map((asset) => (
+          <article className="asset-card" key={asset.id}>
+            {asset.data.hasContent === true ||
+            asset.data.type === "original_logo" ? (
+              <img
+                src={contentUrl(asset)}
+                alt={value(
+                  asset,
+                  "name",
+                  value(asset, "brandName", "Brand asset"),
+                )}
+              />
+            ) : (
+              <span className="asset-placeholder">
+                <ImageIcon aria-hidden="true" />
+              </span>
+            )}
+            <div>
+              <strong>
+                {value(asset, "name", value(asset, "brandName", "Asset"))}
+              </strong>
+              <p>{value(asset, "source", "Source not recorded")}</p>
+              <div className="detail-summary">
+                <Status value={asset.data.assetStatus} />
+                <Badge>{value(asset, "type")}</Badge>
+              </div>
+            </div>
+            {isOwner && asset.data.type !== "original_logo" && (
+              <div className="asset-actions">
+                {asset.data.assetStatus !== "approved" && (
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      mutation.run(() =>
+                        action(project.id, "asset-status", {
+                          assetId: asset.id,
+                          version: asset.version,
+                          assetStatus: "approved",
+                          confirmUsageRights: true,
+                        }),
+                      )
+                    }
+                  >
+                    Approve rights &amp; use
+                  </Button>
+                )}
+                {asset.data.assetStatus !== "outdated" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      mutation.run(() =>
+                        action(project.id, "asset-status", {
+                          assetId: asset.id,
+                          version: asset.version,
+                          assetStatus: "outdated",
+                        }),
+                      )
+                    }
+                  >
+                    Mark outdated
+                  </Button>
+                )}
+              </div>
+            )}
+          </article>
+        ))}
+      </div>
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {mode === "upload" && (
+        <Modal
+          title="Upload brand asset"
+          description="PNG, JPEG or WebP up to 1 MB. The server verifies the image signature, pixel bounds and strips metadata before storing a normalized PNG. Upload does not approve publication use."
+          onClose={() => setMode(null)}
+        >
+          <DataForm
+            fields={[
+              { name: "name", label: "Asset name", required: true },
+              {
+                name: "type",
+                label: "Asset type",
+                type: "select",
+                value: "photo",
+                options: ["logo", "photo", "background", "banner", "icon"].map(
+                  (value) => ({ value, label: value }),
+                ),
+              },
+              {
+                name: "file",
+                label: "Image file",
+                type: "file",
+                accept: "image/png,image/jpeg,image/webp",
+                required: true,
+              },
+              { name: "source", label: "Source / creator", required: true },
+              {
+                name: "license",
+                label: "License / rights basis",
+                required: true,
+              },
+              {
+                name: "validUses",
+                label: "Valid uses (comma separated)",
+                value: "social, blog",
+                required: true,
+              },
+              {
+                name: "confirmRightsInformation",
+                label:
+                  "I confirm that the recorded source and rights information is accurate.",
+                type: "checkbox",
+                required: true,
+              },
+            ]}
+            pending={mutation.pending}
+            error={mutation.error}
+            submitLabel="Upload as reference"
+            onCancel={() => setMode(null)}
+            onSubmit={(values) =>
+              mutation
+                .run(async () => {
+                  const file = values.file;
+                  if (!(file instanceof File))
+                    throw new Error("ASSET_FILE_REQUIRED");
+                  return api(`/projects/${project.id}/assets/upload`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      name: str(values, "name"),
+                      type: str(values, "type"),
+                      mime: file.type,
+                      base64: await fileBase64(file),
+                      source: str(values, "source"),
+                      license: str(values, "license"),
+                      validUses: str(values, "validUses")
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                      confirmRightsInformation: true,
+                    }),
+                  });
+                })
+                .then((result) => {
+                  if (result) setMode(null);
+                })
+            }
+          />
+        </Modal>
+      )}
+      {mode === "generate" && imageConfig && (
+        <Modal
+          title="Generate reference artwork"
+          description="The prompt and brand palette are sent to OpenAI. The result is stored as an unapproved reference and cannot be published until an owner reviews its rights and brand fit."
+          onClose={() => setMode(null)}
+        >
+          <Alert kind="warning">
+            Model: {imageConfig.model}. Maximum reserved cost for this image: $
+            {(imageConfig.maxCostMicrosPerImage / 1_000_000).toFixed(2)}.
+          </Alert>
+          <DataForm
+            fields={[
+              { name: "name", label: "Asset name", required: true },
+              {
+                name: "prompt",
+                label: "Artwork description",
+                type: "textarea",
+                min: 10,
+                max: 4000,
+                required: true,
+              },
+              {
+                name: "size",
+                label: "Image size",
+                type: "select",
+                value: "1024x1024",
+                options: ["1024x1024", "1536x1024", "1024x1536"].map(
+                  (value) => ({ value, label: value }),
+                ),
+              },
+              {
+                name: "quality",
+                label: "Quality",
+                type: "select",
+                value: "medium",
+                options: ["low", "medium", "high"].map((value) => ({
+                  value,
+                  label: value,
+                })),
+              },
+              {
+                name: "background",
+                label: "Background",
+                type: "select",
+                value: "opaque",
+                options: ["opaque", "transparent"].map((value) => ({
+                  value,
+                  label: value,
+                })),
+              },
+              {
+                name: "validUses",
+                label: "Intended uses (comma separated)",
+                value: "social, blog",
+                required: true,
+              },
+              {
+                name: "confirm",
+                label: `I authorize sending this prompt and the project brand palette to OpenAI and reserve up to $${(imageConfig.maxCostMicrosPerImage / 1_000_000).toFixed(2)} for this single image.`,
+                type: "checkbox",
+                required: true,
+              },
+            ]}
+            pending={mutation.pending}
+            error={mutation.error}
+            submitLabel="Generate one reference image"
+            onCancel={() => setMode(null)}
+            onSubmit={(values) =>
+              mutation
+                .run(() =>
+                  api(`/projects/${project.id}/images/generate`, {
+                    method: "POST",
+                    body: JSON.stringify({
+                      requestId: crypto.randomUUID(),
+                      name: str(values, "name"),
+                      prompt: str(values, "prompt"),
+                      size: str(values, "size"),
+                      quality: str(values, "quality"),
+                      background: str(values, "background"),
+                      validUses: str(values, "validUses")
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean),
+                      confirmPromptMayBeSentToOpenAI: true,
+                      confirmMaximumCostMicros:
+                        imageConfig.maxCostMicrosPerImage,
+                    }),
+                  }),
+                )
+                .then((result) => {
+                  if (result) setMode(null);
                 })
             }
           />
