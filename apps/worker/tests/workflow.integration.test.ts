@@ -176,7 +176,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         startAt: past,
         endAt: future,
         maxContents: 1,
-        targetAction: "read",
+        targetAction: "Learn more.",
         sourceIds: [sourceId],
         contentType: "social",
         status: "ready",

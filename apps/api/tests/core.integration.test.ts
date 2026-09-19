@@ -143,7 +143,7 @@ describe.skipIf(!enabled)("Real PostgreSQL marketing control plane", () => {
         startAt: past,
         endAt: future,
         maxContents: 1,
-        targetAction: "read",
+        targetAction: "Learn more.",
         sourceIds: [sourceId],
         contentType: "social",
         status: "ready",

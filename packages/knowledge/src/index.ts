@@ -1138,6 +1138,13 @@ export async function attachEmbeddings(
     version.document.activeVersionId !== version.id
   )
     throw new KnowledgeError("STALE_DOCUMENT_VERSION");
+  const now = Date.now();
+  if (
+    version.validFrom.getTime() > now ||
+    (version.validUntil && version.validUntil.getTime() <= now) ||
+    version.fetchedAt.getTime() + source.maxAgeHours * 3600000 <= now
+  )
+    throw new KnowledgeError("DOCUMENT_NOT_FRESH");
   if (
     input.vectors.length !== version.chunks.length ||
     new Set(input.vectors.map((v) => v.chunkId)).size !== version.chunks.length
@@ -1154,4 +1161,88 @@ export async function attachEmbeddings(
     chunks: input.vectors.length,
   });
   return { embedded: input.vectors.length };
+}
+
+/** Persist one bounded document-embedding batch without exposing a partial set as complete. */
+export async function attachEmbeddingBatch(
+  tx: DbTx,
+  s: Scope,
+  input: {
+    sourceId: string;
+    versionId: string;
+    expectedGeneration: number;
+    expectedIndexGeneration: number;
+    profile: string;
+    vectors: { chunkId: string; vector: number[] }[];
+  },
+) {
+  const { data: source } = await getSource(tx, s, input.sourceId);
+  if (!source.modelUse) throw new KnowledgeError("MODEL_USE_FORBIDDEN");
+  if (source.generation !== input.expectedGeneration)
+    throw new KnowledgeError("STALE_SOURCE_GENERATION");
+  const activeIndex = await assertActiveEmbeddingProfile(tx, s, input.profile);
+  if (activeIndex.generation !== input.expectedIndexGeneration)
+    throw new KnowledgeError("EMBEDDING_INDEX_CHANGED");
+  const version = await tx.documentVersion.findFirst({
+    where: {
+      ...where(s),
+      id: input.versionId,
+      state: "active",
+      sourceGeneration: source.generation,
+    },
+    include: { document: true, chunks: true },
+  });
+  if (
+    !version ||
+    version.document.sourceId !== input.sourceId ||
+    version.document.activeVersionId !== version.id
+  )
+    throw new KnowledgeError("STALE_DOCUMENT_VERSION");
+  const now = Date.now();
+  if (
+    version.validFrom.getTime() > now ||
+    (version.validUntil && version.validUntil.getTime() <= now) ||
+    version.fetchedAt.getTime() + source.maxAgeHours * 3600000 <= now
+  )
+    throw new KnowledgeError("DOCUMENT_NOT_FRESH");
+  if (
+    !input.vectors.length ||
+    input.vectors.length > 32 ||
+    new Set(input.vectors.map((v) => v.chunkId)).size !== input.vectors.length
+  )
+    throw new KnowledgeError("INVALID_EMBEDDING_BATCH");
+  const chunkIds = new Set(version.chunks.map((chunk) => chunk.id));
+  for (const item of input.vectors) {
+    if (!chunkIds.has(item.chunkId))
+      throw new KnowledgeError("CHUNK_UNAVAILABLE");
+    const vector = validateVector(item.vector, activeIndex.dimensions);
+    await tx.$executeRaw`INSERT INTO "ChunkEmbedding" ("id","workspaceId","projectId","chunkId","profile","model","dimensions","indexGeneration","vector") VALUES (${randomUUID()}::uuid,${s.workspaceId}::uuid,${s.projectId}::uuid,${item.chunkId}::uuid,${activeIndex.profile},${activeIndex.model},${activeIndex.dimensions},${activeIndex.generation},${vector}::vector) ON CONFLICT ("chunkId","profile","indexGeneration") DO NOTHING`;
+  }
+  const stored = await tx.chunkEmbedding.count({
+    where: {
+      ...where(s),
+      profile: activeIndex.profile,
+      indexGeneration: activeIndex.generation,
+      chunk: { documentVersionId: version.id },
+    },
+  });
+  const complete = stored === version.chunks.length;
+  await audit(tx, s, "knowledge.embedding_batch_attached", version.id, {
+    profile: input.profile,
+    chunks: input.vectors.length,
+    stored,
+    total: version.chunks.length,
+    complete,
+  });
+  if (complete)
+    await audit(tx, s, "knowledge.embedded", version.id, {
+      profile: input.profile,
+      chunks: stored,
+    });
+  return {
+    embedded: input.vectors.length,
+    stored,
+    total: version.chunks.length,
+    complete,
+  };
 }

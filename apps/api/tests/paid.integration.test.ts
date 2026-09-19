@@ -27,7 +27,10 @@ import {
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
 const provider = vi.hoisted(() => ({ generate: vi.fn(), embed: vi.fn() }));
-vi.mock("../../../packages/ai/src/index.ts", () => ({
+vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../packages/ai/src/index.ts")
+  >()),
   generate: provider.generate,
   embed: provider.embed,
   route: () => "synthetic-test-model",
@@ -35,7 +38,10 @@ vi.mock("../../../packages/ai/src/index.ts", () => ({
 }));
 import { generateMissionLive } from "../src/modules/generation.ts";
 import { retrieveHybrid } from "../src/modules/retrieval.ts";
-import { embedDocument } from "../src/modules/ingestion.ts";
+import {
+  embedDocument,
+  queueDocumentEmbedding,
+} from "../src/modules/ingestion.ts";
 import { buildIndexBatch } from "../src/modules/reindex.ts";
 import {
   queueIndexEvaluation,
@@ -178,6 +184,23 @@ describe.skipIf(!enabled)(
       );
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({ state: "settled", settledMicros: cost });
+    }
+    async function largeDocument(chunkCount: number) {
+      return run((tx) =>
+        ingest(tx, s, {
+          sourceId,
+          externalId: "embedding-batches-" + randomUUID(),
+          title: "Bounded embedding batches",
+          text: Array.from(
+            { length: chunkCount },
+            (_, index) =>
+              `# Batch ${index + 1}\n${`passage-${index + 1} `.repeat(24)}`,
+          ).join("\n\n"),
+          mimeType: "text/markdown",
+          language: "en",
+          validFrom: new Date(Date.now() - 3600000).toISOString(),
+        }),
+      );
     }
     it("A12/SR01: source withdrawal after model response records cost, refuses content, and retry makes no paid call", async () => {
       const jobId = randomUUID();
@@ -332,6 +355,167 @@ describe.skipIf(!enabled)(
         "DOCUMENT_NOT_FOUND",
       );
       expect(provider.embed).toHaveBeenCalledTimes(1);
+    });
+    it("K17/K29: persists and resumes a document larger than 32 chunks in bounded paid jobs", async () => {
+      const document = await largeDocument(65);
+      expect(document.chunks).toBe(65);
+      provider.embed.mockImplementation(async (texts: string[]) => ({
+        ...embedding(),
+        vectors: texts.map(() => embedding().vectors[0]!),
+      }));
+
+      const secondJob = await embedDocument(
+        s,
+        document.documentId,
+        randomUUID(),
+      );
+      expect(data(secondJob as { data: unknown })).toMatchObject({
+        topic: "embedding",
+        resourceId: document.documentId,
+        status: "queued",
+      });
+      expect(
+        await run((tx) =>
+          tx.chunkEmbedding.count({
+            where: { chunk: { documentVersionId: document.versionId } },
+          }),
+        ),
+      ).toBe(32);
+
+      const thirdJob = await embedDocument(
+        s,
+        document.documentId,
+        (secondJob as { id: string }).id,
+      );
+      expect(data(thirdJob as { data: unknown })).toMatchObject({
+        topic: "embedding",
+        resourceId: document.documentId,
+        status: "queued",
+      });
+      const completed = await embedDocument(
+        s,
+        document.documentId,
+        (thirdJob as { id: string }).id,
+      );
+
+      expect(completed).toMatchObject({
+        embedded: 1,
+        stored: 65,
+        total: 65,
+        complete: true,
+      });
+      expect(provider.embed).toHaveBeenCalledTimes(3);
+      expect(
+        provider.embed.mock.calls.map((call) => (call[0] as string[]).length),
+      ).toEqual([32, 32, 1]);
+      expect(
+        await run((tx) =>
+          tx.chunkEmbedding.count({
+            where: { chunk: { documentVersionId: document.versionId } },
+          }),
+        ),
+      ).toBe(65);
+      expect(
+        await run((tx) =>
+          tx.budgetReservation.findMany({
+            where: { category: "embedding" },
+            select: { state: true, settledMicros: true },
+          }),
+        ),
+      ).toEqual([
+        { state: "settled", settledMicros: 7n },
+        { state: "settled", settledMicros: 7n },
+        { state: "settled", settledMicros: 7n },
+      ]);
+      await embedDocument(s, document.documentId, randomUUID());
+      expect(provider.embed).toHaveBeenCalledTimes(3);
+    });
+    it("K17: rechecks source rights before a chained embedding batch", async () => {
+      const document = await largeDocument(33);
+      provider.embed.mockImplementation(async (texts: string[]) => ({
+        ...embedding(),
+        vectors: texts.map(() => embedding().vectors[0]!),
+      }));
+      const nextJob = await embedDocument(s, document.documentId, randomUUID());
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+      await run((tx) => setSourceRights(tx, s, sourceId, { modelUse: false }));
+      await expect(
+        embedDocument(s, document.documentId, (nextJob as { id: string }).id),
+      ).rejects.toThrow(/MODEL_USE_FORBIDDEN|STALE_SOURCE_GENERATION/);
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+    });
+    it("K17: rechecks document freshness before a chained embedding batch", async () => {
+      const document = await largeDocument(33);
+      provider.embed.mockImplementation(async (texts: string[]) => ({
+        ...embedding(),
+        vectors: texts.map(() => embedding().vectors[0]!),
+      }));
+      const nextJob = await embedDocument(s, document.documentId, randomUUID());
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+      await run((tx) =>
+        tx.documentVersion.update({
+          where: { id: document.versionId },
+          data: { validUntil: new Date(Date.now() - 1000) },
+        }),
+      );
+      await expect(
+        embedDocument(s, document.documentId, (nextJob as { id: string }).id),
+      ).rejects.toThrow("DOCUMENT_NOT_FRESH");
+      expect(provider.embed).toHaveBeenCalledTimes(1);
+    });
+    it("resumes persisted progress after a terminal embedding batch", async () => {
+      const document = await largeDocument(33);
+      provider.embed.mockImplementation(async (texts: string[]) => ({
+        ...embedding(),
+        vectors: texts.map(() => embedding().vectors[0]!),
+      }));
+      const failedBatch = await embedDocument(
+        s,
+        document.documentId,
+        randomUUID(),
+      );
+      await run((tx) =>
+        tx.entity.update({
+          where: { id: (failedBatch as { id: string }).id },
+          data: {
+            data: {
+              ...data(failedBatch as { data: unknown }),
+              status: "blocked_dependency",
+              attempts: 3,
+            },
+          },
+        }),
+      );
+
+      const resumed = await run((tx) =>
+        queueDocumentEmbedding(tx, s, document.documentId),
+      );
+      expect((resumed as { id: string }).id).not.toBe(
+        (failedBatch as { id: string }).id,
+      );
+      expect(data(resumed as { data: unknown })).toMatchObject({
+        status: "queued",
+        topic: "embedding",
+      });
+      const duplicateConfirmation = await run((tx) =>
+        queueDocumentEmbedding(tx, s, document.documentId),
+      );
+      expect((duplicateConfirmation as { id: string }).id).toBe(
+        (resumed as { id: string }).id,
+      );
+      await embedDocument(
+        s,
+        document.documentId,
+        (resumed as { id: string }).id,
+      );
+      expect(provider.embed).toHaveBeenCalledTimes(2);
+      expect(
+        await run((tx) =>
+          tx.chunkEmbedding.count({
+            where: { chunk: { documentVersionId: document.versionId } },
+          }),
+        ),
+      ).toBe(33);
     });
     it("K18/K29: changed source rights quarantine reindex response, preserve charge, and block retry", async () => {
       const index = await run((tx) =>

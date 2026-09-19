@@ -102,6 +102,7 @@ import {
   reviewContent,
   enqueue,
 } from "./modules/workflow.ts";
+import { queueDocumentEmbedding } from "./modules/ingestion.ts";
 import {
   createPostizClient,
   createMatomoClient,
@@ -1343,17 +1344,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           })
           .strict()
           .parse(input);
-        const document = await tx.knowledgeDocument.findFirst({
-          where: { id: i.documentId, projectId },
-        });
-        if (!document) throw new DomainError("NOT_FOUND", 404);
-        return enqueue(
-          tx,
-          scope,
-          "embedding",
-          document.id,
-          "embedding:" + document.activeVersionId,
-        );
+        return queueDocumentEmbedding(tx, scope, i.documentId);
       }
       if (action === "reconcile") {
         const pub = await entity(

@@ -17,6 +17,7 @@ import {
 } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { create, data, list, update } from "../shared.ts";
+import { saveMarketingProfile } from "./marketing-profile.ts";
 import { retrieve, setFact } from "../../../../packages/knowledge/src/index.ts";
 import {
   configureSlack,
@@ -302,6 +303,18 @@ describe.skipIf(!enabled)(
           publicUse: true,
           modelUse: false,
         });
+        const website = await setFact(tx, scope, {
+          key: "website",
+          value: "https://synthetic.example",
+          valueType: "url",
+          language: "en",
+          sourceId: source.id,
+          validFrom: past,
+          validUntil: future,
+          status: "verified",
+          publicUse: true,
+          modelUse: false,
+        });
         const evidence = await retrieve(tx, scope, {
           query: "price",
           purpose: "public",
@@ -322,14 +335,59 @@ describe.skipIf(!enabled)(
           perRunBudgetMicros: 0,
           approvedPaidTests: false,
         });
+        const profile = await saveMarketingProfile(tx, scope, {
+          productName: "Synthetic product",
+          contentLanguage: "en",
+          internalLanguage: "en",
+          audience: "Synthetic audience",
+          positioning: "Verified fixture positioning",
+          productStrategy: "Explain the verified fixture",
+          presaleStrategy: "Use only verified fixture facts",
+          voice: ["Clear"],
+          guardrails: ["No unsupported claims"],
+          primaryCtas: ["Learn more."],
+          channelPriority: ["synthetic-social"],
+          notificationPreference: "slack",
+          officialLinks: [
+            {
+              label: "Website",
+              url: "https://synthetic.example",
+              factId: website.id,
+            },
+          ],
+          assetPolicy: "approved_only",
+        });
+        const mission = await create(tx, scope, "missions", {
+          title: "Synthetic approval campaign",
+          goal: "Explain the verified fixture price",
+          audience: "Synthetic audience",
+          language: "en",
+          channels: ["synthetic-social"],
+          startAt: past,
+          endAt: future,
+          maxContents: 1,
+          targetAction: "Learn more.",
+          allowedActions: ["draft", "review", "publish_live"],
+          sourceIds: [source.id],
+          contentType: "social",
+          campaignType: "product",
+          profileVersion: profile.version,
+          status: "ready",
+        });
         return create(tx, scope, "content", {
           title: "Synthetic price",
-          body: "price: 19",
+          body: "price: 19 EUR\nLearn more.",
           type: "social",
           language: "en",
           channel: "synthetic-social",
+          missionId: mission.id,
+          campaignType: "product",
+          profileVersion: profile.version,
           evidenceId: evidence.id,
-          claims: [{ kind: "fact", text: "price: 19", factId: fact.id }],
+          claims: [
+            { kind: "fact", text: "price: 19 EUR", factId: fact.id },
+            { kind: "style", text: "Learn more." },
+          ],
           status: "reviewed",
           risk: "routine",
           synthetic: false,
