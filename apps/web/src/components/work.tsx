@@ -875,12 +875,27 @@ export function ContentEditor({
   const { project, t, refresh } = useWorkspace();
   const evidence = useCollection("evidence"),
     facts = useCollection("facts"),
-    missions = useCollection("missions");
+    missions = useCollection("missions"),
+    connectors = useCollection("connectors");
   const mutation = useMutation(() => {
     refresh();
     onClose();
   });
   const d = entity?.data;
+  const postizChannels = (connectors.data?.items || [])
+    .filter(
+      (connector) =>
+        connector.data.provider === "postiz" &&
+        Array.isArray(connector.data.channels),
+    )
+    .flatMap(
+      (connector) => connector.data.channels as Record<string, unknown>[],
+    )
+    .filter((channel) => !channel.disabled)
+    .map((channel) => ({
+      value: String(channel.id),
+      label: `${String(channel.name || channel.id)} · ${String(channel.identifier || "unknown")}`,
+    }));
   const fields: FormField[] = [
     {
       name: "title",
@@ -920,8 +935,13 @@ export function ContentEditor({
     {
       name: "channel",
       label: "Channel",
+      type: postizChannels.length ? "select" : "text",
       required: true,
       value: d?.channel as string,
+      options: postizChannels,
+      hint: postizChannels.length
+        ? "Connected Postiz channels; IDs are stored server-side with the approved content package."
+        : "Refresh the Postiz connector to load channel choices.",
     },
     {
       name: "missionId",

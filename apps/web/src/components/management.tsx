@@ -674,6 +674,48 @@ export function Connectors() {
                       {Array.isArray(e.data.blockers) && (
                         <p>{e.data.blockers.join(" · ")}</p>
                       )}
+                      {p.id === "postiz" && (
+                        <div className="connector-details">
+                          <p>
+                            <strong>API:</strong>{" "}
+                            {String(e.data.baseUrl || "Not configured")}
+                          </p>
+                          <p>
+                            <strong>Secret:</strong> Configured via server
+                            storage
+                          </p>
+                          {Array.isArray(e.data.groups) &&
+                            e.data.groups.length > 0 && (
+                              <p>
+                                <strong>Groups:</strong>{" "}
+                                {e.data.groups
+                                  .map((group: any) =>
+                                    String(group.name || group.id),
+                                  )
+                                  .join(", ")}
+                              </p>
+                            )}
+                          {Array.isArray(e.data.channels) &&
+                          e.data.channels.length > 0 ? (
+                            <ul aria-label="Connected Postiz channels">
+                              {e.data.channels.map((channel: any) => (
+                                <li key={String(channel.id)}>
+                                  <strong>
+                                    {String(channel.name || channel.id)}
+                                  </strong>{" "}
+                                  · {String(channel.identifier || "unknown")} ·{" "}
+                                  {channel.disabled
+                                    ? "Disconnected"
+                                    : "Connected"}{" "}
+                                  <small>({String(channel.id)})</small>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p>No connected channels loaded.</p>
+                          )}
+                        </div>
+                      )}
                     </>
                   )}
                 </div>
@@ -707,7 +749,9 @@ export function Connectors() {
                           }
                         >
                           <RefreshCw data-icon="inline-start" />
-                          Check capabilities
+                          {p.id === "postiz"
+                            ? "Test connection / refresh channels"
+                            : "Check capabilities"}
                         </Button>
                       )}
                     </>

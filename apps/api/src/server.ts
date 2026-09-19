@@ -111,6 +111,7 @@ import {
 import { queueDocumentEmbedding } from "./modules/ingestion.ts";
 import {
   createPostizClient,
+  normalizePostizBaseUrl,
   createMatomoClient,
   importAdsCsv,
   exportBlogArticle,
@@ -986,10 +987,30 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       if (d.provider === "postiz") {
         const client = createPostizClient(options);
         const channels = await client.listIntegrations();
+        const checkedAt = new Date().toISOString();
+        let groups: Awaited<ReturnType<typeof client.listGroups>> = [];
+        try {
+          groups = await client.listGroups();
+        } catch (error) {
+          if (!(error instanceof ConnectorError && error.status === 404))
+            throw error;
+        }
+        const connection = {
+          connected: true,
+          provider: "postiz",
+          baseUrl: client.baseUrl,
+          channelCount: channels.length,
+          checkedAt,
+          error: null,
+        };
         result = {
           status: "read_verified",
           capabilities: client.capabilities,
           channels,
+          groups,
+          baseUrl: client.baseUrl,
+          connection,
+          lastSuccessfulConnection: checkedAt,
         };
       } else if (d.provider === "matomo") {
         const client = createMatomoClient({
@@ -1590,6 +1611,8 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
         if (c.baseUrl && new URL(c.baseUrl).protocol !== "https:")
           throw new DomainError("HTTPS_REQUIRED");
         const { credential, ...metadata } = c;
+        if (metadata.provider === "postiz" && metadata.baseUrl)
+          metadata.baseUrl = normalizePostizBaseUrl(metadata.baseUrl);
         return publicEntity(
           await create(tx, scope, "connectors", {
             ...metadata,
