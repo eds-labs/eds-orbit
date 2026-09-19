@@ -10,7 +10,12 @@ describe('Postiz documented contract', () => {
     const fetch = vi.fn(async (_url: string | URL, _init?: RequestInit) => json([{ id: 'channel-one', name: 'Sample', identifier: 'bluesky', disabled: false, credential: 'must-not-return' }]));
     const result = await createPostizClient({ ...options, fetch }).listIntegrations();
     expect(result).toEqual([{ id: 'channel-one', name: 'Sample', identifier: 'bluesky', disabled: false }]);
-    expect(String(fetch.mock.calls[0]?.[0])).toBe('https://postiz.example/public/v1/integrations');
+    expect(String(fetch.mock.calls[0]?.[0])).toBe('https://postiz.example/public/v1/integrations/');
+  });
+  it('uses the slash-terminated integrations route required by self-hosted proxies', async () => {
+    const fetch = vi.fn(async (url: string | URL) => new URL(url).pathname.endsWith('/integrations/') ? json([]) : json({ message: 'Not Found' }, 404));
+    await expect(createPostizClient({ ...options, fetch }).healthcheck()).resolves.toMatchObject({ status: 'read_verified' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
   it.each(['draft', 'schedule', 'now'] as const)('encodes %s in one request and treats receipt as accepted only', async type => {
     const fetch = vi.fn(async (_url: string | URL, init?: RequestInit) => { expect(JSON.parse(String(init?.body)).type).toBe(type); expect(new Headers(init?.headers).get('authorization')).toBe(options.token); return json([{ postId: 'post-one', integration: 'channel-one' }]); });

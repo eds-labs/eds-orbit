@@ -26,8 +26,8 @@ export function createPostizClient(options: HttpOptions) {
   }
   return {
     capabilities: postizCapabilities,
-    async listIntegrations() { return validated(z.array(integrationSchema).max(1_000), await call('integrations')); },
-    async healthcheck() { await validated(z.array(integrationSchema), await call('integrations')); return { status: 'read_verified' as const, checkedAt: new Date().toISOString() }; },
+    async listIntegrations() { return validated(z.array(integrationSchema).max(1_000), await call('integrations/')); },
+    async healthcheck() { await validated(z.array(integrationSchema), await call('integrations/')); return { status: 'read_verified' as const, checkedAt: new Date().toISOString() }; },
     async createPost(input: PostizCreateInput) {
       const parsed = createSchema.safeParse(input); if (!parsed.success) throw new ConnectorError('INVALID_POST_PAYLOAD');
       if (parsed.data.type === 'schedule' && Date.parse(parsed.data.date) <= Date.now()) throw new ConnectorError('SCHEDULE_IN_PAST');
