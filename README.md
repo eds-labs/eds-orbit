@@ -9,6 +9,7 @@ A self-hosted marketing workspace with project-scoped knowledge, verified facts,
 Requirements: Node.js **24.18.0**, pnpm **11.19.0**, Docker Compose, and Python3 for repository checks. PostgreSQL17/pgvector0.8.6 and Redis7.4.7 use their own Compose project, volumes and localhost ports55432/56379.
 
 ```sh
+nvm use
 corepack enable
 corepack prepare pnpm@11.19.0 --activate
 pnpm install --frozen-lockfile
@@ -38,6 +39,7 @@ pnpm api:generate        # with ORBIT_CONFIG_FILE=.runtime/local.env
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:migration-profile
 pnpm build
 pnpm secrets:check
 pnpm dependencies:inventory

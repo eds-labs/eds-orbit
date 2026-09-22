@@ -22,6 +22,7 @@
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration",
     "test:e2e": "playwright test",
+    "test:migration-profile": "tsx scripts/test-marketing-profile-migration.ts",
     "build": "pnpm db:generate && tsc --noEmit && pnpm --dir apps/web build",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "framework:check": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_framework.py --require-full-validation",
@@ -29,7 +30,8 @@
     "local:setup": "tsx scripts/local-setup.ts",
     "db:deploy": "tsx scripts/db-deploy.ts",
     "secrets:check": "python3 scripts/check-secrets.py",
-    "dependencies:inventory": "node scripts/dependency-inventory.mjs"
+    "dependencies:inventory": "node scripts/dependency-inventory.mjs",
+    "evidence:source-manifest": "node scripts/source-manifest.mjs"
   },
   "dependencies": {
     "@prisma/client": "7.10.0",
@@ -49,9 +51,9 @@
     "sanitize-html": "2.17.7",
     "csv-parse": "7.0.2",
     "ipaddr.js": "2.5.0",
-    "ioredis": "6.0.0"
-    ,"prisma": "7.10.0"
-    ,"tsx": "4.23.13"
+    "ioredis": "6.0.0",
+    "prisma": "7.10.0",
+    "tsx": "4.23.13"
   },
   "devDependencies": {
     "vitest": "5.0.1",

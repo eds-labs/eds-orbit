@@ -120,6 +120,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByRole("heading", { name: "Knowledge", exact: true }),
     ).toBeVisible();
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
     await page.screenshot({
       path: testInfo.outputPath("knowledge-desktop.png"),
       fullPage: true,
@@ -164,7 +165,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     const documentId = documents.items[0].id as string;
     const unconfirmedEmbedding = await page.request.post(
       `/api/projects/${projectId}/actions/embed-document`,
-      { data: { documentId } },
+      {
+        data: { documentId },
+        headers: { Origin: "http://localhost:4310" },
+      },
     );
     expect(unconfirmedEmbedding.status()).toBe(400);
     await page.getByRole("tab", { name: "Library", exact: true }).click();
@@ -236,32 +240,184 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         modelUse: true,
       },
     );
-    await checkedPut(
+    const requiredLinkFacts = [
+      ["Web app", "orbit.browser.app", "https://app.orbit.example.test"],
+      [
+        "Beta registration",
+        "orbit.browser.beta",
+        "https://orbit.example.test/beta",
+      ],
+      [
+        "Getting Started",
+        "orbit.browser.docs",
+        "https://orbit.example.test/docs",
+      ],
+    ];
+    const linkFactIds = new Map<string, string>([
+      ["Website", websiteFact.id as string],
+    ]);
+    for (const [label, key, value] of requiredLinkFacts) {
+      const fact = await checkedPost(
+        page.request,
+        `/api/projects/${projectId}/facts`,
+        {
+          key,
+          value,
+          valueType: "url",
+          language: "en",
+          sourceId,
+          validFrom: new Date(Date.now() - 3600_000).toISOString(),
+          validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        },
+      );
+      linkFactIds.set(label, fact.id as string);
+    }
+    await page.goto("/settings");
+    await page.getByRole("button", { name: "Review usage rights" }).click();
+    dialog = page.getByRole("dialog", { name: "Approve brand usage" });
+    await dialog
+      .getByLabel(
+        "I hold the necessary rights and approve EDS Labs brand usage for this project.",
+      )
+      .check();
+    await dialog.getByRole("button", { name: "Approve project usage" }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(
+      page.getByText("Rights approved", { exact: true }),
+    ).toBeVisible();
+    const logoAssets = await (
+      await page.request.get(`/api/projects/${projectId}/assets`)
+    ).json();
+    const logoAssetId = logoAssets.items.find(
+      (asset: { data: { type: string } }) =>
+        asset.data.type === "original_logo",
+    ).id as string;
+
+    await page.getByRole("button", { name: "Upload asset" }).click();
+    dialog = page.getByRole("dialog", { name: "Upload brand asset" });
+    await dialog.getByLabel("Asset name").fill("Browser visual asset");
+    await dialog.getByLabel("Asset type").selectOption("background");
+    await dialog
+      .getByLabel("Image file")
+      .setInputFiles(resolve("docs/evidence/container-creative-square.png"));
+    await dialog.getByLabel("Source / creator").fill("Synthetic local fixture");
+    await dialog.getByLabel("License / rights basis").fill("Test fixture only");
+    await dialog
+      .getByLabel(
+        "I confirm that the recorded source and rights information is accurate.",
+      )
+      .check();
+    await dialog.getByRole("button", { name: "Upload as reference" }).click();
+    await expect(dialog).toHaveCount(0);
+    const assetCard = page.locator(".asset-card").filter({
+      hasText: "Browser visual asset",
+    });
+    await expect(assetCard).toContainText("reference");
+    await assetCard
+      .getByRole("button", { name: "Approve rights & use" })
+      .click();
+    await expect(assetCard).toContainText("approved");
+    const visualAssets = await (
+      await page.request.get(`/api/projects/${projectId}/assets`)
+    ).json();
+    const visualAssetId = visualAssets.items.find(
+      (asset: { data: { name?: string } }) =>
+        asset.data.name === "Browser visual asset",
+    ).id as string;
+
+    await page.getByRole("button", { name: "Configure project" }).click();
+    dialog = page.getByRole("dialog", { name: "Project configuration" });
+    await dialog
+      .getByRole("textbox", { name: "Product", exact: true })
+      .fill("Orbit browser acceptance");
+    await dialog.getByLabel("Audience").fill("Synthetic acceptance audience");
+    await dialog
+      .getByLabel("Positioning")
+      .fill("Synthetic local test workspace");
+    await dialog
+      .getByLabel("Product marketing strategy")
+      .fill("Explain verified product facts");
+    await dialog
+      .getByLabel("Presale marketing strategy")
+      .fill("Use verified presale facts only");
+    await dialog.getByLabel("Brand voice (one rule per line)").fill("Clear");
+    await dialog
+      .getByLabel("Visual brand rules (one per line)")
+      .fill("Use clear negative space");
+    await dialog
+      .getByLabel("Content guardrails (one rule per line)")
+      .fill("No return claims");
+    await dialog
+      .getByLabel("Approved primary CTAs (one per line)")
+      .fill("Learn more.");
+    await dialog
+      .getByLabel("Channel priority (one per line)")
+      .fill("test-social");
+    await dialog.getByLabel("Internal work language").selectOption("en");
+    await dialog.getByLabel("Notification preference").selectOption("none");
+    await dialog.getByLabel("Default approved logo").selectOption(logoAssetId);
+    for (const label of [
+      "Website",
+      "Web app",
+      "Beta registration",
+      "Getting Started",
+    ]) {
+      const factId = linkFactIds.get(label);
+      if (!factId) throw new Error(`Missing browser fact for ${label}`);
+      await dialog
+        .getByRole("combobox", { name: label, exact: true })
+        .selectOption(factId);
+    }
+    await dialog
+      .getByRole("button", { name: "Save configuration version" })
+      .click();
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByText("Profile v1", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Orbit browser acceptance", { exact: false }),
+    ).toBeVisible();
+
+    const verifiedAt = new Date().toISOString();
+    await checkedPost(
       page.request,
-      `/api/projects/${projectId}/marketing-profile`,
+      `/api/projects/${projectId}/actions/openai-configure`,
       {
-        productName: "Orbit browser acceptance",
-        contentLanguage: "en",
-        internalLanguage: "en",
-        audience: "Synthetic acceptance audience",
-        positioning: "Synthetic local test workspace",
-        productStrategy: "Explain verified product facts",
-        presaleStrategy: "Use verified presale facts only",
-        voice: ["Clear"],
-        guardrails: ["No return claims"],
-        primaryCtas: ["Learn more."],
-        channelPriority: ["test-social"],
-        notificationPreference: "none",
-        officialLinks: [
-          {
-            label: "Website",
-            url: "https://orbit.example.test",
-            factId: websiteFact.id,
+        apiKey: "local-browser-image-key".padEnd(24, "x"),
+        verifiedModels: ["gpt-5.6-terra", "gpt-image-2.5-flare"],
+        rateCard: {
+          "gpt-5.6-terra": {
+            inputMicrosPerMillion: 2_000_000,
+            outputMicrosPerMillion: 12_000_000,
+            verifiedAt,
           },
-        ],
-        assetPolicy: "approved_only",
+        },
+        modelRoutes: {
+          fast: "gpt-5.6-terra",
+          standard: "gpt-5.6-terra",
+          quality: "gpt-5.6-terra",
+          escalation: "gpt-5.6-terra",
+        },
+        imageGeneration: {
+          model: "gpt-image-2.5-flare",
+          maxCostMicrosPerImage: 250_000,
+          pricingVerifiedAt: verifiedAt,
+        },
       },
     );
+    await page.reload();
+    await page.getByRole("button", { name: "Generate with OpenAI" }).click();
+    dialog = page.getByRole("dialog", { name: "Generate reference artwork" });
+    await expect(
+      dialog.getByLabel(
+        "I authorize sending this prompt and the project brand palette to OpenAI and reserve up to $0.25 for this single image.",
+      ),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toHaveCount(0);
+    await page.goto("/knowledge");
     await page.getByRole("tab", { name: "Inspector", exact: true }).click();
     await page.getByLabel("Test question").fill("orbit.browser.status");
     await page.getByRole("button", { name: "Retrieve evidence" }).click();
@@ -345,6 +501,18 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .click();
     dialog = page.getByRole("dialog");
     await expect(dialog).toContainText("Synthetic test content");
+    await dialog.getByRole("button", { name: "Creative", exact: true }).click();
+    dialog = page.getByRole("dialog", { name: "Creative production" });
+    await dialog.getByLabel("Approved logo asset").selectOption(logoAssetId);
+    await dialog
+      .getByLabel("Approved visual asset (optional)")
+      .selectOption(visualAssetId);
+    await dialog.getByRole("button", { name: "Render preview" }).click();
+    await expect(
+      dialog.getByAltText("Rendered creative preview"),
+    ).toBeVisible();
+    await dialog.getByRole("button", { name: "Close dialog" }).click();
+    dialog = page.getByRole("dialog");
     await dialog.getByRole("button", { name: "Review", exact: true }).click();
     await expect(dialog.locator(".detail-summary")).toContainText("reviewed");
     await dialog.getByRole("button", { name: "Create social variant" }).click();
@@ -392,29 +560,9 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         { timeout: 60_000 },
       )
       .toBe("published_test");
-    await dialog.getByRole("button", { name: "Edit", exact: true }).click();
-    dialog = page.getByRole("dialog");
-    await dialog.getByLabel("Format", { exact: true }).selectOption("blog");
-    await dialog
-      .getByLabel("Blog description")
-      .fill("Synthetic acceptance description.");
-    await dialog.getByLabel("Blog URL slug").fill("browser-acceptance");
-    await dialog
-      .getByLabel("Blog outline")
-      .fill("What is available\nEvidence and limitations");
-    await dialog
-      .getByLabel("Image alt text")
-      .fill("Original logo on a synthetic acceptance graphic.");
-    await dialog
-      .getByLabel("Schedule (browser local time)")
-      .fill(localDate(new Date(Date.now() + 3600_000)));
-    await dialog.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(dialog).toHaveCount(0);
-    await page.goto("/calendar");
-    await expect(page.locator(".calendar-entry")).toContainText(
-      "Browser acceptance mission",
-    );
+    await dialog.getByRole("button", { name: "Close dialog" }).click();
     await page.goto("/knowledge");
+    await page.getByRole("tab", { name: "Sources", exact: true }).click();
     await page
       .locator(".source-row")
       .filter({ hasText: "Browser acceptance source" })
@@ -604,7 +752,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
       validUntil: new Date(Date.now() + 7 * 86400_000).toISOString(),
       status: "verified",
       publicUse: true,
-      modelUse: true,
+      modelUse: false,
     },
   );
   await checkedPut(

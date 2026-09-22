@@ -1,6 +1,6 @@
 # Release readiness
 
-2026-09-17 checkpoint: **locally tested application RC; not production/live accepted**. Production web build,253 application tests,12 framework tests and 4 browser workflows passed. The local production preview is available at localhost:4310. Fresh Linux ARM64 standalone and shared-host installations also passed, including HTTPS authentication, enforced resource limits, rendering and worker outage/recovery. No internal acceptance gate remains marked NOT_RUN.
+2026-09-22 refresh: **locally tested application RC; not production/live accepted**. The production web build, 280 application tests, 12 framework tests and 5 current authenticated browser workflows passed on pinned Node 24.18.0. Historical Linux ARM64 standalone/shared-host evidence remains valid for its recorded source/image set and includes HTTPS authentication, enforced resource limits, rendering and worker outage/recovery. No internal original-master or supplemental acceptance gate remains marked NOT_RUN.
 
 ## Completed local gates
 
