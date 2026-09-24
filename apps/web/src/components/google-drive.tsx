@@ -26,7 +26,7 @@ type DriveFile = {
 };
 const folderMime = "application/vnd.google-apps.folder";
 export function GoogleDriveSettings() {
-  const { project, isOwner, refresh } = useWorkspace();
+  const { project, isOwner, locale, refresh } = useWorkspace();
   const base = `/projects/${encodeURIComponent(project.id)}/google-drive`;
   const status = useResource<Status>(base);
   const [root, setRoot] = useState("");
@@ -80,59 +80,68 @@ export function GoogleDriveSettings() {
         </span>
       </div>
       {status.error && <Alert kind="error">{status.error.message}</Alert>}
-      {!status.data?.configured && (
+      {status.data && !status.data.configured && (
         <Alert>
-          Set the Google OAuth client ID and secret on the server to connect
-          Drive.
+          {locale === "de"
+            ? "Google Drive ist noch nicht eingerichtet. Hinterlege die Google OAuth Client-ID und das Secret auf dem Server; danach wird der Button aktiv."
+            : "Google Drive is not set up yet. Add the Google OAuth client ID and secret on the server to enable the button."}
         </Alert>
       )}
-      {status.data?.configured && isOwner && (
-        <div className="page-actions">
+      {status.data && !isOwner && (
+        <Alert>
+          {locale === "de"
+            ? "Nur Projekteigentümer können Google Drive verbinden."
+            : "Only project owners can connect Google Drive."}
+        </Alert>
+      )}
+      <div className="page-actions">
+        <Button
+          disabled={!isOwner || !status.data?.configured || mutation.pending}
+          onClick={() =>
+            mutation.run(async () => {
+              const result = await post<{ url: string }>(`${base}/connect`, {});
+              window.location.assign(result.url);
+            })
+          }
+        >
+          {status.data?.connected
+            ? locale === "de"
+              ? "Google Drive erneut verbinden"
+              : "Reconnect"
+            : locale === "de"
+              ? "Google Drive verbinden"
+              : "Connect Google Drive"}
+        </Button>
+        {isOwner && status.data?.connected && (
           <Button
+            variant="outline"
             disabled={mutation.pending}
+            onClick={() => mutation.run(() => post(`${base}/disconnect`, {}))}
+          >
+            Disconnect
+          </Button>
+        )}
+        {isOwner && status.data?.connected && (
+          <Button
+            variant="outline"
             onClick={() =>
               mutation.run(async () => {
-                const result = await post<{ url: string }>(
-                  `${base}/connect`,
-                  {},
+                const result = await api<{
+                  healthy: boolean;
+                  rootAccessible: boolean;
+                }>(`${base}/health`);
+                setHealth(
+                  result.rootAccessible
+                    ? "Connection healthy · root accessible"
+                    : "Connection healthy · choose a root",
                 );
-                window.location.assign(result.url);
               })
             }
           >
-            {status.data.connected ? "Reconnect" : "Connect Google Drive"}
+            Test connection
           </Button>
-          {status.data.connected && (
-            <Button
-              variant="outline"
-              disabled={mutation.pending}
-              onClick={() => mutation.run(() => post(`${base}/disconnect`, {}))}
-            >
-              Disconnect
-            </Button>
-          )}
-          {status.data.connected && (
-            <Button
-              variant="outline"
-              onClick={() =>
-                mutation.run(async () => {
-                  const result = await api<{
-                    healthy: boolean;
-                    rootAccessible: boolean;
-                  }>(`${base}/health`);
-                  setHealth(
-                    result.rootAccessible
-                      ? "Connection healthy · root accessible"
-                      : "Connection healthy · choose a root",
-                  );
-                })
-              }
-            >
-              Test connection
-            </Button>
-          )}
-        </div>
-      )}
+        )}
+      </div>
       {health && <Alert>{health}</Alert>}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
       {status.data?.connected && enabled && isOwner && (

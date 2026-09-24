@@ -19,6 +19,8 @@ const composeEnvironment = {
   ...generatedEnvironment,
   POSTGRES_DB: "orbit",
   ORBIT_RELEASE_APPROVAL: "test-change-reference",
+  GOOGLE_DRIVE_CLIENT_ID: "synthetic-google-client",
+  GOOGLE_DRIVE_CLIENT_SECRET: "synthetic-google-secret",
 };
 for (const key of [
   "DB_PASSWORD",
@@ -90,6 +92,16 @@ assert.equal(
   services.api.environment.PUBLISHER_INSTANCE_ID,
   generatedEnvironment.SERVICE_BASE64_32_PUBLISHERINSTANCE,
 );
+for (const name of ["api", "worker"]) {
+  assert.equal(
+    services[name].environment.GOOGLE_DRIVE_CLIENT_ID,
+    "synthetic-google-client",
+  );
+  assert.equal(
+    services[name].environment.GOOGLE_DRIVE_CLIENT_SECRET,
+    "synthetic-google-secret",
+  );
+}
 
 const composeSource = readFileSync(`${root}/docker-compose.yml`, "utf8");
 assert.doesNotMatch(
