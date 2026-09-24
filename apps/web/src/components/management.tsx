@@ -1,4 +1,5 @@
 "use client";
+import { GoogleDriveSettings } from "./google-drive";
 import { useState } from "react";
 import {
   MatomoImport,
@@ -66,7 +67,6 @@ import {
   type FormValues,
 } from "./form";
 import {
-  BrandAssetLibrary,
   BrandApproval,
   MarketingProfileConfiguration,
   MetricCsvImport,
@@ -1234,7 +1234,7 @@ export function ProjectSettings() {
       </section>
       <RetentionControl />
       <BrandApproval />
-      <BrandAssetLibrary />
+      <GoogleDriveSettings />
       <MarketingProfileConfiguration />
       <ProjectAdministration />
       <Alert>

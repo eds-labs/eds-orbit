@@ -16,6 +16,11 @@ import { activePolicy } from "./policy.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { normalizeGeneratedPng } from "./assets.ts";
+import {
+  connectionStatus,
+  markSyncFailed,
+  saveGeneratedAsset,
+} from "./google-drive.ts";
 
 export const imageGenerationInput = z
   .object({
@@ -31,6 +36,14 @@ export const imageGenerationInput = z
       .max(4),
     confirmPromptMayBeSentToOpenAI: z.literal(true),
     confirmMaximumCostMicros: z.number().int().positive(),
+    saveToDrive: z.boolean().optional(),
+    tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+    channel: z
+      .enum(["Social", "Ads", "Blog", "Website", "Campaigns", "Other"])
+      .optional(),
+    platform: z
+      .enum(["X", "Telegram", "LinkedIn", "Instagram", "Facebook"])
+      .optional(),
   })
   .strict();
 
@@ -130,6 +143,8 @@ export async function generateProjectImage(
     },
   );
 
+  const driveEnabled =
+    input.saveToDrive !== false && (await connectionStatus(scope)).enabled;
   try {
     const generated = await provider({
       prompt: prepared.providerPrompt,
@@ -143,50 +158,76 @@ export async function generateProjectImage(
         .digest("hex"),
     });
     const normalized = await normalizeGeneratedPng(generated.bytes);
-    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-      await settle(tx, scope, prepared.reservationId, null);
-      const asset = await create(tx, scope, "assets", {
-        name: input.name,
-        type: "generated_artwork",
-        mime: "image/png",
-        filename: `${
-          input.name
-            .replace(/[^a-z0-9]+/gi, "-")
-            .replace(/^-|-$/g, "")
-            .toLowerCase() || "generated-artwork"
-        }.png`,
-        base64: normalized.bytes.toString("base64"),
-        sha256: normalized.sha256,
-        width: normalized.width,
-        height: normalized.height,
-        bytes: normalized.bytes.length,
-        source: "OpenAI Images API",
-        provider: "openai",
-        providerModel: generated.model,
-        providerSize: generated.size,
-        providerQuality: generated.quality,
-        providerBackground: generated.background,
-        providerUsage: generated.usage,
-        promptStored: false,
-        promptHash: createHash("sha256").update(input.prompt).digest("hex"),
-        providerPromptHash: createHash("sha256")
-          .update(prepared.providerPrompt)
-          .digest("hex"),
-        profileVersion: prepared.profileVersion,
-        validUses: input.validUses,
-        usageApproved: false,
-        assetStatus: "reference",
-        license: "AI-generated asset; owner rights and brand review required",
-        generatedAt: new Date().toISOString(),
-        budgetReservationId: prepared.reservationId,
-      });
-      await audit(tx, scope, "asset.generate_openai", asset.id, {
-        model: generated.model,
-        reservationId: prepared.reservationId,
-        costState: "unknown",
-      });
-      return asset;
-    });
+    const asset = await scoped(
+      scope.workspaceId,
+      scope.projectId,
+      async (tx) => {
+        await settle(tx, scope, prepared.reservationId, null);
+        const asset = await create(tx, scope, "assets", {
+          name: input.name,
+          type: "generated_artwork",
+          mime: "image/png",
+          filename: `${
+            input.name
+              .replace(/[^a-z0-9]+/gi, "-")
+              .replace(/^-|-$/g, "")
+              .toLowerCase() || "generated-artwork"
+          }.png`,
+          base64: normalized.bytes.toString("base64"),
+          sha256: normalized.sha256,
+          width: normalized.width,
+          height: normalized.height,
+          bytes: normalized.bytes.length,
+          source: "OpenAI Images API",
+          provider: "openai",
+          providerModel: generated.model,
+          providerSize: generated.size,
+          providerQuality: generated.quality,
+          providerBackground: generated.background,
+          providerUsage: generated.usage,
+          promptStored: true,
+          prompt: input.prompt,
+          tags: input.tags ?? [],
+          channel: input.channel ?? "Other",
+          platform: input.platform,
+          promptHash: createHash("sha256").update(input.prompt).digest("hex"),
+          providerPromptHash: createHash("sha256")
+            .update(prepared.providerPrompt)
+            .digest("hex"),
+          profileVersion: prepared.profileVersion,
+          validUses: input.validUses,
+          usageApproved: false,
+          assetStatus: "reference",
+          license: "AI-generated asset; owner rights and brand review required",
+          generatedAt: new Date().toISOString(),
+          budgetReservationId: prepared.reservationId,
+          generationId: input.requestId,
+          createdBy: scope.userId,
+          driveSyncStatus: driveEnabled ? "PENDING" : "LOCAL_ONLY",
+        });
+        await audit(tx, scope, "asset.generate_openai", asset.id, {
+          model: generated.model,
+          reservationId: prepared.reservationId,
+          costState: "unknown",
+        });
+        return asset;
+      },
+    );
+    if (
+      input.saveToDrive !== false &&
+      (await connectionStatus(scope)).enabled
+    ) {
+      try {
+        return await saveGeneratedAsset(
+          scope,
+          asset.id,
+          input.channel ?? "Other",
+        );
+      } catch {
+        return markSyncFailed(scope, asset.id);
+      }
+    }
+    return asset;
   } catch (error) {
     await scoped(scope.workspaceId, scope.projectId, async (tx) => {
       await settle(tx, scope, prepared.reservationId, null);

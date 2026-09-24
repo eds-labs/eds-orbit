@@ -52,6 +52,20 @@ import {
 } from "./modules/assets.ts";
 import { generateProjectImage } from "./modules/image-generation.ts";
 import {
+  beginConnect,
+  finishConnect,
+  connectionStatus,
+  testDriveConnection,
+  disconnect,
+  configureRoot,
+  browseDrive,
+  driveContent,
+  importDriveFile,
+  uploadUserRaster,
+  brandAssets,
+  saveGeneratedAsset,
+} from "./modules/google-drive.ts";
+import {
   correctMetric,
   memoryLifecycle,
   evaluateExperiment,
@@ -117,7 +131,7 @@ import {
   exportBlogArticle,
   ConnectorError,
 } from "../../../packages/connectors/src/index.ts";
-import { renderRasterTemplate } from "../../../packages/creative/src/index.ts";
+import { renderProjectAsset } from "./modules/render-asset.ts";
 const factSchema = z
   .object({
     id: schemas.id.optional(),
@@ -529,7 +543,17 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       exportedAt: new Date().toISOString(),
       entities: (
         await tx.entity.findMany({
-          where: { projectId, kind: { notIn: ["connectors", "evidence"] } },
+          where: {
+            projectId,
+            kind: {
+              notIn: [
+                "connectors",
+                "evidence",
+                "drive_connection",
+                "drive_oauth_state",
+              ],
+            },
+          },
         })
       ).map(publicEntity),
     }));
@@ -669,6 +693,114 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
     );
   });
+  app.get("/api/projects/:projectId/google-drive", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return connectionStatus(await scopeFor(auth, req, projectId));
+  });
+  app.post("/api/projects/:projectId/google-drive/connect", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return beginConnect(await scopeFor(auth, req, projectId, true, true));
+  });
+  app.get("/api/google-drive/callback", async (req, reply) => {
+    const { code, state } = z
+      .object({ code: z.string().min(1), state: z.string().min(40) })
+      .parse(req.query);
+    const projectId = z.uuid().parse(state.split(".")[0]);
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    await finishConnect(scope, state, code);
+    return reply.redirect(
+      `${config.APP_ORIGIN}/settings?googleDrive=connected`,
+    );
+  });
+  app.get("/api/projects/:projectId/google-drive/health", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return testDriveConnection(await scopeFor(auth, req, projectId));
+  });
+  app.post("/api/projects/:projectId/google-drive/disconnect", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    await disconnect(await scopeFor(auth, req, projectId, true, true));
+    return { connected: false };
+  });
+  app.put("/api/projects/:projectId/google-drive/root", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    await configureRoot(scope, req.body);
+    return connectionStatus(scope);
+  });
+  app.get("/api/projects/:projectId/google-drive/files", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return browseDrive(await scopeFor(auth, req, projectId), req.query);
+  });
+  app.get("/api/projects/:projectId/google-drive/brand", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return { files: await brandAssets(await scopeFor(auth, req, projectId)) };
+  });
+  app.get(
+    "/api/projects/:projectId/google-drive/files/:fileId/content",
+    async (req, reply) => {
+      const { projectId, fileId } = req.params as {
+        projectId: string;
+        fileId: string;
+      };
+      const content = await driveContent(
+        await scopeFor(auth, req, projectId),
+        fileId,
+      );
+      return reply
+        .header("Content-Security-Policy", "default-src 'none'; sandbox")
+        .header("X-Content-Type-Options", "nosniff")
+        .type(content.mime)
+        .send(content.bytes);
+    },
+  );
+  app.post(
+    "/api/projects/:projectId/google-drive/files/:fileId/import",
+    async (req, reply) => {
+      const { projectId, fileId } = req.params as {
+        projectId: string;
+        fileId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      const { type } = z
+        .object({
+          type: z
+            .enum([
+              "logo",
+              "photo",
+              "background",
+              "banner",
+              "icon",
+              "document",
+              "other",
+            ])
+            .default("photo"),
+        })
+        .parse(req.body ?? {});
+      return reply
+        .code(201)
+        .send(publicEntity(await importDriveFile(scope, fileId, type)));
+    },
+  );
+  app.post(
+    "/api/projects/:projectId/assets/:assetId/drive-retry",
+    async (req, reply) => {
+      const { projectId, assetId } = req.params as {
+        projectId: string;
+        assetId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      return reply.send(
+        publicEntity(
+          await saveGeneratedAsset(scope, schemas.id.parse(assetId)),
+        ),
+      );
+    },
+  );
+  app.post("/api/projects/:projectId/google-drive/upload", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    return reply.code(201).send(publicEntity(await uploadUserRaster(scope, req.body)));
+  });
   app.post(
     "/api/projects/:projectId/assets/upload",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
@@ -704,11 +836,13 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
         assetId: string;
       };
       const scope = await scopeFor(auth, req, projectId);
-      const content = await scoped(scope.workspaceId, projectId, async (tx) =>
-        assetBytes(
-          data(await entity(tx, scope, "assets", schemas.id.parse(assetId))),
-        ),
+      const assetData = await scoped(scope.workspaceId, projectId, async (tx) =>
+        data(await entity(tx, scope, "assets", schemas.id.parse(assetId))),
       );
+      const content =
+        assetData.driveFileId && !assetData.base64
+          ? await driveContent(scope, assetData.driveFileId)
+          : assetBytes(assetData);
       return reply
         .header("Content-Security-Policy", "default-src 'none'; sandbox")
         .header("X-Content-Type-Options", "nosniff")
@@ -909,6 +1043,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
         );
         return result;
       });
+    if (action === "render") return renderProjectAsset(scope, input);
     if (action === "knowledge-import-preview")
       return importPreview(knowledgeImportInput.parse(input));
     if (action === "import-matomo")
@@ -1352,76 +1487,6 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           });
         }
         return result;
-      }
-      if (action === "render") {
-        const i = z
-          .object({
-            title: z.string().min(1).max(500),
-            subtitle: z.string().max(500).optional(),
-            format: z.enum(["square", "landscape", "portrait", "story"]),
-            logoAssetId: schemas.id.optional(),
-            visualAssetId: schemas.id.optional(),
-          })
-          .strict()
-          .parse(input);
-        const profileRow = await currentMarketingProfile(tx, scope);
-        if (!profileRow)
-          throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
-        const profileData = schemas.marketingProfile.parse(profileRow.data);
-        const logoAssetId =
-          i.logoAssetId ?? profileData.visualIdentity.logoAssetId;
-        const brand = logoAssetId
-          ? await entity(tx, scope, "assets", logoAssetId)
-          : null;
-        const visual = i.visualAssetId
-          ? await entity(tx, scope, "assets", i.visualAssetId)
-          : null;
-        const brandData = data(brand),
-          visualData = data(visual);
-        if (
-          brand &&
-          (!["logo", "original_logo"].includes(String(brandData.type)) ||
-            brandData.usageApproved !== true ||
-            brandData.assetStatus !== "approved")
-        )
-          throw new DomainError("APPROVED_LOGO_ASSET_REQUIRED", 409);
-        if (
-          visual &&
-          (["logo", "original_logo"].includes(String(visualData.type)) ||
-            visualData.usageApproved !== true ||
-            visualData.assetStatus !== "approved")
-        )
-          throw new DomainError("APPROVED_VISUAL_ASSET_REQUIRED", 409);
-        const result = await renderRasterTemplate({
-          ...i,
-          brandName: profileData.productName,
-          logoApproved: brandData.usageApproved === true,
-          logoDataUri: brandData.base64
-            ? `data:${brandData.mime};base64,${brandData.base64}`
-            : undefined,
-          logoHash: brandData.sha256,
-          visualDataUri: visualData.base64
-            ? `data:${visualData.mime};base64,${visualData.base64}`
-            : undefined,
-          visualHash: visualData.sha256,
-          palette: profileData.visualIdentity,
-        });
-        if (result.status === "blocked_asset") return result;
-        const { bytes, ...metadata } = result;
-        return publicEntity(
-          await create(tx, scope, "assets", {
-            ...metadata,
-            base64: bytes.toString("base64"),
-            source: "template",
-            usageApproved: true,
-            assetStatus: "approved",
-            approvedBy: scope.userId,
-            brandAssetId: logoAssetId,
-            visualAssetId: i.visualAssetId,
-            profileVersion: profileRow.version,
-            validUses: ["social", "blog", "newsletter", "ad"],
-          }),
-        );
       }
       if (action === "brand-approval") {
         const i = z

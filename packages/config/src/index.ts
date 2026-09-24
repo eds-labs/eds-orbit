@@ -29,6 +29,8 @@ export const configSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   ORBIT_SETUP_TOKEN: z.string().min(20),
   CREDENTIAL_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
+  GOOGLE_DRIVE_CLIENT_ID: z.string().optional(),
+  GOOGLE_DRIVE_CLIENT_SECRET: z.string().optional(),
   PUBLISHER_INSTANCE_ID: z.string().min(1).default("local-orbit"),
   LIVE_RAG_EVAL_PASSED: z.enum(["false", "true"]).default("false"),
 });

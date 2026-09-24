@@ -304,3 +304,11 @@ export async function normalizeRasterAsset(
     throw new CreativeError("RASTER_NORMALIZATION_FAILED");
   }
 }
+
+/** Re-encode an already normalized raster without carrying source metadata. */
+export async function encodeWebp(bytes: Buffer) {
+  const { default: sharp } = await import("sharp");
+  return sharp(bytes, { limitInputPixels: 16_000_000, animated: false })
+    .webp({ quality: 90 })
+    .toBuffer();
+}

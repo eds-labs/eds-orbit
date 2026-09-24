@@ -938,6 +938,24 @@ export function BrandAssetLibrary() {
     refresh();
   });
   const [mode, setMode] = useState<"upload" | "generate" | null>(null);
+  const [assetQuery, setAssetQuery] = useState("");
+  const [assetFilter, setAssetFilter] = useState("all");
+  const [assetView, setAssetView] = useState<"grid" | "list">("grid");
+  const visibleAssets = (assets.data?.items || []).filter((asset) => {
+    const v = asset.data;
+    const matchesQuery = String(v.name ?? v.filename ?? "")
+      .toLowerCase()
+      .includes(assetQuery.toLowerCase());
+    const matchesFilter =
+      assetFilter === "all" ||
+      (assetFilter === "logos" &&
+        ["logo", "original_logo"].includes(String(v.type))) ||
+      (assetFilter === "images" && String(v.mime ?? "").startsWith("image/")) ||
+      (assetFilter === "generated" && v.type === "generated_artwork") ||
+      (assetFilter === "documents" &&
+        !String(v.mime ?? "").startsWith("image/"));
+    return matchesQuery && matchesFilter;
+  });
   const imageConfig = openAi.data?.imageGeneration;
   const imageReady = Boolean(
     openAi.data?.configured &&
@@ -985,10 +1003,39 @@ export function BrandAssetLibrary() {
           image.
         </Alert>
       )}
-      <div className="asset-library">
-        {(assets.data?.items || []).map((asset) => (
+      <div className="page-actions">
+        <input
+          aria-label="Search assets"
+          placeholder="Search assets"
+          value={assetQuery}
+          onChange={(e) => setAssetQuery(e.target.value)}
+        />
+        <select
+          aria-label="Asset category"
+          value={assetFilter}
+          onChange={(e) => setAssetFilter(e.target.value)}
+        >
+          {["all", "logos", "images", "generated", "documents"].map(
+            (category) => (
+              <option key={category} value={category}>
+                {category}
+              </option>
+            ),
+          )}
+        </select>
+        <Button
+          variant="outline"
+          onClick={() => setAssetView(assetView === "grid" ? "list" : "grid")}
+        >
+          {assetView === "grid" ? "List view" : "Grid view"}
+        </Button>
+      </div>
+      <div className={assetView === "grid" ? "asset-library" : "data-list"}>
+        {visibleAssets.map((asset) => (
           <article className="asset-card" key={asset.id}>
             {asset.data.hasContent === true ||
+            (asset.data.driveFileId &&
+              String(asset.data.mime ?? "").startsWith("image/")) ||
             asset.data.type === "original_logo" ? (
               <img
                 src={contentUrl(asset)}
@@ -1008,11 +1055,55 @@ export function BrandAssetLibrary() {
                 {value(asset, "name", value(asset, "brandName", "Asset"))}
               </strong>
               <p>{value(asset, "source", "Source not recorded")}</p>
+              <p>
+                {value(asset, "mime", "Unknown type")} ·{" "}
+                {value(asset, "bytes", "Unknown size")} bytes
+              </p>
+              {typeof asset.data.driveFolderId === "string" && (
+                <p>Drive folder: {String(asset.data.driveFolderId)}</p>
+              )}
               <div className="detail-summary">
                 <Status value={asset.data.assetStatus} />
+                {typeof asset.data.driveSyncStatus === "string" && (
+                  <Badge>{String(asset.data.driveSyncStatus)}</Badge>
+                )}
                 <Badge>{value(asset, "type")}</Badge>
               </div>
             </div>
+            {(asset.data.hasContent === true ||
+              typeof asset.data.driveFileId === "string") && (
+              <a
+                href={contentUrl(asset)}
+                download={value(asset, "filename", "asset")}
+              >
+                Download
+              </a>
+            )}
+            {typeof asset.data.driveFileId === "string" && (
+              <a
+                href={`https://drive.google.com/file/d/${encodeURIComponent(String(asset.data.driveFileId))}/view`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open in Drive
+              </a>
+            )}
+            {asset.data.driveSyncStatus === "FAILED" && isOwner && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  mutation.run(() =>
+                    api(
+                      `/projects/${project.id}/assets/${asset.id}/drive-retry`,
+                      { method: "POST" },
+                    ),
+                  )
+                }
+              >
+                Retry Drive upload
+              </Button>
+            )}
             {isOwner && asset.data.type !== "original_logo" && (
               <div className="asset-actions">
                 {asset.data.assetStatus !== "approved" && (
@@ -1185,6 +1276,40 @@ export function BrandAssetLibrary() {
                 })),
               },
               {
+                name: "channel",
+                label: "Drive category",
+                type: "select",
+                value: "Other",
+                options: [
+                  "Social",
+                  "Ads",
+                  "Blog",
+                  "Website",
+                  "Campaigns",
+                  "Other",
+                ].map((value) => ({ value, label: value })),
+              },
+              {
+                name: "platform",
+                label: "Social channel",
+                type: "select",
+                value: "X",
+                options: [
+                  "X",
+                  "Telegram",
+                  "LinkedIn",
+                  "Instagram",
+                  "Facebook",
+                ].map((value) => ({ value, label: value })),
+                showWhen: { name: "channel", values: ["Social"] },
+              },
+              {
+                name: "saveToDrive",
+                label: "Save generated image to Google Drive when connected",
+                type: "checkbox",
+                value: true,
+              },
+              {
                 name: "validUses",
                 label: "Intended uses (comma separated)",
                 value: "social, blog",
@@ -1218,6 +1343,11 @@ export function BrandAssetLibrary() {
                         .map((item) => item.trim())
                         .filter(Boolean),
                       confirmPromptMayBeSentToOpenAI: true,
+                      saveToDrive: values.saveToDrive === true,
+                      channel: str(values, "channel"),
+                      ...(values.platform
+                        ? { platform: str(values, "platform") }
+                        : {}),
                       confirmMaximumCostMicros:
                         imageConfig.maxCostMicrosPerImage,
                     }),

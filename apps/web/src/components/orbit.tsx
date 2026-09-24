@@ -7,6 +7,7 @@ import {
   Home,
   Target,
   FileText,
+  Images,
   CalendarDays,
   BookOpen,
   CircleCheck,
@@ -43,6 +44,7 @@ import {
   CalendarView,
 } from "./work";
 import { Knowledge } from "./knowledge";
+import { BrandAssetLibrary } from "./advanced";
 import {
   Analytics,
   Memory,
@@ -56,6 +58,7 @@ const navigation = [
   { key: "content", path: "/content", icon: FileText },
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "knowledge", path: "/knowledge", icon: BookOpen },
+  { key: "assets", path: "/assets", icon: Images },
   { key: "approvals", path: "/approvals", icon: CircleCheck },
   { key: "analytics", path: "/analytics", icon: ChartNoAxesColumn },
   { key: "memory", path: "/memory", icon: Brain },
@@ -237,6 +240,8 @@ export function Orbit() {
           <CalendarView />
         ) : nav.key === "knowledge" ? (
           <Knowledge />
+        ) : nav.key === "assets" ? (
+          <BrandAssetLibrary />
         ) : nav.key === "approvals" ? (
           <ApprovalInbox />
         ) : nav.key === "analytics" ? (

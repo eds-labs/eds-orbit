@@ -1,3 +1,8 @@
+import {
+  saveGeneratedAsset,
+  markSyncFailed,
+  connectionStatus,
+} from "../../api/src/modules/google-drive.ts";
 import { runIndexEvaluation } from "../../api/src/modules/index-evaluation.ts";
 import { buildIndexBatch } from "../../api/src/modules/reindex.ts";
 import Redis from "ioredis";
@@ -84,6 +89,7 @@ const healthFile =
   process.env.WORKER_HEALTH_FILE ?? "/tmp/orbit-worker-health.json";
 let stopping = false;
 const projectFailures = new Map<string, number>();
+const driveRetryChecks = new Map<string, number>();
 const workers = classes.map(
   (topic) =>
     new Worker(
@@ -322,6 +328,37 @@ async function pump() {
             orderBy: { availableAt: "asc" },
           });
         });
+        if (
+          Date.now() - (driveRetryChecks.get(p.id) ?? 0) > 30_000 &&
+          (await connectionStatus(scope)).enabled
+        ) {
+          driveRetryChecks.set(p.id, Date.now());
+          const due = await scoped(p.workspaceId, p.id, (tx) =>
+            tx.entity.findMany({
+              where: {
+                projectId: p.id,
+                kind: "assets",
+                data: { path: ["driveSyncStatus"], equals: "FAILED" },
+              },
+              take: 30,
+              orderBy: { updatedAt: "asc" },
+            }),
+          );
+          for (const asset of due
+            .filter(
+              (row) =>
+                data(row).driveSyncStatus === "FAILED" &&
+                Number(data(row).driveRetryAttempts ?? 0) < 5 &&
+                Date.parse(data(row).driveRetryAt ?? "") <= Date.now(),
+            )
+            .slice(0, 3)) {
+            try {
+              await saveGeneratedAsset(scope, asset.id);
+            } catch {
+              await markSyncFailed(scope, asset.id);
+            }
+          }
+        }
         for (const e of events) {
           const queue = queues.get(e.topic as (typeof classes)[number]);
           if (!queue) continue;
