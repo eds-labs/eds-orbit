@@ -78,7 +78,7 @@ const files: Record<string, any> = {
     id: root,
     name: "uLiquid",
     mimeType: "application/vnd.google-apps.folder",
-    parents: [],
+    parents: ["root"],
   },
   [outside]: {
     id: outside,
@@ -120,6 +120,7 @@ import {
   disconnect,
   driveContent,
   finishConnect,
+  rootCandidates,
   saveGeneratedAsset,
   markSyncFailed,
   uploadUserRaster,
@@ -204,11 +205,68 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
       "owner@example.invalid",
     );
     expect(JSON.stringify(state.rows)).not.toContain("synthetic-refresh");
+    expect((await connectionStatus(scope)).enabled).toBe(true);
+    expect((await connectionStatus(scope)).rootFolderId).toBe(root);
     await expect(
       finishConnect(scope, stateValue, "replay"),
     ).rejects.toMatchObject({ code: "GOOGLE_DRIVE_OAUTH_STATE_INVALID" });
     await disconnect(scope);
     expect((await connectionStatus(scope)).connected).toBe(false);
+  });
+  it("does not choose an ambiguous matching project folder", async () => {
+    state.driveFiles.duplicateFolderABC123 = {
+      id: "duplicateFolderABC123",
+      name: "uLiquid",
+      mimeType: "application/vnd.google-apps.folder",
+      parents: ["root"],
+    };
+    const { url } = await beginConnect(scope);
+    const ready = await finishConnect(
+      scope,
+      new URL(url).searchParams.get("state")!,
+      "synthetic-code",
+    );
+    expect(ready).toBe(false);
+    expect((await connectionStatus(scope)).connected).toBe(true);
+    expect((await connectionStatus(scope)).enabled).toBe(false);
+    expect((await rootCandidates(scope)).folders).toEqual(
+      expect.arrayContaining([
+        { id: root, name: "uLiquid" },
+        { id: "duplicateFolderABC123", name: "uLiquid" },
+      ]),
+    );
+  });
+  it("discovers the existing brand folders under the selected root", async () => {
+    state.driveFiles.brandParentABC123 = {
+      id: "brandParentABC123",
+      name: "01_Marke_und_Design",
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [root],
+    };
+    state.driveFiles.brandLogosABC123 = {
+      id: "brandLogosABC123",
+      name: "01_Logos",
+      mimeType: "application/vnd.google-apps.folder",
+      parents: ["brandParentABC123"],
+    };
+    state.driveFiles.brandImagesABC123 = {
+      id: "brandImagesABC123",
+      name: "03_Bildwelt",
+      mimeType: "application/vnd.google-apps.folder",
+      parents: ["brandParentABC123"],
+    };
+    const { url } = await beginConnect(scope);
+    expect(
+      await finishConnect(
+        scope,
+        new URL(url).searchParams.get("state")!,
+        "synthetic-code",
+      ),
+    ).toBe(true);
+    expect(await connectionStatus(scope)).toMatchObject({
+      brandLogoFolderId: "brandLogosABC123",
+      brandImagesFolderId: "brandImagesABC123",
+    });
   });
   it("lists only descendants of the configured project root", async () => {
     add("drive_connection", {

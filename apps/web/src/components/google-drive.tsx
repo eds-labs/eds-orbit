@@ -30,8 +30,8 @@ export function GoogleDriveSettings() {
   const base = `/projects/${encodeURIComponent(project.id)}/google-drive`;
   const status = useResource<Status>(base);
   const [root, setRoot] = useState("");
-  const [logos, setLogos] = useState("");
-  const [images, setImages] = useState("");
+  const [candidatePage, setCandidatePage] = useState<string | null>(null);
+  const [showFolderChooser, setShowFolderChooser] = useState(false);
   const [folder, setFolder] = useState<string | null>(null);
   const [folderStack, setFolderStack] = useState<string[]>([]);
   const [pageToken, setPageToken] = useState<string | null>(null);
@@ -49,8 +49,19 @@ export function GoogleDriveSettings() {
       ? `${base}/files?${new URLSearchParams({ ...(folder ? { folderId: folder } : {}), ...(query ? { query } : {}), ...(pageToken ? { pageToken } : {}) })}`
       : null,
   );
+  const candidates = useResource<{
+    folders: { id: string; name: string }[];
+    nextPageToken: string | null;
+  }>(
+    status.data?.connected &&
+      (!status.data.enabled || showFolderChooser) &&
+      isOwner
+      ? `${base}/root-candidates${candidatePage ? `?pageToken=${encodeURIComponent(candidatePage)}` : ""}`
+      : null,
+  );
   const mutation = useMutation(() => {
     status.refresh();
+    candidates.refresh();
     files.refresh();
     refresh();
   });
@@ -123,59 +134,77 @@ export function GoogleDriveSettings() {
         </div>
       )}
       {health && <Alert>{health}</Alert>}
-      {status.data?.connected && isOwner && (
-        <div className="form-grid">
-          <label>
-            Drive root folder ID
-            <input
-              value={root}
-              onChange={(e) => setRoot(e.target.value)}
-              placeholder={status.data.rootFolderId ?? "Folder ID"}
-            />
-          </label>
-          <label>
-            Brand logos folder ID
-            <input
-              value={logos}
-              onChange={(e) => setLogos(e.target.value)}
-              placeholder={status.data.brandLogoFolderId ?? "Optional"}
-            />
-          </label>
-          <label>
-            Brand images folder ID
-            <input
-              value={images}
-              onChange={(e) => setImages(e.target.value)}
-              placeholder={status.data.brandImagesFolderId ?? "Optional"}
-            />
-          </label>
-          <Button
-            disabled={mutation.pending}
-            onClick={() =>
-              mutation.run(() =>
-                api(`${base}/root`, {
-                  method: "PUT",
-                  body: JSON.stringify({
-                    rootFolderId: root || status.data?.rootFolderId,
-                    ...(logos || status.data?.brandLogoFolderId
-                      ? {
-                          brandLogoFolderId:
-                            logos || status.data?.brandLogoFolderId,
-                        }
-                      : {}),
-                    ...(images || status.data?.brandImagesFolderId
-                      ? {
-                          brandImagesFolderId:
-                            images || status.data?.brandImagesFolderId,
-                        }
-                      : {}),
-                  }),
-                }),
-              )
-            }
-          >
-            Save folder selection
-          </Button>
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {status.data?.connected && enabled && isOwner && (
+        <Button
+          variant="outline"
+          onClick={() => setShowFolderChooser(!showFolderChooser)}
+        >
+          {showFolderChooser
+            ? "Close folder selection"
+            : "Change project folder"}
+        </Button>
+      )}
+      {status.data?.connected && (!enabled || showFolderChooser) && isOwner && (
+        <div>
+          <p>
+            Select the project folder in Google Drive. Orbit will find the brand
+            folders inside it.
+          </p>
+          {candidates.error && (
+            <Alert kind="error">{candidates.error.message}</Alert>
+          )}
+          <div className="page-actions">
+            {candidates.data?.folders.map((candidate) => (
+              <Button
+                key={candidate.id}
+                variant="outline"
+                disabled={mutation.pending}
+                onClick={() =>
+                  mutation.run(() =>
+                    api(`${base}/root`, {
+                      method: "PUT",
+                      body: JSON.stringify({ rootFolderId: candidate.id }),
+                    }),
+                  )
+                }
+              >
+                <FolderOpen data-icon="inline-start" /> {candidate.name} (
+                {candidate.id})
+              </Button>
+            ))}
+            {candidates.data?.nextPageToken && (
+              <Button
+                variant="outline"
+                onClick={() => setCandidatePage(candidates.data!.nextPageToken)}
+              >
+                More folders
+              </Button>
+            )}
+          </div>
+          <details>
+            <summary>Enter a folder ID instead</summary>
+            <div className="page-actions">
+              <input
+                aria-label="Drive root folder ID"
+                value={root}
+                onChange={(e) => setRoot(e.target.value)}
+              />
+              <Button
+                disabled={!root || mutation.pending}
+                onClick={() =>
+                  mutation.run(() =>
+                    api(`${base}/root`, {
+                      method: "PUT",
+                      body: JSON.stringify({ rootFolderId: root }),
+                    }),
+                  )
+                }
+              >
+                Use folder
+              </Button>
+            </div>
+          </details>
         </div>
       )}
       {enabled ? (

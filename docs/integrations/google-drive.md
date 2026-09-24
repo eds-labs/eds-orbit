@@ -8,7 +8,7 @@ Orbit uses a project-scoped Google Drive connection. It stores connection, OAuth
 2. Create a **Web application** OAuth client. Add the exact redirect URI `https://<orbit-origin>/api/google-drive/callback` (for local development, use the configured `APP_ORIGIN` instead of the production origin).
 3. Configure the consent screen with `https://www.googleapis.com/auth/drive`. This is a **restricted** scope and can require Google verification. Do not deploy it to general users before the required Google review is complete.
 4. Set `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET` on the Orbit API and worker hosts. Keep `CREDENTIAL_KEY` stable and secret; changing it without re-encrypting stored credentials invalidates connections. No real value belongs in `.env.example` or version control.
-5. In Settings → Integrations · Google Drive, connect the account, then save the project root folder ID and optional brand folders. Disconnect deletes the encrypted token and disables storage without deleting Drive files or Orbit asset records. Reconnect to resume access.
+5. In Settings → Integrations · Google Drive, click **Connect Google Drive** and approve access in Google. Orbit automatically selects a unique top-level folder whose name exactly matches the Orbit project and discovers `01_Marke_und_Design/01_Logos` and `01_Marke_und_Design/03_Bildwelt` below it. If there is no unique match, the owner selects a top-level folder from the list or enters a folder ID. No folder ID is needed for the normal path. Disconnect deletes the encrypted token and disables storage without deleting Drive files or Orbit asset records. Reconnect verifies the configured root before resuming access.
 
 ## Scope decision
 
@@ -16,7 +16,7 @@ Google recommends `drive.file` for files that users explicitly open with an app 
 
 ## Project folders
 
-Folder IDs are configuration, never code constants. For the uLiquid project, the user can select:
+Folder IDs are configuration, never code constants. For the uLiquid project, the expected folders are:
 
 | Purpose        | Drive folder ID                     |
 | -------------- | ----------------------------------- |
@@ -28,13 +28,13 @@ Orbit locates `04_Website_und_Marketing` directly below the selected root. It cr
 
 ## Asset workflow
 
-A project owner connects and configures Drive. The existing template renderer can load an approved Drive PNG, JPEG or WEBP logo and refuse changed Drive versions before creating a graphic; SVG remains browsable but is not accepted as a template image input. Members can browse and preview project-root files; only owners can register them in the Orbit library. Registration creates an unapproved reference asset. Brand logos and images are exposed as a project-scoped read service, but the owner still must approve usage through Orbit's existing rights flow. Agent code must call the internal asset API; it must not receive Google credentials.
+A project owner connects Drive. The OAuth callback completes folder setup when the project has one matching top-level Drive folder; otherwise the owner chooses a folder. This only reads folder metadata and saves project-scoped configuration. Google consent and one-time OAuth client setup still require a human. The existing template renderer can load an approved Drive PNG, JPEG or WEBP logo and refuse changed Drive versions before creating a graphic; SVG remains browsable but is not accepted as a template image input. Members can browse and preview project-root files; only owners can register them in the Orbit library. Registration creates an unapproved reference asset. Brand logos and images are exposed as a project-scoped read service, but the owner still must approve usage through Orbit's existing rights flow. Agent code must call the internal asset API; it must not receive Google credentials.
 
 The existing OpenAI image flow records the normalized PNG in an Orbit asset first. Unless the owner unchecks **Save generated image to Google Drive**, Orbit uploads to the configured Drive project root and records the Drive file ID, folder ID, link and sync state. Upload failure retains the local result, marks `FAILED` and schedules up to five bounded worker retries with exponential backoff. The owner can retry manually. Drive file creation uses an `orbitAssetId` app property for duplicate detection after a partial failure. The image remains an unapproved reference until the normal brand and rights review.
 
 ## Local development and verification
 
-`GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET` are optional until a connection is attempted. Use a dedicated Google test account and an isolated test root. `APP_ORIGIN` must match the OAuth redirect origin exactly. Run `pnpm typecheck`, `pnpm lint`, and `pnpm exec vitest run apps/api/src/modules/google-drive.test.ts apps/api/src/modules/google-drive.mock.test.ts`. A real acceptance run additionally needs a reachable local database, a Google OAuth client/test user, Drive access to the chosen root, and an explicitly approved paid image generation test. Verify OAuth connect, refresh, root selection, existing logo preview, generation, Drive upload, re-read and disconnect/reconnect with that environment. Do not infer live acceptance from typechecks or mocks.
+`GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET` are optional until a connection is attempted. Use a dedicated Google test account and an isolated test root. `APP_ORIGIN` must match the OAuth redirect origin exactly. Run `pnpm typecheck`, `pnpm lint`, and `pnpm exec vitest run apps/api/src/modules/google-drive.test.ts apps/api/src/modules/google-drive.mock.test.ts`. A real acceptance run additionally needs a reachable local database, a Google OAuth client/test user, Drive access to the chosen root, and an explicitly approved paid image generation test. Verify OAuth connect, unique-folder auto setup, ambiguous-folder selection, refresh, existing logo preview, generation, Drive upload, re-read and disconnect/reconnect with that environment. Do not infer live acceptance from typechecks or mocks.
 
 ## Production and rollback
 

@@ -183,6 +183,7 @@ export async function finishConnect(scope: Scope, state: string, code: string) {
     if (old) await update(tx, scope, old, value);
     else await create(tx, scope, "drive_connection", value);
   });
+  return autoConfigureRoot(scope, tokens.access_token);
 }
 export async function testDriveConnection(scope: Scope) {
   const token = await accessToken(scope);
@@ -254,6 +255,78 @@ async function children(
     token,
   );
 }
+async function namedFolders(token: string, parent: string, name: string) {
+  const url = new URL("https://www.googleapis.com/drive/v3/files");
+  url.searchParams.set(
+    "q",
+    `'${escapeQuery(parent)}' in parents and name = '${escapeQuery(name)}' and mimeType = '${folderMime}' and trashed = false`,
+  );
+  url.searchParams.set("fields", `nextPageToken,files(${fileFields})`);
+  url.searchParams.set("pageSize", "100");
+  return googleJson<{ files: DriveFile[]; nextPageToken?: string }>(
+    url.toString(),
+    token,
+  );
+}
+async function uniqueNamedFolder(token: string, parent: string, name: string) {
+  const page = await namedFolders(token, parent, name);
+  return page.files.length === 1 && !page.nextPageToken ? page.files[0] : null;
+}
+export async function rootCandidates(scope: Scope, pageToken?: string) {
+  const token = await accessToken(scope);
+  const url = new URL("https://www.googleapis.com/drive/v3/files");
+  url.searchParams.set(
+    "q",
+    `'root' in parents and mimeType = '${folderMime}' and trashed = false`,
+  );
+  url.searchParams.set("fields", "nextPageToken,files(id,name,mimeType)");
+  url.searchParams.set("pageSize", "100");
+  if (pageToken) url.searchParams.set("pageToken", pageToken);
+  const page = await googleJson<{ files: DriveFile[]; nextPageToken?: string }>(
+    url.toString(),
+    token,
+  );
+  return {
+    folders: page.files
+      .filter((item) => item.mimeType === folderMime)
+      .map(({ id, name }) => ({ id, name })),
+    nextPageToken: page.nextPageToken ?? null,
+  };
+}
+async function autoConfigureRoot(scope: Scope, token: string) {
+  const current = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    one(tx, scope, "drive_storage"),
+  );
+  if (current && data(current).rootFolderId) {
+    try {
+      await configureRootWithToken(
+        scope,
+        {
+          rootFolderId: data(current).rootFolderId,
+          brandLogoFolderId: data(current).brandLogoFolderId,
+          brandImagesFolderId: data(current).brandImagesFolderId,
+        },
+        token,
+      );
+      return true;
+    } catch (error) {
+      if (!(error instanceof DomainError)) throw error;
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        update(tx, scope, current, { ...data(current), enabled: false }),
+      );
+    }
+  }
+  const project = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    tx.project.findUniqueOrThrow({
+      where: { id: scope.projectId },
+      select: { name: true },
+    }),
+  );
+  const match = await uniqueNamedFolder(token, "root", project.name);
+  if (!match) return false;
+  await configureRootWithToken(scope, { rootFolderId: match.id }, token);
+  return true;
+}
 async function isWithin(token: string, target: string, root: string) {
   let current = target;
   for (let depth = 0; depth < 30; depth++) {
@@ -281,6 +354,13 @@ async function storage(scope: Scope) {
 export async function configureRoot(scope: Scope, raw: unknown) {
   const input = rootInput.parse(raw),
     token = await accessToken(scope);
+  return configureRootWithToken(scope, input, token);
+}
+async function configureRootWithToken(
+  scope: Scope,
+  input: z.infer<typeof rootInput>,
+  token: string,
+) {
   const root = await file(token, input.rootFolderId);
   if (root.mimeType !== folderMime)
     throw new DomainError("GOOGLE_DRIVE_ROOT_NOT_FOLDER");
@@ -291,6 +371,21 @@ export async function configureRoot(scope: Scope, raw: unknown) {
     if ((await file(token, folderId)).mimeType !== folderMime)
       throw new DomainError("GOOGLE_DRIVE_BRAND_FOLDER_INVALID", 400);
   }
+  const brandParent = await uniqueNamedFolder(
+    token,
+    root.id,
+    "01_Marke_und_Design",
+  );
+  const brandLogoFolderId =
+    input.brandLogoFolderId ??
+    (brandParent
+      ? (await uniqueNamedFolder(token, brandParent.id, "01_Logos"))?.id
+      : undefined);
+  const brandImagesFolderId =
+    input.brandImagesFolderId ??
+    (brandParent
+      ? (await uniqueNamedFolder(token, brandParent.id, "03_Bildwelt"))?.id
+      : undefined);
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const existing = await one(tx, scope, "drive_storage");
     const value = {
@@ -298,8 +393,8 @@ export async function configureRoot(scope: Scope, raw: unknown) {
       connectionId: (await one(tx, scope, "drive_connection"))?.id,
       rootFolderId: root.id,
       rootName: root.name,
-      brandLogoFolderId: input.brandLogoFolderId,
-      brandImagesFolderId: input.brandImagesFolderId,
+      brandLogoFolderId,
+      brandImagesFolderId,
       enabled: true,
       generatedAssetsFolderId:
         existing && data(existing).rootFolderId === root.id

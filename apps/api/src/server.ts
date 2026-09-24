@@ -58,6 +58,7 @@ import {
   testDriveConnection,
   disconnect,
   configureRoot,
+  rootCandidates,
   browseDrive,
   driveContent,
   importDriveFile,
@@ -707,11 +708,24 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       .parse(req.query);
     const projectId = z.uuid().parse(state.split(".")[0]);
     const scope = await scopeFor(auth, req, projectId, true, true);
-    await finishConnect(scope, state, code);
+    const ready = await finishConnect(scope, state, code);
     return reply.redirect(
-      `${config.APP_ORIGIN}/settings?googleDrive=connected`,
+      `${config.APP_ORIGIN}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
     );
   });
+  app.get(
+    "/api/projects/:projectId/google-drive/root-candidates",
+    async (req) => {
+      const { projectId } = req.params as { projectId: string };
+      const { pageToken } = z
+        .object({ pageToken: z.string().max(500).optional() })
+        .parse(req.query);
+      return rootCandidates(
+        await scopeFor(auth, req, projectId, true, true),
+        pageToken,
+      );
+    },
+  );
   app.get("/api/projects/:projectId/google-drive/health", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return testDriveConnection(await scopeFor(auth, req, projectId));
@@ -796,11 +810,17 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       );
     },
   );
-  app.post("/api/projects/:projectId/google-drive/upload", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (req, reply) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
-    return reply.code(201).send(publicEntity(await uploadUserRaster(scope, req.body)));
-  });
+  app.post(
+    "/api/projects/:projectId/google-drive/upload",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      return reply
+        .code(201)
+        .send(publicEntity(await uploadUserRaster(scope, req.body)));
+    },
+  );
   app.post(
     "/api/projects/:projectId/assets/upload",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
