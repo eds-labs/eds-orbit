@@ -296,6 +296,8 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         asset.data.type === "original_logo",
     ).id as string;
 
+    await page.getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Assets" }).click();
     await page.getByRole("button", { name: "Upload asset" }).click();
     dialog = page.getByRole("dialog", { name: "Upload brand asset" });
     await dialog.getByLabel("Asset name").fill("Browser visual asset");
@@ -328,6 +330,8 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         asset.data.name === "Browser visual asset",
     ).id as string;
 
+    await page.getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Settings" }).click();
     await page.getByRole("button", { name: "Configure project" }).click();
     dialog = page.getByRole("dialog", { name: "Project configuration" });
     await dialog
@@ -408,6 +412,8 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       },
     );
     await page.reload();
+    await page.getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Assets" }).click();
     await page.getByRole("button", { name: "Generate with OpenAI" }).click();
     dialog = page.getByRole("dialog", { name: "Generate reference artwork" });
     await expect(
