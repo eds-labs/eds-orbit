@@ -293,7 +293,7 @@ export function IndexManagement() {
                         label: "Evaluation cases (JSON array)",
                         type: "textarea",
                         required: true,
-                        hint: "60–120 labeled cases, including at least 48 expected-evidence and 12 negative cases. Each case: id, query, expectedChunkIds, forbiddenChunkIds, language (en/de), purpose (public/internal).",
+                        hint: "60–120 labeled cases, including at least 48 expected-evidence and 12 negative cases. Each case: id, query, expectedChunkIds, forbiddenChunkIds, language (en/de), purpose (public/internal), optional ISO at for historical validity checks.",
                       },
                       {
                         name: "confirm",

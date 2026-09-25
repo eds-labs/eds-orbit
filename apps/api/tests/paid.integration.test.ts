@@ -721,6 +721,48 @@ describe.skipIf(!enabled)(
         (await run((tx) => validateActiveIndexEvaluation(tx, s))).reasons,
       ).toContain("INDEX_EVALUATION_CORPUS_CHANGED");
     });
+    it("passes an independently chosen historical cutoff through durable evaluation batches", async () => {
+      const { input } = await evaluationFixture();
+      const publicChunkId = input.cases[0]!.expectedChunkIds[0]!;
+      const beforeSource = new Date(Date.now() - 3 * 3600000).toISOString();
+      const cases = input.cases.map((c) =>
+        c.expectedChunkIds.length
+          ? c
+          : {
+              ...c,
+              forbiddenChunkIds: [publicChunkId],
+              at: beforeSource,
+            },
+      );
+      const job = await run((tx) =>
+        queueIndexEvaluation(tx, s, {
+          ...input,
+          datasetVersion: "historical-cutoff-v1",
+          cases,
+        }),
+      );
+      const next = await runIndexEvaluation(s, data(job).resourceId, job.id);
+      const completed = await runIndexEvaluation(
+        s,
+        data(job).resourceId,
+        (next as { id: string }).id,
+      );
+      const evaluation = data(completed as { data: unknown }).evaluation as {
+        passed: boolean;
+        forbiddenHits: number;
+        results: { id: string; forbiddenHits: number }[];
+      };
+      expect(evaluation.passed).toBe(true);
+      expect(evaluation.forbiddenHits).toBe(0);
+      expect(
+        evaluation.results.filter((r) => r.id.startsWith("deny-")),
+      ).toHaveLength(16);
+      expect(
+        evaluation.results
+          .filter((r) => r.id.startsWith("deny-"))
+          .every((r) => r.forbiddenHits === 0),
+      ).toBe(true);
+    });
     it("index evaluation quarantines successful query responses after source rights change and preserves cost", async () => {
       const { index, input } = await evaluationFixture();
       const job = await run((tx) => queueIndexEvaluation(tx, s, input));

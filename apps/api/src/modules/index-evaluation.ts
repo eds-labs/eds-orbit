@@ -30,6 +30,7 @@ export const indexEvaluationRequest = z
             forbiddenChunkIds: z.array(z.string()).max(100).default([]),
             language: z.enum(["en", "de"]).default("en"),
             purpose: z.enum(["public", "internal"]).default("public"),
+            at: z.iso.datetime({ offset: true }).optional(),
           })
           .strict(),
       )
@@ -185,6 +186,7 @@ export async function runIndexEvaluation(
           forbiddenChunkIds: c.forbiddenChunkIds,
           language: c.language,
           purpose: c.purpose,
+          at: c.at,
           queryVector: response.vectors[i],
         })),
       ],
@@ -226,7 +228,10 @@ export async function runIndexEvaluation(
         ...budgetReservationIds,
         ...builds.map((b) => b.id),
       ],
-      cases: results,
+      cases: results.map((c: any) => ({
+        ...c,
+        at: c.at ? new Date(c.at) : undefined,
+      })),
     });
     return update(tx, s, request, {
       ...r,
