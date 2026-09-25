@@ -14,6 +14,7 @@ import {
   exception,
 } from "../shared.ts";
 import { preflight } from "./policy.ts";
+import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { claimPublication, finishPublication, enqueue } from "./workflow.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   const credentials = await scoped(
@@ -33,6 +34,7 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
         );
       if (
         !integration ||
+        !isAssignedPostizChannel(c, integration.id) ||
         !(c.writeVerifiedIntegrationIds ?? []).includes(integration.id) ||
         c.writeVerifiedInstanceId !== process.env.PUBLISHER_INSTANCE_ID
       )

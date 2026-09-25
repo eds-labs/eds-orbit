@@ -2983,6 +2983,22 @@ body:has(dialog[open]) {
 .chat-compose label {
   font-weight: 650;
 }
+.chat-templates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.postiz-assignment {
+  display: grid;
+  gap: 8px;
+  min-width: min(100%, 300px);
+}
+.postiz-assignment label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
 .chat-compose-actions {
   justify-content: flex-end;
 }

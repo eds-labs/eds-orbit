@@ -21,6 +21,14 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
   ).toBeVisible();
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "Orbit Chat" })).toBeVisible();
+  await page.getByRole("button", { name: "Plan next week" }).click();
+  await expect(page.getByLabel("Message Orbit")).toHaveValue(
+    /Plan content drafts/,
+  );
+  await page.getByRole("button", { name: "Analyze website" }).click();
+  await expect(page.getByLabel("Message Orbit")).toHaveValue(
+    /already imported/,
+  );
   const message = `Synthetic chat acceptance ${Date.now()}`;
   await page.getByLabel("Message Orbit").fill(message);
   await page.getByRole("button", { name: "Send", exact: true }).click();
@@ -178,4 +186,69 @@ test("renders streamed text, action states, source links and cancellation", asyn
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect.poll(() => canceled).toBe(true);
   await expect(page.getByText(/Canceled/)).toBeVisible({ timeout: 15000 });
+});
+
+test("Postiz owner selects exact channels for the current project", async ({
+  page,
+}) => {
+  const user = account();
+  await page.goto("/");
+  await page.getByLabel(/^Email/).fill(user.email);
+  await page.getByLabel(/^Password/).fill(user.password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your marketing, in orbit." }),
+  ).toBeVisible();
+  const connectorId = "e0e1b285-a615-4dcf-a7c2-a38bdd1d80a6";
+  let selected: string[] | null = null;
+  await page.route(`**/api/projects/${user.projectId}/connectors?*`, (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: connectorId,
+            version: 1,
+            kind: "connectors",
+            projectId: user.projectId,
+            data: {
+              provider: "postiz",
+              status: "read_verified",
+              assignedIntegrationIds: selected ?? [],
+              baseUrl: "https://postiz.example.invalid/api/public/v1",
+              channels: [
+                {
+                  id: "uliquid-x",
+                  name: "uLiquid X",
+                  identifier: "x",
+                  disabled: false,
+                },
+                {
+                  id: "familyplan-facebook",
+                  name: "FamilyPlan Facebook",
+                  identifier: "facebook",
+                  disabled: false,
+                },
+              ],
+            },
+          },
+        ],
+      },
+    }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/actions/postiz-assign-channels`,
+    (route) => {
+      selected = route.request().postDataJSON().integrationIds;
+      return route.fulfill({ json: { id: connectorId, version: 2, data: {} } });
+    },
+  );
+  await page.goto("/connectors");
+  await expect(page.getByText("Not assigned")).toHaveCount(2);
+  await page.getByRole("checkbox", { name: /uLiquid X/ }).check();
+  await page.getByRole("button", { name: "Save assignment" }).click();
+  await expect.poll(() => selected).toEqual(["uliquid-x"]);
+  await page.goto("/content");
+  await page.getByRole("button", { name: "New draft" }).first().click();
+  await expect(page.getByRole("option", { name: /uLiquid X/ })).toBeAttached();
+  await expect(page.getByRole("option", { name: /FamilyPlan/ })).toHaveCount(0);
 });

@@ -888,10 +888,14 @@ export function ContentEditor({
         connector.data.provider === "postiz" &&
         Array.isArray(connector.data.channels),
     )
-    .flatMap(
-      (connector) => connector.data.channels as Record<string, unknown>[],
-    )
-    .filter((channel) => !channel.disabled)
+    .flatMap((connector) => {
+      const assigned = Array.isArray(connector.data.assignedIntegrationIds)
+        ? connector.data.assignedIntegrationIds
+        : [];
+      return (connector.data.channels as Record<string, unknown>[]).filter(
+        (channel) => !channel.disabled && assigned.includes(channel.id),
+      );
+    })
     .map((channel) => ({
       value: String(channel.id),
       label: `${String(channel.name || channel.id)} · ${String(channel.identifier || "unknown")}`,
@@ -940,8 +944,8 @@ export function ContentEditor({
       value: d?.channel as string,
       options: postizChannels,
       hint: postizChannels.length
-        ? "Connected Postiz channels; IDs are stored server-side with the approved content package."
-        : "Refresh the Postiz connector to load channel choices.",
+        ? "Channels explicitly assigned to this project. IDs are stored with the approved content package."
+        : "No Postiz channel assigned to this project. Ask an owner to assign channels in Connections.",
     },
     {
       name: "missionId",

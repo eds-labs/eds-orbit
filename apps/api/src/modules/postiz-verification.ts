@@ -6,6 +6,7 @@ import {
   type DbTx,
 } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import {
   createPostizClient,
   ConnectorError,
@@ -137,7 +138,8 @@ export async function preparePostizVerification(
   const account = (c.channels ?? []).find(
     (a: any) => a.id === input.integrationId && !a.disabled,
   );
-  if (!account) throw new DomainError("POSTIZ_ACCOUNT_UNAVAILABLE", 409);
+  if (!account || !isAssignedPostizChannel(c, input.integrationId))
+    throw new DomainError("POSTIZ_ACCOUNT_NOT_ASSIGNED", 409);
   const pending = (await list(tx, s, "connector_verifications")).find(
     (v) =>
       data(v).connectorId === row.id &&
@@ -212,6 +214,8 @@ export async function executePostizVerification(
     )
       throw new DomainError("PROJECT_PAUSED", 409);
     const { c } = await connector(tx, s, d);
+    if (!isAssignedPostizChannel(c, d.integrationId))
+      throw new DomainError("POSTIZ_ACCOUNT_NOT_ASSIGNED", 409);
     const token = decrypt(c.encryptedCredential, process.env.CREDENTIAL_KEY!);
     const assetBytes = d.asset
       ? (await approvedAsset(tx, s, d.asset.assetId, d.asset)).bytes

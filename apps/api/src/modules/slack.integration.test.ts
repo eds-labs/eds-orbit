@@ -274,6 +274,15 @@ describe.skipIf(!enabled)(
         await create(tx, scope, "connectors", {
           provider: "postiz",
           status: "write_verified",
+          channels: [
+            {
+              id: "synthetic-social",
+              name: "Synthetic",
+              identifier: "x",
+              disabled: false,
+            },
+          ],
+          assignedIntegrationIds: ["synthetic-social"],
           writeVerifiedIntegrationIds: ["synthetic-social"],
           writeVerifiedInstanceId: process.env.PUBLISHER_INSTANCE_ID,
           baseUrl: "https://synthetic.example/public/v1",

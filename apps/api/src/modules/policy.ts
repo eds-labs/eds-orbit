@@ -1,4 +1,5 @@
 import { calendarConflicts } from "./calendar.ts";
+import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { invalidateContent } from "./content-invalidation.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "./marketing-profile.ts";
@@ -283,6 +284,7 @@ export async function preflight(
     }
     if (!connector) blockers.push("PUBLISHER_WRITE_VERIFICATION_REQUIRED");
     else if (
+      !isAssignedPostizChannel(data(connector), c.channel) ||
       !(data(connector).writeVerifiedIntegrationIds ?? []).includes(
         c.channel,
       ) ||

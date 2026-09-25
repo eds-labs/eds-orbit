@@ -590,6 +590,79 @@ export function Memory() {
     </>
   );
 }
+function PostizChannelAssignment({ connector }: { connector: Entity }) {
+  const { project, locale, refresh } = useWorkspace();
+  const [selected, setSelected] = useState<string[]>(
+    Array.isArray(connector.data.assignedIntegrationIds)
+      ? connector.data.assignedIntegrationIds.map(String)
+      : [],
+  );
+  const mutation = useMutation(refresh);
+  const channels = Array.isArray(connector.data.channels)
+    ? (connector.data.channels as Record<string, unknown>[])
+    : [];
+  const assigned = Array.isArray(connector.data.assignedIntegrationIds)
+    ? connector.data.assignedIntegrationIds.map(String)
+    : [];
+  const changed =
+    JSON.stringify([...selected].sort()) !==
+    JSON.stringify([...assigned].sort());
+  return (
+    <div className="postiz-assignment">
+      <strong>
+        {locale === "de"
+          ? `Kanäle für ${project.name}`
+          : `Channels for ${project.name}`}
+      </strong>
+      <p>
+        {locale === "de"
+          ? "Nur ausdrücklich zugeordnete Konten können für dieses Projekt ausgewählt, verifiziert oder veröffentlicht werden."
+          : "Only explicitly assigned accounts can be selected, verified, or published for this project."}
+      </p>
+      {channels.map((channel) => {
+        const id = String(channel.id);
+        return (
+          <label key={id}>
+            <input
+              type="checkbox"
+              checked={selected.includes(id)}
+              disabled={Boolean(channel.disabled) || mutation.pending}
+              onChange={(event) =>
+                setSelected((current) =>
+                  event.target.checked
+                    ? [...current, id]
+                    : current.filter((value) => value !== id),
+                )
+              }
+            />
+            <span>
+              {String(channel.name || id)} ·{" "}
+              {String(channel.identifier || "unknown")} <small>({id})</small>
+            </span>
+          </label>
+        );
+      })}
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={!changed || mutation.pending}
+        onClick={() =>
+          mutation.run(() =>
+            action(project.id, "postiz-assign-channels", {
+              connectorId: connector.id,
+              version: connector.version,
+              integrationIds: selected,
+            }),
+          )
+        }
+      >
+        {locale === "de" ? "Zuordnung speichern" : "Save assignment"}
+      </Button>
+    </div>
+  );
+}
+
 export function Connectors() {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const resource = useCollection("connectors");
@@ -706,7 +779,14 @@ export function Connectors() {
                                   · {String(channel.identifier || "unknown")} ·{" "}
                                   {channel.disabled
                                     ? "Disconnected"
-                                    : "Connected"}{" "}
+                                    : Array.isArray(
+                                          e.data.assignedIntegrationIds,
+                                        ) &&
+                                        e.data.assignedIntegrationIds.includes(
+                                          channel.id,
+                                        )
+                                      ? `Assigned to ${project.name}`
+                                      : "Not assigned"}{" "}
                                   <small>({String(channel.id)})</small>
                                 </li>
                               ))}
@@ -734,7 +814,13 @@ export function Connectors() {
                           <SlackDigest entity={e} />
                         )}
                       {e && p.id === "postiz" && (
-                        <PostizVerification connector={e} />
+                        <>
+                          <PostizChannelAssignment
+                            key={`${e.id}:${e.version}`}
+                            connector={e}
+                          />
+                          <PostizVerification connector={e} />
+                        </>
                       )}
                       {e && p.id !== "slack" && (
                         <Button

@@ -2,6 +2,7 @@ import { validateActiveIndexEvaluation } from "../../../../packages/knowledge/sr
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, list } from "../shared.ts";
+import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { publicOpenAiConfiguration } from "./openai-configuration.ts";
 export async function readiness(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
@@ -72,8 +73,10 @@ export async function readiness(tx: DbTx, scope: Scope) {
       : []),
     ...(publisher &&
     (!p.channels?.length ||
-      !p.channels.every((id: string) =>
-        (data(publisher).writeVerifiedIntegrationIds ?? []).includes(id),
+      !p.channels.every(
+        (id: string) =>
+          isAssignedPostizChannel(data(publisher), id) &&
+          (data(publisher).writeVerifiedIntegrationIds ?? []).includes(id),
       ) ||
       data(publisher).writeVerifiedInstanceId !==
         process.env.PUBLISHER_INSTANCE_ID)

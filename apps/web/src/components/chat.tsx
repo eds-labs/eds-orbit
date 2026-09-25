@@ -100,6 +100,43 @@ function statusLabel(status: string, de: boolean) {
 export function OrbitChat() {
   const { project, identity, locale, canEdit } = useWorkspace();
   const de = locale === "de";
+  const templates = de
+    ? [
+        {
+          label: "Nächste Woche planen",
+          prompt: `Plane für ${project.name} Content-Entwürfe für die nächste Woche. Nutze nur bestätigte Fakten und freigegebene Assets. Nenne Zeitraum, Zielgruppe, Zielaktion, Kanäle, Umfang, Quellen und Kostenrahmen. Frage gezielt nach fehlenden Angaben. Erstelle erst nach meiner Bestätigung eine Mission; veröffentliche nichts.`,
+        },
+        {
+          label: "Webseite analysieren",
+          prompt: `Analysiere die bereits in Orbit importierten Webseiten- und Knowledge-Quellen für ${project.name}. Nenne belegte Stärken, Lücken und konkrete nächste Schritte mit Quellen. Falls keine aktuellen abrufbaren Website-Passagen vorliegen, sage das klar; starte keinen Live-Crawl.`,
+        },
+        {
+          label: "Blogbeitrag vorbereiten",
+          prompt: `Bereite einen Blogbeitrag für ${project.name} als prüfbaren Entwurf vor. Verwende nur verifizierte Fakten und zitierbare Quellen. Frage nach Thema, Zielgruppe und Zielaktion, falls sie fehlen. Veröffentliche nichts.`,
+        },
+        {
+          label: "Blocker prüfen",
+          prompt: `Welche Freigaben und Voraussetzungen blockieren gerade die nächsten Content-Entwürfe und eine spätere Veröffentlichung für ${project.name}? Nenne die konkreten nächsten Schritte.`,
+        },
+      ]
+    : [
+        {
+          label: "Plan next week",
+          prompt: `Plan content drafts for ${project.name} next week using verified facts and approved assets. Show period, audience, action, channels, scope, sources, and cost ceiling. Ask for missing details. Create a mission only after my confirmation; publish nothing.`,
+        },
+        {
+          label: "Analyze website",
+          prompt: `Analyze the website and knowledge sources already imported into Orbit for ${project.name}. Cite strengths, gaps, and next steps. If no current retrievable website passages exist, say so; do not start a live crawl.`,
+        },
+        {
+          label: "Prepare blog post",
+          prompt: `Prepare a reviewable blog draft for ${project.name} using verified facts and cited sources. Ask for topic, audience, and target action if missing. Publish nothing.`,
+        },
+        {
+          label: "Check blockers",
+          prompt: `What approvals and prerequisites block the next drafts and later publication for ${project.name}? Give specific next steps.`,
+        },
+      ];
   const base = collectionPath(project.id, "chat");
   const savedKey = `orbit.chat.${identity.user.id}.${project.id}`;
   const [conversationId, setConversationId] = useState("");
@@ -458,6 +495,23 @@ export function OrbitChat() {
               void send();
             }}
           >
+            <div
+              className="chat-templates"
+              aria-label={de ? "Vorlagen" : "Templates"}
+            >
+              {templates.map((template) => (
+                <Button
+                  key={template.label}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || Boolean(activeRunId)}
+                  onClick={() => setInput(template.prompt)}
+                >
+                  {template.label}
+                </Button>
+              ))}
+            </div>
             <label htmlFor="orbit-chat-input">
               {de ? "Nachricht an Orbit" : "Message Orbit"}
             </label>

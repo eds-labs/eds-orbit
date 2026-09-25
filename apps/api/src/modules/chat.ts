@@ -26,6 +26,7 @@ import {
   currentMarketingProfile,
 } from "./marketing-profile.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
+import { assertAssignedSocialChannels } from "./postiz-assignment.ts";
 
 export const sendInput = z
   .object({
@@ -293,6 +294,8 @@ export async function createProposal(
     );
     if (parsed.channels.some((channel) => !p.channels.includes(channel)))
       throw new DomainError("CHANNEL_NOT_APPROVED", 409);
+    if (parsed.contentType === "social")
+      await assertAssignedSocialChannels(tx, scope, parsed.channels);
     if (
       Date.parse(parsed.endAt) <= Date.now() ||
       Date.parse(parsed.endAt) > Date.parse(p.endAt) ||
@@ -452,6 +455,8 @@ export async function confirmProposal(
       payload.firstDraftMaxMicros > policy.perRunBudgetMicros
     )
       throw new DomainError("PROPOSAL_PREREQUISITE_CHANGED", 409);
+    if (mission.contentType === "social")
+      await assertAssignedSocialChannels(tx, scope, mission.channels);
     const ai = await runtimeOpenAiConfiguration(tx, scope);
     const currentIndex = await getActiveIndex(tx, scope);
     const currentModel = route("draft", 0, 0, ai);

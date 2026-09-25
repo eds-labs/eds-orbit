@@ -16,17 +16,23 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
     const step = mocked.calls;
     return {
       async *[Symbol.asyncIterator]() {
-        if (mocked.mode === "tool_limit") {
+        if (
+          mocked.mode === "tool_limit" ||
+          (mocked.mode === "multi_tool" && step === 1)
+        ) {
           yield {
             type: "response.completed",
             response: {
               usage: { input_tokens: 100, output_tokens: 30 },
-              output: Array.from({ length: 5 }, (_, index) => ({
-                type: "function_call",
-                name: "project_status",
-                call_id: `status-${index}`,
-                arguments: "{}",
-              })),
+              output: Array.from(
+                { length: mocked.mode === "tool_limit" ? 9 : 5 },
+                (_, index) => ({
+                  type: "function_call",
+                  name: "project_status",
+                  call_id: `status-${index}`,
+                  arguments: "{}",
+                }),
+              ),
             },
           };
         } else if (step === 1) {
@@ -129,6 +135,14 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         perRunBudgetMicros: 10000,
         approvedPaidTests: true,
         active: true,
+      });
+      await create(tx, scope, "connectors", {
+        provider: "postiz",
+        status: "read_verified",
+        channels: [
+          { id: "x-test", name: "Runner X", identifier: "x", disabled: false },
+        ],
+        assignedIntegrationIds: ["x-test"],
       });
       await saveOpenAiConfiguration(tx, scope, {
         apiKey: "synthetic-no-provider-call-key",
@@ -381,6 +395,23 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       expect(result.status).toBe("blocked");
       expect(result.errorCode).toBe("CHAT_TOOL_LIMIT");
       expect(mocked.calls).toBe(before + 1);
+    } finally {
+      mocked.mode = "normal";
+    }
+  });
+  it("handles a multi-tool planning question within the bounded budget", async () => {
+    mocked.mode = "multi_tool";
+    mocked.calls = 0;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Plan next week after checking status and sources",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const result = await getRun(scope, sent.runId);
+      expect(result.status).toBe("succeeded");
+      expect(mocked.calls).toBe(2);
     } finally {
       mocked.mode = "normal";
     }

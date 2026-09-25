@@ -4,6 +4,7 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { retrieve } from "../../../../packages/knowledge/src/index.ts";
 import { assetTools } from "./asset-tools.ts";
 import { readiness } from "./readiness.ts";
+import { assignedPostizChannels } from "./postiz-assignment.ts";
 import { data, list } from "../shared.ts";
 
 export type ChatCard = {
@@ -89,6 +90,14 @@ export async function runReadTool(
       });
       const policies = await list(tx, scope, "policies");
       const active = policies.find((p) => data(p).active);
+      const availableChannels = (await list(tx, scope, "connectors"))
+        .filter((row) => data(row).provider === "postiz")
+        .flatMap((row) => assignedPostizChannels(data(row)))
+        .map((channel: any) => ({
+          id: String(channel.id),
+          name: clipped(channel.name, 120),
+          provider: clipped(channel.identifier, 50),
+        }));
       const approvals = (await list(tx, scope, "approvals"))
         .filter((a) => data(a).status === "pending")
         .slice(0, 15)
@@ -117,6 +126,7 @@ export async function runReadTool(
             paused: project.paused,
           },
           now: new Date().toISOString(),
+          availableChannels,
           policy: active
             ? {
                 id: active.id,

@@ -502,7 +502,13 @@ export function PostizVerification({ connector }: { connector: Entity }) {
     Array.isArray(connector.data.channels) ? connector.data.channels : []
   ).filter((a): a is Record<string, unknown> =>
     Boolean(
-      a && typeof a === "object" && !(a as Record<string, unknown>).disabled,
+      a &&
+      typeof a === "object" &&
+      !(a as Record<string, unknown>).disabled &&
+      Array.isArray(connector.data.assignedIntegrationIds) &&
+      connector.data.assignedIntegrationIds.includes(
+        (a as Record<string, unknown>).id,
+      ),
     ),
   );
   const records = (verifications.data?.items || []).filter(

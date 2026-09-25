@@ -22,6 +22,10 @@ import {
   preparePostizVerification,
   reconcilePostizVerification,
 } from "./postiz-verification.ts";
+import {
+  assignPostizChannels,
+  assertAssignedSocialChannels,
+} from "./postiz-assignment.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
@@ -83,6 +87,7 @@ describe.skipIf(!enabled)(
                 disabled: false,
               },
             ],
+            assignedIntegrationIds: ["account-one"],
           }),
         )
       ).id;
@@ -122,6 +127,74 @@ describe.skipIf(!enabled)(
           },
         ],
       });
+    it("requires an explicit project assignment before verification", async () => {
+      const row = await run((tx) =>
+        entity(tx, scope, "connectors", connectorId),
+      );
+      await run((tx) =>
+        assignPostizChannels(tx, scope, {
+          connectorId,
+          version: row.version,
+          integrationIds: [],
+        }),
+      );
+      await expect(prepare()).rejects.toThrow("POSTIZ_ACCOUNT_NOT_ASSIGNED");
+      await expect(
+        run((tx) => assertAssignedSocialChannels(tx, scope, ["account-one"])),
+      ).rejects.toThrow("POSTIZ_CHANNEL_NOT_ASSIGNED");
+      const current = await run((tx) =>
+        entity(tx, scope, "connectors", connectorId),
+      );
+      await expect(
+        run((tx) =>
+          assignPostizChannels(
+            tx,
+            {
+              ...scope,
+              role: "editor",
+            },
+            {
+              connectorId,
+              version: current.version,
+              integrationIds: ["account-other"],
+            },
+          ),
+        ),
+      ).rejects.toThrow("OWNER_REQUIRED");
+      const otherProject = await authDb.project.create({
+        data: { workspaceId, name: "Other isolated project" },
+      });
+      const otherScope = { ...scope, projectId: otherProject.id };
+      await expect(
+        scoped(otherScope.workspaceId, otherScope.projectId, (tx) =>
+          assignPostizChannels(tx, otherScope, {
+            connectorId,
+            version: current.version,
+            integrationIds: ["account-one"],
+          }),
+        ),
+      ).rejects.toThrow("NOT_FOUND");
+      await expect(
+        run((tx) =>
+          assignPostizChannels(tx, scope, {
+            connectorId,
+            version: current.version,
+            integrationIds: ["missing-account"],
+          }),
+        ),
+      ).rejects.toThrow("POSTIZ_ACCOUNT_UNAVAILABLE");
+      await run((tx) =>
+        assignPostizChannels(tx, scope, {
+          connectorId,
+          version: current.version,
+          integrationIds: ["account-one"],
+        }),
+      );
+      expect(data(await prepare()).integrationId).toBe("account-one");
+      await expect(
+        run((tx) => assertAssignedSocialChannels(tx, scope, ["account-other"])),
+      ).rejects.toThrow("POSTIZ_CHANNEL_NOT_ASSIGNED");
+    });
     it("prepares an exact fixed package without transmission and fails closed for default gates", async () => {
       const a = await prepare(),
         b = await prepare();

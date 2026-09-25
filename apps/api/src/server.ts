@@ -52,6 +52,10 @@ import {
 } from "./modules/slack.ts";
 import { readiness } from "./modules/readiness.ts";
 import {
+  assignPostizChannels,
+  postizAssignmentInput,
+} from "./modules/postiz-assignment.ts";
+import {
   publicOpenAiConfiguration,
   saveOpenAiConfiguration,
 } from "./modules/openai-configuration.ts";
@@ -1114,6 +1118,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "asset-status",
       "connector",
       "connector-health",
+      "postiz-assign-channels",
       "resolve-exception",
       "slack-configure",
       "slack-digest",
@@ -1304,6 +1309,14 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       });
     }
     return scoped(scope.workspaceId, projectId, async (tx) => {
+      if (action === "postiz-assign-channels")
+        return publicEntity(
+          await assignPostizChannels(
+            tx,
+            scope,
+            postizAssignmentInput.parse(input),
+          ),
+        );
       if (action === "knowledge-import-commit")
         return commitKnowledgeImport(
           tx,
