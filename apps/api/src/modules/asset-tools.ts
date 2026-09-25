@@ -104,3 +104,26 @@ export const assetTools = {
       .map(publicEntity);
   },
 };
+
+export async function assertMissionAssets(
+  tx: import("../../../../packages/db/src/index.ts").DbTx,
+  scope: Scope,
+  ids: string[],
+) {
+  for (const id of ids) {
+    const row = await tx.entity.findFirst({
+      where: {
+        id,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "assets",
+      },
+    });
+    if (
+      !row ||
+      data(row).usageApproved !== true ||
+      data(row).assetStatus !== "approved"
+    )
+      throw new DomainError("ASSET_NOT_APPROVED", 409);
+  }
+}

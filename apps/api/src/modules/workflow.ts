@@ -18,6 +18,7 @@ import {
   exception,
 } from "../shared.ts";
 import { preflight, checkClaims } from "./policy.ts";
+import { assertMissionAssets } from "./asset-tools.ts";
 export async function enqueue(
   tx: DbTx,
   scope: Scope,
@@ -54,6 +55,7 @@ export async function enqueue(
 }
 export async function planMission(tx: DbTx, scope: Scope, missionId: string) {
   const m = await entity(tx, scope, "missions", missionId);
+  await assertMissionAssets(tx, scope, data(m).assetIds ?? []);
   if (["completed", "awaiting_followup"].includes(data(m).status)) return m;
   if (new Date(data(m).startAt) > new Date())
     throw new DomainError("MISSION_NOT_ACTIVE");
@@ -81,6 +83,7 @@ export async function deterministicDraft(
   }
   const m = await entity(tx, scope, "missions", missionId),
     v = data(m);
+  await assertMissionAssets(tx, scope, v.assetIds ?? []);
   if (new Date(v.endAt) <= new Date()) throw new DomainError("MISSION_EXPIRED");
   if (new Date(v.startAt) > new Date())
     throw new DomainError("MISSION_NOT_ACTIVE");
@@ -152,6 +155,9 @@ export async function deterministicDraft(
     language: v.language,
     channel,
     missionId,
+    ...(v.assetIds?.length
+      ? { assetId: v.assetIds[(v.completedRuns ?? 0) % v.assetIds.length] }
+      : {}),
     campaignType: v.campaignType,
     profileVersion: v.profileVersion,
     evidenceId,

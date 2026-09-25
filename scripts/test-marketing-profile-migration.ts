@@ -149,6 +149,30 @@ try {
         profileTables.rows.some((row) => row.relforcerowsecurity !== true)
       )
         throw new Error("Marketing profile tables or forced RLS missing");
+      const chatTables = await verify.query(
+        `SELECT relname, relforcerowsecurity FROM pg_class WHERE relname = ANY($1::text[]) ORDER BY relname`,
+        [["ChatConversation", "ChatMessage", "ChatProposal", "ChatRun"]],
+      );
+      if (
+        chatTables.rowCount !== 4 ||
+        chatTables.rows.some((row) => row.relforcerowsecurity !== true)
+      )
+        throw new Error("Chat tables or forced RLS missing");
+      const chatUserFk = await verify.query(
+        `SELECT 1 FROM pg_constraint WHERE conname='ChatConversation_user_fkey' AND contype='f'`,
+      );
+      if (chatUserFk.rowCount !== 1)
+        throw new Error("Chat user cascade missing");
+      const proposalGuard = await verify.query(
+        `SELECT 1 FROM pg_trigger WHERE tgname='chat_proposal_preserve_version' AND NOT tgisinternal`,
+      );
+      if (proposalGuard.rowCount !== 1)
+        throw new Error("Chat proposal version guard missing");
+      const chatGrant = await verify.query(
+        `SELECT has_table_privilege('orbit_app','"ChatConversation"','SELECT') AS allowed`,
+      );
+      if (chatGrant.rows[0]?.allowed !== true)
+        throw new Error("Chat app grant missing");
       const applied = await verify.query(
         `SELECT 1 FROM "_prisma_migrations" WHERE migration_name=$1 AND finished_at IS NOT NULL`,
         ["202609180003_project_marketing_profile"],
@@ -162,7 +186,7 @@ try {
     if (migratorConnected) await migrator.end();
   }
   console.log(
-    "CP07 passed: forward migration preserved legacy data and enforced profile RLS in a disposable local database.",
+    "CP07 passed: forward migration preserved legacy data and enforced profile/chat RLS, chat user cascade and grants in a disposable local database.",
   );
 } finally {
   if (adminConnected) {

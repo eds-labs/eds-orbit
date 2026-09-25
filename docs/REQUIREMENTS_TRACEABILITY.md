@@ -4,6 +4,21 @@ Checkpoint refreshed: 2026-09-22. All 88 acceptance IDs from the controlling mas
 
 Canonical current execution evidence: `docs/evidence/vitest-results.json`, `playwright-results.json`, plus the executed framework, migration, API-generation, lint, typecheck, build and secret checks recorded in the 2026-09-22 checkpoint. Older text logs remain historical rather than being reused as current evidence. Current application verification: 280 tests across 20 files and 5 authenticated browser workflows passed on the pinned Node 24 runtime. Production build and 12 framework tests also passed. Fresh Linux ARM64 standalone/shared-host acceptance remains covered by `docs/evidence/container-acceptance.json`. Original-master counts remain 79 PASS_TEST, 3 PASS_LIVE (read-only infrastructure), 6 BLOCKED_EXTERNAL, 0 NOT_RUN.
 
+## Orbit Chat / Operator v1 acceptance (2026-09-25)
+
+This supplemental scope is local-only and does not change the historical 88-master totals. The implementation and API contract are described in `docs/ORBIT_CHAT_V1.md`; no live paid model call or deployment is implied.
+
+| ID | Requirement | Local evidence | Result |
+| --- | --- | --- | --- |
+| CH01 | User and project isolation, viewer read access, FORCE RLS and user deletion cascade | `chat.integration.test.ts`; disposable migration check | PASS_TEST |
+| CH02 | Persistent history, SSE snapshots, cancellation and page reload on desktop/mobile | `chat.spec.ts`; `chat.integration.test.ts` | PASS_TEST |
+| CH03 | Bounded, validated read tools, source and asset cards, no arbitrary writes | `chat-tools.ts`; `chat-runner.integration.test.ts` | PASS_TEST |
+| CH04 | Existing model route, explicit paid mandate, reservation, unknown-cost and step ceilings | `chat-runner.ts`; `chat.integration.test.ts`; `chat-runner.integration.test.ts` | PASS_TEST |
+| CH05 | Immutable proposal versions, source/fact/asset/profile/policy/cost recheck | `chat.ts`; `chat-runner.integration.test.ts` | PASS_TEST |
+| CH06 | Concurrent confirmation creates one mission and first draft job; draft-only mission cannot autopublish | `chat-runner.integration.test.ts`; `main.ts` | PASS_TEST |
+| CH07 | Real Responses streaming, live provider usage and charged cost | No authorized paid acceptance run | BLOCKED_EXTERNAL |
+| CH08 | Production migration, remote CI and deployment | Separate release authorization and remote run required | BLOCKED_EXTERNAL |
+
 ## Configuration-parity acceptance (2026-09-18)
 
 The rows below are deliberately separate from the historical master count. They distinguish local backend safety coverage from the newly added user workflow; prior browser evidence is not reused as proof of configuration parity.

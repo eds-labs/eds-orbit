@@ -21,6 +21,7 @@ import {
   Plus,
   LogOut,
   MoreHorizontal,
+  MessageCircle,
   ArrowUpRight,
 } from "lucide-react";
 import {
@@ -44,6 +45,7 @@ import {
   CalendarView,
 } from "./work";
 import { Knowledge } from "./knowledge";
+import { OrbitChat } from "./chat";
 import { BrandAssetLibrary } from "./advanced";
 import {
   Analytics,
@@ -55,6 +57,7 @@ import {
 const navigation = [
   { key: "overview", path: "/", icon: Home },
   { key: "missions", path: "/missions", icon: Target },
+  { key: "chat", path: "/chat", icon: MessageCircle },
   { key: "content", path: "/content", icon: FileText },
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "knowledge", path: "/knowledge", icon: BookOpen },
@@ -234,6 +237,8 @@ export function Orbit() {
           <Overview />
         ) : nav.key === "missions" ? (
           <Missions />
+        ) : nav.key === "chat" ? (
+          <OrbitChat />
         ) : nav.key === "content" ? (
           <ContentStudio />
         ) : nav.key === "calendar" ? (
@@ -416,7 +421,7 @@ export function Orbit() {
         </main>
       </div>
       <nav className="mobile-nav" aria-label="Mobile workspace">
-        {[navigation[0], navigation[2], navigation[4], navigation[5]].map(
+        {[navigation[0], navigation[2], navigation[3], navigation[5]].map(
           (n) => (
             <Link
               key={n.key}

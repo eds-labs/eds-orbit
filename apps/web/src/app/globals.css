@@ -2821,3 +2821,203 @@ body:has(dialog[open]) {
   border-radius: 12px;
   background: #eef5fa;
 }
+
+/* Orbit Chat uses the workspace glass palette and keeps content readable on small screens. */
+.chat-context {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 18px;
+  color: var(--muted-foreground);
+}
+.chat-shell {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
+  gap: 18px;
+  min-height: 620px;
+}
+.chat-history,
+.chat-main {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(20px);
+}
+.chat-history {
+  padding: 16px;
+}
+.chat-history .button {
+  width: 100%;
+}
+.chat-history-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 16px;
+}
+.chat-history-list button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--foreground);
+  padding: 10px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-history-list button:hover,
+.chat-history-list .chat-selected {
+  background: #eaf4ff;
+}
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+}
+.chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  max-height: 70vh;
+  min-height: 400px;
+}
+.chat-message {
+  max-width: min(86%, 760px);
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.chat-user {
+  align-self: flex-end;
+  background: #e9f4ff;
+  border-color: #cbe3fa;
+}
+.chat-message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+.chat-cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chat-card {
+  display: grid;
+  gap: 6px;
+  max-width: 220px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.chat-card a,
+.chat-links a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.chat-card a svg {
+  width: 13px;
+  height: 13px;
+  margin-right: 4px;
+}
+.chat-card img {
+  width: 100%;
+  height: 95px;
+  object-fit: contain;
+}
+.chat-proposal {
+  border: 1px solid #bdddf7;
+  border-radius: 16px;
+  background: #f3faff;
+  padding: 16px;
+}
+.chat-proposal-head,
+.chat-compose-actions,
+.chat-links {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.chat-proposal-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chat-proposal dl {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+}
+.chat-proposal dl > div {
+  display: grid;
+  grid-template-columns: 145px 1fr;
+  gap: 8px;
+}
+.chat-proposal dt {
+  color: var(--muted-foreground);
+}
+.chat-proposal dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.chat-links {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+.chat-compose {
+  border-top: 1px solid var(--border);
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+}
+.chat-compose label {
+  font-weight: 650;
+}
+.chat-compose-actions {
+  justify-content: flex-end;
+}
+@media (max-width: 760px) {
+  .chat-shell {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .chat-history {
+    padding: 10px;
+  }
+  .chat-history-list {
+    display: flex;
+    overflow-x: auto;
+    margin-top: 10px;
+  }
+  .chat-history-list button {
+    flex: 0 0 150px;
+  }
+  .chat-messages {
+    min-height: 260px;
+    max-height: 55vh;
+    padding: 12px;
+  }
+  .chat-message {
+    max-width: 96%;
+  }
+  .chat-proposal dl > div {
+    grid-template-columns: 1fr;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .chat-history,
+  .chat-main {
+    background: #fff;
+    backdrop-filter: none;
+  }
+}

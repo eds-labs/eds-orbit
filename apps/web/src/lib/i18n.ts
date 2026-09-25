@@ -3,6 +3,7 @@ export const labels = {
   en: {
     overview: "Overview",
     missions: "Missions",
+    chat: "Orbit Chat",
     content: "Content Studio",
     calendar: "Calendar",
     knowledge: "Knowledge",
@@ -105,6 +106,7 @@ export const labels = {
   de: {
     overview: "Übersicht",
     missions: "Missionen",
+    chat: "Orbit Chat",
     content: "Content Studio",
     calendar: "Kalender",
     knowledge: "Wissen",

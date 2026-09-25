@@ -18,6 +18,7 @@ model User {
   accounts           Account[]
   memberships        WorkspaceMember[]
   projectMemberships ProjectMember[]
+  chatConversations ChatConversation[]
 
   @@map("user")
 }
@@ -107,8 +108,90 @@ model Project {
   audits           AuditEvent[]
   knowledgeIndexes KnowledgeIndex[]
   marketingProfile ProjectMarketingProfile?
+  chatConversations ChatConversation[]
 
   @@unique([workspaceId, id])
+}
+
+model ChatConversation {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  userId      String
+  title       String   @default("New conversation")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  project     Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages    ChatMessage[]
+  runs        ChatRun[]
+  proposals   ChatProposal[]
+
+  @@unique([workspaceId, projectId, id])
+  @@unique([workspaceId, projectId, id, userId])
+  @@index([workspaceId, projectId, userId, updatedAt])
+}
+
+model ChatMessage {
+  id             String           @id @default(uuid()) @db.Uuid
+  workspaceId    String           @db.Uuid
+  projectId      String           @db.Uuid
+  userId         String
+  conversationId String           @db.Uuid
+  sequence       Int
+  role           String
+  text           String
+  cards          Json             @default("[]")
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  conversation   ChatConversation @relation(fields: [workspaceId, projectId, conversationId, userId], references: [workspaceId, projectId, id, userId], onDelete: Cascade)
+
+  @@unique([conversationId, sequence])
+  @@index([workspaceId, projectId, userId, conversationId])
+}
+
+model ChatRun {
+  id              String           @id @default(uuid()) @db.Uuid
+  workspaceId     String           @db.Uuid
+  projectId       String           @db.Uuid
+  userId          String
+  conversationId  String           @db.Uuid
+  clientRequestId String
+  jobId           String?          @db.Uuid
+  status          String           @default("queued")
+  partialText     String           @default("")
+  sequence        Int              @default(0)
+  errorCode       String?
+  reservationId   String?          @db.Uuid
+  transmittedAt   DateTime?        @db.Timestamptz(3)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+  conversation    ChatConversation @relation(fields: [workspaceId, projectId, conversationId, userId], references: [workspaceId, projectId, id, userId], onDelete: Cascade)
+
+  @@unique([conversationId, clientRequestId])
+  @@index([workspaceId, projectId, userId, conversationId])
+}
+
+model ChatProposal {
+  id             String           @id @default(uuid()) @db.Uuid
+  workspaceId    String           @db.Uuid
+  projectId      String           @db.Uuid
+  userId         String
+  conversationId String           @db.Uuid
+  groupId        String           @db.Uuid
+  version        Int
+  payload        Json
+  payloadHash    String
+  status         String           @default("proposed")
+  confirmationId String?
+  missionId      String?          @db.Uuid
+  jobId          String?          @db.Uuid
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  confirmedAt    DateTime?        @db.Timestamptz(3)
+  conversation   ChatConversation @relation(fields: [workspaceId, projectId, conversationId, userId], references: [workspaceId, projectId, id, userId], onDelete: Cascade)
+
+  @@unique([groupId, version])
+  @@unique([conversationId, confirmationId])
+  @@index([workspaceId, projectId, userId, conversationId])
 }
 
 model ProjectMarketingProfile {

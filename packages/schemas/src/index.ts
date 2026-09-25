@@ -65,6 +65,7 @@ export const mission = z
     targetAction: z.string().max(300),
     targetValue: z.number().nonnegative().optional(),
     sourceIds: z.array(id).max(30).default([]),
+    assetIds: z.array(id).max(10).default([]),
     contentType: z
       .enum(["social", "blog", "newsletter", "ad", "script", "community"])
       .default("social"),

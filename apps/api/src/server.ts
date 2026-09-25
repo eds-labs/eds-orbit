@@ -35,6 +35,16 @@ import {
 } from "../../../packages/knowledge/src/index.ts";
 import { runtimeHealth, closeRuntime } from "./modules/runtime.ts";
 import {
+  createConversation,
+  listConversations,
+  getConversation,
+  sendMessage,
+  getRun,
+  cancelRun,
+  confirmProposal,
+} from "./modules/chat.ts";
+import { assertMissionAssets } from "./modules/asset-tools.ts";
+import {
   configureSlack,
   queueSlackDigest,
   handleSlackInteraction,
@@ -881,6 +891,103 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       );
     },
   );
+  app.get("/api/projects/:projectId/chat/conversations", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    const cursor = z
+      .uuid()
+      .optional()
+      .parse((req.query as any)?.cursor);
+    return listConversations(scope, cursor);
+  });
+  app.post(
+    "/api/projects/:projectId/chat/conversations",
+    async (req, reply) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId);
+      return reply.code(201).send(await createConversation(scope));
+    },
+  );
+  app.get("/api/projects/:projectId/chat/conversations/:id", async (req) => {
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return getConversation(scope, z.uuid().parse(id));
+  });
+  app.post(
+    "/api/projects/:projectId/chat/conversations/:id/messages",
+    async (req, reply) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId);
+      return reply
+        .code(202)
+        .send(await sendMessage(scope, z.uuid().parse(id), req.body));
+    },
+  );
+  app.get("/api/projects/:projectId/chat/runs/:id", async (req) => {
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return getRun(scope, z.uuid().parse(id));
+  });
+  app.get(
+    "/api/projects/:projectId/chat/runs/:id/events",
+    async (req, reply) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId);
+      const runId = z.uuid().parse(id);
+      await getRun(scope, runId);
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-store",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      let last = Number(req.headers["last-event-id"] ?? -1);
+      let busy = false;
+      const started = Date.now();
+      const timer = setInterval(async () => {
+        if (busy || reply.raw.destroyed) return;
+        busy = true;
+        try {
+          const run = await getRun(scope, runId);
+          if (run.sequence !== last) {
+            last = run.sequence;
+            reply.raw.write(
+              `id: ${run.sequence}\nevent: snapshot\ndata: ${JSON.stringify({ id: run.id, status: run.status, partialText: run.partialText, errorCode: run.errorCode, sequence: run.sequence })}\n\n`,
+            );
+          } else reply.raw.write(": keepalive\n\n");
+          if (
+            ["succeeded", "failed", "blocked", "canceled"].includes(
+              run.status,
+            ) ||
+            Date.now() - started > 39000
+          ) {
+            clearInterval(timer);
+            reply.raw.end();
+          }
+        } catch {
+          clearInterval(timer);
+          reply.raw.end();
+        } finally {
+          busy = false;
+        }
+      }, 700);
+      reply.raw.on("close", () => clearInterval(timer));
+    },
+  );
+  app.post("/api/projects/:projectId/chat/runs/:id/cancel", async (req) => {
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return cancelRun(scope, z.uuid().parse(id));
+  });
+  app.post(
+    "/api/projects/:projectId/chat/proposals/:id/confirm",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      return confirmProposal(scope, z.uuid().parse(id), req.body);
+    },
+  );
   app.get("/api/projects/:projectId/:collection", async (req) => {
     const { projectId, collection } = req.params as any;
     schemas.collection.parse(collection);
@@ -905,6 +1012,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       else if (collection === "missions") {
         parsed = { ...schemas.mission.parse(req.body), status: "ready" };
         await assertCampaignContext(tx, scope, parsed);
+        await assertMissionAssets(tx, scope, parsed.assetIds);
       } else if (collection === "content") {
         parsed = {
           ...schemas.content.parse(req.body),

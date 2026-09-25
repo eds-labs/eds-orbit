@@ -24,6 +24,7 @@ import {
 } from "../shared.ts";
 import { policy } from "../../../../packages/schemas/src/index.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
+import { assertMissionAssets } from "./asset-tools.ts";
 export async function generateMissionLive(
   scope: Scope,
   missionId: string,
@@ -104,6 +105,7 @@ export async function generateMissionLive(
         where: { id: scope.projectId },
       });
       if (project.paused) throw new DomainError("PROJECT_PAUSED");
+      await assertMissionAssets(tx, scope, m.assetIds ?? []);
       const count = await tx.entity.count({
         where: {
           projectId: scope.projectId,
@@ -121,7 +123,12 @@ export async function generateMissionLive(
       if (data(evidence).status !== "ready")
         throw new DomainError("INSUFFICIENT_MODEL_APPROVED_EVIDENCE");
       const ai = await runtimeOpenAiConfiguration(tx, scope);
-      const model = route(m.contentType === "blog" ? "blog" : "draft", 0, 0, ai);
+      const model = route(
+        m.contentType === "blog" ? "blog" : "draft",
+        0,
+        0,
+        ai,
+      );
       const p = await activePolicy(tx, scope);
       if (!p) throw new DomainError("POLICY_REQUIRED");
       const parsed = policy.parse(
@@ -153,6 +160,26 @@ export async function generateMissionLive(
         1800,
         ai,
       );
+      if (m.chatProposalId) {
+        const query = await tx.budgetReservation.findFirst({
+          where: {
+            projectId: scope.projectId,
+            key: scope.projectId + ":query:mission:" + jobId,
+          },
+        });
+        const queryCost = query
+          ? Number(
+              query.state === "settled"
+                ? query.settledMicros
+                : query.amountMicros,
+            )
+          : 0;
+        if (
+          !Number.isSafeInteger(m.chatCostCeilingMicros) ||
+          queryCost + cost > m.chatCostCeilingMicros
+        )
+          throw new DomainError("CHAT_PROPOSAL_COST_EXCEEDED", 409);
+      }
       const reservation = await reserve(
         tx,
         scope,
@@ -243,12 +270,18 @@ export async function generateMissionLive(
     )
       throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
     const m = data(mission);
+    await assertMissionAssets(tx, scope, m.assetIds ?? []);
     const content = await create(tx, scope, "content", {
       ...outcome.output,
       type: m.contentType,
       language: m.language,
       channel: m.channels[(m.completedRuns ?? 0) % m.channels.length],
       missionId,
+      campaignType: m.campaignType,
+      profileVersion: m.profileVersion,
+      ...(m.assetIds?.length
+        ? { assetId: m.assetIds[(m.completedRuns ?? 0) % m.assetIds.length] }
+        : {}),
       evidenceId: prepared.evidence.id,
       risk: "routine",
       status: "draft",

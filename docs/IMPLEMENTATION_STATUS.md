@@ -1,5 +1,10 @@
 # Implementation status
 
+## Orbit Chat v1 local implementation (2026-09-25)
+
+The new private project chat, bounded Responses tool runner, reviewable draft-only proposals, and first-draft job bridge are implemented locally. See `docs/ORBIT_CHAT_V1.md` for API contracts and release boundaries. This checkpoint is not production authorization or proof of a live paid model call.
+Local verification on Node 24.18.0: additive migration on a disposable database, API/client generation, lint, typecheck, 298 tests across 24 files, production build, 7 authenticated Chromium workflows, framework check, secret scan and high-severity dependency audit passed. A real Responses stream, remote CI run, production migration and deployment remain outside this checkpoint.
+
 Checkpoint refreshed: 2026-09-22, Europe/Berlin. The integrated application and both isolated Linux hosting variants have local acceptance evidence; this is not production authorization.
 
 ## Configuration-parity checkpoint (2026-09-18)

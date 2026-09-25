@@ -153,6 +153,10 @@ try {
     "KnowledgeIndex",
     "ProjectMarketingProfile",
     "ProjectMarketingProfileVersion",
+    "ChatConversation",
+    "ChatMessage",
+    "ChatRun",
+    "ChatProposal",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,

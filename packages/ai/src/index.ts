@@ -215,6 +215,37 @@ export async function generate(params: {
     },
   };
 }
+export function streamChat(params: {
+  model: string;
+  input: OpenAI.Responses.ResponseInput;
+  tools: OpenAI.Responses.Tool[];
+  instructions: string;
+  reservationId: string;
+  runtime: OpenAiRuntimeConfig;
+  signal?: AbortSignal;
+}) {
+  if (!params.runtime.apiKey || !params.reservationId)
+    throw new Error("PAID_CALL_NOT_AUTHORIZED");
+  const api = new OpenAI({
+    apiKey: params.runtime.apiKey,
+    maxRetries: 0,
+    timeout: 45000,
+  });
+  return api.responses.create(
+    {
+      model: params.model,
+      store: false,
+      stream: true,
+      max_output_tokens: 1200,
+      instructions: params.instructions,
+      input: params.input,
+      tools: params.tools,
+      parallel_tool_calls: false,
+    },
+    { signal: params.signal },
+  );
+}
+
 export async function embed(
   texts: string[],
   reservationId: string,

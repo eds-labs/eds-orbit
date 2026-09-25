@@ -39,6 +39,8 @@ import {
   publishIntent,
 } from "../../api/src/modules/workflow.ts";
 import { generateMissionLive } from "../../api/src/modules/generation.ts";
+import { runChat } from "../../api/src/modules/chat-runner.ts";
+import { getRun } from "../../api/src/modules/chat.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
@@ -63,6 +65,7 @@ await connection.connect();
 const classes = [
   "publishing",
   "generation",
+  "chat",
   "ingestion",
   "embedding",
   "reindex",
@@ -139,7 +142,17 @@ const workers = classes.map(
         });
         if (!claimed) return;
         try {
-          if (topic === "generation") {
+          let chatResult: { status: string; errorCode: string | null } | null =
+            null;
+          if (topic === "chat") {
+            const actorScope = { ...scope, userId: data(claimed).actorId };
+            await runChat(actorScope, data(claimed).resourceId);
+            const finished = await getRun(actorScope, data(claimed).resourceId);
+            chatResult = {
+              status: finished.status,
+              errorCode: finished.errorCode,
+            };
+          } else if (topic === "generation") {
             const drafts =
               config.EXECUTION_MODE === "live"
                 ? [
@@ -166,6 +179,20 @@ const workers = classes.map(
                     where: { id: projectId },
                   });
                   if (project.mode !== "autopilot") return null;
+                  const mission = await entity(
+                    tx,
+                    scope,
+                    "missions",
+                    data(content).missionId,
+                  );
+                  if (
+                    Array.isArray(data(mission).allowedActions) &&
+                    !data(mission).allowedActions.some(
+                      (action: string) =>
+                        action === "publish_test" || action === "publish_live",
+                    )
+                  )
+                    return null;
                   const current = await entity(
                     tx,
                     scope,
@@ -224,7 +251,13 @@ const workers = classes.map(
             const job = await entity(tx, scope, "jobs", jobId);
             await update(tx, scope, job, {
               ...data(job),
-              status: "succeeded",
+              status:
+                chatResult?.status === "canceled"
+                  ? "canceled"
+                  : chatResult && chatResult.status !== "succeeded"
+                    ? "blocked_dependency"
+                    : "succeeded",
+              ...(chatResult?.errorCode ? { error: chatResult.errorCode } : {}),
               leaseUntil: null,
               completedAt: new Date().toISOString(),
             });
