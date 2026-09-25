@@ -2,6 +2,7 @@ import type OpenAI from "openai";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { policy as policySchema } from "../../../../packages/schemas/src/index.ts";
 import {
+  CHAT_MAX_OUTPUT_TOKENS,
   estimateCost,
   route,
   streamChat,
@@ -184,7 +185,12 @@ export async function runChat(scope: Scope, runId: string) {
         );
         const runtime = await runtimeOpenAiConfiguration(tx, scope);
         const model = route("chat", 0, 0, runtime);
-        const estimate = estimateCost(model, bytes, 1200, runtime);
+        const estimate = estimateCost(
+          model,
+          bytes,
+          CHAT_MAX_OUTPUT_TOKENS,
+          runtime,
+        );
         const reservation = await reserve(
           tx,
           scope,
@@ -233,11 +239,18 @@ export async function runChat(scope: Scope, runId: string) {
           }
         }
         if (event.type === "response.completed") completed = event.response;
-        if (
-          event.type === "response.failed" ||
-          event.type === "response.incomplete"
-        )
-          throw new DomainError("CHAT_MODEL_INCOMPLETE");
+        if (event.type === "response.failed")
+          throw new DomainError("CHAT_MODEL_FAILED");
+        if (event.type === "response.incomplete") {
+          const reason = event.response.incomplete_details?.reason;
+          throw new DomainError(
+            reason === "max_output_tokens"
+              ? "CHAT_MODEL_OUTPUT_LIMIT"
+              : reason === "content_filter"
+                ? "CHAT_MODEL_CONTENT_FILTER"
+                : "CHAT_MODEL_INCOMPLETE",
+          );
+        }
       }
       if (!completed?.usage) throw new DomainError("USAGE_UNKNOWN");
       const actual = estimateCost(

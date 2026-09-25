@@ -16,7 +16,15 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
     const step = mocked.calls;
     return {
       async *[Symbol.asyncIterator]() {
-        if (
+        if (mocked.mode === "incomplete") {
+          yield {
+            type: "response.incomplete",
+            response: {
+              incomplete_details: { reason: "max_output_tokens" },
+              usage: { input_tokens: 100, output_tokens: 3000 },
+            },
+          };
+        } else if (
           mocked.mode === "tool_limit" ||
           (mocked.mode === "multi_tool" && step === 1)
         ) {
@@ -412,6 +420,34 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       const result = await getRun(scope, sent.runId);
       expect(result.status).toBe("succeeded");
       expect(mocked.calls).toBe(2);
+    } finally {
+      mocked.mode = "normal";
+    }
+  });
+  it("blocks an incomplete response without replaying a paid call", async () => {
+    mocked.mode = "incomplete";
+    const before = mocked.calls;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Plan next week",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const result = await getRun(scope, sent.runId);
+      expect(result.status).toBe("blocked");
+      expect(result.errorCode).toBe("CHAT_MODEL_OUTPUT_LIMIT");
+      await runChat(scope, sent.runId);
+      expect(mocked.calls).toBe(before + 1);
+      const reservation = await scoped(
+        scope.workspaceId,
+        scope.projectId,
+        (tx) =>
+          tx.budgetReservation.findFirstOrThrow({
+            where: { key: `${scope.projectId}:chat:${sent.runId}:0` },
+          }),
+      );
+      expect(reservation.state).toBe("unknown");
     } finally {
       mocked.mode = "normal";
     }

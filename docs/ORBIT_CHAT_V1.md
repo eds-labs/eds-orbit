@@ -17,7 +17,7 @@ All routes require the existing session and project membership. `:projectId` is 
 
 ## Execution
 
-The `chat` BullMQ class persists status and answer snapshots. Responses API calls use `store:false`, current project OpenAI configuration, verified route/pricing, and the shared policy budget journal. Limits per run are six model calls, eight tool calls, 32,000 input bytes, 1,200 output tokens per model call, and 8,000 displayed characters. A single run key shares the policy's per-run cost ceiling across all calls. Missing credentials, mandate, or price blocks execution before transmission. A crash after transmission is treated as an unknown outcome and does not trigger another paid request.
+The `chat` BullMQ class persists status and answer snapshots. Responses API calls use `store:false`, current project OpenAI configuration, verified route/pricing, and the shared policy budget journal. Limits per run are six model calls, eight tool calls, 32,000 input bytes, 3,000 output tokens per model call, and 8,000 displayed characters. A single run key shares the policy's per-run cost ceiling across all calls. Missing credentials, mandate, or price blocks execution before transmission. A crash after transmission is treated as an unknown outcome and does not trigger another paid request. Provider output-limit and content-filter outcomes are reported separately; incomplete calls remain non-retryable and cost-uncertain.
 
 The UI offers project-bound templates for weekly plans, analysis of already imported website sources, blog drafts, and blockers. Selecting a template only fills the composer.
 

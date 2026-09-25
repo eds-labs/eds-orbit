@@ -215,6 +215,8 @@ export async function generate(params: {
     },
   };
 }
+export const CHAT_MAX_OUTPUT_TOKENS = 3000;
+
 export function streamChat(params: {
   model: string;
   input: OpenAI.Responses.ResponseInput;
@@ -236,7 +238,7 @@ export function streamChat(params: {
       model: params.model,
       store: false,
       stream: true,
-      max_output_tokens: 1200,
+      max_output_tokens: CHAT_MAX_OUTPUT_TOKENS,
       instructions: params.instructions,
       input: params.input,
       tools: params.tools,
