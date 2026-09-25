@@ -96,7 +96,10 @@ import {
   confirmProposal,
 } from "../src/modules/chat.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
-import { validateReadToolResult } from "../src/modules/chat-tools.ts";
+import {
+  runReadTool,
+  validateReadToolResult,
+} from "../src/modules/chat-tools.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -180,6 +183,30 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     await authDb.workspace.delete({ where: { id: scope.workspaceId } });
     await authDb.user.delete({ where: { id: scope.userId } });
     await closeDatabase();
+  });
+  it("gives the model the approved USD AI budget and distinguishes media spend", async () => {
+    const tool = await runReadTool(scope, "project_status", {});
+    const checked = validateReadToolResult(
+      "project_status",
+      tool.result,
+      tool.cards,
+    );
+    expect(checked.result).toEqual(
+      expect.objectContaining({
+        policy: expect.objectContaining({
+          modelBudget: expect.objectContaining({
+            currency: "USD",
+            approvedPaidTests: true,
+            canSpendNow: true,
+            dailyLimitMicros: 100000,
+            monthlyLimitMicros: 100000,
+            perRunLimitMicros: 10000,
+            scope:
+              "AI provider spend limits, not a campaign or advertising budget",
+          }),
+        }),
+      }),
+    );
   });
   it("streams two bounded steps, settles both calls, and does not replay a finished run", async () => {
     const thread = await createConversation(scope);

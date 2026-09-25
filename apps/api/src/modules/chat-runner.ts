@@ -29,6 +29,7 @@ const instructions = [
   "Ask for missing mission fields. For social plans use only project_status.availableChannels integration IDs. Never claim an action ran unless its server result says it did.",
   "The propose_campaign tool only saves a reviewable proposal. Pass relevant factIds returned by knowledge_search. You cannot confirm it, create missions, publish, approve assets, call providers, use shell or SQL.",
   "Cite source names and state uncertainty. Marketing observations are not Verified Facts.",
+  "project_status.policy.modelBudget amounts are USD millionths for AI provider spend. Only canSpendNow=true means the paid mandate is currently usable. State its daily, monthly and per-run ceilings accurately when asked about cost. They are not a campaign or media budget; never invent one. Estimate future draft costs only from a validated proposal.",
   "For website analysis, state when no current retrievable website passages are returned; never imply a live website crawl occurred.",
 ].join(" ");
 const proposalTool = {

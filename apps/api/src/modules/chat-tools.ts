@@ -133,7 +133,25 @@ export async function runReadTool(
                 version: active.version,
                 channels: data(active).channels,
                 contentTypes: data(active).contentTypes,
-                perRunBudgetMicros: data(active).perRunBudgetMicros,
+                modelBudget: {
+                  currency: "USD",
+                  approvedPaidTests: data(active).approvedPaidTests,
+                  canSpendNow: Boolean(
+                    data(active).approvedPaidTests &&
+                    Date.parse(data(active).startAt) <= Date.now() &&
+                    Date.parse(data(active).endAt) > Date.now() &&
+                    data(active).dailyBudgetMicros > 0 &&
+                    data(active).monthlyBudgetMicros > 0 &&
+                    data(active).perRunBudgetMicros > 0,
+                  ),
+                  dailyLimitMicros: data(active).dailyBudgetMicros,
+                  monthlyLimitMicros: data(active).monthlyBudgetMicros,
+                  perRunLimitMicros: data(active).perRunBudgetMicros,
+                  startAt: data(active).startAt,
+                  endAt: data(active).endAt,
+                  scope:
+                    "AI provider spend limits, not a campaign or advertising budget",
+                },
               }
             : null,
           approvals,
@@ -307,6 +325,28 @@ const resultSchemas = {
   project_status: z
     .object({
       project: z.object({ id: z.uuid(), name: z.string() }).passthrough(),
+      policy: z
+        .object({
+          id: z.uuid(),
+          version: z.number().int().positive(),
+          modelBudget: z
+            .object({
+              currency: z.literal("USD"),
+              approvedPaidTests: z.boolean(),
+              canSpendNow: z.boolean(),
+              dailyLimitMicros: z.number().int().nonnegative(),
+              monthlyLimitMicros: z.number().int().nonnegative(),
+              perRunLimitMicros: z.number().int().nonnegative(),
+              startAt: z.iso.datetime(),
+              endAt: z.iso.datetime(),
+              scope: z.literal(
+                "AI provider spend limits, not a campaign or advertising budget",
+              ),
+            })
+            .strict(),
+        })
+        .passthrough()
+        .nullable(),
       approvals: z.array(z.object({ id: z.uuid() }).passthrough()).max(15),
       drafts: z.array(z.object({ id: z.uuid() }).passthrough()).max(15),
       readiness: z

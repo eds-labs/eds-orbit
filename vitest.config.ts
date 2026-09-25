@@ -4,6 +4,7 @@ export default defineConfig({
     setupFiles: ["tests/setup.ts"],
     include: [
       "apps/api/**/*.test.ts",
+      "apps/web/**/*.test.tsx",
       "apps/worker/**/*.test.ts",
       "packages/**/*.test.ts",
       "evals/**/*.test.ts",

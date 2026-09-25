@@ -2899,9 +2899,57 @@ body:has(dialog[open]) {
   border-color: #cbe3fa;
 }
 .chat-message-text {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.55;
+}
+.chat-user .chat-message-text {
+  white-space: pre-wrap;
+}
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+.chat-markdown p,
+.chat-markdown ul,
+.chat-markdown ol,
+.chat-markdown blockquote,
+.chat-markdown pre {
+  margin: 0 0 0.85em;
+}
+.chat-markdown h3,
+.chat-markdown h4 {
+  margin: 1.1em 0 0.45em;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.chat-markdown h3 {
+  font-size: 1.08rem;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  padding-left: 1.35em;
+}
+.chat-markdown blockquote {
+  border-left: 3px solid #a7d0f3;
+  padding-left: 0.85em;
+  color: var(--muted-foreground);
+}
+.chat-markdown pre {
+  overflow-x: auto;
+  padding: 0.75em;
+  border-radius: 8px;
+  background: #eef5fa;
+}
+.chat-markdown code {
+  font-size: 0.9em;
+  background: #eef5fa;
+  padding: 0.1em 0.25em;
+  border-radius: 4px;
+}
+.chat-markdown pre code {
+  padding: 0;
 }
 .chat-cards {
   display: flex;

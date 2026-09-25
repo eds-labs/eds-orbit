@@ -105,7 +105,7 @@ test("renders streamed text, action states, source links and cancellation", asyn
             {
               id: "source-message",
               role: "assistant",
-              text: "Check the cited source.",
+              text: "## Reviewable plan\n\n**Budget:** $10 daily\n\n<script>alert(1)</script>",
               cards: [
                 {
                   kind: "source",
@@ -176,6 +176,11 @@ test("renders streamed text, action states, source links and cancellation", asyn
   await expect(
     page.getByRole("link", { name: "Official source" }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Reviewable plan" }),
+  ).toBeVisible();
+  await expect(page.locator(".chat-message strong")).toHaveText("Budget:");
+  await expect(page.locator(".chat-message script")).toHaveCount(0);
   await expect(page.getByText("Proposed", { exact: true })).toBeVisible();
   await expect(
     page.getByText("Confirmation required", { exact: true }),

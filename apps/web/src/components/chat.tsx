@@ -13,6 +13,7 @@ import {
   Textarea,
 } from "./ui/primitives";
 import { PageHead } from "./work";
+import { ChatMarkdown } from "./chat-markdown";
 import { useWorkspace } from "./workspace-context";
 
 type Conversation = { id: string; title: string; updatedAt: string };
@@ -347,7 +348,13 @@ export function OrbitChat() {
                 key={message.id}
                 className={`chat-message chat-${message.role}`}
               >
-                <div className="chat-message-text">{message.text}</div>
+                <div className="chat-message-text">
+                  {message.role === "assistant" ? (
+                    <ChatMarkdown text={message.text} />
+                  ) : (
+                    message.text
+                  )}
+                </div>
                 {message.cards?.length > 0 && (
                   <div className="chat-cards">
                     {message.cards.map((card, index) => (
@@ -396,8 +403,12 @@ export function OrbitChat() {
               <article className="chat-message chat-assistant">
                 <Badge tone="blue">{statusLabel(stream.status, de)}</Badge>
                 <div className="chat-message-text">
-                  {stream.partialText ||
-                    (de ? "Orbit arbeitet…" : "Orbit is working…")}
+                  <ChatMarkdown
+                    text={
+                      stream.partialText ||
+                      (de ? "Orbit arbeitet…" : "Orbit is working…")
+                    }
+                  />
                 </div>
               </article>
             )}
