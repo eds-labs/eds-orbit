@@ -136,7 +136,7 @@ export async function runReadTool(
                 modelBudget: {
                   currency: "USD",
                   approvedPaidTests: data(active).approvedPaidTests,
-                  canSpendNow: Boolean(
+                  mandateActiveNow: Boolean(
                     data(active).approvedPaidTests &&
                     Date.parse(data(active).startAt) <= Date.now() &&
                     Date.parse(data(active).endAt) > Date.now() &&
@@ -333,7 +333,7 @@ const resultSchemas = {
             .object({
               currency: z.literal("USD"),
               approvedPaidTests: z.boolean(),
-              canSpendNow: z.boolean(),
+              mandateActiveNow: z.boolean(),
               dailyLimitMicros: z.number().int().nonnegative(),
               monthlyLimitMicros: z.number().int().nonnegative(),
               perRunLimitMicros: z.number().int().nonnegative(),

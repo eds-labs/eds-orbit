@@ -197,7 +197,7 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
           modelBudget: expect.objectContaining({
             currency: "USD",
             approvedPaidTests: true,
-            canSpendNow: true,
+            mandateActiveNow: true,
             dailyLimitMicros: 100000,
             monthlyLimitMicros: 100000,
             perRunLimitMicros: 10000,

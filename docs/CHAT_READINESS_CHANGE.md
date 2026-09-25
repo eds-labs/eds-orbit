@@ -6,7 +6,7 @@ The Chat budget-context and Markdown fixes are high risk because they affect a p
 
 ## Observed production prerequisites (2026-09-25)
 
-- uLiquid has an approved $10 daily AI budget and a successful paid Chat run, but the Chat response incorrectly described the policy limit as lacking a currency and assigned budget. The server tool exposed only `perRunBudgetMicros`; the UI displayed raw Markdown.
+- uLiquid has an approved $10 daily, monthly and per-run AI budget and a successful paid Chat run, but the Chat response incorrectly described the policy limit as lacking a currency and assigned budget. The server tool exposed only `perRunBudgetMicros`; the UI displayed raw Markdown. The current observe policy authorizes only the internal channel and script content type, with zero publications per day; a separate owner mandate is required for social mission execution or publication.
 - The active `openai:text-embedding-3-small:1536:chunk-v1` index has zero embedded corpus chunks. The one active website document for `https://uliquid.vip/` has 124 extracted passages; its source was last fetched on 2026-09-18. Five sources are stale.
 - Only uLiquid X and uLiquid Desk Telegram are assigned to uLiquid. Neither is identified as a sandbox account. FamilyPlan and EDS-Labs integrations remain unassigned. `ENABLE_EXTERNAL_WRITES=false` and `EXECUTION_MODE=test` were verified in the running API.
 
