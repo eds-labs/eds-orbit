@@ -202,10 +202,12 @@ export function IndexManagement() {
             {isOwner && (
               <div className="form-actions">
                 {(i.state === "building"
-                  ? (["build", "evaluate", "activate"] as const)
-                  : i.state === "retired"
-                    ? (["rollback"] as const)
-                    : []
+                  ? (["build", "evaluate"] as const)
+                  : i.state === "evaluated"
+                    ? (["activate"] as const)
+                    : i.state === "retired"
+                      ? (["rollback"] as const)
+                      : []
                 ).map((m) => (
                   <Button
                     key={m}
