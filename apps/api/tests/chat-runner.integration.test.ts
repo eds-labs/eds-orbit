@@ -19,6 +19,7 @@ const mocked = vi.hoisted(() => ({
   embedCalls: 0,
   embedFails: false,
   mode: "normal",
+  inputs: [] as unknown[],
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
@@ -37,8 +38,9 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
       },
     };
   }),
-  streamChat: vi.fn(async () => {
+  streamChat: vi.fn(async (request: { input: unknown }) => {
     mocked.calls++;
+    mocked.inputs.push(request.input);
     const step = mocked.calls;
     return {
       async *[Symbol.asyncIterator]() {
@@ -67,6 +69,24 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
                   arguments: "{}",
                 }),
               ),
+            },
+          };
+        } else if (mocked.mode === "invalid_proposal" && step === 1) {
+          yield {
+            type: "response.completed",
+            response: {
+              usage: { input_tokens: 100, output_tokens: 30 },
+              output: [
+                {
+                  type: "function_call",
+                  name: "propose_campaign",
+                  call_id: "invalid-proposal",
+                  arguments: JSON.stringify({
+                    mission: { sourceIds: ["private-value-must-not-return"] },
+                    factIds: [randomUUID()],
+                  }),
+                },
+              ],
             },
           };
         } else if (mocked.mode === "knowledge" && step === 1) {
@@ -286,6 +306,38 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         }),
       ),
     ).toBe(0);
+  });
+  it("returns only invalid proposal field names to the model", async () => {
+    mocked.mode = "invalid_proposal";
+    mocked.calls = 0;
+    mocked.inputs = [];
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Prepare one reviewable draft proposal",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      expect((await getRun(scope, sent.runId)).status).toBe("succeeded");
+      const followup = mocked.inputs[1] as Array<Record<string, unknown>>;
+      const result = followup.find(
+        (item) => item.type === "function_call_output",
+      );
+      const feedback = JSON.parse(String(result?.output));
+      expect(feedback.error).toBe("PROPOSAL_VALIDATION_FAILED");
+      expect(feedback.invalidFields).toContain("title");
+      expect(feedback.invalidFields).toContain("goal");
+      expect(feedback.invalidFields.length).toBeLessThanOrEqual(8);
+      expect(JSON.stringify(feedback)).not.toContain(
+        "private-value-must-not-return",
+      );
+      expect((await getConversation(scope, thread.id)).proposals).toHaveLength(
+        0,
+      );
+    } finally {
+      mocked.mode = "normal";
+      mocked.inputs = [];
+    }
   });
   it("compares fixed synthetic uLiquid queries and shares Chat retrieval budget", async () => {
     const now = Date.now();
