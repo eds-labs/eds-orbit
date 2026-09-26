@@ -17,6 +17,7 @@ export async function retrieveHybrid(
   scope: Scope,
   input: RetrieveInput,
   jobKey?: string,
+  budgetRunKey = jobKey,
 ) {
   const inputHash = hash({
     query: input.query,
@@ -90,7 +91,7 @@ export async function retrieveHybrid(
         amount,
         approved,
         new Date(),
-        jobKey ?? undefined,
+        budgetRunKey,
       );
       await markTransmitted(tx, scope, reservation.id);
       return {
@@ -105,10 +106,16 @@ export async function retrieveHybrid(
   );
   let result: Awaited<ReturnType<typeof embed>>;
   try {
-    result = await embed([input.query], prepared.reservationId, true, {
-      model: prepared.index.model,
-      dimensions: prepared.index.dimensions,
-    }, prepared.ai);
+    result = await embed(
+      [input.query],
+      prepared.reservationId,
+      true,
+      {
+        model: prepared.index.model,
+        dimensions: prepared.index.dimensions,
+      },
+      prepared.ai,
+    );
   } catch {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),

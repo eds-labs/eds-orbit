@@ -108,6 +108,11 @@ test("renders streamed text, action states, source links and cancellation", asyn
               text: "## Reviewable plan\n\n**Budget:** $10 daily\n\n<script>alert(1)</script>",
               cards: [
                 {
+                  kind: "status",
+                  label: "Knowledge retrieval: lexical_degraded · index 1",
+                  status: "lexical_degraded",
+                },
+                {
                   kind: "source",
                   label: "Official source",
                   href: "/knowledge",
@@ -175,6 +180,9 @@ test("renders streamed text, action states, source links and cancellation", asyn
   await page.getByRole("button", { name: "Synthetic plan" }).click();
   await expect(
     page.getByRole("link", { name: "Official source" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Knowledge retrieval: lexical_degraded · index 1"),
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Reviewable plan" }),

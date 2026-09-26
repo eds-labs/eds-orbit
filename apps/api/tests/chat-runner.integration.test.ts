@@ -6,11 +6,37 @@ import {
   scoped,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
+import { policy as policySchema } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
+import {
+  ingest,
+  setFact,
+  setSourceRights,
+} from "../../../packages/knowledge/src/index.ts";
 
-const mocked = vi.hoisted(() => ({ calls: 0, mode: "normal" }));
+const mocked = vi.hoisted(() => ({
+  calls: 0,
+  embedCalls: 0,
+  embedFails: false,
+  mode: "normal",
+}));
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
+  embed: vi.fn(async () => {
+    mocked.embedCalls++;
+    if (mocked.embedFails) throw new Error("Synthetic embedding uncertainty");
+    return {
+      vectors: [
+        Array.from({ length: 1536 }, (_, index) => (index === 0 ? 1 : 0)),
+      ],
+      usage: {
+        model: "text-embedding-3-small",
+        inputTokens: 10,
+        outputTokens: 0,
+        costMicros: 7,
+      },
+    };
+  }),
   streamChat: vi.fn(async () => {
     mocked.calls++;
     const step = mocked.calls;
@@ -41,6 +67,21 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
                   arguments: "{}",
                 }),
               ),
+            },
+          };
+        } else if (mocked.mode === "knowledge" && step === 1) {
+          yield {
+            type: "response.completed",
+            response: {
+              usage: { input_tokens: 100, output_tokens: 30 },
+              output: [
+                {
+                  type: "function_call",
+                  name: "knowledge_search",
+                  call_id: "knowledge-call",
+                  arguments: JSON.stringify({ query: "presale status" }),
+                },
+              ],
             },
           };
         } else if (step === 1) {
@@ -96,6 +137,8 @@ import {
   confirmProposal,
 } from "../src/modules/chat.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
+import { activePolicy } from "../src/modules/policy.ts";
+import { reserve } from "../src/modules/budget.ts";
 import {
   runReadTool,
   validateReadToolResult,
@@ -243,6 +286,341 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         }),
       ),
     ).toBe(0);
+  });
+  it("compares fixed synthetic uLiquid queries and shares Chat retrieval budget", async () => {
+    const now = Date.now();
+    const past = new Date(now - 3600000).toISOString();
+    const future = new Date(now + 86400000).toISOString();
+    const vector = Array.from({ length: 1536 }, (_, index) =>
+      index === 0 ? 1 : 0,
+    );
+    const { sourceId, factIds, activeGeneration } = await scoped(
+      scope.workspaceId,
+      scope.projectId,
+      async (tx) => {
+        const source = await create(tx, scope, "sources", {
+          name: "Synthetic uLiquid product source",
+          status: "active",
+          publicUse: true,
+          modelUse: true,
+          authority: "official",
+          generation: 1,
+          maxAgeHours: 168,
+        });
+        const status = await setFact(tx, scope, {
+          key: "presale.status",
+          value: "live",
+          valueType: "text",
+          language: "en",
+          sourceId: source.id,
+          validFrom: past,
+          validUntil: future,
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        const capability = await setFact(tx, scope, {
+          key: "product.capability",
+          value: "risk alerts",
+          valueType: "text",
+          language: "en",
+          sourceId: source.id,
+          validFrom: past,
+          validUntil: future,
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        await setFact(tx, scope, {
+          key: "presale.deadline",
+          value: "expired fixture",
+          valueType: "text",
+          language: "en",
+          sourceId: source.id,
+          validFrom: new Date(now - 48 * 3600000).toISOString(),
+          validUntil: past,
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        await ingest(tx, scope, {
+          sourceId: source.id,
+          externalId: "synthetic-uliquid-risk-alerts",
+          title: "Synthetic product capability",
+          text: "The workspace provides configurable risk alerts for operators.",
+          mimeType: "text/plain",
+          language: "en",
+          validFrom: past,
+          validUntil: future,
+          embeddings: [vector],
+        });
+        const active = await tx.knowledgeIndex.findFirstOrThrow({
+          where: { projectId: scope.projectId, state: "active" },
+        });
+        return {
+          sourceId: source.id,
+          factIds: [status.id, capability.id],
+          activeGeneration: active.generation,
+        };
+      },
+    );
+    const fixedQueries = [
+      "presale status",
+      "product capability",
+      "hazard notifications",
+    ];
+    type SearchResult = {
+      retrieval: {
+        mode: "hybrid" | "lexical_degraded";
+        indexGeneration: number;
+      };
+      facts: { id: string }[];
+      passages: { sourceId: string }[];
+    };
+    for (const [index, query] of fixedQueries.entries()) {
+      const lexicalRead = await runReadTool(scope, "knowledge_search", {
+        query,
+      });
+      const lexical = validateReadToolResult(
+        "knowledge_search",
+        lexicalRead.result,
+        lexicalRead.cards,
+      );
+      const hybridRead = await runReadTool(
+        scope,
+        "knowledge_search",
+        { query },
+        {
+          retrievalJobKey: `phase5:query:${index}`,
+          budgetRunKey: `phase5:comparison:${index}`,
+        },
+      );
+      const hybrid = validateReadToolResult(
+        "knowledge_search",
+        hybridRead.result,
+        hybridRead.cards,
+      );
+      const lexicalResult = lexical.result as SearchResult;
+      const hybridResult = hybrid.result as SearchResult;
+      expect(lexicalResult.retrieval.mode).toBe("lexical_degraded");
+      expect(hybridResult.retrieval.mode).toBe("hybrid");
+      expect(lexicalResult.retrieval.indexGeneration).toBe(activeGeneration);
+      expect(hybridResult.retrieval.indexGeneration).toBe(activeGeneration);
+      expect(hybridResult.facts.map((fact) => fact.id)).toEqual(
+        lexicalResult.facts.map((fact) => fact.id),
+      );
+      if (index < 2)
+        expect(hybridResult.facts.map((fact) => fact.id)).toContain(
+          factIds[index],
+        );
+      else {
+        expect(lexicalResult.passages).toHaveLength(0);
+        expect(hybridResult.passages).toEqual(
+          expect.arrayContaining([expect.objectContaining({ sourceId })]),
+        );
+      }
+    }
+    const expired = await runReadTool(scope, "knowledge_search", {
+      query: "presale deadline",
+    });
+    expect(
+      (expired.result as { facts: { key: string }[] }).facts.some(
+        (fact) => fact.key === "presale.deadline",
+      ),
+    ).toBe(false);
+
+    mocked.mode = "knowledge";
+    mocked.calls = 0;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Check the current presale status",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const run = await getRun(scope, sent.runId);
+      expect(run.status).toBe("succeeded");
+      const detail = await getConversation(scope, thread.id);
+      expect(detail.messages[1]?.cards).toContainEqual(
+        expect.objectContaining({ kind: "status", status: "hybrid" }),
+      );
+      const journal = await scoped(
+        scope.workspaceId,
+        scope.projectId,
+        async (tx) => {
+          const group = await tx.entity.findFirstOrThrow({
+            where: {
+              projectId: scope.projectId,
+              kind: "budget_runs",
+              data: { path: ["runKey"], equals: `chat:${sent.runId}` },
+            },
+          });
+          return tx.budgetReservation.findMany({
+            where: { id: { in: data(group).reservationIds } },
+          });
+        },
+      );
+      expect(journal.map((row) => row.category).sort()).toEqual([
+        "chat_text",
+        "chat_text",
+        "query_embedding",
+      ]);
+      expect(journal.every((row) => row.state === "settled")).toBe(true);
+    } finally {
+      mocked.mode = "normal";
+    }
+
+    const second = await authDb.project.create({
+      data: { workspaceId: scope.workspaceId, name: "Isolated search project" },
+    });
+    const isolated = { ...scope, projectId: second.id };
+    await scoped(isolated.workspaceId, isolated.projectId, async (tx) => {
+      await create(tx, isolated, "policies", {
+        mode: "observe",
+        channels: ["x-test"],
+        contentTypes: ["social"],
+        allowedOrigins: ["https://example.invalid"],
+        startAt: past,
+        endAt: future,
+        maxPerDay: 0,
+        minIntervalMinutes: 1,
+        dailyBudgetMicros: 100000,
+        monthlyBudgetMicros: 100000,
+        perRunBudgetMicros: 10000,
+        approvedPaidTests: true,
+        active: true,
+      });
+      await saveOpenAiConfiguration(tx, isolated, {
+        apiKey: "synthetic-no-provider-call-key",
+        verifiedModels: ["synthetic-model", "text-embedding-3-small"],
+        rateCard: {
+          "synthetic-model": {
+            inputMicrosPerMillion: 1000,
+            outputMicrosPerMillion: 1000,
+            verifiedAt: new Date().toISOString(),
+          },
+          "text-embedding-3-small": {
+            inputMicrosPerMillion: 1000,
+            outputMicrosPerMillion: 1000,
+            verifiedAt: new Date().toISOString(),
+          },
+        },
+        modelRoutes: {
+          fast: "synthetic-model",
+          standard: "synthetic-model",
+          quality: "synthetic-model",
+          escalation: "synthetic-model",
+        },
+      });
+    });
+    const otherLexical = await runReadTool(isolated, "knowledge_search", {
+      query: "presale status",
+    });
+    const otherHybrid = await runReadTool(
+      isolated,
+      "knowledge_search",
+      { query: "presale status" },
+      {
+        retrievalJobKey: "phase5:isolated",
+        budgetRunKey: "phase5:isolated",
+      },
+    );
+    for (const read of [otherLexical, otherHybrid]) {
+      expect(read.result).toEqual(
+        expect.objectContaining({ facts: [], passages: [] }),
+      );
+    }
+
+    const beforeDenied = mocked.embedCalls;
+    await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const active = await activePolicy(tx, scope);
+      const approved = policySchema.parse(
+        Object.fromEntries(
+          Object.entries(data(active!)).filter(
+            ([key]) => !["active", "activatedAt", "activatedBy"].includes(key),
+          ),
+        ),
+      );
+      await reserve(
+        tx,
+        scope,
+        "phase5:exhausted:text",
+        "chat_text",
+        approved.perRunBudgetMicros,
+        approved,
+        new Date(),
+        "phase5:exhausted",
+      );
+    });
+    await expect(
+      runReadTool(
+        scope,
+        "knowledge_search",
+        { query: "presale status" },
+        {
+          retrievalJobKey: "phase5:exhausted:query",
+          budgetRunKey: "phase5:exhausted",
+        },
+      ),
+    ).rejects.toThrow("RUN_BUDGET_EXCEEDED");
+    expect(mocked.embedCalls).toBe(beforeDenied);
+
+    await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      setSourceRights(tx, scope, sourceId, { modelUse: false }),
+    );
+    const deniedLexical = await runReadTool(scope, "knowledge_search", {
+      query: "presale status",
+    });
+    const deniedHybrid = await runReadTool(
+      scope,
+      "knowledge_search",
+      { query: "presale status" },
+      {
+        retrievalJobKey: "phase5:revoked",
+        budgetRunKey: "phase5:revoked",
+      },
+    );
+    for (const read of [deniedLexical, deniedHybrid]) {
+      expect(read.result).toEqual(
+        expect.objectContaining({ facts: [], passages: [] }),
+      );
+    }
+  });
+  it("blocks uncertain Chat query cost without retrying the embedding", async () => {
+    mocked.mode = "knowledge";
+    mocked.calls = 0;
+    mocked.embedFails = true;
+    const beforeEmbeddings = mocked.embedCalls;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Check the current presale status",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const result = await getRun(scope, sent.runId);
+      expect(result.status).toBe("blocked");
+      expect(result.errorCode).toBe("QUERY_EMBEDDING_COST_UNKNOWN");
+      expect(mocked.calls).toBe(1);
+      expect(mocked.embedCalls).toBe(beforeEmbeddings + 1);
+      const reservation = await scoped(
+        scope.workspaceId,
+        scope.projectId,
+        (tx) =>
+          tx.budgetReservation.findFirstOrThrow({
+            where: {
+              key: `${scope.projectId}:query:chat:${sent.runId}:knowledge:1`,
+            },
+          }),
+      );
+      expect(reservation.state).toBe("unknown");
+      await runChat(scope, sent.runId);
+      expect(mocked.calls).toBe(1);
+      expect(mocked.embedCalls).toBe(beforeEmbeddings + 1);
+    } finally {
+      mocked.mode = "normal";
+      mocked.embedFails = false;
+    }
   });
   it("confirms one versioned proposal once and rejects a changed fact", async () => {
     const now = Date.now();

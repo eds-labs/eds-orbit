@@ -1,13 +1,17 @@
 import { z } from "zod";
 import { scoped } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { retrieve } from "../../../../packages/knowledge/src/index.ts";
+import {
+  retrieve,
+  validateEvidence,
+} from "../../../../packages/knowledge/src/index.ts";
 import { assetTools } from "./asset-tools.ts";
 import { readiness } from "./readiness.ts";
 import { assignedPostizChannels } from "./postiz-assignment.ts";
-import { data, list } from "../shared.ts";
+import { data, DomainError, list } from "../shared.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
 import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
+import { retrieveHybrid } from "./retrieval.ts";
 
 export type ChatCard = {
   kind: "source" | "asset" | "link" | "status";
@@ -83,6 +87,7 @@ export async function runReadTool(
   scope: Scope,
   name: string,
   raw: unknown,
+  trusted?: { retrievalJobKey: string; budgetRunKey: string },
 ): Promise<{ result: unknown; cards: ChatCard[] }> {
   if (name === "project_status") {
     noArgs.parse(raw);
@@ -185,19 +190,56 @@ export async function runReadTool(
   }
   if (name === "knowledge_search") {
     const input = query.parse(raw);
+    const language = await scoped(
+      scope.workspaceId,
+      scope.projectId,
+      async (tx) => {
+        const project = await tx.project.findUniqueOrThrow({
+          where: { id: scope.projectId },
+        });
+        return project.language;
+      },
+    );
+    const request = {
+      query: input.query,
+      language,
+      purpose: "public" as const,
+      forModel: true,
+      at: new Date(),
+      topK: 6,
+    };
+    const evidence = trusted
+      ? await retrieveHybrid(
+          scope,
+          request,
+          trusted.retrievalJobKey,
+          trusted.budgetRunKey,
+        )
+      : await scoped(scope.workspaceId, scope.projectId, (tx) =>
+          retrieve(tx, scope, request),
+        );
     return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-      const project = await tx.project.findUniqueOrThrow({
-        where: { id: scope.projectId },
-      });
-      const evidence = await retrieve(tx, scope, {
-        query: input.query,
-        language: project.language,
-        purpose: "public",
-        forModel: true,
-        at: new Date(),
-        topK: 6,
-      });
       const value = data(evidence);
+      if (
+        value.purpose !== "public" ||
+        value.forModel !== true ||
+        !["ready", "insufficient_evidence"].includes(value.status)
+      )
+        throw new DomainError("CHAT_EVIDENCE_CHANGED");
+      const validation = await validateEvidence(
+        tx,
+        scope,
+        evidence.id,
+        new Date(),
+      );
+      if (
+        validation.reasons.some(
+          (reason) =>
+            reason !== "evidence_not_public_ready" &&
+            reason !== "insufficient_evidence",
+        )
+      )
+        throw new DomainError("CHAT_EVIDENCE_CHANGED");
       const facts = Array.isArray(value.facts) ? value.facts.slice(0, 8) : [];
       const items = Array.isArray(value.items) ? value.items.slice(0, 6) : [];
       const sourceIds = [
@@ -216,17 +258,33 @@ export async function runReadTool(
           id: { in: sourceIds },
         },
       });
-      const cards: ChatCard[] = sources.map((source) => ({
-        kind: "source",
-        label: clipped(data(source).name, 120),
-        href: "/knowledge",
-        status: "verified",
-        resourceId: source.id,
-        version: source.version,
-      }));
+      const cards: ChatCard[] = [
+        {
+          kind: "status",
+          label:
+            value.mode === "hybrid"
+              ? `Hybrid knowledge retrieval · index ${value.indexGeneration}`
+              : `Knowledge retrieval: lexical_degraded · index ${value.indexGeneration}`,
+          status: value.mode,
+        },
+        ...sources.map((source): ChatCard => ({
+          kind: "source",
+          label: clipped(data(source).name, 120),
+          href: "/knowledge",
+          status: "verified",
+          resourceId: source.id,
+          version: source.version,
+        })),
+      ];
       return {
         result: {
           status: value.status,
+          retrieval: {
+            mode: value.mode,
+            indexProfile: value.indexProfile,
+            indexGeneration: value.indexGeneration,
+            evidenceId: evidence.id,
+          },
           facts: facts.map((f: any) => ({
             id: f.id,
             version: f.version,
@@ -371,6 +429,14 @@ const resultSchemas = {
   knowledge_search: z
     .object({
       status: z.string(),
+      retrieval: z
+        .object({
+          mode: z.enum(["hybrid", "lexical_degraded"]),
+          indexProfile: z.string().min(1).max(160),
+          indexGeneration: z.number().int().positive(),
+          evidenceId: z.uuid(),
+        })
+        .strict(),
       facts: z
         .array(z.object({ id: z.uuid(), sourceId: z.uuid() }).passthrough())
         .max(8),

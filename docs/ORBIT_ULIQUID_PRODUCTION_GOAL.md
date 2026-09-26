@@ -214,12 +214,13 @@ Beleg deterministisch abgelehnt.
 
 ## Phase 5 -- Chat und Generation Retrieval angleichen \[P0/P1\]
 
--   [ ] Chat Retrieval Mode sichtbar machen
--   [ ] sichere Nutzung des bestehenden Hybrid Retrieval prüfen
--   [ ] gleicher Active Index, Rights, Budget Journal und Cost Ceiling
--   [ ] falls lexical: `lexical_degraded` sichtbar ausweisen
--   [ ] Rechte-/Zeit-/Projekt-Fencing beider Pfade testen
--   [ ] fixes uLiquid Query Set vergleichen
+-   [x] Chat Retrieval Mode sichtbar machen
+-   [x] sichere Nutzung des bestehenden Hybrid Retrieval prüfen
+-   [x] gleicher Active Index, Rights, Budget Journal und Cost Ceiling
+-   [x] falls lexical: `lexical_degraded` sichtbar ausweisen
+-   [x] Rechte-/Zeit-/Projekt-Fencing beider Pfade testen
+-   [x] fixes uLiquid Query Set vergleichen (synthetic local fixture;
+    live uLiquid acceptance remains separate)
 
 **Acceptance:** Retrieval ist transparent, kostenbegrenzt und
 rights-safe.
@@ -304,7 +305,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26, after the Phase 4 local verification run.
+Status as observed on 2026-09-26, after the Phase 5 local verification run.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -314,7 +315,8 @@ live uLiquid acceptance.
 | Orbit Chat | YES | YES | YES | PARTIAL | Local tests and browser flows passed; live succeeded chat jobs, but no complete Golden Path acceptance. |
 | OpenAI text generation | YES | YES | YES | PARTIAL | Bounded mocked/local tests passed; earlier paid chat succeeded. No new paid call. |
 | Knowledge ingestion | YES | YES | YES | PARTIAL | Tests passed; official site last fetched 2026-09-25, while health reports five stale sources. |
-| Hybrid retrieval | YES | YES | YES | VERIFY | Local exact SQL/evaluation tests passed; current Chat retrieval mode not measured. |
+| Hybrid retrieval | YES | YES | YES | VERIFY | Mission path and exact SQL/evaluation gates passed; the last verified deployment SHA predates Phase 5 and its Chat code uses lexical search. |
+| Chat and Mission retrieval alignment | YES | YES | NO | NO | Chat knowledge search now uses the Mission hybrid retriever and the same active index, rights and paid run ceiling; local mocked query comparison passed. Live uLiquid retrieval quality remains unaccepted. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Migration/RLS and browser tests passed; profile v1 visible, generation contract not accepted. |
 | Shared generation contract | YES | YES | NO | NO | Local product/presale, invalid link, policy scope, profile and channel-change tests passed; verify uLiquid official URL fact/source model rights and allowed policy origins before deployment/acceptance. |
@@ -438,6 +440,27 @@ nicht überschreiben.
 **Open blockers:** Phase 4 is neither deployed nor uLiquid-accepted. The uLiquid status/price facts and source rights have not been refreshed or approved for these claims. Previous blockers remain: current source freshness, official URL fact/source model rights and policy origins, zero approved brand assets, action-specific readiness, off-host recovery, and the deployed Golden Path.
 
 **Next action:** Phase 5: inspect Chat retrieval mode against Mission hybrid retrieval, preserve rights, active-index and budget gates, make lexical degradation explicit if needed, and compare a fixed uLiquid query set. No paid or external action is implied by this local phase completion.
+
+### 2026-09-26 14:31 CEST -- Phase 5 -- Chat and Mission retrieval alignment
+
+**Repo SHA before:** `b79a1d4a6ef5dabd3a9bc4eab94fd970b3c908b6`.
+**Repo SHA after:** Phase 5 local implementation commit (see Git history).
+**Deployment SHA:** `46ea2494a443d9b4d3a0c20774f92a0d5d753493` was last verified during Phase 0; production was not re-read in Phase 5 and no deployment was performed.
+**Status:** COMPLETE for local Phase 5 implementation and verification; `DEPLOYED = NO`, `ACCEPTED uLiquid = NO`, `ULIQUID_DRAFT_PRODUCTION_READY = NO`.
+
+**Inspected and changed:** Mission Generation already used `retrieveHybrid()` with the active index, policy reservation, embedding receipt, post-call policy/index checks and project-scoped `retrieve()`. Chat `knowledge_search` called `retrieve()` without a query vector: it was lexical-only, recorded `lexical_degraded` in evidence but omitted that mode from the tool result and UI. Chat runs now call the existing Hybrid retriever with a trusted per-tool job key and the same budget run key as Chat text generation. Query cost is therefore journaled against the same policy per-run ceiling; unknown embedding cost and other search failures terminate the Chat run instead of allowing a new paid tool call. Search results include evidence ID, mode, index profile/generation and a visible mode card. The lexical path remains explicitly labeled `lexical_degraded` when used without a trusted Chat run. Public/model rights, evidence validity and current index are checked again before the result enters the prompt.
+
+**Fixed local comparison:** Three versioned synthetic uLiquid-oriented queries (`presale status`, `product capability`, `hazard notifications`) ran through both paths with mocked embeddings. Both paths returned the same current fact IDs and active index generation; the semantic-only passage appeared in Hybrid, not lexical. An expired fact, model-rights withdrawal and another project's empty corpus were excluded. A filled shared per-run budget blocked the embedding before transmission. This is a deterministic local comparison, not a new live uLiquid RAG evaluation or production quality acceptance.
+
+**Verification:** Focused Chat integration tests **8/8 PASS**; final full suite **333/333 tests, 26/26 files PASS** on a freshly migrated isolated local database; `pnpm typecheck`, `pnpm lint`, `pnpm build`, framework check, secret scan, runtime-artifact scan, dependency audit and `git diff --check` PASS. Full `pnpm test:e2e` **9/9 Chromium PASS** on a separate fresh local browser database, including the visible `lexical_degraded` card. The first full-suite run in the temporary verification checkout hit a Worker timeout because its runtime directory was absent; a retry against the existing accumulated test database also timed out. After creating the checkout runtime directory and a fresh isolated test database, the complete suite passed. The original macOS workspace had intermittently unavailable cloud-evicted source/dependency files; the tests used the same committed base plus Phase 5 edits in a temporary local checkout outside that file-provider path.
+
+**Risk and rollback:** High-risk local AI retrieval and cost-boundary change; no migration or new production dependency. Revert the single Phase 5 commit if necessary. Before any deployed acceptance, confirm the installed active index, policy budget, source rights, query receipts and current uLiquid results on the deployed revision without disabling write gates.
+
+**Costs / external effects:** Paid AI cost $0; new live RAG evaluation 0; index activation 0; external provider writes 0; public publications 0. SQL budget reservations and browser state were synthetic local test data; embeddings and model responses were mocked.
+
+**Open blockers:** Phase 5 code is not deployed or uLiquid-accepted. Real current uLiquid query results were not generated in this phase; the existing production evaluation record cannot substitute for a Chat-path acceptance run on the deployed SHA. Stale sources, official URL rights/policy origins, zero approved brand assets, action-specific readiness, off-host recovery and the Golden Path remain open.
+
+**Next action:** Phase 6: execute the single uLiquid draft Golden Path only after confirming current production state and rights. Keep external publication disabled; obtain separate authorization for any new paid model call, provider write or deployment required for live acceptance.
 
 ## Template
 

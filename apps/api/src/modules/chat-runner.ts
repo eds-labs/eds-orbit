@@ -31,6 +31,7 @@ const instructions = [
   "Cite source names and state uncertainty. Marketing observations are not Verified Facts.",
   "project_status.policy.modelBudget amounts are USD millionths for AI provider spend. Only mandateActiveNow=true means the policy currently permits paid reservations, subject to remaining daily, monthly and per-run capacity checked by the server. State its daily, monthly and per-run ceilings accurately when asked about cost. They are not a campaign or media budget; never invent one. Estimate future draft costs only from a validated proposal.",
   "For website analysis, state when no current retrievable website passages are returned; never imply a live website crawl occurred.",
+  "Use knowledge_search.retrieval.mode as the reported search mode. If it is lexical_degraded, say that semantic retrieval was unavailable for that result. Never describe a search as hybrid unless the tool reports hybrid.",
 ].join(" ");
 const proposalTool = {
   type: "function",
@@ -302,7 +303,17 @@ export async function runChat(scope: Scope, runId: string) {
               status: "confirmation_required",
             });
           } else {
-            const read = await runReadTool(scope, call.name, args);
+            const read = await runReadTool(
+              scope,
+              call.name,
+              args,
+              call.name === "knowledge_search"
+                ? {
+                    retrievalJobKey: `chat:${runId}:knowledge:${toolCalls}`,
+                    budgetRunKey: `chat:${runId}`,
+                  }
+                : undefined,
+            );
             const checked = validateReadToolResult(
               call.name,
               read.result,
@@ -312,6 +323,7 @@ export async function runChat(scope: Scope, runId: string) {
             cards.push(...checked.cards);
           }
         } catch (error) {
+          if (call.name === "knowledge_search") throw error;
           output = { error: errorCode(error) };
         }
         input.push({
@@ -364,7 +376,7 @@ export async function runChat(scope: Scope, runId: string) {
           status:
             run.status === "canceled"
               ? "canceled"
-              : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN/.test(
+              : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|RETRIEVAL/.test(
                     code,
                   )
                 ? "blocked"
