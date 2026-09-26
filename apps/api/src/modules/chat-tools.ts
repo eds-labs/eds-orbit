@@ -22,7 +22,12 @@ export type ChatCard = {
   version?: number;
 };
 
-const query = z.object({ query: z.string().trim().min(1).max(2000) }).strict();
+const query = z
+  .object({
+    query: z.string().trim().min(1).max(2000),
+    factKeys: z.array(z.string().trim().min(1).max(160)).max(8).optional(),
+  })
+  .strict();
 const noArgs = z.object({}).strict();
 const assetQuery = z
   .object({ query: z.string().trim().max(120).default("") })
@@ -44,11 +49,14 @@ export const readToolDefinitions = [
     type: "function",
     name: "knowledge_search",
     description:
-      "Find current model-authorized public Verified Facts and Knowledge with source references.",
+      "Find current model-authorized public Verified Facts and Knowledge with source references. When an exact Verified Fact key is known, pass factKeys to avoid unrelated fact context.",
     strict: false,
     parameters: {
       type: "object",
-      properties: { query: { type: "string" } },
+      properties: {
+        query: { type: "string" },
+        factKeys: { type: "array", items: { type: "string" } },
+      },
       required: ["query"],
       additionalProperties: false,
     },
@@ -202,6 +210,7 @@ export async function runReadTool(
     );
     const request = {
       query: input.query,
+      ...(input.factKeys?.length ? { factKeys: input.factKeys } : {}),
       language,
       purpose: "public" as const,
       forModel: true,
@@ -311,6 +320,7 @@ export async function runReadTool(
       .filter(
         (a) =>
           !input.query ||
+          a.id.toLowerCase() === input.query.toLowerCase() ||
           JSON.stringify(a.data)
             .toLowerCase()
             .includes(input.query.toLowerCase()),
