@@ -305,7 +305,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26, after the Phase 5 local verification run.
+Status as observed on 2026-09-26, after deployment of `38207488b8de27fc76f14c12f19f15b5d17f8ca4` and the Phase 6 preflight.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -315,13 +315,13 @@ live uLiquid acceptance.
 | Orbit Chat | YES | YES | YES | PARTIAL | Local tests and browser flows passed; live succeeded chat jobs, but no complete Golden Path acceptance. |
 | OpenAI text generation | YES | YES | YES | PARTIAL | Bounded mocked/local tests passed; earlier paid chat succeeded. No new paid call. |
 | Knowledge ingestion | YES | YES | YES | PARTIAL | Tests passed; official site last fetched 2026-09-25, while health reports five stale sources. |
-| Hybrid retrieval | YES | YES | YES | VERIFY | Mission path and exact SQL/evaluation gates passed; the last verified deployment SHA predates Phase 5 and its Chat code uses lexical search. |
-| Chat and Mission retrieval alignment | YES | YES | NO | NO | Chat knowledge search now uses the Mission hybrid retriever and the same active index, rights and paid run ceiling; local mocked query comparison passed. Live uLiquid retrieval quality remains unaccepted. |
+| Hybrid retrieval | YES | YES | YES | VERIFY | Mission and Chat hybrid paths are deployed; local SQL/evaluation and mocked comparison gates passed. No post-release paid uLiquid retrieval run was made. |
+| Chat and Mission retrieval alignment | YES | YES | YES | NO | Both paths use the same active index, rights and paid run ceiling on the deployed revision; local mocked query comparison passed. Live uLiquid retrieval quality remains unaccepted. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Migration/RLS and browser tests passed; profile v1 visible, generation contract not accepted. |
-| Shared generation contract | YES | YES | NO | NO | Local product/presale, invalid link, policy scope, profile and channel-change tests passed; verify uLiquid official URL fact/source model rights and allowed policy origins before deployment/acceptance. |
-| Channel-aware social rules | YES | YES | NO | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include an appended URL; uLiquid channels have not been accepted on the deployed revision. |
-| Evidence-aware status and claim guardrails | YES | YES | NO | NO | Local integration tests permit current, linked presale-live and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
+| Shared generation contract | YES | YES | YES | NO | Local product/presale, invalid-link, policy-scope, profile and channel-change tests passed. Current uLiquid policy excludes the Telegram integration and official-link origin; live acceptance is blocked. |
+| Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
+| Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
 | Single text draft | YES | YES | YES | PARTIAL | Local browser flow passed; three older Orbit drafts visible, no current Golden Path run. |
 | Brand assets | YES | YES | YES | NO | Local browser flow passed; uLiquid asset library empty and zero approved assets. |
 | Visual rendering | YES | YES | YES | NO | Local tests passed, but no approved uLiquid asset or accepted visual. |
@@ -461,6 +461,23 @@ nicht überschreiben.
 **Open blockers:** Phase 5 code is not deployed or uLiquid-accepted. Real current uLiquid query results were not generated in this phase; the existing production evaluation record cannot substitute for a Chat-path acceptance run on the deployed SHA. Stale sources, official URL rights/policy origins, zero approved brand assets, action-specific readiness, off-host recovery and the Golden Path remain open.
 
 **Next action:** Phase 6: execute the single uLiquid draft Golden Path only after confirming current production state and rights. Keep external publication disabled; obtain separate authorization for any new paid model call, provider write or deployment required for live acceptance.
+
+### 2026-09-26 15:09 CEST -- Production release and Phase 6 preflight
+
+**Repo SHA before:** `38207488b8de27fc76f14c12f19f15b5d17f8ca4` (`main` and `origin/main`; Phase 0--5 release).
+**Repo SHA after:** This documentation commit (see Git history).
+**Deployment SHA:** `38207488b8de27fc76f14c12f19f15b5d17f8ca4` (Coolify webhook deployment started 2026-09-26 14:59 CEST, finished Success after 3m44s).
+**Status:** Phase 0--5 code DEPLOYED; Phase 6 BLOCKED at the production policy/asset gate. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Release evidence:** Mario approved deployment. The six focused Phase 0--5 commits were pushed through PR [#5](https://github.com/eds-labs/eds-orbit/pull/5); both isolated Orbit acceptance checks and Framework Check passed. The exact tested SHA was fast-forwarded to `main`; main CI passed. Before the push, a fresh custom-format production database dump was created at `/root/orbit-backups/20260926T125318Z-pre-orbit-phase6-release.dump` (1.2 MB, owner-only permissions, `pg_restore -l` passed, SHA-256 `f3acc9d579dde25b34591e5606a931652dfda8c59ef59356d3d9005de170fe9b`). It is on-host only; no off-host restore or key-recovery proof is claimed. Production had zero unfinished migrations before and after rollout. The migration container exited 0. The new API, Worker, Web, PostgreSQL and Redis containers report `running healthy`; authenticated Orbit Settings, Knowledge, Chat and Operations load. The Worker heartbeat was ready at 15:09 CEST with zero pending outbox. Public web entry returned HTTP 200; `/api/health` returned 404 and is not used as a health gate for this web host.
+
+**Production safety and uLiquid state:** Runtime flags remain `EXECUTION_MODE=test` and `ENABLE_EXTERNAL_WRITES=false`. The project remains `observe`. Overview/Operations still show $0.11 spent and $0.03 reserved, with no new job from this work. Active Knowledge generation 2 remains at 54 chunks; health still reports five stale sources, zero expired facts, missing evidence, conflicts or failed imports. The current uLiquid Marketing Profile is v1, English, with one primary CTA per item and zero approved assets. The assigned uLiquid Telegram Postiz integration is `cmu9g999m0001o18n6dfzymud`. The verified beta-registration fact names `https://desk.uliquid.vip/en/register`; its origin is `https://desk.uliquid.vip`. The example product-control fact is verified, public-use and model-use allowed, but its source `d7f6ff20-4e8c-43dd-941a-ecff25b2b66c` is among the stale-source warnings. Its currentness requires owner review before use in acceptance.
+
+**Deterministic Phase 6 blocker:** Active policy v1 has `channels=["internal"]`, `contentTypes=["script"]`, `allowedOrigins=[]`, `maxPerDay=0`, `approvedPaidTests=true`, and $10 daily/monthly/per-run ceilings. `createProposal()` rejects the assigned Telegram integration with `CHANNEL_NOT_APPROVED` and the beta-registration origin with `LINK_NOT_ALLOWED`; social preflight also rejects the content type. A paid Chat/proposal/generation run cannot satisfy the Golden Path under this mandate. No policy was broadened, and no paid run was started to rediscover this deterministic failure. A narrowly scoped owner decision is required for one Telegram `social` draft using that integration and official origin, within the current budget and policy window, while retaining `observe`, `test`, disabled external writes and zero public publication. A separate owner decision is required to select/approve a uLiquid brand asset before the asset/visual acceptance step. The five stale sources and selected product/CTA fact need currentness and rights review; off-host restore/key recovery remains open before broader live-write enablement.
+
+**Costs / external effects:** Paid AI cost $0; new RAG evaluation 0; index activation 0; Postiz/Drive writes 0; social posts 0; public publications 0. Production effects were the approved code deployment, its migration runner (exit 0, no new release migration), and the on-host backup. Read-only UI, database status and runtime-flag checks followed.
+
+**Next action:** Obtain the precise Phase 6 policy/paid-draft and brand-asset decisions; verify the chosen current fact and official CTA. Then run one bounded English Telegram draft through evidence, claims, guardrails, review and controlled handoff, recording model/cost/content/asset/Drive evidence. Keep Postiz schedule/live and all external publication disabled.
 
 ## Template
 
