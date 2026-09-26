@@ -420,6 +420,15 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         );
       }
     }
+    const focused = await runReadTool(scope, "knowledge_search", {
+      query: "product capability",
+      factKeys: ["product.capability"],
+    });
+    expect(
+      (focused.result as { facts: { key: string }[] }).facts.map(
+        (fact) => fact.key,
+      ),
+    ).toEqual(["product.capability"]);
     const expired = await runReadTool(scope, "knowledge_search", {
       query: "presale deadline",
     });
@@ -776,6 +785,12 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         usageApproved: true,
       }),
     );
+    const assetById = await runReadTool(scope, "approved_assets", {
+      query: asset.id,
+    });
+    expect(
+      (assetById.result as { id: string }[]).map((item) => item.id),
+    ).toEqual([asset.id]);
     const withAsset = await createProposal(scope, thread.id, {
       mission: { ...mission, assetIds: [asset.id] },
       factIds: [refs.fact.id],

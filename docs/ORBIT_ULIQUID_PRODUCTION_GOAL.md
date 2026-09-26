@@ -305,26 +305,26 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26, after deployment of `38207488b8de27fc76f14c12f19f15b5d17f8ca4` and the Phase 6 preflight.
+Status as observed on 2026-09-26 after the authorized Phase 6 live attempt. The running revision is `6f679becad065f6b4f07a1add26a7a68a5dcd67e`; the local Chat retrieval/asset correction below is not deployed.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
 
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
-| Orbit Chat | YES | YES | YES | PARTIAL | Local tests and browser flows passed; live succeeded chat jobs, but no complete Golden Path acceptance. |
-| OpenAI text generation | YES | YES | YES | PARTIAL | Bounded mocked/local tests passed; earlier paid chat succeeded. No new paid call. |
-| Knowledge ingestion | YES | YES | YES | PARTIAL | Tests passed; official site last fetched 2026-09-25, while health reports five stale sources. |
-| Hybrid retrieval | YES | YES | YES | VERIFY | Mission and Chat hybrid paths are deployed; local SQL/evaluation and mocked comparison gates passed. No post-release paid uLiquid retrieval run was made. |
-| Chat and Mission retrieval alignment | YES | YES | YES | NO | Both paths use the same active index, rights and paid run ceiling on the deployed revision; local mocked query comparison passed. Live uLiquid retrieval quality remains unaccepted. |
+| Orbit Chat | YES | YES | YES | PARTIAL | Authorized live Chat run completed but saved no proposal; exact asset-ID lookup and focused fact retrieval need the tested local correction deployed. |
+| OpenAI text generation | YES | YES | YES | PARTIAL | One bounded paid Chat run completed on 2026-09-26 for approximately $0.03 incremental spend; no accepted draft resulted. |
+| Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources. This review does not clear their sync warnings. |
+| Hybrid retrieval | YES | YES | YES | PARTIAL | Live Chat reported hybrid retrieval on active generation 2, but broad query returned `insufficient_evidence` / `fact_context_limit`. No new RAG evaluation or index activation occurred. |
+| Chat and Mission retrieval alignment | YES | YES | YES | NO | Both paths use the same active index, rights and paid run ceiling; the live Chat query exposed a fact-context gap. Exact-key Chat search is corrected and locally tested, not deployed or accepted. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
-| Marketing profile | YES | YES | YES | PARTIAL | Migration/RLS and browser tests passed; profile v1 visible, generation contract not accepted. |
-| Shared generation contract | YES | YES | YES | NO | Local product/presale, invalid-link, policy-scope, profile and channel-change tests passed. Current uLiquid policy excludes the Telegram integration and official-link origin; live acceptance is blocked. |
+| Marketing profile | YES | YES | YES | PARTIAL | Live profile v2 now approves the exact `Explore the beta` CTA and retains the existing guardrails. An older profile-v1 test draft moved to needs review. Generation contract is not accepted. |
+| Shared generation contract | YES | YES | YES | NO | The live policy now permits one internal Telegram social draft and the official Desk origin under observe mode. No proposal or generated draft passed the contract yet. |
 | Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
-| Single text draft | YES | YES | YES | PARTIAL | Local browser flow passed; three older Orbit drafts visible, no current Golden Path run. |
-| Brand assets | YES | YES | YES | NO | Local browser flow passed; uLiquid asset library empty and zero approved assets. |
-| Visual rendering | YES | YES | YES | NO | Local tests passed, but no approved uLiquid asset or accepted visual. |
+| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain; the authorized Golden Path Chat run saved no proposal, mission or new draft. |
+| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was imported from Drive and is visible in Assets. Deployed Chat lookup by exact ID missed it; use in a new draft is unproven. |
+| Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
 | Postiz draft handoff | PARTIAL | PARTIAL | YES | NO | Connector `draft` contract tested; explicit Orbit handoff and live provider proof absent. |
@@ -478,6 +478,84 @@ nicht überschreiben.
 **Costs / external effects:** Paid AI cost $0; new RAG evaluation 0; index activation 0; Postiz/Drive writes 0; social posts 0; public publications 0. Production effects were the approved code deployment, its migration runner (exit 0, no new release migration), and the on-host backup. Read-only UI, database status and runtime-flag checks followed.
 
 **Next action:** Obtain the precise Phase 6 policy/paid-draft and brand-asset decisions; verify the chosen current fact and official CTA. Then run one bounded English Telegram draft through evidence, claims, guardrails, review and controlled handoff, recording model/cost/content/asset/Drive evidence. Keep Postiz schedule/live and all external publication disabled.
+
+### 2026-09-26 16:23 CEST -- Authorized Phase 6 live attempt and focused repair
+
+**Repo SHA before:** `6f679becad065f6b4f07a1add26a7a68a5dcd67e` (`main`; local correction pending).
+**Repo SHA after:** This focused repair commit (see Git history).
+**Deployment SHA:** `6f679becad065f6b4f07a1add26a7a68a5dcd67e` at the live attempt; the repair is not deployed.
+**Status:** Phase 6 IN_PROGRESS. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Inspected:** The verified, public/model-authorized `product.user_control` fact, official public uLiquid platform page, beta-registration URL fact, current project policy/profile, assigned Telegram integration, active Knowledge generation 2, asset library, Content Studio, Calendar, budget, runtime flags, Worker and Outbox. The public website review supports current wording but does not clear Orbit's five stale-source sync warnings. An authenticated visit to the registration URL redirected to an existing Desk session; anonymous registration was not proven.
+
+**Production preparation:** Mario authorized a narrow internal Telegram social draft policy, one paid OpenAI run within the existing $10 daily/monthly/per-run caps, the exact `Explore the beta` CTA and official Desk registration URL, and approval of the selected Drive logo. Before those writes, a custom-format PostgreSQL dump was saved at `/root/orbit-backups/20260926T1318Z-pre-phase6-policy.dump` (1,154,781 bytes, mode 600). `pg_restore -l` returned 243 lines; host/container SHA-256 agreed: `ca72c4a464f5022ca689dfeab19a660b85b52083c47ed910d02efd05272850b`. This is an on-host backup, not an off-host restore proof. A new active policy record permits `internal` and the assigned Telegram integration `cmu9g999m0001o18n6dfzymud`, `script` and `social`, and `https://desk.uliquid.vip`, from 2026-09-26 13:00Z to 2026-10-18 15:00Z; mode remains `observe`, `maxPerDay=0`, `approvedPaidTests=true`, and the existing $10 caps remain. The new record displays entity Version 1 even though it replaces the prior policy, so its displayed version is not a sequential policy revision. The Drive logo was imported without a Drive write and approved in Orbit as asset `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`. Marketing Profile v2 adds only the exact CTA and retains existing guardrails. One old profile-v1 test draft moved to needs review; no schedule was created.
+
+**Paid run outcome:** One private uLiquid Orbit Chat run completed. It identified the product-control fact (`53684847-55b5-4976-a19f-14d50d270a01`, source `3095efb4-aa01-432f-a64d-11191e257aa3`) and official registration fact (`2c4845f9-7f50-4dc1-b818-9ff861144416`). Chat reported hybrid retrieval on active generation 2, but a broad search produced `insufficient_evidence` and `fact_context_limit`. The model also found profile v1 did not yet authorize the exact CTA and exact asset-ID lookup returned no approved asset despite the asset's approved state. It saved no proposal, mission, new draft or visual. Profile v2 was saved after the run; no second paid call was made.
+
+**Changed locally:** `knowledge_search` now accepts up to eight exact fact keys and the Chat instruction directs their use when supplied by the user. `approved_assets` now matches an approved asset's exact ID as well as its data. The focused integration test checks both routes. Server-side evidence validation, approval filtering, budget limits, generation guardrails and publication gates remain in place.
+
+**Verification:** Pinned Node 24.18.0: focused Chat integration 8/8, full Vitest 333/333 across 26 files, lint, typecheck and production build passed. Local Playwright browser acceptance passed 9/9 with isolated API, Worker, PostgreSQL and Redis; Framework Check and bounded secret scan passed; dependency inventory recorded 406 entries and `pnpm audit --audit-level high` found zero advisories. The source checkout under Documents had 10,468 dataless installed package files, causing misleading module-load failures. An exact-SHA fresh GitHub clone with the identical code/documentation diff and 0 dataless packages supplied the full passing validation. The local Worker test initially timed out while scanning 1,458 old synthetic projects; it passed against a freshly migrated isolated local database. No production or paid-provider action was used in these checks. The final live Golden Path has not been rerun on the corrected revision.
+
+**Costs / external effects:** Approximate new paid OpenAI spend $0.03 (observed project spend $0.11 → $0.14; reserved $0.03 unchanged). No new RAG evaluation or index activation. Orbit policy/profile/asset writes occurred as authorized. Drive writes 0; Postiz writes 0; social posts 0; public publications 0. Runtime stayed `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`; Worker ready and Pending Outbox 0 at the last live check.
+
+**Open blockers:** Local repair is not deployed; a second paid run is outside the one-run authorization. Stale-source sync warnings, anonymous registration destination, actual proposal→mission→draft→review→asset→handoff acceptance, and off-host restore/key recovery remain unproven. No claim of `ULIQUID_DRAFT_PRODUCTION_READY = YES` is justified.
+
+**Next action:** Review the focused commit, deploy it only with a specific production release approval, then separately authorize one additional bounded paid acceptance run. Keep external writes disabled and prohibit schedule/live publish.
+
+## Production Change Plan -- Phase 6 correction (pending approval)
+
+### Ziel
+
+Deploy the exact focused Chat fact-key and approved asset-ID lookup repair, then verify one reviewable uLiquid Telegram draft without public publication.
+
+### Betroffene Systeme
+
+Orbit API and Worker release image, Chat read tools, uLiquid internal draft workflow. No Postiz, Drive or social-provider write is planned.
+
+### Risiko-Level
+
+High: production deployment and a separately costed OpenAI acceptance run. The current code change does not alter authorization, project scope, budget enforcement or publication gates.
+
+### Change Steps
+
+1. Verify `main`, CI, current deployment SHA, flags, Worker, Outbox and current uLiquid policy/profile/asset state.
+2. Take and verify a new owner-only pre-deploy PostgreSQL dump; deploy only the reviewed repair commit with external writes disabled.
+3. Confirm running image SHA, healthy API/Web/Worker, zero pending migration surprises, the exact asset-ID and fact-key behavior, and unchanged safety flags.
+4. After a separate bounded paid-run approval, execute one English Telegram internal draft Golden Path; record evidence IDs, model/cost, proposal/mission/content IDs, claim review, asset result and controlled export. Do not schedule or publish.
+
+### Datenbank/Migrationen
+
+No schema migration in this repair. Verify migration state before and after deployment; stop on unexpected migration activity.
+
+### Secrets/Config
+
+No secret or runtime-flag change. Keep `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, project `observe`, and existing paid caps.
+
+### Tests vor Deploy
+
+333/333 Vitest, 9/9 Playwright, lint, typecheck, build, Framework Check, secret scan and high-severity dependency audit passed on the exact diff in a clean local clone. Require green CI for the release SHA before production deployment.
+
+### Deployment Plan
+
+Deploy the reviewed commit through the existing Coolify release path after Mario approves this specific production release. Do not treat a local test or push as deployment evidence.
+
+### Post-Deploy Checks
+
+Verify image SHA, health, current uLiquid policy/profile/asset, active Knowledge generation, budget, Worker/Outbox and flags. Run only read-only smoke tests until the separate paid acceptance mandate.
+
+### Monitoring/Alerts
+
+Watch deployment logs, Worker heartbeat, failed jobs, Outbox, project spend and exceptions during the acceptance window. Stop on unknown paid or external-write outcome.
+
+### Rollback/Forward-Fix
+
+Code rollback: redeploy `6f679becad065f6b4f07a1add26a7a68a5dcd67e` if the repair regresses; keep external writes disabled. Database: no migration or rollback expected; preserve the fresh backup and use a forward fix for any data issue. Provider configuration and credentials stay unchanged. Notify Mario of a failed deployment or blocked acceptance before further paid or external actions.
+
+### Approval
+
+- Required: yes, specifically for this new production deployment and separately for one more paid OpenAI run.
+- Approved by: pending.
+- Date: pending.
 
 ## Template
 
