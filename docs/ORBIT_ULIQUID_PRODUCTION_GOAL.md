@@ -149,13 +149,13 @@ eindeutig dokumentiert.
 
 ## Phase 1 -- Bestehende Release-Lücken schließen \[P0\]
 
--   [ ] Index-Aktivierungsfix prüfen und falls korrekt/nicht superseded
+-   [x] Index-Aktivierungsfix prüfen und falls korrekt/nicht superseded
     integrieren
--   [ ] keine automatische Index-Aktivierung
--   [ ] lint, typecheck, full tests, build
--   [ ] relevante Playwright-Flows
--   [ ] secret scan und Dependency/Security Checks
--   [ ] exakte Ergebnisse dokumentieren
+-   [x] keine automatische Index-Aktivierung
+-   [x] lint, typecheck, full tests, build
+-   [x] relevante Playwright-Flows
+-   [x] secret scan und Dependency/Security Checks
+-   [x] exakte Ergebnisse dokumentieren
 
 **Acceptance:** `main` grün; keine Regression bei RLS, Budget,
 Revocation oder Write Controls.
@@ -304,27 +304,28 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26, before the Phase 1 verification run. `DEPLOYED`
-means the code is in the running revision; it does not mean a provider action is
-enabled. `TESTED` remains `VERIFY` until checks run against this revision.
+Status as observed on 2026-09-26, after the Phase 1 local verification run.
+`DEPLOYED` means the code is in the running revision; it does not mean a
+provider action is enabled. `TESTED` records local or automated checks, not
+live uLiquid acceptance.
 
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
-| Orbit Chat | YES | VERIFY | YES | PARTIAL | Live succeeded chat jobs; no complete Golden Path acceptance. |
-| OpenAI text generation | YES | VERIFY | YES | PARTIAL | Server-side key and verified model list configured; earlier paid chat succeeded. No new call in Phase 0. |
-| Knowledge ingestion | YES | VERIFY | YES | PARTIAL | Official site last fetched 2026-09-25; five verified-fact sources have no fetch timestamp and health reports five stale sources. |
-| Hybrid retrieval | YES | VERIFY | YES | VERIFY | Active vector generation exists; current Chat retrieval mode and rights-safe query result not measured in Phase 0. |
-| Live RAG evaluation | YES | VERIFY | YES | PARTIAL | Existing generation 2 evaluation: 60 cases, passed, MRR 0.85417; no new evaluation. |
-| Marketing profile | YES | VERIFY | YES | PARTIAL | uLiquid Desk profile v1 and official links visible; end-to-end generation use not accepted. |
-| Single text draft | YES | VERIFY | YES | PARTIAL | Three older Orbit drafts visible in Content Studio; none is a current accepted Golden Path run. |
-| Brand assets | YES | VERIFY | YES | NO | Asset library empty; profile references zero approved assets. |
-| Visual rendering | YES | VERIFY | YES | NO | Code/UI available, but no approved uLiquid asset or accepted visual. |
-| Google Drive save | YES | VERIFY | YES | VERIFY | Project account connected and root listing visible; no new save/readback performed. |
-| Postiz assignment | YES | VERIFY | YES | YES | uLiquid Desk Telegram and uLiquid X are assigned; other projects' channels remain unassigned. |
-| Postiz draft handoff | PARTIAL | VERIFY | YES | NO | Connector supports `draft`; no accepted explicit Orbit-to-Postiz draft handoff. |
-| Postiz live publish | YES | VERIFY | YES | NO | Connector write proof exists, but project channel write verification remains required and external writes are disabled. |
-| Matomo import | YES | VERIFY | YES | VERIFY | Connector reports read verified (last check 2026-09-22); no current import acceptance. |
-| Batch drafts | PARTIAL | VERIFY | YES | NO | Reviewable drafts exist; bounded batch request and resume behavior not accepted. |
+| Orbit Chat | YES | YES | YES | PARTIAL | Local tests and browser flows passed; live succeeded chat jobs, but no complete Golden Path acceptance. |
+| OpenAI text generation | YES | YES | YES | PARTIAL | Bounded mocked/local tests passed; earlier paid chat succeeded. No new paid call. |
+| Knowledge ingestion | YES | YES | YES | PARTIAL | Tests passed; official site last fetched 2026-09-25, while health reports five stale sources. |
+| Hybrid retrieval | YES | YES | YES | VERIFY | Local exact SQL/evaluation tests passed; current Chat retrieval mode not measured. |
+| Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
+| Marketing profile | YES | YES | YES | PARTIAL | Migration/RLS and browser tests passed; profile v1 visible, generation contract not accepted. |
+| Single text draft | YES | YES | YES | PARTIAL | Local browser flow passed; three older Orbit drafts visible, no current Golden Path run. |
+| Brand assets | YES | YES | YES | NO | Local browser flow passed; uLiquid asset library empty and zero approved assets. |
+| Visual rendering | YES | YES | YES | NO | Local tests passed, but no approved uLiquid asset or accepted visual. |
+| Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
+| Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
+| Postiz draft handoff | PARTIAL | PARTIAL | YES | NO | Connector `draft` contract tested; explicit Orbit handoff and live provider proof absent. |
+| Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
+| Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
+| Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
 | Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | Isolated restore is documented; current off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
@@ -337,7 +338,7 @@ nicht überschreiben.
 ### 2026-09-26 11:36 CEST -- Phase 0 -- Authoritative current state
 
 **Repo SHA before:** `46ea2494a443d9b4d3a0c20774f92a0d5d753493` (`main` = `origin/main`).
-**Repo SHA after:** Phase 0 documentation commit (see Git history).
+**Repo SHA after:** `3fac510faa7bc3bc1144697a8349de629a48388a`.
 **Deployment SHA:** `46ea2494a443d9b4d3a0c20774f92a0d5d753493` (Coolify successful webhook deployment `y5vrnwex6t1zenel1mokenfn`, started 2026-09-26 11:10 CEST; resource reports Running).
 **Status:** COMPLETE for read-only inventory; `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
 
@@ -354,6 +355,25 @@ nicht überschreiben.
 **Open blockers:** No critical Phase 0 stop condition observed. For draft acceptance: five stale-source warnings/time-sensitive fact review, zero approved brand assets, no current end-to-end Telegram draft/visual/Drive acceptance, and global readiness cannot prove action-specific readiness. Production off-host restore/key recovery remains unproven before any broad live-write activation.
 
 **Next action:** Phase 1: validate the already merged activation fix with current-revision lint, typecheck, full tests, build, relevant Playwright, framework/secret/runtime-artifact scans, dependency inventory and high-severity audit. Record exact results; make no index activation or provider call. If green, proceed to Phase 2 contract inspection.
+
+### 2026-09-26 11:45 CEST -- Phase 1 -- Existing release gaps
+
+**Repo SHA before:** `3fac510faa7bc3bc1144697a8349de629a48388a`.
+**Repo SHA after:** Phase 1 documentation/evidence commit (see Git history).
+**Deployment SHA:** `46ea2494a443d9b4d3a0c20774f92a0d5d753493`; no deployment performed.
+**Status:** COMPLETE for the existing activation release gap and local release checks. Production Golden Path remains unaccepted.
+
+**Inspected:** Merged PR #4 (`2ebc2eb2340162f0901c2b0cc6304c4809c29aa5`) changes only the index action menu for `building` versus `evaluated` and adds a browser regression. Current `main` and the live deployment already include it. The browser test confirms `Activate` appears for `evaluated`, is absent for `building`, and opens the confirmation dialog without submitting an index change. Existing server activation guards remain in place. No code change or new activation was needed.
+
+**Verification:** Node 24.18.0, pnpm 11.19.0, PostgreSQL 17/pgvector and Redis local. `pnpm lint` PASS; `pnpm typecheck` PASS; `pnpm build` PASS; full `pnpm test` **306/306, 26/26 files PASS** on a fresh isolated local database with migrated schema and least-privilege grants; `pnpm test:e2e` **9/9 Chromium PASS**; `pnpm test:migration-profile` PASS (legacy data retained and profile/chat RLS/grants checked); `pnpm test:coolify-compose` PASS; `pnpm framework:check` PASS with 0 errors/0 warnings; `python3 scripts/check-secrets.py` PASS across 540 candidate files; `python3 scripts/check-runtime-artifacts.py` PASS across 39 generated files against six local credential values without disclosing them; `pnpm dependencies:inventory` recorded 406 packages/licenses; `pnpm audit --audit-level high` reported no known vulnerabilities. The deterministic local retrieval evaluation recorded 64 cases and provider cost 0; it was not a new live RAG evaluation.
+
+**Test environment note:** The first full run against the existing local `orbit_test` database passed 305/306; its worker lifecycle case timed out twice. That database contains 1,189 accumulated synthetic projects, which the worker scans. A fresh isolated database ran the full suite in 20.94s with 306/306 passing. The old database was not pruned, and this local test-environment slowdown is not evidence about production throughput.
+
+**Costs / external effects:** Paid AI cost $0; new live evaluation 0; index activations 0; provider writes 0; public publications 0. Playwright used a local synthetic account and internal test-publishing only.
+
+**Open blockers:** Current uLiquid draft/visual/Drive acceptance, stale-source review, zero approved assets, action-specific readiness and off-host recovery remain outside Phase 1. CI on the new documentation commit and a production deployment of that commit were not run; the activation fix itself is deployed.
+
+**Next action:** Phase 2: trace Chat proposal → Mission → Generation → Preflight, compare the actual profile/CTA/evidence fields, then implement the smallest shared generation contract with regression tests. No paid call or external write is needed for that inspection.
 
 ## Template
 
