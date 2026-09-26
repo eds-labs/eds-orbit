@@ -4,6 +4,8 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, entity, list, update, audit, DomainError } from "../shared.ts";
 import { invalidateContent } from "./content-invalidation.ts";
 import { resolveChannelRules } from "./channel-rules.ts";
+import { validateEvidence } from "../../../../packages/knowledge/src/index.ts";
+import { factClaimMatches } from "./fact-claims.ts";
 
 export type MarketingProfile = ReturnType<typeof marketingProfile.parse>;
 
@@ -227,10 +229,98 @@ const prohibited = [
   /\b(?:100x|moon|last chance|act now|limited time)\b/i,
 ];
 
+async function supportedFactClaims(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+  at: Date,
+) {
+  if (
+    !content.evidenceId ||
+    !(await validateEvidence(tx, scope, content.evidenceId, at)).valid
+  )
+    return [];
+  const evidence = data(
+    await entity(tx, scope, "evidence", content.evidenceId),
+  );
+  const supported: {
+    claim: Record<string, any>;
+    fact: Record<string, any>;
+    source: Record<string, any>;
+  }[] = [];
+  for (const claim of content.claims ?? []) {
+    if (
+      claim.kind !== "fact" ||
+      !claim.factId ||
+      !content.body.includes(claim.text)
+    )
+      continue;
+    const reference = (evidence.facts ?? []).find(
+      (item: any) => item.id === claim.factId,
+    );
+    if (!reference) continue;
+    try {
+      const row = await entity(tx, scope, "facts", claim.factId);
+      const fact = data(row);
+      const source = data(await entity(tx, scope, "sources", fact.sourceId));
+      if (
+        row.version !== reference.version ||
+        fact.status !== "verified" ||
+        fact.publicUse !== true ||
+        fact.sourceId !== reference.sourceId ||
+        fact.sourceGeneration !== source.generation ||
+        source.status !== "active" ||
+        source.publicUse !== true ||
+        source.authority === "generated" ||
+        (source.embargoUntil &&
+          Date.parse(source.embargoUntil) > at.valueOf()) ||
+        !Number.isFinite(Date.parse(fact.validFrom)) ||
+        Date.parse(fact.validFrom) > at.valueOf() ||
+        (fact.validUntil && Date.parse(fact.validUntil) <= at.valueOf()) ||
+        !factClaimMatches(claim.text, fact)
+      )
+        continue;
+      supported.push({ claim, fact, source });
+    } catch (error) {
+      if (!(error instanceof DomainError)) throw error;
+    }
+  }
+  return supported;
+}
+
+const presaleLive =
+  /\b(?:presale\s+(?:is\s+)?(?:(?:now|currently|officially)\s+)?live|(?:(?:now|currently|officially)\s+)?live\s+(?:(?:uliq|uliquid)(?:\s+desk)?\s+)?presale|presale[.\s]+status:\s*live)\b/gi;
+const moneyMention =
+  /(?:€|\$|\b(?:USD|EUR)\b)\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*(?:€|\$|\b(?:USD|EUR)\b)/giu;
+
+function supportedPriceMention(
+  mention: string,
+  supported: Awaited<ReturnType<typeof supportedFactClaims>>,
+) {
+  const amount = mention.match(/\d+(?:[.,]\d+)?/u)?.[0];
+  const currency = /€/u.test(mention)
+    ? "EUR"
+    : /\$/u.test(mention)
+      ? "USD"
+      : mention.match(/\b(?:USD|EUR)\b/iu)?.[0].toUpperCase();
+  return (
+    !!amount &&
+    !!currency &&
+    supported.some(
+      ({ claim, fact }) =>
+        claim.text.includes(mention) &&
+        fact.valueType === "decimal" &&
+        fact.currency === currency &&
+        Number(String(fact.value)) === Number(amount.replace(",", ".")),
+    )
+  );
+}
+
 export async function profileGuardrailProblems(
   tx: DbTx,
   scope: Scope,
   content: Record<string, any>,
+  at = new Date(),
 ) {
   const problems: string[] = [];
   // Historical deterministic fixtures are preserved read-only. New human and
@@ -259,28 +349,45 @@ export async function profileGuardrailProblems(
     );
   else if (ctas[0] !== data(context.mission).targetAction)
     problems.push("MISSION_PRIMARY_CTA_REQUIRED");
-  if (/\b(?:is|status:)\s*(?:live|launched|released|coming soon)\b/i.test(body))
-    problems.push("UNSUPPORTED_FEATURE_STATUS_VOCABULARY");
+  const presaleStatements = [...body.matchAll(presaleLive)];
+  const remainingStatusText = body.replace(presaleLive, "");
   if (
-    /(?:€|\$|\b(?:USD|EUR)\b)\s?\d/.test(body) &&
-    !(content.claims ?? []).some((claim: any) => claim.kind === "fact")
+    /\b(?:is|status:)\s*(?:(?:now|currently|officially)\s+)?(?:live|launched|released|coming soon)\b/i.test(
+      remainingStatusText,
+    )
   )
+    problems.push("UNSUPPORTED_FEATURE_STATUS_VOCABULARY");
+  const prices = [...body.matchAll(moneyMention)];
+  const supported =
+    presaleStatements.length || prices.length
+      ? await supportedFactClaims(tx, scope, content, at)
+      : [];
+  if (prices.some((match) => !supportedPriceMention(match[0], supported)))
     problems.push("UNSUPPORTED_PRICE_CLAIM");
   if (
-    content.campaignType === "presale" &&
-    /\bpresale\s+is\s+live\b/i.test(body)
-  ) {
-    const facts = await list(tx, scope, "facts");
-    const confirmed = facts.some((fact) => {
-      const f = data(fact);
-      return (
-        f.status === "verified" &&
-        f.publicUse !== false &&
-        /presale.*status/i.test(String(f.key)) &&
-        String(f.value?.amount ?? f.value).toLowerCase() === "live"
-      );
-    });
-    if (!confirmed) problems.push("PRESALE_LIVE_NOT_VERIFIED");
-  }
+    presaleStatements.length &&
+    (content.campaignType !== "presale" ||
+      !supported.some(({ claim, fact, source }) => {
+        const key = String(fact.key)
+          .toLocaleLowerCase()
+          .split(/[^\p{L}\p{N}]+/u);
+        const ageMs = at.valueOf() - Date.parse(fact.verifiedAt);
+        const maxAgeMs = Math.min(Number(source.maxAgeHours), 24) * 3600000;
+        return (
+          key.includes("presale") &&
+          key.includes("status") &&
+          String(fact.value).toLocaleLowerCase() === "live" &&
+          presaleStatements.some((statement) =>
+            claim.text.includes(statement[0]),
+          ) &&
+          Number.isFinite(ageMs) &&
+          ageMs >= 0 &&
+          Number.isFinite(maxAgeMs) &&
+          maxAgeMs > 0 &&
+          ageMs < maxAgeMs
+        );
+      }))
+  )
+    problems.push("PRESALE_LIVE_NOT_VERIFIED");
   return problems;
 }

@@ -198,16 +198,16 @@ nach der Generierung bekannt werden.
 
 ## Phase 4 -- Evidence-aware Status/Claim Guardrails \[P0\]
 
--   [ ] Live-/Presale-Regelkonflikt reproduzieren
--   [ ] überlappende Regex durch evidence-aware Statusprüfung
+-   [x] Live-/Presale-Regelkonflikt reproduzieren
+-   [x] überlappende Regex durch evidence-aware Statusprüfung
     ersetzen/strukturieren
--   [ ] unbelegte/veraltete Statusaussagen weiter blockieren
--   [ ] Price- und Guaranteed-Profit/Risk-Free-Guards erhalten
--   [ ] Tests: verified live erlaubt; ohne Fact blockiert; stale/revoked
+-   [x] unbelegte/veraltete Statusaussagen weiter blockieren
+-   [x] Price- und Guaranteed-Profit/Risk-Free-Guards erhalten
+-   [x] Tests: verified live erlaubt; ohne Fact blockiert; stale/revoked
     blockiert; unsupported feature status blockiert
--   [ ] Claim-Ledger Exact-Match-Verhalten prüfen
--   [ ] natürliche Copy mit belastbarer Claim-Verknüpfung ermöglichen
--   [ ] kein Model-Self-Approval
+-   [x] Claim-Ledger Exact-Match-Verhalten prüfen
+-   [x] natürliche Copy mit belastbarer Claim-Verknüpfung ermöglichen
+-   [x] kein Model-Self-Approval
 
 **Acceptance:** Gleiche Aussage besteht mit gültigem Beleg und wird ohne
 Beleg deterministisch abgelehnt.
@@ -304,7 +304,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26, after the Phase 3 local verification run.
+Status as observed on 2026-09-26, after the Phase 4 local verification run.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -319,6 +319,7 @@ live uLiquid acceptance.
 | Marketing profile | YES | YES | YES | PARTIAL | Migration/RLS and browser tests passed; profile v1 visible, generation contract not accepted. |
 | Shared generation contract | YES | YES | NO | NO | Local product/presale, invalid link, policy scope, profile and channel-change tests passed; verify uLiquid official URL fact/source model rights and allowed policy origins before deployment/acceptance. |
 | Channel-aware social rules | YES | YES | NO | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include an appended URL; uLiquid channels have not been accepted on the deployed revision. |
+| Evidence-aware status and claim guardrails | YES | YES | NO | NO | Local integration tests permit current, linked presale-live and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
 | Single text draft | YES | YES | YES | PARTIAL | Local browser flow passed; three older Orbit drafts visible, no current Golden Path run. |
 | Brand assets | YES | YES | YES | NO | Local browser flow passed; uLiquid asset library empty and zero approved assets. |
 | Visual rendering | YES | YES | YES | NO | Local tests passed, but no approved uLiquid asset or accepted visual. |
@@ -418,6 +419,25 @@ nicht überschreiben.
 **Open blockers:** Phase 3 code is not deployed or uLiquid-accepted. The current uLiquid Telegram and X assignments need provider-settings/readback confirmation on the installed Postiz version. Existing Phase 2 blockers remain: official URL fact/source model rights and policy origins, stale-source and time-sensitive fact review, zero approved brand assets, missing Golden Path acceptance, action-specific readiness and off-host recovery.
 
 **Next action:** Phase 4: reproduce the current live/presale wording conflict and replace status regex behavior with evidence-aware checks while preserving financial and unsupported-claim safeguards. No paid evaluation or provider write is needed for local inspection and tests.
+
+### 2026-09-26 13:53 CEST -- Phase 4 -- Evidence-aware status and claim guardrails
+
+**Repo SHA before:** `5410cdff07a414b6cb4f2081f311f1ad38acdb5a`.
+**Repo SHA after:** Phase 4 local implementation commit (see Git history).
+**Deployment SHA:** `46ea2494a443d9b4d3a0c20774f92a0d5d753493` was last verified in the earlier baseline; production was not re-read in Phase 4 and no deployment was performed.
+**Status:** COMPLETE for local Phase 4 implementation and verification; `DEPLOYED = NO`, `ACCEPTED uLiquid = NO`, `ULIQUID_DRAFT_PRODUCTION_READY = NO`.
+
+**Inspected and changed:** The previous generic status regex rejected `presale is live` even when a separate presale check found a verified fact. That presale check searched any project fact and ignored its evidence link, source rights, version and freshness. The claim ledger accepted only literal `key: value` renderings. Status and price checks now require claims tied to the same current public evidence snapshot, source generation and fact version. Presale-live additionally requires a matching `presale.status=live` fact, a presale campaign and verification age below both the source age limit and 24 hours. Bounded natural fact sentences can now carry the exact fact value and subject. Unsupported feature-status wording, mismatched amounts, guaranteed-profit and risk-free language remain blocked. Any extra marketing text still needs explicit owner body review; that review cannot override factual or evidence failures.
+
+**Verification:** Node 24.18.0; focused SQL integration suite **39/39 PASS** on an isolated migrated local database with mocked AI provider; final full `pnpm test --pool=threads --maxWorkers=1` **331/331 tests, 26/26 files PASS**, including literal fact-rendering and risk-free regressions; `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm framework:check`, secret scan, runtime-artifact scan, `pnpm audit --audit-level high` and `git diff --check` PASS. Full `pnpm test:e2e` **9/9 Chromium PASS** against a separate isolated local browser database. The original ignored browser account file was restored after testing.
+
+**Risk and rollback:** High-risk local publication-review change with no migration or new dependency. Revert only the Phase 4 commit to restore prior policy. Before production acceptance, review live uLiquid facts and sources, deploy through the release gates, and exercise a real draft and review without provider writes.
+
+**Costs / external effects:** Paid AI cost $0; new live RAG evaluation 0; index activation 0; external provider writes 0; public publications 0. Browser flows used synthetic local state and internal test publication only.
+
+**Open blockers:** Phase 4 is neither deployed nor uLiquid-accepted. The uLiquid status/price facts and source rights have not been refreshed or approved for these claims. Previous blockers remain: current source freshness, official URL fact/source model rights and policy origins, zero approved brand assets, action-specific readiness, off-host recovery, and the deployed Golden Path.
+
+**Next action:** Phase 5: inspect Chat retrieval mode against Mission hybrid retrieval, preserve rights, active-index and budget gates, make lexical degradation explicit if needed, and compare a fixed uLiquid query set. No paid or external action is implied by this local phase completion.
 
 ## Template
 

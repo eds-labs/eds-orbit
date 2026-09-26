@@ -16,6 +16,9 @@ import {
 } from "../../../packages/db/src/index.ts";
 import {
   ingest,
+  retrieve,
+  setFact,
+  withdrawFact,
   setSourceRights,
   revokeSource,
   beginIndexBuild,
@@ -26,6 +29,8 @@ import {
 } from "../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
+import { checkClaims } from "../src/modules/policy.ts";
+import { reviewContent } from "../src/modules/workflow.ts";
 import {
   assertContentCampaignContext,
   profileGuardrailProblems,
@@ -271,6 +276,255 @@ describe.skipIf(!enabled)(
       });
       return targetUrl;
     }
+    async function statusDraft(
+      body = "The presale is live. Learn more.",
+      claimText = "The presale is live.",
+    ) {
+      const targetUrl = await setCampaign("presale");
+      return run(async (tx) => {
+        const now = Date.now();
+        const fact = await setFact(tx, s, {
+          key: "presale.status",
+          value: "live",
+          valueType: "text",
+          language: "en",
+          sourceId,
+          validFrom: new Date(now - 3600000).toISOString(),
+          validUntil: new Date(now + 48 * 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        const evidence = await retrieve(tx, s, {
+          query: "presale status",
+          sourceIds: [sourceId],
+          factKeys: ["presale.status"],
+          language: "en",
+          purpose: "public",
+        });
+        const content = await create(tx, s, "content", {
+          title: "Synthetic presale status",
+          body,
+          type: "social",
+          language: "en",
+          channel: "test",
+          missionId,
+          campaignType: "presale",
+          profileVersion: 1,
+          targetUrl,
+          evidenceId: evidence.id,
+          claims: [
+            { kind: "fact", text: claimText, factId: fact.id },
+            { kind: "style", text: "Learn more." },
+          ],
+          status: "draft",
+          risk: "routine",
+          synthetic: false,
+        });
+        return { fact, content };
+      });
+    }
+    it("accepts natural presale-live copy only with current linked evidence", async () => {
+      const { content } = await statusDraft();
+      expect(await run((tx) => checkClaims(tx, s, content.id))).toMatchObject({
+        valid: true,
+        problems: [],
+      });
+      const reviewed = await run((tx) =>
+        reviewContent(tx, s, content.id, content.version),
+      );
+      expect(data(reviewed).status).toBe("reviewed");
+    });
+    it("continues to accept the literal fact rendering when evidence is current", async () => {
+      const { content } = await statusDraft(
+        "presale.status: live Learn more.",
+        "presale.status: live",
+      );
+      expect((await run((tx) => checkClaims(tx, s, content.id))).valid).toBe(
+        true,
+      );
+    });
+    it("accepts a current now-live statement and blocks one without a fact", async () => {
+      const current = await statusDraft(
+        "The presale is now live. Learn more.",
+        "The presale is now live.",
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, s, current.content.id))).valid,
+      ).toBe(true);
+      const unsupported = await run(async (tx) => {
+        const evidence = await retrieve(tx, s, {
+          query: "PAIDRACE529",
+          sourceIds: [sourceId],
+          language: "en",
+          purpose: "public",
+        });
+        const row = await create(tx, s, "content", {
+          ...data(current.content),
+          evidenceId: evidence.id,
+          claims: [{ kind: "style", text: "Learn more." }],
+          status: "draft",
+        });
+        return row;
+      });
+      expect(
+        (await run((tx) => checkClaims(tx, s, unsupported.id))).problems,
+      ).toContain("PRESALE_LIVE_NOT_VERIFIED");
+    });
+    it("blocks unsupported, stale and revoked presale-live evidence", async () => {
+      const { fact, content } = await statusDraft();
+      const unlinked = await run((tx) =>
+        update(tx, s, content, {
+          ...data(content),
+          claims: [{ kind: "style", text: "Learn more." }],
+        }),
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, s, unlinked.id))).problems,
+      ).toContain("PRESALE_LIVE_NOT_VERIFIED");
+      const relinked = await run((tx) =>
+        update(tx, s, unlinked, { ...data(content) }),
+      );
+      const future = new Date(Date.now() + 25 * 3600000);
+      expect(
+        (await run((tx) => checkClaims(tx, s, relinked.id, future))).problems,
+      ).toContain("PRESALE_LIVE_NOT_VERIFIED");
+      await run((tx) => withdrawFact(tx, s, fact.id, fact.version));
+      expect(
+        (await run((tx) => checkClaims(tx, s, relinked.id))).problems,
+      ).toContain("PRESALE_LIVE_NOT_VERIFIED");
+    });
+    it("keeps feature status, wrong facts, price and profit guards closed", async () => {
+      const { content } = await statusDraft();
+      const feature = await run((tx) =>
+        update(tx, s, content, {
+          ...data(content),
+          body: "The feature is live. Learn more.",
+          claims: [
+            {
+              kind: "fact",
+              text: "The feature is live.",
+              factId: data(content).claims[0].factId,
+            },
+            { kind: "style", text: "Learn more." },
+          ],
+        }),
+      );
+      const featureProblems = (
+        await run((tx) => checkClaims(tx, s, feature.id))
+      ).problems;
+      expect(featureProblems).toContain(
+        "UNSUPPORTED_FEATURE_STATUS_VOCABULARY",
+      );
+      expect(featureProblems).toContain("FACT_VALUE_MISMATCH");
+      const price = await run((tx) =>
+        update(tx, s, feature, {
+          ...data(content),
+          body: "The presale is live. The price is 99 EUR. Learn more.",
+        }),
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, s, price.id))).problems,
+      ).toContain("UNSUPPORTED_PRICE_CLAIM");
+      const profit = await run((tx) =>
+        update(tx, s, price, {
+          ...data(content),
+          body: "The presale is live with guaranteed profit. Learn more.",
+        }),
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, s, profit.id))).problems,
+      ).toContain("PROFILE_GUARDRAIL_PROHIBITED_LANGUAGE");
+      const riskFree = await run((tx) =>
+        update(tx, s, profit, {
+          ...data(content),
+          body: "The presale is live and risk-free. Learn more.",
+        }),
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, s, riskFree.id))).problems,
+      ).toContain("PROFILE_GUARDRAIL_PROHIBITED_LANGUAGE");
+    });
+    it("accepts a natural price claim only for the exact current amount", async () => {
+      const { content } = await statusDraft();
+      const priced = await run(async (tx) => {
+        const now = Date.now();
+        const price = await setFact(tx, s, {
+          key: "presale.price",
+          value: "19",
+          valueType: "decimal",
+          currency: "EUR",
+          language: "en",
+          sourceId,
+          validFrom: new Date(now - 3600000).toISOString(),
+          validUntil: new Date(now + 48 * 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        const evidence = await retrieve(tx, s, {
+          query: "presale status price",
+          sourceIds: [sourceId],
+          factKeys: ["presale.status", "presale.price"],
+          language: "en",
+          purpose: "public",
+        });
+        return update(tx, s, content, {
+          ...data(content),
+          body: "The presale is live. The presale price is 19 EUR. Learn more.",
+          evidenceId: evidence.id,
+          claims: [
+            data(content).claims[0],
+            {
+              kind: "fact",
+              text: "The presale price is 19 EUR.",
+              factId: price.id,
+            },
+            { kind: "style", text: "Learn more." },
+          ],
+        });
+      });
+      expect((await run((tx) => checkClaims(tx, s, priced.id))).valid).toBe(
+        true,
+      );
+      const wrong = await run((tx) =>
+        update(tx, s, priced, {
+          ...data(priced),
+          body: "The presale is live. The presale price is 99 EUR. Learn more.",
+          claims: [
+            data(priced).claims[0],
+            { ...data(priced).claims[1], text: "The presale price is 99 EUR." },
+            data(priced).claims[2],
+          ],
+        }),
+      );
+      const problems = (await run((tx) => checkClaims(tx, s, wrong.id)))
+        .problems;
+      expect(problems).toContain("FACT_VALUE_MISMATCH");
+      expect(problems).toContain("UNSUPPORTED_PRICE_CLAIM");
+    });
+    it("does not let a fact claim or owner body review certify extra assertions", async () => {
+      const { content } = await statusDraft(
+        "The presale is live and audited. Learn more.",
+        "The presale is live and audited.",
+      );
+      const reviewed = await run((tx) =>
+        reviewContent(tx, s, content.id, content.version, true),
+      );
+      expect(data(reviewed).status).toBe("needs_review");
+      expect(data(reviewed).review.problems).toContain("FACT_VALUE_MISMATCH");
+      expect(data(reviewed).review.problems).toContain(
+        "PRESALE_LIVE_NOT_VERIFIED",
+      );
+    });
+    it("requires owner review for extra marketing copy outside the claim ledger", async () => {
+      const { content } = await statusDraft(
+        "The presale is live. A new opportunity. Learn more.",
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, s, content.id))).problems,
+      ).toContain("HUMAN_CONTENT_REVIEW_REQUIRED");
+    });
     it.each(["product", "presale"] as const)(
       "%s generation uses the current profile, intended CTA and official link",
       async (campaignType) => {

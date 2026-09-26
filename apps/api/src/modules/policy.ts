@@ -4,6 +4,7 @@ import { invalidateContent } from "./content-invalidation.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "./marketing-profile.ts";
 import { channelLimitExceeded, resolveChannelRules } from "./channel-rules.ts";
+import { factClaimMatches } from "./fact-claims.ts";
 import {
   policy as policySchema,
   type Scope,
@@ -90,6 +91,7 @@ export async function checkClaims(
   if (!v.claims?.length) problems.push("CLAIM_LEDGER_REQUIRED");
   for (const claim of v.claims ?? []) {
     if (claim.kind === "style") {
+      if (!v.body.includes(claim.text)) problems.push("CLAIM_NOT_IN_CONTENT");
       if (
         !["Learn more.", "Mehr erfahren."].includes(claim.text) &&
         v.humanReviewedBodyHash !== hash(v.body)
@@ -101,17 +103,20 @@ export async function checkClaims(
     if (claim.factId) {
       const fact = await entity(tx, scope, "facts", claim.factId);
       const f = data(fact);
-      if (f.status !== "verified" || f.publicUse === false)
-        problems.push("FACT_NOT_VERIFIED");
-      const value = String(f.value?.amount ?? f.value ?? "");
       if (
-        ![
-          `${f.key}: ${value}`,
-          `${f.key}: ${value}${f.currency ? " " + f.currency : f.unit ? " " + f.unit : ""}`,
-        ].includes(claim.text)
+        f.status !== "verified" ||
+        f.publicUse !== true ||
+        Date.parse(f.validFrom) > at.valueOf() ||
+        (f.validUntil && Date.parse(f.validUntil) <= at.valueOf())
       )
+        problems.push("FACT_NOT_VERIFIED");
+      if (!factClaimMatches(claim.text, f))
         problems.push("FACT_VALUE_MISMATCH");
-      if (!JSON.stringify(e).includes(claim.factId))
+      if (
+        !(e.facts ?? []).some(
+          (item: any) => item.id === fact.id && item.version === fact.version,
+        )
+      )
         problems.push("FACT_OUTSIDE_EVIDENCE");
     } else if (claim.chunkId) {
       const chunk = await tx.knowledgeChunk.findFirst({
@@ -126,9 +131,18 @@ export async function checkClaims(
     } else problems.push("UNSUPPORTED_CLAIM");
   }
   // Arbitrary free text needs an explicit owner review; models cannot certify their own extra claims.
-  const allClaimText = (v.claims ?? []).map((c: any) => c.text).join("\n");
   const normalized = (s: string) => s.replace(/[\s\p{P}]/gu, "").toLowerCase();
-  const covered = normalized(v.body) === normalized(allClaimText);
+  let remainder = v.body;
+  for (const claim of [...(v.claims ?? [])].sort(
+    (a: any, b: any) => b.text.length - a.text.length,
+  )) {
+    const position = remainder.indexOf(claim.text);
+    if (position >= 0)
+      remainder =
+        remainder.slice(0, position) +
+        remainder.slice(position + claim.text.length);
+  }
+  const covered = normalized(remainder) === "";
   if (!covered && v.humanReviewedBodyHash !== hash(v.body))
     problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
   if (
@@ -140,7 +154,7 @@ export async function checkClaims(
     )
   )
     problems.push("CHANNEL_LIMIT_EXCEEDED");
-  problems.push(...(await profileGuardrailProblems(tx, scope, v)));
+  problems.push(...(await profileGuardrailProblems(tx, scope, v, at)));
   return { valid: problems.length === 0, problems: [...new Set(problems)] };
 }
 export async function preflight(
