@@ -959,6 +959,70 @@ test("editable local brief, private community groups, calendar blocks and owner 
   });
 });
 
+test("index activation is offered only after evaluation", async ({ page }) => {
+  await login(page);
+  const projectId = await newProject(
+    page,
+    "EDS Labs · index activation acceptance",
+  );
+  const profile = "openai:text-embedding-3-small:1536:chunk-v1";
+  await page.route(`**/api/projects/${projectId}/indexes?*`, (route) =>
+    route.fulfill({
+      json: {
+        items: [
+          {
+            id: "71e75f94-2c6c-443e-811d-e8a2b9833432",
+            generation: 2,
+            profile,
+            state: "evaluated",
+            manifest: [{ chunkId: "test-chunk" }],
+            evaluation: { passed: true, provenance: "live" },
+          },
+          {
+            id: "e68d8669-a667-43f9-a766-ae2d72b5f86e",
+            generation: 3,
+            profile,
+            state: "building",
+            manifest: [],
+          },
+          {
+            id: "ec2f0d83-4527-4342-a5a0-18409c233c73",
+            generation: 1,
+            profile,
+            state: "active",
+            manifest: [],
+          },
+        ],
+      },
+    }),
+  );
+  await page.goto("/knowledge");
+  const evaluated = page
+    .locator(".index-generation")
+    .filter({ hasText: "Generation 2" });
+  const building = page
+    .locator(".index-generation")
+    .filter({ hasText: "Generation 3" });
+  await expect(
+    evaluated.getByRole("button", { name: "Activate" }),
+  ).toBeVisible();
+  await expect(building.getByRole("button", { name: "Activate" })).toHaveCount(
+    0,
+  );
+  await expect(
+    building.getByRole("button", { name: "Evaluate" }),
+  ).toBeVisible();
+  await evaluated.getByRole("button", { name: "Activate" }).click();
+  await expect(page.getByRole("dialog")).toContainText(
+    "Activate index generation 2",
+  );
+  await expect(
+    page.getByRole("dialog").getByRole("button", {
+      name: "Apply generation change",
+    }),
+  ).toBeVisible();
+});
+
 test("OpenAI configuration loads a persisted rate card into the settings form", async ({
   page,
 }) => {

@@ -1,5 +1,9 @@
 # Implementation status
 
+## Index activation control (2026-09-25)
+
+Index Management offers activation after an index generation reaches `evaluated`, while a `building` generation offers only build and evaluation actions. The server still checks the current corpus and live evaluation at activation time. A browser regression covers both UI states and opens the confirmation dialog without submitting a production change.
+
 ## Orbit Chat v1 local implementation (2026-09-25)
 
 The new private project chat, bounded Responses tool runner, reviewable draft-only proposals, and first-draft job bridge are implemented locally. See `docs/ORBIT_CHAT_V1.md` for API contracts and release boundaries. This checkpoint is not production authorization or proof of a live paid model call.
