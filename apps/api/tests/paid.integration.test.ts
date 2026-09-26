@@ -301,7 +301,12 @@ describe.skipIf(!enabled)(
           channelConstraints: {
             approvedChannels: ["test"],
             approvedContentTypes: ["social"],
-            characterLimit: null,
+            providerIdentifier: "x",
+            characterLimit: 280,
+            countingMethod: "conservative_x_weighted",
+            appendedTargetUrl: targetUrl,
+            reservedCharacters: 1 + targetUrl.length + 23,
+            bodyCharacterBudget: 280 - 1 - targetUrl.length - 23,
           },
         });
         expect(data(content).targetUrl).toBe(targetUrl);
@@ -316,6 +321,34 @@ describe.skipIf(!enabled)(
         expect(
           await run((tx) => profileGuardrailProblems(tx, s, data(content))),
         ).toContain("PRIMARY_CTA_REQUIRED");
+      },
+    );
+    it.each([
+      ["telegram", 4096, "utf16_units"],
+      ["linkedin", 3000, "utf16_units"],
+      ["unmapped-provider", null, null],
+    ] as const)(
+      "%s generation contract uses the assigned provider capability",
+      async (identifier, limit, countingMethod) => {
+        const targetUrl = await setCampaign("product");
+        await run(async (tx) => {
+          const connector = await tx.entity.findFirstOrThrow({
+            where: { projectId: s.projectId, kind: "connectors" },
+          });
+          await update(tx, s, connector, {
+            ...data(connector),
+            channels: [{ id: "test", name: "Assigned", identifier }],
+          });
+        });
+        await generateMissionLive(s, missionId, randomUUID());
+        const goal = JSON.parse(provider.generate.mock.calls[0]![0].goal);
+        expect(goal.campaign.channelProvider).toBe(identifier);
+        expect(goal.channelConstraints).toMatchObject({
+          providerIdentifier: identifier,
+          characterLimit: limit,
+          countingMethod,
+          appendedTargetUrl: targetUrl,
+        });
       },
     );
     it("rejects a stale profile before any paid query or text call", async () => {

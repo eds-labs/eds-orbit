@@ -3,7 +3,7 @@ import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, entity, list, update, audit, DomainError } from "../shared.ts";
 import { invalidateContent } from "./content-invalidation.ts";
-import { assignedPostizChannels } from "./postiz-assignment.ts";
+import { resolveChannelRules } from "./channel-rules.ts";
 
 export type MarketingProfile = ReturnType<typeof marketingProfile.parse>;
 
@@ -152,29 +152,13 @@ export async function campaignGenerationContext(
   );
   if (data(linkFact).modelUse !== true || linkSource.modelUse !== true)
     throw new DomainError("OFFICIAL_LINK_FACT_MODEL_USE_REQUIRED", 409);
-  const connectors =
-    mission.contentType === "social"
-      ? await tx.entity.findMany({
-          where: {
-            workspaceId: scope.workspaceId,
-            projectId: scope.projectId,
-            kind: "connectors",
-          },
-        })
-      : [];
-  const assignedChannel = connectors
-    .filter(
-      (row) =>
-        data(row).provider === "postiz" &&
-        ["read_verified", "write_verified"].includes(data(row).status),
-    )
-    .flatMap((row) =>
-      assignedPostizChannels(data(row)).map((channel: any) => ({
-        row,
-        channel,
-      })),
-    )
-    .find((item) => item.channel.id === targetChannel);
+  const channelRules = await resolveChannelRules(
+    tx,
+    scope,
+    targetChannel,
+    mission.contentType,
+    !!mission.assetIds?.length,
+  );
   return {
     projectId: scope.projectId,
     profileId: profile.id,
@@ -186,9 +170,9 @@ export async function campaignGenerationContext(
     profileAudience: value.audience,
     language: value.contentLanguage,
     targetChannel,
-    channelProvider: assignedChannel?.channel.identifier ?? null,
-    channelConnectorId: assignedChannel?.row.id ?? null,
-    channelConnectorVersion: assignedChannel?.row.version ?? null,
+    channelProvider: channelRules.providerIdentifier,
+    channelConnectorId: channelRules.connectorId,
+    channelConnectorVersion: channelRules.connectorVersion,
     positioning: value.positioning,
     strategy:
       mission.campaignType === "presale"

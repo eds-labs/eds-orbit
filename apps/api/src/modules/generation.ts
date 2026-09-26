@@ -26,6 +26,7 @@ import { policy } from "../../../../packages/schemas/src/index.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
+import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
 type GenerationContract = {
   goal: string;
   audience: string;
@@ -37,7 +38,12 @@ type GenerationContract = {
   channelConstraints: {
     approvedChannels: string[];
     approvedContentTypes: string[];
-    characterLimit: null;
+    providerIdentifier: string | null;
+    characterLimit: number | null;
+    countingMethod: "conservative_x_weighted" | "utf16_units" | null;
+    appendedTargetUrl: string | null;
+    reservedCharacters: number;
+    bodyCharacterBudget: number | null;
   };
   missionId: string;
   missionVersion: number;
@@ -200,6 +206,23 @@ export async function generateMissionLive(
         m.campaignType || m.profileVersion
           ? await campaignGenerationContext(tx, scope, m, channel)
           : null;
+      const channelRules = await resolveChannelRules(
+        tx,
+        scope,
+        channel,
+        m.contentType,
+        !!m.assetIds?.length,
+      );
+      const targetUrl =
+        campaignContext?.officialTargetUrl ?? m.targetUrl ?? null;
+      const reservedCharacters = targetUrl
+        ? (channelTextLength("\n" + targetUrl, channelRules) ?? 0)
+        : 0;
+      if (
+        channelRules.characterLimit !== null &&
+        reservedCharacters > channelRules.characterLimit
+      )
+        throw new DomainError("CHANNEL_LIMIT_EXCEEDED", 409);
       const contract: GenerationContract = {
         goal: m.goal,
         audience: m.audience,
@@ -211,7 +234,15 @@ export async function generateMissionLive(
         channelConstraints: {
           approvedChannels: parsed.channels,
           approvedContentTypes: parsed.contentTypes,
-          characterLimit: null,
+          providerIdentifier: channelRules.providerIdentifier,
+          characterLimit: channelRules.characterLimit,
+          countingMethod: channelRules.countingMethod,
+          appendedTargetUrl: targetUrl,
+          reservedCharacters,
+          bodyCharacterBudget:
+            channelRules.characterLimit === null
+              ? null
+              : channelRules.characterLimit - reservedCharacters,
         },
         missionId,
         missionVersion: mission.version,
@@ -280,6 +311,7 @@ export async function generateMissionLive(
         policyId: p.id,
         policyVersion: p.version,
         campaignContext,
+        channelRules,
       };
     },
   );
@@ -312,7 +344,18 @@ export async function generateMissionLive(
       Date.now() < Date.parse(data(current).startAt) ||
       Date.now() >= Date.parse(data(current).endAt) ||
       !valid.valid ||
-      hash(currentCampaignContext) !== hash(prepared.campaignContext)
+      hash(currentCampaignContext) !== hash(prepared.campaignContext) ||
+      hash(
+        await resolveChannelRules(
+          tx,
+          scope,
+          data(mission).channels[
+            (data(mission).completedRuns ?? 0) % data(mission).channels.length
+          ],
+          data(mission).contentType,
+          !!data(mission).assetIds?.length,
+        ),
+      ) !== hash(prepared.channelRules)
     )
       throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
     await markTransmitted(tx, scope, prepared.reservationId);
@@ -366,7 +409,18 @@ export async function generateMissionLive(
       Date.now() >= Date.parse(data(currentPolicy).endAt) ||
       Date.now() >= Date.parse(data(mission).endAt) ||
       !evidenceCheck.valid ||
-      hash(currentCampaignContext) !== hash(prepared.campaignContext)
+      hash(currentCampaignContext) !== hash(prepared.campaignContext) ||
+      hash(
+        await resolveChannelRules(
+          tx,
+          scope,
+          data(mission).channels[
+            (data(mission).completedRuns ?? 0) % data(mission).channels.length
+          ],
+          data(mission).contentType,
+          !!data(mission).assetIds?.length,
+        ),
+      ) !== hash(prepared.channelRules)
     )
       throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
     const m = data(mission);

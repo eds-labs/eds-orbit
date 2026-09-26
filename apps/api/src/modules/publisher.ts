@@ -15,6 +15,7 @@ import {
 } from "../shared.ts";
 import { preflight } from "./policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
+import { finalPostText } from "./channel-rules.ts";
 import { claimPublication, finishPublication, enqueue } from "./workflow.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   const credentials = await scoped(
@@ -124,11 +125,7 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
       },
     );
     if (!canSend) return { status: "blocked_dependency" };
-    const publishedText =
-      content.body +
-      (content.targetUrl && !content.body.includes(content.targetUrl)
-        ? "\n" + content.targetUrl
-        : "");
+    const publishedText = finalPostText(content.body, content.targetUrl);
     const result = await client.createPost({
       type: "now",
       date: new Date().toISOString(),

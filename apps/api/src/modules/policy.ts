@@ -3,6 +3,7 @@ import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { invalidateContent } from "./content-invalidation.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "./marketing-profile.ts";
+import { channelLimitExceeded, resolveChannelRules } from "./channel-rules.ts";
 import {
   policy as policySchema,
   type Scope,
@@ -130,7 +131,14 @@ export async function checkClaims(
   const covered = normalized(v.body) === normalized(allClaimText);
   if (!covered && v.humanReviewedBodyHash !== hash(v.body))
     problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
-  if (v.type === "social" && v.body.length > 280)
+  if (
+    v.type === "social" &&
+    channelLimitExceeded(
+      v.body,
+      v.targetUrl,
+      await resolveChannelRules(tx, scope, v.channel, v.type, !!v.assetId),
+    )
+  )
     problems.push("CHANNEL_LIMIT_EXCEEDED");
   problems.push(...(await profileGuardrailProblems(tx, scope, v)));
   return { valid: problems.length === 0, problems: [...new Set(problems)] };
@@ -260,15 +268,15 @@ export async function preflight(
     )
       blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
   }
-  const publishText =
-    c.body +
-    (c.targetUrl && !c.body.includes(c.targetUrl) ? "\n" + c.targetUrl : "");
-  if (c.type === "social" && publishText.length > 280)
-    blockers.push("CHANNEL_LIMIT_EXCEEDED");
   if (c.status !== "reviewed") blockers.push("REVIEW_REQUIRED");
   if (!options.test) {
     if (c.type !== "social")
       blockers.push("LIVE_CONTENT_PROVIDER_CAPABILITY_NOT_CONFIGURED");
+    else if (
+      !(await resolveChannelRules(tx, scope, c.channel, c.type, !!c.assetId))
+        .liveCapabilityKnown
+    )
+      blockers.push("CHANNEL_CAPABILITY_UNVERIFIED");
     if (process.env.ENABLE_EXTERNAL_WRITES !== "true")
       blockers.push("EXTERNAL_WRITES_DISABLED");
     const liveEvaluation = await validateActiveIndexEvaluation(tx, scope, at);

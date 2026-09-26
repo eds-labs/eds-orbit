@@ -611,7 +611,7 @@ export function MissionEditor({
       label: de ? "Primäre CTA" : "Primary CTA",
       type: "select",
       options: (
-        (profile.data?.data.primaryCtas as string[] | undefined) ?? []
+        (profile.data?.data?.primaryCtas as string[] | undefined) ?? []
       ).map((cta) => ({ value: cta, label: cta })),
       required: true,
     },
@@ -620,7 +620,7 @@ export function MissionEditor({
       label: de ? "Offizieller Ziel-Link" : "Official target link",
       type: "select",
       options: (
-        (profile.data?.data.officialLinks as
+        (profile.data?.data?.officialLinks as
           { label: string; url: string }[] | undefined) ?? []
       ).map((link) => ({
         value: link.url,

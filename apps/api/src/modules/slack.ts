@@ -30,6 +30,8 @@ import { preflight, approve } from "./policy.ts";
 import { enqueue } from "./workflow.ts";
 
 const slackId = z.string().regex(/^[A-Z][A-Z0-9]{2,39}$/);
+// The optional Slack digest embeds a short approval preview; longer drafts use web review.
+const SLACK_INLINE_APPROVAL_MAX_CHARACTERS = 280;
 export const slackConfiguration = z
   .object({
     botToken: z.string().regex(/^xoxb-[A-Za-z0-9-]{10,500}$/),
@@ -178,7 +180,7 @@ export async function queueSlackDigest(tx: DbTx, scope: Scope) {
         d.risk !== "routine" ||
         d.assetId ||
         typeof d.body !== "string" ||
-        d.body.length > 280
+        d.body.length > SLACK_INLINE_APPROVAL_MAX_CHARACTERS
       )
         continue;
       const p = await preflight(tx, scope, item.id, {

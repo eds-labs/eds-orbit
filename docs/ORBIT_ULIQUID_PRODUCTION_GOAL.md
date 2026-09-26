@@ -186,13 +186,13 @@ nach der Generierung bekannt werden.
 
 ## Phase 3 -- Channel-aware Rules \[P0\]
 
--   [ ] zentrale Channel-Capability/Rules-Auflösung
--   [ ] echte Provider-Identifier verwenden, wo verfügbar
--   [ ] pauschales `social <= 280` entfernen
--   [ ] gleiche Regeln in Generation und Preflight
--   [ ] finale Länge inkl. angehängter URL berücksichtigen
--   [ ] Tests für X, Telegram, LinkedIn und unknown provider
--   [ ] unbekannte Live-Fähigkeiten fail-closed
+-   [x] zentrale Channel-Capability/Rules-Auflösung
+-   [x] echte Provider-Identifier verwenden, wo verfügbar
+-   [x] pauschales `social <= 280` entfernen
+-   [x] gleiche Regeln in Generation und Preflight
+-   [x] finale Länge inkl. angehängter URL berücksichtigen
+-   [x] Tests für X, Telegram, LinkedIn und unknown provider
+-   [x] unbekannte Live-Fähigkeiten fail-closed
 
 **Acceptance:** Telegram/LinkedIn werden nicht durch X-Regeln blockiert.
 
@@ -304,7 +304,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26, after the Phase 2 local verification run.
+Status as observed on 2026-09-26, after the Phase 3 local verification run.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -318,6 +318,7 @@ live uLiquid acceptance.
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Migration/RLS and browser tests passed; profile v1 visible, generation contract not accepted. |
 | Shared generation contract | YES | YES | NO | NO | Local product/presale, invalid link, policy scope, profile and channel-change tests passed; verify uLiquid official URL fact/source model rights and allowed policy origins before deployment/acceptance. |
+| Channel-aware social rules | YES | YES | NO | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include an appended URL; uLiquid channels have not been accepted on the deployed revision. |
 | Single text draft | YES | YES | YES | PARTIAL | Local browser flow passed; three older Orbit drafts visible, no current Golden Path run. |
 | Brand assets | YES | YES | YES | NO | Local browser flow passed; uLiquid asset library empty and zero approved assets. |
 | Visual rendering | YES | YES | YES | NO | Local tests passed, but no approved uLiquid asset or accepted visual. |
@@ -396,6 +397,27 @@ nicht überschreiben.
 **Open blockers:** The contract is not deployed or accepted on uLiquid. Confirm that the selected uLiquid official-link fact and its source allow model use and that the active policy allows its URL origin. Existing uLiquid missions without an explicit target URL will need review or recreation before further generation. Five stale-source warnings/time-sensitive fact review, zero approved brand assets, no current Golden Path acceptance, action-specific readiness and off-host recovery remain open. Channel-specific character limits and provider constraints are Phase 3.
 
 **Next action:** Phase 3: resolve per-provider channel rules from assigned integration metadata, replace the global 280-character social limit in generation/claim checking/preflight, and prove Telegram and X behavior without external writes.
+
+### 2026-09-26 13:24 CEST -- Phase 3 -- Channel-aware social rules
+
+**Repo SHA before:** `3de6e73625edd6069756d95fc1529864eb9b6796`.
+**Repo SHA after:** Phase 3 local implementation commit (see Git history).
+**Deployment SHA:** `46ea2494a443d9b4d3a0c20774f92a0d5d753493` was last verified in the earlier baseline; production was not re-read in Phase 3 and no deployment was performed.
+**Status:** COMPLETE for local Phase 3 implementation and verification; `DEPLOYED = NO`, `ACCEPTED uLiquid = NO`, `ULIQUID_DRAFT_PRODUCTION_READY = NO`.
+
+**Inspected and changed:** The former `social <= 280` rule existed in claim checking and preflight; a separate Slack inline-approval preview also had a 280-character cutoff. Generation had `characterLimit: null`, while the campaign context read an assigned Postiz provider identifier independently. A single project-scoped resolver now uses the exact assigned integration ID and its Postiz `identifier`, rejecting ambiguous assignments. X uses a conservative 280-character weighted Unicode count; Telegram uses 4096 for text or 1024 when an asset makes the text a caption; LinkedIn uses 3000. The final text, including an official target URL appended by Orbit, is shared by review and publisher handoff. Generation receives the provider, counting method, limit, reserved URL characters and body budget; a changed connector/rule invalidates an in-flight generation. Unknown providers retain reviewable Orbit drafts but cause `CHANNEL_CAPABILITY_UNVERIFIED` at live preflight. The optional short Slack digest preview remains a Slack presentation limit, not a social-channel guardrail. A browser test revealed that opening a mission form in a project without a marketing profile could crash; optional profile fields are now read safely.
+
+**Rule evidence and limits:** [X character counting](https://docs.x.com/fundamentals/counting-characters.md) documents weighted Unicode, 280 and 23-character URLs; Orbit intentionally adds a 23-character allowance to each URL-like token and overcounts ambiguous Unicode rather than passing a potentially over-limit post. [Telegram Bot API](https://core.telegram.org/bots/api) documents 4096-message and 1024-media-caption maxima. Current [Postiz Telegram provider](https://github.com/gitroomhq/postiz-app/blob/main/libraries/nestjs-libraries/src/integrations/social/telegram.provider.ts) sends image text as a caption; its [LinkedIn provider](https://github.com/gitroomhq/postiz-app/blob/main/libraries/nestjs-libraries/src/integrations/social/linkedin.provider.ts) exposes 3000, and its [X provider](https://github.com/gitroomhq/postiz-app/blob/main/libraries/nestjs-libraries/src/integrations/social/x.provider.ts) exposes 280 for non-premium standard posts. Orbit does not infer premium or long-form privileges. These upstream limits require confirmation against the installed Postiz version and assigned uLiquid account before live acceptance.
+
+**Verification:** Node 24.18.0; focused generation/preflight tests **43/43 PASS**; full `pnpm test --pool=threads --maxWorkers=1` **323/323 tests, 26/26 files PASS** on an isolated migrated local database; `pnpm typecheck`, `pnpm lint`, `pnpm build`, `pnpm framework:check`, secret pattern scan, runtime artifact scan and `pnpm audit --audit-level high` all PASS. Full `pnpm test:e2e` **9/9 Chromium PASS** against a separate isolated browser database after fixing the missing-profile form crash. The first browser attempt used credentials from another local test database (9 sign-ins failed); a second run identified the form crash (8/9). A fresh browser account and the targeted fix yielded the final 9/9 result. The original ignored browser account file was restored; the Phase 3 test account is preserved separately in ignored runtime storage. No production data was changed.
+
+**Risk and rollback:** High-risk local publication-preflight change. Provider writes still require the existing policy, approval, write verification and execution flags. No migration or new dependency. Revert the single Phase 3 commit to restore prior code; validate deployed Postiz provider settings before any production enablement.
+
+**Costs / external effects:** Paid AI cost $0; new live RAG evaluation 0; index activation 0; external provider writes 0; public publications 0. Browser flows used only synthetic local state and internal test publication.
+
+**Open blockers:** Phase 3 code is not deployed or uLiquid-accepted. The current uLiquid Telegram and X assignments need provider-settings/readback confirmation on the installed Postiz version. Existing Phase 2 blockers remain: official URL fact/source model rights and policy origins, stale-source and time-sensitive fact review, zero approved brand assets, missing Golden Path acceptance, action-specific readiness and off-host recovery.
+
+**Next action:** Phase 4: reproduce the current live/presale wording conflict and replace status regex behavior with evidence-aware checks while preserving financial and unsupported-claim safeguards. No paid evaluation or provider write is needed for local inspection and tests.
 
 ## Template
 

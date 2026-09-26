@@ -7,7 +7,8 @@ import {
 } from "../../../packages/db/src/index.ts";
 import { create, update, data, hash } from "../src/shared.ts";
 import { reserve, settle } from "../src/modules/budget.ts";
-import { preflight, approve } from "../src/modules/policy.ts";
+import { preflight, approve, checkClaims } from "../src/modules/policy.ts";
+import { resolveChannelRules } from "../src/modules/channel-rules.ts";
 import {
   publishIntent,
   claimPublication,
@@ -184,6 +185,165 @@ describe.skipIf(!enabled)("Real PostgreSQL marketing control plane", () => {
     });
     const p = await run((tx) => preflight(tx, scope, c.id, { test: false }));
     expect(p.blockers).toContain("OBSERVE_FORBIDS_EXTERNAL_WRITE");
+  });
+  it.each([
+    ["x", 280, 281, 280],
+    ["telegram", 4096, 4097, 4096],
+    ["linkedin", 3000, 3001, 3000],
+  ] as const)(
+    "%s uses its assigned provider limit in claim review and preflight",
+    async (identifier, limit, tooLong, expectedLimit) => {
+      const content = await draft();
+      await run((tx) =>
+        create(tx, scope, "connectors", {
+          provider: "postiz",
+          status: "read_verified",
+          channels: [
+            {
+              id: "test-social",
+              name: "Display name is not the provider",
+              identifier,
+            },
+          ],
+          assignedIntegrationIds: ["test-social"],
+        }),
+      );
+      const rules = await run((tx) =>
+        resolveChannelRules(tx, scope, "test-social", "social", false),
+      );
+      expect(rules).toMatchObject({
+        providerIdentifier: identifier,
+        characterLimit: expectedLimit,
+        liveCapabilityKnown: true,
+      });
+      const within = await run((tx) =>
+        update(tx, scope, content, {
+          ...data(content),
+          body: "a".repeat(limit),
+        }),
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, scope, within.id))).problems,
+      ).not.toContain("CHANNEL_LIMIT_EXCEEDED");
+      const long = await run((tx) =>
+        update(tx, scope, within, {
+          ...data(within),
+          body: "a".repeat(tooLong),
+        }),
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, scope, long.id))).problems,
+      ).toContain("CHANNEL_LIMIT_EXCEEDED");
+      expect(
+        (await run((tx) => preflight(tx, scope, long.id, { test: true })))
+          .blockers,
+      ).toContain("CHANNEL_LIMIT_EXCEEDED");
+    },
+  );
+  it("counts the appended URL and weighted X Unicode, and Telegram media captions", async () => {
+    const content = await draft();
+    await run((tx) =>
+      create(tx, scope, "connectors", {
+        provider: "postiz",
+        status: "read_verified",
+        channels: [{ id: "test-social", name: "X", identifier: "x" }],
+        assignedIntegrationIds: ["test-social"],
+      }),
+    );
+    const withUrl = await run((tx) =>
+      update(tx, scope, content, {
+        ...data(content),
+        body: "a".repeat(260),
+        targetUrl: "https://example.org/learn",
+      }),
+    );
+    expect(
+      (await run((tx) => checkClaims(tx, scope, withUrl.id))).problems,
+    ).toContain("CHANNEL_LIMIT_EXCEEDED");
+    const punctuated = await run((tx) =>
+      update(tx, scope, withUrl, {
+        ...data(withUrl),
+        body: "a".repeat(255) + " https://a.co!!!",
+        targetUrl: undefined,
+      }),
+    );
+    expect(
+      (await run((tx) => checkClaims(tx, scope, punctuated.id))).problems,
+    ).toContain("CHANNEL_LIMIT_EXCEEDED");
+    const weighted = await run((tx) =>
+      update(tx, scope, punctuated, {
+        ...data(punctuated),
+        body: "漢".repeat(141),
+        targetUrl: undefined,
+      }),
+    );
+    expect(
+      (await run((tx) => checkClaims(tx, scope, weighted.id))).problems,
+    ).toContain("CHANNEL_LIMIT_EXCEEDED");
+    const connector: any = await run((tx) =>
+      tx.entity.findFirstOrThrow({
+        where: { projectId: scope.projectId, kind: "connectors" },
+      }),
+    );
+    await run((tx) =>
+      update(tx, scope, connector, {
+        ...data(connector),
+        channels: [
+          { id: "test-social", name: "Telegram", identifier: "telegram" },
+        ],
+      }),
+    );
+    expect(
+      (
+        await run((tx) =>
+          resolveChannelRules(tx, scope, "test-social", "social", true),
+        )
+      ).characterLimit,
+    ).toBe(1024);
+    const asset = await run((tx) =>
+      create(tx, scope, "assets", {
+        name: "Synthetic approved image",
+        type: "photo",
+        assetStatus: "approved",
+        usageApproved: true,
+        mime: "image/png",
+        base64: "synthetic",
+      }),
+    );
+    const caption = await run((tx) =>
+      update(tx, scope, weighted, {
+        ...data(weighted),
+        body: "a".repeat(1025),
+        assetId: asset.id,
+      }),
+    );
+    expect(
+      (await run((tx) => preflight(tx, scope, caption.id, { test: true })))
+        .blockers,
+    ).toContain("CHANNEL_LIMIT_EXCEEDED");
+  });
+  it("allows unknown-provider drafts but fails closed for live handoff", async () => {
+    const content = await draft();
+    await run((tx) =>
+      create(tx, scope, "connectors", {
+        provider: "postiz",
+        status: "read_verified",
+        channels: [
+          { id: "test-social", name: "Unknown", identifier: "future-network" },
+        ],
+        assignedIntegrationIds: ["test-social"],
+      }),
+    );
+    const long = await run((tx) =>
+      update(tx, scope, content, { ...data(content), body: "a".repeat(5000) }),
+    );
+    expect(
+      (await run((tx) => checkClaims(tx, scope, long.id))).problems,
+    ).not.toContain("CHANNEL_LIMIT_EXCEEDED");
+    expect(
+      (await run((tx) => preflight(tx, scope, long.id, { test: false })))
+        .blockers,
+    ).toContain("CHANNEL_CAPABILITY_UNVERIFIED");
   });
   it("A09/A11/A21: Assisted needs an exact once-consumed versioned approval", async () => {
     const c = await draft();
