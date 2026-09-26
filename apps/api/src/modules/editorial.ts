@@ -41,6 +41,7 @@ export function proposeBrief(raw: z.input<typeof briefProposalInput>) {
     unknowns: [
       "audience",
       "targetAction",
+      "targetUrl",
       "channels",
       "startAt",
       "endAt",

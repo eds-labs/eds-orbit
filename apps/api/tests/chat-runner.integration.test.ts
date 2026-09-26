@@ -136,7 +136,7 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         mode: "observe",
         channels: ["x-test"],
         contentTypes: ["social"],
-        allowedOrigins: [],
+        allowedOrigins: ["https://example.invalid"],
         startAt: past,
         endAt: future,
         maxPerDay: 0,
@@ -315,6 +315,7 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       endAt,
       maxContents: 1,
       targetAction: "Learn more.",
+      targetUrl: "https://example.invalid",
       sourceIds: [refs.source.id],
       contentType: "social",
       campaignType: "product",
@@ -379,7 +380,16 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         hash: stale.payloadHash,
         confirmationId: randomUUID(),
       }),
-    ).rejects.toThrow("FACT_CHANGED");
+    ).rejects.toThrow("OFFICIAL_LINK_FACT_NOT_CURRENT");
+    await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const fact = await tx.entity.findUniqueOrThrow({
+        where: { id: refs.fact.id },
+      });
+      await update(tx, scope, fact, {
+        ...data(fact),
+        value: "https://example.invalid",
+      });
+    });
     const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
       create(tx, scope, "assets", {
         name: "Approved synthetic logo",

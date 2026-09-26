@@ -25,6 +25,32 @@ import {
 import { policy } from "../../../../packages/schemas/src/index.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
+import { campaignGenerationContext } from "./marketing-profile.ts";
+type GenerationContract = {
+  goal: string;
+  audience: string;
+  product: string;
+  language: string;
+  channel: string;
+  contentType: string;
+  allowedTopics: string[];
+  channelConstraints: {
+    approvedChannels: string[];
+    approvedContentTypes: string[];
+    characterLimit: null;
+  };
+  missionId: string;
+  missionVersion: number;
+  projectGeneration: number;
+  policyId: string;
+  policyVersion: number;
+  costCeilingMicros: number;
+  evidenceId: string;
+  sourceIds: string[];
+  approvedAssetIds: string[];
+  campaign: Awaited<ReturnType<typeof campaignGenerationContext>> | null;
+  planContext: unknown;
+};
 export async function generateMissionLive(
   scope: Scope,
   missionId: string,
@@ -72,6 +98,27 @@ export async function generateMissionLive(
         },
       });
       if (reservation) throw new DomainError("RESERVATION_ALREADY_USED");
+      if (m.campaignType || m.profileVersion)
+        await campaignGenerationContext(
+          tx,
+          scope,
+          m,
+          m.channels[(m.completedRuns ?? 0) % m.channels.length],
+        );
+      const currentPolicy = await activePolicy(tx, scope);
+      if (!currentPolicy) throw new DomainError("POLICY_REQUIRED");
+      const activeScope = data(currentPolicy);
+      const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
+      if (
+        !activeScope.channels?.includes(channel) ||
+        !activeScope.contentTypes?.includes(m.contentType)
+      )
+        throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+      if (
+        m.targetUrl &&
+        !activeScope.allowedOrigins?.includes(new URL(m.targetUrl).origin)
+      )
+        throw new DomainError("LINK_NOT_ALLOWED", 409);
       route(
         m.contentType === "blog" ? "blog" : "draft",
         0,
@@ -138,13 +185,44 @@ export async function generateMissionLive(
           ),
         ),
       );
-      const goal = JSON.stringify({
+      const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
+      if (
+        !parsed.channels.includes(channel) ||
+        !parsed.contentTypes.includes(m.contentType)
+      )
+        throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+      if (
+        m.targetUrl &&
+        !parsed.allowedOrigins.includes(new URL(m.targetUrl).origin)
+      )
+        throw new DomainError("LINK_NOT_ALLOWED", 409);
+      const campaignContext =
+        m.campaignType || m.profileVersion
+          ? await campaignGenerationContext(tx, scope, m, channel)
+          : null;
+      const contract: GenerationContract = {
         goal: m.goal,
         audience: m.audience,
-        product: m.product,
+        product: campaignContext?.product ?? m.product,
         language: m.language,
-        channel: m.channels[(m.completedRuns ?? 0) % m.channels.length],
+        channel,
+        contentType: m.contentType,
         allowedTopics: m.allowedTopics ?? [],
+        channelConstraints: {
+          approvedChannels: parsed.channels,
+          approvedContentTypes: parsed.contentTypes,
+          characterLimit: null,
+        },
+        missionId,
+        missionVersion: mission.version,
+        projectGeneration: project.generation,
+        policyId: p.id,
+        policyVersion: p.version,
+        costCeilingMicros: parsed.perRunBudgetMicros,
+        evidenceId: evidence.id,
+        sourceIds: m.sourceIds,
+        approvedAssetIds: m.assetIds ?? [],
+        campaign: campaignContext,
         planContext: m.planContext
           ? {
               ...m.planContext,
@@ -152,7 +230,8 @@ export async function generateMissionLive(
               preferences: (m.planContext.preferences ?? []).slice(0, 20),
             }
           : null,
-      });
+      };
+      const goal = JSON.stringify(contract);
       const cost = estimateCost(
         model,
         Buffer.byteLength(JSON.stringify({ goal, evidence: data(evidence) })) +
@@ -200,6 +279,7 @@ export async function generateMissionLive(
         projectGeneration: project.generation,
         policyId: p.id,
         policyVersion: p.version,
+        campaignContext,
       };
     },
   );
@@ -207,6 +287,7 @@ export async function generateMissionLive(
     const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
     });
+    const mission = await entity(tx, scope, "missions", missionId);
     const current = await activePolicy(tx, scope);
     const valid = await validateEvidence(
       tx,
@@ -214,14 +295,24 @@ export async function generateMissionLive(
       prepared.evidence.id,
       new Date(),
     );
+    const currentCampaignContext = prepared.campaignContext
+      ? await campaignGenerationContext(
+          tx,
+          scope,
+          data(mission),
+          prepared.campaignContext.targetChannel,
+        )
+      : null;
     if (
       project.paused ||
       project.generation !== prepared.projectGeneration ||
+      mission.version !== prepared.mission.version ||
       current?.id !== prepared.policyId ||
       current?.version !== prepared.policyVersion ||
       Date.now() < Date.parse(data(current).startAt) ||
       Date.now() >= Date.parse(data(current).endAt) ||
-      !valid.valid
+      !valid.valid ||
+      hash(currentCampaignContext) !== hash(prepared.campaignContext)
     )
       throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
     await markTransmitted(tx, scope, prepared.reservationId);
@@ -257,6 +348,14 @@ export async function generateMissionLive(
       prepared.evidence.id,
       new Date(),
     );
+    const currentCampaignContext = prepared.campaignContext
+      ? await campaignGenerationContext(
+          tx,
+          scope,
+          data(mission),
+          prepared.campaignContext.targetChannel,
+        )
+      : null;
     if (
       project.paused ||
       project.generation !== prepared.projectGeneration ||
@@ -266,7 +365,8 @@ export async function generateMissionLive(
       Date.now() < Date.parse(data(currentPolicy).startAt) ||
       Date.now() >= Date.parse(data(currentPolicy).endAt) ||
       Date.now() >= Date.parse(data(mission).endAt) ||
-      !evidenceCheck.valid
+      !evidenceCheck.valid ||
+      hash(currentCampaignContext) !== hash(prepared.campaignContext)
     )
       throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
     const m = data(mission);
@@ -279,6 +379,9 @@ export async function generateMissionLive(
       missionId,
       campaignType: m.campaignType,
       profileVersion: m.profileVersion,
+      ...(prepared.campaignContext
+        ? { targetUrl: prepared.campaignContext.officialTargetUrl }
+        : {}),
       ...(m.assetIds?.length
         ? { assetId: m.assetIds[(m.completedRuns ?? 0) % m.assetIds.length] }
         : {}),

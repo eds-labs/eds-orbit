@@ -296,8 +296,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         asset.data.type === "original_logo",
     ).id as string;
 
-    await page.getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: "Assets" }).click();
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Assets" })
+      .click();
     await page.getByRole("button", { name: "Upload asset" }).click();
     dialog = page.getByRole("dialog", { name: "Upload brand asset" });
     await dialog.getByLabel("Asset name").fill("Browser visual asset");
@@ -330,8 +332,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         asset.data.name === "Browser visual asset",
     ).id as string;
 
-    await page.getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: "Settings" }).click();
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Settings" })
+      .click();
     await page.getByRole("button", { name: "Configure project" }).click();
     dialog = page.getByRole("dialog", { name: "Project configuration" });
     await dialog
@@ -412,8 +416,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       },
     );
     await page.reload();
-    await page.getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: "Assets" }).click();
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Assets" })
+      .click();
     await page.getByRole("button", { name: "Generate with OpenAI" }).click();
     dialog = page.getByRole("dialog", { name: "Generate reference artwork" });
     await expect(
@@ -438,7 +444,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       mode: "assisted",
       channels: ["test-social"],
       contentTypes: ["social"],
-      allowedOrigins: [],
+      allowedOrigins: ["https://orbit.example.test"],
       startAt: new Date(Date.now() - 3600_000).toISOString(),
       endAt: new Date(Date.now() + 86400_000).toISOString(),
       maxPerDay: 2,
@@ -460,7 +466,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .getByLabel("Describe your objective")
       .fill("Explain orbit.browser.status from approved facts.");
     await dialog.getByLabel("Audience").fill("Synthetic acceptance audience");
-    await dialog.getByLabel("Measurable target action").fill("Learn more.");
+    await dialog.getByLabel("Primary CTA").selectOption("Learn more.");
+    await dialog
+      .getByLabel("Official target link")
+      .selectOption("https://orbit.example.test");
     await dialog.getByLabel("Allowed channels").fill("test-social");
     await dialog.getByLabel("Maximum content packages").fill("1");
     await dialog
@@ -811,7 +820,10 @@ test("editable local brief, private community groups, calendar blocks and owner 
     .getByLabel("Allowed topics")
     .fill("document export, documentation");
   await dialog.getByLabel("Audience").fill("Synthetic documentation readers");
-  await dialog.getByLabel("Measurable target action").fill("Learn more.");
+  await dialog.getByLabel("Primary CTA").selectOption("Learn more.");
+  await dialog
+    .getByLabel("Official target link")
+    .selectOption("https://orbit.example.test/editorial");
   await dialog.getByLabel("Allowed channels").fill("test-editorial");
   await dialog.getByLabel("Maximum content packages").fill("1");
   await dialog
@@ -829,6 +841,9 @@ test("editable local brief, private community groups, calendar blocks and owner 
     await page.request.get(`/api/projects/${projectId}/missions`)
   ).json();
   expect(missions.items[0].data.allowedActions).not.toContain("publish_live");
+  expect(missions.items[0].data.targetUrl).toBe(
+    "https://orbit.example.test/editorial",
+  );
   expect(missions.items[0].data.allowedTopics).toEqual([
     "document export",
     "documentation",

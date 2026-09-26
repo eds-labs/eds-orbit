@@ -122,7 +122,7 @@ import {
   exception,
   hash,
 } from "./shared.ts";
-import { approve, preflight } from "./modules/policy.ts";
+import { activePolicy, approve, preflight } from "./modules/policy.ts";
 import { invalidateContent } from "./modules/content-invalidation.ts";
 import {
   currentMarketingProfile,
@@ -1016,6 +1016,17 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       else if (collection === "missions") {
         parsed = { ...schemas.mission.parse(req.body), status: "ready" };
         await assertCampaignContext(tx, scope, parsed);
+        const active = await activePolicy(tx, scope);
+        if (active) {
+          const mandate = data(active);
+          if (
+            parsed.channels.some((channel: string) => !mandate.channels?.includes(channel)) ||
+            !mandate.contentTypes?.includes(parsed.contentType)
+          )
+            throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+          if (!mandate.allowedOrigins?.includes(new URL(parsed.targetUrl).origin))
+            throw new DomainError("LINK_NOT_ALLOWED", 409);
+        }
         await assertMissionAssets(tx, scope, parsed.assetIds);
       } else if (collection === "content") {
         parsed = {

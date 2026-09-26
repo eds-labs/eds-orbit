@@ -3,6 +3,7 @@ import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, entity, list, update, audit, DomainError } from "../shared.ts";
 import { invalidateContent } from "./content-invalidation.ts";
+import { assignedPostizChannels } from "./postiz-assignment.ts";
 
 export type MarketingProfile = ReturnType<typeof marketingProfile.parse>;
 
@@ -99,6 +100,7 @@ export async function assertCampaignContext(
   tx: DbTx,
   scope: Scope,
   input: Record<string, unknown>,
+  at = new Date(),
 ) {
   const profile = await currentMarketingProfile(tx, scope);
   if (!profile) throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
@@ -107,12 +109,98 @@ export async function assertCampaignContext(
   if (input.campaignType !== "product" && input.campaignType !== "presale")
     throw new DomainError("CAMPAIGN_TYPE_REQUIRED", 409);
   const profileData = marketingProfile.parse(profile.data);
-  if (
-    typeof input.targetAction === "string" &&
-    !profileData.primaryCtas.includes(input.targetAction)
-  )
+  if (!profileData.primaryCtas.includes(String(input.targetAction ?? "")))
     throw new DomainError("CAMPAIGN_PRIMARY_CTA_NOT_APPROVED", 409);
+  if (input.language !== profileData.contentLanguage)
+    throw new DomainError("CAMPAIGN_LANGUAGE_NOT_APPROVED", 409);
+  if (typeof input.targetUrl !== "string" || !input.targetUrl)
+    throw new DomainError("CAMPAIGN_TARGET_URL_REQUIRED", 409);
+  const link = profileData.officialLinks.find(
+    (item) => item.url === input.targetUrl,
+  );
+  if (!link) throw new DomainError("TARGET_URL_NOT_OFFICIAL", 409);
+  const fact = data(await entity(tx, scope, "facts", link.factId));
+  if (
+    fact.status !== "verified" ||
+    fact.publicUse !== true ||
+    Date.parse(fact.validFrom) > at.valueOf() ||
+    (fact.validUntil && Date.parse(fact.validUntil) <= at.valueOf()) ||
+    String(fact.value?.amount ?? fact.value ?? "") !== link.url
+  )
+    throw new DomainError("OFFICIAL_LINK_FACT_NOT_CURRENT", 409);
+  const source = data(await entity(tx, scope, "sources", fact.sourceId));
+  if (source.status !== "active" || source.publicUse !== true)
+    throw new DomainError("OFFICIAL_LINK_SOURCE_NOT_APPROVED", 409);
   return profile;
+}
+
+export async function campaignGenerationContext(
+  tx: DbTx,
+  scope: Scope,
+  mission: Record<string, any>,
+  targetChannel: string,
+  at = new Date(),
+) {
+  const profile = await assertCampaignContext(tx, scope, mission, at);
+  const value = marketingProfile.parse(profile.data);
+  const link = value.officialLinks.find(
+    (item) => item.url === mission.targetUrl,
+  )!;
+  const linkFact = await entity(tx, scope, "facts", link.factId);
+  const linkSource = data(
+    await entity(tx, scope, "sources", data(linkFact).sourceId),
+  );
+  if (data(linkFact).modelUse !== true || linkSource.modelUse !== true)
+    throw new DomainError("OFFICIAL_LINK_FACT_MODEL_USE_REQUIRED", 409);
+  const connectors =
+    mission.contentType === "social"
+      ? await tx.entity.findMany({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: "connectors",
+          },
+        })
+      : [];
+  const assignedChannel = connectors
+    .filter(
+      (row) =>
+        data(row).provider === "postiz" &&
+        ["read_verified", "write_verified"].includes(data(row).status),
+    )
+    .flatMap((row) =>
+      assignedPostizChannels(data(row)).map((channel: any) => ({
+        row,
+        channel,
+      })),
+    )
+    .find((item) => item.channel.id === targetChannel);
+  return {
+    projectId: scope.projectId,
+    profileId: profile.id,
+    profileVersion: profile.version,
+    campaignType: mission.campaignType as "product" | "presale",
+    product: value.productName,
+    requestedProduct: mission.product ?? "",
+    audience: mission.audience,
+    profileAudience: value.audience,
+    language: value.contentLanguage,
+    targetChannel,
+    channelProvider: assignedChannel?.channel.identifier ?? null,
+    channelConnectorId: assignedChannel?.row.id ?? null,
+    channelConnectorVersion: assignedChannel?.row.version ?? null,
+    positioning: value.positioning,
+    strategy:
+      mission.campaignType === "presale"
+        ? value.presaleStrategy
+        : value.productStrategy,
+    voice: value.voice,
+    guardrails: value.guardrails,
+    intendedPrimaryCta: mission.targetAction as string,
+    officialTargetUrl: link.url,
+    officialLinkFactId: link.factId,
+    officialLinkFactVersion: linkFact.version,
+  };
 }
 
 export async function assertContentCampaignContext(
@@ -126,6 +214,9 @@ export async function assertContentCampaignContext(
   const profile = await assertCampaignContext(tx, scope, {
     campaignType: input.campaignType ?? m.campaignType,
     profileVersion: input.profileVersion ?? m.profileVersion,
+    targetAction: m.targetAction,
+    targetUrl: m.targetUrl,
+    language: m.language,
   });
   if (
     input.campaignType !== m.campaignType ||
@@ -135,9 +226,8 @@ export async function assertContentCampaignContext(
   if (!m.channels.includes(input.channel) || m.contentType !== input.type)
     throw new DomainError("MISSION_SCOPE_NOT_ALLOWED", 409);
   const profileData = marketingProfile.parse(profile.data);
-  const allowedLinks = new Set(profileData.officialLinks.map((x) => x.url));
-  if (input.targetUrl && !allowedLinks.has(input.targetUrl))
-    throw new DomainError("TARGET_URL_NOT_OFFICIAL", 409);
+  if (input.targetUrl !== m.targetUrl)
+    throw new DomainError("CONTENT_TARGET_URL_MISMATCH", 409);
   if (input.assetId) {
     const asset = data(await entity(tx, scope, "assets", input.assetId));
     if (asset.usageApproved !== true || asset.assetStatus !== "approved")
@@ -183,6 +273,8 @@ export async function profileGuardrailProblems(
     problems.push(
       ctas.length > 1 ? "MULTIPLE_PRIMARY_CTAS" : "PRIMARY_CTA_REQUIRED",
     );
+  else if (ctas[0] !== data(context.mission).targetAction)
+    problems.push("MISSION_PRIMARY_CTA_REQUIRED");
   if (/\b(?:is|status:)\s*(?:live|launched|released|coming soon)\b/i.test(body))
     problems.push("UNSUPPORTED_FEATURE_STATUS_VOCABULARY");
   if (

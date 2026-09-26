@@ -608,7 +608,24 @@ export function MissionEditor({
     { name: "audience", label: de ? "Zielgruppe" : "Audience", required: true },
     {
       name: "targetAction",
-      label: de ? "Messbare Zielaktion" : "Measurable target action",
+      label: de ? "Primäre CTA" : "Primary CTA",
+      type: "select",
+      options: (
+        (profile.data?.data.primaryCtas as string[] | undefined) ?? []
+      ).map((cta) => ({ value: cta, label: cta })),
+      required: true,
+    },
+    {
+      name: "targetUrl",
+      label: de ? "Offizieller Ziel-Link" : "Official target link",
+      type: "select",
+      options: (
+        (profile.data?.data.officialLinks as
+          { label: string; url: string }[] | undefined) ?? []
+      ).map((link) => ({
+        value: link.url,
+        label: `${link.label} · ${link.url}`,
+      })),
       required: true,
     },
     {
@@ -734,6 +751,7 @@ export function MissionEditor({
                 endAt: iso(v, "endAt"),
                 maxContents: num(v, "maxContents"),
                 targetAction: str(v, "targetAction"),
+                targetUrl: str(v, "targetUrl"),
                 ...(str(v, "targetValue")
                   ? { targetValue: num(v, "targetValue") }
                   : {}),
@@ -957,7 +975,7 @@ export function ContentEditor({
         value: mission.id,
         label: `${value(mission, "title")} · ${value(mission, "campaignType", "legacy")}`,
       })),
-      hint: "Every new draft belongs to one product or presale campaign.",
+      hint: "Every draft belongs to a campaign and inherits its official target link.",
     },
     {
       name: "evidenceId",
@@ -987,12 +1005,6 @@ export function ContentEditor({
           value: f.id,
           label: `${value(f, "key")}: ${value(f, "value")}`,
         })),
-    },
-    {
-      name: "targetUrl",
-      label: "Target URL",
-      type: "url",
-      value: d?.targetUrl as string,
     },
     {
       name: "scheduledAt",
@@ -1119,6 +1131,13 @@ export function ContentEditor({
                 throw new Error(
                   "Select the verified fact that supports your claim.",
                 );
+              const selectedMission = missions.data?.items.find(
+                (mission) => mission.id === str(v, "missionId"),
+              );
+              if (!selectedMission?.data.targetUrl)
+                throw new Error(
+                  "Select a campaign with an official target link.",
+                );
               const data = {
                 title: str(v, "title"),
                 body: str(v, "body"),
@@ -1136,9 +1155,7 @@ export function ContentEditor({
                       },
                     ]
                   : entity?.data.claims || [],
-                ...(str(v, "targetUrl")
-                  ? { targetUrl: str(v, "targetUrl") }
-                  : {}),
+                targetUrl: selectedMission.data.targetUrl,
                 ...(str(v, "scheduledAt")
                   ? { scheduledAt: iso(v, "scheduledAt") }
                   : {}),

@@ -294,6 +294,8 @@ export async function createProposal(
     );
     if (parsed.channels.some((channel) => !p.channels.includes(channel)))
       throw new DomainError("CHANNEL_NOT_APPROVED", 409);
+    if (!p.allowedOrigins.includes(new URL(parsed.targetUrl!).origin))
+      throw new DomainError("LINK_NOT_ALLOWED", 409);
     if (parsed.contentType === "social")
       await assertAssignedSocialChannels(tx, scope, parsed.channels);
     if (
@@ -450,6 +452,7 @@ export async function confirmProposal(
     if (
       !policy.approvedPaidTests ||
       mission.channels.some((channel) => !policy.channels.includes(channel)) ||
+      !policy.allowedOrigins.includes(new URL(mission.targetUrl!).origin) ||
       Date.parse(mission.endAt) > Date.parse(policy.endAt) ||
       Date.parse(mission.endAt) <= Date.now() ||
       payload.firstDraftMaxMicros > policy.perRunBudgetMicros

@@ -19,6 +19,7 @@ import {
 } from "../shared.ts";
 import { preflight, checkClaims } from "./policy.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
+import { campaignGenerationContext } from "./marketing-profile.ts";
 export async function enqueue(
   tx: DbTx,
   scope: Scope,
@@ -83,6 +84,15 @@ export async function deterministicDraft(
   }
   const m = await entity(tx, scope, "missions", missionId),
     v = data(m);
+  const campaign =
+    v.campaignType || v.profileVersion
+      ? await campaignGenerationContext(
+          tx,
+          scope,
+          v,
+          v.channels[(v.completedRuns ?? 0) % v.channels.length],
+        )
+      : null;
   await assertMissionAssets(tx, scope, v.assetIds ?? []);
   if (new Date(v.endAt) <= new Date()) throw new DomainError("MISSION_EXPIRED");
   if (new Date(v.startAt) > new Date())
@@ -160,6 +170,7 @@ export async function deterministicDraft(
       : {}),
     campaignType: v.campaignType,
     profileVersion: v.profileVersion,
+    ...(campaign ? { targetUrl: campaign.officialTargetUrl } : {}),
     evidenceId,
     claims,
     risk: "routine",

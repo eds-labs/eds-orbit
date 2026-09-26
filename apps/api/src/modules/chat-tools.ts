@@ -6,6 +6,8 @@ import { assetTools } from "./asset-tools.ts";
 import { readiness } from "./readiness.ts";
 import { assignedPostizChannels } from "./postiz-assignment.ts";
 import { data, list } from "../shared.ts";
+import { currentMarketingProfile } from "./marketing-profile.ts";
+import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
 
 export type ChatCard = {
   kind: "source" | "asset" | "link" | "status";
@@ -115,6 +117,10 @@ export async function runReadTool(
           status: data(c).status,
         }));
       const state = await readiness(tx, scope);
+      const profileRow = await currentMarketingProfile(tx, scope);
+      const profile = profileRow
+        ? marketingProfile.parse(profileRow.data)
+        : null;
       return {
         result: {
           project: {
@@ -126,6 +132,14 @@ export async function runReadTool(
             paused: project.paused,
           },
           now: new Date().toISOString(),
+          marketingProfile: profile
+            ? {
+                version: profileRow!.version,
+                language: profile.contentLanguage,
+                primaryCtas: profile.primaryCtas,
+                officialLinks: profile.officialLinks,
+              }
+            : null,
           availableChannels,
           policy: active
             ? {

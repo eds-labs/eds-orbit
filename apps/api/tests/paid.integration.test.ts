@@ -26,6 +26,10 @@ import {
 } from "../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
+import {
+  assertContentCampaignContext,
+  profileGuardrailProblems,
+} from "../src/modules/marketing-profile.ts";
 const provider = vi.hoisted(() => ({ generate: vi.fn(), embed: vi.fn() }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => ({
   ...(await importOriginal<
@@ -202,6 +206,233 @@ describe.skipIf(!enabled)(
         }),
       );
     }
+    async function setCampaign(campaignType: "product" | "presale") {
+      const targetUrl = "https://official.example.invalid/learn";
+      await run(async (tx) => {
+        const link = await create(tx, s, "facts", {
+          key: "official.link",
+          value: targetUrl,
+          valueType: "url",
+          language: "en",
+          sourceId,
+          validFrom: new Date(Date.now() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        await tx.projectMarketingProfile.create({
+          data: {
+            workspaceId: s.workspaceId,
+            projectId: s.projectId,
+            version: 1,
+            data: {
+              productName: "Approved product",
+              contentLanguage: "en",
+              internalLanguage: "en",
+              audience: "Approved audience",
+              positioning: "Evidence-led explanation",
+              productStrategy: "Explain the product workflow",
+              presaleStrategy: "State only verified presale facts",
+              voice: ["Clear and natural"],
+              guardrails: ["No guaranteed returns"],
+              primaryCtas: ["Learn more."],
+              channelPriority: ["test"],
+              notificationPreference: "none",
+              officialLinks: [
+                { label: "Official", url: targetUrl, factId: link.id },
+              ],
+              assetPolicy: "approved_only",
+            },
+          },
+        });
+        await create(tx, s, "connectors", {
+          provider: "postiz",
+          status: "read_verified",
+          channels: [{ id: "test", name: "Synthetic X", identifier: "x" }],
+          assignedIntegrationIds: ["test"],
+        });
+        const currentPolicy = await tx.entity.findFirstOrThrow({
+          where: { projectId: s.projectId, kind: "policies" },
+        });
+        await update(tx, s, currentPolicy, {
+          ...data(currentPolicy),
+          allowedOrigins: ["https://official.example.invalid"],
+        });
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        await update(tx, s, mission, {
+          ...data(mission),
+          campaignType,
+          profileVersion: 1,
+          targetAction: "Learn more.",
+          targetUrl,
+        });
+      });
+      return targetUrl;
+    }
+    it.each(["product", "presale"] as const)(
+      "%s generation uses the current profile, intended CTA and official link",
+      async (campaignType) => {
+        const targetUrl = await setCampaign(campaignType);
+        const content = await generateMissionLive(s, missionId, randomUUID());
+        const goal = JSON.parse(provider.generate.mock.calls[0]![0].goal);
+        expect(goal.campaign).toMatchObject({
+          profileVersion: 1,
+          campaignType,
+          product: "Approved product",
+          language: "en",
+          intendedPrimaryCta: "Learn more.",
+          officialTargetUrl: targetUrl,
+          targetChannel: "test",
+          channelProvider: "x",
+          voice: ["Clear and natural"],
+          guardrails: ["No guaranteed returns"],
+          strategy:
+            campaignType === "presale"
+              ? "State only verified presale facts"
+              : "Explain the product workflow",
+        });
+        expect(goal).toMatchObject({
+          missionId,
+          evidenceId: data(content).evidenceId,
+          channel: "test",
+          contentType: "social",
+          channelConstraints: {
+            approvedChannels: ["test"],
+            approvedContentTypes: ["social"],
+            characterLimit: null,
+          },
+        });
+        expect(data(content).targetUrl).toBe(targetUrl);
+        await expect(
+          run((tx) =>
+            assertContentCampaignContext(tx, s, {
+              ...data(content),
+              targetUrl: "https://other.example.invalid",
+            }),
+          ),
+        ).rejects.toThrow("CONTENT_TARGET_URL_MISMATCH");
+        expect(
+          await run((tx) => profileGuardrailProblems(tx, s, data(content))),
+        ).toContain("PRIMARY_CTA_REQUIRED");
+      },
+    );
+    it("rejects a stale profile before any paid query or text call", async () => {
+      await setCampaign("product");
+      await run((tx) =>
+        tx.projectMarketingProfile.updateMany({
+          where: { projectId: s.projectId },
+          data: { version: 2 },
+        }),
+      );
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("MARKETING_PROFILE_VERSION_REQUIRED");
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(provider.generate).not.toHaveBeenCalled();
+    });
+    it("rejects a non-official target URL before any paid call", async () => {
+      await setCampaign("product");
+      await run(async (tx) => {
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        await update(tx, s, mission, {
+          ...data(mission),
+          targetUrl: "https://unapproved.example.invalid",
+        });
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("TARGET_URL_NOT_OFFICIAL");
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(provider.generate).not.toHaveBeenCalled();
+    });
+    it("rejects a channel outside the policy before any paid call", async () => {
+      await setCampaign("product");
+      await run(async (tx) => {
+        const current = await tx.entity.findFirstOrThrow({
+          where: { projectId: s.projectId, kind: "policies" },
+        });
+        await update(tx, s, current, {
+          ...data(current),
+          channels: ["different"],
+        });
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("SCOPE_NOT_ALLOWED");
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(provider.generate).not.toHaveBeenCalled();
+    });
+    it("rejects a policy-disallowed official link before any paid call", async () => {
+      await setCampaign("product");
+      await run(async (tx) => {
+        const current = await tx.entity.findFirstOrThrow({
+          where: { projectId: s.projectId, kind: "policies" },
+        });
+        await update(tx, s, current, {
+          ...data(current),
+          allowedOrigins: [],
+        });
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("LINK_NOT_ALLOWED");
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(provider.generate).not.toHaveBeenCalled();
+    });
+    it("rejects a withdrawn official-link source before any paid call", async () => {
+      await setCampaign("product");
+      await run((tx) => setSourceRights(tx, s, sourceId, { modelUse: false }));
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("OFFICIAL_LINK_FACT_MODEL_USE_REQUIRED");
+      expect(provider.embed).not.toHaveBeenCalled();
+      expect(provider.generate).not.toHaveBeenCalled();
+    });
+    it("settles model cost and refuses output when the profile changes in flight", async () => {
+      await setCampaign("product");
+      provider.generate.mockImplementation(async () => {
+        await run((tx) =>
+          tx.projectMarketingProfile.updateMany({
+            where: { projectId: s.projectId },
+            data: { version: 2 },
+          }),
+        );
+        return generated();
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("MARKETING_PROFILE_VERSION_REQUIRED");
+      await settled("text", 77n);
+      expect(
+        await run((tx) => tx.entity.count({ where: { kind: "content" } })),
+      ).toBe(0);
+    });
+    it("rejects output when the assigned channel changes during generation", async () => {
+      await setCampaign("product");
+      provider.generate.mockImplementation(async () => {
+        await run(async (tx) => {
+          const connector = await tx.entity.findFirstOrThrow({
+            where: { projectId: s.projectId, kind: "connectors" },
+          });
+          await update(tx, s, connector, {
+            ...data(connector),
+            assignedIntegrationIds: [],
+          });
+        });
+        return generated();
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
+      await settled("text", 77n);
+      expect(
+        await run((tx) => tx.entity.count({ where: { kind: "content" } })),
+      ).toBe(0);
+    });
     it("A12/SR01: source withdrawal after model response records cost, refuses content, and retry makes no paid call", async () => {
       const jobId = randomUUID();
       provider.generate.mockImplementation(async () => {

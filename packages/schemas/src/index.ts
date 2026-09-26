@@ -63,6 +63,7 @@ export const mission = z
     endAt: z.iso.datetime(),
     maxContents: z.number().int().min(1).max(30),
     targetAction: z.string().max(300),
+    targetUrl: z.url().optional(),
     targetValue: z.number().nonnegative().optional(),
     sourceIds: z.array(id).max(30).default([]),
     assetIds: z.array(id).max(10).default([]),

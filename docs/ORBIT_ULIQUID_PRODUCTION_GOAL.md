@@ -172,14 +172,14 @@ CTA, Official Target URL, Evidence/Source References, Approved Asset
 IDs, Channel Constraints, Mission ID/Version, Policy ID/Version und Cost
 Ceiling.
 
--   [ ] Chat Proposal → Mission → Generation → Preflight tracen
--   [ ] gemeinsamen typisierten Generation Context
+-   [x] Chat Proposal → Mission → Generation → Preflight tracen
+-   [x] gemeinsamen typisierten Generation Context
     einführen/wiederverwenden
--   [ ] Generator und Guardrails daraus speisen
--   [ ] Official Links aus aktuellem verifiziertem Profil/Fakten
--   [ ] Intended CTA explizit übergeben
--   [ ] Profile-Version-Invalidierung erhalten
--   [ ] Product-/Presale-Regressionstests
+-   [x] Generator und Guardrails daraus speisen
+-   [x] Official Links aus aktuellem verifiziertem Profil/Fakten
+-   [x] Intended CTA explizit übergeben
+-   [x] Profile-Version-Invalidierung erhalten
+-   [x] Product-/Presale-Regressionstests
 
 **Acceptance:** Draft scheitert nicht mehr nur deshalb, weil Regeln erst
 nach der Generierung bekannt werden.
@@ -304,7 +304,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26, after the Phase 1 local verification run.
+Status as observed on 2026-09-26, after the Phase 2 local verification run.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -317,6 +317,7 @@ live uLiquid acceptance.
 | Hybrid retrieval | YES | YES | YES | VERIFY | Local exact SQL/evaluation tests passed; current Chat retrieval mode not measured. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Migration/RLS and browser tests passed; profile v1 visible, generation contract not accepted. |
+| Shared generation contract | YES | YES | NO | NO | Local product/presale, invalid link, policy scope, profile and channel-change tests passed; verify uLiquid official URL fact/source model rights and allowed policy origins before deployment/acceptance. |
 | Single text draft | YES | YES | YES | PARTIAL | Local browser flow passed; three older Orbit drafts visible, no current Golden Path run. |
 | Brand assets | YES | YES | YES | NO | Local browser flow passed; uLiquid asset library empty and zero approved assets. |
 | Visual rendering | YES | YES | YES | NO | Local tests passed, but no approved uLiquid asset or accepted visual. |
@@ -374,6 +375,27 @@ nicht überschreiben.
 **Open blockers:** Current uLiquid draft/visual/Drive acceptance, stale-source review, zero approved assets, action-specific readiness and off-host recovery remain outside Phase 1. CI on the new documentation commit and a production deployment of that commit were not run; the activation fix itself is deployed.
 
 **Next action:** Phase 2: trace Chat proposal → Mission → Generation → Preflight, compare the actual profile/CTA/evidence fields, then implement the smallest shared generation contract with regression tests. No paid call or external write is needed for that inspection.
+
+### 2026-09-26 12:35 CEST -- Phase 2 -- Shared generation contract
+
+**Repo SHA before:** `2e213379f37502911a3bcd79139865ec953e4f57`.
+**Repo SHA after:** Phase 2 local implementation commit (see Git history).
+**Deployment SHA:** `46ea2494a443d9b4d3a0c20774f92a0d5d753493`; no deployment performed.
+**Status:** COMPLETE for local Phase 2 implementation and verification; `DEPLOYED = NO`, `ACCEPTED uLiquid = NO`, `ULIQUID_DRAFT_PRODUCTION_READY = NO`.
+
+**Inspected and changed:** Chat proposals and the manual mission form previously carried a profile version and primary CTA but no selected official target URL. Live generation passed only a short goal, audience, product, language, channel and topics to OpenAI; current profile voice, strategy, guardrails, CTA and official link were checked after drafting. A typed generation contract now binds project/generation, mission/version, policy/version and cost ceiling, evidence/source and approved asset references, campaign/profile, product/audiences/language, product or presale strategy, voice/guardrails, selected CTA, verified official URL fact/source rights/version and selected channel/provider. Current policy channel/type scope and allowed link origin are checked before any paid retrieval; Chat proposals and manual mission creation also check an active policy. No channel character limit is inferred: the contract records `characterLimit: null` until Phase 3 resolves provider-specific rules. Mission creation and Chat proposals require a CTA and URL from the current profile; browser-authored and deterministic drafts inherit the mission URL. Preflight rejects a changed or missing mission URL and the wrong primary CTA. Live generation rechecks the mission, profile, URL fact/source rights and channel assignment before model transmission and after the model response; an in-flight change discards the draft after settling known cost.
+
+**Verification:** Node 24.18.0; `pnpm lint` PASS; `pnpm typecheck` PASS; final `pnpm build` PASS; full `pnpm test --pool=threads --maxWorkers=1` **315/315 tests, 26/26 files PASS** on a fresh migrated and least-privilege local database; `pnpm test:e2e` **9/9 Chromium PASS** on the local app, including mission CTA/official-link selection and the Knowledge → Mission → Review → test publication → revocation flow. `pnpm framework:check` PASS (0 errors/0 warnings); `python3 scripts/check-secrets.py` PASS (540 candidate files); `python3 scripts/check-runtime-artifacts.py` PASS (39 generated files); `pnpm audit --audit-level high` found no known vulnerabilities. The deterministic local knowledge run recorded 64 cases and provider cost 0; no live RAG evaluation was run.
+
+**Test environment note:** An initial full Vitest run passed 249 tests but could not start two fork workers. A second run passed 309/310 with the worker lifecycle timing out against the reused Phase 1 database. A fresh isolated Phase 2 database completed the full suite. Initial Playwright failure was caused by a running local API process predating the deterministic-draft change; after restarting that process, the focused flow and full 9-test suite passed. No production state was used to resolve these local test issues.
+
+**Risk and rollback:** High-risk local generation-path change, no migration or new dependency. A mismatch fails closed before a new paid call where possible; after transmission, known provider cost is settled and content is withheld. Revert the single Phase 2 commit to restore the previous code and form behavior. Deploy and real uLiquid acceptance remain separate decisions.
+
+**Costs / external effects:** Paid AI cost $0; new live evaluation 0; index activation 0; external provider writes 0; public publications 0. Playwright created only synthetic local data and an internal test publication.
+
+**Open blockers:** The contract is not deployed or accepted on uLiquid. Confirm that the selected uLiquid official-link fact and its source allow model use and that the active policy allows its URL origin. Existing uLiquid missions without an explicit target URL will need review or recreation before further generation. Five stale-source warnings/time-sensitive fact review, zero approved brand assets, no current Golden Path acceptance, action-specific readiness and off-host recovery remain open. Channel-specific character limits and provider constraints are Phase 3.
+
+**Next action:** Phase 3: resolve per-provider channel rules from assigned integration metadata, replace the global 280-character social limit in generation/claim checking/preflight, and prove Telegram and X behavior without external writes.
 
 ## Template
 
