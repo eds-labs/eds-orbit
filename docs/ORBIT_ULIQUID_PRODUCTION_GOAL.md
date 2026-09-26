@@ -305,25 +305,25 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-26 after the authorized Phase 6 live attempt. The running revision is `6f679becad065f6b4f07a1add26a7a68a5dcd67e`; the local Chat retrieval/asset correction below is not deployed.
+Status as observed on 2026-09-26 after the second authorized Phase 6 live attempt. The running revision is `4ab48c3b3edb51e13fc7630a056300caa3113bdd`; proposal diagnostics below are local only.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
 
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
-| Orbit Chat | YES | YES | YES | PARTIAL | Authorized live Chat run completed but saved no proposal; exact asset-ID lookup and focused fact retrieval need the tested local correction deployed. |
-| OpenAI text generation | YES | YES | YES | PARTIAL | One bounded paid Chat run completed on 2026-09-26 for approximately $0.03 incremental spend; no accepted draft resulted. |
-| Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources. This review does not clear their sync warnings. |
-| Hybrid retrieval | YES | YES | YES | PARTIAL | Live Chat reported hybrid retrieval on active generation 2, but broad query returned `insufficient_evidence` / `fact_context_limit`. No new RAG evaluation or index activation occurred. |
-| Chat and Mission retrieval alignment | YES | YES | YES | NO | Both paths use the same active index, rights and paid run ceiling; the live Chat query exposed a fact-context gap. Exact-key Chat search is corrected and locally tested, not deployed or accepted. |
+| Orbit Chat | YES | YES | YES | PARTIAL | Exact-key fact retrieval and approved asset-ID lookup worked on the deployed repair. The sole authorized follow-up Chat run returned `CHAT_FAILED` from `propose_campaign`; no proposal was saved. |
+| OpenAI text generation | YES | YES | YES | PARTIAL | Two bounded paid Chat runs completed on 2026-09-26. The follow-up settled $0.054889; no accepted draft resulted. |
+| Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources and one dependent content item with missing evidence. This review does not clear their sync warnings. |
+| Hybrid retrieval | YES | YES | YES | PARTIAL | The deployed exact-key Chat search returned the selected facts through hybrid retrieval on active generation 2. This does not prove Mission draft acceptance; no new RAG evaluation or index activation occurred. |
+| Chat and Mission retrieval alignment | YES | YES | YES | PARTIAL | Both paths use the same active index, rights and paid run ceiling. Exact-key Chat retrieval passed live; the proposal and Mission path remain unaccepted. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Live profile v2 now approves the exact `Explore the beta` CTA and retains the existing guardrails. An older profile-v1 test draft moved to needs review. Generation contract is not accepted. |
 | Shared generation contract | YES | YES | YES | NO | The live policy now permits one internal Telegram social draft and the official Desk origin under observe mode. No proposal or generated draft passed the contract yet. |
 | Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
 | Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain; the authorized Golden Path Chat run saved no proposal, mission or new draft. |
-| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was imported from Drive and is visible in Assets. Deployed Chat lookup by exact ID missed it; use in a new draft is unproven. |
+| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID in live Chat and remains visible in Assets. Use in a new draft is unproven. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
@@ -331,7 +331,7 @@ live uLiquid acceptance.
 | Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
 | Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
-| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | Isolated restore is documented; current off-host production restore and key escrow remain unproven. |
+| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | Fresh on-host dump passed a full archive read before deployment; off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
@@ -502,7 +502,21 @@ nicht überschreiben.
 
 **Next action:** Review the focused commit, deploy it only with a specific production release approval, then separately authorize one additional bounded paid acceptance run. Keep external writes disabled and prohibit schedule/live publish.
 
-## Production Change Plan -- Phase 6 correction (pending approval)
+### 2026-09-26 18:14 CEST -- Phase 6 repair deployed; one authorized acceptance run blocked at proposal
+
+**Repo SHA:** PR #6 head `5299e02a7cee7f83b2af75166b243a261d3e24e4` was merged into `main` as `4ab48c3b3edb51e13fc7630a056300caa3113bdd`. All three PR checks and both `main` checks passed. **Deployment SHA:** Coolify deployment `mitaovpqbbxy42uayne9ikfv` finished for `4ab48c3b3edb51e13fc7630a056300caa3113bdd`; the application and new API, Web, Worker, Redis and PostgreSQL containers were healthy. Zero unfinished Prisma migrations were observed after deployment.
+
+**Pre-deploy safety:** Mario approved this exact release and one additional paid internal uLiquid Telegram draft acceptance run. The fresh owner-only dump `/root/orbit-backups/20260926T1510Z-pre-phase6-chat-repair.dump` is 1,162,562 bytes, mode 600, SHA-256 `11d624d238cf47b1273b9ff7501c0d9e0583ad357cf0a34cda7d15d168070dec`; `pg_restore -l` listed 243 lines and a full `pg_restore -f /dev/null` archive read exited 0. This is on-host backup validation, not a production restore drill. Runtime flags remained `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, `LIVE_RAG_EVAL_PASSED=false`. The project remained in `observe`, with the existing narrow Telegram/social/Desk-origin policy, `maxPerDay=0`, approved paid tests and $10 daily/monthly/per-run ceilings. Profile v2, the approved logo, Knowledge generation 2 with 54 chunks, Worker ready and Pending Outbox 0 were verified before the run. Five stale sources and one older dependent content item with missing evidence remained visible.
+
+**Single paid acceptance result:** One new Chat run `03750b27-9300-445a-8c5a-ccf7a5b0117a` completed on the deployed SHA. It used exact `factKeys` for `product.user_control` and `url.beta_registration`, reported hybrid retrieval on active index generation 2, returned the selected public/model-authorized product-control and official-link facts, and found approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` version 2 by exact ID. The selected product fact's source is `d7f6ff20-4e8c-43dd-941a-ecff25b2b66c`, which still has a stale-source warning. The model's `propose_campaign` tool returned the generic `CHAT_FAILED` code; no proposal, mission, job, new draft, review, visual or handoff resulted. The underlying tool exception or model tool-call payload is not persisted by the current runner, so its precise cause is unproven. Do not attribute it to retrieval, asset rights or a specific mission field without further evidence.
+
+**Cost and external effects:** Five Chat text reservations and one query embedding settled for 54,889 USD millionths ($0.054889). The Overview rounded project spend from $0.14 to $0.18; the existing $0.03 reservation remained. No additional paid run, RAG evaluation, index activation, Drive/Postiz write, schedule, social post or public publication occurred. The one-run mandate is consumed. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Local diagnostic verification (18:34 CEST):** The runner's generic `CHAT_FAILED` handling is reproduced with an invalid `propose_campaign` payload. The local change reports only bounded, sanitized invalid field paths for Zod validation errors; other errors and all proposal, policy, evidence and write gates remain unchanged. A regression checks that an invalid input value is not echoed and no proposal is saved. On pinned Node 24.18.0 in a fresh checkout with a newly migrated, isolated local database: full Vitest suite **334/334 tests, 26/26 files PASS**; final focused Chat suite **9/9 PASS**; Chromium Playwright **9/9 PASS** on a separate synthetic browser database; lint, typecheck, production build, Framework Check (0 errors/0 warnings), Coolify Compose check, secret scan (542 candidate files), runtime artifact scan (39 files against six local credential values), dependency audit (no known vulnerabilities) and `git diff --check` PASS. The older checkout's initial full-suite run hit local synthetic-data and cloud-file issues; the fresh checkout run is the valid complete result. This diagnostic does not prove the cause of the live `CHAT_FAILED` or authorize a deployment or paid retry.
+
+**Next action:** Diagnose the proposal failure without another paid or external call. A local diagnostic change now returns sanitized invalid field names if the failure was Zod validation; it does not establish the cause of the live failure and is not deployed. Review and test that change, then seek separate release and paid-run authorization for another live Golden Path attempt. Keep external writes disabled. Phase 7 remains gated by Phase 6 acceptance.
+
+## Production Change Plan -- Phase 6 correction (approved and executed; acceptance blocked)
 
 ### Ziel
 
@@ -554,8 +568,8 @@ Code rollback: redeploy `6f679becad065f6b4f07a1add26a7a68a5dcd67e` if the repair
 ### Approval
 
 - Required: yes, specifically for this new production deployment and separately for one more paid OpenAI run.
-- Approved by: pending.
-- Date: pending.
+- Approved by: Mario, specifically for PR #6 deployment and one additional bounded paid internal acceptance run.
+- Date: 2026-09-26.
 
 ## Template
 

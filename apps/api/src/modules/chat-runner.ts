@@ -1,4 +1,5 @@
 import type OpenAI from "openai";
+import { ZodError } from "zod";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { policy as policySchema } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -325,7 +326,27 @@ export async function runChat(scope: Scope, runId: string) {
           }
         } catch (error) {
           if (call.name === "knowledge_search") throw error;
-          output = { error: errorCode(error) };
+          output =
+            call.name === "propose_campaign" && error instanceof ZodError
+              ? {
+                  error: "PROPOSAL_VALIDATION_FAILED",
+                  invalidFields: [
+                    ...new Set(
+                      error.issues.map(
+                        (issue) =>
+                          issue.path
+                            .filter(
+                              (part): part is string =>
+                                typeof part === "string" &&
+                                /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(part),
+                            )
+                            .slice(0, 2)
+                            .join(".") || "mission",
+                      ),
+                    ),
+                  ].slice(0, 8),
+                }
+              : { error: errorCode(error) };
         }
         input.push({
           type: "function_call_output",
