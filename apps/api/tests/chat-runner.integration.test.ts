@@ -6,7 +6,10 @@ import {
   scoped,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { policy as policySchema } from "../../../packages/schemas/src/index.ts";
+import {
+  mission as missionSchema,
+  policy as policySchema,
+} from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
 import {
   ingest,
@@ -20,6 +23,7 @@ const mocked = vi.hoisted(() => ({
   embedFails: false,
   mode: "normal",
   inputs: [] as unknown[],
+  tools: [] as unknown[],
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
@@ -38,9 +42,10 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
       },
     };
   }),
-  streamChat: vi.fn(async (request: { input: unknown }) => {
+  streamChat: vi.fn(async (request: { input: unknown; tools: unknown[] }) => {
     mocked.calls++;
     mocked.inputs.push(request.input);
+    mocked.tools = request.tools;
     const step = mocked.calls;
     return {
       async *[Symbol.asyncIterator]() {
@@ -281,6 +286,46 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     const result = await getRun(scope, sent.runId);
     expect(result.status).toBe("succeeded");
     expect(result.partialText).toBe("Project status is available.");
+    const proposalTool = mocked.tools.find(
+      (tool: any) => tool.name === "propose_campaign",
+    ) as {
+      parameters: {
+        required: string[];
+        properties: {
+          mission: {
+            required: string[];
+            properties: Record<string, unknown>;
+            additionalProperties: boolean;
+          };
+        };
+      };
+    };
+    expect(proposalTool.parameters.required).toEqual(["mission", "factIds"]);
+    const missionTool = proposalTool.parameters.properties.mission;
+    const missing = missionSchema.safeParse({});
+    expect(missing.success).toBe(false);
+    if (!missing.success) {
+      expect(missionTool.required).toEqual(
+        expect.arrayContaining(
+          missing.error.issues.map((issue) => String(issue.path[0])),
+        ),
+      );
+    }
+    expect(missionTool.required).toEqual(
+      expect.arrayContaining([
+        "language",
+        "contentType",
+        "targetUrl",
+        "sourceIds",
+        "campaignType",
+        "profileVersion",
+      ]),
+    );
+    expect(Object.keys(missionTool.properties)).toEqual(
+      expect.arrayContaining(missionTool.required),
+    );
+    expect(missionTool.properties).not.toHaveProperty("allowedActions");
+    expect(missionTool.additionalProperties).toBe(false);
     const detail = await getConversation(scope, thread.id);
     expect(detail.messages).toHaveLength(2);
     expect(detail.messages[1]?.cards).toContainEqual(
