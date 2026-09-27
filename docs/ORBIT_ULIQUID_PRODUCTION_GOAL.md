@@ -305,25 +305,25 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-27 after one bounded paid Phase 6 acceptance run. The running revision is `a1bd64393c26ed28f74b1004941e2e3441e0de72`.
+Status as observed on 2026-09-27 after the second bounded Phase 6 Chat run. The running revision is `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
 
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
-| Orbit Chat | YES | YES | YES | PARTIAL | On the running revision, exact-key hybrid fact retrieval and approved asset-ID lookup worked. The sole proposal-save attempt failed server validation for missing mission fields; no proposal was saved. |
-| OpenAI text generation | YES | YES | YES | PARTIAL | The single approved 2026-09-27 Chat run completed and settled $0.035024. It produced no accepted proposal or draft. |
+| Orbit Chat | YES | YES | YES | PARTIAL | On the running revision, exact-key hybrid fact retrieval, approved asset-ID lookup and a confirmed, reviewable proposal passed live. The associated Mission has not generated a draft. |
+| OpenAI text generation | YES | YES | YES | PARTIAL | The second approved Chat run settled $0.037793 and saved one proposal. The first draft generation is queued for 2026-09-28 09:00 UTC; it has made zero attempts and incurred no generation cost. |
 | Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources and one dependent content item with missing evidence. This review does not clear their sync warnings. |
 | Hybrid retrieval | YES | YES | YES | PARTIAL | The deployed exact-key Chat search returned the selected facts through hybrid retrieval on active generation 2. This does not prove Mission draft acceptance; no new RAG evaluation or index activation occurred. |
-| Chat and Mission retrieval alignment | YES | YES | YES | PARTIAL | Both paths use the same active index, rights and paid run ceiling. Exact-key Chat retrieval passed live; the proposal and Mission path remain unaccepted. |
+| Chat and Mission retrieval alignment | YES | YES | YES | PARTIAL | Both paths use the same active index, rights and paid run ceiling. Exact-key Chat retrieval and the proposal passed live; Mission retrieval and draft generation remain unaccepted. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Live profile v2 now approves the exact `Explore the beta` CTA and retains the existing guardrails. An older profile-v1 test draft moved to needs review. Generation contract is not accepted. |
-| Shared generation contract | YES | YES | YES | NO | The live policy now permits one internal Telegram social draft and the official Desk origin under observe mode. No proposal or generated draft passed the contract yet. |
+| Shared generation contract | YES | YES | YES | PARTIAL | The live policy, profile v2, verified facts, assigned Telegram channel, official target URL and approved logo passed proposal confirmation. The Mission generation and resulting copy are unaccepted. |
 | Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
-| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain; the latest authorized Golden Path run saved no proposal, mission or new draft. |
-| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID in live Chat and remains visible in Assets. Use in a new draft is unproven. |
+| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain. The confirmed proposal created one Mission and a future-dated generation job, but no new draft exists. |
+| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID and included in the confirmed proposal. Use in a new draft is unproven. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
@@ -331,7 +331,7 @@ live uLiquid acceptance.
 | Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
 | Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
-| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | Fresh on-host dump passed a full archive read before the 2026-09-27 deployment; off-host production restore and key escrow remain unproven. |
+| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | A fresh owner-only, mode-0600 pre-PR-#9 on-host dump passed a full archive read; off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
@@ -545,6 +545,16 @@ nicht überschreiben.
 **Verification:** On Node 24.18.0 and a freshly migrated isolated local database, focused Chat integration **9/9** and full Vitest **334/334 in 26 files** passed. On a separate synthetic browser database, Chromium Playwright **9/9** passed. Lint, typecheck, production build, Framework Check (0 errors/0 warnings), Coolify Compose check, secret scan (542 candidate files), runtime-artifact scan (39 generated files against six local credential values), dependency audit (no known vulnerabilities), Prettier and `git diff --check` passed. The first full-suite attempt used an older accumulated local database and timed out on one Worker acceptance; the fresh isolated full rerun passed. PR #9 CI was still running when this entry was written.
 
 **Cost/external effects and next action:** $0 additional AI spend; no new paid provider call, RAG evaluation, index activation, production data change, Drive/Postiz write, schedule, social post or publication. Review PR #9 and its CI, then seek separate approval for its production release and exactly scoped paid acceptance if still needed. Keep external writes disabled. Phase 6 and `ULIQUID_DRAFT_PRODUCTION_READY` remain unaccepted; Phase 7 remains gated.
+
+### 2026-09-27 09:45 CEST -- PR #9 released; one Chat proposal confirmed, generation deferred
+
+**Repo/deployment SHA:** PR [#8](https://github.com/eds-labs/eds-orbit/pull/8) merged as `cb7384c8db461508d9372184ea5af49a6409181c`. Contrary to the assumed path filter, its documentation-only merge triggered Coolify deployment `qpvbcoykrjfhjsiwtmg6ryob`, which finished with all five services healthy and identical application code. After explicit owner approval, PR [#9](https://github.com/eds-labs/eds-orbit/pull/9) merged as `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; Coolify deployment `w6ps8ifl2rf7se7tgxbzawbj` finished at 07:23:35 UTC on that exact SHA. Both `main` CI workflows passed. All five new services are healthy, no unfinished Prisma migration exists, and the authenticated uLiquid UI loads. The pre-release `/root/orbit-backups/20260927T0715Z-pre-pr9.dump` is a 1,162,956-byte, root-owned mode-0600 custom archive that passed a complete read through `pg_restore -f /dev/null`. Off-host restore is still unverified.
+
+**Runtime and project preflight:** API `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, `LIVE_RAG_EVAL_PASSED=false`; project `observe`, external writes disabled, channel write verification required. The active policy (2026-09-26 to 2026-10-18) allows `social` for assigned Telegram integration `cmu9g999m0001o18n6dfzymud` and official origin `https://desk.uliquid.vip`, with approved paid tests and $10 daily, monthly and per-run ceilings. Profile v2 and one approved logo remain configured. The worker is healthy. No new RAG evaluation or index activation occurred.
+
+**Single approved Chat run:** Chat job `03338f3f-8f19-43f0-b643-7d90a7145238` succeeded. Exact-key `product.user_control` and `url.beta_registration` lookup reported hybrid retrieval on active index generation 2. The approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was returned by exact ID. Proposal `e7f2da6d-700f-4b82-8b62-9daee51262cb` passed confirmation and created Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1`, targeting one draft-only English Telegram product item with `Explore the beta` and the official beta registration URL. Six Chat reservations settled for exactly $0.037793. No further Chat request or RAG evaluation was made.
+
+**Generation stop and pending decision:** Confirmation created generation job `132462b7-07e8-42c0-9362-64a763094a3`, `queued`, zero attempts, with its undispatched Outbox event available only on **2026-09-28 09:00 UTC**, matching the requested Mission start. An additional manual `Run mission` click returned `MISSION_NOT_ACTIVE` because the period is still in the future; the server enqueued no second job. The worker has made no generation request and no generation cost has been charged. The job's standard `maxAttempts` is 3, which needs an explicit disposition under the owner's no-retry constraint. The Content Studio still lists only three earlier items; no new draft, review result, visual, Drive save, Postiz handoff, social schedule or publication exists. The single future Outbox entry is an **internal generation job**, not an external post. A specific owner decision on keeping or stopping that queued job is pending; do not silently shift its period, create another paid proposal, or proceed to Phase 7. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
 
 ## Production Change Plan -- Phase 6 correction (approved and executed; acceptance blocked)
 
