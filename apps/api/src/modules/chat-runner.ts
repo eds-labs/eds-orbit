@@ -44,8 +44,72 @@ const proposalTool = {
   parameters: {
     type: "object",
     properties: {
-      mission: { type: "object" },
-      factIds: { type: "array", items: { type: "string" } },
+      mission: {
+        type: "object",
+        description:
+          "One draft-only mission. Use current project_status profile, policy and assigned channel IDs, plus source IDs returned by knowledge_search. The server validates every field again before saving.",
+        properties: {
+          title: { type: "string" },
+          goal: { type: "string" },
+          audience: { type: "string" },
+          product: { type: "string" },
+          allowedTopics: { type: "array", items: { type: "string" } },
+          language: { type: "string", enum: ["en", "de"] },
+          channels: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string" },
+            description:
+              "Assigned integration IDs also allowed by the active policy",
+          },
+          startAt: { type: "string", description: "ISO 8601 UTC timestamp" },
+          endAt: {
+            type: "string",
+            description: "ISO 8601 UTC timestamp after startAt",
+          },
+          maxContents: { type: "integer", minimum: 1, maximum: 30 },
+          targetAction: {
+            type: "string",
+            description: "Exact primary CTA from the current marketing profile",
+          },
+          targetUrl: {
+            type: "string",
+            description:
+              "Exact official target URL from the current marketing profile",
+          },
+          sourceIds: {
+            type: "array",
+            minItems: 1,
+            items: { type: "string" },
+            description: "Approved source IDs returned by knowledge_search",
+          },
+          assetIds: { type: "array", items: { type: "string" } },
+          contentType: {
+            type: "string",
+            enum: ["social", "blog", "newsletter", "ad", "script", "community"],
+          },
+          campaignType: { type: "string", enum: ["product", "presale"] },
+          profileVersion: { type: "integer", minimum: 1 },
+        },
+        required: [
+          "title",
+          "goal",
+          "audience",
+          "language",
+          "channels",
+          "startAt",
+          "endAt",
+          "maxContents",
+          "targetAction",
+          "targetUrl",
+          "sourceIds",
+          "contentType",
+          "campaignType",
+          "profileVersion",
+        ],
+        additionalProperties: false,
+      },
+      factIds: { type: "array", minItems: 1, items: { type: "string" } },
     },
     required: ["mission", "factIds"],
     additionalProperties: false,
