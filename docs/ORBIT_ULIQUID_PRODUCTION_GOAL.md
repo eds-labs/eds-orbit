@@ -536,6 +536,16 @@ nicht überschreiben.
 
 **P0 blocker / next action:** The model-facing `propose_campaign` tool exposes `mission` only as an untyped object although the server requires a strict mission contract. Inspect and locally test a complete tool schema that names the required mission fields while retaining Zod validation, evidence, budget, policy and safety gates. A new production deployment and paid acceptance run need their own concrete approval; Phase 7 remains gated by Phase 6 acceptance.
 
+### 2026-09-27 08:41 CEST -- Phase 6 proposal tool schema corrected locally
+
+**Repo/deployment SHA:** The focused code correction is commit `68831ff677da1149d1d40c61c645d076db78ce1d` in draft PR [#9](https://github.com/eds-labs/eds-orbit/pull/9). Production still runs `a1bd64393c26ed28f74b1004941e2e3441e0de72`; the correction is **not deployed or uLiquid-accepted**.
+
+**Inspected and changed:** The model-facing `propose_campaign` tool previously declared only `mission: { type: "object" }`, while `createProposal()` applies the strict Mission Zod schema and campaign context checks. The tool now names the mission fields required for a saveable draft, including assigned/policy-approved channel IDs, UTC period, content count/type, primary CTA, exact official target URL, source IDs, campaign type and current profile version. It omits `allowedActions`; the server continues to force `draft` and independently validates the payload, facts, source rights, asset approval, budget, active index, policy and project scope. A mocked-provider regression inspects the actual tool definition against server-required fields; the invalid-proposal diagnostic and no-save assertion remain covered. This improves the contract but does not prove why the model omitted fields in the live call, since raw tool arguments were not persisted.
+
+**Verification:** On Node 24.18.0 and a freshly migrated isolated local database, focused Chat integration **9/9** and full Vitest **334/334 in 26 files** passed. On a separate synthetic browser database, Chromium Playwright **9/9** passed. Lint, typecheck, production build, Framework Check (0 errors/0 warnings), Coolify Compose check, secret scan (542 candidate files), runtime-artifact scan (39 generated files against six local credential values), dependency audit (no known vulnerabilities), Prettier and `git diff --check` passed. The first full-suite attempt used an older accumulated local database and timed out on one Worker acceptance; the fresh isolated full rerun passed. PR #9 CI was still running when this entry was written.
+
+**Cost/external effects and next action:** $0 additional AI spend; no new paid provider call, RAG evaluation, index activation, production data change, Drive/Postiz write, schedule, social post or publication. Review PR #9 and its CI, then seek separate approval for its production release and exactly scoped paid acceptance if still needed. Keep external writes disabled. Phase 6 and `ULIQUID_DRAFT_PRODUCTION_READY` remain unaccepted; Phase 7 remains gated.
+
 ## Production Change Plan -- Phase 6 correction (approved and executed; acceptance blocked)
 
 ### Ziel
