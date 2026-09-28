@@ -183,7 +183,11 @@ export async function runReadTool(
             : null,
           approvals,
           drafts,
-          readiness: { state: state.state, blockers: state.blockers },
+          readiness: {
+            state: state.state,
+            blockers: state.blockers,
+            actions: state.actions,
+          },
         },
         cards: [
           {

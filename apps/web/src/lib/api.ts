@@ -33,6 +33,14 @@ export type Dashboard = {
     state: string;
     blockers: string[];
     capabilities?: Record<string, { state: string; liveBlocker?: string }>;
+    actions?: Record<
+      string,
+      {
+        state: "ready" | "blocked" | "not_configured";
+        effect: "internal" | "external";
+        blockers: string[];
+      }
+    >;
   };
 };
 export { ApiError } from "@orbit/api-client";

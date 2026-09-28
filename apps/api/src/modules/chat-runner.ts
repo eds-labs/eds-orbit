@@ -33,6 +33,7 @@ const instructions = [
   "When the user names an exact Verified Fact key, pass it in knowledge_search.factKeys and cite only facts returned by that search.",
   "project_status.policy.modelBudget amounts are USD millionths for AI provider spend. Only mandateActiveNow=true means the policy currently permits paid reservations, subject to remaining daily, monthly and per-run capacity checked by the server. State its daily, monthly and per-run ceilings accurately when asked about cost. They are not a campaign or media budget; never invent one. Estimate future draft costs only from a validated proposal.",
   "For website analysis, state when no current retrievable website passages are returned; never imply a live website crawl occurred.",
+  "When asked what Orbit can do or what blocks an action, use project_status.readiness.actions: report each relevant action's state and blocker codes, and never treat publisher or live-write blockers as blocking internal drafts, review or export.",
   "Use knowledge_search.retrieval.mode as the reported search mode. If it is lexical_degraded, say that semantic retrieval was unavailable for that result. Never describe a search as hybrid unless the tool reports hybrid.",
 ].join(" ");
 const proposalTool = {

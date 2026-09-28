@@ -252,10 +252,13 @@ Separate Readiness für Chat, Knowledge Search, Text Draft, Visual, Drive
 Save, Internal Review, Export, Postiz Draft, Postiz Schedule, Postiz
 Live, Matomo, Blog Live, Newsletter Live und Ads Live.
 
--   [ ] machine-readable Codes + verständliche Gründe
--   [ ] Postiz Live-Verifikation nicht für internen Draft verlangen
--   [ ] Mock-only nicht als real `live_ready` darstellen
--   [ ] Operator Summary in Overview und/oder Chat
+-   [x] machine-readable Codes + verständliche Gründe
+-   [x] Postiz Live-Verifikation nicht für internen Draft verlangen
+-   [x] Mock-only nicht als real `live_ready` darstellen
+-   [x] Operator Summary in Overview und/oder Chat
+
+Implemented and tested locally on 2026-09-28; deployment and live read-back
+are recorded in the Progress Log.
 
 ## Phase 8 -- Batch Draft Preparation \[P1, erst nach Phase 6\]
 
@@ -696,6 +699,14 @@ nicht überschreiben.
 **Export and effects:** Export HTTP 200, `draft_export`, files `assets/creative.png`, `article.md`, `metadata.json`, `preview.html`, contentHash `d92867653931bd587e28c0a5f9a628b4d2d5d6b48ba0e75379f06d34e61ff8d4`. `NO_EXTERNAL_PUBLICATION`: 0 publications, no schedule, no Drive write, no Postiz call. Total cost of this verification: one Chat run (about $0.04) plus the 5,988-micro draft.
 
 **Decision:** The golden path passed end to end without owner text edits on deployed `00f2050`, with verbatim fact claims, CTA handling, single-attempt enforcement and draft export verified. Section 11 criteria are met; `ULIQUID_DRAFT_PRODUCTION_READY` is set to YES. Open, non-blocking for this milestone: Visual + Drive save, Phase 7 action-specific readiness, off-host backup/restore (Phase 10), and the local-only real-Redis Worker test timeout.
+
+### 2026-09-28 20:45 CEST -- Phase 7 action-specific readiness implemented
+
+**Change:** `readiness()` now also returns `actions` for chat, knowledge_search, text_draft, visual, drive_save, internal_review, export, postiz_draft, postiz_schedule, postiz_live, matomo, blog_live, newsletter_live and ads_live. Each action has `state` (`ready`, `blocked`, `not_configured`), `effect` (`internal`/`external`) and machine-readable blocker codes that apply only to that action. Internal drafting, review, export and search are no longer shown as blocked by Postiz write verification or `EXTERNAL_WRITES_DISABLED`. Postiz scheduling and live posting require `EXECUTION_MODE=live` in addition to write verification and enabled external writes, so test receipts can never make them `ready`. Postiz draft handoff is reported as `POSTIZ_DRAFT_HANDOFF_NOT_AVAILABLE` until Phase 9. The existing global `state`, `blockers` and `capabilities` are unchanged and still gate autopilot activation.
+
+**Surfaces:** The Overview readiness panel lists internal and external actions with status and German/English reasons (`apps/web/src/lib/readiness-text.ts`). Orbit Chat `project_status` includes `readiness.actions`, and the chat instructions tell the model to report per-action blockers and not to treat publisher blockers as blocking internal drafts.
+
+**Verification:** 6 unit tests for the action matrix (draft-only state, test-mode live guard, unavailable integrations, missing setup vs blockers, pause), an extended real-SQL `project_status` integration assertion, lint, API/Web typecheck, Next production build, secret scan, full Vitest 356/357 (same local-only real-Redis Worker timeout). Local browser preview was not possible (macOS denied the preview server access to the project folder); the Overview is checked read-only after deployment.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 

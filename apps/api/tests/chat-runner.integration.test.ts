@@ -276,6 +276,17 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         }),
       }),
     );
+    const actions = (checked.result as any).readiness.actions;
+    expect(actions.internal_review).toEqual({
+      state: "ready",
+      effect: "internal",
+      blockers: [],
+    });
+    expect(actions.postiz_live.state).not.toBe("ready");
+    expect(actions.postiz_live.blockers).toContain("EXTERNAL_WRITES_DISABLED");
+    expect(actions.text_draft.blockers).not.toContain(
+      "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+    );
   });
   it("streams two bounded steps, settles both calls, and does not replay a finished run", async () => {
     const thread = await createConversation(scope);

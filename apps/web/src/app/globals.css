@@ -3085,3 +3085,45 @@ body:has(dialog[open]) {
     backdrop-filter: none;
   }
 }
+.action-readiness {
+  border-top: 1px solid var(--border);
+  padding: 6px 21px 14px;
+}
+.action-readiness h3 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+.action-readiness ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.action-readiness li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.action-readiness li:last-child {
+  border-bottom: 0;
+}
+.action-readiness li > div {
+  flex: 1;
+  min-width: 0;
+}
+.action-readiness li p {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.action-readiness .badge {
+  flex-shrink: 0;
+  font-size: 11px;
+}

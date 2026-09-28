@@ -38,6 +38,8 @@ import {
   type Dashboard,
   type Entity,
 } from "@/lib/api";
+import type { Locale } from "@/lib/i18n";
+import { actionLabel, actionOrder, blockerReason } from "@/lib/readiness-text";
 import {
   Alert,
   Badge,
@@ -282,17 +284,11 @@ export function Overview() {
                     href="/settings"
                   />
                 </div>
-                {d.readiness.blockers.length > 0 && (
-                  <details className="readiness-details">
-                    <summary>
-                      {locale === "de" ? "Was noch fehlt" : "Readiness details"}
-                    </summary>
-                    <ul>
-                      {d.readiness.blockers.map((b) => (
-                        <li key={b}>{b.replaceAll("_", " ")}</li>
-                      ))}
-                    </ul>
-                  </details>
+                {d.readiness.actions && (
+                  <ActionReadinessList
+                    actions={d.readiness.actions}
+                    locale={locale}
+                  />
                 )}
               </section>
             </div>
@@ -367,6 +363,49 @@ function Readiness({
       <span>{label}</span>
       <Badge tone={ready ? "success" : "neutral"}>{status}</Badge>
     </Link>
+  );
+}
+function ActionReadinessList({
+  actions,
+  locale,
+}: {
+  actions: NonNullable<Dashboard["readiness"]["actions"]>;
+  locale: Locale;
+}) {
+  const groups = [
+    ["internal", locale === "de" ? "Intern" : "Internal"],
+    ["external", locale === "de" ? "Extern" : "External"],
+  ] as const;
+  return (
+    <div className="action-readiness">
+      {groups.map(([effect, heading]) => (
+        <div key={effect}>
+          <h3>{heading}</h3>
+          <ul>
+            {actionOrder
+              .filter((name) => actions[name]?.effect === effect)
+              .map((name) => {
+                const action = actions[name]!;
+                return (
+                  <li key={name} data-action={name}>
+                    <div>
+                      <strong>{actionLabel(locale, name)}</strong>
+                      {action.blockers.length > 0 && (
+                        <p>
+                          {action.blockers
+                            .map((code) => blockerReason(locale, code))
+                            .join(" ")}
+                        </p>
+                      )}
+                    </div>
+                    <Status value={action.state} />
+                  </li>
+                );
+              })}
+          </ul>
+        </div>
+      ))}
+    </div>
   );
 }
 export function EntityRows({

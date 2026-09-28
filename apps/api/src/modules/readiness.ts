@@ -4,6 +4,9 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, list } from "../shared.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { publicOpenAiConfiguration } from "./openai-configuration.ts";
+import { currentMarketingProfile } from "./marketing-profile.ts";
+import { actionReadiness } from "./action-readiness.ts";
+import { loadConfig } from "../../../../packages/config/src/index.ts";
 export async function readiness(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
@@ -84,7 +87,69 @@ export async function readiness(tx: DbTx, scope: Scope) {
       : []),
     ...(project.paused ? ["PROJECT_PAUSED"] : []),
   ];
+  const image = openAi.imageGeneration ?? {};
+  const driveConnection = (await list(tx, scope, "drive_connection"))[0],
+    driveStorage = (await list(tx, scope, "drive_storage"))[0];
+  const config = loadConfig();
+  const postizConnector = connectors.find((c) => data(c).provider === "postiz");
+  const postiz =
+    postizConnector &&
+    ["read_verified", "write_verified"].includes(data(postizConnector).status);
+  const assignedChannels: string[] = postizConnector
+    ? (data(postizConnector).assignedIntegrationIds ?? [])
+    : [];
+  const actions = actionReadiness({
+    paused: project.paused,
+    executionMode: process.env.EXECUTION_MODE,
+    externalWritesEnabled: process.env.ENABLE_EXTERNAL_WRITES === "true",
+    currentPublicKnowledge: knowledge,
+    activePolicy: policy,
+    paidMandate: budget,
+    policyHasChannelsAndTypes: Boolean(
+      policy && p.channels?.length && p.contentTypes?.length,
+    ),
+    marketingProfile: Boolean(await currentMarketingProfile(tx, scope)),
+    textModelVerified: Boolean(
+      openAi.textKeyConfigured && openAi.verifiedModels.length,
+    ),
+    imageKeyConfigured: openAi.imageKeyConfigured,
+    imagePricingCurrent: Boolean(
+      image.maxCostMicrosPerImage > 0 &&
+      image.pricingVerifiedAt &&
+      now - Date.parse(image.pricingVerifiedAt) <= 31 * 86400000,
+    ),
+    imageModelVerified: Boolean(
+      image.model && openAi.verifiedModels.includes(image.model),
+    ),
+    driveConfigured: Boolean(
+      config.GOOGLE_DRIVE_CLIENT_ID && config.GOOGLE_DRIVE_CLIENT_SECRET,
+    ),
+    driveConnected: Boolean(
+      driveConnection && data(driveConnection).encryptedRefreshToken,
+    ),
+    driveRootConfigured: Boolean(
+      driveStorage &&
+      data(driveStorage).rootFolderId &&
+      data(driveStorage).enabled === true,
+    ),
+    postizConnected: Boolean(postiz),
+    postizChannelsAssigned: assignedChannels.length > 0,
+    postizWriteVerified: Boolean(publisher),
+    postizChannelWriteVerified: Boolean(
+      publisher &&
+      p.channels?.length &&
+      p.channels.every(
+        (id: string) =>
+          isAssignedPostizChannel(data(publisher), id) &&
+          (data(publisher).writeVerifiedIntegrationIds ?? []).includes(id),
+      ) &&
+      data(publisher).writeVerifiedInstanceId ===
+        process.env.PUBLISHER_INSTANCE_ID,
+    ),
+    matomoReadVerified: Boolean(matomo),
+  });
   return {
+    actions,
     state:
       blockers.length === 0
         ? "live_ready"
