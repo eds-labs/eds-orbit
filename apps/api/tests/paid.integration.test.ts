@@ -577,6 +577,63 @@ describe.skipIf(!enabled)(
         ).toContain("PRIMARY_CTA_REQUIRED");
       },
     );
+    it("uses an exact confirmed Mission topic to avoid unrelated Fact overflow", async () => {
+      await run(async (tx) => {
+        const validFrom = new Date(Date.now() - 3600000).toISOString();
+        await setFact(tx, s, {
+          key: "product.target",
+          value: "Users remain in control of their accounts.",
+          valueType: "text",
+          language: "en",
+          sourceId,
+          validFrom,
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        for (let index = 0; index < 18; index++)
+          await setFact(tx, s, {
+            key: `product.noise_${index}`,
+            value: `Unrelated fixture ${index} ${"filler ".repeat(90)}`,
+            valueType: "text",
+            language: "en",
+            sourceId,
+            validFrom,
+            status: "verified",
+            publicUse: true,
+            modelUse: true,
+          });
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        await update(tx, s, mission, {
+          ...data(mission),
+          goal: "Explain the product target to users",
+          allowedTopics: ["product.target"],
+          chatProposalId: randomUUID(),
+          chatCostCeilingMicros: 10_000,
+        });
+        const broad = await retrieve(tx, s, {
+          query: "Explain the product target to users",
+          sourceIds: [sourceId],
+          language: "en",
+          purpose: "public",
+          forModel: true,
+        });
+        expect(data(broad).status).toBe("insufficient_evidence");
+        expect(data(broad).gaps).toContain("fact_context_limit");
+      });
+      const content = await generateMissionLive(s, missionId, randomUUID());
+      const evidence = await run((tx) =>
+        tx.entity.findUniqueOrThrow({
+          where: { id: data(content).evidenceId },
+        }),
+      );
+      expect(data(evidence).status).toBe("ready");
+      expect(
+        data(evidence).facts.map((fact: { key: string }) => fact.key),
+      ).toEqual(["product.target"]);
+    });
     it.each([
       ["telegram", 4096, "utf16_units"],
       ["linkedin", 3000, "utf16_units"],

@@ -438,12 +438,13 @@ export function EntityRows({
   );
 }
 export function Missions() {
-  const { t, locale, project, canEdit, refresh } = useWorkspace();
+  const { t, locale, project, canEdit, isOwner, refresh } = useWorkspace();
   const resource = useCollection("missions");
   const [create, setCreate] = useState(false),
     [selected, setSelected] = useState<Entity | null>(null);
   const [brief, setBrief] = useState(false),
-    [proposal, setProposal] = useState<BriefProposal | undefined>();
+    [proposal, setProposal] = useState<BriefProposal | undefined>(),
+    [liveDraftConfirm, setLiveDraftConfirm] = useState(false);
   const mutation = useMutation(refresh);
   return (
     <>
@@ -481,7 +482,10 @@ export function Missions() {
             <EntityRows
               items={resource.data.items}
               fields={["title", "audience", "status", "createdAt"]}
-              onSelect={setSelected}
+              onSelect={(item) => {
+                setSelected(item);
+                setLiveDraftConfirm(false);
+              }}
             />
           ) : (
             <Empty
@@ -547,6 +551,57 @@ export function Missions() {
               Mission job queued. Follow its actual state in Operations.
             </Alert>
           )}
+          {isOwner &&
+            selected.data.status === "ready" &&
+            selected.data.maxContents === 1 &&
+            typeof selected.data.startAt === "string" &&
+            typeof selected.data.chatProposalId === "string" &&
+            typeof selected.data.endAt === "string" &&
+            Date.parse(selected.data.endAt) > Date.now() && (
+              <div>
+                <Alert>
+                  {Date.parse(selected.data.startAt) > Date.now()
+                    ? locale === "de"
+                      ? "Einmaliger interner Live-Draft mit der aktiven Kosten-Policy. Der bestehende Job startet jetzt mit höchstens einem Versuch. Kein Review, Zeitplan oder externer Post."
+                      : "One internal live draft under the active cost policy. The existing job starts now with at most one attempt. No review, schedule, or external post."
+                    : locale === "de"
+                      ? "Nur wenn der ursprüngliche Job nach genau einem Evidence-Fehler blockiert ist und keine Kosten oder Inhalte entstanden sind, wird ein neuer interner Job mit genau einem Versuch angelegt. Kein Review, Zeitplan oder externer Post."
+                      : "Only when the original job was blocked after one evidence failure with no cost or content will a new internal single-attempt job be queued. No review, schedule, or external post."}
+                </Alert>
+                <label className="review-confirm">
+                  <Input
+                    type="checkbox"
+                    checked={liveDraftConfirm}
+                    onChange={(event) =>
+                      setLiveDraftConfirm(event.target.checked)
+                    }
+                  />
+                  <span>
+                    {locale === "de"
+                      ? "Ich bestätige genau einen kostenpflichtigen internen Draft-Lauf ohne Retry."
+                      : "I confirm exactly one paid internal draft run without retry."}
+                  </span>
+                </label>
+                <Button
+                  disabled={mutation.pending || !liveDraftConfirm}
+                  onClick={async () => {
+                    const result = await mutation.run(() =>
+                      action(project.id, "start-approved-live-draft-once", {
+                        missionId: selected.id,
+                        version: selected.version,
+                        confirmPaidInternalDraft: true,
+                      }),
+                    );
+                    if (result) setLiveDraftConfirm(false);
+                  }}
+                >
+                  <Play data-icon="inline-start" />
+                  {locale === "de"
+                    ? "Einmaligen Live-Draft jetzt starten"
+                    : "Start one live draft now"}
+                </Button>
+              </div>
+            )}
           {canEdit && (
             <div className="form-actions">
               <Button

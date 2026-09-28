@@ -305,25 +305,26 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-27 after one bounded paid Phase 6 acceptance run. The running revision is `a1bd64393c26ed28f74b1004941e2e3441e0de72`.
+Status as observed on 2026-09-28 after the deferred Phase 6 generation job. The running revision remains `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; PR #10 remains undeployed. The evidence-scoped recovery passed isolated CI at `b915c0c88c968d9953e596deb7d6d241409a8e73`, but has no live acceptance.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
 
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
-| Orbit Chat | YES | YES | YES | PARTIAL | On the running revision, exact-key hybrid fact retrieval and approved asset-ID lookup worked. The sole proposal-save attempt failed server validation for missing mission fields; no proposal was saved. |
-| OpenAI text generation | YES | YES | YES | PARTIAL | The single approved 2026-09-27 Chat run completed and settled $0.035024. It produced no accepted proposal or draft. |
+| Orbit Chat | YES | YES | YES | PARTIAL | On the running revision, exact-key hybrid fact retrieval, approved asset-ID lookup and a confirmed, reviewable proposal passed live. The associated Mission has not generated a draft. |
+| OpenAI text generation | YES | YES | YES | PARTIAL | The second approved Chat run settled $0.037793 and saved one proposal. The deferred Mission job ran once at 09:00 UTC in test mode and blocked with `INSUFFICIENT_EVIDENCE`; zero new Content rows and zero budget reservations for that job were observed. |
 | Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources and one dependent content item with missing evidence. This review does not clear their sync warnings. |
 | Hybrid retrieval | YES | YES | YES | PARTIAL | The deployed exact-key Chat search returned the selected facts through hybrid retrieval on active generation 2. This does not prove Mission draft acceptance; no new RAG evaluation or index activation occurred. |
-| Chat and Mission retrieval alignment | YES | YES | YES | PARTIAL | Both paths use the same active index, rights and paid run ceiling. Exact-key Chat retrieval passed live; the proposal and Mission path remain unaccepted. |
+| Chat and Mission retrieval alignment | PARTIAL | YES | PARTIAL | NO | Chat used the confirmed exact Fact keys. The scheduled Mission passed a broad goal to lexical retrieval and blocked with `INSUFFICIENT_EVIDENCE`; 28 otherwise verified Facts match that text. PR #10 passes exact dotted Mission topics as `factKeys` for confirmed Chat Missions and preserves missing/changed-Fact blocks. Isolated CI passed; this correction is not deployed. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Live profile v2 now approves the exact `Explore the beta` CTA and retains the existing guardrails. An older profile-v1 test draft moved to needs review. Generation contract is not accepted. |
-| Shared generation contract | YES | YES | YES | NO | The live policy now permits one internal Telegram social draft and the official Desk origin under observe mode. No proposal or generated draft passed the contract yet. |
+| Shared generation contract | YES | YES | YES | PARTIAL | The live policy, profile v2, verified facts, assigned Telegram channel, official target URL and approved logo passed proposal confirmation. The Mission generation and resulting copy are unaccepted. |
 | Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
-| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain; the latest authorized Golden Path run saved no proposal, mission or new draft. |
-| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID in live Chat and remains visible in Assets. Use in a new draft is unproven. |
+| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain. The confirmed proposal created one Mission; its scheduled job is now `blocked_dependency` after one attempt with `INSUFFICIENT_EVIDENCE`. No new draft exists. |
+| Approved early single live draft | PARTIAL | YES | NO | NO | PR #10 remains draft and undeployed. Its recovery path requires the exact blocked one-attempt evidence failure, one dispatched Outbox event, no other Mission job, no Content or prior reservation, active policy and owner confirmation; it creates a separate one-attempt job and leaves the old job blocked. Isolated CI passed; live acceptance remains open. |
+| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID and included in the confirmed proposal. Use in a new draft is unproven. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
@@ -331,7 +332,7 @@ live uLiquid acceptance.
 | Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
 | Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
-| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | Fresh on-host dump passed a full archive read before the 2026-09-27 deployment; off-host production restore and key escrow remain unproven. |
+| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | A mode-0600 pre-PR-#10 on-host archive (`20260928T0855Z`, 1,173,571 bytes) passed a full read through container `pg_restore`; it predates the scheduled job failure. Off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
@@ -545,6 +546,138 @@ nicht überschreiben.
 **Verification:** On Node 24.18.0 and a freshly migrated isolated local database, focused Chat integration **9/9** and full Vitest **334/334 in 26 files** passed. On a separate synthetic browser database, Chromium Playwright **9/9** passed. Lint, typecheck, production build, Framework Check (0 errors/0 warnings), Coolify Compose check, secret scan (542 candidate files), runtime-artifact scan (39 generated files against six local credential values), dependency audit (no known vulnerabilities), Prettier and `git diff --check` passed. The first full-suite attempt used an older accumulated local database and timed out on one Worker acceptance; the fresh isolated full rerun passed. PR #9 CI was still running when this entry was written.
 
 **Cost/external effects and next action:** $0 additional AI spend; no new paid provider call, RAG evaluation, index activation, production data change, Drive/Postiz write, schedule, social post or publication. Review PR #9 and its CI, then seek separate approval for its production release and exactly scoped paid acceptance if still needed. Keep external writes disabled. Phase 6 and `ULIQUID_DRAFT_PRODUCTION_READY` remain unaccepted; Phase 7 remains gated.
+
+### 2026-09-27 09:45 CEST -- PR #9 released; one Chat proposal confirmed, generation deferred
+
+**Repo/deployment SHA:** PR [#8](https://github.com/eds-labs/eds-orbit/pull/8) merged as `cb7384c8db461508d9372184ea5af49a6409181c`. Contrary to the assumed path filter, its documentation-only merge triggered Coolify deployment `qpvbcoykrjfhjsiwtmg6ryob`, which finished with all five services healthy and identical application code. After explicit owner approval, PR [#9](https://github.com/eds-labs/eds-orbit/pull/9) merged as `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; Coolify deployment `w6ps8ifl2rf7se7tgxbzawbj` finished at 07:23:35 UTC on that exact SHA. Both `main` CI workflows passed. All five new services are healthy, no unfinished Prisma migration exists, and the authenticated uLiquid UI loads. The pre-release `/root/orbit-backups/20260927T0715Z-pre-pr9.dump` is a 1,162,956-byte, root-owned mode-0600 custom archive that passed a complete read through `pg_restore -f /dev/null`. Off-host restore is still unverified.
+
+**Runtime and project preflight:** API `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, `LIVE_RAG_EVAL_PASSED=false`; project `observe`, external writes disabled, channel write verification required. The active policy (2026-09-26 to 2026-10-18) allows `social` for assigned Telegram integration `cmu9g999m0001o18n6dfzymud` and official origin `https://desk.uliquid.vip`, with approved paid tests and $10 daily, monthly and per-run ceilings. Profile v2 and one approved logo remain configured. The worker is healthy. No new RAG evaluation or index activation occurred.
+
+**Single approved Chat run:** Chat job `03338f3f-8f19-43f0-b643-7d90a7145238` succeeded. Exact-key `product.user_control` and `url.beta_registration` lookup reported hybrid retrieval on active index generation 2. The approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was returned by exact ID. Proposal `e7f2da6d-700f-4b82-8b62-9daee51262cb` passed confirmation and created Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1`, targeting one draft-only English Telegram product item with `Explore the beta` and the official beta registration URL. Six Chat reservations settled for exactly $0.037793. No further Chat request or RAG evaluation was made.
+
+**Generation stop and pending decision:** Confirmation created generation job `132462b7-07e8-42c0-9362-644a763094a3`, `queued`, zero attempts, with its undispatched Outbox event available only on **2026-09-28 09:00 UTC**, matching the requested Mission start. An additional manual `Run mission` click returned `MISSION_NOT_ACTIVE` because the period is still in the future; the server enqueued no second job. The worker has made no generation request and no generation cost has been charged. The job's standard `maxAttempts` is 3, which needs an explicit disposition under the owner's no-retry constraint. The Content Studio still lists only three earlier items; no new draft, review result, visual, Drive save, Postiz handoff, social schedule or publication exists. The single future Outbox entry is an **internal generation job**, not an external post. A specific owner decision on keeping or stopping that queued job is pending; do not silently shift its period, create another paid proposal, or proceed to Phase 7. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+### 2026-09-28 08:34 CEST -- Deferred Phase 6 job audited; one-draft correction prepared locally
+
+**Repo/deployment SHA:** Local branch `codex/orbit-phase6-live-record-20260927` at `a273a945d2eee0e00f11a0d0a65179b804e40be7` before the new correction commit; draft PR [#10](https://github.com/eds-labs/eds-orbit/pull/10) remains open. Running production revision remains `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`. This entry supersedes the malformed generation Job ID in the prior record: the verified ID is `132462b7-07e8-42c0-9362-644a763094a3`.
+
+**Current uLiquid state:** The confirmed proposal `e7f2da6d-700f-4b82-8b62-9daee51262cb` and Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1` remain the authorized draft-only path. Read-only production verification at 05:35–05:40 UTC found the generation Job queued with zero attempts, its sole Outbox event undispatched and due at 09:00 UTC, and zero Content rows for the Mission. API and Worker run `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, and `LIVE_RAG_EVAL_PASSED=false`; project mode is `observe`. The deployed Worker would take the deterministic synthetic generation branch at the due time, which cannot establish paid AI draft acceptance. This is a Phase 6 P0 release gap, not evidence of an accepted draft.
+
+**Local correction:** An owner-only, explicitly confirmed action advances only the exact confirmed, future, draft-only Mission and its original queued generation Job. It checks project scope, policy, the $10 per-run ceiling, zero attempts, zero existing Mission content/reservation and one undispatched Outbox event in one transaction; it sets the job to one attempt and an immediate due time. The Worker runs paid generation for that marked job while the global test mode and external-write block stay in place, skips automatic review/publication, and blocks ambiguous or failed outcomes without retry. The ordinary `Run mission` path reuses an existing pending job to avoid a duplicate after Mission version changes. No schema, secret or provider configuration changes are proposed.
+
+**Verification and open blockers:** Four focused API/DB integration tests passed locally; typecheck, lint, build, framework validation, bounded secret scan and high-severity dependency audit passed. The existing real-Redis Worker lifecycle test timed out at its 20-second acceptance wait on this local host, and browser/full-suite checks are pending at this record point. The new code is not deployed or accepted. Production backup/restore, green PR CI, deployed SHA/flags, the exact one-run result, evidence/claims, review, approved asset and controlled export remain required. Phase 7 stays gated; `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Cost/external effects and next action:** $0 additional AI cost and zero production data mutation, new evaluation, index activation, Drive/Postiz write, schedule or publication in this work block. Complete relevant checks and PR review; then obtain a specific owner approval for this new PR #10 release and the exact once-only action before production mutation. If the 09:00 UTC queue deadline arrives first, stop and re-audit the Job and Mission rather than assuming the approved paid run is still possible.
+
+### 2026-09-28 08:49 CEST -- PR #10 acceptance green; production remains untouched
+
+**Repo/deployment SHA:** Branch commit `11a193a556ba639fc4beae95d4adc2bafd57b21f` is pushed to draft PR [#10](https://github.com/eds-labs/eds-orbit/pull/10) against production `main` `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`. The PR is mergeable and remains unmerged. No new deployment SHA exists.
+
+**Verification:** Both isolated Orbit acceptance checks passed, including local setup, full Vitest, TypeScript, lint, build, bounded secret scan, dependency inventory, high-severity audit and all nine Playwright browser checks. The framework check passed. Locally, four focused API/DB integration cases and 132 unit tests passed; local build, lint and typecheck passed. The local real-Redis Worker lifecycle test timed out at its 20-second wait, and a local Playwright invocation could not connect because the app server was not started; the complete isolated CI equivalents passed and are the release gate. No live uLiquid draft acceptance is implied by green CI.
+
+**Fresh production read:** At approximately 06:46 UTC the exact generation Job `132462b7-07e8-42c0-9362-644a763094a3` remained `queued`, attempts `0`, maxAttempts `3`; there were zero Content rows for Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1` and one undispatched Outbox event. The 09:00 UTC due time is unchanged. No paid call, production mutation, external provider write, schedule or publication occurred in this work block.
+
+**Decision gate:** The prior approval covered PR #9 and a bounded run, not the new owner action and Worker code in PR #10. Before merge/deployment and the exact one-time paid action, obtain explicit owner approval for this reviewed release. Recheck the Job, flags, policy and backup immediately before acting. If the due time is reached or the state changes first, stop for a fresh decision. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`; Phase 7 remains gated.
+
+### 2026-09-28 11:03 CEST -- Approved PR #10 release stopped after scheduled Job failed
+
+**Repo/deployment SHA:** Branch `f428edf09e5e3bfff39d6423612eb1f7703e4c83`; production `main` and running application remain `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`. PR [#10](https://github.com/eds-labs/eds-orbit/pull/10) remains draft, open and unmerged. All PR checks passed. Mario explicitly approved that PR and exactly one paid internal draft run; no deployment or paid action followed because the production Job precondition changed at its scheduled time.
+
+**Preflight and backup:** Immediately before 09:00 UTC, exact Job `132462b7-07e8-42c0-9362-644a763094a3` was `queued`, attempts `0`, maxAttempts `3`. API and Worker both reported `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, `LIVE_RAG_EVAL_PASSED=false`. A fresh root-only PostgreSQL custom archive `/root/orbit-backups/20260928T0855Z-pre-pr10.dump` was created with mode `0600`, 1,173,571 bytes, and fully read through `pg_restore -f /dev/null` inside the PostgreSQL container (exit 0). No restore was executed.
+
+**Stop condition and actual result:** At 09:00 UTC, before the new code could be safely deployed, the existing Worker consumed the scheduled Job once. Read-only SQL then showed `blocked_dependency`, attempts `1`, maxAttempts `3`, error `INSUFFICIENT_EVIDENCE`, zero Content rows for Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1`, and zero BudgetReservation rows keyed to that Job. The proposed owner action requires a queued zero-attempt future Job and can no longer apply. Do not change the Job or Mission directly, retry it, create another proposal, merge PR #10 as though it still completed Phase 6, or proceed to Phase 7.
+
+**Costs/external effects:** No new paid generation reservation or draft was observed; no RAG evaluation, index activation, Drive/Postiz write, schedule or public post was performed in this work block. The production Worker itself updated the Job to a blocked state. The only operator-side production effect was creation of the on-host backup; no application deployment or manual production-data write occurred. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Next decision:** Investigate the exact evidence failure read-only and determine whether the existing verified facts or the Mission retrieval contract caused it. Then propose a minimal evidence-safe correction and a new, explicitly scoped one-attempt acceptance path with fresh owner approval if it requires another paid call or production mutation. Retain the no-retry and no-publication boundaries. PR #10 must be updated or superseded for the new state before any release.
+
+### 2026-09-28 13:15 CEST -- Phase 6 evidence diagnosis and bounded recovery prepared locally
+
+**Repo/deployment SHA:** Local branch `codex/orbit-phase6-live-record-20260927` starts this work block at `3e0a86c557471b409d4c65b7a17e02d8bac23edc`; the running production revision remains `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`. PR [#10](https://github.com/eds-labs/eds-orbit/pull/10) is still draft, unmerged and undeployed. Mario approved continuing this bounded correction and requested a handover at a clean stopping point. No production release or paid call is included before that handover.
+
+**Read-only diagnosis:** The exact Mission goal and its two source IDs were checked against production. Both sources are active official sources with public/model rights and verified English `product.user_control` Facts; the confirmed Chat Proposal has four Fact references, including `product.user_control` and the beta-registration URL. Earlier Chat Evidence with exact keys is `ready` in hybrid mode. The Mission did not carry an exact `factKeys` input into its scheduled deterministic retrieval. Its broad goal matches 28 verified Facts lexically; a local real-SQL regression fixture reproduces `fact_context_limit` and `insufficient_evidence` for a similarly broad query. The failed production Evidence row was rolled back with the job transaction, so the exact production gap array is unavailable. The old Worker took the deterministic test branch, and the error occurred before a paid generation reservation.
+
+**Minimal correction:** Confirmed Chat Missions with exact dotted `allowedTopics` now pass those keys to deterministic and paid hybrid retrieval; the existing source, validity, model-use, context and missing-Fact checks still apply. The owner-only action can recover only the exact original generation Job after one terminal `INSUFFICIENT_EVIDENCE` attempt and a delivered Outbox event. It checks no other Mission job, Content or old Job reservation, enforces project observe mode, safe runtime flags, the active paid mandate and the $10 per-run ceiling, then creates one new Job with `maxAttempts=1` and a separate audit event. The original blocked Job remains unchanged. The UI states this condition and requires the explicit paid-draft checkbox. No schema, secret, provider or safety-flag change is proposed.
+
+**Verification:** 46 focused API integration tests passed, including broad-query overflow, exact-key live generation, successful single-job recovery and rejection when the old Job has a reservation. Local TypeScript typecheck, lint, production build, framework check, bounded secret scan, dependency inventory and high-severity audit passed. The full local Vitest run hit the existing real-Redis Worker lifecycle 20-second timeout and was stopped after it stalled; a second run excluding that suite passed 335 tests in 25 files but the Auth integration setup timed out and skipped its five cases. Playwright and isolated PR CI for this correction remain open. No test result is counted as live uLiquid acceptance.
+
+**Cost/external effects and next action:** Zero new AI cost, evaluation, index activation, production-data mutation, Drive/Postiz write, schedule or publication in this work block. A second read at approximately 13:20 CEST found the original Job still `blocked_dependency` after one attempt with `INSUFFICIENT_EVIDENCE`, exactly one dispatched Outbox event, zero Mission Content, zero reservations referencing that Job and exactly one generation Job for the Mission. Finish diff and security review, commit and push the bounded correction to draft PR #10, and require green isolated CI before any release. Recheck the policy, safety flags, backup and Mission expiry immediately before any later approved deploy/action. On a changed state or unknown provider outcome, stop without retry. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`; Phase 7 remains gated.
+
+### 2026-09-28 13:48 CEST -- Phase 6 recovery CI passed; handover checkpoint
+
+**Repo/deployment SHA:** The code correction is committed and pushed as `b915c0c88c968d9953e596deb7d6d241409a8e73` on `codex/orbit-phase6-live-record-20260927` in draft [PR #10](https://github.com/eds-labs/eds-orbit/pull/10). The PR base and running production revision are `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; no release occurred. The documentation-only handover commit follows this entry in the same branch.
+
+**Verification:** Isolated CI run `36416585538` passed all three checks at the code SHA: 27 Vitest files, TypeScript typecheck, lint, build, framework check, secret pattern scan, dependency inventory, high-severity dependency audit with no known vulnerabilities, and all nine Playwright browser acceptance cases. This resolves the earlier pending-CI statement for the code correction. The local full-suite Redis Worker timeout and Auth setup timeout remain recorded above; green isolated CI does not prove live uLiquid draft acceptance.
+
+**Production state and effects:** The last read-only production check found the original Job `132462b7-07e8-42c0-9362-644a763094a3` blocked after one attempt with `INSUFFICIENT_EVIDENCE`, one dispatched Outbox event, no Mission Content, no reservation referencing that Job and no second generation Job for Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1`. No AI spend, evaluation, index activation, application production-data mutation, Drive/Postiz write, schedule or publication occurred in this correction block. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED` and Phase 7 remains gated.
+
+**Handover / next step:** Stop at the reviewed, CI-green draft PR. In a new work block, re-read the PR/head, live revisions and all preflight records; review the diff and production change plan below, then create and fully read a fresh restricted backup. Only after an applicable explicit release approval, deploy the reviewed SHA and verify all services and safety flags. Only after the separately scoped single paid internal-draft approval, invoke the owner action once before Mission expiry, observe its terminal result and stop on failure or ambiguity without retry. Record Evidence, Claims, review, asset, cost and no-publication proof before any Phase 6 acceptance or Phase 7 work.
+
+## Production Change Plan -- Phase 6 evidence-scoped recovery (prepared; not executed)
+
+**Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
+
+**Preflight and backup:** Require green isolated PR CI, a reviewed diff, the intended merge/deployment SHA, healthy API/Web/Worker, the current uLiquid owner session, observe project mode, active mandate with the $10 per-run ceiling, exact confirmed proposal, approved asset and current Fact/source rights. Read the old Job, Outbox, Mission, all generation Jobs for that Mission, Content and budget reservations again. Check `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, `LIVE_RAG_EVAL_PASSED=false`, and an unexpired Mission. Create and fully read a fresh restricted PostgreSQL custom archive immediately before any deployment; the earlier `20260928T0855Z` archive predates the Job failure and is not the fresh release backup. Do not proceed on an ambiguous paid/provider outcome or changed state.
+
+**Release and single action:** Merge/deploy only the reviewed PR, then verify all running service revisions, health, migration status and safety flags. Invoke the owner action once with its explicit paid-internal-draft confirmation. The transaction must leave the old blocked Job unchanged and create exactly one new `liveDraftOnce` Job with `maxAttempts=1`. Watch that Job to a terminal state; after any failure or uncertain transmission, do not retry. Inspect the resulting Content, Evidence, Claims, reviewability, approved asset, actual settled model/cost and no-publication proof before changing Phase 6 acceptance.
+
+**Rollback, monitoring and communication:** Keep external writes disabled. On a code fault, redeploy the prior known-good SHA and preserve all Job, audit, reservation and Content records; do not roll back or replay a transmitted paid call. No schema migration is planned. Monitor Worker/outbox status, single attempt count, exception/audit events, budget journal, Content count and publication/schedule absence. Report the observed result and any blocker to Mario before Phase 7.
+
+## Production Change Plan -- Phase 6 one-draft correction (halted after Job state changed)
+
+### Ziel
+
+Release the bounded early-start action for the already confirmed uLiquid Telegram Mission, then run at most one paid internal AI draft and verify the Phase 6 Golden Path without external publication.
+
+### Betroffene Systeme
+
+Orbit API, Web and Worker release image; the existing uLiquid Mission, Job and Outbox row; OpenAI text generation under the active project policy. No Postiz, Drive or social-provider write is included.
+
+### Risiko-Level
+
+Critical for the production release and the production Mission/Job transaction; high for one paid provider call. The release touches an owner-only action and a durable Worker path. Stop on changed authorization, policy, safety flags, Job state or unexpected deployment/migration effects.
+
+### Change Steps
+
+1. Verify `main`, PR #10 diff/CI, running SHA, service health, backup location, active uLiquid policy/profile/asset, exact proposal/Mission/Job/Outbox state and remaining time before 09:00 UTC.
+2. After specific owner approval, create and fully read a fresh mode-0600 PostgreSQL custom-format backup; deploy the reviewed PR while retaining `EXECUTION_MODE=test` and `ENABLE_EXTERNAL_WRITES=false`.
+3. Verify all running service image SHAs, health, migration status, owner action availability, project mode and unchanged safety flags. Stop on any mismatch.
+4. With the same exact owner mandate and only if the original Job is still queued at zero attempts, invoke the owner action once. Observe the Job and budget reservation until a terminal state; do not retry a failure or uncertain outcome.
+5. If a real draft exists, inspect its model/cost, active knowledge evidence and claims, guardrails, reviewability, approved brand asset and controlled export. Record the Content ID and no-publication proof. Advance Phase 7 only after Phase 6 acceptance.
+
+### Datenbank/Migrationen
+
+No schema migration. The approved action updates one Mission, one Job and one Outbox event atomically with an audit event. Never edit these production rows directly as a workaround. If the scheduled old Worker consumes the job first, stop for a new state-based decision.
+
+### Secrets/Config
+
+No secret or configuration change. Verify only safe flag values; do not display credentials.
+
+### Tests vor Deploy
+
+Focused API integration and Worker safety checks, full relevant unit/integration suite, TypeScript typecheck, lint, build, Playwright, framework check, bounded secret scan, dependency audit and green PR CI. Record any local environmental limitation without treating it as passed.
+
+### Deployment Plan
+
+Promote only the reviewed PR after owner approval and verified backup. Coolify may deploy on merge; treat the merge as the production release action. Do not run the paid job merely because the code deployed.
+
+### Post-Deploy Checks
+
+Compare image tags to the merge SHA across all services, verify health and no unexpected migration, read the exact job/outbox state and safety flags, then use the owner action once only if its full preflight still passes.
+
+### Monitoring/Alerts
+
+Watch Worker health, queue/outbox, Job attempt count and terminal status, exception/audit events, budget reservations and draft Content count. Alert the owner on any blocked or ambiguous outcome. Confirm no publication intent, external content-provider write, schedule or social post was created.
+
+### Rollback/Forward-Fix
+
+For a code fault, redeploy the prior known-good SHA with external writes disabled; preserve all Job, reservation and Content evidence. A claimed or transmitted paid call must not be retried after rollback. No schema rollback is needed. Preserve the fresh archive and document the state before any forward fix.
+
+### Approval
+
+- Required: yes, for the exact PR #10 production release and the once-only paid Mission action.
+- Approved by: Mario for PR #10 and the exact one-run action; precondition failed before deployment, so no release or paid run was executed under this approval.
+- Date: 2026-09-28.
 
 ## Production Change Plan -- Phase 6 correction (approved and executed; acceptance blocked)
 

@@ -154,7 +154,8 @@ const workers = classes.map(
             };
           } else if (topic === "generation") {
             const drafts =
-              config.EXECUTION_MODE === "live"
+              config.EXECUTION_MODE === "live" ||
+              data(claimed).liveDraftOnce === true
                 ? [
                     await generateMissionLive(
                       scope,
@@ -178,7 +179,11 @@ const workers = classes.map(
                   const project = await tx.project.findUniqueOrThrow({
                     where: { id: projectId },
                   });
-                  if (project.mode !== "autopilot") return null;
+                  if (
+                    data(claimed).liveDraftOnce === true ||
+                    project.mode !== "autopilot"
+                  )
+                    return null;
                   const mission = await entity(
                     tx,
                     scope,
@@ -334,6 +339,16 @@ async function pump() {
                   });
                   await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pub.id);
                 }
+              }
+              if (d.liveDraftOnce === true || d.attempts >= d.maxAttempts) {
+                await update(tx, scope, job, {
+                  ...d,
+                  status: "blocked_dependency",
+                  leaseUntil: null,
+                  error: "JOB_OUTCOME_UNKNOWN",
+                });
+                await exception(tx, scope, "JOB_OUTCOME_UNKNOWN", job.id);
+                continue;
               }
               await update(tx, scope, job, {
                 ...d,
