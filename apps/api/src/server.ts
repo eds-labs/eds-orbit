@@ -64,6 +64,8 @@ import {
   brandAssetUploadInput,
   normalizeBrandAsset,
 } from "./modules/assets.ts";
+import { exportAssetContent } from "./modules/content-export.ts";
+import { withGenerationProvenance } from "./modules/content-provenance.ts";
 import { generateProjectImage } from "./modules/image-generation.ts";
 import {
   beginConnect,
@@ -577,65 +579,67 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
   app.get("/api/projects/:projectId/content/:id/export", async (req, reply) => {
     const { projectId, id } = req.params as any,
       scope = await scopeFor(auth, req, projectId);
-    const bundle = await scoped(scope.workspaceId, projectId, async (tx) => {
-      const c = await entity(tx, scope, "content", id),
-        v = data(c);
-      const evidence = await entity(tx, scope, "evidence", v.evidenceId);
+    const loaded = await scoped(scope.workspaceId, projectId, async (tx) => {
+      const c = await entity(tx, scope, "content", id);
+      const evidence = await entity(tx, scope, "evidence", data(c).evidenceId);
       if (
         data(evidence).purpose !== "public" ||
         !(await validateEvidence(tx, scope, evidence.id, new Date())).valid
       )
         throw new DomainError("EVIDENCE_INVALIDATED");
-      const asset = v.assetId
-        ? await entity(tx, scope, "assets", v.assetId)
+      const asset = data(c).assetId
+        ? await entity(tx, scope, "assets", data(c).assetId)
         : null;
-      const a = data(asset);
-      const bundle = exportBlogArticle({
-        title: v.title,
-        slug:
-          (v.slug ??
-            v.title
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, "-")
-              .replace(/^-|-$/g, "")
-              .slice(0, 100)) ||
-          "article",
-        language: v.language,
-        bodyMarkdown: v.body,
-        description: v.description ?? v.title,
-        updatedAt: c.updatedAt.toISOString(),
-        sourceUrls: (data(evidence).items ?? [])
-          .filter((i: any) => i.publicUse && i.canonicalUrl)
-          .map((i: any) => i.canonicalUrl),
-        assets:
-          asset && a.usageApproved && a.mime === "image/png"
-            ? [
-                {
-                  filename: "creative.png",
-                  mime: "image/png",
-                  bytes: Buffer.from(a.base64, "base64"),
-                  alt: a.title ?? v.title,
-                },
-              ]
-            : [],
-      });
-      return {
-        ...bundle,
-        contentType: v.type,
-        deliveryStatus: "draft_export",
-        metadata: {
-          outline: v.outline ?? [],
-          internalLinks: v.internalLinks ?? [],
-          altTexts: v.altTexts ?? [],
-          ...(v.type === "newsletter"
-            ? {
-                newsletter: v.newsletter ?? null,
-                sendCapability: "not_configured",
-              }
-            : {}),
-        },
-      };
+      return { c, evidence, asset };
     });
+    const { c, evidence, asset } = loaded,
+      v = data(c),
+      a = asset ? data(asset) : null;
+    const assetContent = await exportAssetContent(scope, a);
+    const article = exportBlogArticle({
+      title: v.title,
+      slug:
+        (v.slug ??
+          v.title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-|-$/g, "")
+            .slice(0, 100)) ||
+        "article",
+      language: v.language,
+      bodyMarkdown: v.body,
+      description: v.description ?? v.title,
+      updatedAt: c.updatedAt.toISOString(),
+      sourceUrls: (data(evidence).items ?? [])
+        .filter((i: any) => i.publicUse && i.canonicalUrl)
+        .map((i: any) => i.canonicalUrl),
+      assets: assetContent
+        ? [
+            {
+              filename: "creative.png",
+              mime: "image/png",
+              bytes: assetContent.bytes,
+              alt: a!.title ?? v.title,
+            },
+          ]
+        : [],
+    });
+    const bundle = {
+      ...article,
+      contentType: v.type,
+      deliveryStatus: "draft_export",
+      metadata: {
+        outline: v.outline ?? [],
+        internalLinks: v.internalLinks ?? [],
+        altTexts: v.altTexts ?? [],
+        ...(v.type === "newsletter"
+          ? {
+              newsletter: v.newsletter ?? null,
+              sendCapability: "not_configured",
+            }
+          : {}),
+      },
+    };
     return reply
       .header("Content-Type", "application/json")
       .header(
@@ -1104,7 +1108,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       await assertContentCampaignContext(tx, scope, input.data);
       await invalidateContent(tx, scope, id);
       return update(tx, scope, row, {
-        ...input.data,
+        ...withGenerationProvenance(data(row), input.data),
         status: "draft",
         origin: data(row).origin,
         synthetic: data(row).synthetic ?? false,
