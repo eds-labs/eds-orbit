@@ -27,6 +27,7 @@ import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
 import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
+import { missionFactKeys } from "./mission-evidence.ts";
 type GenerationContract = {
   goal: string;
   audience: string;
@@ -139,6 +140,7 @@ export async function generateMissionLive(
     {
       query: data(initial).goal,
       sourceIds: data(initial).sourceIds,
+      factKeys: missionFactKeys(data(initial)),
       language: data(initial).language,
       purpose: "public",
       forModel: true,

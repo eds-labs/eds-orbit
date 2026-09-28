@@ -20,6 +20,7 @@ import {
 import { preflight, checkClaims, activePolicy } from "./policy.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
+import { missionFactKeys } from "./mission-evidence.ts";
 export async function enqueue(
   tx: DbTx,
   scope: Scope,
@@ -94,6 +95,7 @@ export async function startApprovedLiveDraftOnce(
   });
   if (project.paused || project.mode !== "observe")
     throw new DomainError("OBSERVE_PROJECT_REQUIRED", 409);
+  await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${missionId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
   const mission = await entity(tx, scope, "missions", missionId);
   const m = data(mission);
   if (mission.version !== expectedVersion)
@@ -108,8 +110,6 @@ export async function startApprovedLiveDraftOnce(
   )
     throw new DomainError("MISSION_NOT_READY", 409);
   const now = new Date();
-  if (new Date(m.startAt) <= now)
-    throw new DomainError("MISSION_ALREADY_ACTIVE", 409);
   if (new Date(m.endAt) <= now) throw new DomainError("MISSION_EXPIRED", 409);
   await tx.$executeRaw`SELECT set_config('app.user_id',${scope.userId},true)`;
   const proposals = await tx.chatProposal.findMany({
@@ -125,15 +125,33 @@ export async function startApprovedLiveDraftOnce(
     throw new DomainError("CONFIRMED_PROPOSAL_REQUIRED", 409);
   const job = await entity(tx, scope, "jobs", proposals[0].jobId);
   const j = data(job);
+  const fresh = j.status === "queued" && j.attempts === 0 && !j.liveDraftOnce;
+  const recoverable =
+    j.status === "blocked_dependency" &&
+    j.attempts === 1 &&
+    j.error === "INSUFFICIENT_EVIDENCE" &&
+    !j.liveDraftOnce;
   if (
     j.topic !== "generation" ||
     j.resourceId !== missionId ||
     j.actorId !== scope.userId ||
-    j.status !== "queued" ||
-    j.attempts !== 0 ||
-    j.liveDraftOnce
+    (!fresh && !recoverable)
   )
     throw new DomainError("JOB_NOT_QUEUED", 409);
+  if (fresh && new Date(m.startAt) <= now)
+    throw new DomainError("MISSION_ALREADY_ACTIVE", 409);
+  if (recoverable && new Date(m.startAt) > now)
+    throw new DomainError("MISSION_NOT_ACTIVE", 409);
+  if (recoverable) {
+    const otherJobs = (await list(tx, scope, "jobs")).filter(
+      (row) =>
+        row.id !== job.id &&
+        data(row).topic === "generation" &&
+        data(row).resourceId === missionId,
+    );
+    if (otherJobs.length)
+      throw new DomainError("MISSION_JOB_ALREADY_EXISTS", 409);
+  }
   const events = await tx.outbox.findMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -143,7 +161,20 @@ export async function startApprovedLiveDraftOnce(
       dispatchedAt: null,
     },
   });
-  if (events.length !== 1) throw new DomainError("OUTBOX_NOT_UNIQUE", 409);
+  if (events.length !== (fresh ? 1 : 0))
+    throw new DomainError("OUTBOX_NOT_UNIQUE", 409);
+  if (recoverable) {
+    const delivered = await tx.outbox.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        topic: "generation",
+        entityId: job.id,
+        dispatchedAt: { not: null },
+      },
+    });
+    if (delivered !== 1) throw new DomainError("OUTBOX_NOT_UNIQUE", 409);
+  }
   const existingContent = await tx.entity.count({
     where: {
       projectId: scope.projectId,
@@ -173,6 +204,42 @@ export async function startApprovedLiveDraftOnce(
   )
     throw new DomainError("PAID_MANDATE_REQUIRED", 409);
   await assertMissionAssets(tx, scope, m.assetIds ?? []);
+  if (recoverable) {
+    const next = await enqueue(
+      tx,
+      scope,
+      "generation",
+      missionId,
+      "mission:" + missionId + ":evidence-recovery:" + job.id,
+      now,
+    );
+    await update(tx, scope, next, {
+      ...data(next),
+      maxAttempts: 1,
+      liveDraftOnce: true,
+      approvedBy: scope.userId,
+      recoveryOfJobId: job.id,
+    });
+    await audit(
+      tx,
+      scope,
+      "mission.live_draft_once_recovery_approved",
+      missionId,
+      {
+        jobId: next.id,
+        blockedJobId: job.id,
+        missionVersion: mission.version,
+        maxAttempts: 1,
+      },
+    );
+    return {
+      missionId,
+      jobId: next.id,
+      blockedJobId: job.id,
+      startAt: now.toISOString(),
+      maxAttempts: 1,
+    };
+  }
   const updatedMission = await update(tx, scope, mission, {
     ...m,
     startAt: now.toISOString(),
@@ -236,6 +303,7 @@ export async function deterministicDraft(
   const evidence = await retrieve(tx, scope, {
     query: v.goal,
     sourceIds: v.sourceIds,
+    factKeys: missionFactKeys(v),
     purpose: "public",
     language: v.language,
     at: new Date(),

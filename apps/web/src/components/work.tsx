@@ -555,12 +555,18 @@ export function Missions() {
             selected.data.status === "ready" &&
             selected.data.maxContents === 1 &&
             typeof selected.data.startAt === "string" &&
-            Date.parse(selected.data.startAt) > Date.now() && (
+            typeof selected.data.chatProposalId === "string" &&
+            typeof selected.data.endAt === "string" &&
+            Date.parse(selected.data.endAt) > Date.now() && (
               <div>
                 <Alert>
-                  {locale === "de"
-                    ? "Einmaliger interner Live-Draft mit der aktiven Kosten-Policy. Der bestehende Job startet jetzt mit höchstens einem Versuch. Kein Review, Zeitplan oder externer Post."
-                    : "One internal live draft under the active cost policy. The existing job starts now with at most one attempt. No review, schedule, or external post."}
+                  {Date.parse(selected.data.startAt) > Date.now()
+                    ? locale === "de"
+                      ? "Einmaliger interner Live-Draft mit der aktiven Kosten-Policy. Der bestehende Job startet jetzt mit höchstens einem Versuch. Kein Review, Zeitplan oder externer Post."
+                      : "One internal live draft under the active cost policy. The existing job starts now with at most one attempt. No review, schedule, or external post."
+                    : locale === "de"
+                      ? "Nur wenn der ursprüngliche Job nach genau einem Evidence-Fehler blockiert ist und keine Kosten oder Inhalte entstanden sind, wird ein neuer interner Job mit genau einem Versuch angelegt. Kein Review, Zeitplan oder externer Post."
+                      : "Only when the original job was blocked after one evidence failure with no cost or content will a new internal single-attempt job be queued. No review, schedule, or external post."}
                 </Alert>
                 <label className="review-confirm">
                   <Input

@@ -308,5 +308,108 @@ describe.skipIf(!enabled)(
         run((tx) => startApprovedLiveDraftOnce(tx, scope, missionId, version)),
       ).rejects.toThrow("CONFIRMED_PROPOSAL_REQUIRED");
     });
+
+    it("creates one new single-attempt job after the original evidence failure", async () => {
+      const mission = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+      );
+      await run(async (tx) => {
+        await update(tx, scope, mission, {
+          ...data(mission),
+          startAt: new Date(Date.now() - 60_000).toISOString(),
+        });
+        const original = await tx.entity.findUniqueOrThrow({
+          where: { id: jobId },
+        });
+        await update(tx, scope, original, {
+          ...data(original),
+          status: "blocked_dependency",
+          attempts: 1,
+          error: "INSUFFICIENT_EVIDENCE",
+        });
+        await tx.outbox.updateMany({
+          where: { entityId: jobId },
+          data: { dispatchedAt: new Date() },
+        });
+      });
+      const version = (
+        await run((tx) =>
+          tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+        )
+      ).version;
+      const result = await run((tx) =>
+        startApprovedLiveDraftOnce(tx, scope, missionId, version),
+      );
+      expect(result.jobId).not.toBe(jobId);
+      expect(result.blockedJobId).toBe(jobId);
+      const state = await run(async (tx) => ({
+        old: await tx.entity.findUniqueOrThrow({ where: { id: jobId } }),
+        next: await tx.entity.findUniqueOrThrow({
+          where: { id: result.jobId },
+        }),
+        outbox: await tx.outbox.findMany({
+          where: { entityId: result.jobId },
+        }),
+      }));
+      expect(data(state.old)).toMatchObject({
+        status: "blocked_dependency",
+        attempts: 1,
+        error: "INSUFFICIENT_EVIDENCE",
+      });
+      expect(data(state.next)).toMatchObject({
+        status: "queued",
+        attempts: 0,
+        maxAttempts: 1,
+        liveDraftOnce: true,
+        recoveryOfJobId: jobId,
+      });
+      expect(state.outbox).toHaveLength(1);
+      await expect(
+        run((tx) => startApprovedLiveDraftOnce(tx, scope, missionId, version)),
+      ).rejects.toThrow("MISSION_JOB_ALREADY_EXISTS");
+    });
+
+    it("refuses recovery when the original run may have incurred a charge", async () => {
+      const mission = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+      );
+      await run(async (tx) => {
+        await update(tx, scope, mission, {
+          ...data(mission),
+          startAt: new Date(Date.now() - 60_000).toISOString(),
+        });
+        const original = await tx.entity.findUniqueOrThrow({
+          where: { id: jobId },
+        });
+        await update(tx, scope, original, {
+          ...data(original),
+          status: "blocked_dependency",
+          attempts: 1,
+          error: "INSUFFICIENT_EVIDENCE",
+        });
+        await tx.outbox.updateMany({
+          where: { entityId: jobId },
+          data: { dispatchedAt: new Date() },
+        });
+        await tx.budgetReservation.create({
+          data: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            key: scope.projectId + ":" + jobId,
+            category: "generation",
+            amountMicros: 1n,
+            state: "reserved",
+          },
+        });
+      });
+      const version = (
+        await run((tx) =>
+          tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+        )
+      ).version;
+      await expect(
+        run((tx) => startApprovedLiveDraftOnce(tx, scope, missionId, version)),
+      ).rejects.toThrow("RESERVATION_ALREADY_USED");
+    });
   },
 );
