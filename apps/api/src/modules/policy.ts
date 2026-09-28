@@ -89,7 +89,29 @@ export async function checkClaims(
   if (e.status === "insufficient_evidence" || e.purpose !== "public")
     problems.push("INSUFFICIENT_PUBLIC_EVIDENCE");
   if (!v.claims?.length) problems.push("CLAIM_LEDGER_REQUIRED");
+  // The mission CTA is owner-approved campaign copy, not a factual claim.
+  // profileGuardrailProblems verifies it against the current profile and its
+  // official link Fact, so a model-attached factId must not turn it into one.
+  const mission = v.missionId
+    ? await entity(tx, scope, "missions", v.missionId).catch((error) => {
+        if (error instanceof DomainError) return null;
+        throw error;
+      })
+    : null;
+  const ctaText = (text: unknown) =>
+    String(text)
+      .replace(/[\s\p{P}]+$/u, "")
+      .trim()
+      .toLocaleLowerCase();
+  const approvedCta =
+    mission && typeof data(mission).targetAction === "string"
+      ? ctaText(data(mission).targetAction)
+      : null;
   for (const claim of v.claims ?? []) {
+    if (approvedCta && !claim.chunkId && ctaText(claim.text) === approvedCta) {
+      if (!v.body.includes(claim.text)) problems.push("CLAIM_NOT_IN_CONTENT");
+      continue;
+    }
     if (claim.kind === "style") {
       if (!v.body.includes(claim.text)) problems.push("CLAIM_NOT_IN_CONTENT");
       if (
