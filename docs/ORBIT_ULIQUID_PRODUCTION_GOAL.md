@@ -569,6 +569,16 @@ nicht überschreiben.
 
 **Cost/external effects and next action:** $0 additional AI cost and zero production data mutation, new evaluation, index activation, Drive/Postiz write, schedule or publication in this work block. Complete relevant checks and PR review; then obtain a specific owner approval for this new PR #10 release and the exact once-only action before production mutation. If the 09:00 UTC queue deadline arrives first, stop and re-audit the Job and Mission rather than assuming the approved paid run is still possible.
 
+### 2026-09-28 08:49 CEST -- PR #10 acceptance green; production remains untouched
+
+**Repo/deployment SHA:** Branch commit `11a193a556ba639fc4beae95d4adc2bafd57b21f` is pushed to draft PR [#10](https://github.com/eds-labs/eds-orbit/pull/10) against production `main` `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`. The PR is mergeable and remains unmerged. No new deployment SHA exists.
+
+**Verification:** Both isolated Orbit acceptance checks passed, including local setup, full Vitest, TypeScript, lint, build, bounded secret scan, dependency inventory, high-severity audit and all nine Playwright browser checks. The framework check passed. Locally, four focused API/DB integration cases and 132 unit tests passed; local build, lint and typecheck passed. The local real-Redis Worker lifecycle test timed out at its 20-second wait, and a local Playwright invocation could not connect because the app server was not started; the complete isolated CI equivalents passed and are the release gate. No live uLiquid draft acceptance is implied by green CI.
+
+**Fresh production read:** At approximately 06:46 UTC the exact generation Job `132462b7-07e8-42c0-9362-644a763094a3` remained `queued`, attempts `0`, maxAttempts `3`; there were zero Content rows for Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1` and one undispatched Outbox event. The 09:00 UTC due time is unchanged. No paid call, production mutation, external provider write, schedule or publication occurred in this work block.
+
+**Decision gate:** The prior approval covered PR #9 and a bounded run, not the new owner action and Worker code in PR #10. Before merge/deployment and the exact one-time paid action, obtain explicit owner approval for this reviewed release. Recheck the Job, flags, policy and backup immediately before acting. If the due time is reached or the state changes first, stop for a fresh decision. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`; Phase 7 remains gated.
+
 ## Production Change Plan -- Phase 6 one-draft correction (prepared; approval pending)
 
 ### Ziel
@@ -613,7 +623,7 @@ Compare image tags to the merge SHA across all services, verify health and no un
 
 ### Monitoring/Alerts
 
-Watch Worker health, queue/outbox, Job attempt count and terminal status, exception/audit events, budget reservations and draft Content count. Alert the owner on any blocked or ambiguous outcome. Confirm no publication intent, provider write, schedule or external post was created.
+Watch Worker health, queue/outbox, Job attempt count and terminal status, exception/audit events, budget reservations and draft Content count. Alert the owner on any blocked or ambiguous outcome. Confirm no publication intent, external content-provider write, schedule or social post was created.
 
 ### Rollback/Forward-Fix
 
