@@ -324,7 +324,7 @@ live uLiquid acceptance.
 | Shared generation contract | YES | YES | YES | PARTIAL | Policy, profile v2, assigned Telegram channel, official target and approved logo passed the live one-draft run. Claim review blocked acceptance. |
 | Channel-aware social rules | YES | YES | YES | PARTIAL | The live draft uses the assigned Telegram channel and official beta URL. Review remains blocked and no publication intent exists. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | YES | The approved CTA is now classified as campaign copy (PR #11). The model paraphrase of `product.user_control` stayed blocked by `FACT_VALUE_MISMATCH`; after the owner edit to the verbatim Fact and owner body review, v8 is `reviewed` with no problems. |
-| Single text draft | YES | YES | YES | YES | Content `8b2d23c1-a42b-4375-b65e-72a77cb9f3f0` v8 is `reviewed` and exports as `draft_export`. Required one owner wording edit; verbatim-fact prompt (PR #12) is deployed but not yet proven by a new paid run. |
+| Single text draft | YES | YES | YES | YES | Unedited paid verification Content `ba81892b-efed-412e-a826-7c425c6a2161` passed review after owner confirmation and exports as `draft_export` on `00f2050`; earlier Content `8b2d23c1…` needed one owner wording edit. |
 | Approved early single live draft | YES | YES | YES | PARTIAL | The owner action created exactly one separate recovery Job with `maxAttempts=1`; it succeeded in one attempt. The original blocked Job was not retried. Review and Phase 6 acceptance remain open. |
 | Brand assets | YES | YES | YES | YES | The reviewed Content references approved Drive-imported logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`; the export bundle contains it as `assets/creative.png` after PR #12. Visual rendering and Drive save remain untested. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
@@ -685,6 +685,18 @@ nicht überschreiben.
 
 **Release decision:** Mario directed a direct push to `main` for this test-scoped correction and waived the pre-release backup as not required for this step. Recorded as an explicit owner exception; the latest verified archive remains `orbit-20260928T171920Z-pre-pr12.dump`. Mission `43c04bd9…` cannot be reused (its approved job is consumed); a new verification needs a new Chat proposal and a separate paid approval.
 
+### 2026-09-28 20:15 CEST -- Unedited paid verification draft reviewed; milestone accepted
+
+**Release:** `00f2050` was pushed to `main` on Mario's instruction; Coolify deployment succeeded in 3m41s, application Running/Healthy. Main CI for `00f2050` passed (Orbit acceptance and Framework Check). After deployment the failed Mission `43c04bd9…` still had exactly two jobs and pending Outbox was 0.
+
+**Run:** Mario approved one new paid verification run. The same Chat request (period 2026-09-29T10:00Z to 2026-09-30T10:00Z) produced a proposal with a $0.12 first-draft ceiling. Confirmation created Mission `efe13e25-851c-4361-a7ee-6cf122c4f789` with `factKeys: ["url.beta_registration","product.user_control"]` and exactly one queued Job `f645afce-6493-4e50-885c-4214f10cb81e`. The owner live-draft-once action ran once: the Job `succeeded` in 1/1 attempt and no second job was created.
+
+**Draft and review:** Content `ba81892b-efed-412e-a826-7c425c6a2161`, English Telegram social, `gpt-5.6-terra`, generation cost 5,988 USD micros, Evidence `42696729-f54c-4508-9a7d-a7099af09d97`, approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`, target `https://desk.uliquid.vip/en/register`. The fact claim quotes `product.user_control` verbatim (Fact `a8e7cc62-783a-4017-b52f-54bba3886dff`) and the CTA `Explore the beta` is ledgered as `style` without a Fact reference. The automatic review (v2, no human confirmation) reported only `HUMAN_CONTENT_REVIEW_REQUIRED` for the model's opening marketing sentence. Mario reviewed the complete text without edits and confirmed it: v4 is `reviewed`, `valid=true`, `problems=[]`, `model` retained.
+
+**Export and effects:** Export HTTP 200, `draft_export`, files `assets/creative.png`, `article.md`, `metadata.json`, `preview.html`, contentHash `d92867653931bd587e28c0a5f9a628b4d2d5d6b48ba0e75379f06d34e61ff8d4`. `NO_EXTERNAL_PUBLICATION`: 0 publications, no schedule, no Drive write, no Postiz call. Total cost of this verification: one Chat run (about $0.04) plus the 5,988-micro draft.
+
+**Decision:** The golden path passed end to end without owner text edits on deployed `00f2050`, with verbatim fact claims, CTA handling, single-attempt enforcement and draft export verified. Section 11 criteria are met; `ULIQUID_DRAFT_PRODUCTION_READY` is set to YES. Open, non-blocking for this milestone: Visual + Drive save, Phase 7 action-specific readiness, off-host backup/restore (Phase 10), and the local-only real-Redis Worker test timeout.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
@@ -852,4 +864,4 @@ append-only dokumentieren:
 -   Kosten/Provider-Effekte dokumentiert sind.
 
 **Current final state:**
-`ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`
+`ULIQUID_DRAFT_PRODUCTION_READY = YES` (2026-09-28 20:15 CEST, deployed `00f2050`; see Progress Log).
