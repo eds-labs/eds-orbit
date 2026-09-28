@@ -234,11 +234,13 @@ Acceptance-Auftrag:
 > tone, one approved CTA and an official uLiquid link. Use only current
 > verified project knowledge. Do not publish.
 
-Nachweisen: - \[ \] Auftrag → Readiness → Evidence → Proposal →
-Mission/Job → Draft - \[ \] Evidence/Claims sichtbar - \[ \] Guardrails
-erfolgreich oder verständlicher Blocker - \[ \] Draft prüf-/editierbar -
-\[ \] Approved Brand Asset verwendbar - \[ \] optional Visual + Drive
-Save - \[ \] Export/Handoff - \[ \] kein Public Post
+Nachweisen: - \[x\] Auftrag → Readiness → Evidence → Proposal →
+Mission/Job → Draft - \[x\] Evidence/Claims sichtbar - \[x\] Guardrails
+erfolgreich oder verständlicher Blocker - \[x\] Draft prüf-/editierbar -
+\[x\] Approved Brand Asset verwendbar - \[ \] optional Visual + Drive
+Save (not run) - \[x\] Export/Handoff - \[x\] kein Public Post
+
+Acceptance evidence: see Progress Log entry 2026-09-28 19:35 CEST.
 
 Acceptance Record: deployed SHA, Profile Version, Evidence IDs, Index
 Generation, Model, Cost, Content ID, Asset ID, Drive Result,
@@ -305,7 +307,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-28 after the single authorized Phase 6 recovery run. PR #10 was merged and Coolify deployed `2773b10440c71e270c6f3f01b365fc61605f1eed`. One real internal Telegram draft was generated, but its claim review returned `needs_review`; Phase 6 remains unaccepted.
+Status as observed on 2026-09-28 19:35 CEST after PR #11 and PR #12. Coolify deployed `9ec09bb`. The single real internal Telegram draft passed claim review after an owner edit to the verbatim Fact wording and owner body review, and exported as a draft bundle with the approved logo. Rows below that predate this entry keep their earlier evidence unless updated.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -321,10 +323,10 @@ live uLiquid acceptance.
 | Marketing profile | YES | YES | YES | PARTIAL | Live profile v2 now approves the exact `Explore the beta` CTA and retains the existing guardrails. An older profile-v1 test draft moved to needs review. Generation contract is not accepted. |
 | Shared generation contract | YES | YES | YES | PARTIAL | Policy, profile v2, assigned Telegram channel, official target and approved logo passed the live one-draft run. Claim review blocked acceptance. |
 | Channel-aware social rules | YES | YES | YES | PARTIAL | The live draft uses the assigned Telegram channel and official beta URL. Review remains blocked and no publication intent exists. |
-| Evidence-aware status and claim guardrails | YES | YES | YES | PARTIAL | The live review detected `FACT_VALUE_MISMATCH`, `FACT_OUTSIDE_EVIDENCE` and `HUMAN_CONTENT_REVIEW_REQUIRED`, leaving the draft in `needs_review`. The guard blocked acceptance as intended. |
-| Single text draft | YES | YES | YES | PARTIAL | One new English Telegram draft, Content `8b2d23c1-a42b-4375-b65e-72a77cb9f3f0`, is visible and editable. The review set it to `needs_review`; the three older rows remain. |
+| Evidence-aware status and claim guardrails | YES | YES | YES | YES | The approved CTA is now classified as campaign copy (PR #11). The model paraphrase of `product.user_control` stayed blocked by `FACT_VALUE_MISMATCH`; after the owner edit to the verbatim Fact and owner body review, v8 is `reviewed` with no problems. |
+| Single text draft | YES | YES | YES | YES | Content `8b2d23c1-a42b-4375-b65e-72a77cb9f3f0` v8 is `reviewed` and exports as `draft_export`. Required one owner wording edit; verbatim-fact prompt (PR #12) is deployed but not yet proven by a new paid run. |
 | Approved early single live draft | YES | YES | YES | PARTIAL | The owner action created exactly one separate recovery Job with `maxAttempts=1`; it succeeded in one attempt. The original blocked Job was not retried. Review and Phase 6 acceptance remain open. |
-| Brand assets | YES | YES | YES | PARTIAL | The new Content references approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`. Visual rendering and Drive save remain untested. |
+| Brand assets | YES | YES | YES | YES | The reviewed Content references approved Drive-imported logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`; the export bundle contains it as `assets/creative.png` after PR #12. Visual rendering and Drive save remain untested. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
@@ -332,7 +334,7 @@ live uLiquid acceptance.
 | Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
 | Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
-| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | A fresh root-only on-host archive (`20260928T125257Z`, 1,173,950 bytes, mode 0600) passed a full `pg_restore -f /dev/null` read before deployment. Off-host production restore and key escrow remain unproven. |
+| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | Fresh root-only on-host archives before PR #11 (`20260928T160114Z`) and PR #12 (`20260928T171920Z`) passed full `pg_restore -f /dev/null` reads. Off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
@@ -646,6 +648,32 @@ nicht überschreiben.
 **Export blocker:** `GET /content/:id/export` returned HTTP 500. The approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` is a Drive-imported PNG with `driveFileId` and no inline `base64`; the export decoded `a.base64` directly. Zero publications exist for the Content; no schedule, Drive write, Postiz call or publication occurred.
 
 **Local correction (follow-up PR):** Export resolves approved PNG bytes through `exportAssetContent`, which reads Drive-imported assets with the recorded checksum (as the asset preview does) outside the database transaction and verifies inline bytes via `assetBytes`. Content edits keep `model`, `usage` and `jobId` via `withGenerationProvenance`. Draft instructions require fact claims to contain the referenced value verbatim, with rephrasing outside fact claims. Verification: 5 new unit tests, lint, API/Web typecheck, full Vitest 346/347 (same local-only real-Redis Worker timeout). Next: CI, approved release with fresh backup, then re-run the export once and record the Phase 6 acceptance. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+### 2026-09-28 19:35 CEST -- Phase 6 golden path accepted with owner wording edit
+
+**Release and backup:** Before merge, Mario created root-only archive `/root/orbit-backups/orbit-20260928T171920Z-pre-pr12.dump` (1,176,487 bytes, mode 0600, SHA-256 `e61a113badfaf74d25c002e826d4793392ead470c7f08727d046a3d4b0b046ef`); a full `pg_restore -f /dev/null` read exited 0. On-host only. All PR #12 checks passed; Mario merged it as `9ec09bb` and the Coolify webhook deployment succeeded in 3m45s. The Orbit session had expired after deployment; Mario signed in again.
+
+**Acceptance record:**
+
+| Field | Value |
+| --- | --- |
+| Deployed SHA | `9ec09bb` (PR #12 merge on `main`) |
+| Project / mode | uLiquid `21356dfc-ceaf-4a2e-92b4-11f54f0182f5`, `observe`, not paused |
+| Mission | `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1`, campaign `product`, CTA `Explore the beta`, target `https://desk.uliquid.vip/en/register` |
+| Profile version | 2 |
+| Evidence | `26f1a2c8-9c9e-4800-b5e8-ca6d904c46e6` (ready, public); Knowledge generation 2 active (recorded 15:12) |
+| Fact claim | `product.user_control` Fact `53684847-55b5-4976-a19f-14d50d270a01`, verbatim value |
+| Model / cost | `gpt-5.6-terra`, Job `b056b9df-732b-45a1-b2c8-7c2bfecdf721`, 5,158 + 1 USD micros (recorded 15:12); no further paid call |
+| Content | `8b2d23c1-a42b-4375-b65e-72a77cb9f3f0` v8, `reviewed`, `valid=true`, `problems=[]`, owner body review recorded |
+| Asset | approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` (Drive-imported PNG) |
+| Export | HTTP 200, `orbit-blog-bundle-v1`, `export_ready`, `draft_export`, `liveAdapter=not_configured`; files `assets/creative.png`, `article.md`, `metadata.json`, `preview.html`; contentHash `c15ca93bb274e926f99c1b2bb25ce6e8a55ad5296dd292e09c5f52c4471aaf4d` |
+| Drive result | read-only asset read during export; no Drive write |
+| Visual | not run (optional) |
+| Publication | `NO_EXTERNAL_PUBLICATION`: 0 publications for the Content, no schedule, no published timestamp |
+
+**Limits:** The accepted text required one owner edit because the model paraphrased a text Fact; the verbatim-fact instruction from PR #12 is deployed but unproven until a separately approved paid run. The current v8 row carries no `model`/`usage` because the edit (v6) predates PR #12; earlier versions keep it in `entityVersion` and costs remain in the budget journal. Off-host backup/restore remains open (Phase 10).
+
+**Result:** Phase 6 golden-path evidence is complete for the single draft. Whether this satisfies `ULIQUID_DRAFT_PRODUCTION_READY` (section 11) is recorded as Mario's decision; until then the value below is unchanged.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
