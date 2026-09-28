@@ -192,6 +192,16 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
   if (project.paused) return { queued: 0 };
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
+  // An owner-approved single live draft is the mission's only attempt; its
+  // startAt change bumps the mission version and must not queue another job.
+  const liveDraftMissions = new Set(
+    (await list(tx, scope, "jobs"))
+      .filter(
+        (job) =>
+          data(job).topic === "generation" && data(job).liveDraftOnce === true,
+      )
+      .map((job) => data(job).resourceId),
+  );
   for (const m of await list(tx, scope, "missions")) {
     if (metrics.some((row) => data(row).campaign === m.id)) {
       try {
@@ -209,6 +219,7 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
       await update(tx, scope, m, { ...d, status: "expired" });
       continue;
     }
+    if (liveDraftMissions.has(m.id)) continue;
     await enqueue(
       tx,
       scope,

@@ -22,6 +22,7 @@ import {
   planMission,
   startApprovedLiveDraftOnce,
 } from "../src/modules/workflow.ts";
+import { sweepProject } from "../src/modules/lifecycle.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -216,6 +217,35 @@ describe.skipIf(!enabled)(
       ).toBe(1);
     });
 
+    it("keeps the approved job as the only attempt when the worker sweeps the now-active mission", async () => {
+      const version = (
+        await run((tx) =>
+          tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+        )
+      ).version;
+      await run((tx) =>
+        startApprovedLiveDraftOnce(tx, scope, missionId, version),
+      );
+      const jobs = () =>
+        run((tx) =>
+          tx.entity.findMany({
+            where: { projectId: scope.projectId, kind: "jobs" },
+          }),
+        );
+      await run((tx) => sweepProject(tx, scope));
+      expect((await jobs()).map((job) => job.id)).toEqual([jobId]);
+      await run(async (tx) => {
+        const job = await tx.entity.findUniqueOrThrow({ where: { id: jobId } });
+        await update(tx, scope, job, {
+          ...data(job),
+          status: "blocked_dependency",
+          attempts: 1,
+          error: "EVIDENCE_INVALID",
+        });
+      });
+      await run((tx) => sweepProject(tx, scope));
+      expect((await jobs()).map((job) => job.id)).toEqual([jobId]);
+    });
     it("rejects editor approval and budgets above the owner's ten-dollar ceiling", async () => {
       const version = (
         await run((tx) =>

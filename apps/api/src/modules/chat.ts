@@ -508,8 +508,10 @@ export async function confirmProposal(
       )
         throw new DomainError("SOURCE_CHANGED", 409);
     }
+    const factKeys = new Set<string>();
     for (const ref of payload.facts) {
       const row = await entity(tx, scope, "facts", ref.id);
+      factKeys.add(String(data(row).key));
       if (
         row.version !== ref.version ||
         data(row).status !== "verified" ||
@@ -534,6 +536,9 @@ export async function confirmProposal(
       status: "ready",
       chatProposalId: proposal.id,
       chatCostCeilingMicros: payload.firstDraftMaxMicros,
+      // Exact keys of the confirmed verified facts bound mission retrieval,
+      // independent of the free-text topics the model chose.
+      factKeys: [...factKeys],
     });
     const availableAt = new Date(
       Math.max(Date.now(), Date.parse(mission.startAt)),

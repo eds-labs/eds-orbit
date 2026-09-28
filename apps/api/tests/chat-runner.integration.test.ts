@@ -11,6 +11,7 @@ import {
   policy as policySchema,
 } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
+import { missionFactKeys } from "../src/modules/mission-evidence.ts";
 import {
   ingest,
   setFact,
@@ -845,6 +846,8 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       tx.entity.findUniqueOrThrow({ where: { id: first.missionId! } }),
     );
     expect(data(saved).allowedActions).toEqual(["draft"]);
+    expect(data(saved).factKeys).toEqual([data(refs.fact).key]);
+    expect(missionFactKeys(data(saved))).toEqual([data(refs.fact).key]);
     const stale = await createProposal(scope, thread.id, {
       mission,
       factIds: [refs.fact.id],

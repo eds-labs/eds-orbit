@@ -675,6 +675,16 @@ nicht überschreiben.
 
 **Result:** Phase 6 golden-path evidence is complete for the single draft. Whether this satisfies `ULIQUID_DRAFT_PRODUCTION_READY` (section 11) is recorded as Mario's decision; until then the value below is unchanged.
 
+### 2026-09-28 20:05 CEST -- Verification paid run blocked by broad evidence and a duplicate sweep job
+
+**Approval and run:** Mario approved one paid verification run of the verbatim-fact prompt. A new Orbit Chat request (same wording as the earlier accepted proposal, period 2026-09-29T09:00Z to 2026-09-30T09:00Z) produced proposal `9218ef7e-897a-47f5-9ee5-755e69319f18` (one Telegram social item, one source, logo asset, $0.12 first-draft ceiling). Confirmation created Mission `43c04bd9-46a4-46c4-983e-6bcaf121e606` and queued Job `523be300-d9ef-4834-b518-37ea05ee0c83`. The owner live-draft-once action was invoked once.
+
+**Result:** Job `523be300…` ended `blocked_dependency` after 1/1 attempt with `EVIDENCE_INVALID`; its hybrid Evidence `19b18529…` was `insufficient_evidence` with a broad fact set (pricing, token, presale and others). The model had stored `allowedTopics: ["User control"]` instead of the exact key, so `missionFactKeys` returned no exact keys and retrieval fell back to the broad query (the PR #10 overflow). The failure occurs before the generation reservation; no draft model call and no Content. Separately, the worker sweep created Job `5ee869fb-96bf-488f-951f-1ee3ab317add` (`mission:<id>:2`, maxAttempts 3) because the approval moved `startAt` and bumped the Mission version; it failed `INSUFFICIENT_EVIDENCE` on the deterministic test branch. Dashboard spend moved from about $0.25 to $0.291 (Chat run); reserved $0.035. No retry, publication, schedule or external write.
+
+**Correction:** Proposal confirmation stores `factKeys` from the confirmed verified Fact IDs on the Mission, and `missionFactKeys` prefers them over free-text topics (dotted topics still work for older missions). `sweepProject` skips missions that have a `liveDraftOnce` generation job, so the owner-approved attempt stays the only one. Regression tests fail without the corrections. Lint, API/Web typecheck, secret scan and full Vitest 350/351 (same local-only real-Redis Worker timeout) passed.
+
+**Release decision:** Mario directed a direct push to `main` for this test-scoped correction and waived the pre-release backup as not required for this step. Recorded as an explicit owner exception; the latest verified archive remains `orbit-20260928T171920Z-pre-pr12.dump`. Mission `43c04bd9…` cannot be reused (its approved job is consumed); a new verification needs a new Chat proposal and a separate paid approval.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
