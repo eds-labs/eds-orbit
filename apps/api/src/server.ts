@@ -132,6 +132,7 @@ import {
 } from "./modules/marketing-profile.ts";
 import {
   planMission,
+  startApprovedLiveDraftOnce,
   publishIntent,
   analyze,
   reviewContent,
@@ -1020,11 +1021,15 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
         if (active) {
           const mandate = data(active);
           if (
-            parsed.channels.some((channel: string) => !mandate.channels?.includes(channel)) ||
+            parsed.channels.some(
+              (channel: string) => !mandate.channels?.includes(channel),
+            ) ||
             !mandate.contentTypes?.includes(parsed.contentType)
           )
             throw new DomainError("SCOPE_NOT_ALLOWED", 409);
-          if (!mandate.allowedOrigins?.includes(new URL(parsed.targetUrl).origin))
+          if (
+            !mandate.allowedOrigins?.includes(new URL(parsed.targetUrl).origin)
+          )
             throw new DomainError("LINK_NOT_ALLOWED", 409);
         }
         await assertMissionAssets(tx, scope, parsed.assetIds);
@@ -1143,6 +1148,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "stop-experiment",
       "openai-configure",
       "embed-document",
+      "start-approved-live-draft-once",
       "knowledge-import-commit",
       "knowledge-import-retry",
     ].includes(action);
@@ -1721,6 +1727,17 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       }
       if (action === "run-mission")
         return planMission(tx, scope, schemas.id.parse(input.missionId));
+      if (action === "start-approved-live-draft-once") {
+        const i = z
+          .object({
+            missionId: schemas.id,
+            version: z.number().int().positive(),
+            confirmPaidInternalDraft: z.literal(true),
+          })
+          .strict()
+          .parse(input);
+        return startApprovedLiveDraftOnce(tx, scope, i.missionId, i.version);
+      }
       if (action === "review")
         return reviewContent(
           tx,

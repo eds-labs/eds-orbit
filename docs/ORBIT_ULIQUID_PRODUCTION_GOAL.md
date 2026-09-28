@@ -305,7 +305,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-27 after the second bounded Phase 6 Chat run. The running revision is `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`.
+Status as observed on 2026-09-28 before the deferred Phase 6 generation job. The running revision is `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; the proposed one-draft correction is local only.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -323,6 +323,7 @@ live uLiquid acceptance.
 | Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
 | Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain. The confirmed proposal created one Mission and a future-dated generation job, but no new draft exists. |
+| Approved early single live draft | YES | PARTIAL | NO | NO | Local owner-only action and integration checks cover the exact confirmed, future, draft-only Mission and queued job, with one attempt and no automatic review or publishing. Worker lifecycle and end-to-end uLiquid acceptance remain open; no production release yet. |
 | Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID and included in the confirmed proposal. Use in a new draft is unproven. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
@@ -554,7 +555,75 @@ nicht überschreiben.
 
 **Single approved Chat run:** Chat job `03338f3f-8f19-43f0-b643-7d90a7145238` succeeded. Exact-key `product.user_control` and `url.beta_registration` lookup reported hybrid retrieval on active index generation 2. The approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was returned by exact ID. Proposal `e7f2da6d-700f-4b82-8b62-9daee51262cb` passed confirmation and created Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1`, targeting one draft-only English Telegram product item with `Explore the beta` and the official beta registration URL. Six Chat reservations settled for exactly $0.037793. No further Chat request or RAG evaluation was made.
 
-**Generation stop and pending decision:** Confirmation created generation job `132462b7-07e8-42c0-9362-64a763094a3`, `queued`, zero attempts, with its undispatched Outbox event available only on **2026-09-28 09:00 UTC**, matching the requested Mission start. An additional manual `Run mission` click returned `MISSION_NOT_ACTIVE` because the period is still in the future; the server enqueued no second job. The worker has made no generation request and no generation cost has been charged. The job's standard `maxAttempts` is 3, which needs an explicit disposition under the owner's no-retry constraint. The Content Studio still lists only three earlier items; no new draft, review result, visual, Drive save, Postiz handoff, social schedule or publication exists. The single future Outbox entry is an **internal generation job**, not an external post. A specific owner decision on keeping or stopping that queued job is pending; do not silently shift its period, create another paid proposal, or proceed to Phase 7. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+**Generation stop and pending decision:** Confirmation created generation job `132462b7-07e8-42c0-9362-644a763094a3`, `queued`, zero attempts, with its undispatched Outbox event available only on **2026-09-28 09:00 UTC**, matching the requested Mission start. An additional manual `Run mission` click returned `MISSION_NOT_ACTIVE` because the period is still in the future; the server enqueued no second job. The worker has made no generation request and no generation cost has been charged. The job's standard `maxAttempts` is 3, which needs an explicit disposition under the owner's no-retry constraint. The Content Studio still lists only three earlier items; no new draft, review result, visual, Drive save, Postiz handoff, social schedule or publication exists. The single future Outbox entry is an **internal generation job**, not an external post. A specific owner decision on keeping or stopping that queued job is pending; do not silently shift its period, create another paid proposal, or proceed to Phase 7. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+### 2026-09-28 08:34 CEST -- Deferred Phase 6 job audited; one-draft correction prepared locally
+
+**Repo/deployment SHA:** Local branch `codex/orbit-phase6-live-record-20260927` at `a273a945d2eee0e00f11a0d0a65179b804e40be7` before the new correction commit; draft PR [#10](https://github.com/eds-labs/eds-orbit/pull/10) remains open. Running production revision remains `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`. This entry supersedes the malformed generation Job ID in the prior record: the verified ID is `132462b7-07e8-42c0-9362-644a763094a3`.
+
+**Current uLiquid state:** The confirmed proposal `e7f2da6d-700f-4b82-8b62-9daee51262cb` and Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1` remain the authorized draft-only path. Read-only production verification at 05:35–05:40 UTC found the generation Job queued with zero attempts, its sole Outbox event undispatched and due at 09:00 UTC, and zero Content rows for the Mission. API and Worker run `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, and `LIVE_RAG_EVAL_PASSED=false`; project mode is `observe`. The deployed Worker would take the deterministic synthetic generation branch at the due time, which cannot establish paid AI draft acceptance. This is a Phase 6 P0 release gap, not evidence of an accepted draft.
+
+**Local correction:** An owner-only, explicitly confirmed action advances only the exact confirmed, future, draft-only Mission and its original queued generation Job. It checks project scope, policy, the $10 per-run ceiling, zero attempts, zero existing Mission content/reservation and one undispatched Outbox event in one transaction; it sets the job to one attempt and an immediate due time. The Worker runs paid generation for that marked job while the global test mode and external-write block stay in place, skips automatic review/publication, and blocks ambiguous or failed outcomes without retry. The ordinary `Run mission` path reuses an existing pending job to avoid a duplicate after Mission version changes. No schema, secret or provider configuration changes are proposed.
+
+**Verification and open blockers:** Four focused API/DB integration tests passed locally; typecheck, lint, build, framework validation, bounded secret scan and high-severity dependency audit passed. The existing real-Redis Worker lifecycle test timed out at its 20-second acceptance wait on this local host, and browser/full-suite checks are pending at this record point. The new code is not deployed or accepted. Production backup/restore, green PR CI, deployed SHA/flags, the exact one-run result, evidence/claims, review, approved asset and controlled export remain required. Phase 7 stays gated; `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Cost/external effects and next action:** $0 additional AI cost and zero production data mutation, new evaluation, index activation, Drive/Postiz write, schedule or publication in this work block. Complete relevant checks and PR review; then obtain a specific owner approval for this new PR #10 release and the exact once-only action before production mutation. If the 09:00 UTC queue deadline arrives first, stop and re-audit the Job and Mission rather than assuming the approved paid run is still possible.
+
+## Production Change Plan -- Phase 6 one-draft correction (prepared; approval pending)
+
+### Ziel
+
+Release the bounded early-start action for the already confirmed uLiquid Telegram Mission, then run at most one paid internal AI draft and verify the Phase 6 Golden Path without external publication.
+
+### Betroffene Systeme
+
+Orbit API, Web and Worker release image; the existing uLiquid Mission, Job and Outbox row; OpenAI text generation under the active project policy. No Postiz, Drive or social-provider write is included.
+
+### Risiko-Level
+
+Critical for the production release and the production Mission/Job transaction; high for one paid provider call. The release touches an owner-only action and a durable Worker path. Stop on changed authorization, policy, safety flags, Job state or unexpected deployment/migration effects.
+
+### Change Steps
+
+1. Verify `main`, PR #10 diff/CI, running SHA, service health, backup location, active uLiquid policy/profile/asset, exact proposal/Mission/Job/Outbox state and remaining time before 09:00 UTC.
+2. After specific owner approval, create and fully read a fresh mode-0600 PostgreSQL custom-format backup; deploy the reviewed PR while retaining `EXECUTION_MODE=test` and `ENABLE_EXTERNAL_WRITES=false`.
+3. Verify all running service image SHAs, health, migration status, owner action availability, project mode and unchanged safety flags. Stop on any mismatch.
+4. With the same exact owner mandate and only if the original Job is still queued at zero attempts, invoke the owner action once. Observe the Job and budget reservation until a terminal state; do not retry a failure or uncertain outcome.
+5. If a real draft exists, inspect its model/cost, active knowledge evidence and claims, guardrails, reviewability, approved brand asset and controlled export. Record the Content ID and no-publication proof. Advance Phase 7 only after Phase 6 acceptance.
+
+### Datenbank/Migrationen
+
+No schema migration. The approved action updates one Mission, one Job and one Outbox event atomically with an audit event. Never edit these production rows directly as a workaround. If the scheduled old Worker consumes the job first, stop for a new state-based decision.
+
+### Secrets/Config
+
+No secret or configuration change. Verify only safe flag values; do not display credentials.
+
+### Tests vor Deploy
+
+Focused API integration and Worker safety checks, full relevant unit/integration suite, TypeScript typecheck, lint, build, Playwright, framework check, bounded secret scan, dependency audit and green PR CI. Record any local environmental limitation without treating it as passed.
+
+### Deployment Plan
+
+Promote only the reviewed PR after owner approval and verified backup. Coolify may deploy on merge; treat the merge as the production release action. Do not run the paid job merely because the code deployed.
+
+### Post-Deploy Checks
+
+Compare image tags to the merge SHA across all services, verify health and no unexpected migration, read the exact job/outbox state and safety flags, then use the owner action once only if its full preflight still passes.
+
+### Monitoring/Alerts
+
+Watch Worker health, queue/outbox, Job attempt count and terminal status, exception/audit events, budget reservations and draft Content count. Alert the owner on any blocked or ambiguous outcome. Confirm no publication intent, provider write, schedule or external post was created.
+
+### Rollback/Forward-Fix
+
+For a code fault, redeploy the prior known-good SHA with external writes disabled; preserve all Job, reservation and Content evidence. A claimed or transmitted paid call must not be retried after rollback. No schema rollback is needed. Preserve the fresh archive and document the state before any forward fix.
+
+### Approval
+
+- Required: yes, for the exact PR #10 production release and the once-only paid Mission action.
+- Approved by: pending a new specific owner decision; previous PR #9 and one-run approvals do not cover this code release.
+- Date: pending.
 
 ## Production Change Plan -- Phase 6 correction (approved and executed; acceptance blocked)
 
