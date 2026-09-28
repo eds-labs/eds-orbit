@@ -65,6 +65,11 @@ import {
   normalizeBrandAsset,
 } from "./modules/assets.ts";
 import { exportAssetContent } from "./modules/content-export.ts";
+import {
+  MAX_BATCH_DRAFTS,
+  resumeLiveDraftBatch,
+  startApprovedLiveDraftBatch,
+} from "./modules/draft-batch.ts";
 import { withGenerationProvenance } from "./modules/content-provenance.ts";
 import { generateProjectImage } from "./modules/image-generation.ts";
 import {
@@ -1153,6 +1158,8 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "openai-configure",
       "embed-document",
       "start-approved-live-draft-once",
+      "start-approved-live-draft-batch",
+      "resume-live-draft-batch",
       "knowledge-import-commit",
       "knowledge-import-retry",
     ].includes(action);
@@ -1741,6 +1748,35 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           .strict()
           .parse(input);
         return startApprovedLiveDraftOnce(tx, scope, i.missionId, i.version);
+      }
+      if (action === "start-approved-live-draft-batch") {
+        const i = z
+          .object({
+            missionId: schemas.id,
+            version: z.number().int().positive(),
+            confirmPaidInternalDrafts: z
+              .number()
+              .int()
+              .min(2)
+              .max(MAX_BATCH_DRAFTS),
+          })
+          .strict()
+          .parse(input);
+        const mission = await entity(tx, scope, "missions", i.missionId);
+        if (data(mission).maxContents !== i.confirmPaidInternalDrafts)
+          throw new DomainError("BATCH_CONFIRMATION_STALE", 409);
+        return startApprovedLiveDraftBatch(tx, scope, i.missionId, i.version);
+      }
+      if (action === "resume-live-draft-batch") {
+        const i = z
+          .object({
+            missionId: schemas.id,
+            version: z.number().int().positive(),
+            confirmPaidInternalDraft: z.literal(true),
+          })
+          .strict()
+          .parse(input);
+        return resumeLiveDraftBatch(tx, scope, i.missionId, i.version);
       }
       if (action === "review")
         return reviewContent(

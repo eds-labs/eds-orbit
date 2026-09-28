@@ -6,6 +6,10 @@ import { profileGuardrailProblems } from "./marketing-profile.ts";
 import { channelLimitExceeded, resolveChannelRules } from "./channel-rules.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
+  DUPLICATE_DRAFT_SIMILARITY,
+  draftSimilarity,
+} from "./draft-similarity.ts";
+import {
   policy as policySchema,
   type Scope,
 } from "../../../../packages/schemas/src/index.ts";
@@ -165,6 +169,23 @@ export async function checkClaims(
         remainder.slice(position + claim.text.length);
   }
   const covered = normalized(remainder) === "";
+  // Generated drafts of one approved batch must differ from each other.
+  if (v.jobId && v.missionId) {
+    const mission = data(await entity(tx, scope, "missions", v.missionId));
+    if (mission.batch)
+      for (const other of await list(tx, scope, "content"))
+        if (
+          other.id !== content.id &&
+          data(other).missionId === v.missionId &&
+          data(other).jobId &&
+          other.createdAt < content.createdAt &&
+          draftSimilarity(v.body, String(data(other).body ?? "")) >=
+            DUPLICATE_DRAFT_SIMILARITY
+        ) {
+          problems.push("DUPLICATE_MISSION_DRAFT");
+          break;
+        }
+  }
   if (!covered && v.humanReviewedBodyHash !== hash(v.body))
     problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
   if (

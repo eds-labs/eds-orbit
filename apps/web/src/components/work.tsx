@@ -483,7 +483,8 @@ export function Missions() {
     [selected, setSelected] = useState<Entity | null>(null);
   const [brief, setBrief] = useState(false),
     [proposal, setProposal] = useState<BriefProposal | undefined>(),
-    [liveDraftConfirm, setLiveDraftConfirm] = useState(false);
+    [liveDraftConfirm, setLiveDraftConfirm] = useState(false),
+    [batchConfirm, setBatchConfirm] = useState(false);
   const mutation = useMutation(refresh);
   return (
     <>
@@ -579,6 +580,19 @@ export function Missions() {
             <dd>{value(selected, "channels")}</dd>
             <dt>Maximum content packages</dt>
             <dd>{value(selected, "maxContents")}</dd>
+            {batchOf(selected) && (
+              <>
+                <dt>{locale === "de" ? "Entwurfsstapel" : "Draft batch"}</dt>
+                <dd>
+                  {Number(selected.data.completedRuns ?? 0)} /{" "}
+                  {batchOf(selected)!.size}{" "}
+                  {locale === "de" ? "erstellt" : "created"} ·{" "}
+                  {locale === "de" ? "max." : "max"}{" "}
+                  {usd(batchOf(selected)!.costCeilingMicros)} ·{" "}
+                  <Status value={batchOf(selected)!.status} />
+                </dd>
+              </>
+            )}
           </dl>
           <Alert>
             Runs use your current knowledge, permissions and cost limits.
@@ -641,6 +655,97 @@ export function Missions() {
                 </Button>
               </div>
             )}
+          {isOwner &&
+            selected.data.status === "ready" &&
+            !selected.data.batch &&
+            Number(selected.data.maxContents) >= 2 &&
+            Number(selected.data.maxContents) <= 5 &&
+            typeof selected.data.chatProposalId === "string" &&
+            Number.isSafeInteger(selected.data.chatCostCeilingMicros) &&
+            Date.parse(String(selected.data.startAt)) > Date.now() &&
+            Date.parse(String(selected.data.endAt)) > Date.now() && (
+              <div>
+                <Alert>
+                  {locale === "de"
+                    ? `Erstellt nacheinander ${selected.data.maxContents} interne Entwürfe mit der aktiven Kosten-Policy, jeweils mit höchstens einem Versuch und insgesamt höchstens ${usd(Number(selected.data.maxContents) * Number(selected.data.chatCostCeilingMicros))}. Bei einem Fehler stoppt der Stapel. Kein Review, Zeitplan oder externer Post.`
+                    : `Creates ${selected.data.maxContents} internal drafts one after another under the active cost policy, each with at most one attempt and at most ${usd(Number(selected.data.maxContents) * Number(selected.data.chatCostCeilingMicros))} in total. The batch stops on any failure. No review, schedule, or external post.`}
+                </Alert>
+                <label className="review-confirm">
+                  <Input
+                    type="checkbox"
+                    checked={batchConfirm}
+                    onChange={(event) => setBatchConfirm(event.target.checked)}
+                  />
+                  <span>
+                    {locale === "de"
+                      ? `Ich bestätige genau ${selected.data.maxContents} kostenpflichtige interne Entwürfe ohne Retry.`
+                      : `I confirm exactly ${selected.data.maxContents} paid internal drafts without retry.`}
+                  </span>
+                </label>
+                <Button
+                  disabled={mutation.pending || !batchConfirm}
+                  onClick={async () => {
+                    const result = await mutation.run(() =>
+                      action(project.id, "start-approved-live-draft-batch", {
+                        missionId: selected.id,
+                        version: selected.version,
+                        confirmPaidInternalDrafts: Number(
+                          selected.data.maxContents,
+                        ),
+                      }),
+                    );
+                    if (result) setBatchConfirm(false);
+                  }}
+                >
+                  <Play data-icon="inline-start" />
+                  {locale === "de"
+                    ? `${selected.data.maxContents} Entwürfe jetzt erstellen`
+                    : `Create ${selected.data.maxContents} drafts now`}
+                </Button>
+              </div>
+            )}
+          {isOwner &&
+            batchOf(selected)?.status === "running" &&
+            selected.data.status === "ready" &&
+            Number(selected.data.completedRuns ?? 0) <
+              Number(selected.data.maxContents) && (
+              <div>
+                <Alert>
+                  {locale === "de"
+                    ? "Nur wenn der letzte Lauf ohne Kosten und ohne Inhalt blockiert ist, wird der Stapel mit genau einem neuen Versuch fortgesetzt. Läuft noch ein Job, lehnt der Server ab."
+                    : "Only when the last run was blocked without cost or content does the batch continue with exactly one new attempt. The server refuses while a job is still running."}
+                </Alert>
+                <label className="review-confirm">
+                  <Input
+                    type="checkbox"
+                    checked={batchConfirm}
+                    onChange={(event) => setBatchConfirm(event.target.checked)}
+                  />
+                  <span>
+                    {locale === "de"
+                      ? "Ich bestätige einen weiteren kostenpflichtigen internen Entwurf ohne Retry."
+                      : "I confirm one more paid internal draft without retry."}
+                  </span>
+                </label>
+                <Button
+                  variant="outline"
+                  disabled={mutation.pending || !batchConfirm}
+                  onClick={async () => {
+                    const result = await mutation.run(() =>
+                      action(project.id, "resume-live-draft-batch", {
+                        missionId: selected.id,
+                        version: selected.version,
+                        confirmPaidInternalDraft: true,
+                      }),
+                    );
+                    if (result) setBatchConfirm(false);
+                  }}
+                >
+                  <Play data-icon="inline-start" />
+                  {locale === "de" ? "Stapel fortsetzen" : "Resume batch"}
+                </Button>
+              </div>
+            )}
           {canEdit && (
             <div className="form-actions">
               <Button
@@ -663,6 +768,13 @@ export function Missions() {
     </>
   );
 }
+type MissionBatch = {
+  status: string;
+  size: number;
+  costCeilingMicros: number;
+};
+const batchOf = (mission: Entity) =>
+  mission.data.batch as MissionBatch | undefined;
 export function MissionEditor({
   onClose,
   initial,

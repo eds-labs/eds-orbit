@@ -59,6 +59,8 @@ export async function planMission(tx: DbTx, scope: Scope, missionId: string) {
   const m = await entity(tx, scope, "missions", missionId);
   await assertMissionAssets(tx, scope, data(m).assetIds ?? []);
   if (["completed", "awaiting_followup"].includes(data(m).status)) return m;
+  // An approved draft batch queues its own single-attempt runs.
+  if (data(m).batch) throw new DomainError("MISSION_BATCH_ACTIVE", 409);
   const pending = (await list(tx, scope, "jobs")).find(
     (job) =>
       data(job).topic === "generation" &&

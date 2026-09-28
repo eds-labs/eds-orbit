@@ -21,6 +21,7 @@ import {
   DomainError,
   audit,
   hash,
+  list,
 } from "../shared.ts";
 import { policy } from "../../../../packages/schemas/src/index.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
@@ -28,6 +29,11 @@ import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
 import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
+import {
+  batchCostUsedMicros,
+  enqueueNextBatchRun,
+  MAX_BATCH_DRAFTS,
+} from "./draft-batch.ts";
 type GenerationContract = {
   goal: string;
   audience: string;
@@ -57,6 +63,11 @@ type GenerationContract = {
   approvedAssetIds: string[];
   campaign: Awaited<ReturnType<typeof campaignGenerationContext>> | null;
   planContext: unknown;
+  batch: {
+    run: number;
+    size: number;
+    previousDrafts: { title: string; claims: string[] }[];
+  } | null;
 };
 export async function generateMissionLive(
   scope: Scope,
@@ -256,6 +267,21 @@ export async function generateMissionLive(
         sourceIds: m.sourceIds,
         approvedAssetIds: m.assetIds ?? [],
         campaign: campaignContext,
+        batch: m.batch
+          ? {
+              run: (m.completedRuns ?? 0) + 1,
+              size: m.batch.size,
+              previousDrafts: (await list(tx, scope, "content"))
+                .filter((row) => data(row).missionId === missionId)
+                .slice(0, MAX_BATCH_DRAFTS)
+                .map((row) => ({
+                  title: String(data(row).title ?? ""),
+                  claims: (data(row).claims ?? []).map((claim: any) =>
+                    String(claim.text),
+                  ),
+                })),
+            }
+          : null,
         planContext: m.planContext
           ? {
               ...m.planContext,
@@ -292,6 +318,12 @@ export async function generateMissionLive(
         )
           throw new DomainError("CHAT_PROPOSAL_COST_EXCEEDED", 409);
       }
+      if (
+        m.batch &&
+        (await batchCostUsedMicros(tx, scope, missionId)) + cost >
+          m.batch.costCeilingMicros
+      )
+        throw new DomainError("BATCH_BUDGET_EXHAUSTED", 409);
       const reservation = await reserve(
         tx,
         scope,
@@ -450,7 +482,8 @@ export async function generateMissionLive(
       usage: outcome.usage,
       jobId,
     });
-    await finishMissionRun(tx, scope, missionId, content.id);
+    const finished = await finishMissionRun(tx, scope, missionId, content.id);
+    await enqueueNextBatchRun(tx, scope, finished, jobId);
     await audit(tx, scope, "generation.completed", content.id, {
       model: outcome.usage.model,
       reservationId: prepared.reservationId,

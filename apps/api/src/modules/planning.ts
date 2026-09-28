@@ -29,7 +29,10 @@ export async function finishMissionRun(
     at.valueOf() + 60000,
     Date.parse(m.startAt) + run * spacing,
   );
-  const complete = run >= m.maxContents || nextAt >= Date.parse(m.endAt);
+  // An approved draft batch runs back to back and never waits for follow-up.
+  const batch = m.batch?.status === "running";
+  const complete =
+    run >= m.maxContents || (!batch && nextAt >= Date.parse(m.endAt));
   await create(tx, scope, "work_packages", {
     missionId,
     run,
@@ -42,12 +45,17 @@ export async function finishMissionRun(
   return update(tx, scope, mission, {
     ...m,
     completedRuns: run,
-    status: complete ? "completed" : "awaiting_followup",
+    status: complete ? "completed" : batch ? "ready" : "awaiting_followup",
     lastContentId: contentId,
     lastRunAt: at.toISOString(),
+    ...(batch
+      ? { batch: { ...m.batch, status: complete ? "completed" : "running" } }
+      : {}),
     ...(complete
       ? { completedAt: at.toISOString() }
-      : { nextPlanAt: new Date(nextAt).toISOString() }),
+      : batch
+        ? {}
+        : { nextPlanAt: new Date(nextAt).toISOString() }),
   });
 }
 /** Reads measured memory as planning context only. It never turns a hypothesis into a product fact. */

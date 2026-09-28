@@ -262,13 +262,16 @@ are recorded in the Progress Log.
 
 ## Phase 8 -- Batch Draft Preparation \[P1, erst nach Phase 6\]
 
--   [ ] bounded Batch Mission/Draft Plan
--   [ ] Max Draft Count + Gesamt-Cost-Ceiling
--   [ ] Themen-/Duplikatkontrolle
--   [ ] jeder Draft einzeln reviewbar
--   [ ] keine automatische Veröffentlichung
--   [ ] Resume/Retry idempotent
--   [ ] Tests für 3--5 Drafts
+-   [x] bounded Batch Mission/Draft Plan
+-   [x] Max Draft Count + Gesamt-Cost-Ceiling
+-   [x] Themen-/Duplikatkontrolle
+-   [x] jeder Draft einzeln reviewbar
+-   [x] keine automatische Veröffentlichung
+-   [x] Resume/Retry idempotent
+-   [x] Tests für 3--5 Drafts
+
+Implemented and tested locally on 2026-09-28; the live uLiquid acceptance
+run is recorded separately in the Progress Log.
 
 **Acceptance:** „Bereite 5 uLiquid Posts für nächste Woche vor" erzeugt
 höchstens fünf prüfbare Drafts innerhalb des Budgets.
@@ -707,6 +710,14 @@ nicht überschreiben.
 **Surfaces:** The Overview readiness panel lists internal and external actions with status and German/English reasons (`apps/web/src/lib/readiness-text.ts`). Orbit Chat `project_status` includes `readiness.actions`, and the chat instructions tell the model to report per-action blockers and not to treat publisher blockers as blocking internal drafts.
 
 **Verification:** 6 unit tests for the action matrix (draft-only state, test-mode live guard, unavailable integrations, missing setup vs blockers, pause), an extended real-SQL `project_status` integration assertion, lint, API/Web typecheck, Next production build, secret scan, full Vitest 356/357 (same local-only real-Redis Worker timeout). Local browser preview was not possible (macOS denied the preview server access to the project folder); the Overview is checked read-only after deployment.
+
+### 2026-09-28 21:30 CEST -- Phase 8 approved sequential draft batch implemented
+
+**Risk:** High (automated sequence of paid calls). Mitigations: owner-only approval in test/observe mode, 2--5 drafts, total ceiling = size × per-draft proposal ceiling checked against remaining daily/monthly budget at approval and before every run, one attempt per run, stop on first failure, no publication path. Rollback: redeploy `42deb33`; no migration.
+
+**Change:** New owner action `start-approved-live-draft-batch` (`apps/api/src/modules/draft-batch.ts`) for a confirmed Chat mission with `maxContents` 2--5 and a future start. It records `mission.batch` (`running`, size, per-draft and total ceiling) and turns the confirmed job into run 1 (`liveDraftOnce`, `maxAttempts=1`, `batchRun=1`). Each successful run stores its Content, finishes the mission run without follow-up waiting, and queues the next single-attempt run (`mission:<id>:batch:<run>`) in the same transaction, so restarts cannot duplicate runs. `BATCH_BUDGET_EXHAUSTED` stops a run before its generation reservation once the batch ceiling would be exceeded. `resume-live-draft-batch` queues one new attempt only when no batch job is active and the blocked run has no generation reservation and no Content. `planMission` refuses batch missions (`MISSION_BATCH_ACTIVE`) and the worker sweep already skips live-draft missions. Later runs receive `batch.previousDrafts` and an instruction to use another angle or fact; claim review adds `DUPLICATE_MISSION_DRAFT` when a batch draft has word similarity ≥ 0.8 with an earlier draft of the same batch. Drafts stay `draft` and are reviewed one by one. The mission dialog shows the batch approval with count and total ceiling, progress and a resume action.
+
+**Verification:** 6 real-SQL batch integration tests with a mocked provider (3-draft sequence, sweep/manual-run guard, ceiling stop and resume, charged-run refusal, duplicate flag, size 1/6 refusal) and 3 similarity unit tests; lint, API/Web typecheck, Next build, secret scan, full Vitest 365/366 (same local-only real-Redis Worker timeout). Live uLiquid acceptance requires a separate paid approval.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
