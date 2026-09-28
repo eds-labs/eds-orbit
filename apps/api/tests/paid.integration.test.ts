@@ -517,6 +517,14 @@ describe.skipIf(!enabled)(
         "PRESALE_LIVE_NOT_VERIFIED",
       );
     });
+    it("rejects a draft that repeats the primary CTA for several posts", async () => {
+      const { content } = await statusDraft(
+        "The presale is live. Learn more.\n\nThe presale is live. Learn more.",
+      );
+      expect(
+        (await run((tx) => checkClaims(tx, s, content.id))).problems,
+      ).toContain("MULTIPLE_PRIMARY_CTAS");
+    });
     it("requires owner review for extra marketing copy outside the claim ledger", async () => {
       const { content } = await statusDraft(
         "The presale is live. A new opportunity. Learn more.",

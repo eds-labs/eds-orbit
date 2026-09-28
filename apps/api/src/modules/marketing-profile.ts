@@ -340,12 +340,20 @@ export async function profileGuardrailProblems(
   const body = String(content.body ?? "");
   if (prohibited.some((pattern) => pattern.test(body)))
     problems.push("PROFILE_GUARDRAIL_PROHIBITED_LANGUAGE");
+  const lower = body.toLocaleLowerCase();
   const ctas = context.profileData.primaryCtas.filter((cta) =>
-    body.toLocaleLowerCase().includes(cta.toLocaleLowerCase()),
+    lower.includes(cta.toLocaleLowerCase()),
   );
-  if (ctas.length !== 1)
+  // Count every occurrence so one draft cannot bundle several posts.
+  const occurrences = ctas.reduce(
+    (n, cta) => n + lower.split(cta.toLocaleLowerCase()).length - 1,
+    0,
+  );
+  if (ctas.length !== 1 || occurrences !== 1)
     problems.push(
-      ctas.length > 1 ? "MULTIPLE_PRIMARY_CTAS" : "PRIMARY_CTA_REQUIRED",
+      ctas.length > 1 || occurrences > 1
+        ? "MULTIPLE_PRIMARY_CTAS"
+        : "PRIMARY_CTA_REQUIRED",
     );
   else if (ctas[0] !== data(context.mission).targetAction)
     problems.push("MISSION_PRIMARY_CTA_REQUIRED");

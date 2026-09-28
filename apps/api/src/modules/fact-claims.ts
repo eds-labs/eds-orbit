@@ -13,6 +13,10 @@ export function factClaimMatches(
       : "";
   if (text === `${key}: ${value}` || text === `${key}: ${value}${suffix}`)
     return true;
+  // A verbatim quote of a multi-word verified value is supported as written.
+  const normalized = (s: string) =>
+    s.replace(/\s+/g, " ").trim().toLocaleLowerCase();
+  if (/\s/.test(value) && normalized(text) === normalized(value)) return true;
 
   const keyTokens = key.toLocaleLowerCase().split(/[^\p{L}\p{N}]+/u);
   const subjectTokens = keyTokens.filter(

@@ -719,6 +719,16 @@ nicht überschreiben.
 
 **Verification:** 6 real-SQL batch integration tests with a mocked provider (3-draft sequence, sweep/manual-run guard, ceiling stop and resume, charged-run refusal, duplicate flag, size 1/6 refusal) and 3 similarity unit tests; lint, API/Web typecheck, Next build, secret scan, full Vitest 365/366 (same local-only real-Redis Worker timeout). Live uLiquid acceptance requires a separate paid approval.
 
+### 2026-09-28 21:55 CEST -- Phase 8 paid acceptance: batch mechanics passed, drafts bundled all posts
+
+**Run:** Mario approved one paid batch acceptance on deployed `95a2630`. Chat request "Prepare 5 uLiquid posts for next week" (Telegram, profile v2, period 2026-10-05T07:00Z to 2026-10-11T20:00Z, fact keys `product.user_control`, `product.tagline`, `product.positioning`, `product.description`, `feature.ai_predictions.boundary`, `url.beta_registration`) produced a proposal with $0.12 per draft and $0.61 plan ceiling. Confirmation created Mission `3467205a-f921-4e0f-8681-ee32ae3c46ea` (maxContents 5, six exact fact keys). The owner batch action was invoked once.
+
+**Mechanics (passed):** Exactly five jobs, batch runs 1--5, each `succeeded` in 1/1 attempt; five Content rows; Mission `completed`, `batch.status=completed`; no extra sweep or manual job. Generation cost per run about 13,700--17,900 USD micros (roughly $0.08 in total plus the Chat run), within the $0.61 ceiling. No publication, schedule or external write.
+
+**Content (failed acceptance):** The model-written mission goal enumerated all five points, and every run wrote a compilation of all five posts into one body (five CTA repetitions). Automatic review marked all five `needs_review` with `FACT_VALUE_MISMATCH` and `HUMAN_CONTENT_REVIEW_REQUIRED`. The fact claims were verbatim, but `factClaimMatches` also required a key token in the claim, which rejects verbatim sentence values such as the tagline. The five drafts remain internal `needs_review` rows.
+
+**Correction:** (1) `factClaimMatches` accepts a claim that equals a multi-word verified value verbatim (whitespace/case normalized); paraphrases, partial quotes and bare single-word values still fail. (2) `profileGuardrailProblems` counts CTA occurrences, so a body repeating the primary CTA is `MULTIPLE_PRIMARY_CTAS`, which deterministically blocks bundled posts. (3) Draft instructions: with a batch, write exactly one post (number `batch.run` of `batch.size`) and never combine posts. Tests: 3 fact-claim unit tests, a repeated-CTA integration test, lint, typechecks, secret scan, full Vitest 369/370 (same local-only Worker timeout). A new paid batch acceptance needs separate approval.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
