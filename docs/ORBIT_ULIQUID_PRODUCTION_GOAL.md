@@ -305,26 +305,26 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-28 after the deferred Phase 6 generation job. The running revision remains `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; PR #10 remains undeployed. The evidence-scoped recovery passed isolated CI at `b915c0c88c968d9953e596deb7d6d241409a8e73`, but has no live acceptance.
+Status as observed on 2026-09-28 after the single authorized Phase 6 recovery run. PR #10 was merged and Coolify deployed `2773b10440c71e270c6f3f01b365fc61605f1eed`. One real internal Telegram draft was generated, but its claim review returned `needs_review`; Phase 6 remains unaccepted.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
 
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
-| Orbit Chat | YES | YES | YES | PARTIAL | On the running revision, exact-key hybrid fact retrieval, approved asset-ID lookup and a confirmed, reviewable proposal passed live. The associated Mission has not generated a draft. |
-| OpenAI text generation | YES | YES | YES | PARTIAL | The second approved Chat run settled $0.037793 and saved one proposal. The deferred Mission job ran once at 09:00 UTC in test mode and blocked with `INSUFFICIENT_EVIDENCE`; zero new Content rows and zero budget reservations for that job were observed. |
+| Orbit Chat | YES | YES | YES | PARTIAL | Exact-key hybrid fact retrieval, approved asset-ID lookup and the confirmed proposal passed live. Its Mission generated one draft through the approved recovery, but review did not pass. |
+| OpenAI text generation | YES | YES | YES | PARTIAL | The recovery Job `b056b9df-732b-45a1-b2c8-7c2bfecdf721` completed one attempt with `gpt-5.6-terra`. Its generation reservation settled 5,158 USD micros and its retrieval reservation settled 1 USD micro. The earlier blocked Job remains unchanged. |
 | Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources and one dependent content item with missing evidence. This review does not clear their sync warnings. |
-| Hybrid retrieval | YES | YES | YES | PARTIAL | The deployed exact-key Chat search returned the selected facts through hybrid retrieval on active generation 2. This does not prove Mission draft acceptance; no new RAG evaluation or index activation occurred. |
-| Chat and Mission retrieval alignment | PARTIAL | YES | PARTIAL | NO | Chat used the confirmed exact Fact keys. The scheduled Mission passed a broad goal to lexical retrieval and blocked with `INSUFFICIENT_EVIDENCE`; 28 otherwise verified Facts match that text. PR #10 passes exact dotted Mission topics as `factKeys` for confirmed Chat Missions and preserves missing/changed-Fact blocks. Isolated CI passed; this correction is not deployed. |
+| Hybrid retrieval | YES | YES | YES | PARTIAL | Exact-key Mission retrieval returned ready public Evidence from active generation 2. The selected Evidence omitted the CTA Fact referenced by the generated claim; no new RAG evaluation or index activation occurred. |
+| Chat and Mission retrieval alignment | YES | YES | YES | PARTIAL | The deployed exact-key correction produced ready public Evidence with two `product.user_control` Facts. The model also emitted a CTA claim against `url.beta_registration`, which is absent from that Evidence pack, so claim review fails. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Live profile v2 now approves the exact `Explore the beta` CTA and retains the existing guardrails. An older profile-v1 test draft moved to needs review. Generation contract is not accepted. |
-| Shared generation contract | YES | YES | YES | PARTIAL | The live policy, profile v2, verified facts, assigned Telegram channel, official target URL and approved logo passed proposal confirmation. The Mission generation and resulting copy are unaccepted. |
-| Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
-| Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
-| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain. The confirmed proposal created one Mission; its scheduled job is now `blocked_dependency` after one attempt with `INSUFFICIENT_EVIDENCE`. No new draft exists. |
-| Approved early single live draft | PARTIAL | YES | NO | NO | PR #10 remains draft and undeployed. Its recovery path requires the exact blocked one-attempt evidence failure, one dispatched Outbox event, no other Mission job, no Content or prior reservation, active policy and owner confirmation; it creates a separate one-attempt job and leaves the old job blocked. Isolated CI passed; live acceptance remains open. |
-| Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID and included in the confirmed proposal. Use in a new draft is unproven. |
+| Shared generation contract | YES | YES | YES | PARTIAL | Policy, profile v2, assigned Telegram channel, official target and approved logo passed the live one-draft run. Claim review blocked acceptance. |
+| Channel-aware social rules | YES | YES | YES | PARTIAL | The live draft uses the assigned Telegram channel and official beta URL. Review remains blocked and no publication intent exists. |
+| Evidence-aware status and claim guardrails | YES | YES | YES | PARTIAL | The live review detected `FACT_VALUE_MISMATCH`, `FACT_OUTSIDE_EVIDENCE` and `HUMAN_CONTENT_REVIEW_REQUIRED`, leaving the draft in `needs_review`. The guard blocked acceptance as intended. |
+| Single text draft | YES | YES | YES | PARTIAL | One new English Telegram draft, Content `8b2d23c1-a42b-4375-b65e-72a77cb9f3f0`, is visible and editable. The review set it to `needs_review`; the three older rows remain. |
+| Approved early single live draft | YES | YES | YES | PARTIAL | The owner action created exactly one separate recovery Job with `maxAttempts=1`; it succeeded in one attempt. The original blocked Job was not retried. Review and Phase 6 acceptance remain open. |
+| Brand assets | YES | YES | YES | PARTIAL | The new Content references approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`. Visual rendering and Drive save remain untested. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
@@ -332,7 +332,7 @@ live uLiquid acceptance.
 | Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
 | Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
-| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | A mode-0600 pre-PR-#10 on-host archive (`20260928T0855Z`, 1,173,571 bytes) passed a full read through container `pg_restore`; it predates the scheduled job failure. Off-host production restore and key escrow remain unproven. |
+| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | A fresh root-only on-host archive (`20260928T125257Z`, 1,173,950 bytes, mode 0600) passed a full `pg_restore -f /dev/null` read before deployment. Off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
@@ -613,7 +613,19 @@ nicht überschreiben.
 
 **Handover / next step:** Stop at the reviewed, CI-green draft PR. In a new work block, re-read the PR/head, live revisions and all preflight records; review the diff and production change plan below, then create and fully read a fresh restricted backup. Only after an applicable explicit release approval, deploy the reviewed SHA and verify all services and safety flags. Only after the separately scoped single paid internal-draft approval, invoke the owner action once before Mission expiry, observe its terminal result and stop on failure or ambiguity without retry. Record Evidence, Claims, review, asset, cost and no-publication proof before any Phase 6 acceptance or Phase 7 work.
 
-## Production Change Plan -- Phase 6 evidence-scoped recovery (prepared; not executed)
+### 2026-09-28 15:12 CEST -- Authorized Phase 6 recovery produced one draft; review blocked acceptance
+
+**Release and backup:** Mario approved the exact PR #10 head `82d6c48b9da5f49e885c23cc3c49d4ea63d1fd99` and one paid internal draft run. All three PR checks passed. PR #10 merged as `2773b10440c71e270c6f3f01b365fc61605f1eed`; Coolify webhook deployment `wpg0hko4befzfj9h9k8runi4` succeeded. Before deployment, root-only PostgreSQL archive `/root/orbit-backups/orbit-20260928T125257Z-pre-pr10.dump` was created with mode 0600 and 1,173,950 bytes. SHA-256: `b5fd489322f8c532319b56118ea315ca515bd808d81609c35fce56c42cbcd916`. The whole archive passed `pg_restore -f /dev/null` with exit 0. No restore was executed.
+
+**Runtime gates:** New Web, API, Worker, Redis and PostgreSQL containers all reported healthy. The migration container exited 0. Both API and Worker retained `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false` and `LIVE_RAG_EVAL_PASSED=false`. Authenticated Orbit loaded; the Worker heartbeat was ready and pending Outbox was zero. uLiquid remained in `observe` mode. The active policy remained valid through 2026-10-18 15:00 UTC, allowed the assigned Telegram channel and social content, authorized paid tests and capped each run, day and month at 10,000,000 USD micros. Profile v2 and approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` remained present. Immediately before the action at 13:05:45 UTC, Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1` was ready and unexpired through 2026-09-29 09:00 UTC. The original Job was still blocked after one `INSUFFICIENT_EVIDENCE` attempt, with one dispatched Outbox event, no other Mission Job, Content or old-Job reservation.
+
+**Single run:** The owner confirmed and clicked the dedicated action exactly once. New Job `b056b9df-732b-45a1-b2c8-7c2bfecdf721` was `succeeded` with attempts 1/maxAttempts 1 and recoveryOfJobId pointing to the original blocked Job. The original Job remained unchanged. Content `8b2d23c1-a42b-4375-b65e-72a77cb9f3f0` is an English, editable Telegram social draft titled “Control stays with you,” using `gpt-5.6-terra`, official beta URL `https://desk.uliquid.vip/en/register`, approved logo and Evidence `26f1a2c8-9c9e-4800-b5e8-ca6d904c46e6`. Generation reservation settled 5,158 USD micros and retrieval reservation settled 1 USD micro, totaling $0.005159. The Evidence is `ready`, public and contains two verified `product.user_control` Facts; Knowledge generation 2 remains active. The draft is not synthetic.
+
+**Review and stop condition:** The model supplied two fact claims. The user-control claim references a Fact in the Evidence pack. The CTA claim “Explore the beta” references verified public Fact `url.beta_registration`, but that Fact is absent from the selected Evidence pack, and the text does not match the Fact value. A single internal review check without human confirmation set Content version 2 to `needs_review` with `FACT_VALUE_MISMATCH`, `FACT_OUTSIDE_EVIDENCE` and `HUMAN_CONTENT_REVIEW_REQUIRED`. No owner assertion of full factual review was made. There is no publication entity for this Content, no schedule or published timestamp, and external writes remain disabled. No Retry, second draft run, publication, Drive save, Visual or Phase 7 action was performed. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Next step:** Investigate the CTA claim/evidence alignment in the generated draft without replaying the paid Job or editing its audit trail. Any correction must preserve the original Content and cost provenance, pass claim review with a truthful human check, and have a separately reviewed and approved release or content-edit scope. Phase 7 remains gated.
+
+## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
 
