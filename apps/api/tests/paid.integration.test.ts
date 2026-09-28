@@ -525,6 +525,43 @@ describe.skipIf(!enabled)(
         (await run((tx) => checkClaims(tx, s, content.id))).problems,
       ).toContain("HUMAN_CONTENT_REVIEW_REQUIRED");
     });
+    it("treats the mission CTA as approved copy when the model links it to the official URL fact", async () => {
+      const { content } = await statusDraft();
+      const linkFactId = await run(async (tx) => {
+        const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+          where: { projectId: s.projectId },
+        });
+        return (profile.data as any).officialLinks[0].factId as string;
+      });
+      const linked = await run((tx) =>
+        update(tx, s, content, {
+          ...data(content),
+          claims: [
+            data(content).claims[0],
+            { kind: "fact", text: "Learn more", factId: linkFactId },
+          ],
+        }),
+      );
+      expect(await run((tx) => checkClaims(tx, s, linked.id))).toMatchObject({
+        valid: true,
+        problems: [],
+      });
+      const other = await run((tx) =>
+        update(tx, s, linked, {
+          ...data(linked),
+          body: "The presale is live. Explore the beta. Learn more.",
+          claims: [
+            data(content).claims[0],
+            { kind: "fact", text: "Explore the beta.", factId: linkFactId },
+            { kind: "style", text: "Learn more." },
+          ],
+        }),
+      );
+      const problems = (await run((tx) => checkClaims(tx, s, other.id)))
+        .problems;
+      expect(problems).toContain("FACT_VALUE_MISMATCH");
+      expect(problems).toContain("FACT_OUTSIDE_EVIDENCE");
+    });
     it.each(["product", "presale"] as const)(
       "%s generation uses the current profile, intended CTA and official link",
       async (campaignType) => {

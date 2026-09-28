@@ -625,6 +625,18 @@ nicht überschreiben.
 
 **Next step:** Investigate the CTA claim/evidence alignment in the generated draft without replaying the paid Job or editing its audit trail. Any correction must preserve the original Content and cost provenance, pass claim review with a truthful human check, and have a separately reviewed and approved release or content-edit scope. Phase 7 remains gated.
 
+### 2026-09-28 17:20 CEST -- Phase 6 CTA claim classification corrected locally
+
+**Repo/deployment SHA:** Local branch `codex/orbit-phase6-run-record-20260928` on top of `aafd737`; production remains `2773b10440c71e270c6f3f01b365fc61605f1eed`. No release, paid call or production read/write occurred in this work block.
+
+**Diagnosis:** The draft prompt required the exact `intendedPrimaryCta` and supplied `officialLinkFactId`, but never said how to ledger the CTA. The model recorded the approved CTA “Explore the beta” as a `fact` claim bound to `url.beta_registration`. `checkClaims` then compared CTA copy with the URL value (`FACT_VALUE_MISMATCH`) and looked for the link Fact in the topic Evidence pack (`FACT_OUTSIDE_EVIDENCE`). The CTA is owner-approved campaign copy; `profileGuardrailProblems` already requires exactly one approved profile CTA equal to the Mission `targetAction` and a current official link Fact, and it reported no CTA problem on the live draft.
+
+**Correction:** `checkClaims` treats a claim whose text equals the Mission `targetAction` (case and trailing punctuation insensitive, no chunk quote) as the approved CTA instead of a Fact claim; all other Fact, quote, coverage and profile checks are unchanged. The draft instructions now tell the model to ledger the CTA as `style` without `factId`/`chunkId` and state that the appended official URL is not a fact claim. No schema, secret, provider, budget or safety-flag change.
+
+**Verification:** New regression reproduces the live ledger shape: it fails with `FACT_VALUE_MISMATCH` and `FACT_OUTSIDE_EVIDENCE` without the correction and passes with it; a non-CTA sentence bound to the URL Fact remains blocked. Paid integration file 41/41, lint, API and Web typecheck and Prettier passed on Node 24.18.0. Full Vitest: 341/342; the real-Redis Worker lifecycle 20-second timeout also fails locally without this change and is the previously recorded local-only issue. Playwright and isolated PR CI remain open.
+
+**Next step:** After green CI, an explicit release approval and a fresh verified backup, deploy the reviewed SHA. Then re-review existing Content `8b2d23c1-a42b-4375-b65e-72a77cb9f3f0` without a new paid call; the expected remaining problem is `HUMAN_CONTENT_REVIEW_REQUIRED`, resolved only by a truthful owner body review. Confirm that the Mission `targetAction` equals the draft CTA during that read. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
