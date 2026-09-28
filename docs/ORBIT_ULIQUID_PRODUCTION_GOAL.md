@@ -305,7 +305,7 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-28 before the deferred Phase 6 generation job. The running revision is `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; the proposed one-draft correction is local only.
+Status as observed on 2026-09-28 after the deferred Phase 6 generation job. The running revision remains `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`; PR #10 remains undeployed.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
@@ -313,7 +313,7 @@ live uLiquid acceptance.
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
 | Orbit Chat | YES | YES | YES | PARTIAL | On the running revision, exact-key hybrid fact retrieval, approved asset-ID lookup and a confirmed, reviewable proposal passed live. The associated Mission has not generated a draft. |
-| OpenAI text generation | YES | YES | YES | PARTIAL | The second approved Chat run settled $0.037793 and saved one proposal. The first draft generation is queued for 2026-09-28 09:00 UTC; it has made zero attempts and incurred no generation cost. |
+| OpenAI text generation | YES | YES | YES | PARTIAL | The second approved Chat run settled $0.037793 and saved one proposal. The deferred Mission job ran once at 09:00 UTC in test mode and blocked with `INSUFFICIENT_EVIDENCE`; zero new Content rows and zero budget reservations for that job were observed. |
 | Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources and one dependent content item with missing evidence. This review does not clear their sync warnings. |
 | Hybrid retrieval | YES | YES | YES | PARTIAL | The deployed exact-key Chat search returned the selected facts through hybrid retrieval on active generation 2. This does not prove Mission draft acceptance; no new RAG evaluation or index activation occurred. |
 | Chat and Mission retrieval alignment | YES | YES | YES | PARTIAL | Both paths use the same active index, rights and paid run ceiling. Exact-key Chat retrieval and the proposal passed live; Mission retrieval and draft generation remain unaccepted. |
@@ -322,8 +322,8 @@ live uLiquid acceptance.
 | Shared generation contract | YES | YES | YES | PARTIAL | The live policy, profile v2, verified facts, assigned Telegram channel, official target URL and approved logo passed proposal confirmation. The Mission generation and resulting copy are unaccepted. |
 | Channel-aware social rules | YES | YES | YES | NO | Local X, Telegram, LinkedIn and unknown-provider tests passed. Generation and preflight use assigned Postiz identifiers and include the appended URL; no deployed uLiquid draft acceptance. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | NO | Local integration tests permit current linked status and exact price claims; missing, stale, withdrawn, mismatched and unsupported claims fail. No deployed uLiquid draft acceptance. |
-| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain. The confirmed proposal created one Mission and a future-dated generation job, but no new draft exists. |
-| Approved early single live draft | YES | PARTIAL | NO | NO | Local owner-only action and integration checks cover the exact confirmed, future, draft-only Mission and queued job, with one attempt and no automatic review or publishing. Worker lifecycle and end-to-end uLiquid acceptance remain open; no production release yet. |
+| Single text draft | YES | YES | YES | PARTIAL | Three older Orbit drafts remain. The confirmed proposal created one Mission; its scheduled job is now `blocked_dependency` after one attempt with `INSUFFICIENT_EVIDENCE`. No new draft exists. |
+| Approved early single live draft | YES | PARTIAL | NO | NO | PR #10 passed CI but remains undeployed. Its action requires a queued zero-attempt future job; the original job no longer meets that precondition. A new state-based plan is required before release or another attempt. |
 | Brand assets | YES | YES | YES | PARTIAL | Approved uLiquid logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` was found by exact ID and included in the confirmed proposal. Use in a new draft is unproven. |
 | Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
 | Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
@@ -332,7 +332,7 @@ live uLiquid acceptance.
 | Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
 | Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
-| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | A fresh owner-only, mode-0600 pre-PR-#9 on-host dump passed a full archive read; off-host production restore and key escrow remain unproven. |
+| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | A mode-0600 pre-PR-#10 on-host archive (`20260928T0855Z`, 1,173,571 bytes) passed a full read through container `pg_restore`; it predates the scheduled job failure. Off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
@@ -579,7 +579,19 @@ nicht überschreiben.
 
 **Decision gate:** The prior approval covered PR #9 and a bounded run, not the new owner action and Worker code in PR #10. Before merge/deployment and the exact one-time paid action, obtain explicit owner approval for this reviewed release. Recheck the Job, flags, policy and backup immediately before acting. If the due time is reached or the state changes first, stop for a fresh decision. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`; Phase 7 remains gated.
 
-## Production Change Plan -- Phase 6 one-draft correction (prepared; approval pending)
+### 2026-09-28 11:03 CEST -- Approved PR #10 release stopped after scheduled Job failed
+
+**Repo/deployment SHA:** Branch `f428edf09e5e3bfff39d6423612eb1f7703e4c83`; production `main` and running application remain `dcc9146caff40043126ba6a7d08171d7cd6c7fc5`. PR [#10](https://github.com/eds-labs/eds-orbit/pull/10) remains draft, open and unmerged. All PR checks passed. Mario explicitly approved that PR and exactly one paid internal draft run; no deployment or paid action followed because the production Job precondition changed at its scheduled time.
+
+**Preflight and backup:** Immediately before 09:00 UTC, exact Job `132462b7-07e8-42c0-9362-644a763094a3` was `queued`, attempts `0`, maxAttempts `3`. API and Worker both reported `EXECUTION_MODE=test`, `ENABLE_EXTERNAL_WRITES=false`, `LIVE_RAG_EVAL_PASSED=false`. A fresh root-only PostgreSQL custom archive `/root/orbit-backups/20260928T0855Z-pre-pr10.dump` was created with mode `0600`, 1,173,571 bytes, and fully read through `pg_restore -f /dev/null` inside the PostgreSQL container (exit 0). No restore was executed.
+
+**Stop condition and actual result:** At 09:00 UTC, before the new code could be safely deployed, the existing Worker consumed the scheduled Job once. Read-only SQL then showed `blocked_dependency`, attempts `1`, maxAttempts `3`, error `INSUFFICIENT_EVIDENCE`, zero Content rows for Mission `6a08bbe4-c3f4-40e4-81d2-85d1a378ded1`, and zero BudgetReservation rows keyed to that Job. The proposed owner action requires a queued zero-attempt future Job and can no longer apply. Do not change the Job or Mission directly, retry it, create another proposal, merge PR #10 as though it still completed Phase 6, or proceed to Phase 7.
+
+**Costs/external effects:** No new paid generation reservation or draft was observed; no RAG evaluation, index activation, Drive/Postiz write, schedule or public post was performed in this work block. The production Worker itself updated the Job to a blocked state. The only operator-side production effect was creation of the on-host backup; no application deployment or manual production-data write occurred. `ULIQUID_DRAFT_PRODUCTION_READY = NO / NOT YET ACCEPTED`.
+
+**Next decision:** Investigate the exact evidence failure read-only and determine whether the existing verified facts or the Mission retrieval contract caused it. Then propose a minimal evidence-safe correction and a new, explicitly scoped one-attempt acceptance path with fresh owner approval if it requires another paid call or production mutation. Retain the no-retry and no-publication boundaries. PR #10 must be updated or superseded for the new state before any release.
+
+## Production Change Plan -- Phase 6 one-draft correction (halted after Job state changed)
 
 ### Ziel
 
@@ -632,8 +644,8 @@ For a code fault, redeploy the prior known-good SHA with external writes disable
 ### Approval
 
 - Required: yes, for the exact PR #10 production release and the once-only paid Mission action.
-- Approved by: pending a new specific owner decision; previous PR #9 and one-run approvals do not cover this code release.
-- Date: pending.
+- Approved by: Mario for PR #10 and the exact one-run action; precondition failed before deployment, so no release or paid run was executed under this approval.
+- Date: 2026-09-28.
 
 ## Production Change Plan -- Phase 6 correction (approved and executed; acceptance blocked)
 
