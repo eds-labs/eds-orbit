@@ -278,7 +278,7 @@ höchstens fünf prüfbare Drafts innerhalb des Budgets.
 
 ## Phase 9 -- Postiz Draft Handoff \[P1/P2\]
 
--   [x] vorhandene Postiz `draft` Capability end-to-end prüfen (live draft without image accepted 2026-09-29; image upload open)
+-   [x] vorhandene Postiz `draft` Capability end-to-end prüfen (text-only and image drafts accepted live 2026-09-29)
 -   [x] explizite Aktion `Send to Postiz as Draft`
 -   [x] exakten Channel anzeigen
 -   [x] Idempotency/unknown outcome
@@ -790,6 +790,12 @@ With Mario's approval `ENABLE_POSTIZ_DRAFTS=true` was set on the production Cool
 **Live result:** With Mario's approval the blocked first handoff was resolved as `not_created` after he checked Postiz, and "AI assists. You decide." (v4) was handed off again with `withoutImage: true`. Postiz accepted it as draft `cmun2q6h60000pg3i1ibicyco` on uLiquid Desk (telegram); Mario confirmed the draft in Postiz. Nothing was scheduled or published. `ENABLE_EXTERNAL_WRITES` stays `false`.
 
 **Image upload:** The first attempt with the approved PNG failed with a Postiz 5xx; the text-only draft then succeeded, so the media upload is the likely cause. Postiz runtime logs in Coolify contain no request errors. Changes: provider errors now keep a short sanitized message (`providerMessage`, at most 200 characters, credential-like words redacted), shown in the handoff history; the bounded HTTPS transport sends an explicit `Content-Length` instead of a chunked body, which some multipart parsers reject. Next step: one approved handoff of another reviewed draft with its image to capture step, status and message.
+
+### 2026-09-29 22:40 CEST -- Postiz image upload fixed; Phase 9 accepted
+
+After deploying `7685595`, and with Mario's approval, "Built for control" (v4) was handed off with its approved PNG. Postiz accepted draft `cmun4husx0001pg3it9fpagkr` on uLiquid Desk (telegram), and Mario confirmed in Postiz that the image is attached. The earlier 5xx came from the chunked multipart upload; the explicit `Content-Length` resolved it. Nothing was scheduled or published; `ENABLE_EXTERNAL_WRITES` stays `false`.
+
+`ULIQUID_POSTIZ_DRAFT_HANDOFF = ACCEPTED`. Next: Phase 10 production hardening.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
