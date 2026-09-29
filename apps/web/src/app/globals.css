@@ -3138,3 +3138,10 @@ body:has(dialog[open]) {
   margin: 0;
   font-size: 13px;
 }
+.postiz-draft-resolve {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}

@@ -29,7 +29,10 @@ import {
 } from "../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, encrypt, update } from "../src/shared.ts";
-import { handoffPostizDraft } from "../src/modules/postiz-draft.ts";
+import {
+  handoffPostizDraft,
+  resolvePostizDraft,
+} from "../src/modules/postiz-draft.ts";
 import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import { checkClaims } from "../src/modules/policy.ts";
 import { reviewContent } from "../src/modules/workflow.ts";
@@ -660,6 +663,100 @@ describe.skipIf(!enabled)(
             }),
           ),
         ).toBeGreaterThan(0);
+        vi.unstubAllEnvs();
+      });
+      it("treats a failed media upload as not created and can send without the image", async () => {
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+        const reviewed = await reviewedDraft();
+        const posts: any[] = [];
+        let readAssetCalls = 0;
+        const deps = {
+          createClient: (() => ({
+            uploadMedia: async () => {
+              throw new ConnectorError(
+                "PROVIDER_REJECTED",
+                "unknown",
+                false,
+                500,
+              );
+            },
+            createPost: async (input: any) => {
+              posts.push(input);
+              return accepted();
+            },
+          })) as any,
+          readAsset: async () => {
+            readAssetCalls++;
+            return { bytes: Buffer.from("png"), mime: "image/png" };
+          },
+        };
+        const input = {
+          contentId: reviewed.id,
+          version: reviewed.version,
+          confirmDraftOnly: true,
+        };
+        const failed = await handoffPostizDraft(s, input, deps as any);
+        expect(data(failed)).toMatchObject({
+          status: "failed",
+          failedStep: "upload_media",
+          httpStatus: 500,
+        });
+        expect(posts).toHaveLength(0);
+        const sent = await handoffPostizDraft(
+          s,
+          { ...input, withoutImage: true },
+          deps as any,
+        );
+        expect(data(sent)).toMatchObject({
+          status: "accepted",
+          withoutImage: true,
+        });
+        expect(readAssetCalls).toBe(1);
+        expect(posts[0].posts[0].value[0].image).toEqual([]);
+        vi.unstubAllEnvs();
+      });
+      it("lets the owner resolve an unclear post creation after checking Postiz", async () => {
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+        const reviewed = await reviewedDraft();
+        let unclear = true;
+        const client = fakeClient(async () => {
+          if (unclear) throw new ConnectorError("TIMEOUT", "unknown");
+          return accepted();
+        });
+        const input = {
+          contentId: reviewed.id,
+          version: reviewed.version,
+          confirmDraftOnly: true,
+        };
+        const unknown = await handoffPostizDraft(s, input, client.deps);
+        expect(data(unknown)).toMatchObject({
+          status: "outcome_unknown",
+          failedStep: "create_post",
+        });
+        const resolved = await run((tx) =>
+          resolvePostizDraft(tx, s, {
+            handoffId: unknown.id,
+            resolution: "not_created",
+            confirmCheckedInPostiz: true,
+          }),
+        );
+        expect(data(resolved)).toMatchObject({
+          status: "failed",
+          resolution: "not_created",
+        });
+        await expect(
+          run((tx) =>
+            resolvePostizDraft(tx, s, {
+              handoffId: unknown.id,
+              resolution: "exists",
+              confirmCheckedInPostiz: true,
+            }),
+          ),
+        ).rejects.toThrow("POSTIZ_DRAFT_NOT_UNKNOWN");
+        unclear = false;
+        expect(
+          data(await handoffPostizDraft(s, input, client.deps)).status,
+        ).toBe("accepted");
         vi.unstubAllEnvs();
       });
       it("allows a new attempt only after a clearly rejected request", async () => {

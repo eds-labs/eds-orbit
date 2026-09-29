@@ -26,14 +26,25 @@ import { exportAssetContent } from "./content-export.ts";
  * Owner-confirmed handoff of one reviewed Content version to Postiz as a
  * draft. It never schedules or publishes: the payload type is fixed to
  * "draft". Postiz has no idempotency, so every handoff is recorded as
- * "sending" before the HTTP call and an unclear result becomes
- * "outcome_unknown" without an automatic retry.
+ * "sending" before the HTTP call. A failed media upload cannot have created
+ * a post, so it is a clear failure; only an unclear post creation becomes
+ * "outcome_unknown", which blocks retries until an owner resolves it after
+ * checking Postiz.
  */
 export const postizDraftInput = z
   .object({
     contentId: z.uuid(),
     version: z.number().int().positive(),
     confirmDraftOnly: z.literal(true),
+    withoutImage: z.boolean().optional(),
+  })
+  .strict();
+
+export const postizDraftResolveInput = z
+  .object({
+    handoffId: z.uuid(),
+    resolution: z.enum(["not_created", "exists"]),
+    confirmCheckedInPostiz: z.literal(true),
   })
   .strict();
 
@@ -174,13 +185,16 @@ export async function handoffPostizDraft(
   if ("done" in prepared && prepared.done) return prepared.done;
   const { handoff, send } = prepared;
   let remoteId: string;
+  let step: "upload_media" | "create_post" = "upload_media";
   try {
     const client = deps.createClient({
       baseUrl: send.baseUrl,
       token: send.token,
     });
     const images: { id: string; path: string }[] = [];
-    const asset = await deps.readAsset(scope, send.asset);
+    const asset = input.withoutImage
+      ? null
+      : await deps.readAsset(scope, send.asset);
     if (asset)
       images.push(
         await client.uploadMedia({
@@ -189,6 +203,7 @@ export async function handoffPostizDraft(
           filename: "creative.png",
         }),
       );
+    step = "create_post";
     const result = await client.createPost(
       postizDraftPayload({
         integrationId: send.integrationId,
@@ -208,13 +223,21 @@ export async function handoffPostizDraft(
         : "POSTIZ_DRAFT_FAILED";
     return scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const row = await entity(tx, scope, "postiz_drafts", handoff.id);
-      const known = outcome === "not_sent" || outcome === "rejected";
+      // No post request was sent before the upload finished.
+      const known =
+        step === "upload_media" ||
+        outcome === "not_sent" ||
+        outcome === "rejected";
       if (!known)
         await exception(tx, scope, "POSTIZ_DRAFT_OUTCOME_UNKNOWN", handoff.id);
       return update(tx, scope, row, {
         ...data(row),
         status: known ? "failed" : "outcome_unknown",
         error: code,
+        failedStep: step,
+        httpStatus:
+          error instanceof ConnectorError ? (error.status ?? null) : null,
+        withoutImage: input.withoutImage === true,
         finishedAt: new Date().toISOString(),
       });
     });
@@ -227,7 +250,27 @@ export async function handoffPostizDraft(
       status: "accepted",
       remoteId,
       remoteType: "draft",
+      withoutImage: input.withoutImage === true,
       finishedAt: new Date().toISOString(),
     });
+  });
+}
+
+/** Owner decision after checking Postiz for a handoff with an unclear outcome. */
+export async function resolvePostizDraft(tx: DbTx, scope: Scope, raw: unknown) {
+  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  const input = postizDraftResolveInput.parse(raw);
+  const row = await entity(tx, scope, "postiz_drafts", input.handoffId);
+  if (data(row).status !== "outcome_unknown")
+    throw new DomainError("POSTIZ_DRAFT_NOT_UNKNOWN", 409);
+  await audit(tx, scope, "postiz_draft.resolved", row.id, {
+    resolution: input.resolution,
+  });
+  return update(tx, scope, row, {
+    ...data(row),
+    status: input.resolution === "exists" ? "accepted" : "failed",
+    resolution: input.resolution,
+    resolvedBy: scope.userId,
+    resolvedAt: new Date().toISOString(),
   });
 }

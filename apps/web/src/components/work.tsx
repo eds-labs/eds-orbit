@@ -1641,11 +1641,21 @@ function PostizDraftSection({ content }: { content: Entity }) {
   const { project, locale, refresh } = useWorkspace();
   const connectors = useCollection("connectors");
   const drafts = useCollection("postiz_drafts");
-  const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState(false),
+    [withoutImage, setWithoutImage] = useState(false),
+    [checked, setChecked] = useState(false);
   const mutation = useMutation(() => {
     refresh();
     drafts.refresh();
   });
+  const resolve = (handoffId: string, resolution: "not_created" | "exists") =>
+    mutation.run(() =>
+      action(project.id, "postiz-draft-resolve", {
+        handoffId,
+        resolution,
+        confirmCheckedInPostiz: true,
+      }),
+    );
   const postiz = connectors.data?.items.find(
     (c) => c.data.provider === "postiz",
   );
@@ -1676,11 +1686,47 @@ function PostizDraftSection({ content }: { content: Entity }) {
           : "Postiz receives a draft only. Nothing is scheduled or published."}
       </p>
       {history.map((d) => (
-        <p key={d.id} className="panel-note">
+        <div key={d.id} className="panel-note">
           <Status value={d.data.status} /> v{String(d.data.contentVersion)}
           {d.data.remoteId ? ` · Postiz ${String(d.data.remoteId)}` : ""}
           {d.data.error ? ` · ${String(d.data.error)}` : ""}
-        </p>
+          {d.data.failedStep ? ` · ${String(d.data.failedStep)}` : ""}
+          {d.data.httpStatus ? ` · HTTP ${String(d.data.httpStatus)}` : ""}
+          {d.data.withoutImage
+            ? de
+              ? " · ohne Bild"
+              : " · without image"
+            : ""}
+          {d.data.resolution ? ` · ${String(d.data.resolution)}` : ""}
+          {d.data.status === "outcome_unknown" && (
+            <div className="postiz-draft-resolve">
+              <label className="review-confirm">
+                <Input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(event) => setChecked(event.target.checked)}
+                />
+                <span>
+                  {de ? "Ich habe in Postiz nachgesehen." : "I checked Postiz."}
+                </span>
+              </label>
+              <Button
+                variant="outline"
+                disabled={mutation.pending || !checked}
+                onClick={() => resolve(d.id, "not_created")}
+              >
+                {de ? "Kein Entwurf in Postiz" : "No draft in Postiz"}
+              </Button>
+              <Button
+                variant="outline"
+                disabled={mutation.pending || !checked}
+                onClick={() => resolve(d.id, "exists")}
+              >
+                {de ? "Entwurf existiert in Postiz" : "Draft exists in Postiz"}
+              </Button>
+            </div>
+          )}
+        </div>
       ))}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
       <label className="review-confirm">
@@ -1695,6 +1741,16 @@ function PostizDraftSection({ content }: { content: Entity }) {
             : "I confirm exactly one Postiz draft for this version, no publication."}
         </span>
       </label>
+      {Boolean(content.data.assetId) && (
+        <label className="review-confirm">
+          <Input
+            type="checkbox"
+            checked={withoutImage}
+            onChange={(event) => setWithoutImage(event.target.checked)}
+          />
+          <span>{de ? "Ohne Bild senden" : "Send without image"}</span>
+        </label>
+      )}
       <Button
         variant="outline"
         disabled={mutation.pending || !confirm}
@@ -1704,6 +1760,7 @@ function PostizDraftSection({ content }: { content: Entity }) {
               contentId: content.id,
               version: content.version,
               confirmDraftOnly: true,
+              ...(withoutImage ? { withoutImage: true } : {}),
             }),
           );
           if (result) setConfirm(false);

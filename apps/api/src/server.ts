@@ -71,7 +71,10 @@ import {
   startApprovedLiveDraftBatch,
 } from "./modules/draft-batch.ts";
 import { withGenerationProvenance } from "./modules/content-provenance.ts";
-import { handoffPostizDraft } from "./modules/postiz-draft.ts";
+import {
+  handoffPostizDraft,
+  resolvePostizDraft,
+} from "./modules/postiz-draft.ts";
 import { generateProjectImage } from "./modules/image-generation.ts";
 import {
   beginConnect,
@@ -1130,6 +1133,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "postiz-test-prepare",
       "postiz-test-execute",
       "postiz-draft-handoff",
+      "postiz-draft-resolve",
       "postiz-test-reconcile",
       "calendar-block",
       "calendar-unblock",
@@ -1753,6 +1757,8 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           .parse(input);
         return startApprovedLiveDraftOnce(tx, scope, i.missionId, i.version);
       }
+      if (action === "postiz-draft-resolve")
+        return resolvePostizDraft(tx, scope, input);
       if (action === "start-approved-live-draft-batch") {
         const i = z
           .object({

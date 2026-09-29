@@ -775,6 +775,16 @@ With Mario's approval `ENABLE_POSTIZ_DRAFTS=true` was set on the production Cool
 
 **Workspace note:** The repository lives in an iCloud-synced `Documents` folder. iCloud had created 111 " 2" conflict copies, including `.git/refs/heads/main 2`, `.git/index 2` and older copies of source files, which broke `git fetch`. They were moved (not deleted) to a local quarantine folder; `git fsck` is clean. Recommendation: move the project outside iCloud sync.
 
+### 2026-09-29 21:30 CEST -- First Postiz draft handoff failed; diagnostics and owner resolution added
+
+**Observation:** The first live handoff of "AI assists. You decide." (Content `f4a439f6-5e2b-4ca6-84b1-ba0875e36292`) ended as `outcome_unknown` with `PROVIDER_REJECTED` (5xx). Mario checked Postiz and found no draft. The record did not show whether the media upload or the post creation failed.
+
+**Change:** Each handoff now records `failedStep` (`upload_media` or `create_post`), the provider `httpStatus` and `withoutImage`. A failure during the media upload is a clear `failed` outcome because no post request was sent; only an unclear post creation stays `outcome_unknown`. New owner action `postiz-draft-resolve` (`not_created` or `exists`, requires `confirmCheckedInPostiz: true`) resolves an `outcome_unknown` handoff after checking Postiz, with an audit entry. The owner can send a handoff without the image (`withoutImage: true`) to isolate media upload problems. The Content dialog shows step, HTTP status and resolution and offers both resolution buttons and the "Ohne Bild senden" option.
+
+**Verification:** Lint, API and web typecheck, web build and the full suite (34 files, 377 tests) on a fresh local database `orbit_phase9_20260929`. The shared local `orbit_test` database holds about 2,300 leftover test projects, which makes the durable worker test exceed its 20 s wait; use a fresh database per phase.
+
+**Workspace:** The working copy moved out of iCloud to `~/EDS-Labs/Development/EDS-Orbit` (fresh clone plus the pending changes), because evicted iCloud files made tooling stall.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
