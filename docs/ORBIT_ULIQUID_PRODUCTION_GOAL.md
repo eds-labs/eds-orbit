@@ -769,6 +769,12 @@ The Coolify Scheduled Task "Orbit off-host backup" (container `backup`, `orbit-b
 
 **Known gap (unchanged):** the live publisher path still reads inline `base64` for assets and cannot attach Drive-imported logos; it stays disabled with `ENABLE_EXTERNAL_WRITES=false`.
 
+### 2026-09-29 14:10 CEST -- ENABLE_POSTIZ_DRAFTS enabled for the Phase 9 live test
+
+With Mario's approval `ENABLE_POSTIZ_DRAFTS=true` was set on the production Coolify application (Production scope only; `ENABLE_EXTERNAL_WRITES` stays `false`, `EXECUTION_MODE` stays `test`). The Coolify menu redeploy did not start from browser automation, so this documentation commit triggers the webhook redeploy that applies it. Planned live test: one reviewed Phase 8 draft handed off to Postiz as a draft only.
+
+**Workspace note:** The repository lives in an iCloud-synced `Documents` folder. iCloud had created 111 " 2" conflict copies, including `.git/refs/heads/main 2`, `.git/index 2` and older copies of source files, which broke `git fetch`. They were moved (not deleted) to a local quarantine folder; `git fsck` is clean. Recommendation: move the project outside iCloud sync.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
