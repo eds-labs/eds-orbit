@@ -340,7 +340,7 @@ live uLiquid acceptance.
 | Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
 | Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
-| Production backup/restore | PARTIAL | VERIFY | VERIFY | NO | Fresh root-only on-host archives before PR #11 (`20260928T160114Z`) and PR #12 (`20260928T171920Z`) passed full `pg_restore -f /dev/null` reads. Off-host production restore and key escrow remain unproven. |
+| Production backup/restore | YES | YES | YES | PARTIAL | Daily age-encrypted off-host backup to the private EU R2 bucket (`orbit/`, 30-day lifecycle) is live; the first production object `orbit-20260929T093308Z.dump.age` passed checksum, decryption and a full restore into an isolated throwaway database on 2026-09-29. Earlier on-host archives before PR #11/#12 also passed full reads. Off-host production restore and key escrow remain unproven. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
@@ -736,6 +736,16 @@ nicht überschreiben.
 **Change:** New `backup` Compose service (`infra/backup/Dockerfile`, `infra/backup/orbit-archive.sh`) on the pinned pgvector/PostgreSQL 17 image with `age` and `rclone`: daily `pg_dump` → `pg_restore --list` → age encryption to the owner's public key → upload with SHA-256 sidecar → size verification; hourly retry on failure; read-only root filesystem, no capabilities, `database` and `egress` networks, excluded from the Coolify health gate; `not_configured` without variables. Setup and restore steps are in `docs/BACKUP_RESTORE.md`. Target: the existing private EU Cloudflare R2 destination, with a bucket lifecycle rule for retention.
 
 **Verification:** Local image build; end-to-end run against the local development database (about 10 MB encrypted archive, checksum OK, decrypted with the test key and read by `pg_restore --list`); failure path (wrong database password) exits without upload; health reports `not_configured`/`ok`; Coolify compose check passed. Production configuration, first off-host object and a restore drill are pending owner setup.
+
+### 2026-09-29 11:45 CEST -- Off-host backup configured and restore drill passed
+
+**Setup (Mario's request, owner-held secrets):** An age key pair was generated on Mario's Mac (`~/orbit-backup.key`, mode 0600; only the public recipient was read). The existing private EU R2 bucket `eds-labs-coolify-backups` received lifecycle rule `orbit-backups-30d` (prefix `orbit/`, delete after 30 days; the existing default multipart rule and Coolify backups are unaffected). Non-secret Coolify variables were set (`BACKUP_AGE_RECIPIENT`, `BACKUP_S3_ENDPOINT` = EU R2 endpoint, `BACKUP_S3_BUCKET`, temporary `BACKUP_RUN_ON_START=true`). Mario created a bucket-scoped Object Read & Write R2 token and entered its access key and secret in Coolify himself, then redeployed `829c1bb`.
+
+**First off-host backup:** `orbit/orbit-20260929T093308Z.dump.age` (1,200,165 bytes) and its `.sha256` sidecar appeared at 11:33 CEST.
+
+**Restore drill:** Both objects were downloaded to Mario's Mac. SHA-256 matched; age decryption with the owner key succeeded; `pg_restore --exit-on-error` restored the archive into an isolated throwaway pgvector 17 container without network. Counts: 1 project, 350 entities (193 facts, 10 Content rows), 54 knowledge chunks (matches active generation 2), 85 budget reservations. The container and the decrypted dump were removed afterwards. `BACKUP_RUN_ON_START` was reset to `false`.
+
+**Open:** Mario still needs to store `~/orbit-backup.key` and the running `CREDENTIAL_KEY` in the password manager and keep an offline copy of the backup key. Independent alerting for a failed or stale backup remains Phase 10 work; the backup container's health turns unhealthy but is excluded from the Coolify health gate.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
