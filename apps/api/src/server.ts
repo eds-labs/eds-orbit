@@ -284,6 +284,16 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
     },
   );
   app.get("/health", async () => ({ status: "ok", service: "orbit-api" }));
+  // Public readiness for external uptime monitors: states only, no details.
+  app.get("/api/health/ready", async (_req, reply) => {
+    const database = await authDb.$queryRaw`SELECT 1`
+      .then(() => "ok" as const)
+      .catch(() => "unavailable" as const);
+    const { worker } = await runtimeHealth();
+    const ready = database === "ok" && worker === "ready";
+    reply.status(ready ? 200 : 503);
+    return { status: ready ? "ok" : "degraded", database, worker };
+  });
   app.get("/api/setup", async () => ({
     configured: (await authDb.workspace.count()) > 0,
   }));

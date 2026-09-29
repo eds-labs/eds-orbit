@@ -183,6 +183,7 @@ services:
       BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-orbit/}
       BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
       BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      BACKUP_HEARTBEAT_URL: ${BACKUP_HEARTBEAT_URL:-}
     networks:
       - database
       - egress
