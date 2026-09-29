@@ -4,7 +4,7 @@ import ipaddr from 'ipaddr.js';
 
 export type ConnectorOutcome = 'not_sent' | 'rejected' | 'unknown';
 export class ConnectorError extends Error {
-  constructor(public code: string, public outcome: ConnectorOutcome = 'not_sent', public retryable = false, public status?: number) {
+  constructor(public code: string, public outcome: ConnectorOutcome = 'not_sent', public retryable = false, public status?: number, public detail?: string) {
     super(code); this.name = 'ConnectorError';
   }
 }
@@ -44,7 +44,8 @@ export const boundedFetch: FetchLike = async (input, init = {}) => {
     let finished = false;
     const done = (error?: Error, response?: Response) => { if (finished) return; finished = true; clearTimeout(timer); init.signal?.removeEventListener('abort', abort); error ? reject(error) : resolve(response!); };
     const req = request(url, {
-      method: prepared.method, agent: new Agent({ keepAlive: false }), headers: Object.fromEntries(prepared.headers),
+      // An explicit length avoids chunked uploads, which some multipart parsers reject.
+      method: prepared.method, agent: new Agent({ keepAlive: false }), headers: { ...Object.fromEntries(prepared.headers), ...(payload ? { 'content-length': String(payload.byteLength) } : {}) },
       lookup: (_hostname, options, callback) => {
         // Node's family autoselection requests all=true and expects an address array.
         const done = callback as (error: NodeJS.ErrnoException | null, value: string | { address: string; family: number }[], family?: number) => void;
@@ -65,6 +66,18 @@ export const boundedFetch: FetchLike = async (input, init = {}) => {
   });
 };
 
+/** Short, sanitized provider error message for diagnostics. Never the raw body. */
+export async function providerDetail(response: Response): Promise<string | undefined> {
+  try {
+    const text = (await response.text()).slice(0, 2000);
+    let message: unknown = text;
+    try { const body = JSON.parse(text); message = body?.message ?? body?.error ?? body?.msg ?? text; } catch { /* plain text */ }
+    if (Array.isArray(message)) message = message.join('; ');
+    const clean = String(message).replace(/(bearer|token|key|secret|password)\S*/gi, '[redacted]').replace(/[^\w .,:;()'\/[\]-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+    return clean || undefined;
+  } catch { return undefined; }
+}
+
 export function jsonTransport(options: HttpOptions) {
   const base = endpoint(options.baseUrl); if (!base.pathname.endsWith('/')) base.pathname += '/';
   if (!options.token || /[\r\n]/.test(options.token)) throw new ConnectorError('INVALID_CREDENTIAL');
@@ -76,8 +89,9 @@ export function jsonTransport(options: HttpOptions) {
     try {
       const response = await fetcher(url, { ...init, redirect: 'manual', signal: controller.signal, headers: { Authorization: options.token, Accept: 'application/json', ...Object.fromEntries(new Headers(init.headers)) } });
       if (!response.ok) {
+        const detail = await providerDetail(response);
         const ambiguous = sideEffect && (response.status >= 500 || response.status === 408 || (response.status >= 300 && response.status < 400));
-        throw new ConnectorError(response.status === 401 || response.status === 403 ? 'PROVIDER_AUTH' : response.status === 429 ? 'RATE_LIMITED' : 'PROVIDER_REJECTED', ambiguous ? 'unknown' : 'rejected', !ambiguous && (response.status === 429 || response.status >= 500), response.status);
+        throw new ConnectorError(response.status === 401 || response.status === 403 ? 'PROVIDER_AUTH' : response.status === 429 ? 'RATE_LIMITED' : 'PROVIDER_REJECTED', ambiguous ? 'unknown' : 'rejected', !ambiguous && (response.status === 429 || response.status >= 500), response.status, detail);
       }
       const contentLength = Number(response.headers.get('content-length'));
       if (contentLength > 2 * 1024 * 1024) throw new ConnectorError('RESPONSE_TOO_LARGE', sideEffect ? 'unknown' : 'rejected');

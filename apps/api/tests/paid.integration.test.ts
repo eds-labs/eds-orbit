@@ -678,6 +678,7 @@ describe.skipIf(!enabled)(
                 "unknown",
                 false,
                 500,
+                "Storage upload failed",
               );
             },
             createPost: async (input: any) => {
@@ -700,6 +701,7 @@ describe.skipIf(!enabled)(
           status: "failed",
           failedStep: "upload_media",
           httpStatus: 500,
+          providerMessage: "Storage upload failed",
         });
         expect(posts).toHaveLength(0);
         const sent = await handoffPostizDraft(

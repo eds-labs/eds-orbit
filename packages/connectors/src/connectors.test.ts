@@ -270,6 +270,35 @@ describe("Postiz documented contract", () => {
     ).toMatchObject({ id: "media-one" });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+  it("keeps a short sanitized provider message when an upload is rejected", async () => {
+    const fetch = vi.fn(async () =>
+      json(
+        {
+          statusCode: 500,
+          message: "Storage failed <b>token=abc123</b>" + "x".repeat(400),
+        },
+        500,
+      ),
+    );
+    const error = await createPostizClient({ ...options, fetch })
+      .uploadMedia({
+        bytes: Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1i8AAAAASUVORK5CYII=",
+          "base64",
+        ),
+        mime: "image/png",
+        filename: "x.png",
+      })
+      .catch((e) => e);
+    expect(error).toMatchObject({
+      code: "PROVIDER_REJECTED",
+      outcome: "unknown",
+      status: 500,
+    });
+    expect(error.detail).toMatch(/^Storage failed b \[redacted\]/);
+    expect(error.detail).not.toContain("abc123");
+    expect(error.detail.length).toBeLessThanOrEqual(200);
+  });
 });
 
 describe("Matomo read scope", () => {

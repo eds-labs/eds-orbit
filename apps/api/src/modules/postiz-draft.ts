@@ -237,6 +237,8 @@ export async function handoffPostizDraft(
         failedStep: step,
         httpStatus:
           error instanceof ConnectorError ? (error.status ?? null) : null,
+        providerMessage:
+          error instanceof ConnectorError ? (error.detail ?? null) : null,
         withoutImage: input.withoutImage === true,
         finishedAt: new Date().toISOString(),
       });

@@ -1692,6 +1692,7 @@ function PostizDraftSection({ content }: { content: Entity }) {
           {d.data.error ? ` · ${String(d.data.error)}` : ""}
           {d.data.failedStep ? ` · ${String(d.data.failedStep)}` : ""}
           {d.data.httpStatus ? ` · HTTP ${String(d.data.httpStatus)}` : ""}
+          {d.data.providerMessage ? ` · ${String(d.data.providerMessage)}` : ""}
           {d.data.withoutImage
             ? de
               ? " · ohne Bild"
