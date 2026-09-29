@@ -153,6 +153,54 @@ services:
         max-size: 10m
         max-file: "3"
 
+  backup:
+    image: eds-orbit-backup:${ORBIT_IMAGE_TAG:-0.1.0-rc.1}
+    build:
+      context: .
+      dockerfile: infra/backup/Dockerfile
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    environment:
+      PGHOST: postgres
+      PGUSER: orbit_migrator
+      PGPASSWORD: ${DB_PASSWORD:-${SERVICE_PASSWORD_64_DBMIGRATOR}}
+      PGDATABASE: ${POSTGRES_DB:-orbit}
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-3}
+      BACKUP_RUN_ON_START: ${BACKUP_RUN_ON_START:-false}
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-orbit/}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+    networks:
+      - database
+      - egress
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/orbit-backup", "health"]
+      interval: 5m
+      timeout: 10s
+      start_period: 30s
+      retries: 1
+    labels:
+      coolify.exclude_from_hc: "true"
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
   redis:
     image: redis:7.4.7-alpine@sha256:02f2cc4882f8bf87c79a220ac958f58c700bdec0dfb9b9ea61b62fb0e8f1bfcf
     restart: unless-stopped

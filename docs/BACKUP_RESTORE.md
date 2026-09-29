@@ -1,6 +1,6 @@
 # Backup and Restore Runbook
 
-Checkpoint: 2026-09-17. **The isolated synthetic database restore passed. Production/off-host backup and recovery remain unperformed.** The actual result is `BACKUP_RESTORE_TEST_RESULT.json`, produced by `scripts/backup-restore-test.ts`.
+Checkpoint: 2026-09-17. **The isolated synthetic database restore passed. An encrypted off-host database backup service exists (see below); its production configuration and a production restore drill are recorded separately.** The actual result is `BACKUP_RESTORE_TEST_RESULT.json`, produced by `scripts/backup-restore-test.ts`.
 
 ## Executed local evidence
 
@@ -25,6 +25,29 @@ The script adds synthetic fixtures, creates a custom-format dump under ignored `
 A separately approved production backup must cover the matching schema/migrations and application image; tenants and ACLs; original controlled source files and document/version metadata; chunks, vectors and active-index generations; content/assets and approvals; jobs/outbox/idempotency records; provider IDs and uncertain outcomes; usage reservations/receipts; audit, revocation and deletion journals. Back up any media/object-store files consistently with their database references. Source-file hashes and tombstones must survive independently of an index rebuild.
 
 Store encrypted backups outside the application's failure domain with bounded retention and checksums. Protect and test the credential-encryption key and any backup-decryption material separately from the database dump. A database copy alone cannot recover encrypted connector credentials if the key is lost. Never put keys in the backup manifest, repository, logs or a command argument. Provider VM snapshots supplement this recovery set; they do not establish application-consistent recoverability.
+
+## Encrypted off-host database backup (Coolify production)
+
+The `backup` service in `docker-compose.yml` (`infra/backup/`) runs daily at `BACKUP_HOUR_UTC` (default 03:00 UTC). It uses the same pinned PostgreSQL 17 image as the database, runs `pg_dump --format=custom`, checks the archive with `pg_restore --list`, encrypts it with `age` to the owner's public key, uploads `orbit-<UTC timestamp>.dump.age` plus a `.sha256` sidecar to an S3-compatible bucket and verifies the uploaded size. A failed run is retried hourly. Without configuration the service only reports `not_configured`; it never crash-loops or affects the application health gate (`coolify.exclude_from_hc`). Its container health turns unhealthy after a failed run or when the last success is older than 26 hours; check it with `docker ps` or the service logs until independent alerting exists (Phase 10).
+
+The age private key never exists on the server, so bucket or server access alone cannot read a backup. Retention is a bucket lifecycle rule, so the container needs no delete permission.
+
+**One-time setup (owner):**
+
+1. On a trusted workstation: `age-keygen -o orbit-backup.key`. Store the file in the password manager and one offline copy. The printed `age1…` public key is the recipient.
+2. In Cloudflare R2: use a private EU bucket, create an API token with Object Read & Write for that bucket only, and add a lifecycle rule for prefix `orbit/` (for example delete after 30 days).
+3. In the Coolify Orbit application set `BACKUP_AGE_RECIPIENT`, `BACKUP_S3_ENDPOINT` (`https://<account-id>.r2.cloudflarestorage.com`), `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` and, for the first verification only, `BACKUP_RUN_ON_START=true`. Redeploy and confirm an `orbit-backup ok …` log line and both objects in the bucket, then remove `BACKUP_RUN_ON_START`.
+4. Store the running `CREDENTIAL_KEY` value in the password manager as well. A database backup cannot decrypt stored connector and OpenAI credentials without it.
+
+**Restore drill (isolated, never over production):**
+
+```sh
+sha256sum -c orbit-<ts>.dump.age.sha256
+age --decrypt --identity orbit-backup.key --output orbit.dump orbit-<ts>.dump.age
+pg_restore --list orbit.dump
+# Restore only into a new isolated database with workers stopped, then follow the
+# authorized restore sequence below.
+```
 
 ## Authorized restore sequence
 
