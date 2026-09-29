@@ -58,8 +58,12 @@ run_once() (
   age --recipient "$BACKUP_AGE_RECIPIENT" --output "$enc" "$dump" || exit 1
   sha="$(sha256sum "$enc" | cut -d' ' -f1)" || exit 1
   size="$(stat -c %s "$enc")" || exit 1
-  rclone copyto --retries 3 "$enc" "$(remote)$name" || exit 1
-  printf '%s  %s\n' "$sha" "$name" | rclone rcat "$(remote)$name.sha256" || exit 1
+  printf '%s  %s\n' "$sha" "$name" >"$enc.sha256"
+  # Upload known-size files with retries; R2 intermittently answers 501 and
+  # streamed uploads of unknown size (rclone rcat) cannot be retried.
+  rclone copyto --retries 5 --low-level-retries 10 "$enc" "$(remote)$name" || exit 1
+  rclone copyto --retries 5 --low-level-retries 10 "$enc.sha256" \
+    "$(remote)$name.sha256" || exit 1
   uploaded="$(rclone lsf --format s "$(remote)$name")" || exit 1
   if [[ "$uploaded" != "$size" ]]; then
     log "upload size mismatch for $name: local=$size remote=$uploaded"

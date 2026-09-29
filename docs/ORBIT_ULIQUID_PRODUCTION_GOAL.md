@@ -755,6 +755,10 @@ nicht überschreiben.
 
 **Defect found and fixed:** Testing the failure path showed that `set -e` is ignored inside `run_once` when it is called from `||` or `until`, which both schedules do. A wrong database password therefore produced a 200-byte encrypted empty archive reported as `ok`. Every step now checks its exit status explicitly and an empty dump is rejected. Re-tested locally: success exits 0 and uploads; a failure exits 1, marks health unhealthy and uploads nothing, in external and internal mode. The production object `orbit-20260929T093308Z.dump.age` from the earlier run is valid (full restore drill passed).
 
+### 2026-09-29 12:35 CEST -- Coolify Scheduled Task created; first run exposed R2 501 on streamed upload
+
+The Coolify Scheduled Task "Orbit off-host backup" (container `backup`, `orbit-backup once`, `0 3 * * *`, timeout 900 s) was created. Telegram notifications in Coolify are enabled with "Scheduled task failure" on (success notifications off). A manual "Execute Now" run on `1043736` failed after 3 s and was correctly reported as Failed: R2 answered `501 NotImplemented` on the first dump upload attempt (the retry succeeded) and on the SHA-256 sidecar streamed via `rclone rcat`, which cannot be retried. The sidecar is now written to a file and uploaded with `rclone copyto --retries 5 --low-level-retries 10` like the dump; the size check remains. Local re-test passed.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
