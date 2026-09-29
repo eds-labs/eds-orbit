@@ -18,14 +18,6 @@ export HOME=/tmp RCLONE_CONFIG=/tmp/rclone.conf
 log() { echo "$(date -u +%FT%TZ) orbit-backup $*"; }
 state() { printf '%s %s %s\n' "$1" "$(date -u +%s)" "${2:-}" >"$STATE_FILE"; }
 
-# Optional dead man's switch: an external push monitor alerts when no successful
-# backup reports in time. The URL carries a token and is never logged.
-heartbeat() {
-  [[ -n "${BACKUP_HEARTBEAT_URL:-}" ]] || return 0
-  curl -fsS --max-time 15 --retry 3 -o /dev/null "$BACKUP_HEARTBEAT_URL" ||
-    log "heartbeat failed"
-}
-
 configured() {
   [[ -n "${BACKUP_AGE_RECIPIENT:-}" ]] || return 1
   [[ -n "${BACKUP_RCLONE_REMOTE:-}" ]] && return 0
@@ -79,7 +71,6 @@ run_once() (
   fi
   log "ok $name bytes=$size sha256=$sha"
   state ok "$name"
-  heartbeat
 )
 
 health() {
