@@ -71,8 +71,8 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
     DRIVE_ROOT_REQUIRED: "Choose and enable a Drive root folder.",
     POSTIZ_NOT_CONNECTED: "Connect and verify Postiz.",
     POSTIZ_CHANNELS_NOT_ASSIGNED: "Assign Postiz channels to this project.",
-    POSTIZ_DRAFT_HANDOFF_NOT_AVAILABLE:
-      "Sending drafts to Postiz is not available yet.",
+    POSTIZ_DRAFTS_DISABLED:
+      "Postiz draft handoff is switched off (ENABLE_POSTIZ_DRAFTS).",
     PUBLISHER_WRITE_VERIFICATION_REQUIRED:
       "Postiz write access has not been verified.",
     CHANNEL_WRITE_VERIFICATION_REQUIRED:
@@ -104,8 +104,8 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
     DRIVE_ROOT_REQUIRED: "Drive-Stammordner wählen und aktivieren.",
     POSTIZ_NOT_CONNECTED: "Postiz verbinden und prüfen.",
     POSTIZ_CHANNELS_NOT_ASSIGNED: "Postiz-Kanäle diesem Projekt zuweisen.",
-    POSTIZ_DRAFT_HANDOFF_NOT_AVAILABLE:
-      "Entwürfe an Postiz senden ist noch nicht verfügbar.",
+    POSTIZ_DRAFTS_DISABLED:
+      "Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS).",
     PUBLISHER_WRITE_VERIFICATION_REQUIRED:
       "Schreibzugriff auf Postiz ist noch nicht geprüft.",
     CHANNEL_WRITE_VERIFICATION_REQUIRED:

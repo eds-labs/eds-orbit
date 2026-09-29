@@ -25,6 +25,7 @@ const draftOnly: ReadinessInputs = {
   driveRootConfigured: true,
   postizConnected: true,
   postizChannelsAssigned: true,
+  postizDraftsEnabled: false,
   postizWriteVerified: false,
   postizChannelWriteVerified: false,
   matomoReadVerified: false,
@@ -96,11 +97,25 @@ describe("action-specific readiness", () => {
     });
     expect(actions.postiz_draft).toMatchObject({
       state: "not_configured",
-      blockers: ["POSTIZ_DRAFT_HANDOFF_NOT_AVAILABLE"],
+      blockers: ["POSTIZ_DRAFTS_DISABLED"],
     });
     expect(actions.blog_live.state).toBe("not_configured");
     expect(actions.newsletter_live.state).toBe("not_configured");
     expect(actions.ads_live.state).toBe("not_configured");
+  });
+
+  it("allows Postiz drafts with their own switch while live posts stay off", () => {
+    const actions = actionReadiness({
+      ...draftOnly,
+      postizDraftsEnabled: true,
+    });
+    expect(actions.postiz_draft).toMatchObject({
+      state: "ready",
+      effect: "external",
+      blockers: [],
+    });
+    expect(actions.postiz_live.state).toBe("blocked");
+    expect(actions.postiz_schedule.state).toBe("blocked");
   });
 
   it("separates missing setup from temporary blockers", () => {

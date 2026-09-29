@@ -134,6 +134,7 @@ export async function readiness(tx: DbTx, scope: Scope) {
     ),
     postizConnected: Boolean(postiz),
     postizChannelsAssigned: assignedChannels.length > 0,
+    postizDraftsEnabled: process.env.ENABLE_POSTIZ_DRAFTS === "true",
     postizWriteVerified: Boolean(publisher),
     postizChannelWriteVerified: Boolean(
       publisher &&

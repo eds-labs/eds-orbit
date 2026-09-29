@@ -3127,3 +3127,14 @@ body:has(dialog[open]) {
   flex-shrink: 0;
   font-size: 11px;
 }
+.postiz-draft {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+}
+.postiz-draft h3 {
+  margin: 0;
+  font-size: 13px;
+}

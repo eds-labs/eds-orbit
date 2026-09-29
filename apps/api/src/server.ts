@@ -71,6 +71,7 @@ import {
   startApprovedLiveDraftBatch,
 } from "./modules/draft-batch.ts";
 import { withGenerationProvenance } from "./modules/content-provenance.ts";
+import { handoffPostizDraft } from "./modules/postiz-draft.ts";
 import { generateProjectImage } from "./modules/image-generation.ts";
 import {
   beginConnect,
@@ -1128,6 +1129,7 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "evaluate-index",
       "postiz-test-prepare",
       "postiz-test-execute",
+      "postiz-draft-handoff",
       "postiz-test-reconcile",
       "calendar-block",
       "calendar-unblock",
@@ -1209,6 +1211,8 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       return importPreview(knowledgeImportInput.parse(input));
     if (action === "import-matomo")
       return importMatomoReport(scope, matomoImportInput.parse(input));
+    if (action === "postiz-draft-handoff")
+      return handoffPostizDraft(scope, input);
     if (action === "postiz-test-execute")
       return executePostizVerification(
         scope,

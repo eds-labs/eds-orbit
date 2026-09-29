@@ -1568,6 +1568,9 @@ export function ContentDetail({
           Action recorded. The current server status is shown above.
         </Alert>
       )}
+      {isOwner && current.data.status === "reviewed" && (
+        <PostizDraftSection content={current} />
+      )}
       {isOwner && (
         <label className="review-confirm">
           <Input
@@ -1631,6 +1634,84 @@ export function ContentDetail({
         )}
       </div>
     </Modal>
+  );
+}
+/** Owner-confirmed handoff of a reviewed version to Postiz as a draft only. */
+function PostizDraftSection({ content }: { content: Entity }) {
+  const { project, locale, refresh } = useWorkspace();
+  const connectors = useCollection("connectors");
+  const drafts = useCollection("postiz_drafts");
+  const [confirm, setConfirm] = useState(false);
+  const mutation = useMutation(() => {
+    refresh();
+    drafts.refresh();
+  });
+  const postiz = connectors.data?.items.find(
+    (c) => c.data.provider === "postiz",
+  );
+  const channel = (
+    (postiz?.data.channels ?? []) as {
+      id: string;
+      name?: string;
+      identifier?: string;
+    }[]
+  ).find((c) => c.id === content.data.channel);
+  const history = (drafts.data?.items ?? []).filter(
+    (d) => d.data.contentId === content.id,
+  );
+  const de = locale === "de";
+  return (
+    <section className="postiz-draft">
+      <h3>{de ? "Als Entwurf an Postiz senden" : "Send to Postiz as draft"}</h3>
+      <p className="panel-note">
+        {de ? "Kanal: " : "Channel: "}
+        <strong>
+          {channel
+            ? `${channel.name ?? channel.id} (${channel.identifier ?? "?"})`
+            : String(content.data.channel)}
+        </strong>
+        {" · "}
+        {de
+          ? "Postiz erhält nur einen Entwurf. Nichts wird geplant oder veröffentlicht."
+          : "Postiz receives a draft only. Nothing is scheduled or published."}
+      </p>
+      {history.map((d) => (
+        <p key={d.id} className="panel-note">
+          <Status value={d.data.status} /> v{String(d.data.contentVersion)}
+          {d.data.remoteId ? ` · Postiz ${String(d.data.remoteId)}` : ""}
+          {d.data.error ? ` · ${String(d.data.error)}` : ""}
+        </p>
+      ))}
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      <label className="review-confirm">
+        <Input
+          type="checkbox"
+          checked={confirm}
+          onChange={(event) => setConfirm(event.target.checked)}
+        />
+        <span>
+          {de
+            ? "Ich bestätige genau einen Entwurf in Postiz für diese Version, keine Veröffentlichung."
+            : "I confirm exactly one Postiz draft for this version, no publication."}
+        </span>
+      </label>
+      <Button
+        variant="outline"
+        disabled={mutation.pending || !confirm}
+        onClick={async () => {
+          const result = await mutation.run(() =>
+            action(project.id, "postiz-draft-handoff", {
+              contentId: content.id,
+              version: content.version,
+              confirmDraftOnly: true,
+            }),
+          );
+          if (result) setConfirm(false);
+        }}
+      >
+        {de ? "Als Entwurf an Postiz senden" : "Send to Postiz as draft"}
+      </Button>
+    </section>
   );
 }
 export function EvidenceItems({ evidence }: { evidence: Entity }) {

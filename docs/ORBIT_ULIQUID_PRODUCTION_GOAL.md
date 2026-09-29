@@ -278,12 +278,12 @@ höchstens fünf prüfbare Drafts innerhalb des Budgets.
 
 ## Phase 9 -- Postiz Draft Handoff \[P1/P2\]
 
--   [ ] vorhandene Postiz `draft` Capability end-to-end prüfen
--   [ ] explizite Aktion `Send to Postiz as Draft`
--   [ ] exakten Channel anzeigen
--   [ ] Idempotency/unknown outcome
--   [ ] Draft-Handoff darf kein `now` Publish auslösen
--   [ ] getrennte Readiness/Rechte für Draft vs Live
+-   [ ] vorhandene Postiz `draft` Capability end-to-end prüfen (live test pending approval)
+-   [x] explizite Aktion `Send to Postiz as Draft`
+-   [x] exakten Channel anzeigen
+-   [x] Idempotency/unknown outcome
+-   [x] Draft-Handoff darf kein `now` Publish auslösen
+-   [x] getrennte Readiness/Rechte für Draft vs Live
 -   [ ] echter Provider-Test nur nach expliziter Freigabe
 
 ## Phase 10 -- Production Hardening \[P1\]
@@ -758,6 +758,16 @@ nicht überschreiben.
 ### 2026-09-29 12:35 CEST -- Coolify Scheduled Task created; first run exposed R2 501 on streamed upload
 
 The Coolify Scheduled Task "Orbit off-host backup" (container `backup`, `orbit-backup once`, `0 3 * * *`, timeout 900 s) was created. Telegram notifications in Coolify are enabled with "Scheduled task failure" on (success notifications off). A manual "Execute Now" run on `1043736` failed after 3 s and was correctly reported as Failed: R2 answered `501 NotImplemented` on the first dump upload attempt (the retry succeeded) and on the SHA-256 sidecar streamed via `rclone rcat`, which cannot be retried. The sidecar is now written to a file and uploaded with `rclone copyto --retries 5 --low-level-retries 10` like the dump; the size check remains. Local re-test passed.
+
+### 2026-09-29 13:40 CEST -- Phase 8 accepted; Phase 9 Postiz draft handoff implemented
+
+**Phase 8 acceptance:** Coolify-scheduled backup alerting was confirmed first (Mario received the Telegram message for the failed 12:28 task run). A new Chat request "Prepare 5 uLiquid posts for next week" produced Mission `c427599e-ee5e-4baa-9926-3c2d9d665512` (maxContents 5, six exact fact keys, $0.61 plan ceiling). The owner batch action ran once: five jobs, runs 1--5, each `succeeded` in 1/1 attempt; Mission and batch `completed`; five Content rows. Each draft is a single post with one verbatim fact claim (`product.description`, `product.user_control`, `feature.ai_predictions.boundary`, `product.positioning`, `product.tagline`), exactly one `Explore the beta` CTA and no duplicate or bundled post. Automatic review reported only `HUMAN_CONTENT_REVIEW_REQUIRED` for each opening sentence; Mario reviewed all five without edits: all `reviewed`, `valid=true`, no publications. Generation cost 39,060 USD micros in total plus the Chat run. The acceptance criterion ("5 uLiquid posts for next week" → at most five reviewable drafts within budget) is met.
+
+**Phase 9 change:** New owner action `postiz-draft-handoff` (`apps/api/src/modules/postiz-draft.ts`) for one reviewed campaign social Content version. Gate: new switch `ENABLE_POSTIZ_DRAFTS` (default `false`, independent of `ENABLE_EXTERNAL_WRITES`, allowed in observe mode), project not paused, `reviewed` status with a fresh valid claim review, verified Postiz connector, channel assigned to the project and in the active policy. The payload builder fixes `type: "draft"`; there is no schedule or now path. A `postiz_drafts` record is written as `sending` before the HTTP call; an accepted receipt stores the remote draft ID; a clearly rejected request becomes `failed` and may be retried; any unclear outcome becomes `outcome_unknown` with an exception and blocks further handoffs of that Content until resolved. The same version is handed off at most once. Approved Drive-imported PNGs are uploaded via `exportAssetContent`. Readiness `postiz_draft` now reports `POSTIZ_DRAFTS_DISABLED` instead of "not available". The Content dialog shows the exact Postiz channel name and identifier, the handoff history and an explicit draft-only confirmation.
+
+**Verification:** 4 real-SQL integration tests with a fake Postiz client (switch off and unreviewed refused; exactly one `draft` call with the assigned integration and repeated calls idempotent; unclear outcome recorded once without retry; retry only after a clear rejection) and a new readiness test. No real Postiz call was made. Live verification requires Mario to set `ENABLE_POSTIZ_DRAFTS=true` and approve one handoff.
+
+**Known gap (unchanged):** the live publisher path still reads inline `base64` for assets and cannot attach Drive-imported logos; it stays disabled with `ENABLE_EXTERNAL_WRITES=false`.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 

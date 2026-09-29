@@ -46,6 +46,7 @@ export type ReadinessInputs = {
   driveRootConfigured: boolean;
   postizConnected: boolean;
   postizChannelsAssigned: boolean;
+  postizDraftsEnabled: boolean;
   postizWriteVerified: boolean;
   postizChannelWriteVerified: boolean;
   matomoReadVerified: boolean;
@@ -141,8 +142,12 @@ export function actionReadiness(
     export: result("internal", [paused]),
     postiz_draft: result(
       "external",
-      [paused, ...postizBase, "POSTIZ_DRAFT_HANDOFF_NOT_AVAILABLE"],
-      ["POSTIZ_NOT_CONNECTED", "POSTIZ_DRAFT_HANDOFF_NOT_AVAILABLE"],
+      [
+        paused,
+        ...postizBase,
+        !i.postizDraftsEnabled && "POSTIZ_DRAFTS_DISABLED",
+      ],
+      ["POSTIZ_NOT_CONNECTED", "POSTIZ_DRAFTS_DISABLED"],
     ),
     postiz_schedule: result(
       "external",

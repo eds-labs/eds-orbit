@@ -26,6 +26,7 @@ export const collections = [
   "knowledge_imports",
   "community_questions",
   "community_groups",
+  "postiz_drafts",
 ] as const;
 export const collection = z.enum(collections);
 export const source = z

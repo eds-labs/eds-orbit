@@ -28,7 +28,9 @@ import {
   validateActiveIndexEvaluation,
 } from "../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create, data, update } from "../src/shared.ts";
+import { create, data, encrypt, update } from "../src/shared.ts";
+import { handoffPostizDraft } from "../src/modules/postiz-draft.ts";
+import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import { checkClaims } from "../src/modules/policy.ts";
 import { reviewContent } from "../src/modules/workflow.ts";
 import {
@@ -516,6 +518,173 @@ describe.skipIf(!enabled)(
       expect(data(reviewed).review.problems).toContain(
         "PRESALE_LIVE_NOT_VERIFIED",
       );
+    });
+    describe("Postiz draft handoff", () => {
+      async function reviewedDraft() {
+        const { content } = await statusDraft();
+        await run(async (tx) => {
+          const connector = await tx.entity.findFirstOrThrow({
+            where: { projectId: s.projectId, kind: "connectors" },
+          });
+          await update(tx, s, connector, {
+            ...data(connector),
+            baseUrl: "https://postiz.example.invalid",
+            encryptedCredential: encrypt(
+              "synthetic-token",
+              process.env.CREDENTIAL_KEY!,
+            ),
+          });
+        });
+        return run((tx) => reviewContent(tx, s, content.id, content.version));
+      }
+      function fakeClient(createPost: (input: any) => Promise<any>) {
+        const calls: any[] = [];
+        return {
+          calls,
+          deps: {
+            createClient: (() => ({
+              uploadMedia: async () => {
+                throw new Error("no asset expected");
+              },
+              createPost: async (input: any) => {
+                calls.push(input);
+                return createPost(input);
+              },
+            })) as any,
+            readAsset: async () => null,
+          },
+        };
+      }
+      const accepted = async () => ({
+        remotePosts: [{ postId: "remote-draft-1", integration: "test" }],
+        state: "accepted",
+        requestedType: "draft",
+      });
+      it("refuses while the draft switch is off and before owner review", async () => {
+        const reviewed = await reviewedDraft();
+        const client = fakeClient(accepted);
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "false");
+        await expect(
+          handoffPostizDraft(
+            s,
+            {
+              contentId: reviewed.id,
+              version: reviewed.version,
+              confirmDraftOnly: true,
+            },
+            client.deps,
+          ),
+        ).rejects.toThrow("POSTIZ_DRAFTS_DISABLED");
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+        const draft = await run((tx) =>
+          update(tx, s, reviewed, { ...data(reviewed), status: "draft" }),
+        );
+        await expect(
+          handoffPostizDraft(
+            s,
+            {
+              contentId: draft.id,
+              version: draft.version,
+              confirmDraftOnly: true,
+            },
+            client.deps,
+          ),
+        ).rejects.toThrow("CONTENT_REVIEW_REQUIRED");
+        expect(client.calls).toHaveLength(0);
+        vi.unstubAllEnvs();
+      });
+      it("sends exactly one draft, never a schedule or live post", async () => {
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+        const reviewed = await reviewedDraft();
+        const client = fakeClient(accepted);
+        const input = {
+          contentId: reviewed.id,
+          version: reviewed.version,
+          confirmDraftOnly: true,
+        };
+        const first = await handoffPostizDraft(s, input, client.deps);
+        const again = await handoffPostizDraft(s, input, client.deps);
+        expect(again.id).toBe(first.id);
+        expect(client.calls).toHaveLength(1);
+        expect(client.calls[0]).toMatchObject({
+          type: "draft",
+          posts: [
+            {
+              integration: { id: "test" },
+              settings: { __type: "x" },
+            },
+          ],
+        });
+        expect(client.calls[0].posts[0].value[0].content).toContain(
+          "The presale is live.",
+        );
+        expect(data(first)).toMatchObject({
+          status: "accepted",
+          remoteId: "remote-draft-1",
+          remoteType: "draft",
+          contentVersion: reviewed.version,
+        });
+        expect(
+          await run((tx) =>
+            tx.entity.count({
+              where: { projectId: s.projectId, kind: "publications" },
+            }),
+          ),
+        ).toBe(0);
+        vi.unstubAllEnvs();
+      });
+      it("records an unclear outcome once and never retries it blindly", async () => {
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+        const reviewed = await reviewedDraft();
+        const client = fakeClient(async () => {
+          throw new ConnectorError("TIMEOUT", "unknown");
+        });
+        const input = {
+          contentId: reviewed.id,
+          version: reviewed.version,
+          confirmDraftOnly: true,
+        };
+        const result = await handoffPostizDraft(s, input, client.deps);
+        expect(data(result)).toMatchObject({
+          status: "outcome_unknown",
+          error: "TIMEOUT",
+        });
+        await expect(handoffPostizDraft(s, input, client.deps)).rejects.toThrow(
+          "POSTIZ_DRAFT_OUTCOME_UNKNOWN",
+        );
+        expect(client.calls).toHaveLength(1);
+        expect(
+          await run((tx) =>
+            tx.entity.count({
+              where: { projectId: s.projectId, kind: "exceptions" },
+            }),
+          ),
+        ).toBeGreaterThan(0);
+        vi.unstubAllEnvs();
+      });
+      it("allows a new attempt only after a clearly rejected request", async () => {
+        vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+        const reviewed = await reviewedDraft();
+        let reject = true;
+        const client = fakeClient(async () => {
+          if (reject) throw new ConnectorError("HTTP_400", "rejected");
+          return accepted();
+        });
+        const input = {
+          contentId: reviewed.id,
+          version: reviewed.version,
+          confirmDraftOnly: true,
+        };
+        expect(
+          data(await handoffPostizDraft(s, input, client.deps)).status,
+        ).toBe("failed");
+        reject = false;
+        expect(
+          data(await handoffPostizDraft(s, input, client.deps)).status,
+        ).toBe("accepted");
+        expect(client.calls).toHaveLength(2);
+        vi.unstubAllEnvs();
+      });
     });
     it("rejects a draft that repeats the primary CTA for several posts", async () => {
       const { content } = await statusDraft(
