@@ -288,14 +288,14 @@ höchstens fünf prüfbare Drafts innerhalb des Budgets.
 
 ## Phase 10 -- Production Hardening \[P1\]
 
--   [ ] Coolify Deployment/Services prüfen
+-   [x] Coolify Deployment/Services prüfen (7 services running; webhook deploys succeed in about 4 minutes)
 -   [ ] Web/API/Worker Health und Restart
 -   [ ] Migration State und persistente Volumes
--   [ ] Off-host Backup
+-   [x] Off-host Backup
 -   [ ] `CREDENTIAL_KEY` Recovery separat absichern
--   [ ] Production Restore Drill planen/dokumentieren
+-   [x] Production Restore Drill planen/dokumentieren (`docs/BACKUP_RESTORE.md`, drill passed 2026-09-29)
 -   [ ] unabhängiges Uptime/Alerting
--   [ ] Rollback auf vorherigen SHA
+-   [x] Rollback auf vorherigen SHA (git revert drill 2026-09-29)
 -   [ ] finalen uLiquid Acceptance Run wiederholen
 
 # 7. Reihenfolge und Stop Conditions
@@ -796,6 +796,18 @@ With Mario's approval `ENABLE_POSTIZ_DRAFTS=true` was set on the production Cool
 After deploying `7685595`, and with Mario's approval, "Built for control" (v4) was handed off with its approved PNG. Postiz accepted draft `cmun4husx0001pg3it9fpagkr` on uLiquid Desk (telegram), and Mario confirmed in Postiz that the image is attached. The earlier 5xx came from the chunked multipart upload; the explicit `Content-Length` resolved it. Nothing was scheduled or published; `ENABLE_EXTERNAL_WRITES` stays `false`.
 
 `ULIQUID_POSTIZ_DRAFT_HANDOFF = ACCEPTED`. Next: Phase 10 production hardening.
+
+### 2026-09-29 23:15 CEST -- Phase 10: readiness check, backup heartbeat and rollback drill
+
+**Monitoring hooks (`fde0a7d`):** New public `GET /api/health/ready` returns only `status`, `database` and `worker` (200 when the database answers and the worker heartbeat is fresh, otherwise 503). Verified live: `{"status":"ok","database":"ok","worker":"ready"}`. The backup service calls an optional `BACKUP_HEARTBEAT_URL` after each successful run (dead man's switch; the URL is a secret and never logged). Mario already monitors the server with Better Stack; the Orbit readiness monitor and the backup heartbeat go there, because Uptime Kuma runs on the same server and cannot report a server outage.
+
+**Rollback drill (approved by Mario):** Coolify keeps no previous images for this Compose application (`Available images` is empty; the image tag is fixed), so rollback is a `git revert` on `main` deployed by the webhook. Drill: revert `e4b54d4` (code identical to `7685595`) deployed in 4m00s and `/api/health/ready` returned 404 as expected; restore `c125a27` (code identical to `fde0a7d`) deployed in 3m50s and readiness returned 200 again. No migration was involved. Downtime could not be measured from the workstation because its network was slow at the time (GitHub also took about 18 s).
+
+**Rollback runbook:** `git revert <bad-sha>` (or a range) on `main`, push, wait about 4 minutes for the webhook deploy, verify `/api/health/ready` and the changed behavior. Never force-push `main`. Schema migrations are forward-only: a release with a migration needs a forward fix or a restore from the off-host backup instead of a code revert.
+
+**Restart evidence:** After the server outage on 2026-09-29 all services came back on their own (`restart: unless-stopped`, health-gated `depends_on`).
+
+**Open:** Better Stack monitors (readiness, backup heartbeat with `BACKUP_HEARTBEAT_URL` set in Coolify), storing `CREDENTIAL_KEY` and the backup key in the password manager, the migration/volume review and the final uLiquid acceptance run.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
