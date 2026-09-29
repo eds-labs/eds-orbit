@@ -747,6 +747,14 @@ nicht überschreiben.
 
 **Open:** Mario still needs to store `~/orbit-backup.key` and the running `CREDENTIAL_KEY` in the password manager and keep an offline copy of the backup key. Independent alerting for a failed or stale backup remains Phase 10 work; the backup container's health turns unhealthy but is excluded from the Coolify health gate.
 
+### 2026-09-29 12:25 CEST -- Backup runs via Coolify Scheduled Task; failure detection fixed
+
+**Why:** Mario expected Telegram notifications from Coolify. The backup container ran its own schedule, so Coolify neither showed runs nor notified on failure.
+
+**Change:** `BACKUP_SCHEDULE=external` (new default) makes the container wait for a scheduler; a Coolify Scheduled Task runs `orbit-backup once` daily at 03:00 UTC, so runs are visible in Coolify and failures use its notification channels. `orbit-backup once` now exits 1 and records `failed` on any error.
+
+**Defect found and fixed:** Testing the failure path showed that `set -e` is ignored inside `run_once` when it is called from `||` or `until`, which both schedules do. A wrong database password therefore produced a 200-byte encrypted empty archive reported as `ok`. Every step now checks its exit status explicitly and an empty dump is rejected. Re-tested locally: success exits 0 and uploads; a failure exits 1, marks health unhealthy and uploads nothing, in external and internal mode. The production object `orbit-20260929T093308Z.dump.age` from the earlier run is valid (full restore drill passed).
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.

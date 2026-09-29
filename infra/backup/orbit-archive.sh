@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Encrypted off-host PostgreSQL backup for Orbit.
-# Daily: pg_dump (custom format) -> pg_restore -l check -> age encryption to the
+# Each run: pg_dump (custom format) -> pg_restore -l check -> age encryption to the
 # owner's public key -> upload with a SHA-256 sidecar -> size verification.
 # The age private key never exists on the server. Retention is a bucket
 # lifecycle rule, so this container needs no delete permission.
@@ -8,6 +8,9 @@ set -euo pipefail
 
 STATE_FILE=/tmp/orbit-backup-state
 : "${BACKUP_HOUR_UTC:=3}"
+# external: a scheduler such as a Coolify Scheduled Task runs "orbit-backup once"
+# and reports failures; internal: this container runs daily at BACKUP_HOUR_UTC.
+: "${BACKUP_SCHEDULE:=external}"
 : "${BACKUP_S3_PREFIX:=orbit/}"
 export HOME=/tmp RCLONE_CONFIG=/tmp/rclone.conf
 [[ -f "$RCLONE_CONFIG" ]] || : >"$RCLONE_CONFIG"
@@ -47,17 +50,20 @@ run_once() (
   umask 077
   dump="$work/orbit.dump"
   enc="$work/$name"
-  pg_dump --format=custom --file="$dump"
-  pg_restore --list "$dump" >/dev/null
-  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$enc" "$dump"
-  sha="$(sha256sum "$enc" | cut -d' ' -f1)"
-  size="$(stat -c %s "$enc")"
-  rclone copyto --retries 3 "$enc" "$(remote)$name"
-  printf '%s  %s\n' "$sha" "$name" | rclone rcat "$(remote)$name.sha256"
-  uploaded="$(rclone lsf --format s "$(remote)$name")"
+  # Explicit checks: errexit is ignored when this function runs inside "||"
+  # or "until", which is how both schedules call it.
+  pg_dump --format=custom --file="$dump" || exit 1
+  [[ -s "$dump" ]] || { log "empty dump"; exit 1; }
+  pg_restore --list "$dump" >/dev/null || exit 1
+  age --recipient "$BACKUP_AGE_RECIPIENT" --output "$enc" "$dump" || exit 1
+  sha="$(sha256sum "$enc" | cut -d' ' -f1)" || exit 1
+  size="$(stat -c %s "$enc")" || exit 1
+  rclone copyto --retries 3 "$enc" "$(remote)$name" || exit 1
+  printf '%s  %s\n' "$sha" "$name" | rclone rcat "$(remote)$name.sha256" || exit 1
+  uploaded="$(rclone lsf --format s "$(remote)$name")" || exit 1
   if [[ "$uploaded" != "$size" ]]; then
     log "upload size mismatch for $name: local=$size remote=$uploaded"
-    return 1
+    exit 1
   fi
   log "ok $name bytes=$size sha256=$sha"
   state ok "$name"
@@ -67,7 +73,7 @@ health() {
   [[ -f "$STATE_FILE" ]] || exit 1
   read -r status at _ <"$STATE_FILE"
   case "$status" in
-    not_configured | waiting) exit 0 ;;
+    not_configured | waiting | external) exit 0 ;;
     ok) (($(date -u +%s) - at < 26 * 3600)) && exit 0 || exit 1 ;;
     *) exit 1 ;;
   esac
@@ -86,12 +92,17 @@ main() {
     health) health ;;
     once)
       configured || { log "not configured"; exit 2; }
-      run_once
+      run_once || { log "failed"; state failed; exit 1; }
       ;;
     loop)
       if ! configured; then
         log "not configured; set BACKUP_AGE_RECIPIENT and the BACKUP_S3_* variables"
         state not_configured
+        exec sleep infinity
+      fi
+      if [[ "$BACKUP_SCHEDULE" == "external" ]]; then
+        log "waiting for an external scheduler to run: orbit-backup once"
+        [[ -f "$STATE_FILE" ]] || state external
         exec sleep infinity
       fi
       if [[ "${BACKUP_RUN_ON_START:-false}" == "true" ]]; then
