@@ -289,14 +289,14 @@ höchstens fünf prüfbare Drafts innerhalb des Budgets.
 ## Phase 10 -- Production Hardening \[P1\]
 
 -   [x] Coolify Deployment/Services prüfen (7 services running; webhook deploys succeed in about 4 minutes)
--   [ ] Web/API/Worker Health und Restart
--   [ ] Migration State und persistente Volumes
+-   [x] Web/API/Worker Health und Restart (`/api/health/ready`; services recovered after the 2026-09-29 outage)
+-   [x] Migration State und persistente Volumes
 -   [x] Off-host Backup
 -   [ ] `CREDENTIAL_KEY` Recovery separat absichern
 -   [x] Production Restore Drill planen/dokumentieren (`docs/BACKUP_RESTORE.md`, drill passed 2026-09-29)
 -   [ ] unabhängiges Uptime/Alerting
 -   [x] Rollback auf vorherigen SHA (git revert drill 2026-09-29)
--   [ ] finalen uLiquid Acceptance Run wiederholen
+-   [x] finalen uLiquid Acceptance Run wiederholen (passed 2026-09-30 on `5587da6`)
 
 # 7. Reihenfolge und Stop Conditions
 
@@ -816,6 +816,20 @@ After deploying `7685595`, and with Mario's approval, "Built for control" (v4) w
 **Final acceptance run (Phase 10 approved by Mario):** The accepted Phase 6 Chat request (period 2026-09-30T09:00Z to 2026-10-01T09:00Z) produced proposal `68a73ad7-93c5-4207-9ce1-1bbb79eeeab7` ($0.12 ceiling). Confirmation created Mission `afd410ac-a03f-4be7-b377-8cd89c9b6a1b`; the owner live-draft-once action ran Job `5df62fca-6706-426e-83e2-aa8f778a0586` once (`succeeded`, 1/1, no second job). Content `3521e259-2603-401f-be7f-58de5451fb81` ("Your Decisions. Your Control.", `gpt-5.6-terra`, 6,026 USD micros, approved logo, official target). Automatic review: `CLAIM_NOT_IN_CONTENT` and `HUMAN_CONTENT_REVIEW_REQUIRED`. The ledger quoted the `product.user_control` fact verbatim, but the body paraphrased it ("you stay in charge of your exchange accounts, wallets, and trading decisions"). The review blocked correctly; no retry, 0 publications, no Postiz or Drive call.
 
 **Change:** The model now writes each fact claim as `{{fact:<factId>}}` in body and ledger; generation replaces it with the exact verified value from the draft's own evidence pack before the Content is stored, so a fact can no longer be paraphrased. Unknown placeholders stay visible and claim review reports `FACT_PLACEHOLDER_UNRESOLVED`. Tests: resolver unit tests and an integration test through `generateMissionLive` that fails without the change; full suite 383/383, lint, web typecheck. A new paid acceptance run needs Mario's go.
+
+### 2026-09-30 11:10 CEST -- Final uLiquid acceptance run passed on `5587da6`
+
+**Release:** `5587da6` deployed via webhook (Coolify: Success); `/api/health/ready` returned 200.
+
+**Run (approved by Mario):** The same Chat request (period 2026-09-30T10:00Z to 2026-10-01T10:00Z) produced proposal `36e41a0d-459f-4aed-ade7-58f622315666` ($0.12 ceiling). Confirmation created Mission `1497ca06-a47f-40f2-b133-69b58aa59d52` with `factKeys: ["url.beta_registration","product.user_control"]`. The owner live-draft-once action ran Job `dd392a92-bddd-407e-b7a0-63c2567ad645` once: `succeeded`, 1/1 attempt, no second job; Mission `completed`.
+
+**Draft and review:** Content `322b16ab-6fa6-4379-871e-463e968dcd83` ("Control, on your terms", `gpt-5.6-terra`, 7,650 USD micros, approved logo, target `https://desk.uliquid.vip/en/register`). The body contains the `product.user_control` value exactly as inserted by Orbit from the placeholder, followed by `Explore the beta`; the ledger has one fact claim with Fact `53684847-55b5-4976-a19f-14d50d270a01` and the CTA as `style`. Automatic review v2: `reviewed`, `valid=true`, `problems=[]`, without owner edits or human confirmation (no copy outside the claim ledger).
+
+**Export and effects:** Export HTTP 200, `export_ready`, files `assets/creative.png`, `article.md`, `metadata.json`, `preview.html`, contentHash `39349eda47c97df97981674033c28e60334f602cacdd173dbf8425dac1218d2c`. 0 publications, no schedule, no Drive or Postiz call. Total: one Chat run plus 7,650 micros.
+
+**Decision:** The final acceptance run passed on the exact deployed commit. Phase 10 is complete except for the owner tasks below.
+
+**Owner tasks (not code):** Better Stack readiness monitor and backup heartbeat (`BACKUP_HEARTBEAT_URL` as a Coolify secret), `CREDENTIAL_KEY` and the backup age key in the password manager.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
