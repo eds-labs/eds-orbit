@@ -322,7 +322,7 @@ git commit -m "feat: settle OpenAI cache writes and cached reads with rate card 
 
 **Files:**
 - Create: `packages/db/prisma/migrations/202609300001_agent_telemetry/migration.sql`
-- Modify: `packages/db/prisma/schema.prisma`, `scripts/db-deploy.ts:144-160`
+- Modify: `packages/db/prisma/schema.prisma`, `scripts/db-deploy.ts` (lines 144-160)
 
 **Interfaces:**
 - Produces Prisma models `AgentRun`, `AgentSpan` and `BudgetReservation` fields `agentRunId`, `taskClass`, `model`, `missionId` used by Tasks 3–6.

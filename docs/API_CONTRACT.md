@@ -23,6 +23,9 @@ Same-origin `/api` proxy. Session via Better Auth. Every modifying request requi
 - GET .../knowledge-health -> conflicts,expiredFacts,failedImports,staleSources,missingEvidence,impacts (real data).
 - POST .../actions/connector `{provider:'postiz'|'matomo'|'slack',baseUrl?,credential,siteId?,channelId?}` owner; encrypted server-side. GET connectors never returns credential. POST .../actions/connector-health `{connectorId}` owner triggers read-only capability check.
 
+- GET /api/projects/:projectId/agent-runs?cursor&kind editor/owner -> `{runs:[{id,kind,agentName,taskClass,subjectType,subjectId,missionId,status,errorCode,startedAt,durationMs,modelCalls,toolCalls,inputTokens,cachedTokens,cacheWriteTokens,outputTokens,reasoningTokens,costMicros}],nextCursor}`. Newest first, 50 per page; `cursor` is the last run ID of the previous page (`INVALID_CURSOR` if unknown in the project); `kind` is `chat|generation|retrieval|ingestion|reindex|evaluation|image`. Token sums and `costMicros` (string) aggregate the run's spans; no prompts, outputs or provider text are returned.
+- GET /api/projects/:projectId/ai-cost?from&to&groupBy editor/owner -> `{from,to,groupBy,rows:[{key,reservedMicros,settledMicros,unknownMicros,count}]}`. `from`/`to` are ISO datetimes (default: start of current UTC month to now); `groupBy` is `day` (UTC date, default), `category`, `model`, `taskClass` or `mission`. Amounts are USD micros as strings; released reservations are excluded; `key` is `null` for unattributed rows. Errors: `INVALID_RANGE` (to not after from), `RANGE_TOO_LARGE` (over 93 days).
+
 Errors `{error:{code,message}}`, no stack, provider text, source snippets or SQL. Specific shapes are validated server-side and generated OpenAPI supplements this contract.
 
 

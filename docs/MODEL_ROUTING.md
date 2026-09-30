@@ -22,4 +22,21 @@ Paid mocks exercise accounting, race handling and SQL attachment only. Genuine m
 
 Image prompts, palette values and design rules also leave the host after the per-request confirmation. The image endpoint does not claim zero retention. Do not place secrets, personal data, private customer material or unapproved source assets in an image prompt.
 
+## Rate card v2 and cache-aware settlement (2026-09-30)
+
+Each rate card entry has `inputMicrosPerMillion`, `outputMicrosPerMillion`, `verifiedAt` and two optional fields: `cachedInputMicrosPerMillion` (default: the input rate, so an omitted value never understates a cached read) and `cacheWriteMicrosPerMillion` (default: `ceil(1.25 x input rate)`, the documented cache-write multiplier). Existing cards stay valid without changes.
+
+Settlement from the provider usage object, in USD micros, rounded up with a minimum of 1:
+
+```
+(ordinary x input + cached x cachedInput + cacheWrite x cacheWriteRate + output x outputRate) / 1,000,000
+ordinary = input_tokens - cached_tokens - cache_write_tokens
+```
+
+Reasoning tokens are part of output tokens and are not charged twice. If the usage object lacks `cached_tokens` or `cache_write_tokens`, the split is unknown and all input tokens settle at `max(input rate, cache-write rate)` rather than being assumed cheap. Cached plus cache-write tokens greater than input tokens, or an unparseable usage object, fail with `USAGE_INCONSISTENT` or `USAGE_UNKNOWN`; the reservation then stays unknown and counted. An empty rate card fails with `VERIFIED_PRICE_CONFIGURATION_REQUIRED`; a missing model price or one verified more than 31 days ago fails with `CURRENT_PRICE_REQUIRED`.
+
+The pre-transmission estimate cannot know the cache split, so it charges all input tokens at the cache-write rate (implicit caching may write any prompt). Reservation ceilings therefore rise by up to about 25 % of their input part compared with the earlier estimate; output-dominated calls change less. Chat proposal ceilings shown to the owner include this increase. Settled cost is what the usage actually incurred and is normally lower than the reservation; the difference is released on settlement.
+
+Every paid reservation now also records `agentRunId`, `taskClass`, `model` and `missionId` (nullable) for attribution. A query embedding made while drafting keeps the draft task class, so a task class reports the full cost of producing a draft; the `category` still separates query-embedding from text rows. Read the breakdown through `GET /api/projects/:projectId/ai-cost` (see `API_CONTRACT.md` and `OPERATIONS.md`).
+
 Official references checked on 2026-09-19: [GPT Image 2.5 Flare](https://developers.openai.com/api/docs/models/gpt-image-2.5-flare), [GPT Image 2.5 Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst), and [Images API generate](https://developers.openai.com/api/reference/cli/resources/images/methods/generate).

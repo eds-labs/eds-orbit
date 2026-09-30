@@ -677,3 +677,15 @@ These decisions do not authorize production deployments, production migrations, 
 - Verification on Node 24.18.0: lint, typecheck, build, framework check, secret scan and high-severity audit pass; 382/383 tests pass. The failing real-Redis worker lifecycle test also fails on the pre-upgrade commit `9e62a0b`; the local test database holds about 2,467 accumulated projects and the pump iterates all projects per tick. Tracked as a separate follow-up.
 
 Next: Phase 1 (observability and cost foundation). It needs an additive schema migration, local only until a separate production release approval.
+
+### 2026-09-30 — Phase 1 complete (local, no production change)
+
+- Cost model v2 (`packages/ai/src/cost.ts`): optional `cachedInputMicrosPerMillion` (default input rate) and `cacheWriteMicrosPerMillion` (default `ceil(1.25 x input)`); settlement splits ordinary, cached, cache-write and output tokens; usage without cache details settles all input at the higher of the input and cache-write rate. Estimates charge all input at the cache-write rate, so chat proposal ceilings rise by up to about 25 % of the input part. Existing price error codes are unchanged. See [ADR 0003](adr/0003-cost-accounting.md) addendum and `MODEL_ROUTING.md`.
+- Migration `202609300001_agent_telemetry` (additive, forced RLS): `AgentRun`, `AgentSpan`, and nullable `BudgetReservation.agentRunId/taskClass/model/missionId`.
+- Non-throwing telemetry recorder (`apps/api/src/modules/telemetry.ts`) storing only codes, hashes, counts and IDs. Instrumented: chat (run per chat run, model and tool spans, crash recovery closes the run as blocked/`CHAT_OUTCOME_UNKNOWN`), generation, retrieval, ingestion, reindex, index evaluation and images. Query embeddings made during generation carry the draft task class; a successful image call records cost null, the reservation stays unknown.
+- Editor/owner endpoints `GET /api/projects/:projectId/agent-runs` and `GET /api/projects/:projectId/ai-cost` (groupBy day, category, model, taskClass, mission; default current UTC month, at most 93 days). See `API_CONTRACT.md`.
+- API logging: pino request/response lines with random request IDs, no query strings, bodies or secrets (auth/cookie headers redacted), failure lines `{code,status}` without message or stack, health probes at warn, `LOG_LEVEL`. Worker logging is unchanged and remains for a later step.
+- Verification on Node 24.18.0: lint, typecheck, build and secret scan pass; 429/430 tests pass. The one failure is the known real-Redis worker lifecycle test (`apps/worker/tests/workflow.integration.test.ts`, timeout with the large local test database), unchanged from Phase 0 (382/383, +47 tests). `framework:check` passes once line-range suffixes in backticked paths are avoided in the Phase 1 plan files.
+
+Next: Phase 2. The telemetry migration is local only until a separate production release approval.
+
