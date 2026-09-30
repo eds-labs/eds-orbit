@@ -10,7 +10,7 @@ stack:
   preset: web-next-custom-postgres
   language: TypeScript
   runtime: Node.js 24.18.0
-  frontend: Next.js 16.3.5 App Router + Tailwind CSS 4
+  frontend: Next.js 16.3.6 App Router + Tailwind CSS 4
   backend: Fastify 5.12.5
   database: PostgreSQL 17 + pgvector 0.8.6
   orm: Prisma 7.10.0 with PostgreSQL driver adapter and parameterized vector SQL
