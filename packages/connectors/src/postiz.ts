@@ -145,6 +145,13 @@ function jsonBody(value: unknown): RequestInit {
 }
 
 /** Accept a host, legacy /public/v1, or canonical /api/public/v1 without duplicating the API prefix. */
+/** Provider settings Postiz validates per post; X rejects a post without a reply audience. */
+export function postizProviderSettings(identifier: string) {
+  return identifier === "x"
+    ? { __type: identifier, who_can_reply_post: "everyone" }
+    : { __type: identifier };
+}
+
 export function normalizePostizBaseUrl(input: string): string {
   let url: URL;
   try {

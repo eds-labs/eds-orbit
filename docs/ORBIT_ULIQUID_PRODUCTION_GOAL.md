@@ -831,6 +831,34 @@ After deploying `7685595`, and with Mario's approval, "Built for control" (v4) w
 
 **Owner tasks (not code):** Better Stack readiness monitor and backup heartbeat (`BACKUP_HEARTBEAT_URL` as a Coolify secret), `CREDENTIAL_KEY` and the backup age key in the password manager.
 
+### 2026-09-30 13:30 CEST -- First weekly X and Telegram series; X draft settings and X Premium long posts
+
+**Request (Mario):** one X and one Telegram post per day from Wednesday 2026-09-30 to Sunday 2026-10-04, then Postiz drafts. Mario approved a new policy version that adds the assigned X account `cmufswv260001pg89nlreglzx` (policy `04f9ae71-6845-4120-859b-d6b24dea9150`; channels, types, origins, budgets and `observe` otherwise unchanged) and both paid batches.
+
+**Result:** Telegram Mission `cd66f25a-8918-4856-9eb6-6adab12eae51`: 5/5 drafts. X Mission `5d72e0b9-fad0-4df7-9bab-92a32eec79da`: 4/5; run 5 ended `MODEL_OUTCOME_OR_COST_UNKNOWN` with no Content, its reservation is held and a resume is refused (`RESERVATION_ALREADY_USED`), so the missing post needs a new single Mission. All fact claims were verbatim; Mario reviewed and approved the extra copy, all nine are `reviewed`. The five Telegram drafts were handed off to Postiz and accepted. The first X handoff was cleanly rejected (HTTP 400, `create_post`): Postiz requires `settings.who_can_reply_post` for X.
+
+**Change:** `postizProviderSettings()` adds `who_can_reply_post: "everyone"` for X in draft handoff, live publishing and verification. New per-account option `xLongPostIntegrationIds` on the Postiz channel assignment (UI toggle "X Premium: lange Posts") raises the X limit from 280 to 25,000 characters; it is accepted only for assigned X accounts and dropped when an account is unassigned. Tests: settings unit test, assignment validation and X generation-contract limits; full suite 387/387. After deploying `226dccf`, the four X drafts were accepted by Postiz. The missing Sunday X post came from a new single Mission `91332159-6c2d-4d43-ac3a-3e5179fdaa32` (`product.description` verbatim plus CTA, 7,610 USD micros), automatic review passed without problems and Postiz accepted it. All ten posts for 2026-09-30 to 2026-10-04 are Postiz drafts; nothing was scheduled or published. The X long-post option stays off until Mario confirms which X account has Premium.
+
+### 2026-09-30 18:30 CEST -- Phase 11 (autopilot with one-click approval): built, go-live pending owner switch
+
+**Mario's decisions:** autopilot with one-click weekly approval; both public write-verification test posts (Telegram uLiquid Desk, X uLiquid) approved; daily slots Telegram 10:00, X 17:00 (Europe/Berlin); X Premium enabled for uLiquid; same facts may repeat on a channel after 7 days; new facts to come from the uLiquid website.
+
+**Built and deployed:**
+- `206a4a1` per-account daily posting times on the Postiz assignment; run n of a mission gets day n at that time; Postiz drafts use the post's own slot; X Premium limit 4,000 (Postiz's limit).
+- `ce9f009` archive/restore missions (owner; archived missions leave the sweep) and chats (per user, no deletion); missions paged by 20; chat history loads older pages; calendar shows planned slots and Postiz handoff dates with channel names and an "In Postiz" badge.
+- `e0bb3a8` live publishing uploads approved PNGs from Google Drive (checksum-bound), like the draft handoff.
+- `dfa52b8` weekly autopilot: owner configuration (channels, rotating facts, image, weekly plan moment); in autopilot mode the sweep plans one single-run mission per channel and day at its slot (idempotent `autopilotSlot`); fact-only drafts publish after automatic review, drafts with marketing copy appear under Approvals with "approve & schedule" / "approve all"; claim-overlap blocking limited to 7 days; settings split into tabs.
+- `51858e4` autopilot start date.
+
+The ten drafts of 2026-09-30 to 2026-10-04 were moved in Postiz to their days (Telegram 10:00, X 17:00; both Wednesday posts at 17:00). They are still Postiz drafts. The unfinished X batch Mission `5d72e0b9-fad0-4df7-9bab-92a32eec79da` was archived so live mode cannot restart it; no other mission, job or publication was open.
+
+**Go-live steps (in order):**
+1. Mario sets `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true` (Production) in Coolify and redeploys. The automated change was refused by the session's permission guard.
+2. Write verification with the logo for Telegram and X (one public test post each, deleted afterwards by Mario).
+3. New policy version: mode `autopilot`, `maxPerDay` 1, `minIntervalMinutes` 60, other limits unchanged.
+4. Configure the autopilot: both channels, the five product facts, logo, plan Sunday 12:00, start date 2026-10-05.
+5. Sunday 12:00: first weekly plan, 14 drafts, approvals in Orbit.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.

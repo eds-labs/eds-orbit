@@ -9,6 +9,7 @@ import {
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, update } from "../../api/src/shared.ts";
 import { nextSweepAt } from "../../api/src/modules/lifecycle.ts";
+import { nextMatomoRunAt } from "../../api/src/modules/matomo-schedule.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
@@ -165,5 +166,26 @@ describe.skipIf(!enabled)("Project work-due marker", () => {
       data: { paused: true },
     });
     expect(await run((tx) => nextSweepAt(tx, other, at), other)).toBeNull();
+  });
+  it("autopilot plan checks and saved Matomo imports report their next run", async () => {
+    const at = new Date();
+    const checked = new Date(at.valueOf() - 4 * 60_000),
+      imported = new Date(at.valueOf() - 11 * 3600_000);
+    await run(async (tx) => {
+      await create(tx, scope, "autopilot_settings", {
+        enabled: true,
+        lastPlanCheckAt: checked.toISOString(),
+      });
+      await create(tx, scope, "matomo_schedules", {
+        enabled: true,
+        lastRunAt: imported.toISOString(),
+      });
+    });
+    expect((await run((tx) => nextSweepAt(tx, scope, at)))?.valueOf()).toBe(
+      checked.valueOf() + 10 * 60_000,
+    );
+    expect((await run((tx) => nextMatomoRunAt(tx, scope)))?.valueOf()).toBe(
+      imported.valueOf() + 12 * 3600_000,
+    );
   });
 });

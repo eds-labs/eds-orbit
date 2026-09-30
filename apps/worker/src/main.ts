@@ -1,4 +1,8 @@
 import {
+  runScheduledMatomo,
+  nextMatomoRunAt,
+} from "../../api/src/modules/matomo-schedule.ts";
+import {
   saveGeneratedAsset,
   markSyncFailed,
   connectionStatus,
@@ -336,7 +340,11 @@ async function processProject(p: DueProject) {
     p.id,
     async (tx) => {
       await sweepProject(tx, scope);
-      const candidates: (Date | null)[] = [await nextSweepAt(tx, scope)];
+      const candidates: (Date | null)[] = [
+        await nextSweepAt(tx, scope),
+        // Not gated by pause, matching runScheduledMatomo.
+        await nextMatomoRunAt(tx, scope),
+      ];
       // Crash recovery preserves the intent and never retries an ambiguous external write.
       const running = await tx.entity.findMany({
         where: {
@@ -440,6 +448,8 @@ async function processProject(p: DueProject) {
       }),
     );
   }
+  // Saved Matomo imports run at most twice a day per project.
+  await runScheduledMatomo(scope).catch(() => {});
   let drive = driveRetryChecks.get(p.id);
   if (!drive || Date.now() - drive.at > DRIVE_CHECK_MS) {
     // Gate the check itself, not only enabled projects, so disabled Drive costs no transaction per tick.

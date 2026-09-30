@@ -1,3 +1,4 @@
+import { exportAssetContent } from "./content-export.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
@@ -10,6 +11,7 @@ import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import {
   createPostizClient,
   ConnectorError,
+  postizProviderSettings,
   type FetchLike,
 } from "../../../../packages/connectors/src/index.ts";
 import {
@@ -97,10 +99,17 @@ async function approvedAsset(
   if (
     a.mime !== "image/png" ||
     a.usageApproved !== true ||
-    typeof a.base64 !== "string"
+    (typeof a.base64 !== "string" && !a.driveFileId)
   )
     throw new DomainError("POSTIZ_TEST_ASSET_NOT_APPROVED", 409);
-  const bytes = Buffer.from(a.base64, "base64");
+  // Drive-only assets are read checksum-bound, like live publishing.
+  const file =
+    typeof a.base64 === "string" ? null : await exportAssetContent(s, a);
+  if (typeof a.base64 !== "string" && !file)
+    throw new DomainError("POSTIZ_TEST_ASSET_NOT_APPROVED", 409);
+  const bytes = file
+    ? Buffer.from(file.bytes)
+    : Buffer.from(a.base64, "base64");
   if (
     bytes.length < 24 ||
     bytes.length > 20 * 1024 * 1024 ||
@@ -297,7 +306,7 @@ export async function executePostizVerification(
         {
           integration: { id: p.integrationId },
           value: [{ content: p.body, image: images }],
-          settings: { __type: p.integrationIdentifier },
+          settings: postizProviderSettings(p.integrationIdentifier),
         },
       ],
     });

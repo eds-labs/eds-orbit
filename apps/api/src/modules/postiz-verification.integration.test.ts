@@ -195,6 +195,72 @@ describe.skipIf(!enabled)(
         run((tx) => assertAssignedSocialChannels(tx, scope, ["account-other"])),
       ).rejects.toThrow("POSTIZ_CHANNEL_NOT_ASSIGNED");
     });
+    it("stores X long posts only for assigned X accounts", async () => {
+      const row = await run(async (tx) => {
+        const current = await entity(tx, scope, "connectors", connectorId);
+        return update(tx, scope, current, {
+          ...data(current),
+          channels: [
+            {
+              id: "account-one",
+              identifier: "linkedin",
+              name: "L",
+              disabled: false,
+            },
+            { id: "account-x", identifier: "x", name: "X", disabled: false },
+          ],
+        });
+      });
+      await expect(
+        run((tx) =>
+          assignPostizChannels(tx, scope, {
+            connectorId,
+            version: row.version,
+            integrationIds: ["account-one", "account-x"],
+            xLongPostIntegrationIds: ["account-one"],
+          }),
+        ),
+      ).rejects.toThrow("X_LONG_POSTS_REQUIRE_ASSIGNED_X_ACCOUNT");
+      const saved = await run((tx) =>
+        assignPostizChannels(tx, scope, {
+          connectorId,
+          version: row.version,
+          integrationIds: ["account-one", "account-x"],
+          xLongPostIntegrationIds: ["account-x"],
+        }),
+      );
+      expect(data(saved).xLongPostIntegrationIds).toEqual(["account-x"]);
+      const timed = await run((tx) =>
+        assignPostizChannels(tx, scope, {
+          connectorId,
+          version: saved.version,
+          integrationIds: ["account-one", "account-x"],
+          postingTimes: { "account-x": "17:00" },
+        }),
+      );
+      expect(data(timed).postingTimes).toEqual({ "account-x": "17:00" });
+      expect(data(timed).xLongPostIntegrationIds).toEqual(["account-x"]);
+      await expect(
+        run((tx) =>
+          assignPostizChannels(tx, scope, {
+            connectorId,
+            version: timed.version,
+            integrationIds: ["account-one"],
+            postingTimes: { "account-x": "17:00" },
+          }),
+        ),
+      ).rejects.toThrow("POSTING_TIME_REQUIRES_ASSIGNED_ACCOUNT");
+      // Unassigning the account also drops its long-post option.
+      const unassigned = await run((tx) =>
+        assignPostizChannels(tx, scope, {
+          connectorId,
+          version: timed.version,
+          integrationIds: ["account-one"],
+          postingTimes: {},
+        }),
+      );
+      expect(data(unassigned).xLongPostIntegrationIds).toEqual([]);
+    });
     it("prepares an exact fixed package without transmission and fails closed for default gates", async () => {
       const a = await prepare(),
         b = await prepare();

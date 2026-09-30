@@ -27,6 +27,8 @@ export const collections = [
   "community_questions",
   "community_groups",
   "postiz_drafts",
+  "autopilot_settings",
+  "matomo_schedules",
 ] as const;
 export const collection = z.enum(collections);
 export const source = z

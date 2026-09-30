@@ -2,14 +2,45 @@ import { z } from "zod";
 import { authDb, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity, list, update } from "../shared.ts";
+import { POSTING_TIME } from "./posting-slots.ts";
 
 export const postizAssignmentInput = z
   .object({
     connectorId: z.uuid(),
     version: z.number().int().positive(),
     integrationIds: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,200}$/)).max(20),
+    // Assigned X accounts with X Premium, which allows long posts.
+    xLongPostIntegrationIds: z
+      .array(z.string().regex(/^[A-Za-z0-9_-]{1,200}$/))
+      .max(20)
+      .optional(),
+    // Fixed local daily posting time per assigned account, e.g. "10:00".
+    postingTimes: z
+      .record(
+        z.string().regex(/^[A-Za-z0-9_-]{1,200}$/),
+        z.string().regex(POSTING_TIME),
+      )
+      .optional(),
   })
   .strict();
+
+export function postingTimeFor(
+  connector: Record<string, any>,
+  integrationId: string,
+): string | null {
+  const value = connector.postingTimes?.[integrationId];
+  return typeof value === "string" && POSTING_TIME.test(value) ? value : null;
+}
+
+export function hasXLongPosts(
+  connector: Record<string, any>,
+  integrationId: string,
+) {
+  return (
+    Array.isArray(connector.xLongPostIntegrationIds) &&
+    connector.xLongPostIntegrationIds.includes(integrationId)
+  );
+}
 
 export function assignedPostizChannels(connector: Record<string, any>) {
   const assigned = Array.isArray(connector.assignedIntegrationIds)
@@ -96,12 +127,47 @@ export async function assignPostizChannels(
   )
     throw new DomainError("POSTIZ_ACCOUNT_UNAVAILABLE", 409);
   const integrationIds = [...input.integrationIds].sort();
+  const xAccounts = new Set(
+    (Array.isArray(connector.channels) ? connector.channels : [])
+      .filter((channel: any) => channel?.identifier === "x")
+      .map((channel: any) => channel.id),
+  );
+  const requestedLong =
+    input.xLongPostIntegrationIds ??
+    (Array.isArray(connector.xLongPostIntegrationIds)
+      ? connector.xLongPostIntegrationIds.filter((id: string) =>
+          integrationIds.includes(id),
+        )
+      : []);
+  if (
+    requestedLong.some(
+      (id: string) => !xAccounts.has(id) || !integrationIds.includes(id),
+    )
+  )
+    throw new DomainError("X_LONG_POSTS_REQUIRE_ASSIGNED_X_ACCOUNT", 409);
+  const xLongPostIntegrationIds = [...new Set<string>(requestedLong)].sort();
+  const requestedTimes =
+    input.postingTimes ??
+    (connector.postingTimes && typeof connector.postingTimes === "object"
+      ? connector.postingTimes
+      : {});
+  if (Object.keys(requestedTimes).some((id) => !integrationIds.includes(id)))
+    throw new DomainError("POSTING_TIME_REQUIRES_ASSIGNED_ACCOUNT", 409);
+  const postingTimes = Object.fromEntries(
+    Object.entries(requestedTimes)
+      .filter(([, time]) => POSTING_TIME.test(String(time)))
+      .sort(([a], [b]) => a.localeCompare(b)),
+  );
   const updated = await update(tx, scope, row, {
     ...connector,
     assignedIntegrationIds: integrationIds,
+    xLongPostIntegrationIds,
+    postingTimes,
   });
   await audit(tx, scope, "postiz.channels_assigned", row.id, {
     integrationIds,
+    xLongPostIntegrationIds,
+    postingTimes,
   });
   return updated;
 }

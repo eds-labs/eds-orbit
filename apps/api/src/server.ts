@@ -1,3 +1,6 @@
+import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
+import { approveAndSchedule, configureAutopilot } from "./modules/autopilot.ts";
+import { archiveMission } from "./modules/mission-archive.ts";
 import {
   proposeBrief,
   briefProposalInput,
@@ -37,6 +40,7 @@ import { runtimeHealth, closeRuntime } from "./modules/runtime.ts";
 import {
   createConversation,
   listConversations,
+  archiveConversation,
   getConversation,
   sendMessage,
   getRun,
@@ -926,8 +930,20 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       .uuid()
       .optional()
       .parse((req.query as any)?.cursor);
-    return listConversations(scope, cursor);
+    return listConversations(
+      scope,
+      cursor,
+      (req.query as any)?.archived === "true",
+    );
   });
+  app.post(
+    "/api/projects/:projectId/chat/conversations/:id/archive",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId);
+      return archiveConversation(scope, z.uuid().parse(id), req.body);
+    },
+  );
   app.post(
     "/api/projects/:projectId/chat/conversations",
     async (req, reply) => {
@@ -1144,6 +1160,10 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       "postiz-test-execute",
       "postiz-draft-handoff",
       "postiz-draft-resolve",
+      "archive-mission",
+      "configure-autopilot",
+      "configure-matomo-schedule",
+      "approve-and-schedule",
       "postiz-test-reconcile",
       "calendar-block",
       "calendar-unblock",
@@ -1754,6 +1774,13 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
           "reconcile-manual:" + pub.id + ":" + pub.version,
         );
       }
+      if (action === "configure-matomo-schedule")
+        return configureMatomoSchedule(tx, scope, input);
+      if (action === "configure-autopilot")
+        return configureAutopilot(tx, scope, input);
+      if (action === "approve-and-schedule")
+        return approveAndSchedule(tx, scope, input);
+      if (action === "archive-mission") return archiveMission(tx, scope, input);
       if (action === "run-mission")
         return planMission(tx, scope, schemas.id.parse(input.missionId));
       if (action === "start-approved-live-draft-once") {
