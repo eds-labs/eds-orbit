@@ -8,8 +8,23 @@ export const postizAssignmentInput = z
     connectorId: z.uuid(),
     version: z.number().int().positive(),
     integrationIds: z.array(z.string().regex(/^[A-Za-z0-9_-]{1,200}$/)).max(20),
+    // Assigned X accounts with X Premium, which allows long posts.
+    xLongPostIntegrationIds: z
+      .array(z.string().regex(/^[A-Za-z0-9_-]{1,200}$/))
+      .max(20)
+      .optional(),
   })
   .strict();
+
+export function hasXLongPosts(
+  connector: Record<string, any>,
+  integrationId: string,
+) {
+  return (
+    Array.isArray(connector.xLongPostIntegrationIds) &&
+    connector.xLongPostIntegrationIds.includes(integrationId)
+  );
+}
 
 export function assignedPostizChannels(connector: Record<string, any>) {
   const assigned = Array.isArray(connector.assignedIntegrationIds)
@@ -96,12 +111,33 @@ export async function assignPostizChannels(
   )
     throw new DomainError("POSTIZ_ACCOUNT_UNAVAILABLE", 409);
   const integrationIds = [...input.integrationIds].sort();
+  const xAccounts = new Set(
+    (Array.isArray(connector.channels) ? connector.channels : [])
+      .filter((channel: any) => channel?.identifier === "x")
+      .map((channel: any) => channel.id),
+  );
+  const requestedLong =
+    input.xLongPostIntegrationIds ??
+    (Array.isArray(connector.xLongPostIntegrationIds)
+      ? connector.xLongPostIntegrationIds.filter((id: string) =>
+          integrationIds.includes(id),
+        )
+      : []);
+  if (
+    requestedLong.some(
+      (id: string) => !xAccounts.has(id) || !integrationIds.includes(id),
+    )
+  )
+    throw new DomainError("X_LONG_POSTS_REQUIRE_ASSIGNED_X_ACCOUNT", 409);
+  const xLongPostIntegrationIds = [...new Set<string>(requestedLong)].sort();
   const updated = await update(tx, scope, row, {
     ...connector,
     assignedIntegrationIds: integrationIds,
+    xLongPostIntegrationIds,
   });
   await audit(tx, scope, "postiz.channels_assigned", row.id, {
     integrationIds,
+    xLongPostIntegrationIds,
   });
   return updated;
 }

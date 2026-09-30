@@ -4,6 +4,7 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   ConnectorError,
   createPostizClient,
+  postizProviderSettings,
 } from "../../../../packages/connectors/src/index.ts";
 import {
   audit,
@@ -66,7 +67,7 @@ export function postizDraftPayload(p: DraftPayload) {
       {
         integration: { id: p.integrationId },
         value: [{ content: p.text, image: p.images }],
-        settings: { __type: p.identifier },
+        settings: postizProviderSettings(p.identifier),
       },
     ],
   };

@@ -3,6 +3,7 @@ import { createHmac } from "node:crypto";
 import {
   createPostizClient,
   normalizePostizBaseUrl,
+  postizProviderSettings,
   createMatomoClient,
   verifySlackInteraction,
   verifySlackRequest,
@@ -298,6 +299,16 @@ describe("Postiz documented contract", () => {
     expect(error.detail).toMatch(/^Storage failed b \[redacted\]/);
     expect(error.detail).not.toContain("abc123");
     expect(error.detail.length).toBeLessThanOrEqual(200);
+  });
+});
+
+describe("Postiz provider settings", () => {
+  it("adds the reply audience X requires and nothing for other providers", () => {
+    expect(postizProviderSettings("x")).toEqual({
+      __type: "x",
+      who_can_reply_post: "everyone",
+    });
+    expect(postizProviderSettings("telegram")).toEqual({ __type: "telegram" });
   });
 });
 

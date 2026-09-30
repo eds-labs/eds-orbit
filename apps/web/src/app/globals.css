@@ -3047,6 +3047,14 @@ body:has(dialog[open]) {
   gap: 8px;
   overflow-wrap: anywhere;
 }
+.postiz-assignment-channel {
+  display: grid;
+  gap: 4px;
+}
+.postiz-assignment-option {
+  margin-left: 26px;
+  font-size: 13px;
+}
 .chat-compose-actions {
   justify-content: flex-end;
 }

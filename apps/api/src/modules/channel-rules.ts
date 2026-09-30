@@ -1,7 +1,7 @@
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, list } from "../shared.ts";
-import { assignedPostizChannels } from "./postiz-assignment.ts";
+import { assignedPostizChannels, hasXLongPosts } from "./postiz-assignment.ts";
 
 type CountingMethod = "conservative_x_weighted" | "utf16_units";
 export type ChannelRules = {
@@ -54,7 +54,8 @@ export async function resolveChannelRules(
     case "x":
       return {
         ...common,
-        characterLimit: 280,
+        // X Premium accounts may post up to 25,000 characters.
+        characterLimit: hasXLongPosts(data(row), channel.id) ? 25_000 : 280,
         countingMethod: "conservative_x_weighted",
         liveCapabilityKnown: true,
       };

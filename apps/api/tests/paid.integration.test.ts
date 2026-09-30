@@ -1025,6 +1025,32 @@ describe.skipIf(!enabled)(
         });
       },
     );
+    it.each([
+      [false, 280],
+      [true, 25_000],
+    ] as const)(
+      "x generation contract with long posts %s uses limit %s",
+      async (longPosts, limit) => {
+        await setCampaign("product");
+        await run(async (tx) => {
+          const connector = await tx.entity.findFirstOrThrow({
+            where: { projectId: s.projectId, kind: "connectors" },
+          });
+          await update(tx, s, connector, {
+            ...data(connector),
+            channels: [{ id: "test", name: "Assigned", identifier: "x" }],
+            xLongPostIntegrationIds: longPosts ? ["test"] : [],
+          });
+        });
+        await generateMissionLive(s, missionId, randomUUID());
+        const goal = JSON.parse(provider.generate.mock.calls[0]![0].goal);
+        expect(goal.channelConstraints).toMatchObject({
+          providerIdentifier: "x",
+          characterLimit: limit,
+          countingMethod: "conservative_x_weighted",
+        });
+      },
+    );
     it("rejects a stale profile before any paid query or text call", async () => {
       await setCampaign("product");
       await run((tx) =>

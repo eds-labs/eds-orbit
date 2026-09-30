@@ -597,6 +597,10 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
       ? connector.data.assignedIntegrationIds.map(String)
       : [],
   );
+  const savedLong = Array.isArray(connector.data.xLongPostIntegrationIds)
+    ? connector.data.xLongPostIntegrationIds.map(String)
+    : [];
+  const [longPosts, setLongPosts] = useState<string[]>(savedLong);
   const mutation = useMutation(refresh);
   const channels = Array.isArray(connector.data.channels)
     ? (connector.data.channels as Record<string, unknown>[])
@@ -604,9 +608,12 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
   const assigned = Array.isArray(connector.data.assignedIntegrationIds)
     ? connector.data.assignedIntegrationIds.map(String)
     : [];
+  const effectiveLong = longPosts.filter((id) => selected.includes(id));
   const changed =
     JSON.stringify([...selected].sort()) !==
-    JSON.stringify([...assigned].sort());
+      JSON.stringify([...assigned].sort()) ||
+    JSON.stringify([...effectiveLong].sort()) !==
+      JSON.stringify([...savedLong].sort());
   return (
     <div className="postiz-assignment">
       <strong>
@@ -622,24 +629,47 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
       {channels.map((channel) => {
         const id = String(channel.id);
         return (
-          <label key={id}>
-            <input
-              type="checkbox"
-              checked={selected.includes(id)}
-              disabled={Boolean(channel.disabled) || mutation.pending}
-              onChange={(event) =>
-                setSelected((current) =>
-                  event.target.checked
-                    ? [...current, id]
-                    : current.filter((value) => value !== id),
-                )
-              }
-            />
-            <span>
-              {String(channel.name || id)} ·{" "}
-              {String(channel.identifier || "unknown")} <small>({id})</small>
-            </span>
-          </label>
+          <div key={id} className="postiz-assignment-channel">
+            <label>
+              <input
+                type="checkbox"
+                checked={selected.includes(id)}
+                disabled={Boolean(channel.disabled) || mutation.pending}
+                onChange={(event) =>
+                  setSelected((current) =>
+                    event.target.checked
+                      ? [...current, id]
+                      : current.filter((value) => value !== id),
+                  )
+                }
+              />
+              <span>
+                {String(channel.name || id)} ·{" "}
+                {String(channel.identifier || "unknown")} <small>({id})</small>
+              </span>
+            </label>
+            {channel.identifier === "x" && selected.includes(id) && (
+              <label className="postiz-assignment-option">
+                <input
+                  type="checkbox"
+                  checked={longPosts.includes(id)}
+                  disabled={mutation.pending}
+                  onChange={(event) =>
+                    setLongPosts((current) =>
+                      event.target.checked
+                        ? [...current, id]
+                        : current.filter((value) => value !== id),
+                    )
+                  }
+                />
+                <span>
+                  {locale === "de"
+                    ? "X Premium: lange Posts (bis 25.000 Zeichen)"
+                    : "X Premium: long posts (up to 25,000 characters)"}
+                </span>
+              </label>
+            )}
+          </div>
         );
       })}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
@@ -653,6 +683,7 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
               connectorId: connector.id,
               version: connector.version,
               integrationIds: selected,
+              xLongPostIntegrationIds: effectiveLong,
             }),
           )
         }

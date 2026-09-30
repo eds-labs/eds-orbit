@@ -3,6 +3,7 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   createPostizClient,
   ConnectorError,
+  postizProviderSettings,
 } from "../../../../packages/connectors/src/index.ts";
 import {
   data,
@@ -135,7 +136,7 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
         {
           integration: { id: credentials.integration.id },
           value: [{ content: publishedText, image: images }],
-          settings: { __type: credentials.integration.identifier },
+          settings: postizProviderSettings(credentials.integration.identifier),
         },
       ],
     });

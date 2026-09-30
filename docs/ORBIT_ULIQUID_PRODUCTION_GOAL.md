@@ -831,6 +831,14 @@ After deploying `7685595`, and with Mario's approval, "Built for control" (v4) w
 
 **Owner tasks (not code):** Better Stack readiness monitor and backup heartbeat (`BACKUP_HEARTBEAT_URL` as a Coolify secret), `CREDENTIAL_KEY` and the backup age key in the password manager.
 
+### 2026-09-30 13:30 CEST -- First weekly X and Telegram series; X draft settings and X Premium long posts
+
+**Request (Mario):** one X and one Telegram post per day from Wednesday 2026-09-30 to Sunday 2026-10-04, then Postiz drafts. Mario approved a new policy version that adds the assigned X account `cmufswv260001pg89nlreglzx` (policy `04f9ae71-6845-4120-859b-d6b24dea9150`; channels, types, origins, budgets and `observe` otherwise unchanged) and both paid batches.
+
+**Result:** Telegram Mission `cd66f25a-8918-4856-9eb6-6adab12eae51`: 5/5 drafts. X Mission `5d72e0b9-fad0-4df7-9bab-92a32eec79da`: 4/5; run 5 ended `MODEL_OUTCOME_OR_COST_UNKNOWN` with no Content, its reservation is held and a resume is refused (`RESERVATION_ALREADY_USED`), so the missing post needs a new single Mission. All fact claims were verbatim; Mario reviewed and approved the extra copy, all nine are `reviewed`. The five Telegram drafts were handed off to Postiz and accepted. The first X handoff was cleanly rejected (HTTP 400, `create_post`): Postiz requires `settings.who_can_reply_post` for X.
+
+**Change:** `postizProviderSettings()` adds `who_can_reply_post: "everyone"` for X in draft handoff, live publishing and verification. New per-account option `xLongPostIntegrationIds` on the Postiz channel assignment (UI toggle "X Premium: lange Posts") raises the X limit from 280 to 25,000 characters; it is accepted only for assigned X accounts and dropped when an account is unassigned. Tests: settings unit test, assignment validation and X generation-contract limits; full suite 387/387.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
