@@ -323,7 +323,7 @@ export async function preflight(
       !data(asset).usageApproved ||
       data(asset).assetStatus !== "approved" ||
       data(asset).mime !== "image/png" ||
-      !data(asset).base64
+      (!data(asset).base64 && !data(asset).driveFileId)
     )
       blockers.push("ASSET_NOT_APPROVED_OR_UNSUPPORTED");
   }
