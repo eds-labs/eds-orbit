@@ -601,6 +601,18 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
     ? connector.data.xLongPostIntegrationIds.map(String)
     : [];
   const [longPosts, setLongPosts] = useState<string[]>(savedLong);
+  const savedTimes: Record<string, string> =
+    connector.data.postingTimes &&
+    typeof connector.data.postingTimes === "object"
+      ? (connector.data.postingTimes as Record<string, string>)
+      : {};
+  const [times, setTimes] = useState<Record<string, string>>(savedTimes);
+  const effectiveTimes = Object.fromEntries(
+    Object.entries(times).filter(
+      ([id, time]) =>
+        selected.includes(id) && /^([01]\d|2[0-3]):[0-5]\d$/.test(time),
+    ),
+  );
   const mutation = useMutation(refresh);
   const channels = Array.isArray(connector.data.channels)
     ? (connector.data.channels as Record<string, unknown>[])
@@ -613,7 +625,9 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
     JSON.stringify([...selected].sort()) !==
       JSON.stringify([...assigned].sort()) ||
     JSON.stringify([...effectiveLong].sort()) !==
-      JSON.stringify([...savedLong].sort());
+      JSON.stringify([...savedLong].sort()) ||
+    JSON.stringify(Object.entries(effectiveTimes).sort()) !==
+      JSON.stringify(Object.entries(savedTimes).sort());
   return (
     <div className="postiz-assignment">
       <strong>
@@ -648,6 +662,28 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
                 {String(channel.identifier || "unknown")} <small>({id})</small>
               </span>
             </label>
+            {selected.includes(id) && (
+              <label className="postiz-assignment-option">
+                <span>
+                  {locale === "de"
+                    ? "Feste Uhrzeit pro Tag"
+                    : "Daily posting time"}
+                </span>
+                <input
+                  type="time"
+                  value={times[id] ?? ""}
+                  disabled={mutation.pending}
+                  onChange={(event) =>
+                    setTimes((current) => {
+                      const next = { ...current };
+                      if (event.target.value) next[id] = event.target.value;
+                      else delete next[id];
+                      return next;
+                    })
+                  }
+                />
+              </label>
+            )}
             {channel.identifier === "x" && selected.includes(id) && (
               <label className="postiz-assignment-option">
                 <input
@@ -664,8 +700,8 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
                 />
                 <span>
                   {locale === "de"
-                    ? "X Premium: lange Posts (bis 25.000 Zeichen)"
-                    : "X Premium: long posts (up to 25,000 characters)"}
+                    ? "X Premium: lange Posts (bis 4.000 Zeichen)"
+                    : "X Premium: long posts (up to 4,000 characters)"}
                 </span>
               </label>
             )}
@@ -684,6 +720,7 @@ function PostizChannelAssignment({ connector }: { connector: Entity }) {
               version: connector.version,
               integrationIds: selected,
               xLongPostIntegrationIds: effectiveLong,
+              postingTimes: effectiveTimes,
             }),
           )
         }

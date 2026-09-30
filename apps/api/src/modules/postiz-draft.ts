@@ -167,8 +167,14 @@ async function prepare(
       asset: c.assetId
         ? data(await entity(tx, scope, "assets", c.assetId))
         : null,
+      // Prefer the post's own planned slot, then the mission start.
       date: new Date(
-        Number.isFinite(startAt) && startAt > Date.now() ? startAt : Date.now(),
+        Number.isFinite(Date.parse(c.scheduledAt ?? "")) &&
+          Date.parse(c.scheduledAt) > Date.now()
+          ? Date.parse(c.scheduledAt)
+          : Number.isFinite(startAt) && startAt > Date.now()
+            ? startAt
+            : Date.now(),
       ).toISOString(),
     },
   };

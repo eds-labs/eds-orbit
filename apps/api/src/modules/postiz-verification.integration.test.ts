@@ -230,12 +230,33 @@ describe.skipIf(!enabled)(
         }),
       );
       expect(data(saved).xLongPostIntegrationIds).toEqual(["account-x"]);
+      const timed = await run((tx) =>
+        assignPostizChannels(tx, scope, {
+          connectorId,
+          version: saved.version,
+          integrationIds: ["account-one", "account-x"],
+          postingTimes: { "account-x": "17:00" },
+        }),
+      );
+      expect(data(timed).postingTimes).toEqual({ "account-x": "17:00" });
+      expect(data(timed).xLongPostIntegrationIds).toEqual(["account-x"]);
+      await expect(
+        run((tx) =>
+          assignPostizChannels(tx, scope, {
+            connectorId,
+            version: timed.version,
+            integrationIds: ["account-one"],
+            postingTimes: { "account-x": "17:00" },
+          }),
+        ),
+      ).rejects.toThrow("POSTING_TIME_REQUIRES_ASSIGNED_ACCOUNT");
       // Unassigning the account also drops its long-post option.
       const unassigned = await run((tx) =>
         assignPostizChannels(tx, scope, {
           connectorId,
-          version: saved.version,
+          version: timed.version,
           integrationIds: ["account-one"],
+          postingTimes: {},
         }),
       );
       expect(data(unassigned).xLongPostIntegrationIds).toEqual([]);
