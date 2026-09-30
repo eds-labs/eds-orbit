@@ -177,7 +177,7 @@ test("renders streamed text, action states, source links and cancellation", asyn
     },
   );
   await page.goto("/chat");
-  await page.getByRole("button", { name: "Synthetic plan" }).click();
+  await page.getByRole("button", { name: "Synthetic plan", exact: true }).click();
   await expect(
     page.getByRole("link", { name: "Official source" }),
   ).toBeVisible();
