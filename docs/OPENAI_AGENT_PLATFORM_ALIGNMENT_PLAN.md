@@ -663,3 +663,17 @@ These decisions do not authorize production deployments, production migrations, 
 - MCP and connectors: https://developers.openai.com/api/docs/guides/tools-connectors-mcp
 - Spend limits and Costs API: https://developers.openai.com/api/docs/guides/spend-limits
 - Deprecations (Agent Builder, Evals, prompts, Assistants): https://developers.openai.com/api/docs/deprecations
+
+---
+
+## 17. Progress log
+
+### 2026-09-30 — Phase 0 complete (local, no production change)
+
+- ADRs: [0005](adr/0005-agent-runtime.md) agent runtime, [0006](adr/0006-agent-state-and-data-retention.md) agent state and data retention, [0007](adr/0007-tool-registry.md) tool registry/MCP/tool search, [0008](adr/0008-action-approvals.md) generic action approvals.
+- Documentation drift fixed: `IMPLEMENTATION_STATUS.md` now opens with the current production state; `MODEL_ROUTING.md` describes chat tools and the actual routing coverage.
+- `openai` 7.17.0 → 7.25.0 after changelog review (7.18.0–7.25.0: features and fixes only); release-age exclusion updated in `pnpm-workspace.yaml`; frozen install passes the supply-chain policy.
+- Baseline: [agent-platform-baseline-2026-09-30](evidence/agent-platform-baseline-2026-09-30.md) from settled production receipts (single draft 5,158–7,650 micros, batch draft run about 13,700–17,900, chat run with proposal attempt 35,024). Latency, cache and attribution metrics are not measurable yet.
+- Verification on Node 24.18.0: lint, typecheck, build, framework check, secret scan and high-severity audit pass; 382/383 tests pass. The failing real-Redis worker lifecycle test also fails on the pre-upgrade commit `9e62a0b`; the local test database holds about 2,467 accumulated projects and the pump iterates all projects per tick. Tracked as a separate follow-up.
+
+Next: Phase 1 (observability and cost foundation). It needs an additive schema migration, local only until a separate production release approval.

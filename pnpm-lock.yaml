@@ -52,8 +52,8 @@ importers:
         specifier: 1.12.3
         version: 1.12.3
       openai:
-        specifier: 7.17.0
-        version: 7.17.0(zod@4.6.5)
+        specifier: 7.25.0
+        version: 7.25.0(zod@4.6.5)
       pdfjs-dist:
         specifier: 6.3.289
         version: 6.3.289
@@ -2160,8 +2160,8 @@ packages:
     resolution: {integrity: sha512-0eJJY6hXLGf1udHwfNftBqH+g73EU4B504nZeKpz1sYRKafAghwxEJunB2O7rDZkL4PGfsMVnTXZ2EjibbqcsA==}
     engines: {node: '>=14.0.0'}
 
-  openai@7.17.0:
-    resolution: {integrity: sha512-w1FD52GfPRIFJsWebDha43/Bs2Xx7rwtbG33jXTIgXdKpHqOA8G9XPqFEH0OXcoPgdfsiN+BbHkoJMY3rmcJnA==}
+  openai@7.25.0:
+    resolution: {integrity: sha512-cnk0d4QT58Vq0vl2KG+DCa/C2+cXthsK2rUeaqtprq33mKv9dlX8o7fWSS283wa2IE/aVdsRyX1+Dqwz551olg==}
     engines: {node: '>=22.0.0'}
     peerDependencies:
       '@aws-sdk/credential-provider-node': '>=3.972.0 <4'
@@ -4399,7 +4399,7 @@ snapshots:
 
   on-exit-leak-free@2.1.2: {}
 
-  openai@7.17.0(zod@4.6.5):
+  openai@7.25.0(zod@4.6.5):
     optionalDependencies:
       zod: 4.6.5
 
