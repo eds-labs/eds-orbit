@@ -187,6 +187,11 @@ export async function runChat(scope: Scope, runId: string) {
     }
   }, 500);
   try {
+    let recovered = null as {
+      agentRunId: string | null;
+      reservationId: string;
+      transmittedAt: Date;
+    } | null;
     const state = await chatScoped(scope, async (tx) => {
       const run = await tx.chatRun.findFirst({
         where: {
@@ -204,7 +209,15 @@ export async function runChat(scope: Scope, runId: string) {
       )
         return null;
       if (run.transmittedAt) {
-        if (run.reservationId) await settle(tx, scope, run.reservationId, null);
+        if (run.reservationId) {
+          const row = await settle(tx, scope, run.reservationId, null);
+          if (row.state === "unknown")
+            recovered = {
+              agentRunId: row.agentRunId,
+              reservationId: row.id,
+              transmittedAt: run.transmittedAt,
+            };
+        }
         await tx.chatRun.update({
           where: { id: runId },
           data: {
@@ -230,6 +243,25 @@ export async function runChat(scope: Scope, runId: string) {
       });
       return { run, messages: messages.reverse(), project };
     });
+    if (recovered) {
+      // A crashed invocation left its run open; close it after the settlement committed.
+      const crashed = recovered as NonNullable<typeof recovered>;
+      await recordSpan(scope, crashed.agentRunId, {
+        type: "model_call",
+        name: "responses.stream",
+        status: "unknown",
+        errorCode: "CHAT_OUTCOME_UNKNOWN",
+        startedAt: crashed.transmittedAt,
+        durationMs: 0,
+        budgetReservationId: crashed.reservationId,
+      });
+      await finishRun(
+        scope,
+        crashed.agentRunId,
+        "blocked",
+        "CHAT_OUTCOME_UNKNOWN",
+      );
+    }
     if (!state) return;
     agentRunId = await startRun(scope, {
       kind: "chat",

@@ -51,7 +51,35 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
     const step = mocked.calls;
     return {
       async *[Symbol.asyncIterator]() {
-        if (mocked.mode === "incomplete") {
+        if (
+          mocked.mode === "usage_unknown_details" ||
+          mocked.mode === "usage_cache_details"
+        ) {
+          yield {
+            type: "response.completed",
+            response: {
+              usage: {
+                input_tokens: 1000000,
+                output_tokens: 0,
+                ...(mocked.mode === "usage_cache_details"
+                  ? {
+                      input_tokens_details: {
+                        cached_tokens: 400000,
+                        cache_write_tokens: 100000,
+                      },
+                    }
+                  : {}),
+              },
+              output: [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "Done." }],
+                },
+              ],
+            },
+          };
+        } else if (mocked.mode === "incomplete") {
           yield {
             type: "response.incomplete",
             response: {
@@ -171,15 +199,12 @@ import {
   getRun,
   createProposal,
   confirmProposal,
+  chatScoped,
 } from "../src/modules/chat.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
 import { activePolicy } from "../src/modules/policy.ts";
 import { reserve } from "../src/modules/budget.ts";
-import {
-  computeCost,
-  normalizeResponsesUsage,
-} from "../../../packages/ai/src/index.ts";
-import { hashText } from "../src/modules/telemetry.ts";
+import { hashText, startRun } from "../src/modules/telemetry.ts";
 import {
   runReadTool,
   validateReadToolResult,
@@ -1069,37 +1094,107 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     );
     expect(tools[0]!.durationMs).toBeGreaterThanOrEqual(0);
   });
-  it("settles at the unknown-details rate when usage has no cache details", async () => {
+  const settleOnce = async (mode: string) => {
+    mocked.mode = mode;
+    mocked.calls = 0;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      expect((await getRun(scope, sent.runId)).status).toBe("succeeded");
+      return traced(sent.runId);
+    } finally {
+      mocked.mode = "normal";
+    }
+  };
+  it("charges all input at the cache-write rate when usage lacks cache details", async () => {
+    const { reservations, spans } = await settleOnce("usage_unknown_details");
+    // 1,000,000 input tokens at max(input 1000, cache write 1250) micros per million.
+    expect(reservations.map((row) => Number(row.settledMicros))).toEqual([
+      1250,
+    ]);
+    expect(spans.map((span) => Number(span.costMicros))).toEqual([1250]);
+  });
+  it("settles cached reads and cache writes at their own rates when details are reported", async () => {
+    const { reservations, spans } = await settleOnce("usage_cache_details");
+    // 500,000 ordinary * 1000 + 400,000 cached * 1000 (default) + 100,000 written * 1250, per million.
+    expect(reservations.map((row) => Number(row.settledMicros))).toEqual([
+      1025,
+    ]);
+    expect(spans[0]).toEqual(
+      expect.objectContaining({
+        inputTokens: 1000000,
+        cachedTokens: 400000,
+        cacheWriteTokens: 100000,
+        costMicros: 1025n,
+      }),
+    );
+  });
+  it("closes the telemetry of a crashed invocation when recovery blocks the run", async () => {
     const thread = await createConversation(scope);
     const sent = await sendMessage(scope, thread.id, {
       text: "What is our project status?",
       clientRequestId: randomUUID(),
     });
+    const agentRunId = await startRun(scope, {
+      kind: "chat",
+      agentName: "orbit_operator",
+      taskClass: "chat_operator",
+      subjectType: "chat_run",
+      subjectId: sent.runId,
+    });
+    expect(agentRunId).not.toBeNull();
+    const reservationId = await chatScoped(scope, async (tx) => {
+      const reservation = await tx.budgetReservation.create({
+        data: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          key: `${scope.projectId}:chat:${sent.runId}:0`,
+          category: "chat_text",
+          amountMicros: 50n,
+          state: "in_flight",
+          agentRunId,
+          taskClass: "chat_operator",
+          model: "synthetic-model",
+        },
+      });
+      await tx.chatRun.update({
+        where: { id: sent.runId },
+        data: {
+          status: "running",
+          reservationId: reservation.id,
+          transmittedAt: new Date(),
+        },
+      });
+      return reservation.id;
+    });
     mocked.calls = 0;
     await runChat(scope, sent.runId);
-    const { reservations } = await traced(sent.runId);
-    const runtime = {
-      rateCard: {
-        "synthetic-model": {
-          inputMicrosPerMillion: 1000,
-          outputMicrosPerMillion: 1000,
-          verifiedAt: new Date().toISOString(),
-        },
-      },
-    };
-    const expected = [100, 200].map((input) =>
-      computeCost(
-        "synthetic-model",
-        normalizeResponsesUsage({ input_tokens: input, output_tokens: 30 }),
-        runtime,
-      ),
+    expect(mocked.calls).toBe(0);
+    const result = await getRun(scope, sent.runId);
+    expect(result.status).toBe("blocked");
+    expect(result.errorCode).toBe("CHAT_OUTCOME_UNKNOWN");
+    const { runs, spans, reservations } = await traced(sent.runId);
+    expect(reservations[0]!.state).toBe("unknown");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toEqual(
+      expect.objectContaining({
+        id: agentRunId,
+        status: "blocked",
+        errorCode: "CHAT_OUTCOME_UNKNOWN",
+      }),
     );
-    expect(
-      normalizeResponsesUsage({ input_tokens: 1, output_tokens: 1 })
-        .detailsKnown,
-    ).toBe(false);
-    expect(reservations.map((row) => Number(row.settledMicros))).toEqual(
-      expected,
+    expect(spans).toHaveLength(1);
+    expect(spans[0]).toEqual(
+      expect.objectContaining({
+        type: "model_call",
+        status: "unknown",
+        errorCode: "CHAT_OUTCOME_UNKNOWN",
+        budgetReservationId: reservationId,
+      }),
     );
   });
   it("keeps the chat run and settlements intact when telemetry cannot start", async () => {
