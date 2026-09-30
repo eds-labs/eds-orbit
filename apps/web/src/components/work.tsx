@@ -1911,6 +1911,85 @@ export function EvidenceItems({ evidence }: { evidence: Entity }) {
     </div>
   );
 }
+function AutopilotApprovals() {
+  const { locale, project, isOwner, refresh } = useWorkspace();
+  const de = locale === "de";
+  const content = useCollection("content"),
+    missions = useCollection("missions");
+  const mutation = useMutation(refresh);
+  const autopilot = new Set(
+    (missions.data?.items ?? [])
+      .filter((m) => m.data.autopilot === true)
+      .map((m) => m.id),
+  );
+  const pending = (content.data?.items ?? [])
+    .filter(
+      (c) =>
+        c.data.status === "needs_review" &&
+        autopilot.has(String(c.data.missionId)),
+    )
+    .sort((a, b) =>
+      String(a.data.scheduledAt).localeCompare(String(b.data.scheduledAt)),
+    );
+  if (!pending.length) return null;
+  const approve = (c: Entity) =>
+    action(project.id, "approve-and-schedule", {
+      contentId: c.id,
+      version: c.version,
+    });
+  return (
+    <section className="panel autopilot-approvals">
+      <div className="panel-head">
+        <div>
+          <h2>
+            {de
+              ? "Autopilot: Freigabe der Woche"
+              : "Autopilot: this week's approvals"}
+          </h2>
+          <p>
+            {de
+              ? "Diese Posts enthalten Werbetext. Mit der Freigabe bestätigst du den vollständigen Text, und Orbit plant ihn zum angezeigten Termin ein."
+              : "These posts contain marketing copy. Approving confirms the full text and Orbit schedules it for the shown time."}
+          </p>
+        </div>
+        {isOwner && (
+          <Button
+            disabled={mutation.pending}
+            onClick={() =>
+              mutation.run(async () => {
+                for (const c of pending) await approve(c);
+              })
+            }
+          >
+            {de
+              ? `Alle ${pending.length} freigeben`
+              : `Approve all ${pending.length}`}
+          </Button>
+        )}
+      </div>
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {pending.map((c) => (
+        <article key={c.id} className="autopilot-approval">
+          <p className="panel-note">
+            {when(c.data.scheduledAt, locale, project.timezone)} ·{" "}
+            {value(c, "title")}
+          </p>
+          <pre className="autopilot-approval-body">{String(c.data.body)}</pre>
+          {isOwner && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={mutation.pending}
+              onClick={() => mutation.run(() => approve(c))}
+            >
+              {de ? "Freigeben & einplanen" : "Approve & schedule"}
+            </Button>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
 export function ApprovalInbox() {
   const { t, locale } = useWorkspace();
   const content = useCollection("content"),
@@ -1943,6 +2022,7 @@ export function ApprovalInbox() {
           exceptions.refresh();
         }}
       />
+      <AutopilotApprovals />
       {exceptions.data?.items.map((e) => (
         <Alert key={e.id} kind="warning">
           <strong>{value(e, "title", value(e, "code"))}</strong>

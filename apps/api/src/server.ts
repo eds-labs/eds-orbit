@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { approveAndSchedule, configureAutopilot } from "./modules/autopilot.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
 import {
   proposeBrief,
@@ -1219,6 +1220,8 @@ export async function buildServer(
       "postiz-draft-handoff",
       "postiz-draft-resolve",
       "archive-mission",
+      "configure-autopilot",
+      "approve-and-schedule",
       "postiz-test-reconcile",
       "calendar-block",
       "calendar-unblock",
@@ -1829,6 +1832,10 @@ export async function buildServer(
           "reconcile-manual:" + pub.id + ":" + pub.version,
         );
       }
+      if (action === "configure-autopilot")
+        return configureAutopilot(tx, scope, input);
+      if (action === "approve-and-schedule")
+        return approveAndSchedule(tx, scope, input);
       if (action === "archive-mission") return archiveMission(tx, scope, input);
       if (action === "run-mission")
         return planMission(tx, scope, schemas.id.parse(input.missionId));

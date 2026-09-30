@@ -1,3 +1,4 @@
+import { exportAssetContent } from "./content-export.ts";
 import { scoped } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -86,11 +87,11 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
       const asset = await scoped(scope.workspaceId, scope.projectId, (tx) =>
         entity(tx, scope, "assets", content.assetId),
       );
-      const a = data(asset);
-      if (a.mime !== "image/png" || !a.usageApproved || !a.base64)
-        throw new ConnectorError("ASSET_NOT_SUPPORTED");
+      // Approved PNGs may live inline or in Drive (checksum-bound read).
+      const file = await exportAssetContent(scope, data(asset));
+      if (!file) throw new ConnectorError("ASSET_NOT_SUPPORTED");
       const media = await client.uploadMedia({
-        bytes: Buffer.from(a.base64, "base64"),
+        bytes: file.bytes,
         mime: "image/png",
         filename: "creative.png",
       });
