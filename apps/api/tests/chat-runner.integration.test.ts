@@ -23,6 +23,7 @@ const mocked = vi.hoisted(() => ({
   embedCalls: 0,
   embedFails: false,
   mode: "normal",
+  telemetryOff: false,
   inputs: [] as unknown[],
   tools: [] as unknown[],
 }));
@@ -153,6 +154,15 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
     };
   }),
 }));
+vi.mock("../src/modules/telemetry.ts", async (original) => {
+  const real = await original<typeof import("../src/modules/telemetry.ts")>();
+  return {
+    ...real,
+    startRun: vi.fn((...args: Parameters<typeof real.startRun>) =>
+      mocked.telemetryOff ? Promise.resolve(null) : real.startRun(...args),
+    ),
+  };
+});
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import {
   createConversation,
@@ -165,6 +175,11 @@ import {
 import { runChat } from "../src/modules/chat-runner.ts";
 import { activePolicy } from "../src/modules/policy.ts";
 import { reserve } from "../src/modules/budget.ts";
+import {
+  computeCost,
+  normalizeResponsesUsage,
+} from "../../../packages/ai/src/index.ts";
+import { hashText } from "../src/modules/telemetry.ts";
 import {
   runReadTool,
   validateReadToolResult,
@@ -989,6 +1004,153 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
           }),
       );
       expect(reservation.state).toBe("unknown");
+    } finally {
+      mocked.mode = "normal";
+    }
+  });
+  const traced = (runId: string) =>
+    scoped(scope.workspaceId, scope.projectId, async (tx) => ({
+      runs: await tx.agentRun.findMany({ where: { subjectId: runId } }),
+      spans: await tx.agentSpan.findMany({
+        where: { run: { subjectId: runId } },
+        orderBy: { startedAt: "asc" },
+      }),
+      reservations: await tx.budgetReservation.findMany({
+        where: { key: { startsWith: `${scope.projectId}:chat:${runId}:` } },
+        orderBy: { createdAt: "asc" },
+      }),
+    }));
+  it("traces each model and tool call and attributes every chat reservation", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    mocked.calls = 0;
+    await runChat(scope, sent.runId);
+    await runChat(scope, sent.runId);
+    const { runs, spans, reservations } = await traced(sent.runId);
+    expect(runs).toHaveLength(1);
+    const run = runs[0]!;
+    expect(run).toEqual(
+      expect.objectContaining({
+        kind: "chat",
+        subjectType: "chat_run",
+        subjectId: sent.runId,
+        status: "succeeded",
+        taskClass: "chat_operator",
+      }),
+    );
+    expect(reservations).toHaveLength(2);
+    for (const row of reservations) {
+      expect(row.state).toBe("settled");
+      expect(row.agentRunId).toBe(run.id);
+      expect(row.taskClass).toBe("chat_operator");
+      expect(row.model).toBe("synthetic-model");
+    }
+    const modelCalls = spans.filter((span) => span.type === "model_call");
+    expect(modelCalls).toHaveLength(2);
+    modelCalls.forEach((span, index) => {
+      expect(span.status).toBe("succeeded");
+      expect(span.model).toBe("synthetic-model");
+      expect(span.inputTokens).toBe(index === 0 ? 100 : 200);
+      expect(span.outputTokens).toBe(30);
+      expect(span.costMicros).toBe(reservations[index]!.settledMicros);
+      expect(span.budgetReservationId).toBe(reservations[index]!.id);
+    });
+    const tools = spans.filter((span) => span.type === "tool_call");
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toEqual(
+      expect.objectContaining({
+        name: "project_status",
+        status: "succeeded",
+        inputHash: hashText("{}"),
+      }),
+    );
+    expect(tools[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+  it("settles at the unknown-details rate when usage has no cache details", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    mocked.calls = 0;
+    await runChat(scope, sent.runId);
+    const { reservations } = await traced(sent.runId);
+    const runtime = {
+      rateCard: {
+        "synthetic-model": {
+          inputMicrosPerMillion: 1000,
+          outputMicrosPerMillion: 1000,
+          verifiedAt: new Date().toISOString(),
+        },
+      },
+    };
+    const expected = [100, 200].map((input) =>
+      computeCost(
+        "synthetic-model",
+        normalizeResponsesUsage({ input_tokens: input, output_tokens: 30 }),
+        runtime,
+      ),
+    );
+    expect(
+      normalizeResponsesUsage({ input_tokens: 1, output_tokens: 1 })
+        .detailsKnown,
+    ).toBe(false);
+    expect(reservations.map((row) => Number(row.settledMicros))).toEqual(
+      expected,
+    );
+  });
+  it("keeps the chat run and settlements intact when telemetry cannot start", async () => {
+    mocked.telemetryOff = true;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      mocked.calls = 0;
+      await runChat(scope, sent.runId);
+      expect((await getRun(scope, sent.runId)).status).toBe("succeeded");
+      const { runs, spans, reservations } = await traced(sent.runId);
+      expect(runs).toHaveLength(0);
+      expect(spans).toHaveLength(0);
+      expect(reservations).toHaveLength(2);
+      for (const row of reservations) {
+        expect(row.state).toBe("settled");
+        expect(row.agentRunId).toBeNull();
+      }
+    } finally {
+      mocked.telemetryOff = false;
+    }
+  });
+  it("records an unknown model span and the blocked run for an incomplete response", async () => {
+    mocked.mode = "incomplete";
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Plan next week",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const { runs, spans } = await traced(sent.runId);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toEqual(
+        expect.objectContaining({
+          status: "blocked",
+          errorCode: "CHAT_MODEL_OUTPUT_LIMIT",
+        }),
+      );
+      const modelCalls = spans.filter((span) => span.type === "model_call");
+      expect(modelCalls).toHaveLength(1);
+      expect(modelCalls[0]).toEqual(
+        expect.objectContaining({
+          status: "unknown",
+          errorCode: "CHAT_MODEL_OUTPUT_LIMIT",
+          costMicros: null,
+        }),
+      );
     } finally {
       mocked.mode = "normal";
     }
