@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createClient,
   scoped,
@@ -24,6 +27,8 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
     sourceId: string;
   let diagnostic = "";
   const queueNamespace = "orbit-acceptance-" + randomUUID().slice(0, 8);
+  // A directory that does not exist yet: the worker must create it before writing health.
+  const healthDir = join(tmpdir(), queueNamespace, "health");
   const run = <T>(fn: (tx: DbTx) => Promise<T>) =>
     scoped(scope.workspaceId, scope.projectId, fn, db);
   function start() {
@@ -38,7 +43,9 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
           AUTH_DATABASE_URL: process.env.TEST_AUTH_DATABASE_URL,
           QUEUE_NAMESPACE: queueNamespace,
           PUBLISHER_INSTANCE_ID: queueNamespace,
-          WORKER_HEALTH_FILE: resolve(".runtime/" + queueNamespace + ".json"),
+          WORKER_HEALTH_FILE: join(healthDir, "worker.json"),
+          // Leftover local projects must not delay or share this synthetic workspace queue.
+          WORKER_WORKSPACE_ALLOWLIST: scope.workspaceId,
           EXECUTION_MODE: "test",
           ENABLE_EXTERNAL_WRITES: "false",
           LIVE_RAG_EVAL_PASSED: "false",
@@ -191,6 +198,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
     }
     await db?.$disconnect();
     await auth?.$disconnect();
+    await rm(join(tmpdir(), queueNamespace), { recursive: true, force: true });
   });
   it("A10/A19/A26/B06: real worker plans, retrieves, drafts, reviews, publishes locally, survives restart, then applies revocation", async () => {
     start();
@@ -203,6 +211,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
       }),
     );
     expect(data(publication).test).toBe(true);
+    expect(existsSync(join(healthDir, "worker.json"))).toBe(true);
     expect(
       await run((tx) =>
         tx.entity.count({

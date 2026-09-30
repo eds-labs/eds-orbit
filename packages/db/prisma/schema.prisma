@@ -100,6 +100,8 @@ model Project {
   paused           Boolean             @default(false)
   generation       Int                 @default(1)
   createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+  /// Earliest time the worker must process this project; maintained by triggers and the worker.
+  workDueAt        DateTime            @default(now()) @db.Timestamptz(3)
   workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members          ProjectMember[]
   entities         Entity[]
@@ -111,6 +113,7 @@ model Project {
   chatConversations ChatConversation[]
 
   @@unique([workspaceId, id])
+  @@index([workDueAt])
 }
 
 model ChatConversation {

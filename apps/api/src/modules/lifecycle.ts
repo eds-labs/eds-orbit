@@ -256,3 +256,48 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
       await evaluateExperiment(tx, scope, e.id, at);
   return { queued };
 }
+/**
+ * Earliest future time at which sweepProject can change state without any new write.
+ * Writes wake a project through database triggers; this covers purely time-based transitions.
+ */
+export async function nextSweepAt(tx: DbTx, scope: Scope, at = new Date()) {
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  if (project.paused) return null;
+  const now = at.valueOf();
+  let next = Infinity;
+  const consider = (value: unknown) => {
+    const time =
+      typeof value === "number" ? value : Date.parse(String(value ?? ""));
+    if (Number.isFinite(time) && time > now) next = Math.min(next, time);
+  };
+  for (const m of await list(tx, scope, "missions")) {
+    const d = data(m);
+    if (d.status === "ready") {
+      consider(d.startAt);
+      consider(d.endAt);
+    } else if (d.status === "awaiting_followup") {
+      consider(d.nextPlanAt);
+      consider(d.endAt);
+    }
+  }
+  const requests = await list(tx, scope, "sync_requests");
+  for (const source of await list(tx, scope, "sources")) {
+    const d = data(source);
+    if (d.status !== "active" || !d.syncEveryHours) continue;
+    if (!requests.some((r) => data(r).sourceId === source.id)) continue;
+    const interval = d.syncEveryHours * 3600000;
+    const last = d.lastSuccessfulSyncAt
+      ? Date.parse(d.lastSuccessfulSyncAt)
+      : 0;
+    consider(
+      last + interval > now
+        ? last + interval
+        : (Math.floor(now / interval) + 1) * interval,
+    );
+  }
+  for (const e of await list(tx, scope, "experiments"))
+    if (data(e).status === "running") consider(data(e).endAt);
+  return Number.isFinite(next) ? new Date(next) : null;
+}
