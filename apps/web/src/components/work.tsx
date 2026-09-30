@@ -485,7 +485,15 @@ export function Missions() {
     [proposal, setProposal] = useState<BriefProposal | undefined>(),
     [liveDraftConfirm, setLiveDraftConfirm] = useState(false),
     [batchConfirm, setBatchConfirm] = useState(false);
+  const [showArchived, setShowArchived] = useState(false),
+    [page, setPage] = useState(0);
   const mutation = useMutation(refresh);
+  const pageSize = 20;
+  const visible = (resource.data?.items ?? []).filter(
+    (item) => (item.data.status === "archived") === showArchived,
+  );
+  const pages = Math.max(1, Math.ceil(visible.length / pageSize));
+  const current = Math.min(page, pages - 1);
   return (
     <>
       <PageHead
@@ -518,14 +526,69 @@ export function Missions() {
         <Loading />
       ) : (
         <section className="panel">
-          {resource.data?.items.length ? (
+          <div className="list-toolbar">
+            <label className="list-toggle">
+              <input
+                type="checkbox"
+                checked={showArchived}
+                onChange={(event) => {
+                  setShowArchived(event.target.checked);
+                  setPage(0);
+                }}
+              />
+              <span>
+                {locale === "de" ? "Archivierte anzeigen" : "Show archived"}
+              </span>
+            </label>
+            {pages > 1 && (
+              <div className="list-pager">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={current === 0}
+                  onClick={() => setPage(current - 1)}
+                >
+                  {locale === "de" ? "Zurück" : "Previous"}
+                </Button>
+                <span>
+                  {current + 1} / {pages}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={current >= pages - 1}
+                  onClick={() => setPage(current + 1)}
+                >
+                  {locale === "de" ? "Weiter" : "Next"}
+                </Button>
+              </div>
+            )}
+          </div>
+          {visible.length ? (
             <EntityRows
-              items={resource.data.items}
+              items={visible.slice(
+                current * pageSize,
+                (current + 1) * pageSize,
+              )}
               fields={["title", "audience", "status", "createdAt"]}
               onSelect={(item) => {
                 setSelected(item);
                 setLiveDraftConfirm(false);
               }}
+            />
+          ) : showArchived ? (
+            <Empty
+              title={
+                locale === "de"
+                  ? "Keine archivierten Missionen"
+                  : "No archived missions"
+              }
+              description={
+                locale === "de"
+                  ? "Archivierte Missionen erscheinen hier."
+                  : "Archived missions appear here."
+              }
+              icon={Target}
             />
           ) : (
             <Empty
@@ -761,6 +824,31 @@ export function Missions() {
                 <Play data-icon="inline-start" />
                 {locale === "de" ? "Mission ausführen" : "Run mission"}
               </Button>
+              {isOwner && (
+                <Button
+                  variant="outline"
+                  disabled={mutation.pending}
+                  onClick={async () => {
+                    const archived = selected.data.status !== "archived";
+                    const result = await mutation.run(() =>
+                      action(project.id, "archive-mission", {
+                        missionId: selected.id,
+                        version: selected.version,
+                        archived,
+                      }),
+                    );
+                    if (result) setSelected(null);
+                  }}
+                >
+                  {selected.data.status === "archived"
+                    ? locale === "de"
+                      ? "Wiederherstellen"
+                      : "Restore"
+                    : locale === "de"
+                      ? "Archivieren"
+                      : "Archive"}
+                </Button>
+              )}
             </div>
           )}
         </Modal>
@@ -1893,19 +1981,46 @@ export function CalendarView() {
   const { t, locale, project } = useWorkspace();
   const resource = useCollection("content");
   const blocks = useCollection("calendar_blocks");
+  const handoffs = useCollection("postiz_drafts");
+  const connectors = useCollection("connectors");
   const [selected, setSelected] = useState<Entity | null>(null),
     [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
-  const items = (resource.data?.items || []).filter(
-    (e) =>
-      typeof e.data.scheduledAt === "string" &&
+  const inPostiz = new Map(
+    (handoffs.data?.items || [])
+      .filter((h) => h.data.status === "accepted")
+      .map((h) => [String(h.data.contentId), h]),
+  );
+  const channelNames = new Map(
+    (connectors.data?.items || []).flatMap((c) =>
+      (Array.isArray(c.data.channels) ? c.data.channels : []).map(
+        (ch: Record<string, unknown>) =>
+          [
+            String(ch.id),
+            `${String(ch.name)} · ${String(ch.identifier)}`,
+          ] as const,
+      ),
+    ),
+  );
+  // A post's planned slot, or the date it was handed to Postiz with.
+  const plannedAt = (e: Entity) =>
+    typeof e.data.scheduledAt === "string"
+      ? e.data.scheduledAt
+      : typeof inPostiz.get(e.id)?.data.remoteDate === "string"
+        ? String(inPostiz.get(e.id)!.data.remoteDate)
+        : null;
+  const items = (resource.data?.items || []).filter((e) => {
+    const at = plannedAt(e);
+    return (
+      at !== null &&
       new Intl.DateTimeFormat("en-CA", {
         year: "numeric",
         month: "2-digit",
         timeZone: project.timezone,
       })
-        .format(new Date(e.data.scheduledAt))
-        .startsWith(month),
-  );
+        .format(new Date(at))
+        .startsWith(month)
+    );
+  });
   return (
     <>
       <PageHead
@@ -1939,9 +2054,7 @@ export function CalendarView() {
           {items.length ? (
             items
               .sort((a, b) =>
-                String(a.data.scheduledAt).localeCompare(
-                  String(b.data.scheduledAt),
-                ),
+                String(plannedAt(a)).localeCompare(String(plannedAt(b))),
               )
               .map((e) => (
                 <button
@@ -1954,15 +2067,17 @@ export function CalendarView() {
                       day: "numeric",
                       month: "short",
                       timeZone: project.timezone,
-                    }).format(new Date(String(e.data.scheduledAt)))}
+                    }).format(new Date(String(plannedAt(e))))}
                   </span>
                   <div>
                     <strong>{value(e, "title")}</strong>
                     <p>
-                      {when(e.data.scheduledAt, locale, project.timezone)} ·{" "}
-                      {value(e, "channel")}
+                      {when(plannedAt(e), locale, project.timezone)} ·{" "}
+                      {channelNames.get(String(e.data.channel)) ??
+                        value(e, "channel")}
                     </p>
                   </div>
+                  {inPostiz.has(e.id) && <Badge tone="blue">In Postiz</Badge>}
                   {(blocks.data?.items || []).some((block) =>
                     calendarBlockConflicts(block, e),
                   ) ? (

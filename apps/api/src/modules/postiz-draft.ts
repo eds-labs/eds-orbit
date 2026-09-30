@@ -4,6 +4,7 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   ConnectorError,
   createPostizClient,
+  postizProviderSettings,
 } from "../../../../packages/connectors/src/index.ts";
 import {
   audit,
@@ -66,7 +67,7 @@ export function postizDraftPayload(p: DraftPayload) {
       {
         integration: { id: p.integrationId },
         value: [{ content: p.text, image: p.images }],
-        settings: { __type: p.identifier },
+        settings: postizProviderSettings(p.identifier),
       },
     ],
   };
@@ -166,8 +167,14 @@ async function prepare(
       asset: c.assetId
         ? data(await entity(tx, scope, "assets", c.assetId))
         : null,
+      // Prefer the post's own planned slot, then the mission start.
       date: new Date(
-        Number.isFinite(startAt) && startAt > Date.now() ? startAt : Date.now(),
+        Number.isFinite(Date.parse(c.scheduledAt ?? "")) &&
+          Date.parse(c.scheduledAt) > Date.now()
+          ? Date.parse(c.scheduledAt)
+          : Number.isFinite(startAt) && startAt > Date.now()
+            ? startAt
+            : Date.now(),
       ).toISOString(),
     },
   };
@@ -252,6 +259,7 @@ export async function handoffPostizDraft(
       status: "accepted",
       remoteId,
       remoteType: "draft",
+      remoteDate: send.date,
       withoutImage: input.withoutImage === true,
       finishedAt: new Date().toISOString(),
     });

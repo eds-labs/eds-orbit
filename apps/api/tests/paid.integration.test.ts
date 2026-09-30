@@ -51,6 +51,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => ({
   estimateCost: () => 1000,
 }));
 import { generateMissionLive } from "../src/modules/generation.ts";
+import { postingSlot } from "../src/modules/posting-slots.ts";
 import { retrieveHybrid } from "../src/modules/retrieval.ts";
 import {
   embedDocument,
@@ -1040,6 +1041,63 @@ describe.skipIf(!enabled)(
         });
       },
     );
+    it.each([
+      [false, 280],
+      [true, 4_000],
+    ] as const)(
+      "x generation contract with long posts %s uses limit %s",
+      async (longPosts, limit) => {
+        await setCampaign("product");
+        await run(async (tx) => {
+          const connector = await tx.entity.findFirstOrThrow({
+            where: { projectId: s.projectId, kind: "connectors" },
+          });
+          await update(tx, s, connector, {
+            ...data(connector),
+            channels: [{ id: "test", name: "Assigned", identifier: "x" }],
+            xLongPostIntegrationIds: longPosts ? ["test"] : [],
+          });
+        });
+        await generateMissionLive(s, missionId, randomUUID());
+        const goal = JSON.parse(provider.generate.mock.calls[0]![0].goal);
+        expect(goal.channelConstraints).toMatchObject({
+          providerIdentifier: "x",
+          characterLimit: limit,
+          countingMethod: "conservative_x_weighted",
+        });
+      },
+    );
+    it("plans each generated post at the channel's daily posting time", async () => {
+      await setCampaign("product");
+      await run(async (tx) => {
+        const connector = await tx.entity.findFirstOrThrow({
+          where: { projectId: s.projectId, kind: "connectors" },
+        });
+        await update(tx, s, connector, {
+          ...data(connector),
+          channels: [{ id: "test", name: "Assigned", identifier: "telegram" }],
+          postingTimes: { test: "17:00" },
+        });
+      });
+      const content = await generateMissionLive(s, missionId, randomUUID());
+      const { mission, project } = await run(async (tx) => ({
+        mission: await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        }),
+        project: await tx.project.findUniqueOrThrow({
+          where: { id: s.projectId },
+        }),
+      }));
+      const expected = postingSlot(
+        data(mission).startAt,
+        "17:00",
+        project.timezone,
+        0,
+      )!;
+      if (expected < new Date(data(mission).endAt))
+        expect(data(content).scheduledAt).toBe(expected.toISOString());
+      else expect(data(content).scheduledAt).toBeUndefined();
+    });
     it("rejects a stale profile before any paid query or text call", async () => {
       await setCampaign("product");
       await run((tx) =>

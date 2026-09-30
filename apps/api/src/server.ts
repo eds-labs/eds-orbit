@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { archiveMission } from "./modules/mission-archive.ts";
 import {
   proposeBrief,
   briefProposalInput,
@@ -44,6 +45,7 @@ import { runtimeHealth, closeRuntime } from "./modules/runtime.ts";
 import {
   createConversation,
   listConversations,
+  archiveConversation,
   getConversation,
   sendMessage,
   getRun,
@@ -986,8 +988,20 @@ export async function buildServer(
       .uuid()
       .optional()
       .parse((req.query as any)?.cursor);
-    return listConversations(scope, cursor);
+    return listConversations(
+      scope,
+      cursor,
+      (req.query as any)?.archived === "true",
+    );
   });
+  app.post(
+    "/api/projects/:projectId/chat/conversations/:id/archive",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId);
+      return archiveConversation(scope, z.uuid().parse(id), req.body);
+    },
+  );
   app.post(
     "/api/projects/:projectId/chat/conversations",
     async (req, reply) => {
@@ -1204,6 +1218,7 @@ export async function buildServer(
       "postiz-test-execute",
       "postiz-draft-handoff",
       "postiz-draft-resolve",
+      "archive-mission",
       "postiz-test-reconcile",
       "calendar-block",
       "calendar-unblock",
@@ -1814,6 +1829,7 @@ export async function buildServer(
           "reconcile-manual:" + pub.id + ":" + pub.version,
         );
       }
+      if (action === "archive-mission") return archiveMission(tx, scope, input);
       if (action === "run-mission")
         return planMission(tx, scope, schemas.id.parse(input.missionId));
       if (action === "start-approved-live-draft-once") {

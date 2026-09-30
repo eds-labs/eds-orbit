@@ -1,7 +1,11 @@
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, list } from "../shared.ts";
-import { assignedPostizChannels } from "./postiz-assignment.ts";
+import {
+  assignedPostizChannels,
+  hasXLongPosts,
+  postingTimeFor,
+} from "./postiz-assignment.ts";
 
 type CountingMethod = "conservative_x_weighted" | "utf16_units";
 export type ChannelRules = {
@@ -11,6 +15,7 @@ export type ChannelRules = {
   characterLimit: number | null;
   countingMethod: CountingMethod | null;
   liveCapabilityKnown: boolean;
+  postingTime?: string | null;
 };
 
 /** Resolve the actual assigned Postiz provider, never the integration ID or display name. */
@@ -49,12 +54,14 @@ export async function resolveChannelRules(
     providerIdentifier,
     connectorId: row.id,
     connectorVersion: row.version,
+    postingTime: postingTimeFor(data(row), channel.id),
   };
   switch (providerIdentifier) {
     case "x":
       return {
         ...common,
-        characterLimit: 280,
+        // Postiz allows 4,000 characters for X Premium (verified) accounts.
+        characterLimit: hasXLongPosts(data(row), channel.id) ? 4_000 : 280,
         countingMethod: "conservative_x_weighted",
         liveCapabilityKnown: true,
       };

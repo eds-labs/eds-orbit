@@ -17,6 +17,7 @@ import {
   DomainError,
   entity,
   list,
+  update,
 } from "../shared.ts";
 import { enqueue } from "./workflow.ts";
 import { activePolicy } from "./policy.ts";
@@ -77,10 +78,68 @@ export async function createConversation(scope: Scope) {
   );
 }
 
-export async function listConversations(scope: Scope, cursor?: string) {
+/** Conversation IDs this user archived; archiving hides, it never deletes. */
+async function archivedConversationIds(tx: DbTx, scope: Scope) {
+  const rows = await tx.entity.findMany({
+    where: {
+      projectId: scope.projectId,
+      kind: "chat_archives",
+      data: { path: ["userId"], equals: scope.userId },
+    },
+  });
+  return rows
+    .filter((row) => data(row).archived === true)
+    .map((row) => String(data(row).conversationId));
+}
+
+export async function archiveConversation(
+  scope: Scope,
+  id: string,
+  raw: unknown,
+) {
+  const { archived } = z.object({ archived: z.boolean() }).strict().parse(raw);
   return chatScoped(scope, async (tx) => {
+    await conversation(tx, scope, id);
+    const active = await tx.chatRun.findFirst({
+      where: {
+        ...where(scope),
+        conversationId: id,
+        status: { in: ["queued", "running"] },
+      },
+    });
+    if (archived && active) throw new DomainError("CHAT_RUN_IN_PROGRESS", 409);
+    const existing = await tx.entity.findMany({
+      where: {
+        projectId: scope.projectId,
+        kind: "chat_archives",
+        data: { path: ["conversationId"], equals: id },
+      },
+    });
+    const mine = existing.find((row) => data(row).userId === scope.userId);
+    const state = {
+      conversationId: id,
+      userId: scope.userId,
+      archived,
+      changedAt: new Date().toISOString(),
+    };
+    if (mine) await update(tx, scope, mine, state);
+    else if (archived) await create(tx, scope, "chat_archives", state);
+    return { id, archived };
+  });
+}
+
+export async function listConversations(
+  scope: Scope,
+  cursor?: string,
+  archived = false,
+) {
+  return chatScoped(scope, async (tx) => {
+    const hidden = await archivedConversationIds(tx, scope);
     const items = await tx.chatConversation.findMany({
-      where: where(scope),
+      where: {
+        ...where(scope),
+        id: archived ? { in: hidden } : { notIn: hidden },
+      },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
       take: 21,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

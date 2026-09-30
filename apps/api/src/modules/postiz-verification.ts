@@ -10,6 +10,7 @@ import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import {
   createPostizClient,
   ConnectorError,
+  postizProviderSettings,
   type FetchLike,
 } from "../../../../packages/connectors/src/index.ts";
 import {
@@ -297,7 +298,7 @@ export async function executePostizVerification(
         {
           integration: { id: p.integrationId },
           value: [{ content: p.body, image: images }],
-          settings: { __type: p.integrationIdentifier },
+          settings: postizProviderSettings(p.integrationIdentifier),
         },
       ],
     });
