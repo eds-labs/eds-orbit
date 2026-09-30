@@ -259,6 +259,7 @@ export async function handoffPostizDraft(
       status: "accepted",
       remoteId,
       remoteType: "draft",
+      remoteDate: send.date,
       withoutImage: input.withoutImage === true,
       finishedAt: new Date().toISOString(),
     });

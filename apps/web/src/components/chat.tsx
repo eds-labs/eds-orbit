@@ -2,7 +2,15 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { MessageCircle, Plus, Send, Square, ExternalLink } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  MessageCircle,
+  Plus,
+  Send,
+  Square,
+  ExternalLink,
+} from "lucide-react";
 import { api, collectionPath, post, useResource, usd } from "@/lib/api";
 import {
   Alert,
@@ -148,10 +156,43 @@ export function OrbitChat() {
   const [stream, setStream] = useState<Run | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const archivedQuery = showArchived ? "&archived=true" : "";
   const history = useResource<{
     items: Conversation[];
     nextCursor: string | null;
-  }>(`${base}/conversations?revision=${historyRevision}`);
+  }>(`${base}/conversations?revision=${historyRevision}${archivedQuery}`);
+  const [older, setOlder] = useState<{
+    items: Conversation[];
+    next: string | null;
+  }>({ items: [], next: null });
+  useEffect(() => {
+    setOlder({ items: [], next: history.data?.nextCursor ?? null });
+  }, [history.data]);
+  async function loadOlder() {
+    if (!older.next) return;
+    try {
+      const page = await api<{
+        items: Conversation[];
+        nextCursor: string | null;
+      }>(`${base}/conversations?cursor=${older.next}${archivedQuery}`);
+      setOlder((current) => ({
+        items: [...current.items, ...page.items],
+        next: page.nextCursor,
+      }));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Request failed");
+    }
+  }
+  async function setArchived(id: string, archived: boolean) {
+    try {
+      await post(`${base}/conversations/${id}/archive`, { archived });
+      if (id === conversationId) setConversationId("");
+      setHistoryRevision((n) => n + 1);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Request failed");
+    }
+  }
   const detail = useResource<Detail>(
     conversationId
       ? `${base}/conversations/${conversationId}?revision=${detailRevision}`
@@ -312,20 +353,66 @@ export function OrbitChat() {
             <Loading label={de ? "Lade Verlauf…" : "Loading history…"} />
           )}
           {history.error && <Alert kind="error">{history.error.message}</Alert>}
+          <label className="chat-history-toggle">
+            <input
+              type="checkbox"
+              checked={showArchived}
+              onChange={(event) => setShowArchived(event.target.checked)}
+            />
+            <span>{de ? "Archivierte anzeigen" : "Show archived"}</span>
+          </label>
           <div className="chat-history-list">
-            {history.data?.items.map((item) => (
-              <button
-                key={item.id}
-                className={item.id === conversationId ? "chat-selected" : ""}
-                onClick={() => {
-                  setConversationId(item.id);
-                  setActiveRunId("");
-                  setStream(null);
-                }}
-              >
-                {item.title}
-              </button>
+            {[...(history.data?.items ?? []), ...older.items].map((item) => (
+              <div key={item.id} className="chat-history-item">
+                <button
+                  className={item.id === conversationId ? "chat-selected" : ""}
+                  onClick={() => {
+                    setConversationId(item.id);
+                    setActiveRunId("");
+                    setStream(null);
+                  }}
+                >
+                  {item.title}
+                </button>
+                <button
+                  className="chat-history-archive"
+                  aria-label={
+                    showArchived
+                      ? de
+                        ? `Wiederherstellen: ${item.title}`
+                        : `Restore: ${item.title}`
+                      : de
+                        ? `Archivieren: ${item.title}`
+                        : `Archive: ${item.title}`
+                  }
+                  title={
+                    showArchived
+                      ? de
+                        ? "Wiederherstellen"
+                        : "Restore"
+                      : de
+                        ? "Archivieren"
+                        : "Archive"
+                  }
+                  onClick={() => void setArchived(item.id, !showArchived)}
+                >
+                  {showArchived ? (
+                    <ArchiveRestore aria-hidden="true" />
+                  ) : (
+                    <Archive aria-hidden="true" />
+                  )}
+                </button>
+              </div>
             ))}
+            {older.next && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void loadOlder()}
+              >
+                {de ? "Ältere laden" : "Load older"}
+              </Button>
+            )}
           </div>
         </aside>
         <section className="chat-main" aria-label="Orbit Chat">
