@@ -1,3 +1,4 @@
+import { resolveFactPlaceholders } from "./fact-placeholders.ts";
 import { finishMissionRun } from "./planning.ts";
 import { retrieveHybrid } from "./retrieval.ts";
 import { scoped } from "../../../../packages/db/src/index.ts";
@@ -460,7 +461,10 @@ export async function generateMissionLive(
     const m = data(mission);
     await assertMissionAssets(tx, scope, m.assetIds ?? []);
     const content = await create(tx, scope, "content", {
-      ...outcome.output,
+      ...resolveFactPlaceholders(
+        outcome.output,
+        data(prepared.evidence).facts ?? [],
+      ),
       type: m.contentType,
       language: m.language,
       channel: m.channels[(m.completedRuns ?? 0) % m.channels.length],

@@ -947,6 +947,56 @@ describe.skipIf(!enabled)(
         data(evidence).facts.map((fact: { key: string }) => fact.key),
       ).toEqual(["product.target"]);
     });
+    it("inserts the verbatim fact for a placeholder so review passes without paraphrase", async () => {
+      await setCampaign("product");
+      const value =
+        "Users remain in control of their exchange accounts, wallets and trading decisions.";
+      await run(async (tx) => {
+        await setFact(tx, s, {
+          key: "product.user_control",
+          value,
+          valueType: "text",
+          language: "en",
+          sourceId,
+          validFrom: new Date(Date.now() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        await update(tx, s, mission, {
+          ...data(mission),
+          factKeys: ["product.user_control"],
+          chatProposalId: randomUUID(),
+          chatCostCeilingMicros: 10_000,
+        });
+      });
+      provider.generate.mockImplementation(async (params: any) => {
+        const fact = params.evidence.facts.find(
+          (f: any) => f.key === "product.user_control",
+        );
+        return {
+          ...generated(),
+          output: {
+            title: "Control",
+            body: `{{fact:${fact.id}}}`,
+            claims: [
+              { kind: "fact", text: `{{fact:${fact.id}}}`, factId: fact.id },
+            ],
+          },
+        };
+      });
+      const content = await generateMissionLive(s, missionId, randomUUID());
+      expect(data(content).body).toBe(value);
+      expect(data(content).claims[0].text).toBe(value);
+      const review = await run((tx) => checkClaims(tx, s, content.id));
+      expect(review.problems).not.toContain("CLAIM_NOT_IN_CONTENT");
+      expect(review.problems).not.toContain("FACT_PLACEHOLDER_UNRESOLVED");
+      expect(review.problems).not.toContain("FACT_VALUE_MISMATCH");
+      expect(review.problems).not.toContain("FACT_OUTSIDE_EVIDENCE");
+    });
     it.each([
       ["telegram", 4096, "utf16_units"],
       ["linkedin", 3000, "utf16_units"],

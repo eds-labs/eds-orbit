@@ -809,6 +809,14 @@ After deploying `7685595`, and with Mario's approval, "Built for control" (v4) w
 
 **Open:** Better Stack monitors (readiness, backup heartbeat with `BACKUP_HEARTBEAT_URL` set in Coolify), storing `CREDENTIAL_KEY` and the backup key in the password manager, the migration/volume review and the final uLiquid acceptance run.
 
+### 2026-09-30 09:30 CEST -- Final acceptance run blocked by a paraphrased fact; verbatim fact insertion added
+
+**Checks:** Migration state and volumes reviewed read-only: the five repository migrations are applied (the API only starts after `migrate` completes successfully and it answers `/api/health/ready` with 200); Coolify lists the persistent volumes `orbit-pg` (`/var/lib/postgresql/data`) and `orbit-redis` (`/data`), and all Phase 6--9 data survived every redeploy and the 2026-09-29 server outage.
+
+**Final acceptance run (Phase 10 approved by Mario):** The accepted Phase 6 Chat request (period 2026-09-30T09:00Z to 2026-10-01T09:00Z) produced proposal `68a73ad7-93c5-4207-9ce1-1bbb79eeeab7` ($0.12 ceiling). Confirmation created Mission `afd410ac-a03f-4be7-b377-8cd89c9b6a1b`; the owner live-draft-once action ran Job `5df62fca-6706-426e-83e2-aa8f778a0586` once (`succeeded`, 1/1, no second job). Content `3521e259-2603-401f-be7f-58de5451fb81` ("Your Decisions. Your Control.", `gpt-5.6-terra`, 6,026 USD micros, approved logo, official target). Automatic review: `CLAIM_NOT_IN_CONTENT` and `HUMAN_CONTENT_REVIEW_REQUIRED`. The ledger quoted the `product.user_control` fact verbatim, but the body paraphrased it ("you stay in charge of your exchange accounts, wallets, and trading decisions"). The review blocked correctly; no retry, 0 publications, no Postiz or Drive call.
+
+**Change:** The model now writes each fact claim as `{{fact:<factId>}}` in body and ledger; generation replaces it with the exact verified value from the draft's own evidence pack before the Content is stored, so a fact can no longer be paraphrased. Unknown placeholders stay visible and claim review reports `FACT_PLACEHOLDER_UNRESOLVED`. Tests: resolver unit tests and an integration test through `generateMissionLive` that fails without the change; full suite 383/383, lint, web typecheck. A new paid acceptance run needs Mario's go.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.

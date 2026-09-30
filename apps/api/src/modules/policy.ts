@@ -1,3 +1,4 @@
+import { hasFactPlaceholder } from "./fact-placeholders.ts";
 import { calendarConflicts } from "./calendar.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { invalidateContent } from "./content-invalidation.ts";
@@ -93,6 +94,7 @@ export async function checkClaims(
   if (e.status === "insufficient_evidence" || e.purpose !== "public")
     problems.push("INSUFFICIENT_PUBLIC_EVIDENCE");
   if (!v.claims?.length) problems.push("CLAIM_LEDGER_REQUIRED");
+  if (hasFactPlaceholder(v.body)) problems.push("FACT_PLACEHOLDER_UNRESOLVED");
   // The mission CTA is owner-approved campaign copy, not a factual claim.
   // profileGuardrailProblems verifies it against the current profile and its
   // official link Fact, so a model-attached factId must not turn it into one.
