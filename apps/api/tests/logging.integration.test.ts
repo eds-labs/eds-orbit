@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { PassThrough } from "node:stream";
 import { buildServer } from "../src/server.ts";
-import { closeDatabase } from "../../../packages/db/src/index.ts";
+import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 
@@ -60,17 +60,55 @@ describe.skipIf(!enabled)("Structured redacted API logging", () => {
     expect(output).not.toContain("attacker-chosen-id");
   });
 
-  it("logs only the error code and class name, never messages", async () => {
+  // Keys pino and Fastify add to every line; anything else is payload.
+  const standard = new Set([
+    "level",
+    "time",
+    "pid",
+    "hostname",
+    "reqId",
+    "msg",
+  ]);
+  const payloadKeys = (line: Record<string, unknown> | undefined) =>
+    Object.keys(line ?? {})
+      .filter((key) => !standard.has(key))
+      .sort();
+
+  it("logs handled failures at warn with the response code and status only", async () => {
     raw = "";
-    await app.inject({
+    const response = await app.inject({
       method: "GET",
       url: "/api/google-drive/callback?code=secret-code&state=secret-state",
     });
     const failure = lines().find((line) => line.msg === "request failed");
-    expect(failure).toBeDefined();
-    expect(failure?.code).toEqual(expect.any(String));
-    expect(Object.keys(failure ?? {})).not.toContain("err");
-    expect(Object.keys(failure ?? {})).not.toContain("stack");
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe("VALIDATION_FAILED");
+    expect(failure?.level).toBe(40);
+    expect(failure?.code).toBe("VALIDATION_FAILED");
+    expect(failure?.status).toBe(response.statusCode);
+    expect(payloadKeys(failure)).toEqual(["code", "status"]);
+    expect(raw).not.toContain("secret-code");
+    expect(raw).not.toContain("secret-state");
+  });
+
+  it("logs unexpected 5xx failures at error with errorName but never the message", async () => {
+    raw = "";
+    const spy = vi
+      .spyOn(authDb.workspace, "count")
+      .mockRejectedValueOnce(new Error("boom-secret-message"));
+    try {
+      const response = await app.inject("/api/setup");
+      const failure = lines().find((line) => line.msg === "request failed");
+      expect(response.statusCode).toBe(500);
+      expect(failure?.level).toBe(50);
+      expect(failure?.code).toBe("REQUEST_FAILED");
+      expect(failure?.status).toBe(500);
+      expect(failure?.errorName).toBe("Error");
+      expect(payloadKeys(failure)).toEqual(["code", "errorName", "status"]);
+      expect(raw).not.toContain("boom-secret-message");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("keeps health probes out of info logs", async () => {

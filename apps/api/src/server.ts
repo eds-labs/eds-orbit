@@ -289,11 +289,14 @@ export async function buildServer(
             : status === 429
               ? "RATE_LIMITED"
               : "REQUEST_FAILED";
-    // Code only: error messages and stacks may carry secrets or user data.
-    req.log.error(
-      error instanceof DomainError
-        ? { code: error.code }
-        : { code: "UNEXPECTED", errorName: (error as Error)?.name },
+    // Code/status only: error messages and stacks may carry secrets or user data.
+    // errorName is added only for errors outside the known classes.
+    const known =
+      error instanceof DomainError ||
+      error instanceof KnowledgeError ||
+      error instanceof z.ZodError;
+    req.log[status >= 500 ? "error" : "warn"](
+      { code, status, ...(known ? {} : { errorName: (error as Error)?.name }) },
       "request failed",
     );
     reply.code(status).send({
