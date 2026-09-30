@@ -24,10 +24,11 @@ const count = z.number().int().nonnegative();
 const responsesUsage = z.object({
   input_tokens: count,
   output_tokens: count,
+  // Providers may send explicit nulls; treat them like missing values.
   input_tokens_details: z
-    .object({ cached_tokens: count.optional(), cache_write_tokens: count.optional() })
-    .optional(),
-  output_tokens_details: z.object({ reasoning_tokens: count.optional() }).optional(),
+    .object({ cached_tokens: count.nullish(), cache_write_tokens: count.nullish() })
+    .nullish(),
+  output_tokens_details: z.object({ reasoning_tokens: count.nullish() }).nullish(),
 });
 
 /** Normalizes a Responses API usage object. Missing cache details are marked unknown, never assumed zero-cost. */
@@ -36,8 +37,7 @@ export function normalizeResponsesUsage(usage: unknown): NormalizedUsage {
   if (!parsed.success) throw new Error("USAGE_UNKNOWN");
   const u = parsed.data;
   const details = u.input_tokens_details;
-  const detailsKnown =
-    details?.cached_tokens !== undefined && details?.cache_write_tokens !== undefined;
+  const detailsKnown = details?.cached_tokens != null && details?.cache_write_tokens != null;
   return {
     inputTokens: u.input_tokens,
     cachedTokens: details?.cached_tokens ?? 0,
@@ -73,7 +73,12 @@ export function computeCost(model: string, usage: NormalizedUsage, runtime: Cost
     ? (usage.inputTokens - usage.cachedTokens - usage.cacheWriteTokens) * rate.inputMicrosPerMillion +
       usage.cachedTokens * rate.cachedInputMicrosPerMillion +
       usage.cacheWriteTokens * rate.cacheWriteMicrosPerMillion
-    : usage.inputTokens * Math.max(rate.inputMicrosPerMillion, rate.cacheWriteMicrosPerMillion);
+    : usage.inputTokens *
+      Math.max(
+        rate.inputMicrosPerMillion,
+        rate.cacheWriteMicrosPerMillion,
+        rate.cachedInputMicrosPerMillion,
+      );
   return Math.max(1, Math.ceil((input + usage.outputTokens * rate.outputMicrosPerMillion) / 1_000_000));
 }
 

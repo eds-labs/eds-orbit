@@ -29,6 +29,16 @@ import {
   type ChatCard,
 } from "./chat-tools.ts";
 
+// Span names come from this fixed set; the model-supplied name is never stored.
+const KNOWN_TOOL_NAMES = new Set<string>([
+  ...readToolDefinitions.map((tool) => tool.name),
+  "propose_campaign",
+]);
+const toolSpanName = (name: unknown) =>
+  typeof name === "string" && KNOWN_TOOL_NAMES.has(name)
+    ? name
+    : "unknown_tool";
+
 const MAX_MODEL_CALLS = 6;
 const MAX_TOOL_CALLS = 8;
 const MAX_INPUT_BYTES = 32000;
@@ -417,7 +427,7 @@ export async function runChat(scope: Scope, runId: string) {
         const recordTool = () =>
           recordSpan(scope, agentRunId, {
             type: "tool_call",
-            name: String(call.name),
+            name: toolSpanName(call.name),
             status: toolFailure ? "failed" : "succeeded",
             errorCode: toolFailure ?? undefined,
             startedAt: toolStartedAt,

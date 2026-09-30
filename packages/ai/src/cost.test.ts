@@ -22,6 +22,16 @@ describe("normalizeResponsesUsage", () => {
   it("marks missing details as unknown", () => {
     expect(normalizeResponsesUsage({ input_tokens: 100, output_tokens: 30 })).toMatchObject({ cachedTokens: 0, cacheWriteTokens: 0, detailsKnown: false });
   });
+  it("accepts null detail objects and counts as unknown details", () => {
+    const unknown = { cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: 0, detailsKnown: false };
+    expect(normalizeResponsesUsage({ input_tokens: 10, output_tokens: 2, input_tokens_details: null, output_tokens_details: null })).toMatchObject(unknown);
+    expect(normalizeResponsesUsage({ input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: 4, cache_write_tokens: null } })).toMatchObject({ cachedTokens: 4, cacheWriteTokens: 0, detailsKnown: false });
+    expect(normalizeResponsesUsage({ input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: null, cache_write_tokens: 3 } })).toMatchObject({ cachedTokens: 0, cacheWriteTokens: 3, detailsKnown: false });
+    expect(normalizeResponsesUsage({ input_tokens: 10, output_tokens: 2, output_tokens_details: { reasoning_tokens: null } })).toMatchObject({ reasoningTokens: 0 });
+  });
+  it("treats partial details (only cached_tokens) as unknown", () => {
+    expect(normalizeResponsesUsage({ input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: 4 } })).toMatchObject({ cachedTokens: 4, detailsKnown: false });
+  });
   it("rejects usage without token counts", () => {
     expect(() => normalizeResponsesUsage({ output_tokens: 3 })).toThrow("USAGE_UNKNOWN");
     expect(() => normalizeResponsesUsage(null)).toThrow("USAGE_UNKNOWN");
@@ -42,6 +52,16 @@ describe("computeCost", () => {
   it("charges all input at the cache-write rate when details are unknown", () => {
     const usage = { inputTokens: 1_000_000, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0, detailsKnown: false };
     expect(computeCost("m", usage, runtime(base))).toBe(2_500_000);
+  });
+  it("never settles above the estimate for any details split when cached reads cost more than input", () => {
+    const rt = runtime({ ...base, cachedInputMicrosPerMillion: 4_000_000, cacheWriteMicrosPerMillion: 2_500_000 });
+    const estimate = estimateCost("m", 1_000_000, 0, rt);
+    for (const cachedTokens of [0, 250_000, 500_000, 1_000_000]) {
+      const cacheWriteTokens = 1_000_000 - cachedTokens;
+      const settled = computeCost("m", { inputTokens: 1_000_000, cachedTokens, cacheWriteTokens, outputTokens: 0, reasoningTokens: 0, detailsKnown: true }, rt);
+      expect(estimate).toBeGreaterThanOrEqual(settled);
+    }
+    expect(estimate).toBe(4_000_000);
   });
   it("rounds up and never returns zero", () => {
     const usage = { inputTokens: 1, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0, detailsKnown: true };

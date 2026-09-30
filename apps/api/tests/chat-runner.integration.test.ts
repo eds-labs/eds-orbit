@@ -124,6 +124,21 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
               ],
             },
           };
+        } else if (mocked.mode === "unknown_tool" && step === 1) {
+          yield {
+            type: "response.completed",
+            response: {
+              usage: { input_tokens: 100, output_tokens: 30 },
+              output: [
+                {
+                  type: "function_call",
+                  name: "model_controlled_name_secret-value",
+                  call_id: "unknown-tool-call",
+                  arguments: "{}",
+                },
+              ],
+            },
+          };
         } else if (mocked.mode === "knowledge" && step === 1) {
           yield {
             type: "response.completed",
@@ -1093,6 +1108,29 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       }),
     );
     expect(tools[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+  it("records a generic span name for a tool the model invented", async () => {
+    mocked.mode = "unknown_tool";
+    mocked.calls = 0;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const { spans } = await traced(sent.runId);
+      const tools = spans.filter((span) => span.type === "tool_call");
+      expect(tools).toHaveLength(1);
+      expect(tools[0]!.name).toBe("unknown_tool");
+      expect(
+        JSON.stringify(spans, (_key, value) =>
+          typeof value === "bigint" ? value.toString() : value,
+        ),
+      ).not.toContain("secret-value");
+    } finally {
+      mocked.mode = "normal";
+    }
   });
   const settleOnce = async (mode: string) => {
     mocked.mode = mode;
