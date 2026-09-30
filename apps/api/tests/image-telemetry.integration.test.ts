@@ -237,8 +237,8 @@ describe.skipIf(!enabled)("Image generation telemetry", () => {
         budgetReservationId: reservations[0]!.id,
       }),
     );
-    expect(JSON.stringify(spans, (_k, v) => (typeof v === "bigint" ? `${v}` : v))).not.toContain(
-      "secret prompt text",
-    );
+    expect(
+      JSON.stringify(spans, (_k, v) => (typeof v === "bigint" ? `${v}` : v)),
+    ).not.toContain("secret prompt text");
   });
 });

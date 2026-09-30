@@ -323,7 +323,7 @@ describe.skipIf(!enabled)("Agent run and cost read endpoints", () => {
   });
 
   it("never lists another project's runs and rejects a foreign-project cursor", async () => {
-    const foreign = Array.from({ length: 3 }, () => randomUUID());
+    const foreign: string[] = Array.from({ length: 3 }, () => randomUUID());
     await scoped(workspaceId, otherId, (tx) =>
       tx.agentRun.createMany({
         data: foreign.map((id, i) => ({
