@@ -20,6 +20,8 @@ Editors and owners read this through `GET /api/projects/:projectId/agent-runs` (
 
 The API uses the Fastify pino logger. Each request logs a random request ID (client IDs are ignored), method and path without the query string; each response logs the status code. Authorization and cookie headers are redacted and request or response bodies are never logged. A failed request adds one line `{code, status}` (level `warn` below 500, `error` from 500) and, only for errors outside the known domain/validation classes, `errorName`; never the message or stack. `/health` and `/api/health/ready` log at `warn` so probes do not flood info logs. Set `LOG_LEVEL` (`trace|debug|info|warn|error|fatal|silent`, default `info`); the test suite defaults to `silent`. Worker logging is unchanged by this phase.
 
+Rollout note (cache-aware estimates): the higher estimate raises the first-draft cost ceiling stored with Chat proposals. Before deploying this phase, confirm or discard every pending Chat proposal. A proposal still pending afterwards fails confirmation with `PROPOSAL_COST_CHANGED`, and a mission confirmed before the deploy but generated after it may stop earlier with `CHAT_PROPOSAL_COST_EXCEEDED`. Both checks fail closed before any paid call, so nothing is overspent; recovery is to ask Chat to propose the campaign again. See ADR 0003.
+
 ## Failure and recovery
 
 Pause before intervention. Unknown publication or Slack handoff must remain unknown until observed; do not create a fresh job to resend it. Known publication IDs are read-polled at most eight times with bounded delay. Postiz group cancellation remains a visible manual provider action, because current group scope cannot be proven safely from the list contract.
