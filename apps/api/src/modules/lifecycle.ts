@@ -1,3 +1,4 @@
+import { planAutopilot } from "./autopilot.ts";
 import { prepareFollowup } from "./planning.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
@@ -190,6 +191,7 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
     where: { id: scope.projectId },
   });
   if (project.paused) return { queued: 0 };
+  await planAutopilot(tx, scope, at);
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
   // An owner-approved single live draft is the mission's only attempt; its

@@ -462,14 +462,17 @@ export async function generateMissionLive(
     const m = data(mission);
     await assertMissionAssets(tx, scope, m.assetIds ?? []);
     // Each run of a series gets its own day at the channel's posting time.
-    const scheduledAt = prepared.channelRules.postingTime
-      ? postingSlot(
-          m.startAt,
-          prepared.channelRules.postingTime,
-          project.timezone,
-          m.completedRuns ?? 0,
-        )
-      : null;
+    const planned = Date.parse(m.plannedSlotAt ?? "");
+    const scheduledAt = Number.isFinite(planned)
+      ? new Date(planned)
+      : prepared.channelRules.postingTime
+        ? postingSlot(
+            m.startAt,
+            prepared.channelRules.postingTime,
+            project.timezone,
+            m.completedRuns ?? 0,
+          )
+        : null;
     const content = await create(tx, scope, "content", {
       ...(scheduledAt && scheduledAt < new Date(m.endAt)
         ? { scheduledAt: scheduledAt.toISOString() }

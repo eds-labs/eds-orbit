@@ -202,6 +202,19 @@ export async function checkClaims(
   problems.push(...(await profileGuardrailProblems(tx, scope, v, at)));
   return { valid: problems.length === 0, problems: [...new Set(problems)] };
 }
+/** The same facts may be repeated on a channel after this many days. */
+export const CLAIM_REPEAT_WINDOW_DAYS = 7;
+
+/** A post's planned time, or its creation time when it has no slot. */
+export function postTime(content: Record<string, any>, createdAt: Date) {
+  const planned = Date.parse(content.scheduledAt ?? "");
+  return Number.isFinite(planned) ? planned : createdAt.valueOf();
+}
+
+export function withinClaimRepeatWindow(a: number, b: number) {
+  return Math.abs(a - b) < CLAIM_REPEAT_WINDOW_DAYS * 86_400_000;
+}
+
 export async function preflight(
   tx: DbTx,
   scope: Scope,
@@ -255,7 +268,11 @@ export async function preflight(
         );
       const overlap =
         ownClaims.length > 0 &&
-        ownClaims.every((id: string) => priorClaims.has(id));
+        ownClaims.every((id: string) => priorClaims.has(id)) &&
+        withinClaimRepeatWindow(
+          postTime(c, pkg.content.createdAt),
+          postTime(d, previous.createdAt),
+        );
       if (
         (exact || overlap) &&
         (await validateEvidence(tx, scope, d.evidenceId, at)).valid

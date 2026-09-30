@@ -1,5 +1,7 @@
 export function missionFactKeys(mission: Record<string, unknown>) {
-  if (typeof mission.chatProposalId !== "string") return undefined;
+  // Confirmed Chat proposals and planned autopilot slots carry exact keys.
+  if (typeof mission.chatProposalId !== "string" && mission.autopilot !== true)
+    return undefined;
   const confirmed = Array.isArray(mission.factKeys)
     ? mission.factKeys.filter(
         (key): key is string => typeof key === "string" && key.length > 0,
