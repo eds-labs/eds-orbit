@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   proposeBrief,
   briefProposalInput,
@@ -197,10 +198,39 @@ import {
 } from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
-export async function buildServer(diagnostic?: (error: unknown) => void) {
+export async function buildServer(
+  diagnostic?: (error: unknown) => void,
+  options?: { logStream?: NodeJS.WritableStream },
+) {
   const config = loadConfig(),
     auth = makeAuth();
-  const app = Fastify({ logger: false, bodyLimit: 1500000, trustProxy: false });
+  const app = Fastify({
+    bodyLimit: 1500000,
+    trustProxy: false,
+    // Never trust or echo client-supplied request ids.
+    genReqId: () => randomUUID(),
+    logger: {
+      level: process.env.LOG_LEVEL ?? "info",
+      ...(options?.logStream ? { stream: options.logStream } : {}),
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          'res.headers["set-cookie"]',
+        ],
+        censor: "[redacted]",
+      },
+      // Path only (no query string), no headers, no bodies.
+      serializers: {
+        req: (req: { id: string; method: string; url?: string }) => ({
+          id: req.id,
+          method: req.method,
+          path: String(req.url).split("?")[0],
+        }),
+        res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+      },
+    },
+  });
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
@@ -259,6 +289,13 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
             : status === 429
               ? "RATE_LIMITED"
               : "REQUEST_FAILED";
+    // Code only: error messages and stacks may carry secrets or user data.
+    req.log.error(
+      error instanceof DomainError
+        ? { code: error.code }
+        : { code: "UNEXPECTED", errorName: (error as Error)?.name },
+      "request failed",
+    );
     reply.code(status).send({
       error: { code, message: code.replaceAll("_", " ").slice(0, 200) },
     });
@@ -289,9 +326,13 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       }
     },
   );
-  app.get("/health", async () => ({ status: "ok", service: "orbit-api" }));
+  // Probes log at warn level only so they do not flood info logs.
+  app.get("/health", { logLevel: "warn" }, async () => ({
+    status: "ok",
+    service: "orbit-api",
+  }));
   // Public readiness for external uptime monitors: states only, no details.
-  app.get("/api/health/ready", async (_req, reply) => {
+  app.get("/api/health/ready", { logLevel: "warn" }, async (_req, reply) => {
     const database = await authDb.$queryRaw`SELECT 1`
       .then(() => "ok" as const)
       .catch(() => "unavailable" as const);

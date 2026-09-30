@@ -5,3 +5,5 @@ if (process.env.TEST_DATABASE_URL) {
   process.env.AUTH_DATABASE_URL = process.env.TEST_AUTH_DATABASE_URL;
   process.env.MIGRATION_DATABASE_URL = process.env.TEST_MIGRATION_DATABASE_URL;
 }
+// Keep test output quiet; logging tests opt back in via LOG_LEVEL.
+process.env.LOG_LEVEL ??= "silent";
