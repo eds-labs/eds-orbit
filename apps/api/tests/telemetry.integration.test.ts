@@ -322,6 +322,45 @@ describe.skipIf(!enabled)("Agent run and cost read endpoints", () => {
     }
   });
 
+  it("never lists another project's runs and rejects a foreign-project cursor", async () => {
+    const foreign = Array.from({ length: 3 }, () => randomUUID());
+    await scoped(workspaceId, otherId, (tx) =>
+      tx.agentRun.createMany({
+        data: foreign.map((id, i) => ({
+          id,
+          workspaceId,
+          projectId: otherId,
+          kind: "chat",
+          agentName: "foreign",
+          taskClass: "standard",
+          status: "succeeded",
+          // Newer than every seeded run, so a leak would show up first.
+          startedAt: new Date(base + 3_600_000 + i * 1000),
+        })),
+      }),
+    );
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const r = await get(`/agent-runs${cursor ? `?cursor=${cursor}` : ""}`);
+      expect(r.statusCode).toBe(200);
+      seen.push(...r.json().runs.map((x: { id: string }) => x.id));
+      cursor = r.json().nextCursor;
+    } while (cursor);
+    expect(seen.filter((id) => foreign.includes(id))).toEqual([]);
+    const bad = await get(`/agent-runs?cursor=${foreign[0]}`);
+    expect(bad.statusCode).toBe(400);
+    expect(bad.json().error.code).toBe("INVALID_CURSOR");
+    // The same listing from the other project's own route sees only its runs.
+    const own = await app.inject({
+      url: `/api/projects/${otherId}/agent-runs`,
+      headers: { cookie },
+    });
+    expect(own.json().runs.map((x: { id: string }) => x.id).sort()).toEqual(
+      [...foreign].sort(),
+    );
+  });
+
   it("aggregates span counts, tokens and cost per run", async () => {
     const runId = randomUUID();
     const s = (type: string, n: number, cost: number | null) => ({
