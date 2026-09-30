@@ -1186,6 +1186,43 @@ describe.skipIf(!enabled)(
         planned: 0,
       });
     });
+    it("autopilot skips days before its start date", async () => {
+      await setCampaign("product");
+      await run(async (tx) => {
+        await setFact(tx, s, {
+          key: "product.target",
+          value: "Users remain in control of their accounts.",
+          valueType: "text",
+          language: "en",
+          sourceId,
+          validFrom: new Date(Date.now() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        const connector = await tx.entity.findFirstOrThrow({
+          where: { projectId: s.projectId, kind: "connectors" },
+        });
+        await update(tx, s, connector, {
+          ...data(connector),
+          postingTimes: { test: "17:00" },
+        });
+        await tx.project.update({
+          where: { id: s.projectId },
+          data: { mode: "autopilot" },
+        });
+        await configureAutopilot(tx, s, {
+          enabled: true,
+          channels: ["test"],
+          factKeys: ["product.target"],
+          assetIds: [],
+          planWeekday: 0,
+          planTime: "12:00",
+          startDate: "2099-01-01",
+        });
+      });
+      expect(await run((tx) => planAutopilot(tx, s))).toEqual({ planned: 0 });
+    });
     it("rejects a stale profile before any paid query or text call", async () => {
       await setCampaign("product");
       await run((tx) =>

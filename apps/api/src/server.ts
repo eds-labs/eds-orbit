@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
 import { approveAndSchedule, configureAutopilot } from "./modules/autopilot.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
 import {
@@ -1221,6 +1222,7 @@ export async function buildServer(
       "postiz-draft-resolve",
       "archive-mission",
       "configure-autopilot",
+      "configure-matomo-schedule",
       "approve-and-schedule",
       "postiz-test-reconcile",
       "calendar-block",
@@ -1832,6 +1834,8 @@ export async function buildServer(
           "reconcile-manual:" + pub.id + ":" + pub.version,
         );
       }
+      if (action === "configure-matomo-schedule")
+        return configureMatomoSchedule(tx, scope, input);
       if (action === "configure-autopilot")
         return configureAutopilot(tx, scope, input);
       if (action === "approve-and-schedule")

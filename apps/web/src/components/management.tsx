@@ -3,6 +3,7 @@ import { GoogleDriveSettings } from "./google-drive";
 import { useState } from "react";
 import {
   MatomoImport,
+  MatomoSchedule,
   PostizVerification,
   WorkspacePause,
 } from "./operator-tools";
@@ -104,6 +105,7 @@ export function Analytics() {
         {canEdit && (
           <>
             <MatomoImport />
+            <MatomoSchedule />
             <Button variant="outline" onClick={() => setCsvImport(true)}>
               Import CSV
             </Button>
@@ -1498,6 +1500,7 @@ function AutopilotSettings() {
     assetIds: string[];
     planWeekday: number;
     planTime: string;
+    startDate?: string;
   } | null>(null);
   const values = form ?? {
     enabled: current?.enabled === true,
@@ -1514,6 +1517,9 @@ function AutopilotSettings() {
       typeof current?.planWeekday === "number" ? current.planWeekday : 0,
     planTime:
       typeof current?.planTime === "string" ? current.planTime : "12:00",
+    ...(typeof current?.startDate === "string"
+      ? { startDate: current.startDate }
+      : {}),
   };
   const set = (patch: Partial<typeof values>) =>
     setForm({ ...values, ...patch });
@@ -1637,6 +1643,20 @@ function AutopilotSettings() {
               </option>
             ))}
           </select>
+        </label>
+        <label>
+          <span>{de ? "Planen ab" : "Plan from"}</span>
+          <input
+            type="date"
+            value={values.startDate ?? ""}
+            disabled={!isOwner}
+            onChange={(e) => {
+              const { startDate: _drop, ...rest } = values;
+              setForm(
+                e.target.value ? { ...rest, startDate: e.target.value } : rest,
+              );
+            }}
+          />
         </label>
         <label>
           <span>{de ? "um" : "at"}</span>

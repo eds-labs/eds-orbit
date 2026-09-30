@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import {
   authDb,
@@ -7,7 +7,11 @@ import {
   type DbTx,
 } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { create, data } from "../shared.ts";
+import { create, data, encrypt } from "../shared.ts";
+import {
+  configureMatomoSchedule,
+  runScheduledMatomo,
+} from "./matomo-schedule.ts";
 import { archiveMission } from "./mission-archive.ts";
 import { sweepProject } from "./lifecycle.ts";
 import {
@@ -138,5 +142,51 @@ describe.skipIf(!enabled)("archiving missions and chats", () => {
       first.id,
     );
     expect((await listConversations(scope, undefined, true)).items).toEqual([]);
+  });
+  it("runs saved Matomo imports at most every 12 hours and records failures", async () => {
+    const connector = await run((tx) =>
+      create(tx, scope, "connectors", {
+        provider: "matomo",
+        status: "read_verified",
+        siteId: 3,
+        baseUrl: "https://matomo.example.invalid",
+        encryptedCredential: encrypt("synthetic", process.env.CREDENTIAL_KEY!),
+      }),
+    );
+    const input = {
+      enabled: true,
+      connectorId: connector.id,
+      siteId: 3,
+      siteTimezone: "Europe/Berlin",
+      currency: "EUR",
+      methods: ["VisitsSummary.get"],
+    };
+    await expect(
+      run((tx) => configureMatomoSchedule(tx, scope, { ...input, siteId: 4 })),
+    ).rejects.toThrow("MATOMO_CONNECTOR_SCOPE");
+    await run((tx) => configureMatomoSchedule(tx, scope, input));
+    vi.stubEnv("CREDENTIAL_KEY", "");
+    const now = new Date("2026-10-01T06:00:00Z");
+    expect(await runScheduledMatomo(scope, now)).toEqual({
+      ran: true,
+      failed: 2,
+    });
+    expect(
+      await runScheduledMatomo(scope, new Date(now.valueOf() + 3600_000)),
+    ).toEqual({ ran: false });
+    expect(
+      await runScheduledMatomo(scope, new Date(now.valueOf() + 12 * 3600_000)),
+    ).toMatchObject({ ran: true });
+    vi.unstubAllEnvs();
+    const failures = await run((tx) =>
+      tx.entity.count({
+        where: {
+          projectId: scope.projectId,
+          kind: "exceptions",
+          data: { path: ["code"], equals: "MATOMO_SCHEDULED_IMPORT_FAILED" },
+        },
+      }),
+    );
+    expect(failures).toBeGreaterThan(0);
   });
 });

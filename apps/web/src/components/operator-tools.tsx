@@ -138,6 +138,135 @@ export function MatomoImport() {
   );
 }
 
+const matomoReports = [
+  "VisitsSummary.get",
+  "Referrers.getCampaigns",
+  "Actions.getPageUrls",
+  "Goals.get",
+] as const;
+export function MatomoSchedule() {
+  const { project, isOwner, refresh, locale } = useWorkspace();
+  const de = locale === "de";
+  const connectors = useCollection("connectors"),
+    schedules = useCollection("matomo_schedules");
+  const [open, setOpen] = useState(false);
+  const mutation = useMutation(refresh);
+  const available = (connectors.data?.items || []).filter(
+    (c) => c.data.provider === "matomo" && c.data.status !== "revoked",
+  );
+  const current = schedules.data?.items[0]?.data as
+    Record<string, unknown> | undefined;
+  if (!isOwner) return null;
+  const methods = Array.isArray(current?.methods)
+    ? (current.methods as string[])
+    : ["VisitsSummary.get", "Referrers.getCampaigns"];
+  return (
+    <>
+      <Button variant="outline" onClick={() => setOpen(true)}>
+        {de ? "Automatischer Abruf" : "Scheduled import"}
+        {current?.enabled === true && <Badge tone="success">2×/Tag</Badge>}
+      </Button>
+      {open && (
+        <Modal
+          title={de ? "Matomo automatisch abrufen" : "Scheduled Matomo import"}
+          description={
+            de
+              ? "Einmal speichern: Orbit liest danach zweimal täglich die Berichte von gestern und heute. Ein erneutes Lesen korrigiert Werte, es entstehen keine Doppelten."
+              : "Save once: Orbit then reads yesterday's and today's reports twice a day. Re-reading corrects values instead of duplicating them."
+          }
+          onClose={() => setOpen(false)}
+        >
+          {typeof current?.lastRunAt === "string" && (
+            <p className="panel-note">
+              {de ? "Letzter Abruf" : "Last run"}:{" "}
+              {when(current.lastRunAt, locale, project.timezone)}
+            </p>
+          )}
+          {!available.length ? (
+            <Alert kind="warning">
+              {de
+                ? "Richte zuerst eine Matomo-Verbindung ein."
+                : "Configure a Matomo connector first."}
+            </Alert>
+          ) : (
+            <DataForm
+              fields={[
+                {
+                  name: "enabled",
+                  label: de
+                    ? "Automatischer Abruf aktiv"
+                    : "Scheduled import on",
+                  type: "checkbox",
+                  value: current ? current.enabled === true : true,
+                },
+                {
+                  name: "connectorId",
+                  label: de ? "Matomo-Verbindung" : "Matomo connection",
+                  type: "select",
+                  required: true,
+                  value: String(current?.connectorId ?? available[0]!.id),
+                  options: available.map((c) => ({
+                    value: c.id,
+                    label: String(c.data.baseUrl || c.id),
+                  })),
+                },
+                {
+                  name: "siteId",
+                  label: "Matomo site ID",
+                  type: "number",
+                  required: true,
+                  min: 1,
+                  value: String(
+                    current?.siteId ?? available[0]!.data.siteId ?? "",
+                  ),
+                },
+                {
+                  name: "siteTimezone",
+                  label: de ? "Zeitzone der Website" : "Site timezone",
+                  required: true,
+                  value: String(current?.siteTimezone ?? project.timezone),
+                },
+                {
+                  name: "currency",
+                  label: de ? "Währung (ISO)" : "Currency (ISO)",
+                  required: true,
+                  max: 3,
+                  value: String(current?.currency ?? "EUR"),
+                },
+                ...matomoReports.map((method) => ({
+                  name: method,
+                  label: method,
+                  type: "checkbox" as const,
+                  value: methods.includes(method),
+                })),
+              ]}
+              pending={mutation.pending}
+              error={mutation.error}
+              submitLabel={de ? "Speichern" : "Save"}
+              onSubmit={(v) =>
+                mutation
+                  .run(() =>
+                    action(project.id, "configure-matomo-schedule", {
+                      enabled: v.enabled === true,
+                      connectorId: str(v, "connectorId"),
+                      siteId: num(v, "siteId"),
+                      siteTimezone: str(v, "siteTimezone"),
+                      currency: str(v, "currency").toUpperCase(),
+                      methods: matomoReports.filter((m) => v[m] === true),
+                    }),
+                  )
+                  .then((r) => {
+                    if (r) setOpen(false);
+                  })
+              }
+            />
+          )}
+        </Modal>
+      )}
+    </>
+  );
+}
+
 type IndexGeneration = {
   id: string;
   generation: number;

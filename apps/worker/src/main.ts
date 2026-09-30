@@ -1,3 +1,4 @@
+import { runScheduledMatomo } from "../../api/src/modules/matomo-schedule.ts";
 import {
   saveGeneratedAsset,
   markSyncFailed,
@@ -376,6 +377,8 @@ async function pump() {
             orderBy: { availableAt: "asc" },
           });
         });
+        // Saved Matomo imports run at most twice a day per project.
+        await runScheduledMatomo(scope).catch(() => {});
         if (
           Date.now() - (driveRetryChecks.get(p.id) ?? 0) > 30_000 &&
           (await connectionStatus(scope)).enabled
