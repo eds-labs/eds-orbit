@@ -79,11 +79,15 @@ describe.skipIf(!enabled)(
       usage: {
         model: "text-embedding-3-small",
         inputTokens: 20,
+        cachedTokens: 0,
+        cacheWriteTokens: 0,
         outputTokens: 0,
+        reasoningTokens: 0,
         costMicros: 7,
       },
     });
     const generated = () => ({
+      responseId: "resp_test",
       output: {
         title: "Synthetic output",
         body: "Approved fixture content.",
@@ -92,7 +96,10 @@ describe.skipIf(!enabled)(
       usage: {
         model: "synthetic-test-model",
         inputTokens: 40,
+        cachedTokens: 0,
+        cacheWriteTokens: 0,
         outputTokens: 20,
+        reasoningTokens: 0,
         costMicros: 77,
       },
     });
@@ -191,6 +198,14 @@ describe.skipIf(!enabled)(
     afterAll(async () => {
       await auth?.$disconnect();
       await closeDatabase();
+    });
+    const telemetry = async () => ({
+      runs: await run((tx) =>
+        tx.agentRun.findMany({ orderBy: { startedAt: "asc" } }),
+      ),
+      spans: await run((tx) =>
+        tx.agentSpan.findMany({ orderBy: { createdAt: "asc" } }),
+      ),
     });
     async function settled(category: string, cost: bigint) {
       const rows = await run((tx) =>
@@ -1258,6 +1273,208 @@ describe.skipIf(!enabled)(
       expect(provider.generate).toHaveBeenCalledTimes(1);
       expect(provider.embed).toHaveBeenCalledTimes(1);
     });
+    it("traces a successful generation: one run, query embedding span, model span, both reservations attributed", async () => {
+      await generateMissionLive(s, missionId, randomUUID());
+      const { runs, spans } = await telemetry();
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        kind: "generation",
+        agentName: "orbit_generator",
+        taskClass: "draft_social",
+        subjectType: "job",
+        missionId,
+        status: "succeeded",
+        errorCode: null,
+      });
+      expect(spans.map((x) => [x.type, x.name, x.status]).sort()).toEqual([
+        ["embedding", "embeddings.create", "succeeded"],
+        ["model_call", "responses.create", "succeeded"],
+      ]);
+      const model = spans.find((x) => x.type === "model_call")!;
+      expect(model).toMatchObject({
+        runId: runs[0]!.id,
+        model: "synthetic-test-model",
+        costMicros: 77n,
+        providerResponseId: "resp_test",
+        inputTokens: 40,
+      });
+      const embeddingSpan = spans.find((x) => x.type === "embedding")!;
+      expect(embeddingSpan).toMatchObject({
+        runId: runs[0]!.id,
+        costMicros: 7n,
+        model: "text-embedding-3-small",
+      });
+      const rows = await run((tx) => tx.budgetReservation.findMany());
+      expect(rows).toHaveLength(2);
+      for (const row of rows)
+        expect(row).toMatchObject({ agentRunId: runs[0]!.id, missionId });
+      expect(rows.find((x) => x.category === "text")).toMatchObject({
+        taskClass: "draft_social",
+        model: "synthetic-test-model",
+      });
+      expect(model.budgetReservationId).toBe(
+        rows.find((x) => x.category === "text")!.id,
+      );
+      expect(embeddingSpan.budgetReservationId).toBe(
+        rows.find((x) => x.category === "query_embedding")!.id,
+      );
+      expect(
+        await run((tx) => tx.agentRun.count({ where: { kind: "retrieval" } })),
+      ).toBe(0);
+    });
+    it("traces a blog mission as draft_blog", async () => {
+      await run(async (tx) => {
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        await update(tx, s, mission, {
+          ...data(mission),
+          contentType: "blog",
+        });
+        const policy = await tx.entity.findFirstOrThrow({
+          where: { kind: "policies" },
+        });
+        await update(tx, s, policy, {
+          ...data(policy),
+          contentTypes: ["social", "blog"],
+        });
+      });
+      await generateMissionLive(s, missionId, randomUUID());
+      expect((await telemetry()).runs[0]).toMatchObject({
+        taskClass: "draft_blog",
+      });
+    });
+    it("traces an unknown generation outcome as unknown span and failed run", async () => {
+      provider.generate.mockRejectedValue(
+        new Error("Synthetic transport uncertainty"),
+      );
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("MODEL_OUTCOME_OR_COST_UNKNOWN");
+      const { runs, spans } = await telemetry();
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        kind: "generation",
+        status: "failed",
+        errorCode: "MODEL_OUTCOME_OR_COST_UNKNOWN",
+      });
+      const model = spans.find((x) => x.type === "model_call")!;
+      expect(model).toMatchObject({
+        status: "unknown",
+        errorCode: "MODEL_OUTCOME_OR_COST_UNKNOWN",
+        costMicros: null,
+      });
+      const row = await run((tx) =>
+        tx.budgetReservation.findFirstOrThrow({ where: { category: "text" } }),
+      );
+      expect(row.state).toBe("unknown");
+      expect(model.budgetReservationId).toBe(row.id);
+    });
+    it("a precondition failure before any paid step creates no run", async () => {
+      await run(async (tx) => {
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        await update(tx, s, mission, { ...data(mission), status: "draft" });
+      });
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("MISSION_NOT_READY");
+      expect((await telemetry()).runs).toHaveLength(0);
+    });
+    it("traces a standalone retrieval with its own run and attributed query reservation", async () => {
+      await retrieveHybrid(s, {
+        query: "PAIDRACE529",
+        sourceIds: [sourceId],
+        purpose: "public",
+        forModel: true,
+      });
+      const { runs, spans } = await telemetry();
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        kind: "retrieval",
+        agentName: "orbit_retrieval",
+        taskClass: "query_embedding",
+        subjectType: "retrieval_key",
+        status: "succeeded",
+      });
+      expect(spans).toHaveLength(1);
+      expect(spans[0]).toMatchObject({
+        type: "embedding",
+        status: "succeeded",
+        costMicros: 7n,
+      });
+      const row = await run((tx) => tx.budgetReservation.findFirstOrThrow());
+      expect(row).toMatchObject({
+        agentRunId: runs[0]!.id,
+        taskClass: "query_embedding",
+        model: "text-embedding-3-small",
+      });
+    });
+    it("records an unknown embedding span and failed run when the query embedding throws", async () => {
+      provider.embed.mockRejectedValue(new Error("Synthetic transport"));
+      await expect(
+        retrieveHybrid(s, {
+          query: "PAIDRACE529",
+          sourceIds: [sourceId],
+          purpose: "public",
+          forModel: true,
+        }),
+      ).rejects.toThrow("QUERY_EMBEDDING_COST_UNKNOWN");
+      const { runs, spans } = await telemetry();
+      expect(runs[0]).toMatchObject({
+        status: "failed",
+        errorCode: "QUERY_EMBEDDING_COST_UNKNOWN",
+      });
+      expect(spans[0]).toMatchObject({
+        status: "unknown",
+        errorCode: "QUERY_EMBEDDING_COST_UNKNOWN",
+        costMicros: null,
+      });
+    });
+    it("traces a document embedding batch under an ingestion run", async () => {
+      await embedDocument(s, documentId, randomUUID());
+      const { runs, spans } = await telemetry();
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        kind: "ingestion",
+        agentName: "orbit_ingestion",
+        taskClass: "document_embedding",
+        subjectType: "document_version",
+        status: "succeeded",
+      });
+      expect(spans).toHaveLength(1);
+      expect(spans[0]).toMatchObject({
+        type: "embedding",
+        status: "succeeded",
+      });
+      const row = await run((tx) => tx.budgetReservation.findFirstOrThrow());
+      expect(row).toMatchObject({
+        agentRunId: runs[0]!.id,
+        taskClass: "document_embedding",
+      });
+    });
+    it("traces a reindex batch under a reindex run", async () => {
+      const index = await run((tx) =>
+        beginIndexBuild(tx, s, EMBEDDING_PROFILE),
+      );
+      await buildIndexBatch(s, index.id, randomUUID());
+      const { runs, spans } = await telemetry();
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toMatchObject({
+        kind: "reindex",
+        agentName: "orbit_reindex",
+        taskClass: "index_build",
+        subjectType: "index_generation",
+        subjectId: index.id,
+        status: "succeeded",
+      });
+      expect(spans).toHaveLength(1);
+      expect(spans[0]).toMatchObject({
+        type: "embedding",
+        status: "succeeded",
+      });
+    });
     it("query policy pause preserves cost and refuses the now-unapproved evidence result", async () => {
       provider.embed.mockImplementation(async () => {
         await run((tx) =>
@@ -1590,6 +1807,35 @@ describe.skipIf(!enabled)(
           }),
         ),
       ).toBe(0);
+    });
+    it("traces an evaluation batch under an evaluation run with attributed reservation", async () => {
+      const { index, input } = await evaluationFixture();
+      const job = await run((tx) => queueIndexEvaluation(tx, s, input));
+      await runIndexEvaluation(s, data(job).resourceId, job.id);
+      const { runs, spans } = await telemetry();
+      const evaluation = runs.find((x) => x.kind === "evaluation")!;
+      expect(evaluation).toMatchObject({
+        agentName: "orbit_evaluation",
+        taskClass: "index_evaluation",
+        subjectType: "index_generation",
+        subjectId: index.id,
+        status: "succeeded",
+      });
+      const span = spans.find((x) => x.runId === evaluation.id)!;
+      expect(span).toMatchObject({
+        type: "embedding",
+        status: "succeeded",
+        costMicros: 7n,
+      });
+      expect(
+        (
+          await run((tx) =>
+            tx.budgetReservation.findFirstOrThrow({
+              where: { category: "reindex_evaluation" },
+            }),
+          )
+        ).agentRunId,
+      ).toBe(evaluation.id);
     });
     it("64-query mocked evaluation uses two bounded paid batches, persists quality results, and never auto-activates", async () => {
       const { index, input } = await evaluationFixture();

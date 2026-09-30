@@ -11,6 +11,7 @@ import { activePolicy } from "./policy.ts";
 import { reserve, markTransmitted, settle } from "./budget.ts";
 import { enqueue } from "./workflow.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
+import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
 export const indexEvaluationRequest = z
   .object({
     indexId: z.uuid(),
@@ -91,6 +92,29 @@ export async function runIndexEvaluation(
   requestId: string,
   jobId: string,
 ) {
+  // Subject lookup is best effort: telemetry must not change the job outcome.
+  const indexId = await scoped(s.workspaceId, s.projectId, (tx) =>
+    entity(tx, s, "index_evaluations", requestId),
+  )
+    .then((request) => String(data(request).indexId))
+    .catch(() => undefined);
+  const agentRunId = await startRun(s, {
+    kind: "evaluation",
+    agentName: "orbit_evaluation",
+    taskClass: "index_evaluation",
+    subjectType: "index_generation",
+    subjectId: indexId,
+  });
+  return tracedRun(s, agentRunId, () =>
+    runIndexEvaluationBatch(s, requestId, jobId, agentRunId),
+  );
+}
+async function runIndexEvaluationBatch(
+  s: Scope,
+  requestId: string,
+  jobId: string,
+  agentRunId: string | null,
+) {
   const run = <T>(f: (tx: DbTx) => Promise<T>) =>
     scoped(s.workspaceId, s.projectId, f);
   const prepared = await run(async (tx) => {
@@ -129,6 +153,7 @@ export async function runIndexEvaluation(
       approved,
       new Date(),
       `index-evaluation:${requestId}`,
+      { agentRunId, taskClass: "index_evaluation", model: index.model },
     );
     await markTransmitted(tx, s, reservation.id);
     return {
@@ -144,6 +169,7 @@ export async function runIndexEvaluation(
   });
   if (!prepared) return { unchanged: true };
   let response: Awaited<ReturnType<typeof embed>>;
+  const callStartedAt = new Date();
   try {
     response = await embed(
       prepared.cases.map((c: any) => c.query),
@@ -154,11 +180,33 @@ export async function runIndexEvaluation(
     );
   } catch {
     await run((tx) => settle(tx, s, prepared.reservationId, null));
+    // Telemetry only after the settlement committed.
+    await recordSpan(s, agentRunId, {
+      type: "embedding",
+      name: "embeddings.create",
+      model: prepared.index.model,
+      status: "unknown",
+      errorCode: "INDEX_EVALUATION_COST_UNKNOWN",
+      startedAt: callStartedAt,
+      durationMs: Date.now() - callStartedAt.valueOf(),
+      budgetReservationId: prepared.reservationId,
+    });
     throw new DomainError("INDEX_EVALUATION_COST_UNKNOWN");
   }
   await run((tx) =>
     settle(tx, s, prepared.reservationId, response.usage.costMicros),
   );
+  await recordSpan(s, agentRunId, {
+    type: "embedding",
+    name: "embeddings.create",
+    model: response.usage.model,
+    status: "succeeded",
+    startedAt: callStartedAt,
+    durationMs: Date.now() - callStartedAt.valueOf(),
+    usage: response.usage,
+    costMicros: response.usage.costMicros,
+    budgetReservationId: prepared.reservationId,
+  });
   return run(async (tx) => {
     const project = await tx.project.findUniqueOrThrow({
         where: { id: s.projectId },

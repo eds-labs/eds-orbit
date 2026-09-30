@@ -172,3 +172,20 @@ export async function finishRun(
     });
   }, undefined);
 }
+
+// Closes a run opened by the caller once `work` settles; never alters its result or error.
+export async function tracedRun<T>(
+  scope: Scope,
+  runId: string | null,
+  work: () => Promise<T>,
+): Promise<T> {
+  let result: T;
+  try {
+    result = await work();
+  } catch (error) {
+    await finishRun(scope, runId, "failed", errorCode(error));
+    throw error;
+  }
+  await finishRun(scope, runId, "succeeded");
+  return result;
+}
