@@ -21,6 +21,12 @@ import {
   postizVerificationInput,
   postizVerificationApproval,
 } from "./modules/postiz-verification.ts";
+import {
+  agentRunsQuery,
+  aiCostQuery,
+  aiCostSummary,
+  listAgentRuns,
+} from "./modules/ai-usage.ts";
 import { pauseProject } from "./modules/pause.ts";
 import {
   blockCalendar,
@@ -514,6 +520,16 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       connectorStates: (await list(tx, scope, "connectors")).map(publicEntity),
       exceptions: await list(tx, scope, "exceptions"),
     }));
+  });
+  app.get("/api/projects/:projectId/agent-runs", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    return listAgentRuns(scope, agentRunsQuery.parse(req.query));
+  });
+  app.get("/api/projects/:projectId/ai-cost", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    return aiCostSummary(scope, aiCostQuery.parse(req.query));
   });
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };
