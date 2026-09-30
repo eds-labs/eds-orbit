@@ -3,6 +3,7 @@ import { GoogleDriveSettings } from "./google-drive";
 import { useState } from "react";
 import {
   MatomoImport,
+  MatomoSchedule,
   PostizVerification,
   WorkspacePause,
 } from "./operator-tools";
@@ -104,6 +105,7 @@ export function Analytics() {
         {canEdit && (
           <>
             <MatomoImport />
+            <MatomoSchedule />
             <Button variant="outline" onClick={() => setCsvImport(true)}>
               Import CSV
             </Button>
