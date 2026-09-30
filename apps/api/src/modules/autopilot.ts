@@ -44,6 +44,8 @@ export const autopilotInput = z
     // 0 = Sunday ... 6 = Saturday, local project time.
     planWeekday: z.number().int().min(0).max(6),
     planTime: z.string().regex(POSTING_TIME),
+    // First local calendar day to plan, e.g. to skip days already handled.
+    startDate: z.iso.date().optional(),
   })
   .strict();
 
@@ -218,6 +220,7 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
     settings.planTime,
   )) {
     const key = dayKey(day.y, day.m, day.d);
+    if (settings.startDate && key < settings.startDate) continue;
     for (const [index, channelId] of settings.channels.entries()) {
       const slotKey = `${channelId}|${key}`;
       if (existing.has(slotKey)) continue;
