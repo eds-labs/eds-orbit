@@ -441,5 +441,39 @@ describe.skipIf(!enabled)(
         run((tx) => startApprovedLiveDraftOnce(tx, scope, missionId, version)),
       ).rejects.toThrow("RESERVATION_ALREADY_USED");
     });
+
+    it("does not offer recovery after a paid model abstention", async () => {
+      const mission = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+      );
+      await run(async (tx) => {
+        await update(tx, scope, mission, {
+          ...data(mission),
+          startAt: new Date(Date.now() - 60_000).toISOString(),
+        });
+        const original = await tx.entity.findUniqueOrThrow({
+          where: { id: jobId },
+        });
+        // The model was paid and abstained; this is not a free evidence failure.
+        await update(tx, scope, original, {
+          ...data(original),
+          status: "blocked_dependency",
+          attempts: 1,
+          error: "MODEL_EVIDENCE_ABSTENTION",
+        });
+        await tx.outbox.updateMany({
+          where: { entityId: jobId },
+          data: { dispatchedAt: new Date() },
+        });
+      });
+      const version = (
+        await run((tx) =>
+          tx.entity.findUniqueOrThrow({ where: { id: missionId } }),
+        )
+      ).version;
+      await expect(
+        run((tx) => startApprovedLiveDraftOnce(tx, scope, missionId, version)),
+      ).rejects.toThrow("JOB_NOT_QUEUED");
+    });
   },
 );

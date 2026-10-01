@@ -88,7 +88,7 @@ export type EvalSummary = {
   // False when a counted run has no known cost.
   costComplete: boolean;
   p50DurationMs: number | null;
-  // Counted runs ending in INSUFFICIENT_EVIDENCE / MODEL_OUTPUT_NOT_VALID.
+  // Counted runs ending in MODEL_EVIDENCE_ABSTENTION / MODEL_OUTPUT_NOT_VALID.
   abstained: number;
   invalidOutput: number;
   problemCounts: Record<string, number>;
@@ -125,7 +125,7 @@ const BUDGET_REFUSALS = new Set([
 ]);
 // Completed, priced provider responses without usable output.
 const MODEL_OUTCOMES = new Set([
-  "INSUFFICIENT_EVIDENCE",
+  "MODEL_EVIDENCE_ABSTENTION",
   "MODEL_OUTPUT_NOT_VALID",
 ]);
 
@@ -659,7 +659,7 @@ function summarize(
       p50DurationMs: durations.length
         ? durations[Math.ceil(durations.length / 2) - 1]!
         : null,
-      abstained: ended("INSUFFICIENT_EVIDENCE"),
+      abstained: ended("MODEL_EVIDENCE_ABSTENTION"),
       invalidOutput: ended("MODEL_OUTPUT_NOT_VALID"),
       problemCounts,
     };

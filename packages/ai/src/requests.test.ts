@@ -124,7 +124,7 @@ describe("unusable generation output", () => {
     ["MODEL_OUTPUT_NOT_VALID", '{"title":"t","body":'],
     ["MODEL_OUTPUT_NOT_VALID", JSON.stringify({ title: "t", body: "b" })],
     [
-      "INSUFFICIENT_EVIDENCE",
+      "MODEL_EVIDENCE_ABSTENTION",
       JSON.stringify({ title: "t", body: "", claims: [] }),
     ],
   ])("throws %s with the known usage and cost", async (code, text) => {

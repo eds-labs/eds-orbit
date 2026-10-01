@@ -717,3 +717,8 @@ Next: Mario reviews the dry-run plan and runs the live eval; a route switch then
 - Still to confirm with an owner session: the OpenAI configuration dialog shows the three task routes with their effective route, new `AgentRun` rows carry `routeVersion`, worker logs show the due-marker pump without errors, and no pending blog proposal hit `PROPOSAL_COST_CHANGED`. Open from Phase 1: `ai-cost`/`agent-runs` for uLiquid and structured API logs in Coolify.
 
 Next: Mario runs the live generation eval with his own key; a route switch then needs the eval report and an owner save. Follow-ups are the deferred minors listed in PR #16, first the double meaning of `INSUFFICIENT_EVIDENCE` for a paid model abstention.
+
+### 2026-10-01 — Follow-up: separate code for a paid model abstention (local)
+
+- A completed, priced response with an empty body now ends with `MODEL_EVIDENCE_ABSTENTION` instead of `INSUFFICIENT_EVIDENCE`. Before, such a job looked like the free evidence failure that `start-approved-live-draft-once` may recover, so the owner was offered a recovery that then failed with `RESERVATION_ALREADY_USED`. Now the recovery refuses it with `JOB_NOT_QUEUED`, and operations can tell a paid abstention from a free evidence failure. The worker still classifies the code as not retryable (it contains `EVIDENCE`). The eval report counts it as `abstained`.
+- Jobs that already ended with `INSUFFICIENT_EVIDENCE` after a paid abstention since the Phase 2 release keep that code; their recovery still fails closed with `RESERVATION_ALREADY_USED`.
