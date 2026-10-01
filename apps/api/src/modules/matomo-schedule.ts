@@ -83,6 +83,14 @@ export async function configureMatomoSchedule(
   return row;
 }
 
+/** When the saved import next becomes due; null when disabled or never run (it then runs on the next visit). */
+export async function nextMatomoRunAt(tx: DbTx, scope: Scope) {
+  const row = await matomoSchedule(tx, scope);
+  if (!row || data(row).enabled !== true) return null;
+  const last = Date.parse(data(row).lastRunAt ?? "");
+  return Number.isFinite(last) ? new Date(last + MATOMO_INTERVAL_MS) : null;
+}
+
 function siteDay(at: Date, timezone: string) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,

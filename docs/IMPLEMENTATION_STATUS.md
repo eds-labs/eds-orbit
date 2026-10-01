@@ -47,7 +47,7 @@ See `docs/CONFIGURATION_PARITY.md` for the acceptance matrix and the distinct ex
 ## Current verified state
 
 - Framework 1.1.0 missing-only merge; actual archive mismatch documented. Full schema/YAML validation:0 errors/0 warnings;12 framework tests passed. Narrow restore-source/evidence filename exceptions retain duplicate-file checks.
-- Pinned Node 24.18/Next 16.3.5/React 19.3/TS 6.0.3/Fastify 5.12.5/Prisma 7.10/PostgreSQL 17/pgvector 0.8.6/BullMQ 6.3.6/Redis 7.4.7 application. Restricted app/auth DB roles and forced RLS verified.
+- Pinned Node 24.18/Next 16.3.6/React 19.3/TS 6.0.3/Fastify 5.12.5/Prisma 7.10/PostgreSQL 17/pgvector 0.8.6/BullMQ 6.3.6/Redis 7.4.7 application. Restricted app/auth DB roles and forced RLS verified.
 - **280 tests across 20 files passed** on Node 24.18.0, including the synthetic PDF parser case, knowledge/parser/index coverage, mocked-paid/real-journal race tests, actual auth, Matomo normalization/import, signed Slack approvals, Postiz observed proof, community adaptation, source revocation, shared budgets, DST/concurrency and real Redis worker restart.
 - **5/5 current authenticated browser workflows passed** against the local development stack in 30.6s on installed Chrome, including the new marketing-profile and brand/image acceptance path. Historical production-build evidence remains 4/4 in 22.7s; the current production build passes separately. No provider write or paid model call occurred.
 - Latest production Next build, whole-project/web TypeScript, lint/source checks and generated API/client succeeded. Dependency audit:0 high/moderate/low/critical after two narrow overrides;406 installed dependency/license records. Source and generated-public-artifact secret scans passed.
