@@ -18,16 +18,32 @@ import {
 import { ingest } from "../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
-const provider = vi.hoisted(() => ({ generate: vi.fn(), embed: vi.fn() }));
-vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("../../../packages/ai/src/index.ts")
-  >()),
-  generate: provider.generate,
-  embed: provider.embed,
-  route: () => "synthetic-test-model",
-  estimateCost: () => 1000,
+const provider = vi.hoisted(() => ({
+  generate: vi.fn(),
+  embed: vi.fn(),
+  // Route and cost tests switch to the real implementations.
+  actualRouting: false,
 }));
+vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
+  return {
+    ...actual,
+    generate: provider.generate,
+    embed: provider.embed,
+    resolveRoute: ((...args: Parameters<typeof actual.resolveRoute>) =>
+      provider.actualRouting
+        ? actual.resolveRoute(...args)
+        : (args[1].taskRoutes?.[args[0]] ?? {
+            model: "synthetic-test-model",
+            maxOutputTokens: 1800,
+          })) as typeof actual.resolveRoute,
+    estimateCost: ((...args: Parameters<typeof actual.estimateCost>) =>
+      provider.actualRouting
+        ? actual.estimateCost(...args)
+        : 1000) as typeof actual.estimateCost,
+  };
+});
 import { generateMissionLive } from "../src/modules/generation.ts";
 import { enqueue, planMission } from "../src/modules/workflow.ts";
 import { checkClaims } from "../src/modules/policy.ts";

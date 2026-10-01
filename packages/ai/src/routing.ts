@@ -32,6 +32,11 @@ export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   draft_blog: "quality",
 };
 
+// Blog drafts use the blog route; every other content type uses the social route.
+export function draftTaskClass(contentType: string): TaskClass {
+  return contentType === "blog" ? "draft_blog" : "draft_social";
+}
+
 export function resolveRoute(
   taskClass: TaskClass,
   runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "modelRoutes" | "taskRoutes">,

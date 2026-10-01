@@ -9,8 +9,9 @@ import {
   validateEvidence,
 } from "../../../../packages/knowledge/src/index.ts";
 import {
+  draftTaskClass,
   generate,
-  route,
+  resolveRoute,
   estimateCost,
 } from "../../../../packages/ai/src/index.ts";
 import { activePolicy } from "./policy.ts";
@@ -104,6 +105,7 @@ async function generateMissionDraft(
     }),
   );
   if (saved) return saved;
+  let routeVersion: number | null = null;
   const initial = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -157,17 +159,13 @@ async function generateMissionDraft(
         !activeScope.allowedOrigins?.includes(new URL(m.targetUrl).origin)
       )
         throw new DomainError("LINK_NOT_ALLOWED", 409);
-      route(
-        m.contentType === "blog" ? "blog" : "draft",
-        0,
-        0,
-        await runtimeOpenAiConfiguration(tx, scope),
-      );
+      const configuration = await runtimeOpenAiConfiguration(tx, scope);
+      resolveRoute(draftTaskClass(m.contentType), configuration);
+      routeVersion = configuration.routeVersion ?? null;
       return mission;
     },
   );
-  const taskClass =
-    data(initial).contentType === "blog" ? "draft_blog" : "draft_social";
+  const taskClass = draftTaskClass(data(initial).contentType);
   trace.runId = await startRun(scope, {
     kind: "generation",
     agentName: "orbit_generator",
@@ -175,6 +173,7 @@ async function generateMissionDraft(
     subjectType: "job",
     subjectId: jobId,
     missionId,
+    routeVersion,
   });
   const retrieved = await retrieveHybrid(
     scope,
@@ -221,12 +220,7 @@ async function generateMissionDraft(
       if (data(evidence).status !== "ready")
         throw new DomainError("INSUFFICIENT_MODEL_APPROVED_EVIDENCE");
       const ai = await runtimeOpenAiConfiguration(tx, scope);
-      const model = route(
-        m.contentType === "blog" ? "blog" : "draft",
-        0,
-        0,
-        ai,
-      );
+      const modelRoute = resolveRoute(draftTaskClass(m.contentType), ai);
       const p = await activePolicy(tx, scope);
       if (!p) throw new DomainError("POLICY_REQUIRED");
       const parsed = policy.parse(
@@ -324,10 +318,10 @@ async function generateMissionDraft(
       };
       const goal = JSON.stringify(contract);
       const cost = estimateCost(
-        model,
+        modelRoute.model,
         Buffer.byteLength(JSON.stringify({ goal, evidence: data(evidence) })) +
           4000,
-        1800,
+        modelRoute.maxOutputTokens,
         ai,
       );
       if (m.chatProposalId) {
@@ -365,13 +359,18 @@ async function generateMissionDraft(
         parsed,
         new Date(),
         "mission:" + jobId,
-        { agentRunId: trace.runId, taskClass, model, missionId },
+        {
+          agentRunId: trace.runId,
+          taskClass,
+          model: modelRoute.model,
+          missionId,
+        },
       );
       return {
         mission,
         goal,
         evidence,
-        model,
+        modelRoute,
         reservationId: reservation.id,
         ai,
         projectGeneration: project.generation,
@@ -434,7 +433,7 @@ async function generateMissionDraft(
       task: "draft",
       goal: prepared.goal,
       evidence: data(prepared.evidence),
-      model: prepared.model,
+      route: prepared.modelRoute,
       reservationId: prepared.reservationId,
       runtime: prepared.ai,
     });
@@ -446,7 +445,7 @@ async function generateMissionDraft(
     await recordSpan(scope, trace.runId, {
       type: "model_call",
       name: "responses.create",
-      model: prepared.model,
+      model: prepared.modelRoute.model,
       status: "unknown",
       errorCode: "MODEL_OUTCOME_OR_COST_UNKNOWN",
       startedAt: callStartedAt,

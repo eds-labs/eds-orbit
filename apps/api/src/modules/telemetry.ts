@@ -72,6 +72,7 @@ export async function startRun(
     subjectType?: string;
     subjectId?: string;
     missionId?: string | null;
+    routeVersion?: number | null;
   },
 ): Promise<string | null> {
   return safely(async () => {
@@ -88,6 +89,7 @@ export async function startRun(
           subjectType: input.subjectType ?? null,
           subjectId: input.subjectId ?? null,
           missionId: input.missionId ?? null,
+          routeVersion: input.routeVersion ?? null,
         },
       }),
     );

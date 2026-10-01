@@ -40,17 +40,34 @@ import {
   assertContentCampaignContext,
   profileGuardrailProblems,
 } from "../src/modules/marketing-profile.ts";
-const provider = vi.hoisted(() => ({ generate: vi.fn(), embed: vi.fn() }));
-vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("../../../packages/ai/src/index.ts")
-  >()),
-  generate: provider.generate,
-  embed: provider.embed,
-  route: () => "synthetic-test-model",
-  estimateCost: () => 1000,
+const provider = vi.hoisted(() => ({
+  generate: vi.fn(),
+  embed: vi.fn(),
+  // Route and cost tests switch to the real implementations.
+  actualRouting: false,
 }));
+vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
+  return {
+    ...actual,
+    generate: provider.generate,
+    embed: provider.embed,
+    resolveRoute: ((...args: Parameters<typeof actual.resolveRoute>) =>
+      provider.actualRouting
+        ? actual.resolveRoute(...args)
+        : (args[1].taskRoutes?.[args[0]] ?? {
+            model: "synthetic-test-model",
+            maxOutputTokens: 1800,
+          })) as typeof actual.resolveRoute,
+    estimateCost: ((...args: Parameters<typeof actual.estimateCost>) =>
+      provider.actualRouting
+        ? actual.estimateCost(...args)
+        : 1000) as typeof actual.estimateCost,
+  };
+});
 import { generateMissionLive } from "../src/modules/generation.ts";
+import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { postingSlot } from "../src/modules/posting-slots.ts";
 import { configureAutopilot, planAutopilot } from "../src/modules/autopilot.ts";
 import { missionFactKeys } from "../src/modules/mission-evidence.ts";
@@ -110,6 +127,7 @@ describe.skipIf(!enabled)(
       auth = createClient(process.env.TEST_AUTH_DATABASE_URL!);
     });
     beforeEach(async () => {
+      provider.actualRouting = false;
       provider.generate.mockReset().mockResolvedValue(generated());
       provider.embed.mockReset().mockResolvedValue(embedding());
       const user = await auth.user.create({
@@ -1525,6 +1543,96 @@ describe.skipIf(!enabled)(
       await generateMissionLive(s, missionId, randomUUID());
       expect((await telemetry()).runs[0]).toMatchObject({
         taskClass: "draft_blog",
+      });
+    });
+    describe("task-class routes", () => {
+      const rate = (
+        inputMicrosPerMillion: number,
+        outputMicrosPerMillion: number,
+      ) => ({
+        inputMicrosPerMillion,
+        outputMicrosPerMillion,
+        verifiedAt: new Date().toISOString(),
+      });
+      const configure = (taskRoutes?: Record<string, unknown>) =>
+        run((tx) =>
+          saveOpenAiConfiguration(tx, s, {
+            apiKey: "synthetic-no-provider-call-key",
+            verifiedModels: [
+              "gpt-5.6-luna",
+              "gpt-5.6-terra",
+              "gpt-5.6-sol",
+              "text-embedding-3-small",
+            ],
+            rateCard: {
+              "gpt-5.6-terra": rate(1000, 1000000),
+              "text-embedding-3-small": rate(1000, 1000),
+            },
+            ...(taskRoutes ? { taskRoutes } : {}),
+          }),
+        );
+      const configurationVersion = () =>
+        run(
+          async (tx) =>
+            (
+              await tx.entity.findFirstOrThrow({
+                where: { projectId: s.projectId, kind: "openai_configuration" },
+              })
+            ).version,
+        );
+      it("sends the stored draft_social route, reserves its ceiling and records the route version", async () => {
+        const stored = {
+          model: "gpt-5.6-terra",
+          reasoningEffort: "low",
+          maxOutputTokens: 2400,
+        };
+        await configure({ draft_social: stored });
+        provider.actualRouting = true;
+        await generateMissionLive(s, missionId, randomUUID());
+        const call = provider.generate.mock.calls[0]![0];
+        expect(call.route).toEqual(stored);
+        expect(call).not.toHaveProperty("model");
+        const bytes = Buffer.byteLength(
+          JSON.stringify({ goal: call.goal, evidence: call.evidence }),
+        );
+        const actual = await vi.importActual<
+          typeof import("../../../packages/ai/src/index.ts")
+        >("../../../packages/ai/src/index.ts");
+        const reservation = await run((tx) =>
+          tx.budgetReservation.findFirstOrThrow({
+            where: { category: "text" },
+          }),
+        );
+        expect(reservation.amountMicros).toBe(
+          BigInt(
+            actual.estimateCost(
+              "gpt-5.6-terra",
+              bytes + 4000,
+              2400,
+              call.runtime,
+            ),
+          ),
+        );
+        const { runs } = await telemetry();
+        expect(runs[0]!.routeVersion).toBe(await configurationVersion());
+        expect(runs[0]!.routeVersion).toBeGreaterThan(0);
+      });
+      it("keeps the legacy tier route and 1800 ceiling without task routes", async () => {
+        await configure();
+        provider.actualRouting = true;
+        await generateMissionLive(s, missionId, randomUUID());
+        const call = provider.generate.mock.calls[0]![0];
+        expect(call.route).toEqual({
+          model: "gpt-5.6-terra",
+          maxOutputTokens: 1800,
+        });
+        expect("reasoningEffort" in call.route).toBe(false);
+        const { runs } = await telemetry();
+        expect(runs[0]!.routeVersion).toBe(await configurationVersion());
+      });
+      it("records no route version for the environment configuration", async () => {
+        await generateMissionLive(s, missionId, randomUUID());
+        expect((await telemetry()).runs[0]!.routeVersion).toBeNull();
       });
     });
     it("traces an unknown generation outcome as unknown span and failed run", async () => {
