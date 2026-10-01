@@ -45,7 +45,21 @@ const provider = vi.hoisted(() => ({
   embed: vi.fn(),
   // Route and cost tests switch to the real implementations.
   actualRouting: false,
+  // Runs inside the reservation transaction, after a successful reserve.
+  afterReserve: null as null | ((category: string) => Promise<void>),
 }));
+vi.mock("../src/modules/budget.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/modules/budget.ts")>();
+  return {
+    ...actual,
+    reserve: (async (...args: Parameters<typeof actual.reserve>) => {
+      const reservation = await actual.reserve(...args);
+      await provider.afterReserve?.(args[3]);
+      return reservation;
+    }) as typeof actual.reserve,
+  };
+});
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
@@ -1662,6 +1676,44 @@ describe.skipIf(!enabled)(
             tx.budgetReservation.count({ where: { category: "text" } }),
           ),
         ).toBe(0);
+      });
+      it("fails closed when the configuration changes between reservation and transmission", async () => {
+        await configure();
+        provider.actualRouting = true;
+        const observer = createClient(process.env.TEST_DATABASE_URL!);
+        const lockKey = s.workspaceId + ":" + s.projectId;
+        let saving: Promise<unknown> | null = null;
+        provider.afterReserve = async (category) => {
+          if (category !== "text" || saving) return;
+          // The save queues behind this transaction's project lock, so it
+          // commits before the transmit step can take the lock.
+          saving = configure();
+          for (let attempt = 0; attempt < 500; attempt++) {
+            const [row] = await observer.$queryRaw<{ waiting: bigint }[]>`
+              SELECT count(*) AS waiting FROM pg_locks
+              WHERE locktype = 'advisory' AND NOT granted
+                AND ((classid::bigint << 32) | objid::bigint) = hashtextextended(${lockKey}, 0)`;
+            if (row!.waiting > 0n) return;
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          throw new Error("SYNTHETIC_SAVE_NEVER_QUEUED");
+        };
+        try {
+          await expect(
+            generateMissionLive(s, missionId, randomUUID()),
+          ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
+          await saving;
+        } finally {
+          provider.afterReserve = null;
+          await observer.$disconnect();
+        }
+        expect(provider.generate).not.toHaveBeenCalled();
+        const reservation = await run((tx) =>
+          tx.budgetReservation.findFirstOrThrow({
+            where: { category: "text" },
+          }),
+        );
+        expect(reservation.state).toBe("reserved");
       });
       const textReservations = () =>
         run((tx) =>

@@ -5,6 +5,7 @@ import {
   environmentRuntimeConfig,
   imageGenerationConfigurationSchema,
   rateCardSchema,
+  rateStatus,
   resolveRoute,
   taskClasses,
   taskRoutesSchema,
@@ -53,8 +54,8 @@ export const openAiConfigurationInput = z
       context.addIssue({ code: "custom", message: "DUPLICATE_MODEL" });
     if (Object.keys(value.rateCard).length > 20)
       context.addIssue({ code: "custom", message: "RATE_CARD_LIMIT" });
-    // Escalation remains deliberately unavailable until its model is explicitly verified.
-    // `route` enforces that runtime capability gate when an escalation is requested.
+    // Every tier, including the unused escalation tier, must name a verified model.
+    // `resolveRoute` repeats the capability gate at call time.
     if (
       value.verifiedModels.length &&
       [
@@ -122,24 +123,30 @@ function stored(row: { data: unknown }) {
   } satisfies StoredConfiguration;
 }
 
-// Never throws: unverified routes are reported instead of failing the view.
+// Never throws: unverified routes and missing or stale prices are reported
+// instead of failing the view; a run fails closed on either.
 function effectiveRoutes(
   runtime: Pick<
     OpenAiRuntimeConfig,
-    "verifiedModels" | "modelRoutes" | "taskRoutes"
+    "verifiedModels" | "modelRoutes" | "taskRoutes" | "rateCard"
   >,
 ) {
   return Object.fromEntries(
     taskClasses.map((taskClass) => {
       try {
-        return [taskClass, resolveRoute(taskClass, runtime)];
+        const route = resolveRoute(taskClass, runtime);
+        return [
+          taskClass,
+          { ...route, price: rateStatus(route.model, runtime.rateCard) },
+        ];
       } catch {
         return [taskClass, { error: "MODEL_CAPABILITY_NOT_VERIFIED" }];
       }
     }),
   ) as Record<
     TaskClass,
-    ModelRoute | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
+    | (ModelRoute & { price: ReturnType<typeof rateStatus> })
+    | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
   >;
 }
 
@@ -162,6 +169,7 @@ export function publicOpenAiConfiguration(
         verifiedModels: fallback.verifiedModels,
         modelRoutes,
         taskRoutes: fallback.taskRoutes,
+        rateCard: fallback.rateCard,
       }),
       routeVersion: null,
       imageGeneration:

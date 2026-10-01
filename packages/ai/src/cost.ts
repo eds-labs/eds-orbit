@@ -48,12 +48,21 @@ export function normalizeResponsesUsage(usage: unknown): NormalizedUsage {
   };
 }
 
+const RATE_MAX_AGE_MS = 31 * 86400000;
+
+/** Whether a paid call for `model` would find a current price; the runtime gate below uses the same rule. */
+export function rateStatus(model: string, rateCard: Record<string, Rate> | undefined): "current" | "missing" | "stale" {
+  const rate = rateCard?.[model];
+  if (!rate) return "missing";
+  return Date.now() - new Date(rate.verifiedAt).valueOf() > RATE_MAX_AGE_MS ? "stale" : "current";
+}
+
 function currentRate(model: string, runtime: CostRuntime): Required<Omit<Rate, "verifiedAt">> {
   if (!Object.keys(runtime.rateCard ?? {}).length)
     throw new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
-  const rate = runtime.rateCard[model];
-  if (!rate || Date.now() - new Date(rate.verifiedAt).valueOf() > 31 * 86400000)
+  if (rateStatus(model, runtime.rateCard) !== "current")
     throw new Error("CURRENT_PRICE_REQUIRED");
+  const rate = runtime.rateCard[model]!;
   return {
     inputMicrosPerMillion: rate.inputMicrosPerMillion,
     outputMicrosPerMillion: rate.outputMicrosPerMillion,
