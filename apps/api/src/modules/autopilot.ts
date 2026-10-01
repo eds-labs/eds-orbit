@@ -61,6 +61,14 @@ export async function autopilotSettings(tx: DbTx, scope: Scope) {
   return (await list(tx, scope, "autopilot_settings"))[0] ?? null;
 }
 
+/** When planAutopilot next checks the plan; null when disabled or not yet checked. */
+export async function nextAutopilotCheckAt(tx: DbTx, scope: Scope) {
+  const row = await autopilotSettings(tx, scope);
+  if (!row || data(row).enabled !== true) return null;
+  const last = Date.parse(data(row).lastPlanCheckAt ?? "");
+  return Number.isFinite(last) ? new Date(last + PLAN_CHECK_MS) : null;
+}
+
 async function channelContext(tx: DbTx, scope: Scope) {
   const connector = (await list(tx, scope, "connectors")).find(
     (row) =>

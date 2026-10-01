@@ -1,4 +1,7 @@
-import { runScheduledMatomo } from "../../api/src/modules/matomo-schedule.ts";
+import {
+  runScheduledMatomo,
+  nextMatomoRunAt,
+} from "../../api/src/modules/matomo-schedule.ts";
 import {
   saveGeneratedAsset,
   markSyncFailed,
@@ -13,9 +16,17 @@ import {
 } from "../../api/src/modules/slack.ts";
 import {
   sweepProject,
+  nextSweepAt,
   evaluateExperiment,
 } from "../../api/src/modules/lifecycle.ts";
-import { writeFile, rename, unlink } from "node:fs/promises";
+import { writeFile, rename, unlink, mkdir } from "node:fs/promises";
+import { dirname } from "node:path";
+import {
+  earliestDue,
+  eachLimited,
+  safeErrorCode,
+  workspaceAllowlist,
+} from "./schedule.ts";
 import { Queue, Worker, UnrecoverableError } from "bullmq";
 import {
   authDb,
@@ -91,9 +102,25 @@ const queues = new Map(
 );
 const healthFile =
   process.env.WORKER_HEALTH_FILE ?? "/tmp/orbit-worker-health.json";
+const workspaces = workspaceAllowlist(
+  process.env.WORKER_WORKSPACE_ALLOWLIST,
+  config.EXECUTION_MODE,
+);
 let stopping = false;
 const projectFailures = new Map<string, number>();
-const driveRetryChecks = new Map<string, number>();
+const driveRetryChecks = new Map<
+  string,
+  { at: number; enabled: boolean; nextRetryAt: number | null }
+>();
+const PUMP_INTERVAL_MS = 1500,
+  PUMP_BATCH = 100,
+  PUMP_CONCURRENCY = 4,
+  OUTBOX_BATCH = 40,
+  // Safety net for transitions no trigger or hint covers; every project is revisited at least this often.
+  MAX_IDLE_MS = 300_000,
+  FAILURE_RETRY_MS = 5_000,
+  LEASE_GRACE_MS = 1_000,
+  DRIVE_CHECK_MS = 30_000;
 const workers = classes.map(
   (topic) =>
     new Worker(
@@ -299,161 +326,239 @@ const workers = classes.map(
     ),
 );
 workers.forEach((w) => w.on("error", reportConnectionError));
-async function pump() {
-  if (stopping) return;
-  try {
-    const projects = await authDb.project.findMany();
-    for (const p of projects) {
-      try {
-        const scope: Scope = {
+type DueProject = { id: string; workspaceId: string };
+async function processProject(p: DueProject) {
+  const scope: Scope = {
+    workspaceId: p.workspaceId,
+    projectId: p.id,
+    userId: "worker",
+    role: "owner",
+  };
+  const at = new Date();
+  const { events, candidates, seen } = await scoped(
+    p.workspaceId,
+    p.id,
+    async (tx) => {
+      await sweepProject(tx, scope);
+      const candidates: (Date | null)[] = [
+        await nextSweepAt(tx, scope),
+        // Not gated by pause, matching runScheduledMatomo.
+        await nextMatomoRunAt(tx, scope),
+      ];
+      // Crash recovery preserves the intent and never retries an ambiguous external write.
+      const running = await tx.entity.findMany({
+        where: {
           workspaceId: p.workspaceId,
           projectId: p.id,
-          userId: "worker",
-          role: "owner",
-        };
-        const events = await scoped(p.workspaceId, p.id, async (tx) => {
-          await sweepProject(tx, scope);
-          // Crash recovery preserves the intent and never retries an ambiguous external write.
-          const stalled = await tx.entity.findMany({
-            where: { projectId: p.id, kind: "jobs" },
-          });
-          for (const job of stalled) {
-            const d = data(job);
-            if (
-              d.status === "running" &&
-              d.leaseUntil &&
-              new Date(d.leaseUntil) < new Date()
-            ) {
-              if (d.topic === "slack_notification")
-                await markSlackOutcomeUnknown(tx, scope, d.resourceId);
-              if (d.topic === "publishing") {
-                const pub = await entity(
-                  tx,
-                  scope,
-                  "publications",
-                  d.resourceId,
-                );
-                if (data(pub).status === "sending") {
-                  await update(tx, scope, pub, {
-                    ...data(pub),
-                    status: "outcome_unknown",
-                  });
-                  await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pub.id);
-                }
-              }
-              if (d.liveDraftOnce === true || d.attempts >= d.maxAttempts) {
-                await update(tx, scope, job, {
-                  ...d,
-                  status: "blocked_dependency",
-                  leaseUntil: null,
-                  error: "JOB_OUTCOME_UNKNOWN",
-                });
-                await exception(tx, scope, "JOB_OUTCOME_UNKNOWN", job.id);
-                continue;
-              }
-              await update(tx, scope, job, {
-                ...d,
-                status: "retry_scheduled",
-                leaseUntil: null,
-              });
-              await tx.outbox.create({
-                data: {
-                  workspaceId: p.workspaceId,
-                  projectId: p.id,
-                  topic: d.topic,
-                  entityId: job.id,
-                  payload: { jobId: job.id },
-                },
-              });
-            }
+          kind: "jobs",
+          data: { path: ["status"], equals: "running" },
+        },
+      });
+      for (const job of running) {
+        const d = data(job);
+        if (d.status !== "running" || !d.leaseUntil) continue;
+        const lease = new Date(d.leaseUntil);
+        if (!(lease < new Date())) {
+          candidates.push(new Date(lease.valueOf() + LEASE_GRACE_MS));
+          continue;
+        }
+        if (d.topic === "slack_notification")
+          await markSlackOutcomeUnknown(tx, scope, d.resourceId);
+        if (d.topic === "publishing") {
+          const pub = await entity(tx, scope, "publications", d.resourceId);
+          if (data(pub).status === "sending") {
+            await update(tx, scope, pub, {
+              ...data(pub),
+              status: "outcome_unknown",
+            });
+            await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pub.id);
           }
-          return tx.outbox.findMany({
-            where: {
-              projectId: p.id,
-              dispatchedAt: null,
-              availableAt: { lte: new Date() },
-            },
-            take: 40,
-            orderBy: { availableAt: "asc" },
+        }
+        if (d.liveDraftOnce === true || d.attempts >= d.maxAttempts) {
+          await update(tx, scope, job, {
+            ...d,
+            status: "blocked_dependency",
+            leaseUntil: null,
+            error: "JOB_OUTCOME_UNKNOWN",
           });
+          await exception(tx, scope, "JOB_OUTCOME_UNKNOWN", job.id);
+          continue;
+        }
+        await update(tx, scope, job, {
+          ...d,
+          status: "retry_scheduled",
+          leaseUntil: null,
         });
-        // Saved Matomo imports run at most twice a day per project.
-        await runScheduledMatomo(scope).catch(() => {});
-        if (
-          Date.now() - (driveRetryChecks.get(p.id) ?? 0) > 30_000 &&
-          (await connectionStatus(scope)).enabled
-        ) {
-          driveRetryChecks.set(p.id, Date.now());
-          const due = await scoped(p.workspaceId, p.id, (tx) =>
-            tx.entity.findMany({
-              where: {
-                projectId: p.id,
-                kind: "assets",
-                data: { path: ["driveSyncStatus"], equals: "FAILED" },
-              },
-              take: 30,
-              orderBy: { updatedAt: "asc" },
-            }),
-          );
-          for (const asset of due
-            .filter(
-              (row) =>
-                data(row).driveSyncStatus === "FAILED" &&
-                Number(data(row).driveRetryAttempts ?? 0) < 5 &&
-                Date.parse(data(row).driveRetryAt ?? "") <= Date.now(),
-            )
-            .slice(0, 3)) {
-            try {
-              await saveGeneratedAsset(scope, asset.id);
-            } catch {
-              await markSyncFailed(scope, asset.id);
-            }
-          }
-        }
-        for (const e of events) {
-          const queue = queues.get(e.topic as (typeof classes)[number]);
-          if (!queue) continue;
-          if ((await queue.getWaitingCount()) > 200) continue;
-          await queue.add(
-            e.topic,
-            { workspaceId: p.workspaceId, projectId: p.id, jobId: e.entityId },
-            { jobId: e.id },
-          );
-          await scoped(p.workspaceId, p.id, (tx) =>
-            tx.outbox.update({
-              where: { id: e.id },
-              data: { dispatchedAt: new Date() },
-            }),
-          );
-        }
-      } catch (error) {
-        if (Date.now() - (projectFailures.get(p.id) ?? 0) > 30000) {
-          projectFailures.set(p.id, Date.now());
-          const code =
-            error instanceof Error && /^[A-Z0-9_]{1,100}$/.test(error.message)
-              ? error.message
-              : "PROJECT_QUEUE_UNAVAILABLE";
-          console.error(
-            "Orbit project queue blocked: " +
-              code +
-              "; other projects continue",
-          );
-          await scoped(p.workspaceId, p.id, (tx) =>
-            exception(
-              tx,
-              {
-                workspaceId: p.workspaceId,
-                projectId: p.id,
-                userId: "worker",
-                role: "owner",
-              },
-              code,
-              p.id,
-            ),
-          ).catch(() => {});
+        await tx.outbox.create({
+          data: {
+            workspaceId: p.workspaceId,
+            projectId: p.id,
+            topic: d.topic,
+            entityId: job.id,
+            payload: { jobId: job.id },
+          },
+        });
+      }
+      const events = await tx.outbox.findMany({
+        where: {
+          workspaceId: p.workspaceId,
+          projectId: p.id,
+          dispatchedAt: null,
+          availableAt: { lte: new Date() },
+        },
+        take: OUTBOX_BATCH,
+        orderBy: { availableAt: "asc" },
+      });
+      const upcoming = await tx.outbox.findFirst({
+        where: {
+          workspaceId: p.workspaceId,
+          projectId: p.id,
+          dispatchedAt: null,
+          availableAt: { gt: new Date() },
+        },
+        orderBy: { availableAt: "asc" },
+        select: { availableAt: true },
+      });
+      candidates.push(upcoming?.availableAt ?? null);
+      // Read after this transaction's own writes moved the marker; later writers change it again.
+      const { workDueAt } = await tx.project.findUniqueOrThrow({
+        where: { id: p.id },
+        select: { workDueAt: true },
+      });
+      return { events, candidates, seen: workDueAt };
+    },
+  );
+  let redispatch = events.length === OUTBOX_BATCH;
+  for (const e of events) {
+    const queue = queues.get(e.topic as (typeof classes)[number]);
+    if (!queue) continue;
+    if ((await queue.getWaitingCount()) > 200) {
+      redispatch = true;
+      continue;
+    }
+    await queue.add(
+      e.topic,
+      { workspaceId: p.workspaceId, projectId: p.id, jobId: e.entityId },
+      { jobId: e.id },
+    );
+    await scoped(p.workspaceId, p.id, (tx) =>
+      tx.outbox.update({
+        where: { id: e.id },
+        data: { dispatchedAt: new Date() },
+      }),
+    );
+  }
+  // Saved Matomo imports run at most twice a day per project.
+  await runScheduledMatomo(scope).catch(() => {});
+  let drive = driveRetryChecks.get(p.id);
+  if (!drive || Date.now() - drive.at > DRIVE_CHECK_MS) {
+    // Gate the check itself, not only enabled projects, so disabled Drive costs no transaction per tick.
+    drive = {
+      at: Date.now(),
+      enabled: (await connectionStatus(scope)).enabled,
+      nextRetryAt: null,
+    };
+    driveRetryChecks.set(p.id, drive);
+    if (drive.enabled) {
+      const failed = await scoped(p.workspaceId, p.id, (tx) =>
+        tx.entity.findMany({
+          where: {
+            projectId: p.id,
+            kind: "assets",
+            data: { path: ["driveSyncStatus"], equals: "FAILED" },
+          },
+          take: 30,
+          orderBy: { updatedAt: "asc" },
+        }),
+      );
+      const pending = failed.filter(
+        (row) =>
+          data(row).driveSyncStatus === "FAILED" &&
+          Number(data(row).driveRetryAttempts ?? 0) < 5,
+      );
+      const due = pending.filter(
+        (row) => Date.parse(data(row).driveRetryAt ?? "") <= Date.now(),
+      );
+      for (const asset of due.slice(0, 3)) {
+        try {
+          await saveGeneratedAsset(scope, asset.id);
+        } catch {
+          await markSyncFailed(scope, asset.id);
         }
       }
+      const retryTimes = pending
+        .filter((row) => !due.slice(0, 3).includes(row))
+        .map((row) => Date.parse(data(row).driveRetryAt ?? ""))
+        .filter(Number.isFinite);
+      if (retryTimes.length) drive.nextRetryAt = Math.min(...retryTimes);
     }
+  }
+  if (drive.enabled && drive.nextRetryAt !== null)
+    candidates.push(
+      new Date(Math.max(drive.nextRetryAt, drive.at + DRIVE_CHECK_MS)),
+    );
+  const next = redispatch
+    ? new Date()
+    : earliestDue(at, MAX_IDLE_MS, candidates);
+  // Conditional so a write that woke the project after `seen` keeps it due.
+  await authDb.project.updateMany({
+    where: { id: p.id, workDueAt: seen },
+    data: { workDueAt: next },
+  });
+}
+async function reportProjectFailure(p: DueProject, error: unknown) {
+  await authDb.project
+    .updateMany({
+      where: { id: p.id, workDueAt: { lte: new Date() } },
+      data: { workDueAt: new Date(Date.now() + FAILURE_RETRY_MS) },
+    })
+    .catch(() => {});
+  if (Date.now() - (projectFailures.get(p.id) ?? 0) <= 30000) return;
+  projectFailures.set(p.id, Date.now());
+  const code =
+    error instanceof Error && /^[A-Z0-9_]{1,100}$/.test(error.message)
+      ? error.message
+      : "PROJECT_QUEUE_UNAVAILABLE";
+  console.error(
+    "Orbit project queue blocked: " + code + "; other projects continue",
+  );
+  await scoped(p.workspaceId, p.id, (tx) =>
+    exception(
+      tx,
+      {
+        workspaceId: p.workspaceId,
+        projectId: p.id,
+        userId: "worker",
+        role: "owner",
+      },
+      code,
+      p.id,
+    ),
+  ).catch(() => {});
+}
+async function pump() {
+  if (stopping) return;
+  let delay = PUMP_INTERVAL_MS;
+  try {
+    // Only projects whose marker is due are touched; idle projects cost nothing per tick.
+    const due = await authDb.project.findMany({
+      where: {
+        workDueAt: { lte: new Date() },
+        ...(workspaces ? { workspaceId: { in: workspaces } } : {}),
+      },
+      orderBy: { workDueAt: "asc" },
+      take: PUMP_BATCH,
+      select: { id: true, workspaceId: true },
+    });
+    await eachLimited(due, PUMP_CONCURRENCY, async (p) => {
+      if (stopping) return;
+      try {
+        await processProject(p);
+      } catch (error) {
+        await reportProjectFailure(p, error);
+      }
+    });
+    if (due.length === PUMP_BATCH) delay = 50;
     await queues.values().next().value!.getWaitingCount();
     await connection.set(
       "orbit:worker:health:" + config.PUBLISHER_INSTANCE_ID,
@@ -461,6 +566,7 @@ async function pump() {
       "EX",
       45,
     );
+    await mkdir(dirname(healthFile), { recursive: true });
     await writeFile(
       healthFile + ".tmp",
       JSON.stringify({
@@ -469,12 +575,14 @@ async function pump() {
       }),
     );
     await rename(healthFile + ".tmp", healthFile);
-  } catch {
+  } catch (error) {
     console.error(
-      "Orbit queue pump unavailable; retrying with bounded concurrency",
+      "Orbit queue pump unavailable (" +
+        safeErrorCode(error) +
+        "); retrying with bounded concurrency",
     );
   } finally {
-    if (!stopping) setTimeout(pump, 1500);
+    if (!stopping) setTimeout(pump, delay);
   }
 }
 void pump();
