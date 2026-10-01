@@ -161,3 +161,107 @@ describe("read tools", () => {
     ]);
   });
 });
+
+const proposals = vi.hoisted(() => ({ raw: [] as unknown[] }));
+vi.mock("../../chat.ts", () => ({
+  createProposal: vi.fn(
+    async (_scope: unknown, _conversationId: string, raw: unknown) => {
+      proposals.raw.push(raw);
+      return {
+        id: "p1",
+        version: 1,
+        payloadHash: "h",
+        status: "proposed",
+        payload: {},
+      };
+    },
+  ),
+}));
+import { proposalTools } from "./proposal-tools.ts";
+import { chatTools } from "./index.ts";
+
+describe("proposal tool", () => {
+  const owner = {
+    workspaceId: "w",
+    projectId: "p",
+    userId: "u",
+    role: "owner" as const,
+  };
+  const propose = proposalTools[0]!;
+  const definition = responsesTool(propose);
+  const mission = (definition.parameters as any).properties.mission;
+  it("keeps the mission field set, requires every field and is editor-only", () => {
+    expect(propose.name).toBe("propose_campaign");
+    expect(propose.roles).toEqual(["editor", "owner"]);
+    expect(propose.risk).toBe("P_proposal");
+    expect((definition.parameters as any).required).toEqual([
+      "mission",
+      "factIds",
+    ]);
+    expect(Object.keys(mission.properties).sort()).toEqual([
+      "allowedTopics",
+      "assetIds",
+      "audience",
+      "campaignType",
+      "channels",
+      "contentType",
+      "endAt",
+      "goal",
+      "language",
+      "maxContents",
+      "product",
+      "profileVersion",
+      "sourceIds",
+      "startAt",
+      "targetAction",
+      "targetUrl",
+      "title",
+    ]);
+    expect([...mission.required].sort()).toEqual(
+      Object.keys(mission.properties).sort(),
+    );
+    expect(mission.additionalProperties).toBe(false);
+    expect(mission.properties).not.toHaveProperty("allowedActions");
+    expect(chatTools.map((tool) => tool.name)).toEqual([
+      "project_status",
+      "knowledge_search",
+      "approved_assets",
+      "analytics_memory",
+      "propose_campaign",
+    ]);
+  });
+  it("passes a null optional mission field to createProposal as omitted", async () => {
+    proposals.raw.length = 0;
+    const result = await propose.execute(
+      { scope: owner, runId: "r", conversationId: "c1", callIndex: 1 },
+      {
+        mission: {
+          title: "T",
+          product: null,
+          allowedTopics: null,
+          assetIds: null,
+        },
+        factIds: ["f"],
+      },
+    );
+    expect(proposals.raw).toEqual([
+      { mission: { title: "T" }, factIds: ["f"] },
+    ]);
+    expect(result).toEqual({
+      output: {
+        proposalId: "p1",
+        version: 1,
+        hash: "h",
+        status: "proposed",
+        payload: {},
+      },
+      cards: [
+        {
+          kind: "status",
+          label: "Proposal ready for confirmation",
+          status: "confirmation_required",
+        },
+      ],
+    });
+  });
+});
