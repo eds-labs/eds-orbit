@@ -27,6 +27,11 @@ import {
   safeErrorCode,
   workspaceAllowlist,
 } from "./schedule.ts";
+import {
+  claimProject,
+  deferAfterFailure,
+  releaseProject,
+} from "./due-marker.ts";
 import { Queue, Worker, UnrecoverableError } from "bullmq";
 import {
   authDb,
@@ -119,6 +124,8 @@ const PUMP_INTERVAL_MS = 1500,
   // Safety net for transitions no trigger or hint covers; every project is revisited at least this often.
   MAX_IDLE_MS = 300_000,
   FAILURE_RETRY_MS = 5_000,
+  // A pass holds the marker this long; a crashed pass is retried after it.
+  PROCESSING_LEASE_MS = 60_000,
   LEASE_GRACE_MS = 1_000,
   DRIVE_CHECK_MS = 30_000;
 const workers = classes.map(
@@ -327,7 +334,7 @@ const workers = classes.map(
 );
 workers.forEach((w) => w.on("error", reportConnectionError));
 type DueProject = { id: string; workspaceId: string };
-async function processProject(p: DueProject) {
+async function processProject(p: DueProject, claimed: Date) {
   const scope: Scope = {
     workspaceId: p.workspaceId,
     projectId: p.id,
@@ -335,7 +342,7 @@ async function processProject(p: DueProject) {
     role: "owner",
   };
   const at = new Date();
-  const { events, candidates, seen } = await scoped(
+  const { events, candidates } = await scoped(
     p.workspaceId,
     p.id,
     async (tx) => {
@@ -420,12 +427,7 @@ async function processProject(p: DueProject) {
         select: { availableAt: true },
       });
       candidates.push(upcoming?.availableAt ?? null);
-      // Read after this transaction's own writes moved the marker; later writers change it again.
-      const { workDueAt } = await tx.project.findUniqueOrThrow({
-        where: { id: p.id },
-        select: { workDueAt: true },
-      });
-      return { events, candidates, seen: workDueAt };
+      return { events, candidates };
     },
   );
   let redispatch = events.length === OUTBOX_BATCH;
@@ -500,19 +502,20 @@ async function processProject(p: DueProject) {
   const next = redispatch
     ? new Date()
     : earliestDue(at, MAX_IDLE_MS, candidates);
-  // Conditional so a write that woke the project after `seen` keeps it due.
-  await authDb.project.updateMany({
-    where: { id: p.id, workDueAt: seen },
-    data: { workDueAt: next },
-  });
+  // A write since the claim, including this pass's own, keeps the project due.
+  await releaseProject(authDb, p.id, claimed, next);
 }
-async function reportProjectFailure(p: DueProject, error: unknown) {
-  await authDb.project
-    .updateMany({
-      where: { id: p.id, workDueAt: { lte: new Date() } },
-      data: { workDueAt: new Date(Date.now() + FAILURE_RETRY_MS) },
-    })
-    .catch(() => {});
+async function reportProjectFailure(
+  p: DueProject,
+  error: unknown,
+  claimed: Date | null,
+) {
+  await deferAfterFailure(
+    authDb,
+    p.id,
+    new Date(Date.now() + FAILURE_RETRY_MS),
+    claimed,
+  ).catch(() => {});
   if (Date.now() - (projectFailures.get(p.id) ?? 0) <= 30000) return;
   projectFailures.set(p.id, Date.now());
   const code =
@@ -552,10 +555,18 @@ async function pump() {
     });
     await eachLimited(due, PUMP_CONCURRENCY, async (p) => {
       if (stopping) return;
+      let claimed: Date | null = null;
       try {
-        await processProject(p);
+        claimed = await claimProject(
+          authDb,
+          p.id,
+          new Date(Date.now() + PROCESSING_LEASE_MS),
+        );
+        // Another worker or a later marker took it since the selection.
+        if (!claimed) return;
+        await processProject(p, claimed);
       } catch (error) {
-        await reportProjectFailure(p, error);
+        await reportProjectFailure(p, error, claimed);
       }
     });
     if (due.length === PUMP_BATCH) delay = 50;
