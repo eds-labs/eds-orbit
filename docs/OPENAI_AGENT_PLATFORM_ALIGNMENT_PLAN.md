@@ -689,3 +689,10 @@ Next: Phase 1 (observability and cost foundation). It needs an additive schema m
 
 Next: Phase 2. The telemetry migration is local only until a separate production release approval.
 
+
+### 2026-10-01 — Phase 0 and Phase 1 released to production
+
+- Mario approved merging PR #15; merged as `dce2ad4` on 2026-10-01 06:54 UTC and deployed by the Coolify webhook.
+- Read-only post-deploy checks on `https://orbit.eds-labs.io`: `/api/health/ready` returns `{"status":"ok","database":"ok","worker":"ready"}`; the new `/api/projects/:projectId/agent-runs` and `/ai-cost` routes answer `401 UNAUTHENTICATED` without a session (they did not exist before), so the new API is live. The API only starts after `migrate` completes, so `202609300001_agent_telemetry` is applied.
+- The release also carries `next` 16.3.6 (GHSA-vcvr-r3jv-pc5j) and the e2e fixes for the settings tabs and chat archive control that came from `main`.
+- Still to confirm with an owner session: `GET …/ai-cost` and `…/agent-runs` for uLiquid, structured API logs in Coolify, and that no pending chat proposal hit `PROPOSAL_COST_CHANGED`.

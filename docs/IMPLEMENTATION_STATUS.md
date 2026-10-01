@@ -10,7 +10,7 @@ Mario accepted the [OpenAI agent platform alignment plan](OPENAI_AGENT_PLATFORM_
 - `openai` npm package 7.17.0 → 7.25.0, no code changes required.
 - Cost baseline from settled production receipts: [agent-platform-baseline-2026-09-30](evidence/agent-platform-baseline-2026-09-30.md).
 - Known local issue: the real-Redis worker lifecycle test times out in local environments with a large accumulated test database; it fails identically before the upgrade.
-- Phase 1 (observability and cost foundation, local, no production change): cache-aware cost settlement with rate card v2, additive `AgentRun`/`AgentSpan` telemetry tables and budget attribution (migration `202609300001_agent_telemetry`), editor/owner endpoints `agent-runs` and `ai-cost`, and structured redacted API request logging with `LOG_LEVEL`. 429/430 tests pass; the failure is the known worker lifecycle test above. The migration is not deployed.
+- Phase 1 (observability and cost foundation; released to production on 2026-10-01 as `dce2ad4`, see the plan §17): cache-aware cost settlement with rate card v2, additive `AgentRun`/`AgentSpan` telemetry tables and budget attribution (migration `202609300001_agent_telemetry`), editor/owner endpoints `agent-runs` and `ai-cost`, and structured redacted API request logging with `LOG_LEVEL`. 429/430 tests pass; the failure is the known worker lifecycle test above. The migration is not deployed.
 
 ## Index activation control (2026-09-25)
 
