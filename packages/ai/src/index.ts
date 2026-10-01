@@ -38,7 +38,7 @@ export type Usage = {
 export class GenerationOutputError extends Error {
   readonly costMicros: number;
   constructor(
-    readonly code: "MODEL_OUTPUT_INVALID" | "INSUFFICIENT_EVIDENCE",
+    readonly code: "MODEL_OUTPUT_NOT_VALID" | "INSUFFICIENT_EVIDENCE",
     readonly usage: Usage,
     readonly responseId: string | null,
   ) {
@@ -188,7 +188,7 @@ export async function generate(params: {
     output = structuredOutput.parse(raw);
   } catch {
     throw new GenerationOutputError(
-      "MODEL_OUTPUT_INVALID",
+      "MODEL_OUTPUT_NOT_VALID",
       usage,
       response.id ?? null,
     );

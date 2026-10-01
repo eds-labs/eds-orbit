@@ -307,7 +307,7 @@ describe.skipIf(!enabled)(
           params.route.model === abstain.route.model
             ? "INSUFFICIENT_EVIDENCE"
             : params.route.model === invalid.route.model
-              ? "MODEL_OUTPUT_INVALID"
+              ? "MODEL_OUTPUT_NOT_VALID"
               : null;
         if (!code) return recorded(params);
         throw new GenerationOutputError(
@@ -357,7 +357,7 @@ describe.skipIf(!enabled)(
         ]),
       ).toEqual([
         ["abstain", true, false, "INSUFFICIENT_EVIDENCE", 3, 3],
-        ["invalid", true, false, "MODEL_OUTPUT_INVALID", 3, 3],
+        ["invalid", true, false, "MODEL_OUTPUT_NOT_VALID", 3, 3],
         ["good", true, true, null, expect.any(Number), expect.any(Number)],
       ]);
       expect(report.summary).toEqual([

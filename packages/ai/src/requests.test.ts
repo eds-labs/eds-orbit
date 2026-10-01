@@ -121,8 +121,8 @@ describe("unusable generation output", () => {
     );
   };
   it.each([
-    ["MODEL_OUTPUT_INVALID", '{"title":"t","body":'],
-    ["MODEL_OUTPUT_INVALID", JSON.stringify({ title: "t", body: "b" })],
+    ["MODEL_OUTPUT_NOT_VALID", '{"title":"t","body":'],
+    ["MODEL_OUTPUT_NOT_VALID", JSON.stringify({ title: "t", body: "b" })],
     [
       "INSUFFICIENT_EVIDENCE",
       JSON.stringify({ title: "t", body: "", claims: [] }),
@@ -146,6 +146,12 @@ describe("unusable generation output", () => {
         costMicros: 20,
       },
     });
+  });
+  it("pins the invalid-output code to the worker's non-retryable NOT_ pattern", async () => {
+    const error = (await outcome("not json")) as GenerationOutputError;
+    expect(error.code).toBe("MODEL_OUTPUT_NOT_VALID");
+    expect(error.message).toBe("MODEL_OUTPUT_NOT_VALID");
+    expect(error.message).toMatch(/NOT_/);
   });
   it("keeps an unknown outcome when usage is missing", async () => {
     create.mockReset().mockResolvedValue({
