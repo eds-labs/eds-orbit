@@ -64,10 +64,53 @@ export function responsesTool(tool: OrbitTool) {
   };
 }
 
+// Keywords strict mode accepts (OpenAI structured outputs, "Supported
+// properties"); strings allow only pattern and format, so zod length limits
+// and defaults must stay in the server-side validation.
+const STRICT_KEYWORDS = new Set([
+  "type",
+  "description",
+  "properties",
+  "required",
+  "additionalProperties",
+  "items",
+  "anyOf",
+  "enum",
+  "const",
+  "pattern",
+  "format",
+  "multipleOf",
+  "maximum",
+  "exclusiveMaximum",
+  "minimum",
+  "exclusiveMinimum",
+  "minItems",
+  "maxItems",
+]);
+
+function assertStrictKeywords(schema: unknown, path: string): void {
+  if (Array.isArray(schema)) {
+    schema.forEach((item, index) =>
+      assertStrictKeywords(item, `${path}/${index}`),
+    );
+    return;
+  }
+  if (!schema || typeof schema !== "object") return;
+  for (const [key, value] of Object.entries(schema)) {
+    if (!STRICT_KEYWORDS.has(key))
+      throw new Error(`TOOL_SCHEMA_KEYWORD_UNSUPPORTED:${path}/${key}`);
+    if (key === "properties")
+      for (const [name, child] of Object.entries(value as object))
+        assertStrictKeywords(child, `${path}/properties/${name}`);
+    else if (key === "items" || key === "anyOf")
+      assertStrictKeywords(value, `${path}/${key}`);
+  }
+}
+
 /** Validates a tool at import time, so a bad schema never reaches a paid call. */
 export function defineTool(tool: OrbitTool): OrbitTool {
   if (!TOOL_NAME.test(tool.name)) throw new Error("TOOL_NAME_INVALID");
-  responsesTool(tool);
+  assertStrictKeywords(responsesTool(tool).parameters, "parameters");
   return tool;
 }
 

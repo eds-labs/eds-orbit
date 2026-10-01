@@ -9,7 +9,8 @@ import {
 
 const everyone = ["viewer", "editor", "owner"] as const;
 
-// Model-facing shapes only; runReadTool's own zod inputs stay authoritative.
+// Model-facing shapes only; runReadTool's own zod inputs stay authoritative
+// and enforce the string lengths strict mode cannot express.
 function readTool(
   name: string,
   namespace: OrbitTool["namespace"],
@@ -55,8 +56,8 @@ export const readTools: readonly OrbitTool[] = [
     "Find current model-authorized public Verified Facts and Knowledge with source references. When an exact Verified Fact key is known, pass factKeys to avoid unrelated fact context.",
     z
       .object({
-        query: z.string().min(1).max(2000),
-        factKeys: z.array(z.string().min(1).max(160)).max(8).nullable(),
+        query: z.string(),
+        factKeys: z.array(z.string()).max(8).nullable(),
       })
       .strict(),
   ),
@@ -64,12 +65,12 @@ export const readTools: readonly OrbitTool[] = [
     "approved_assets",
     "assets",
     "Find approved brand assets in this project. Empty query lists all. Return metadata, never asset bytes or credentials.",
-    z.object({ query: z.string().max(120).nullable() }).strict(),
+    z.object({ query: z.string().nullable() }).strict(),
   ),
   readTool(
     "analytics_memory",
     "analytics",
     "Summarize existing metrics, insights, and confirmed preferences as observations, not verified product facts.",
-    z.object({ campaign: z.string().max(200).nullable() }).strict(),
+    z.object({ campaign: z.string().nullable() }).strict(),
   ),
 ];

@@ -15,7 +15,7 @@ const tool = (overrides: Partial<OrbitTool> = {}): OrbitTool => ({
   description: "Synthetic read tool.",
   parameters: z
     .object({
-      query: z.string().max(100),
+      query: z.string(),
       limit: z.number().int().min(1).max(5).nullable(),
     })
     .strict(),
@@ -37,7 +37,7 @@ describe("tool registry", () => {
       parameters: {
         type: "object",
         properties: {
-          query: { type: "string", maxLength: 100 },
+          query: { type: "string" },
           limit: {
             anyOf: [
               { type: "integer", minimum: 1, maximum: 5 },
@@ -58,6 +58,77 @@ describe("tool registry", () => {
         }),
       ),
     ).toThrow(/nullable/);
+  });
+  it("rejects keywords the strict API mode does not support", () => {
+    expect(() =>
+      defineTool(
+        tool({ parameters: z.object({ query: z.string().max(10) }).strict() }),
+      ),
+    ).toThrow(
+      "TOOL_SCHEMA_KEYWORD_UNSUPPORTED:parameters/properties/query/maxLength",
+    );
+    expect(() =>
+      defineTool(
+        tool({
+          parameters: z
+            .object({ tags: z.array(z.string().min(1)).max(3) })
+            .strict(),
+        }),
+      ),
+    ).toThrow(
+      "TOOL_SCHEMA_KEYWORD_UNSUPPORTED:parameters/properties/tags/items/minLength",
+    );
+    expect(() =>
+      defineTool(
+        tool({
+          parameters: z.object({ query: z.string().default("x") }).strict(),
+        }),
+      ),
+    ).toThrow(
+      "TOOL_SCHEMA_KEYWORD_UNSUPPORTED:parameters/properties/query/default",
+    );
+  });
+  it("sends only strict-mode keywords for every chat tool", () => {
+    const supported = new Set([
+      "type",
+      "description",
+      "properties",
+      "required",
+      "additionalProperties",
+      "items",
+      "anyOf",
+      "enum",
+      "const",
+      "pattern",
+      "format",
+      "multipleOf",
+      "maximum",
+      "exclusiveMaximum",
+      "minimum",
+      "exclusiveMinimum",
+      "minItems",
+      "maxItems",
+    ]);
+    const keywords = (
+      schema: unknown,
+      found = new Set<string>(),
+    ): Set<string> => {
+      if (Array.isArray(schema))
+        schema.forEach((item) => keywords(item, found));
+      else if (schema && typeof schema === "object")
+        for (const [key, value] of Object.entries(schema)) {
+          found.add(key);
+          if (key === "properties")
+            Object.values(value as object).forEach((child) =>
+              keywords(child, found),
+            );
+          else if (key === "items" || key === "anyOf") keywords(value, found);
+        }
+      return found;
+    };
+    for (const tool of chatTools)
+      for (const key of keywords(responsesTool(tool).parameters))
+        expect(supported, `${tool.name}: ${key}`).toContain(key);
   });
   it("rejects names the function API does not accept", () => {
     expect(() => defineTool(tool({ name: "knowledge.search" }))).toThrow(
