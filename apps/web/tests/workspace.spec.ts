@@ -1073,9 +1073,17 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
         quality: "gpt-5.6-terra",
         escalation: "gpt-5.6-terra",
       },
+      taskRoutes: {
+        chat_operator: {
+          model: "gpt-5.6-terra",
+          reasoningEffort: "high",
+          maxOutputTokens: 2500,
+        },
+      },
     },
   );
   await page.goto("/settings");
+  await page.getByRole("tab", { name: "Project", exact: true }).click();
   await page.getByRole("button", { name: "Configure OpenAI" }).click();
   const dialog = page.getByRole("dialog", { name: "OpenAI configuration" });
   await expect(
@@ -1083,4 +1091,98 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
       "Current OpenAI rate card (JSON, USD micros per million tokens)",
     ),
   ).toHaveValue(JSON.stringify(rateCard, null, 2));
+  await expect(dialog).toContainText(/Route version \d+/);
+
+  // One route group per task class; the stored chat route is loaded.
+  await expect(
+    dialog.getByRole("heading", { name: "Fallback tier models" }),
+  ).toBeVisible();
+  for (const label of ["Chat operator", "Social drafts", "Blog drafts"]) {
+    await expect(
+      dialog.getByRole("heading", { name: `${label} route` }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByLabel(`${label} model`, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog.getByLabel(`${label} maximum output tokens`, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      dialog
+        .getByLabel(`${label} reasoning effort`, { exact: true })
+        .locator("option"),
+    ).toHaveText([
+      "Default (not sent)",
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max",
+    ]);
+  }
+  await expect(
+    dialog.getByLabel("Chat operator model", { exact: true }),
+  ).toHaveValue("gpt-5.6-terra");
+  await expect(
+    dialog.getByLabel("Chat operator reasoning effort", { exact: true }),
+  ).toHaveValue("high");
+  await expect(
+    dialog.getByLabel("Chat operator maximum output tokens", { exact: true }),
+  ).toHaveValue("2500");
+  await expect(dialog).toContainText(
+    "Effective route: gpt-5.6-terra · high · 2500 max tokens.",
+  );
+  await expect(
+    dialog.getByLabel("Blog drafts model", { exact: true }),
+  ).toHaveValue("");
+  await expect(
+    dialog.getByLabel("Blog drafts maximum output tokens", { exact: true }),
+  ).toHaveValue("1800");
+
+  // Save a Blog drafts route; the untouched groups keep their stored/empty state.
+  await dialog
+    .getByLabel("Blog drafts model", { exact: true })
+    .fill("gpt-5.6-terra");
+  await dialog
+    .getByLabel("Blog drafts reasoning effort", { exact: true })
+    .selectOption("low");
+  await dialog
+    .getByLabel("Blog drafts maximum output tokens", { exact: true })
+    .fill("4000");
+  const saveRequest = page.waitForRequest(
+    (request) =>
+      request.method() === "POST" &&
+      request
+        .url()
+        .endsWith(`/api/projects/${projectId}/actions/openai-configure`),
+  );
+  await dialog
+    .getByRole("button", { name: "Save OpenAI configuration" })
+    .click();
+  const saved = (await saveRequest).postDataJSON();
+  expect(saved.taskRoutes).toEqual({
+    chat_operator: {
+      model: "gpt-5.6-terra",
+      reasoningEffort: "high",
+      maxOutputTokens: 2500,
+    },
+    draft_blog: {
+      model: "gpt-5.6-terra",
+      reasoningEffort: "low",
+      maxOutputTokens: 4000,
+    },
+  });
+  await expect(dialog).toBeHidden();
+
+  // The stored configuration reports the new route and a bumped route version.
+  const view = await (
+    await page.request.get(`/api/projects/${projectId}/openai-configuration`)
+  ).json();
+  expect(view.taskRoutes.draft_blog).toEqual({
+    model: "gpt-5.6-terra",
+    reasoningEffort: "low",
+    maxOutputTokens: 4000,
+  });
+  expect(view.routeVersion).toEqual(expect.any(Number));
 });

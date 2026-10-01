@@ -3,11 +3,10 @@ import { ZodError } from "zod";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { policy as policySchema } from "../../../../packages/schemas/src/index.ts";
 import {
-  CHAT_MAX_OUTPUT_TOKENS,
   computeCost,
   estimateCost,
   normalizeResponsesUsage,
-  route,
+  resolveRoute,
   streamChat,
 } from "../../../../packages/ai/src/index.ts";
 import { data, DomainError } from "../shared.ts";
@@ -20,7 +19,10 @@ import {
   recordSpan,
   startRun,
 } from "./telemetry.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
+import {
+  openAiConfigurationVersion,
+  runtimeOpenAiConfiguration,
+} from "./openai-configuration.ts";
 import { chatScoped, createProposal } from "./chat.ts";
 import {
   readToolDefinitions,
@@ -251,7 +253,8 @@ export async function runChat(scope: Scope, runId: string) {
         where: { id: runId },
         data: { status: "running", sequence: { increment: 1 } },
       });
-      return { run, messages: messages.reverse(), project };
+      const routeVersion = await openAiConfigurationVersion(tx, scope);
+      return { run, messages: messages.reverse(), project, routeVersion };
     });
     if (recovered) {
       // A crashed invocation left its run open; close it after the settlement committed.
@@ -279,6 +282,7 @@ export async function runChat(scope: Scope, runId: string) {
       taskClass: "chat_operator",
       subjectType: "chat_run",
       subjectId: runId,
+      routeVersion: state.routeVersion,
     });
     const input: any[] = state.messages.map((m) => ({
       role: m.role,
@@ -314,11 +318,15 @@ export async function runChat(scope: Scope, runId: string) {
           ),
         );
         const runtime = await runtimeOpenAiConfiguration(tx, scope);
-        const model = route("chat", 0, 0, runtime);
+        // Fail closed before reserving: the run records one configuration version.
+        if ((runtime.routeVersion ?? null) !== state.routeVersion)
+          throw new DomainError("CHAT_ROUTE_CHANGED", 409);
+        const modelRoute = resolveRoute("chat_operator", runtime);
+        const model = modelRoute.model;
         const estimate = estimateCost(
           model,
           bytes,
-          CHAT_MAX_OUTPUT_TOKENS,
+          modelRoute.maxOutputTokens,
           runtime,
         );
         const reservation = await reserve(
@@ -341,7 +349,7 @@ export async function runChat(scope: Scope, runId: string) {
             sequence: { increment: 1 },
           },
         });
-        return { runtime, model, reservationId: reservation.id };
+        return { runtime, model, modelRoute, reservationId: reservation.id };
       });
       reservationId = prepared.reservationId;
       transmitted = true;
@@ -350,7 +358,7 @@ export async function runChat(scope: Scope, runId: string) {
       let completed: any = null;
       let lastSaved = Date.now();
       const stream = await streamChat({
-        model: prepared.model,
+        route: prepared.modelRoute,
         input: input as OpenAI.Responses.ResponseInput,
         tools: [
           ...readToolDefinitions,
@@ -562,7 +570,7 @@ export async function runChat(scope: Scope, runId: string) {
       failedStatus =
         run.status === "canceled"
           ? "canceled"
-          : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|RETRIEVAL/.test(
+          : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|ROUTE_CHANGED|RETRIEVAL/.test(
                 code,
               )
             ? "blocked"

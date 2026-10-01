@@ -905,6 +905,12 @@ td:first-child {
   line-height: 1.5;
   color: #5b738b;
 }
+.field-heading {
+  margin: 8px 0 -6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #23415a;
+}
 .field-check {
   flex-direction: row-reverse;
   justify-content: flex-end;

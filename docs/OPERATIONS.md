@@ -28,6 +28,16 @@ The API uses the Fastify pino logger. Each request logs a random request ID (cli
 
 Rollout note (cache-aware estimates): the higher estimate raises the first-draft cost ceiling stored with Chat proposals. Before deploying this phase, confirm or discard every pending Chat proposal. A proposal still pending afterwards fails confirmation with `PROPOSAL_COST_CHANGED`, and a mission confirmed before the deploy but generated after it may stop earlier with `CHAT_PROPOSAL_COST_EXCEEDED`. Both checks fail closed before any paid call, so nothing is overspent; recovery is to ask Chat to propose the campaign again. See ADR 0003.
 
+## Model routes and generation evals
+
+Routes per task class (`chat_operator`, `draft_social`, `draft_blog`) are set by the owner in the OpenAI configuration dialog; precedence, effort and ceilings are described in `MODEL_ROUTING.md`. Migration `202610010001_agent_run_route_version` adds the nullable `AgentRun.routeVersion` (the configuration's entity version); it is additive and deploys with the normal migration step. With no task route saved, behaviour is unchanged.
+
+Rollout note (route-priced blog proposals): Chat proposals for blog content are now priced with the `draft_blog` route (quality tier) instead of the standard tier. Before deploying, confirm or discard pending blog proposals; one still pending afterwards fails confirmation with `PROPOSAL_COST_CHANGED` when the two tiers differ in price, before any paid call. Ask Chat to propose it again.
+
+Saving the OpenAI configuration (any field, including image-only settings) while a chat run or draft generation is in progress stops that run before its next paid call with `CHAT_ROUTE_CHANGED` or `GENERATION_DEPENDENCY_CHANGED`. Save routes when no run is active, or retry the stopped run. A route model that is no longer in the verified allowlist fails closed with `MODEL_CAPABILITY_NOT_VERIFIED`.
+
+Before switching a route, run the generation eval (`evals/generation/README.md`): the dry run (`pnpm eval:generation` with the local environment) prints the plan, the worst-case cost, the ceiling (at most $5) and the confirmation value; the live run needs Mario's key in `ORBIT_EVAL_OPENAI_API_KEY` and the printed confirmation. It runs only against the local database and writes metrics-only evidence to `docs/evidence/generation-eval-<UTC>.{json,md}`. Roll back a switch by saving the previous route or clearing the task route.
+
 ## Failure and recovery
 
 Pause before intervention. Unknown publication or Slack handoff must remain unknown until observed; do not create a fresh job to resend it. Known publication IDs are read-polled at most eight times with bounded delay. Postiz group cancellation remains a visible manual provider action, because current group scope cannot be proven safely from the list contract.

@@ -315,6 +315,7 @@ model AgentRun {
   subjectType String?
   subjectId   String?
   missionId   String?     @db.Uuid
+  routeVersion Int?
   status      String      @default("running")
   errorCode   String?
   startedAt   DateTime    @default(now()) @db.Timestamptz(3)

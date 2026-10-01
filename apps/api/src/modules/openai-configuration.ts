@@ -5,7 +5,12 @@ import {
   environmentRuntimeConfig,
   imageGenerationConfigurationSchema,
   rateCardSchema,
+  resolveRoute,
+  taskClasses,
+  taskRoutesSchema,
+  type ModelRoute,
   type OpenAiRuntimeConfig,
+  type TaskClass,
 } from "../../../../packages/ai/src/index.ts";
 import {
   loadConfig,
@@ -36,6 +41,7 @@ export const openAiConfigurationInput = z
       })
       .strict()
       .default(modelRoutes),
+    taskRoutes: taskRoutesSchema.default({}),
     imageGeneration: imageGenerationConfigurationSchema.default({
       model: "gpt-image-2.5-flare",
       maxCostMicrosPerImage: 0,
@@ -56,6 +62,16 @@ export const openAiConfigurationInput = z
         value.modelRoutes.standard,
         value.modelRoutes.quality,
       ].some((model) => !value.verifiedModels.includes(model))
+    )
+      context.addIssue({
+        code: "custom",
+        message: "ROUTED_MODEL_NOT_VERIFIED",
+      });
+    if (
+      value.verifiedModels.length &&
+      Object.values(value.taskRoutes).some(
+        (route) => !value.verifiedModels.includes(route.model),
+      )
     )
       context.addIssue({
         code: "custom",
@@ -96,12 +112,35 @@ function stored(row: { data: unknown }) {
         escalation: z.string(),
       })
       .parse(value.modelRoutes ?? modelRoutes),
+    // Legacy rows predate task routes.
+    taskRoutes: taskRoutesSchema.default({}).parse(value.taskRoutes),
     imageGeneration: imageGenerationConfigurationSchema.parse(
       value.imageGeneration ?? {},
     ),
     updatedBy: z.string().parse(value.updatedBy),
     updatedAt: z.iso.datetime().parse(value.updatedAt),
   } satisfies StoredConfiguration;
+}
+
+// Never throws: unverified routes are reported instead of failing the view.
+function effectiveRoutes(
+  runtime: Pick<
+    OpenAiRuntimeConfig,
+    "verifiedModels" | "modelRoutes" | "taskRoutes"
+  >,
+) {
+  return Object.fromEntries(
+    taskClasses.map((taskClass) => {
+      try {
+        return [taskClass, resolveRoute(taskClass, runtime)];
+      } catch {
+        return [taskClass, { error: "MODEL_CAPABILITY_NOT_VERIFIED" }];
+      }
+    }),
+  ) as Record<
+    TaskClass,
+    ModelRoute | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
+  >;
 }
 
 export function publicOpenAiConfiguration(
@@ -118,6 +157,13 @@ export function publicOpenAiConfiguration(
       verifiedModels: fallback.verifiedModels,
       rateCard: fallback.rateCard,
       modelRoutes,
+      taskRoutes: fallback.taskRoutes ?? {},
+      effectiveRoutes: effectiveRoutes({
+        verifiedModels: fallback.verifiedModels,
+        modelRoutes,
+        taskRoutes: fallback.taskRoutes,
+      }),
+      routeVersion: null,
       imageGeneration:
         fallback.imageGeneration ??
         imageGenerationConfigurationSchema.parse({}),
@@ -134,10 +180,29 @@ export function publicOpenAiConfiguration(
     verifiedModels: value.verifiedModels,
     rateCard: value.rateCard,
     modelRoutes: value.modelRoutes,
+    taskRoutes: value.taskRoutes,
+    effectiveRoutes: effectiveRoutes(value),
+    routeVersion: row.version ?? null,
     imageGeneration: value.imageGeneration,
     updatedAt: value.updatedAt,
     version: row.version,
   };
+}
+
+/** Entity version of the stored configuration; null for the environment fallback. No secrets are read. */
+export async function openAiConfigurationVersion(
+  tx: DbTx,
+  scope: Scope,
+): Promise<number | null> {
+  const row = await tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "openai_configuration",
+    },
+    select: { version: true },
+  });
+  return row?.version ?? null;
 }
 
 export async function runtimeOpenAiConfiguration(
@@ -163,6 +228,8 @@ export async function runtimeOpenAiConfiguration(
     verifiedModels: value.verifiedModels,
     rateCard: value.rateCard,
     modelRoutes: value.modelRoutes,
+    taskRoutes: value.taskRoutes,
+    routeVersion: row.version,
     imageGeneration: value.imageGeneration,
   };
 }
@@ -194,6 +261,7 @@ export async function saveOpenAiConfiguration(
     verifiedModels: input.verifiedModels,
     rateCard: input.rateCard,
     modelRoutes: input.modelRoutes,
+    taskRoutes: input.taskRoutes,
     imageGeneration: input.imageGeneration,
     updatedBy: scope.userId,
     updatedAt: new Date().toISOString(),

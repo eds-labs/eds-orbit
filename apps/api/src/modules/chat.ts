@@ -8,7 +8,11 @@ import {
   type Scope,
 } from "../../../../packages/schemas/src/index.ts";
 import { getActiveIndex } from "../../../../packages/knowledge/src/index.ts";
-import { estimateCost, route } from "../../../../packages/ai/src/index.ts";
+import {
+  draftTaskClass,
+  estimateCost,
+  resolveRoute,
+} from "../../../../packages/ai/src/index.ts";
 import {
   data,
   create,
@@ -364,10 +368,11 @@ export async function createProposal(
     )
       throw new DomainError("PROPOSAL_PERIOD_OUTSIDE_POLICY", 409);
     const ai = await runtimeOpenAiConfiguration(tx, scope);
-    const draftModel = route("draft", 0, 0, ai);
+    const draftRoute = resolveRoute(draftTaskClass(parsed.contentType), ai);
+    const draftModel = draftRoute.model;
     const index = await getActiveIndex(tx, scope);
     const firstDraftMaxMicros =
-      estimateCost(draftModel, 50000, 1800, ai) +
+      estimateCost(draftModel, 50000, draftRoute.maxOutputTokens, ai) +
       estimateCost(index.model, 8000, 0, ai);
     if (firstDraftMaxMicros > p.perRunBudgetMicros)
       throw new DomainError("RUN_BUDGET_EXCEEDED", 409);
@@ -521,9 +526,10 @@ export async function confirmProposal(
       await assertAssignedSocialChannels(tx, scope, mission.channels);
     const ai = await runtimeOpenAiConfiguration(tx, scope);
     const currentIndex = await getActiveIndex(tx, scope);
-    const currentModel = route("draft", 0, 0, ai);
+    const currentRoute = resolveRoute(draftTaskClass(mission.contentType), ai);
+    const currentModel = currentRoute.model;
     const currentCost =
-      estimateCost(currentModel, 50000, 1800, ai) +
+      estimateCost(currentModel, 50000, currentRoute.maxOutputTokens, ai) +
       estimateCost(currentIndex.model, 8000, 0, ai);
     if (
       currentIndex.id !== payload.index.id ||

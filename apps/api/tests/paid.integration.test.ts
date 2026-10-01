@@ -40,17 +40,35 @@ import {
   assertContentCampaignContext,
   profileGuardrailProblems,
 } from "../src/modules/marketing-profile.ts";
-const provider = vi.hoisted(() => ({ generate: vi.fn(), embed: vi.fn() }));
-vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("../../../packages/ai/src/index.ts")
-  >()),
-  generate: provider.generate,
-  embed: provider.embed,
-  route: () => "synthetic-test-model",
-  estimateCost: () => 1000,
+const provider = vi.hoisted(() => ({
+  generate: vi.fn(),
+  embed: vi.fn(),
+  // Route and cost tests switch to the real implementations.
+  actualRouting: false,
 }));
+vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
+  return {
+    ...actual,
+    generate: provider.generate,
+    embed: provider.embed,
+    resolveRoute: ((...args: Parameters<typeof actual.resolveRoute>) =>
+      provider.actualRouting
+        ? actual.resolveRoute(...args)
+        : (args[1].taskRoutes?.[args[0]] ?? {
+            model: "synthetic-test-model",
+            maxOutputTokens: 1800,
+          })) as typeof actual.resolveRoute,
+    estimateCost: ((...args: Parameters<typeof actual.estimateCost>) =>
+      provider.actualRouting
+        ? actual.estimateCost(...args)
+        : 1000) as typeof actual.estimateCost,
+  };
+});
 import { generateMissionLive } from "../src/modules/generation.ts";
+import { GenerationOutputError } from "../../../packages/ai/src/index.ts";
+import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { postingSlot } from "../src/modules/posting-slots.ts";
 import { configureAutopilot, planAutopilot } from "../src/modules/autopilot.ts";
 import { missionFactKeys } from "../src/modules/mission-evidence.ts";
@@ -110,6 +128,7 @@ describe.skipIf(!enabled)(
       auth = createClient(process.env.TEST_AUTH_DATABASE_URL!);
     });
     beforeEach(async () => {
+      provider.actualRouting = false;
       provider.generate.mockReset().mockResolvedValue(generated());
       provider.embed.mockReset().mockResolvedValue(embedding());
       const user = await auth.user.create({
@@ -1527,6 +1546,178 @@ describe.skipIf(!enabled)(
         taskClass: "draft_blog",
       });
     });
+    describe("task-class routes", () => {
+      const rate = (
+        inputMicrosPerMillion: number,
+        outputMicrosPerMillion: number,
+      ) => ({
+        inputMicrosPerMillion,
+        outputMicrosPerMillion,
+        verifiedAt: new Date().toISOString(),
+      });
+      const configure = (taskRoutes?: Record<string, unknown>) =>
+        run((tx) =>
+          saveOpenAiConfiguration(tx, s, {
+            apiKey: "synthetic-no-provider-call-key",
+            verifiedModels: [
+              "gpt-5.6-luna",
+              "gpt-5.6-terra",
+              "gpt-5.6-sol",
+              "text-embedding-3-small",
+            ],
+            rateCard: {
+              "gpt-5.6-terra": rate(1000, 1000000),
+              "text-embedding-3-small": rate(1000, 1000),
+            },
+            ...(taskRoutes ? { taskRoutes } : {}),
+          }),
+        );
+      const configurationVersion = () =>
+        run(
+          async (tx) =>
+            (
+              await tx.entity.findFirstOrThrow({
+                where: { projectId: s.projectId, kind: "openai_configuration" },
+              })
+            ).version,
+        );
+      // The text reservation is the real estimate for the sent payload and ceiling.
+      const expectTextReservation = async (
+        call: {
+          goal: string;
+          evidence: unknown;
+          route: { model: string };
+          runtime: any;
+        },
+        ceiling: number,
+      ) => {
+        const bytes = Buffer.byteLength(
+          JSON.stringify({ goal: call.goal, evidence: call.evidence }),
+        );
+        const actual = await vi.importActual<
+          typeof import("../../../packages/ai/src/index.ts")
+        >("../../../packages/ai/src/index.ts");
+        const reservation = await run((tx) =>
+          tx.budgetReservation.findFirstOrThrow({
+            where: { category: "text" },
+          }),
+        );
+        expect(reservation.amountMicros).toBe(
+          BigInt(
+            actual.estimateCost(
+              call.route.model,
+              bytes + 4000,
+              ceiling,
+              call.runtime,
+            ),
+          ),
+        );
+      };
+      it("sends the stored draft_social route, reserves its ceiling and records the route version", async () => {
+        const stored = {
+          model: "gpt-5.6-terra",
+          reasoningEffort: "low",
+          maxOutputTokens: 2400,
+        };
+        await configure({ draft_social: stored });
+        provider.actualRouting = true;
+        await generateMissionLive(s, missionId, randomUUID());
+        const call = provider.generate.mock.calls[0]![0];
+        expect(call.route).toEqual(stored);
+        expect(call).not.toHaveProperty("model");
+        await expectTextReservation(call, 2400);
+        const { runs } = await telemetry();
+        expect(runs[0]!.routeVersion).toBe(await configurationVersion());
+        expect(runs[0]!.routeVersion).toBeGreaterThan(0);
+      });
+      it("keeps the legacy tier route and 1800 ceiling without task routes", async () => {
+        await configure();
+        provider.actualRouting = true;
+        await generateMissionLive(s, missionId, randomUUID());
+        const call = provider.generate.mock.calls[0]![0];
+        expect(call.route).toEqual({
+          model: "gpt-5.6-terra",
+          maxOutputTokens: 1800,
+        });
+        expect("reasoningEffort" in call.route).toBe(false);
+        await expectTextReservation(call, 1800);
+        const { runs } = await telemetry();
+        expect(runs[0]!.routeVersion).toBe(await configurationVersion());
+      });
+      it("fails closed when the configuration changes before the text reservation", async () => {
+        await configure();
+        provider.actualRouting = true;
+        // A new configuration version commits during the query embedding.
+        provider.embed.mockImplementation(async () => {
+          await configure();
+          return embedding();
+        });
+        await expect(
+          generateMissionLive(s, missionId, randomUUID()),
+        ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
+        expect(provider.generate).not.toHaveBeenCalled();
+        expect(
+          await run((tx) =>
+            tx.budgetReservation.count({ where: { category: "text" } }),
+          ),
+        ).toBe(0);
+      });
+      it("records no route version for the environment configuration", async () => {
+        await generateMissionLive(s, missionId, randomUUID());
+        expect((await telemetry()).runs[0]!.routeVersion).toBeNull();
+      });
+    });
+    it.each(["MODEL_OUTPUT_NOT_VALID", "INSUFFICIENT_EVIDENCE"] as const)(
+      "settles the known cost of an unusable %s response and fails the run",
+      async (code) => {
+        provider.generate.mockRejectedValue(
+          new GenerationOutputError(
+            code,
+            { ...generated().usage, costMicros: 55 },
+            "resp_unusable",
+          ),
+        );
+        const jobId = randomUUID();
+        const failure = await generateMissionLive(s, missionId, jobId).catch(
+          (error: unknown) => error,
+        );
+        // The worker stores error.message as the job error.
+        expect((failure as Error).message).toBe(code);
+        const row = await run((tx) =>
+          tx.budgetReservation.findFirstOrThrow({
+            where: { category: "text" },
+          }),
+        );
+        expect(row).toMatchObject({ state: "settled", settledMicros: 55n });
+        const { runs, spans } = await telemetry();
+        expect(runs).toHaveLength(1);
+        expect(runs[0]).toMatchObject({
+          kind: "generation",
+          status: "failed",
+          errorCode: code,
+        });
+        expect(spans.find((x) => x.type === "model_call")).toMatchObject({
+          status: "failed",
+          errorCode: code,
+          costMicros: 55n,
+          inputTokens: 40,
+          outputTokens: 20,
+          providerResponseId: "resp_unusable",
+          budgetReservationId: row.id,
+        });
+        expect(
+          await run((tx) =>
+            tx.entity.count({
+              where: { projectId: s.projectId, kind: "content" },
+            }),
+          ),
+        ).toBe(0);
+        await expect(generateMissionLive(s, missionId, jobId)).rejects.toThrow(
+          "RESERVATION_ALREADY_USED",
+        );
+        expect(provider.generate).toHaveBeenCalledTimes(1);
+      },
+    );
     it("traces an unknown generation outcome as unknown span and failed run", async () => {
       provider.generate.mockRejectedValue(
         new Error("Synthetic transport uncertainty"),

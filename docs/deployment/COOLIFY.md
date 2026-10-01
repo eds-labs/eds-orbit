@@ -21,7 +21,7 @@ The image contains `tsx` and Prisma as production dependencies because API/worke
 2. Select **+ New**, choose the GitHub source, and select the private repository `eds-labs/eds-orbit`. Authenticate using the existing GitHub App or deploy key with read access only.
 3. Under **Configuration → General**, choose the **Docker Compose** build pack. Set Branch to `main`, Base Directory to `/`, and Docker Compose Location to `docker-compose.yml`. Reload the Compose content from Git after every Compose change.
 4. Keep **Raw Compose Deployment** disabled. Coolify then supplies its managed routing/network labels. Do not add an in-repository Traefik/Caddy proxy or hand-written route labels.
-5. The Compose definition asks Coolify to generate a domain for the `web` service on internal port `4310`. Override `APP_ORIGIN` and the generated web domain only when the approved public hostname must be exactly `https://eds-orbit.apps.eds-labs.io`. Do not assign domains to API, worker, PostgreSQL, Redis, or migrate.
+5. The Compose definition asks Coolify to generate a domain for the `web` service on internal port `4310`. Override `APP_ORIGIN` and the generated web domain only when the approved public hostname must be exactly `https://orbit.eds-labs.io` (the production web domain; check `APP_ORIGIN` in Coolify if it changes). Do not assign domains to API, worker, PostgreSQL, Redis, or migrate.
 6. In Coolify Environment Variables, inspect the generated values and add a non-secret human change reference for the required `ORBIT_RELEASE_APPROVAL`. Coolify generates distinct persistent passwords for the migrator, app and auth roles plus the application secrets. Do not copy generated values into the repository, a host path or shell history.
 7. Before the first deployment, inspect the rendered Compose configuration and image build output. Ensure the approved change reference is present in `ORBIT_RELEASE_APPROVAL`. Start the deployment only under the separate change approval.
 8. After deployment, use Coolify service status and logs to confirm `migrate` completed once, then API/worker/web became healthy. Test an authenticated browser flow at the public HTTPS URL. Record the deployment ID, image digest, migration result, and verification evidence.
@@ -63,7 +63,7 @@ For a release record, capture:
 
 1. Coolify deployment ID, Git commit, image digest, and `migrate` completion.
 2. `web`, `api`, `worker`, PostgreSQL, and Redis health; check that only `web` has a public domain.
-3. Authenticated HTTPS behavior at `https://eds-orbit.apps.eds-labs.io`, worker heartbeat, and a safe read-only operational path.
+3. Authenticated HTTPS behavior at `https://orbit.eds-labs.io` (the production web domain; check `APP_ORIGIN` in Coolify if it changes), worker heartbeat, and a safe read-only operational path.
 4. The current backup/recovery state, owner/change reference, and any blocked live connector/model gates.
 
 Coolify documentation: [Docker Compose](https://coolify.io/docs/applications/builds/docker-compose), [Compose networking](https://coolify.io/docs/core/networking-in-coolify), [Traefik routing](https://coolify.io/docs/core/networking/proxy/traefik/overview), and [health checks](https://coolify.io/docs/applications/configuration/health-checks).

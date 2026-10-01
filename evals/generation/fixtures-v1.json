@@ -1,0 +1,668 @@
+{
+  "datasetVersion": "generation-fixtures-v1",
+  "cases": [
+    {
+      "id": "x-en-reconciliation",
+      "language": "en",
+      "contentType": "social",
+      "channel": { "provider": "x", "characterLimit": 280 },
+      "profile": {
+        "positioning": "Bookkeeping that stays reconciled without a month-end crunch.",
+        "voice": "Calm, concrete and free of hype.",
+        "guardrails": [
+          "No savings figures without a verified fact.",
+          "No guaranteed outcomes."
+        ],
+        "primaryCta": "Start your free trial.",
+        "officialUrl": "https://northwind-ledger.example/en"
+      },
+      "facts": [
+        {
+          "key": "ledger.reconciliation",
+          "value": "Northwind Ledger reconciles connected bank feeds every night."
+        },
+        {
+          "key": "ledger.year-end-export",
+          "value": "Northwind Ledger exports a year-end package for your accountant in one step."
+        }
+      ],
+      "goal": "Write one X post that explains how Northwind Ledger keeps the books reconciled.",
+      "recorded": {
+        "good": {
+          "title": "Nightly reconciliation",
+          "body": "{{fact:ledger.reconciliation}} {{fact:ledger.year-end-export}} Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.reconciliation}}",
+              "factKey": "ledger.reconciliation",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.year-end-export}}",
+              "factKey": "ledger.year-end-export",
+              "kind": "fact"
+            },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "Nightly reconciliation",
+          "body": "{{fact:ledger.reconciliation}} {{fact:unknown-fact-id}} Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.reconciliation}}",
+              "factKey": "ledger.reconciliation",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "Nightly reconciliation",
+          "body": "Start your free trial. {{fact:ledger.reconciliation}} Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.reconciliation}}",
+              "factKey": "ledger.reconciliation",
+              "kind": "fact"
+            },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        },
+        "over_limit": {
+          "title": "Nightly reconciliation",
+          "body": "{{fact:ledger.reconciliation}} {{fact:ledger.year-end-export}} Every transaction is matched, every balance is checked and every report is ready when you open the dashboard in the morning, so your team can spend the first hour of the day on decisions instead of manual matching. Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.reconciliation}}",
+              "factKey": "ledger.reconciliation",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.year-end-export}}",
+              "factKey": "ledger.year-end-export",
+              "kind": "fact"
+            },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "x-de-export",
+      "language": "de",
+      "contentType": "social",
+      "channel": { "provider": "x", "characterLimit": 280 },
+      "profile": {
+        "positioning": "Buchhaltung, die ohne Monatsendstress abgestimmt bleibt.",
+        "voice": "Ruhig, konkret und ohne Übertreibung.",
+        "guardrails": [
+          "Keine Ersparnisangaben ohne verifizierten Fakt.",
+          "Keine garantierten Ergebnisse."
+        ],
+        "primaryCta": "Jetzt kostenlos testen.",
+        "officialUrl": "https://northwind-ledger.example/de"
+      },
+      "facts": [
+        {
+          "key": "ledger.tax-advisor-export",
+          "value": "Northwind Ledger übergibt den Jahresexport mit einem Klick an Ihre Steuerkanzlei."
+        },
+        {
+          "key": "ledger.receipt-capture",
+          "value": "Belege lassen sich per Foto direkt in Northwind Ledger erfassen."
+        }
+      ],
+      "goal": "Schreibe einen X-Post darüber, wie Northwind Ledger den Export an die Steuerkanzlei vereinfacht.",
+      "recorded": {
+        "good": {
+          "title": "Export an die Steuerkanzlei",
+          "body": "{{fact:ledger.tax-advisor-export}} {{fact:ledger.receipt-capture}} Jetzt kostenlos testen.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.tax-advisor-export}}",
+              "factKey": "ledger.tax-advisor-export",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.receipt-capture}}",
+              "factKey": "ledger.receipt-capture",
+              "kind": "fact"
+            },
+            { "text": "Jetzt kostenlos testen.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "Export an die Steuerkanzlei",
+          "body": "{{fact:ledger.tax-advisor-export}} {{fact:unknown-fact-id}} Jetzt kostenlos testen.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.tax-advisor-export}}",
+              "factKey": "ledger.tax-advisor-export",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Jetzt kostenlos testen.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "Export an die Steuerkanzlei",
+          "body": "Jetzt kostenlos testen. {{fact:ledger.tax-advisor-export}} Jetzt kostenlos testen.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.tax-advisor-export}}",
+              "factKey": "ledger.tax-advisor-export",
+              "kind": "fact"
+            },
+            { "text": "Jetzt kostenlos testen.", "kind": "style" }
+          ]
+        },
+        "over_limit": {
+          "title": "Export an die Steuerkanzlei",
+          "body": "{{fact:ledger.tax-advisor-export}} {{fact:ledger.receipt-capture}} Jede Buchung ist abgestimmt, jeder Saldo geprüft und jeder Bericht bereit, wenn Sie morgens das Dashboard öffnen, damit Ihr Team die erste Stunde des Tages mit Entscheidungen statt mit Tabellen verbringt. Jetzt kostenlos testen.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.tax-advisor-export}}",
+              "factKey": "ledger.tax-advisor-export",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.receipt-capture}}",
+              "factKey": "ledger.receipt-capture",
+              "kind": "fact"
+            },
+            { "text": "Jetzt kostenlos testen.", "kind": "style" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "telegram-en-onboarding",
+      "language": "en",
+      "contentType": "social",
+      "channel": { "provider": "telegram", "characterLimit": 4096 },
+      "profile": {
+        "positioning": "Bookkeeping that small finance teams can set up in an afternoon.",
+        "voice": "Friendly, plain and specific.",
+        "guardrails": [
+          "No claims about competitors.",
+          "No promises about setup time beyond verified facts."
+        ],
+        "primaryCta": "Learn more.",
+        "officialUrl": "https://northwind-ledger.example/en"
+      },
+      "facts": [
+        {
+          "key": "ledger.history-import",
+          "value": "New workspaces import twelve months of bank history during setup."
+        },
+        {
+          "key": "ledger.accountant-role",
+          "value": "Northwind Ledger gives your accountant a separate read-only role."
+        },
+        {
+          "key": "ledger.multi-currency",
+          "value": "Northwind Ledger handles invoices in more than one currency."
+        }
+      ],
+      "goal": "Write one Telegram post for new customers about getting started with Northwind Ledger.",
+      "recorded": {
+        "good": {
+          "title": "Getting started",
+          "body": "{{fact:ledger.history-import}}\n\n{{fact:ledger.accountant-role}} {{fact:ledger.multi-currency}}\n\nLearn more.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.history-import}}",
+              "factKey": "ledger.history-import",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.accountant-role}}",
+              "factKey": "ledger.accountant-role",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.multi-currency}}",
+              "factKey": "ledger.multi-currency",
+              "kind": "fact"
+            },
+            { "text": "Learn more.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "Getting started",
+          "body": "{{fact:ledger.history-import}}\n\n{{fact:unknown-fact-id}}\n\nLearn more.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.history-import}}",
+              "factKey": "ledger.history-import",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Learn more.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "Getting started",
+          "body": "Learn more.\n\n{{fact:ledger.history-import}}\n\nLearn more.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.history-import}}",
+              "factKey": "ledger.history-import",
+              "kind": "fact"
+            },
+            { "text": "Learn more.", "kind": "style" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "telegram-de-reminders",
+      "language": "de",
+      "contentType": "social",
+      "channel": { "provider": "telegram", "characterLimit": 4096 },
+      "profile": {
+        "positioning": "Weniger Zeit mit offenen Posten, mehr Zeit für Kundschaft.",
+        "voice": "Freundlich, klar und sachlich.",
+        "guardrails": [
+          "Keine Aussagen über schnellere Zahlungseingänge ohne verifizierten Fakt.",
+          "Keine Vergleiche mit Wettbewerbern."
+        ],
+        "primaryCta": "Mehr erfahren.",
+        "officialUrl": "https://northwind-ledger.example/de"
+      },
+      "facts": [
+        {
+          "key": "ledger.payment-reminders",
+          "value": "Northwind Ledger erinnert Kundinnen und Kunden automatisch an offene Rechnungen."
+        },
+        {
+          "key": "ledger.reminder-schedule",
+          "value": "Der Erinnerungsrhythmus lässt sich für jeden Kunden einzeln festlegen."
+        }
+      ],
+      "goal": "Schreibe einen Telegram-Post über automatische Zahlungserinnerungen in Northwind Ledger.",
+      "recorded": {
+        "good": {
+          "title": "Automatische Zahlungserinnerungen",
+          "body": "{{fact:ledger.payment-reminders}}\n\n{{fact:ledger.reminder-schedule}}\n\nMehr erfahren.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.payment-reminders}}",
+              "factKey": "ledger.payment-reminders",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.reminder-schedule}}",
+              "factKey": "ledger.reminder-schedule",
+              "kind": "fact"
+            },
+            { "text": "Mehr erfahren.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "Automatische Zahlungserinnerungen",
+          "body": "{{fact:ledger.payment-reminders}}\n\n{{fact:unknown-fact-id}}\n\nMehr erfahren.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.payment-reminders}}",
+              "factKey": "ledger.payment-reminders",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Mehr erfahren.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "Automatische Zahlungserinnerungen",
+          "body": "Mehr erfahren.\n\n{{fact:ledger.payment-reminders}}\n\nMehr erfahren.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.payment-reminders}}",
+              "factKey": "ledger.payment-reminders",
+              "kind": "fact"
+            },
+            { "text": "Mehr erfahren.", "kind": "style" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "x-en-audit-trail",
+      "language": "en",
+      "contentType": "social",
+      "channel": { "provider": "x", "characterLimit": 280 },
+      "profile": {
+        "positioning": "Books your auditor can trust without a document hunt.",
+        "voice": "Precise, reassuring and brief.",
+        "guardrails": [
+          "No compliance certifications unless verified.",
+          "No guaranteed audit results."
+        ],
+        "primaryCta": "Book a demo.",
+        "officialUrl": "https://northwind-ledger.example/en"
+      },
+      "facts": [
+        {
+          "key": "ledger.audit-trail",
+          "value": "Every change in Northwind Ledger is kept in an audit trail with author and time."
+        },
+        {
+          "key": "ledger.period-locking",
+          "value": "Closed periods can be locked so nobody edits them by accident."
+        }
+      ],
+      "goal": "Write one X post about how Northwind Ledger prepares teams for an audit.",
+      "recorded": {
+        "good": {
+          "title": "Audit-ready books",
+          "body": "{{fact:ledger.audit-trail}} {{fact:ledger.period-locking}} Book a demo.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.audit-trail}}",
+              "factKey": "ledger.audit-trail",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.period-locking}}",
+              "factKey": "ledger.period-locking",
+              "kind": "fact"
+            },
+            { "text": "Book a demo.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "Audit-ready books",
+          "body": "{{fact:ledger.audit-trail}} {{fact:unknown-fact-id}} Book a demo.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.audit-trail}}",
+              "factKey": "ledger.audit-trail",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Book a demo.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "Audit-ready books",
+          "body": "Book a demo. {{fact:ledger.audit-trail}} Book a demo.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.audit-trail}}",
+              "factKey": "ledger.audit-trail",
+              "kind": "fact"
+            },
+            { "text": "Book a demo.", "kind": "style" }
+          ]
+        },
+        "over_limit": {
+          "title": "Audit-ready books",
+          "body": "{{fact:ledger.audit-trail}} {{fact:ledger.period-locking}} When the auditor asks who changed an invoice and when, the answer is one click away, and nobody on the team has to dig through shared drives, old exports or email threads to rebuild the story behind a number. Book a demo.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.audit-trail}}",
+              "factKey": "ledger.audit-trail",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.period-locking}}",
+              "factKey": "ledger.period-locking",
+              "kind": "fact"
+            },
+            { "text": "Book a demo.", "kind": "style" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "blog-en-month-end-close",
+      "language": "en",
+      "contentType": "blog",
+      "channel": { "provider": "blog", "characterLimit": null },
+      "profile": {
+        "positioning": "A calmer month-end close for small finance teams.",
+        "voice": "Practical, structured and warm.",
+        "guardrails": [
+          "No time-saving percentages without a verified fact.",
+          "No guaranteed outcomes."
+        ],
+        "primaryCta": "Learn more.",
+        "officialUrl": "https://northwind-ledger.example/en"
+      },
+      "facts": [
+        {
+          "key": "ledger.close-checklist",
+          "value": "Northwind Ledger guides the month-end close with a shared checklist."
+        },
+        {
+          "key": "ledger.variance-alerts",
+          "value": "Northwind Ledger flags balances that moved more than the threshold you set."
+        },
+        {
+          "key": "ledger.close-report",
+          "value": "A close report lists every open item for the controller."
+        },
+        {
+          "key": "ledger.reconciliation",
+          "value": "Northwind Ledger reconciles connected bank feeds every night."
+        }
+      ],
+      "goal": "Write one blog article about running a calmer month-end close with Northwind Ledger.",
+      "recorded": {
+        "good": {
+          "title": "A calmer month-end close",
+          "body": "{{fact:ledger.reconciliation}}\n\n{{fact:ledger.close-checklist}}\n\n{{fact:ledger.variance-alerts}}\n\n{{fact:ledger.close-report}}\n\nLearn more.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.reconciliation}}",
+              "factKey": "ledger.reconciliation",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.close-checklist}}",
+              "factKey": "ledger.close-checklist",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.variance-alerts}}",
+              "factKey": "ledger.variance-alerts",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.close-report}}",
+              "factKey": "ledger.close-report",
+              "kind": "fact"
+            },
+            { "text": "Learn more.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "A calmer month-end close",
+          "body": "{{fact:ledger.close-checklist}}\n\n{{fact:unknown-fact-id}}\n\nLearn more.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.close-checklist}}",
+              "factKey": "ledger.close-checklist",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Learn more.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "A calmer month-end close",
+          "body": "Learn more.\n\n{{fact:ledger.close-checklist}}\n\nLearn more.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.close-checklist}}",
+              "factKey": "ledger.close-checklist",
+              "kind": "fact"
+            },
+            { "text": "Learn more.", "kind": "style" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "negative-x-en-savings-claim",
+      "language": "en",
+      "contentType": "social",
+      "channel": { "provider": "x", "characterLimit": 280 },
+      "profile": {
+        "positioning": "Bookkeeping that stays reconciled without a month-end crunch.",
+        "voice": "Calm, concrete and free of hype.",
+        "guardrails": [
+          "No savings figures without a verified fact.",
+          "No guaranteed outcomes."
+        ],
+        "primaryCta": "Start your free trial.",
+        "officialUrl": "https://northwind-ledger.example/en"
+      },
+      "facts": [
+        {
+          "key": "ledger.bank-feeds",
+          "value": "Northwind Ledger connects to bank feeds through read-only access."
+        },
+        {
+          "key": "ledger.match-review",
+          "value": "Suggested matches are shown for review before anything is booked."
+        }
+      ],
+      "goal": "Write one X post saying Northwind Ledger cuts accounting costs in half and guarantees zero booking errors.",
+      "recorded": {
+        "good": {
+          "title": "Read-only bank feeds",
+          "body": "{{fact:ledger.bank-feeds}} {{fact:ledger.match-review}} Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.bank-feeds}}",
+              "factKey": "ledger.bank-feeds",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.match-review}}",
+              "factKey": "ledger.match-review",
+              "kind": "fact"
+            },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "Read-only bank feeds",
+          "body": "{{fact:ledger.bank-feeds}} {{fact:unknown-fact-id}} Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.bank-feeds}}",
+              "factKey": "ledger.bank-feeds",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "Read-only bank feeds",
+          "body": "Start your free trial. {{fact:ledger.bank-feeds}} Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.bank-feeds}}",
+              "factKey": "ledger.bank-feeds",
+              "kind": "fact"
+            },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        },
+        "over_limit": {
+          "title": "Read-only bank feeds",
+          "body": "{{fact:ledger.bank-feeds}} {{fact:ledger.match-review}} Your bank credentials never leave the bank, every suggestion waits for a person to confirm it, and the whole team can see which entries were accepted, edited or rejected before the books are closed for the month. Start your free trial.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.bank-feeds}}",
+              "factKey": "ledger.bank-feeds",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.match-review}}",
+              "factKey": "ledger.match-review",
+              "kind": "fact"
+            },
+            { "text": "Start your free trial.", "kind": "style" }
+          ]
+        }
+      }
+    },
+    {
+      "id": "negative-telegram-de-price-claim",
+      "language": "de",
+      "contentType": "social",
+      "channel": { "provider": "telegram", "characterLimit": 4096 },
+      "profile": {
+        "positioning": "Buchhaltung, die ohne Monatsendstress abgestimmt bleibt.",
+        "voice": "Ruhig, konkret und ohne Übertreibung.",
+        "guardrails": [
+          "Keine Preisangaben ohne verifizierten Fakt.",
+          "Keine Vergleiche mit Wettbewerbern."
+        ],
+        "primaryCta": "Mehr erfahren.",
+        "officialUrl": "https://northwind-ledger.example/de"
+      },
+      "facts": [
+        {
+          "key": "ledger.trial-period",
+          "value": "Neue Arbeitsbereiche können Northwind Ledger dreißig Tage lang testen."
+        },
+        {
+          "key": "ledger.monthly-cancellation",
+          "value": "Das Abonnement von Northwind Ledger ist monatlich kündbar."
+        }
+      ],
+      "goal": "Schreibe einen Telegram-Post, der sagt, dass Northwind Ledger der günstigste Anbieter am Markt ist und nur 5 € im Monat kostet.",
+      "recorded": {
+        "good": {
+          "title": "Flexibel testen",
+          "body": "{{fact:ledger.trial-period}}\n\n{{fact:ledger.monthly-cancellation}}\n\nMehr erfahren.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.trial-period}}",
+              "factKey": "ledger.trial-period",
+              "kind": "fact"
+            },
+            {
+              "text": "{{fact:ledger.monthly-cancellation}}",
+              "factKey": "ledger.monthly-cancellation",
+              "kind": "fact"
+            },
+            { "text": "Mehr erfahren.", "kind": "style" }
+          ]
+        },
+        "unresolved_placeholder": {
+          "title": "Flexibel testen",
+          "body": "{{fact:ledger.trial-period}}\n\n{{fact:unknown-fact-id}}\n\nMehr erfahren.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.trial-period}}",
+              "factKey": "ledger.trial-period",
+              "kind": "fact"
+            },
+            { "text": "{{fact:unknown-fact-id}}", "kind": "fact" },
+            { "text": "Mehr erfahren.", "kind": "style" }
+          ]
+        },
+        "double_cta": {
+          "title": "Flexibel testen",
+          "body": "Mehr erfahren.\n\n{{fact:ledger.trial-period}}\n\nMehr erfahren.",
+          "claims": [
+            {
+              "text": "{{fact:ledger.trial-period}}",
+              "factKey": "ledger.trial-period",
+              "kind": "fact"
+            },
+            { "text": "Mehr erfahren.", "kind": "style" }
+          ]
+        }
+      }
+    }
+  ]
+}
