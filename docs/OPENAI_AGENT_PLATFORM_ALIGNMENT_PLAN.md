@@ -735,3 +735,11 @@ Next: Mario runs the live generation eval with his own key; a route switch then 
 - `API_CONTRACT.md` documents `openai-configure` as a full replace (an omitted `taskRoutes` clears the task routes).
 - The configuration view reports `price: current|missing|stale` for each effective route, using the same rule as the runtime price gate, and the dialog explains that runs are refused until the price is current.
 - Stale comment about the removed `route()` corrected.
+
+### 2026-10-01 — Phase 3a complete: tool registry (local)
+
+- Phase 3 is split into three plans: 3a tool registry ([plan](superpowers/plans/2026-10-01-phase3a-tool-registry.md)), 3b `ActionRequest` with the first adapter for content publication approvals, 3c Agents SDK spike with the G1–G7 go/no-go. 3b and 3c do not depend on each other.
+- Registry (`apps/api/src/modules/agents/tools/`): every chat tool is declared once with namespace, zod parameters, risk class (`R0_read`, `P_proposal`), roles and `deferLoading`. Function definitions are generated with `zodResponsesFunction` from the pinned `openai` 7.25.0 and sent with `strict: true`. A schema strict mode cannot express fails at import, including any keyword outside the documented strict-mode set (strings allow only `pattern` and `format`, so string lengths and defaults stay in the server validation). Optional fields are `nullable` and dropped before the unchanged server validation (`runReadTool`, `validateReadToolResult`, `createProposal`).
+- Tools are offered per role and checked against the same set at execution: viewers no longer receive `propose_campaign`; a forged call returns `CHAT_TOOL_NOT_ALLOWED`. Tool names, descriptions, limits and span names are unchanged.
+- Tool definitions: 3,383 bytes before, 3,637 bytes after (+8 %, strict nullable fields); 1,378 bytes for viewers. The 32,000-byte input cap is unchanged; a test keeps the definitions at or below 5,500 bytes.
+- Finding for 3b: `project_status.approvals` filters on status `pending`, which nothing writes, so open approvals never appear in chat.

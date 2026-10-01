@@ -36,57 +36,6 @@ const campaign = z
   .object({ campaign: z.string().max(200).optional() })
   .strict();
 
-export const readToolDefinitions = [
-  {
-    type: "function",
-    name: "project_status",
-    description:
-      "Read the current project, policy, open approvals, blockers, and available channels.",
-    strict: false,
-    parameters: { type: "object", properties: {}, additionalProperties: false },
-  },
-  {
-    type: "function",
-    name: "knowledge_search",
-    description:
-      "Find current model-authorized public Verified Facts and Knowledge with source references. When an exact Verified Fact key is known, pass factKeys to avoid unrelated fact context.",
-    strict: false,
-    parameters: {
-      type: "object",
-      properties: {
-        query: { type: "string" },
-        factKeys: { type: "array", items: { type: "string" } },
-      },
-      required: ["query"],
-      additionalProperties: false,
-    },
-  },
-  {
-    type: "function",
-    name: "approved_assets",
-    description:
-      "Find approved brand assets in this project. Empty query lists all. Return metadata, never asset bytes or credentials.",
-    strict: false,
-    parameters: {
-      type: "object",
-      properties: { query: { type: "string" } },
-      additionalProperties: false,
-    },
-  },
-  {
-    type: "function",
-    name: "analytics_memory",
-    description:
-      "Summarize existing metrics, insights, and confirmed preferences as observations, not verified product facts.",
-    strict: false,
-    parameters: {
-      type: "object",
-      properties: { campaign: { type: "string" } },
-      additionalProperties: false,
-    },
-  },
-] as const;
-
 function clipped(value: unknown, max = 500) {
   return String(value ?? "").slice(0, max);
 }
