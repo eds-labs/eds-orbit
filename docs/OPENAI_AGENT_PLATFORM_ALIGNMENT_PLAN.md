@@ -707,3 +707,13 @@ Next: Phase 2. The telemetry migration is local only until a separate production
 - Release notes: see `OPERATIONS.md` "Model routes and generation evals" (confirm or discard pending blog proposals before deploy; save routes when no run is active).
 
 Next: Mario reviews the dry-run plan and runs the live eval; a route switch then needs the eval report and an owner save. Production release of Phase 2 needs a separate approval.
+
+### 2026-10-01 — Phase 2 and the worker queue pump released to production
+
+- Mario approved merging PR #14 (worker queue pump proportional to due work) and PR #16 (Phase 2). PR #14 was verified locally on its merge with `main` first (lint, typecheck, build, secret scan and framework check pass; 467/467 tests, including the real-Redis worker lifecycle test) and merged as `f68c050` at 11:37 UTC. PR #16 was then updated with that `main` (519/519 tests; its migration applied cleanly on a local test database on top of `202609300001_project_work_due`), passed CI (`validate`, `isolated-acceptance`) and was merged as `cb23603` at 11:49 UTC. The Coolify webhook deploys `main`.
+- The deploy applies two additive migrations: `202609300001_project_work_due` (`Project.workDueAt`, its index and marker triggers) and `202610010001_agent_run_route_version` (`AgentRun.routeVersion`). The API only starts after `migrate` completes.
+- Read-only check on `https://orbit.eds-labs.io` after the merge: `/api/health/ready` returns `{"status":"ok","database":"ok","worker":"ready"}`. Phase 2 adds no unauthenticated endpoint, so the deployed version cannot be told apart from outside.
+- With no task route saved, every task class routes exactly as before; no route was changed in production.
+- Still to confirm with an owner session: the OpenAI configuration dialog shows the three task routes with their effective route, new `AgentRun` rows carry `routeVersion`, worker logs show the due-marker pump without errors, and no pending blog proposal hit `PROPOSAL_COST_CHANGED`. Open from Phase 1: `ai-cost`/`agent-runs` for uLiquid and structured API logs in Coolify.
+
+Next: Mario runs the live generation eval with his own key; a route switch then needs the eval report and an owner save. Follow-ups are the deferred minors listed in PR #16, first the double meaning of `INSUFFICIENT_EVIDENCE` for a paid model abstention.
