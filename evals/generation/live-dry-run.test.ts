@@ -17,7 +17,8 @@ const fixtures = parseFixtures(rawFixtures);
 const candidates = parseCandidatesFile(rawCandidates);
 const verifiedAt = new Date(candidates.verifiedAt).valueOf();
 const now = verifiedAt + 3600_000;
-const SYNTHETIC_KEY = "sk-synthetic-not-a-real-key-0123456789";
+// Deliberately not credential-shaped, so the repository secret scan stays clean.
+const SYNTHETIC_KEY = "synthetic-eval-key-not-real-0123456789";
 
 describe("Live generation eval planning", () => {
   it("plans cases x candidates x repetitions calls under the hard ceiling", () => {

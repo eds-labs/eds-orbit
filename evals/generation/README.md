@@ -68,3 +68,10 @@ Safeguards:
   removed by the next eval run once it is older than 12 hours. That residue
   includes the project's encrypted copy of the key, which is deleted with its
   workspace.
+
+## After a live run
+
+Read the report's review pass rate, cost and latency per candidate. A route
+switch needs that report and an owner save of the task route in the OpenAI
+configuration dialog; it applies to new runs only (see `docs/MODEL_ROUTING.md`,
+"Task-class routes").
