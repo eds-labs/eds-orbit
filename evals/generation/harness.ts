@@ -59,6 +59,11 @@ export type EvalCandidate = { label: string; route: ModelRoute };
 export type EvalResult = {
   caseId: string;
   candidate: string;
+  // False for a run that stopped the eval (budget refusal, unknown cost or an
+  // unexpected error); kept for the record but excluded from the summary.
+  counted: boolean;
+  // Configuration version recorded on the generation run.
+  routeVersion: number | null;
   valid: boolean;
   problems: string[];
   costMicros: number | null;
@@ -74,11 +79,18 @@ export type EvalResult = {
 };
 export type EvalSummary = {
   candidate: string;
+  // Counted runs only.
   runs: number;
-  passRate: number;
+  // Valid stored content / counted runs; null without counted runs.
+  passRate: number | null;
   costPerAcceptedMicros: number | null;
   totalCostMicros: number;
+  // False when a counted run has no known cost.
+  costComplete: boolean;
   p50DurationMs: number | null;
+  // Counted runs ending in INSUFFICIENT_EVIDENCE / MODEL_OUTPUT_INVALID.
+  abstained: number;
+  invalidOutput: number;
   problemCounts: Record<string, number>;
 };
 export type EvalReport = {
@@ -95,6 +107,11 @@ export type EvalReport = {
 };
 
 export const EVAL_PRODUCT = "Northwind Ledger";
+// Exact name of every workspace, project and user the harness creates.
+export const EVAL_MARKER = "Synthetic generation eval";
+// Residue of a hard-killed eval is removed after this age.
+const STALE_AFTER_MS = 3600_000;
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const EVAL_AUDIENCE = "Owners and finance leads of small companies";
 const MAX_REPETITIONS = 10;
 // Policy schema maximum for perRunBudgetMicros.
@@ -104,6 +121,11 @@ const BUDGET_REFUSALS = new Set([
   "BUDGET_EXCEEDED",
   "RUN_BUDGET_EXCEEDED",
   "BUDGET_NOT_APPROVED",
+]);
+// Completed, priced provider responses without usable output.
+const MODEL_OUTCOMES = new Set([
+  "INSUFFICIENT_EVIDENCE",
+  "MODEL_OUTPUT_INVALID",
 ]);
 
 const factKey = z.string().regex(/^[a-z][a-z0-9]*(?:\.[a-z0-9-]+)+$/);
@@ -388,7 +410,8 @@ async function seed(
         ),
       ],
       startAt: past,
-      endAt: new Date(Date.now() + 2 * 86400_000).toISOString(),
+      // Short windows limit what a hard-killed eval leaves usable.
+      endAt: new Date(Date.now() + 2 * 3600_000).toISOString(),
       maxPerDay: 0,
       minIntervalMinutes: 1,
       dailyBudgetMicros: maxCostMicros,
@@ -479,7 +502,7 @@ async function createMission(
     language: item.language,
     channels: [channelId(item)],
     startAt: new Date(now - 60_000).toISOString(),
-    endAt: new Date(now + 86400_000).toISOString(),
+    endAt: new Date(now + 3600_000).toISOString(),
     maxContents: 1,
     targetAction: item.profile.primaryCta,
     targetUrl: item.profile.officialUrl,
@@ -535,7 +558,7 @@ async function runOnce(
   missionId: string,
   item: EvalCase,
   candidate: EvalCandidate,
-): Promise<{ result: EvalResult; unknown: boolean }> {
+): Promise<{ result: Omit<EvalResult, "counted">; unknown: boolean }> {
   const jobId = randomUUID();
   let contentId: string | null = null;
   let failure: string | null = null;
@@ -580,6 +603,7 @@ async function runOnce(
       result: {
         caseId: item.id,
         candidate: candidate.label,
+        routeVersion: run?.routeVersion ?? null,
         valid: failure === null && review.valid,
         problems: failure === null ? review.problems : [],
         costMicros: span?.costMicros == null ? null : Number(span.costMicros),
@@ -604,7 +628,9 @@ function summarize(
   results: EvalResult[],
 ): EvalSummary[] {
   return candidates.map(({ label }) => {
-    const own = results.filter((result) => result.candidate === label);
+    const own = results.filter(
+      (result) => result.candidate === label && result.counted,
+    );
     const accepted = own.filter((result) => result.valid).length;
     const totalCostMicros = own.reduce(
       (sum, result) => sum + (result.costMicros ?? 0),
@@ -618,20 +644,66 @@ function summarize(
     for (const result of own)
       for (const problem of result.problems)
         problemCounts[problem] = (problemCounts[problem] ?? 0) + 1;
+    const ended = (code: string) =>
+      own.filter((result) => result.errorCode === code).length;
     return {
       candidate: label,
       runs: own.length,
-      passRate: own.length ? accepted / own.length : 0,
+      passRate: own.length ? accepted / own.length : null,
       costPerAcceptedMicros: accepted
         ? Math.round(totalCostMicros / accepted)
         : null,
       totalCostMicros,
+      costComplete: own.every((result) => result.costMicros !== null),
       p50DurationMs: durations.length
         ? durations[Math.ceil(durations.length / 2) - 1]!
         : null,
+      abstained: ended("INSUFFICIENT_EVIDENCE"),
+      invalidOutput: ended("MODEL_OUTPUT_INVALID"),
       problemCounts,
     };
   });
+}
+
+/** Evals write and delete rows; they never run against a remote database. */
+function assertLocalDatabase() {
+  for (const key of ["DATABASE_URL", "AUTH_DATABASE_URL"]) {
+    let host = "";
+    try {
+      host = new URL(process.env[key] ?? "").hostname;
+    } catch {
+      // Unparsable or missing counts as not local.
+    }
+    if (!LOCAL_HOSTS.has(host)) throw new Error("EVAL_DATABASE_NOT_LOCAL");
+  }
+}
+
+/** Removes residue of hard-killed evals: marker-named rows older than an hour. */
+async function removeStaleEvals() {
+  const before = new Date(Date.now() - STALE_AFTER_MS);
+  const stale = await authDb.workspace.findMany({
+    where: { name: EVAL_MARKER, createdAt: { lt: before } },
+    select: { id: true },
+  });
+  for (const { id } of stale) await authDb.workspace.delete({ where: { id } });
+  // Only marker users that no longer belong to any workspace.
+  await authDb.user.deleteMany({
+    where: {
+      name: EVAL_MARKER,
+      email: { endsWith: "@example.invalid" },
+      createdAt: { lt: before },
+      memberships: { none: {} },
+    },
+  });
+}
+
+// Whether a finished run stops the eval, and why.
+function stopReason(result: Omit<EvalResult, "counted">, unknown: boolean) {
+  if (unknown) return "RESERVATION_UNKNOWN";
+  if (result.errorCode === null || MODEL_OUTCOMES.has(result.errorCode))
+    return null;
+  if (BUDGET_REFUSALS.has(result.errorCode)) return result.errorCode;
+  return "UNEXPECTED:" + result.errorCode;
 }
 
 export async function runEval(options: {
@@ -642,6 +714,7 @@ export async function runEval(options: {
   runtime: OpenAiRuntimeConfig;
   datasetVersion: string;
 }): Promise<EvalReport> {
+  assertLocalDatabase();
   const cases = casesSchema.parse(options.cases) as EvalCase[];
   const candidates = candidatesSchema.parse(options.candidates);
   const { repetitions, maxCostMicros, runtime } = options;
@@ -665,31 +738,29 @@ export async function runEval(options: {
     )
   )
     throw new Error("EVAL_CANDIDATE_NOT_CONFIGURED");
+  await removeStaleEvals();
   const startedAt = new Date().toISOString();
   const results: EvalResult[] = [];
   let stoppedReason: string | null = null;
   let workspaceId: string | null = null;
+  let setupError: unknown = null;
   const user = await authDb.user.create({
     data: {
       id: randomUUID(),
-      name: "Synthetic generation eval",
+      name: EVAL_MARKER,
       email: `${randomUUID()}@example.invalid`,
     },
   });
   try {
     const workspace = await authDb.workspace.create({
       data: {
-        name: "Synthetic generation eval",
+        name: EVAL_MARKER,
         members: { create: { userId: user.id, role: "owner" } },
       },
     });
     workspaceId = workspace.id;
     const project = await authDb.project.create({
-      data: {
-        workspaceId: workspace.id,
-        name: "Synthetic generation eval",
-        mode: "observe",
-      },
+      data: { workspaceId: workspace.id, name: EVAL_MARKER, mode: "observe" },
     });
     const scope: Scope = {
       workspaceId: workspace.id,
@@ -698,44 +769,63 @@ export async function runEval(options: {
       role: "owner",
     };
     const setup = await seed(scope, cases, maxCostMicros);
-    evaluation: for (const candidate of candidates) {
-      await configure(scope, runtime, candidate.route);
-      for (const item of cases) {
+    // Case-major with interleaved candidates, so an early stop leaves
+    // comparable partial data.
+    let configured: EvalCandidate | null = null;
+    try {
+      evaluation: for (const item of cases) {
         const profileVersion = await saveProfile(scope, setup, item);
-        for (let repetition = 0; repetition < repetitions; repetition++) {
-          if ((await capRemaining(scope, setup, maxCostMicros)) <= 0) {
-            stoppedReason = "BUDGET_EXCEEDED";
-            break evaluation;
+        for (const candidate of candidates) {
+          if (configured !== candidate) {
+            await configure(scope, runtime, candidate.route);
+            configured = candidate;
           }
-          const missionId = await createMission(
-            scope,
-            setup,
-            item,
-            profileVersion,
-          );
-          const { result, unknown } = await runOnce(
-            scope,
-            missionId,
-            item,
-            candidate,
-          );
-          results.push(result);
-          if (unknown) stoppedReason = "RESERVATION_UNKNOWN";
-          else if (result.errorCode && BUDGET_REFUSALS.has(result.errorCode))
-            stoppedReason = result.errorCode;
-          if (stoppedReason) break evaluation;
+          for (let repetition = 0; repetition < repetitions; repetition++) {
+            if ((await capRemaining(scope, setup, maxCostMicros)) <= 0) {
+              stoppedReason = "BUDGET_EXCEEDED";
+              break evaluation;
+            }
+            const missionId = await createMission(
+              scope,
+              setup,
+              item,
+              profileVersion,
+            );
+            const { result, unknown } = await runOnce(
+              scope,
+              missionId,
+              item,
+              candidate,
+            );
+            stoppedReason = stopReason(result, unknown);
+            results.push({ ...result, counted: stoppedReason === null });
+            if (stoppedReason) break evaluation;
+          }
         }
       }
+    } catch (error) {
+      // Keep the completed runs; the cleanup below still runs.
+      stoppedReason = "UNEXPECTED:" + errorCode(error);
     }
-  } finally {
-    try {
-      // Cascades to the project and every row of the eval.
-      if (workspaceId)
-        await authDb.workspace.delete({ where: { id: workspaceId } });
-    } finally {
-      await authDb.user.delete({ where: { id: user.id } });
-    }
+  } catch (error) {
+    setupError = error;
   }
+  // Cleanup always runs; the first error wins.
+  let cleanupError: unknown = null;
+  try {
+    // Cascades to the project and every row of the eval.
+    if (workspaceId)
+      await authDb.workspace.delete({ where: { id: workspaceId } });
+  } catch (error) {
+    cleanupError = error;
+  }
+  try {
+    await authDb.user.delete({ where: { id: user.id } });
+  } catch (error) {
+    cleanupError ??= error;
+  }
+  if (setupError) throw setupError;
+  if (cleanupError) throw cleanupError;
   return {
     datasetVersion: options.datasetVersion,
     datasetHash: datasetHash(
@@ -745,7 +835,7 @@ export async function runEval(options: {
       maxCostMicros,
     ),
     startedAt,
-    // Set whenever the evaluation got this far; creation errors rethrow above.
+    // Set once setup succeeded; setup errors were rethrown above.
     workspaceId: workspaceId!,
     stoppedReason,
     candidates,
@@ -792,6 +882,8 @@ export function renderMarkdown(report: EvalReport): string {
         "Candidate",
         "Runs",
         "Pass rate",
+        "Abstained",
+        "Invalid output",
         "Cost per accepted",
         "Total cost",
         "p50 model call (ms)",
@@ -800,9 +892,11 @@ export function renderMarkdown(report: EvalReport): string {
       report.summary.map((row) => [
         row.candidate,
         row.runs,
-        (row.passRate * 100).toFixed(1) + "%",
+        row.passRate === null ? "–" : (row.passRate * 100).toFixed(1) + "%",
+        row.abstained,
+        row.invalidOutput,
         usd(row.costPerAcceptedMicros),
-        usd(row.totalCostMicros),
+        usd(row.totalCostMicros) + (row.costComplete ? "" : " (incomplete)"),
         row.p50DurationMs ?? "–",
         Object.entries(row.problemCounts)
           .sort(([, a], [, b]) => b - a)
@@ -817,6 +911,8 @@ export function renderMarkdown(report: EvalReport): string {
       [
         "Case",
         "Candidate",
+        "Counted",
+        "Route version",
         "Valid",
         "Problems or error",
         "Cost (micros)",
@@ -830,6 +926,8 @@ export function renderMarkdown(report: EvalReport): string {
       report.results.map((result) => [
         result.caseId,
         result.candidate,
+        result.counted ? "yes" : "no",
+        result.routeVersion ?? "–",
         result.valid ? "yes" : "no",
         result.errorCode ?? (result.problems.join(", ") || "–"),
         result.costMicros ?? "–",

@@ -67,6 +67,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   };
 });
 import { generateMissionLive } from "../src/modules/generation.ts";
+import { GenerationOutputError } from "../../../packages/ai/src/index.ts";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { postingSlot } from "../src/modules/posting-slots.ts";
 import { configureAutopilot, planAutopilot } from "../src/modules/autopilot.ts";
@@ -1666,6 +1667,57 @@ describe.skipIf(!enabled)(
         expect((await telemetry()).runs[0]!.routeVersion).toBeNull();
       });
     });
+    it.each(["MODEL_OUTPUT_INVALID", "INSUFFICIENT_EVIDENCE"] as const)(
+      "settles the known cost of an unusable %s response and fails the run",
+      async (code) => {
+        provider.generate.mockRejectedValue(
+          new GenerationOutputError(
+            code,
+            { ...generated().usage, costMicros: 55 },
+            "resp_unusable",
+          ),
+        );
+        const jobId = randomUUID();
+        const failure = await generateMissionLive(s, missionId, jobId).catch(
+          (error: unknown) => error,
+        );
+        // The worker stores error.message as the job error.
+        expect((failure as Error).message).toBe(code);
+        const row = await run((tx) =>
+          tx.budgetReservation.findFirstOrThrow({
+            where: { category: "text" },
+          }),
+        );
+        expect(row).toMatchObject({ state: "settled", settledMicros: 55n });
+        const { runs, spans } = await telemetry();
+        expect(runs).toHaveLength(1);
+        expect(runs[0]).toMatchObject({
+          kind: "generation",
+          status: "failed",
+          errorCode: code,
+        });
+        expect(spans.find((x) => x.type === "model_call")).toMatchObject({
+          status: "failed",
+          errorCode: code,
+          costMicros: 55n,
+          inputTokens: 40,
+          outputTokens: 20,
+          providerResponseId: "resp_unusable",
+          budgetReservationId: row.id,
+        });
+        expect(
+          await run((tx) =>
+            tx.entity.count({
+              where: { projectId: s.projectId, kind: "content" },
+            }),
+          ),
+        ).toBe(0);
+        await expect(generateMissionLive(s, missionId, jobId)).rejects.toThrow(
+          "RESERVATION_ALREADY_USED",
+        );
+        expect(provider.generate).toHaveBeenCalledTimes(1);
+      },
+    );
     it("traces an unknown generation outcome as unknown span and failed run", async () => {
       provider.generate.mockRejectedValue(
         new Error("Synthetic transport uncertainty"),

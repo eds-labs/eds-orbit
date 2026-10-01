@@ -1,11 +1,14 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
 import { authDb, closeDatabase } from "../../packages/db/src/index.ts";
-import type { OpenAiRuntimeConfig } from "../../packages/ai/src/index.ts";
+import {
+  GenerationOutputError,
+  type OpenAiRuntimeConfig,
+} from "../../packages/ai/src/index.ts";
 
 // Offline only: the provider is replaced by recorded outputs; no network call is made.
 const replay = vi.hoisted(() => ({
   generate: null as null | ((params: any) => Promise<unknown>),
-  workspaceIds: [] as string[],
 }));
 vi.mock("../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../packages/ai/src/index.ts")>()),
@@ -30,6 +33,7 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
 }));
 import {
   datasetHash,
+  EVAL_MARKER,
   parseFixtures,
   recordedGenerate,
   renderMarkdown,
@@ -70,6 +74,16 @@ const runtime: OpenAiRuntimeConfig = {
   },
 };
 const xCases = fixtures.cases.filter((item) => item.channel.provider === "x");
+const gone = async (report: { workspaceId: string }, since: Date) => {
+  expect(
+    await authDb.workspace.findUnique({ where: { id: report.workspaceId } }),
+  ).toBeNull();
+  expect(
+    await authDb.user.count({
+      where: { name: EVAL_MARKER, createdAt: { gte: since } },
+    }),
+  ).toBe(0);
+};
 
 describe.skipIf(!enabled)(
   "Offline generation eval on the real review path",
@@ -82,6 +96,7 @@ describe.skipIf(!enabled)(
       const cases = xCases.slice(0, 3);
       expect(cases).toHaveLength(3);
       replay.generate = recordedGenerate(cases, candidates);
+      const since = new Date();
       const report = await runEval({
         cases,
         candidates,
@@ -94,9 +109,30 @@ describe.skipIf(!enabled)(
       expect(report.results.every((result) => result.errorCode === null)).toBe(
         true,
       );
+      expect(report.results.every((result) => result.counted)).toBe(true);
+      // Case-major: every case runs all candidates before the next case,
+      // and each candidate's runs carry their own configuration version.
+      for (const [index, item] of cases.entries()) {
+        const block = report.results.slice(index * 4, index * 4 + 4);
+        expect(block.map((result) => result.caseId)).toEqual(
+          Array(4).fill(item.id),
+        );
+        expect(block.map((result) => result.candidate)).toEqual([...labels]);
+        const versions = block.map((result) => result.routeVersion);
+        expect(versions.every((version) => typeof version === "number")).toBe(
+          true,
+        );
+        expect(new Set(versions).size).toBe(4);
+      }
       const summary = (label: string) =>
         report.summary.find((row) => row.candidate === label)!;
-      expect(summary("good")).toMatchObject({ runs: 3, passRate: 1 });
+      expect(summary("good")).toMatchObject({
+        runs: 3,
+        passRate: 1,
+        costComplete: true,
+        abstained: 0,
+        invalidOutput: 0,
+      });
       expect(summary("good").problemCounts).toEqual({});
       expect(summary("good").costPerAcceptedMicros).toBe(
         Math.round(summary("good").totalCostMicros / 3),
@@ -133,11 +169,7 @@ describe.skipIf(!enabled)(
       );
       expect(report.stoppedReason).toBeNull();
       // The synthetic workspace and owner are removed again.
-      expect(
-        await authDb.workspace.findUnique({
-          where: { id: report.workspaceId },
-        }),
-      ).toBeNull();
+      await gone(report, since);
       const markdown = renderMarkdown(report);
       const summaryRows = markdown
         .split("## Summary")[1]!
@@ -172,6 +204,7 @@ describe.skipIf(!enabled)(
       const cases = xCases.slice(0, 2);
       const good = candidates.slice(0, 1);
       replay.generate = recordedGenerate(cases, good);
+      const since = new Date();
       // Input is free, so a generation reserves exactly maxOutputTokens (1,800)
       // and a query embedding 1 (settled at the mocked 7). The first run fits
       // (7 + 1,800); the second no longer fits the remaining budget.
@@ -200,17 +233,25 @@ describe.skipIf(!enabled)(
       // journal refuses the second estimate as above the per-run limit.
       expect(report.stoppedReason).toBe("BUDGET_NOT_APPROVED");
       expect(report.results).toHaveLength(2);
-      expect(report.results[0]).toMatchObject({ valid: true, errorCode: null });
+      expect(report.results[0]).toMatchObject({
+        valid: true,
+        counted: true,
+        errorCode: null,
+      });
+      // The refused run never reached the model: recorded, not counted.
       expect(report.results[1]).toMatchObject({
         valid: false,
+        counted: false,
         errorCode: "BUDGET_NOT_APPROVED",
         costMicros: null,
       });
-      expect(
-        await authDb.workspace.findUnique({
-          where: { id: report.workspaceId },
-        }),
-      ).toBeNull();
+      expect(report.summary[0]).toMatchObject({
+        candidate: "good",
+        runs: 1,
+        passRate: 1,
+        costComplete: true,
+      });
+      await gone(report, since);
     }, 180_000);
 
     it("stops on a reservation whose cost is unknown", async () => {
@@ -221,6 +262,7 @@ describe.skipIf(!enabled)(
       );
       const ordered = [candidates[3]!, candidates[0]!];
       replay.generate = recordedGenerate(cases, ordered);
+      const since = new Date();
       const report = await runEval({
         cases,
         candidates: ordered,
@@ -234,20 +276,239 @@ describe.skipIf(!enabled)(
       expect(report.results[0]).toMatchObject({
         candidate: "over_limit",
         valid: false,
+        counted: false,
         errorCode: "MODEL_OUTCOME_OR_COST_UNKNOWN",
         costMicros: null,
         settledMicros: null,
       });
+      // Nothing counted: no pass rate rather than 0 %.
+      expect(report.summary.map((row) => [row.runs, row.passRate])).toEqual([
+        [0, null],
+        [0, null],
+      ]);
+      expect(renderMarkdown(report)).toMatch(/\| over_limit \| 0 \| – \|/);
+      await gone(report, since);
+    }, 180_000);
+
+    it("counts priced unusable outputs and continues the eval", async () => {
+      const cases = xCases.slice(0, 1);
+      const abstain: EvalCandidate = {
+        label: "abstain",
+        route: { model: "offline-abstain", maxOutputTokens: 1800 },
+      };
+      const invalid: EvalCandidate = {
+        label: "invalid",
+        route: { model: "offline-invalid", maxOutputTokens: 1800 },
+      };
+      const ordered = [abstain, invalid, candidates[0]!];
+      const recorded = recordedGenerate(cases, [candidates[0]!]);
+      replay.generate = async (params) => {
+        const code =
+          params.route.model === abstain.route.model
+            ? "INSUFFICIENT_EVIDENCE"
+            : params.route.model === invalid.route.model
+              ? "MODEL_OUTPUT_INVALID"
+              : null;
+        if (!code) return recorded(params);
+        throw new GenerationOutputError(
+          code,
+          {
+            model: params.route.model,
+            inputTokens: 300,
+            cachedTokens: 0,
+            cacheWriteTokens: 0,
+            outputTokens: 20,
+            reasoningTokens: 0,
+            costMicros: 3,
+          },
+          "resp_unusable",
+        );
+      };
+      const since = new Date();
+      const report = await runEval({
+        cases,
+        candidates: ordered,
+        repetitions: 1,
+        maxCostMicros: 1_000_000,
+        runtime: {
+          ...runtime,
+          verifiedModels: [
+            ...runtime.verifiedModels,
+            abstain.route.model,
+            invalid.route.model,
+          ],
+          rateCard: {
+            ...runtime.rateCard,
+            [abstain.route.model]: rate,
+            [invalid.route.model]: rate,
+          },
+        },
+        datasetVersion: fixtures.datasetVersion,
+      });
+      expect(report.stoppedReason).toBeNull();
       expect(
-        await authDb.workspace.findUnique({
-          where: { id: report.workspaceId },
+        report.results.map((result) => [
+          result.candidate,
+          result.counted,
+          result.valid,
+          result.errorCode,
+          result.costMicros,
+          result.settledMicros,
+        ]),
+      ).toEqual([
+        ["abstain", true, false, "INSUFFICIENT_EVIDENCE", 3, 3],
+        ["invalid", true, false, "MODEL_OUTPUT_INVALID", 3, 3],
+        ["good", true, true, null, expect.any(Number), expect.any(Number)],
+      ]);
+      expect(report.summary).toEqual([
+        expect.objectContaining({
+          candidate: "abstain",
+          runs: 1,
+          passRate: 0,
+          abstained: 1,
+          invalidOutput: 0,
+          totalCostMicros: 3,
+          costComplete: true,
         }),
-      ).toBeNull();
+        expect.objectContaining({
+          candidate: "invalid",
+          runs: 1,
+          passRate: 0,
+          abstained: 0,
+          invalidOutput: 1,
+          totalCostMicros: 3,
+        }),
+        expect.objectContaining({ candidate: "good", runs: 1, passRate: 1 }),
+      ]);
+      await gone(report, since);
+    }, 180_000);
+
+    it("returns a partial report on an unexpected error", async () => {
+      const cases = xCases.slice(0, 2);
+      const good = candidates.slice(0, 1);
+      const recorded = recordedGenerate(cases, good);
+      let calls = 0;
+      // The second output cites a fact that does not exist: the review gate
+      // throws NOT_FOUND instead of returning problems.
+      replay.generate = async (params) => {
+        const outcome = (await recorded(params)) as any;
+        if (++calls === 2)
+          outcome.output.claims[0] = {
+            ...outcome.output.claims[0],
+            factId: randomUUID(),
+          };
+        return outcome;
+      };
+      const since = new Date();
+      const report = await runEval({
+        cases,
+        candidates: good,
+        repetitions: 1,
+        maxCostMicros: 1_000_000,
+        runtime,
+        datasetVersion: fixtures.datasetVersion,
+      });
+      expect(report.stoppedReason).toBe("UNEXPECTED:NOT_FOUND");
+      expect(
+        report.results.map((result) => [result.counted, result.errorCode]),
+      ).toEqual([
+        [true, null],
+        [false, "NOT_FOUND"],
+      ]);
+      expect(report.summary[0]).toMatchObject({ runs: 1, passRate: 1 });
+      await gone(report, since);
+    }, 180_000);
+
+    it("removes stale marker workspaces and users, and nothing else", async () => {
+      const old = new Date(Date.now() - 2 * 3600_000);
+      const owner = (name: string, createdAt?: Date) =>
+        authDb.user.create({
+          data: {
+            id: randomUUID(),
+            name,
+            email: `${randomUUID()}@example.invalid`,
+            ...(createdAt ? { createdAt } : {}),
+          },
+        });
+      const workspace = (name: string, userId: string, createdAt?: Date) =>
+        authDb.workspace.create({
+          data: {
+            name,
+            ...(createdAt ? { createdAt } : {}),
+            members: { create: { userId, role: "owner" } },
+          },
+        });
+      const staleUser = await owner(EVAL_MARKER, old);
+      const stale = await workspace(EVAL_MARKER, staleUser.id, old);
+      const orphan = await owner(EVAL_MARKER, old);
+      const freshUser = await owner(EVAL_MARKER);
+      const fresh = await workspace(EVAL_MARKER, freshUser.id);
+      const otherUser = await owner("Synthetic unrelated owner", old);
+      const other = await workspace("Unrelated", otherUser.id, old);
+      try {
+        const cases = xCases.slice(0, 1);
+        const good = candidates.slice(0, 1);
+        replay.generate = recordedGenerate(cases, good);
+        await runEval({
+          cases,
+          candidates: good,
+          repetitions: 1,
+          maxCostMicros: 1_000_000,
+          runtime,
+          datasetVersion: fixtures.datasetVersion,
+        });
+        expect(
+          await authDb.workspace.findUnique({ where: { id: stale.id } }),
+        ).toBeNull();
+        expect(
+          await authDb.user.findUnique({ where: { id: staleUser.id } }),
+        ).toBeNull();
+        expect(
+          await authDb.user.findUnique({ where: { id: orphan.id } }),
+        ).toBeNull();
+        // A recent run may still be in progress; unrelated rows stay.
+        expect(
+          await authDb.workspace.findUnique({ where: { id: fresh.id } }),
+        ).not.toBeNull();
+        expect(
+          await authDb.workspace.findUnique({ where: { id: other.id } }),
+        ).not.toBeNull();
+        expect(
+          await authDb.user.findUnique({ where: { id: otherUser.id } }),
+        ).not.toBeNull();
+      } finally {
+        await authDb.workspace.deleteMany({
+          where: { id: { in: [stale.id, fresh.id, other.id] } },
+        });
+        await authDb.user.deleteMany({
+          where: {
+            id: { in: [staleUser.id, orphan.id, freshUser.id, otherUser.id] },
+          },
+        });
+      }
     }, 180_000);
   },
 );
 
-describe("Dataset hash", () => {
+describe("Harness guards and dataset hash", () => {
+  it("refuses a database that is not local", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://eval@db.example.com:5432/orbit");
+    try {
+      await expect(
+        runEval({
+          cases: fixtures.cases,
+          candidates,
+          repetitions: 1,
+          maxCostMicros: 1_000,
+          runtime,
+          datasetVersion: fixtures.datasetVersion,
+        }),
+      ).rejects.toThrow("EVAL_DATABASE_NOT_LOCAL");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("is stable and sensitive to the cost ceiling", () => {
     const cases = fixtures.cases;
     const first = datasetHash(cases, candidates, 2, 5_000_000);

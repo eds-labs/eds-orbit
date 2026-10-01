@@ -6,7 +6,7 @@ vi.mock("openai", () => ({
     responses = { create };
   },
 }));
-import { generate, streamChat } from "./index.ts";
+import { GenerationOutputError, generate, streamChat } from "./index.ts";
 
 const runtime = {
   apiKey: "test-key",
@@ -92,5 +92,75 @@ describe("route-driven requests", () => {
     });
     expect(second.max_output_tokens).toBe(3000);
     expect("reasoning" in second).toBe(false);
+  });
+});
+
+describe("unusable generation output", () => {
+  const request = {
+    task: "draft",
+    goal: "g",
+    evidence: {},
+    route: { model: "m", maxOutputTokens: 1800 },
+    reservationId: "r",
+    runtime: {
+      ...runtime,
+      rateCard: {
+        m: {
+          inputMicrosPerMillion: 1_000_000,
+          outputMicrosPerMillion: 2_000_000,
+          verifiedAt: new Date().toISOString(),
+        },
+      },
+    },
+  };
+  const outcome = async (output_text: string) => {
+    create.mockReset().mockResolvedValue({ ...answer, output_text });
+    return generate(request).then(
+      () => null,
+      (error: unknown) => error,
+    );
+  };
+  it.each([
+    ["MODEL_OUTPUT_INVALID", '{"title":"t","body":'],
+    ["MODEL_OUTPUT_INVALID", JSON.stringify({ title: "t", body: "b" })],
+    [
+      "INSUFFICIENT_EVIDENCE",
+      JSON.stringify({ title: "t", body: "", claims: [] }),
+    ],
+  ])("throws %s with the known usage and cost", async (code, text) => {
+    const error = await outcome(text);
+    expect(error).toBeInstanceOf(GenerationOutputError);
+    expect(error).toMatchObject({
+      code,
+      message: code,
+      responseId: "resp_1",
+      // 10 input tokens at 1 micro plus 5 output tokens at 2 micros.
+      costMicros: 20,
+      usage: {
+        model: "m",
+        inputTokens: 10,
+        cachedTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 5,
+        reasoningTokens: 0,
+        costMicros: 20,
+      },
+    });
+  });
+  it("keeps an unknown outcome when usage is missing", async () => {
+    create.mockReset().mockResolvedValue({
+      ...answer,
+      output_text: "not json",
+      usage: undefined,
+    });
+    const error = await generate(request).catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(GenerationOutputError);
+    expect((error as Error).message).toBe("USAGE_UNKNOWN");
+  });
+  it("lets transport errors through unchanged", async () => {
+    create.mockReset().mockRejectedValue(new Error("socket hang up"));
+    const error = await generate(request).catch((e: unknown) => e);
+    expect(error).not.toBeInstanceOf(GenerationOutputError);
+    expect((error as Error).message).toBe("socket hang up");
   });
 });

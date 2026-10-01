@@ -34,6 +34,19 @@ export type Usage = {
   reasoningTokens: number;
   costMicros: number;
 };
+/** A completed, priced response whose output cannot be used; its cost is known. */
+export class GenerationOutputError extends Error {
+  readonly costMicros: number;
+  constructor(
+    readonly code: "MODEL_OUTPUT_INVALID" | "INSUFFICIENT_EVIDENCE",
+    readonly usage: Usage,
+    readonly responseId: string | null,
+  ) {
+    super(code);
+    this.name = "GenerationOutputError";
+    this.costMicros = usage.costMicros;
+  }
+}
 export const imageModelSchema = z.enum([
   "gpt-image-2.5-flare",
   "gpt-image-2.5-flare-2026-09-08",
@@ -158,23 +171,35 @@ export async function generate(params: {
     },
     { signal: params.signal },
   );
-  const raw = JSON.parse(response.output_text);
-  raw.claims = raw.claims.map((c: any) =>
-    Object.fromEntries(Object.entries(c).filter(([, v]) => v !== null)),
-  );
-  const output = structuredOutput.parse(raw);
-  if (!output.body) throw new Error("INSUFFICIENT_EVIDENCE");
+  // Cost first: a completed response is billed even when its output is unusable.
   const normalized = normalizeResponsesUsage(response.usage);
   const { detailsKnown: _detailsKnown, ...counts } = normalized;
-  return {
-    output,
-    responseId: response.id,
-    usage: {
-      model: params.route.model,
-      ...counts,
-      costMicros: computeCost(params.route.model, normalized, runtime),
-    } satisfies Usage,
-  };
+  const usage = {
+    model: params.route.model,
+    ...counts,
+    costMicros: computeCost(params.route.model, normalized, runtime),
+  } satisfies Usage;
+  let output: z.infer<typeof structuredOutput>;
+  try {
+    const raw = JSON.parse(response.output_text);
+    raw.claims = raw.claims.map((c: any) =>
+      Object.fromEntries(Object.entries(c).filter(([, v]) => v !== null)),
+    );
+    output = structuredOutput.parse(raw);
+  } catch {
+    throw new GenerationOutputError(
+      "MODEL_OUTPUT_INVALID",
+      usage,
+      response.id ?? null,
+    );
+  }
+  if (!output.body)
+    throw new GenerationOutputError(
+      "INSUFFICIENT_EVIDENCE",
+      usage,
+      response.id ?? null,
+    );
+  return { output, responseId: response.id, usage };
 }
 export function streamChat(params: {
   route: ModelRoute;

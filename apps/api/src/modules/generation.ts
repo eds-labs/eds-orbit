@@ -11,6 +11,7 @@ import {
 import {
   draftTaskClass,
   generate,
+  GenerationOutputError,
   resolveRoute,
   estimateCost,
 } from "../../../../packages/ai/src/index.ts";
@@ -440,7 +441,28 @@ async function generateMissionDraft(
       reservationId: prepared.reservationId,
       runtime: prepared.ai,
     });
-  } catch {
+  } catch (error) {
+    // A completed response with unusable output has a known cost.
+    if (error instanceof GenerationOutputError) {
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        settle(tx, scope, prepared.reservationId, error.costMicros),
+      );
+      // Telemetry only after the settlement committed.
+      await recordSpan(scope, trace.runId, {
+        type: "model_call",
+        name: "responses.create",
+        model: error.usage.model,
+        status: "failed",
+        errorCode: error.code,
+        startedAt: callStartedAt,
+        durationMs: Date.now() - callStartedAt.valueOf(),
+        usage: error.usage,
+        costMicros: error.costMicros,
+        budgetReservationId: prepared.reservationId,
+        providerResponseId: error.responseId,
+      });
+      throw new DomainError(error.code);
+    }
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),
     );
