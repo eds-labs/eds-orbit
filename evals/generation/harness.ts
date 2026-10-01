@@ -109,8 +109,9 @@ export type EvalReport = {
 export const EVAL_PRODUCT = "Northwind Ledger";
 // Exact name of every workspace, project and user the harness creates.
 export const EVAL_MARKER = "Synthetic generation eval";
-// Residue of a hard-killed eval is removed after this age.
-const STALE_AFTER_MS = 3600_000;
+// Residue of a hard-killed eval is removed after this age. A live eval can
+// run for up to 30 minutes, so the threshold stays far above that.
+const STALE_AFTER_MS = 12 * 3600_000;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const EVAL_AUDIENCE = "Owners and finance leads of small companies";
 const MAX_REPETITIONS = 10;
@@ -678,7 +679,7 @@ function assertLocalDatabase() {
   }
 }
 
-/** Removes residue of hard-killed evals: marker-named rows older than an hour. */
+/** Removes residue of hard-killed evals: marker-named rows older than STALE_AFTER_MS. */
 async function removeStaleEvals() {
   const before = new Date(Date.now() - STALE_AFTER_MS);
   const stale = await authDb.workspace.findMany({

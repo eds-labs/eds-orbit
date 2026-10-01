@@ -420,7 +420,7 @@ describe.skipIf(!enabled)(
     }, 180_000);
 
     it("removes stale marker workspaces and users, and nothing else", async () => {
-      const old = new Date(Date.now() - 2 * 3600_000);
+      const old = new Date(Date.now() - 13 * 3600_000);
       const owner = (name: string, createdAt?: Date) =>
         authDb.user.create({
           data: {
@@ -443,6 +443,16 @@ describe.skipIf(!enabled)(
       const orphan = await owner(EVAL_MARKER, old);
       const freshUser = await owner(EVAL_MARKER);
       const fresh = await workspace(EVAL_MARKER, freshUser.id);
+      // Two hours old is still inside the 12-hour window of a possible live run.
+      const recentUser = await owner(
+        EVAL_MARKER,
+        new Date(Date.now() - 2 * 3600_000),
+      );
+      const recent = await workspace(
+        EVAL_MARKER,
+        recentUser.id,
+        new Date(Date.now() - 2 * 3600_000),
+      );
       const otherUser = await owner("Synthetic unrelated owner", old);
       const other = await workspace("Unrelated", otherUser.id, old);
       try {
@@ -471,6 +481,9 @@ describe.skipIf(!enabled)(
           await authDb.workspace.findUnique({ where: { id: fresh.id } }),
         ).not.toBeNull();
         expect(
+          await authDb.workspace.findUnique({ where: { id: recent.id } }),
+        ).not.toBeNull();
+        expect(
           await authDb.workspace.findUnique({ where: { id: other.id } }),
         ).not.toBeNull();
         expect(
@@ -478,11 +491,19 @@ describe.skipIf(!enabled)(
         ).not.toBeNull();
       } finally {
         await authDb.workspace.deleteMany({
-          where: { id: { in: [stale.id, fresh.id, other.id] } },
+          where: { id: { in: [stale.id, fresh.id, recent.id, other.id] } },
         });
         await authDb.user.deleteMany({
           where: {
-            id: { in: [staleUser.id, orphan.id, freshUser.id, otherUser.id] },
+            id: {
+              in: [
+                staleUser.id,
+                orphan.id,
+                freshUser.id,
+                recentUser.id,
+                otherUser.id,
+              ],
+            },
           },
         });
       }

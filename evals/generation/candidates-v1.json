@@ -1,0 +1,58 @@
+{
+  "verifiedAt": "2026-09-30T00:00:00.000Z",
+  "rateCard": {
+    "gpt-5.6-terra": {
+      "inputMicrosPerMillion": 2000000,
+      "cachedInputMicrosPerMillion": 200000,
+      "cacheWriteMicrosPerMillion": 2500000,
+      "outputMicrosPerMillion": 12000000
+    },
+    "gpt-6.1-sol": {
+      "inputMicrosPerMillion": 2000000,
+      "cachedInputMicrosPerMillion": 100000,
+      "cacheWriteMicrosPerMillion": 2500000,
+      "outputMicrosPerMillion": 10000000
+    },
+    "gpt-6-luna": {
+      "inputMicrosPerMillion": 100000,
+      "cachedInputMicrosPerMillion": 10000,
+      "cacheWriteMicrosPerMillion": 125000,
+      "outputMicrosPerMillion": 500000
+    },
+    "text-embedding-3-small": {
+      "inputMicrosPerMillion": 20000,
+      "outputMicrosPerMillion": 0
+    }
+  },
+  "candidates": [
+    {
+      "label": "terra-default",
+      "route": { "model": "gpt-5.6-terra", "maxOutputTokens": 1800 }
+    },
+    {
+      "label": "sol-6.1-low",
+      "route": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "low",
+        "maxOutputTokens": 4000
+      }
+    },
+    {
+      "label": "sol-6.1-medium",
+      "route": {
+        "model": "gpt-6.1-sol",
+        "reasoningEffort": "medium",
+        "maxOutputTokens": 6000
+      }
+    },
+    {
+      "label": "luna-6-none",
+      "route": {
+        "model": "gpt-6-luna",
+        "reasoningEffort": "none",
+        "maxOutputTokens": 1800
+      }
+    }
+  ],
+  "repetitions": 2
+}
