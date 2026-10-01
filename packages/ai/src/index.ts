@@ -5,6 +5,14 @@ import {
   embeddingProfile,
   modelRoutes,
 } from "../../config/src/index.ts";
+import {
+  computeCost,
+  embeddingUsage,
+  normalizeResponsesUsage,
+  rateCardSchema,
+  type Rate,
+} from "./cost.ts";
+export * from "./cost.ts";
 const structuredOutput = z.object({
   title: z.string().max(200),
   body: z.string().max(40000),
@@ -22,22 +30,12 @@ const structuredOutput = z.object({
 export type Usage = {
   model: string;
   inputTokens: number;
+  cachedTokens: number;
+  cacheWriteTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
   costMicros: number;
 };
-export type Rate = {
-  inputMicrosPerMillion: number;
-  outputMicrosPerMillion: number;
-  verifiedAt: string;
-};
-export const rateCardSchema = z.record(
-  z.string(),
-  z.object({
-    inputMicrosPerMillion: z.number().nonnegative(),
-    outputMicrosPerMillion: z.number().nonnegative(),
-    verifiedAt: z.iso.datetime(),
-  }),
-);
 export const imageModelSchema = z.enum([
   "gpt-image-2.5-flare",
   "gpt-image-2.5-flare-2026-09-08",
@@ -93,24 +91,6 @@ export function rateCard(
   if (!Object.keys(runtime.rateCard).length)
     throw new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
   return runtime.rateCard;
-}
-export function estimateCost(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-  runtime = environmentRuntimeConfig(),
-) {
-  const rate = rateCard(runtime)[model];
-  if (!rate || Date.now() - new Date(rate.verifiedAt).valueOf() > 31 * 86400000)
-    throw new Error("CURRENT_PRICE_REQUIRED");
-  return Math.max(
-    1,
-    Math.ceil(
-      (inputTokens * rate.inputMicrosPerMillion +
-        outputTokens * rate.outputMicrosPerMillion) /
-        1000000,
-    ),
-  );
 }
 export function route(
   task: string,
@@ -196,23 +176,16 @@ export async function generate(params: {
   );
   const output = structuredOutput.parse(raw);
   if (!output.body) throw new Error("INSUFFICIENT_EVIDENCE");
-  const inputTokens = response.usage?.input_tokens,
-    outputTokens = response.usage?.output_tokens;
-  if (inputTokens === undefined || outputTokens === undefined)
-    throw new Error("USAGE_UNKNOWN");
+  const normalized = normalizeResponsesUsage(response.usage);
+  const { detailsKnown: _detailsKnown, ...counts } = normalized;
   return {
     output,
+    responseId: response.id,
     usage: {
       model: params.model,
-      inputTokens,
-      outputTokens,
-      costMicros: estimateCost(
-        params.model,
-        inputTokens,
-        outputTokens,
-        runtime,
-      ),
-    },
+      ...counts,
+      costMicros: computeCost(params.model, normalized, runtime),
+    } satisfies Usage,
   };
 }
 export const CHAT_MAX_OUTPUT_TOKENS = 3000;
@@ -295,19 +268,18 @@ export async function embed(
     )
   )
     throw new Error("EMBEDDING_SHAPE_INVALID");
+  const usage = embeddingUsage(result.usage.total_tokens);
   return {
     vectors: sorted.map((x) => x.embedding),
     usage: {
       model: profile.model,
-      inputTokens: result.usage.total_tokens,
+      inputTokens: usage.inputTokens,
+      cachedTokens: 0,
+      cacheWriteTokens: 0,
       outputTokens: 0,
-      costMicros: estimateCost(
-        profile.model,
-        result.usage.total_tokens,
-        0,
-        runtime,
-      ),
-    },
+      reasoningTokens: 0,
+      costMicros: computeCost(profile.model, usage, runtime),
+    } satisfies Usage,
   };
 }
 

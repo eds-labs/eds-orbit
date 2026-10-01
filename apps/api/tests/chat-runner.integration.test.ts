@@ -23,6 +23,7 @@ const mocked = vi.hoisted(() => ({
   embedCalls: 0,
   embedFails: false,
   mode: "normal",
+  telemetryOff: false,
   inputs: [] as unknown[],
   tools: [] as unknown[],
 }));
@@ -50,7 +51,35 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
     const step = mocked.calls;
     return {
       async *[Symbol.asyncIterator]() {
-        if (mocked.mode === "incomplete") {
+        if (
+          mocked.mode === "usage_unknown_details" ||
+          mocked.mode === "usage_cache_details"
+        ) {
+          yield {
+            type: "response.completed",
+            response: {
+              usage: {
+                input_tokens: 1000000,
+                output_tokens: 0,
+                ...(mocked.mode === "usage_cache_details"
+                  ? {
+                      input_tokens_details: {
+                        cached_tokens: 400000,
+                        cache_write_tokens: 100000,
+                      },
+                    }
+                  : {}),
+              },
+              output: [
+                {
+                  type: "message",
+                  role: "assistant",
+                  content: [{ type: "output_text", text: "Done." }],
+                },
+              ],
+            },
+          };
+        } else if (mocked.mode === "incomplete") {
           yield {
             type: "response.incomplete",
             response: {
@@ -91,6 +120,21 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
                     mission: { sourceIds: ["private-value-must-not-return"] },
                     factIds: [randomUUID()],
                   }),
+                },
+              ],
+            },
+          };
+        } else if (mocked.mode === "unknown_tool" && step === 1) {
+          yield {
+            type: "response.completed",
+            response: {
+              usage: { input_tokens: 100, output_tokens: 30 },
+              output: [
+                {
+                  type: "function_call",
+                  name: "model_controlled_name_secret-value",
+                  call_id: "unknown-tool-call",
+                  arguments: "{}",
                 },
               ],
             },
@@ -153,6 +197,15 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
     };
   }),
 }));
+vi.mock("../src/modules/telemetry.ts", async (original) => {
+  const real = await original<typeof import("../src/modules/telemetry.ts")>();
+  return {
+    ...real,
+    startRun: vi.fn((...args: Parameters<typeof real.startRun>) =>
+      mocked.telemetryOff ? Promise.resolve(null) : real.startRun(...args),
+    ),
+  };
+});
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import {
   createConversation,
@@ -161,10 +214,12 @@ import {
   getRun,
   createProposal,
   confirmProposal,
+  chatScoped,
 } from "../src/modules/chat.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
 import { activePolicy } from "../src/modules/policy.ts";
 import { reserve } from "../src/modules/budget.ts";
+import { hashText, startRun } from "../src/modules/telemetry.ts";
 import {
   runReadTool,
   validateReadToolResult,
@@ -989,6 +1044,246 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
           }),
       );
       expect(reservation.state).toBe("unknown");
+    } finally {
+      mocked.mode = "normal";
+    }
+  });
+  const traced = (runId: string) =>
+    scoped(scope.workspaceId, scope.projectId, async (tx) => ({
+      runs: await tx.agentRun.findMany({ where: { subjectId: runId } }),
+      spans: await tx.agentSpan.findMany({
+        where: { run: { subjectId: runId } },
+        orderBy: { startedAt: "asc" },
+      }),
+      reservations: await tx.budgetReservation.findMany({
+        where: { key: { startsWith: `${scope.projectId}:chat:${runId}:` } },
+        orderBy: { createdAt: "asc" },
+      }),
+    }));
+  it("traces each model and tool call and attributes every chat reservation", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    mocked.calls = 0;
+    await runChat(scope, sent.runId);
+    await runChat(scope, sent.runId);
+    const { runs, spans, reservations } = await traced(sent.runId);
+    expect(runs).toHaveLength(1);
+    const run = runs[0]!;
+    expect(run).toEqual(
+      expect.objectContaining({
+        kind: "chat",
+        subjectType: "chat_run",
+        subjectId: sent.runId,
+        status: "succeeded",
+        taskClass: "chat_operator",
+      }),
+    );
+    expect(reservations).toHaveLength(2);
+    for (const row of reservations) {
+      expect(row.state).toBe("settled");
+      expect(row.agentRunId).toBe(run.id);
+      expect(row.taskClass).toBe("chat_operator");
+      expect(row.model).toBe("synthetic-model");
+    }
+    const modelCalls = spans.filter((span) => span.type === "model_call");
+    expect(modelCalls).toHaveLength(2);
+    modelCalls.forEach((span, index) => {
+      expect(span.status).toBe("succeeded");
+      expect(span.model).toBe("synthetic-model");
+      expect(span.inputTokens).toBe(index === 0 ? 100 : 200);
+      expect(span.outputTokens).toBe(30);
+      expect(span.costMicros).toBe(reservations[index]!.settledMicros);
+      expect(span.budgetReservationId).toBe(reservations[index]!.id);
+    });
+    const tools = spans.filter((span) => span.type === "tool_call");
+    expect(tools).toHaveLength(1);
+    expect(tools[0]).toEqual(
+      expect.objectContaining({
+        name: "project_status",
+        status: "succeeded",
+        inputHash: hashText("{}"),
+      }),
+    );
+    expect(tools[0]!.durationMs).toBeGreaterThanOrEqual(0);
+  });
+  it("records a generic span name for a tool the model invented", async () => {
+    mocked.mode = "unknown_tool";
+    mocked.calls = 0;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const { spans } = await traced(sent.runId);
+      const tools = spans.filter((span) => span.type === "tool_call");
+      expect(tools).toHaveLength(1);
+      expect(tools[0]!.name).toBe("unknown_tool");
+      expect(
+        JSON.stringify(spans, (_key, value) =>
+          typeof value === "bigint" ? value.toString() : value,
+        ),
+      ).not.toContain("secret-value");
+    } finally {
+      mocked.mode = "normal";
+    }
+  });
+  const settleOnce = async (mode: string) => {
+    mocked.mode = mode;
+    mocked.calls = 0;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      expect((await getRun(scope, sent.runId)).status).toBe("succeeded");
+      return traced(sent.runId);
+    } finally {
+      mocked.mode = "normal";
+    }
+  };
+  it("charges all input at the cache-write rate when usage lacks cache details", async () => {
+    const { reservations, spans } = await settleOnce("usage_unknown_details");
+    // 1,000,000 input tokens at max(input 1000, cache write 1250) micros per million.
+    expect(reservations.map((row) => Number(row.settledMicros))).toEqual([
+      1250,
+    ]);
+    expect(spans.map((span) => Number(span.costMicros))).toEqual([1250]);
+  });
+  it("settles cached reads and cache writes at their own rates when details are reported", async () => {
+    const { reservations, spans } = await settleOnce("usage_cache_details");
+    // 500,000 ordinary * 1000 + 400,000 cached * 1000 (default) + 100,000 written * 1250, per million.
+    expect(reservations.map((row) => Number(row.settledMicros))).toEqual([
+      1025,
+    ]);
+    expect(spans[0]).toEqual(
+      expect.objectContaining({
+        inputTokens: 1000000,
+        cachedTokens: 400000,
+        cacheWriteTokens: 100000,
+        costMicros: 1025n,
+      }),
+    );
+  });
+  it("closes the telemetry of a crashed invocation when recovery blocks the run", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    const agentRunId = await startRun(scope, {
+      kind: "chat",
+      agentName: "orbit_operator",
+      taskClass: "chat_operator",
+      subjectType: "chat_run",
+      subjectId: sent.runId,
+    });
+    expect(agentRunId).not.toBeNull();
+    const reservationId = await chatScoped(scope, async (tx) => {
+      const reservation = await tx.budgetReservation.create({
+        data: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          key: `${scope.projectId}:chat:${sent.runId}:0`,
+          category: "chat_text",
+          amountMicros: 50n,
+          state: "in_flight",
+          agentRunId,
+          taskClass: "chat_operator",
+          model: "synthetic-model",
+        },
+      });
+      await tx.chatRun.update({
+        where: { id: sent.runId },
+        data: {
+          status: "running",
+          reservationId: reservation.id,
+          transmittedAt: new Date(),
+        },
+      });
+      return reservation.id;
+    });
+    mocked.calls = 0;
+    await runChat(scope, sent.runId);
+    expect(mocked.calls).toBe(0);
+    const result = await getRun(scope, sent.runId);
+    expect(result.status).toBe("blocked");
+    expect(result.errorCode).toBe("CHAT_OUTCOME_UNKNOWN");
+    const { runs, spans, reservations } = await traced(sent.runId);
+    expect(reservations[0]!.state).toBe("unknown");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toEqual(
+      expect.objectContaining({
+        id: agentRunId,
+        status: "blocked",
+        errorCode: "CHAT_OUTCOME_UNKNOWN",
+      }),
+    );
+    expect(spans).toHaveLength(1);
+    expect(spans[0]).toEqual(
+      expect.objectContaining({
+        type: "model_call",
+        status: "unknown",
+        errorCode: "CHAT_OUTCOME_UNKNOWN",
+        budgetReservationId: reservationId,
+      }),
+    );
+  });
+  it("keeps the chat run and settlements intact when telemetry cannot start", async () => {
+    mocked.telemetryOff = true;
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      mocked.calls = 0;
+      await runChat(scope, sent.runId);
+      expect((await getRun(scope, sent.runId)).status).toBe("succeeded");
+      const { runs, spans, reservations } = await traced(sent.runId);
+      expect(runs).toHaveLength(0);
+      expect(spans).toHaveLength(0);
+      expect(reservations).toHaveLength(2);
+      for (const row of reservations) {
+        expect(row.state).toBe("settled");
+        expect(row.agentRunId).toBeNull();
+      }
+    } finally {
+      mocked.telemetryOff = false;
+    }
+  });
+  it("records an unknown model span and the blocked run for an incomplete response", async () => {
+    mocked.mode = "incomplete";
+    try {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Plan next week",
+        clientRequestId: randomUUID(),
+      });
+      await runChat(scope, sent.runId);
+      const { runs, spans } = await traced(sent.runId);
+      expect(runs).toHaveLength(1);
+      expect(runs[0]).toEqual(
+        expect.objectContaining({
+          status: "blocked",
+          errorCode: "CHAT_MODEL_OUTPUT_LIMIT",
+        }),
+      );
+      const modelCalls = spans.filter((span) => span.type === "model_call");
+      expect(modelCalls).toHaveLength(1);
+      expect(modelCalls[0]).toEqual(
+        expect.objectContaining({
+          status: "unknown",
+          errorCode: "CHAT_MODEL_OUTPUT_LIMIT",
+          costMicros: null,
+        }),
+      );
     } finally {
       mocked.mode = "normal";
     }

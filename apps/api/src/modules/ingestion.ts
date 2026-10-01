@@ -16,6 +16,7 @@ import { policy } from "../../../../packages/schemas/src/index.ts";
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { enqueue } from "./workflow.ts";
+import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
 function assertEmbeddingDocumentFresh(
   version: {
     fetchedAt: Date;
@@ -129,6 +130,32 @@ export async function embedDocument(
   documentId: string,
   jobId: string,
 ) {
+  // Subject lookup is best effort: telemetry must not change the job outcome.
+  const versionId = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    tx.knowledgeDocument.findFirst({
+      where: { id: documentId, projectId: scope.projectId },
+      select: { activeVersionId: true },
+    }),
+  )
+    .then((doc) => doc?.activeVersionId ?? undefined)
+    .catch(() => undefined);
+  const agentRunId = await startRun(scope, {
+    kind: "ingestion",
+    agentName: "orbit_ingestion",
+    taskClass: "document_embedding",
+    subjectType: "document_version",
+    subjectId: versionId,
+  });
+  return tracedRun(scope, agentRunId, () =>
+    embedDocumentBatch(scope, documentId, jobId, agentRunId),
+  );
+}
+async function embedDocumentBatch(
+  scope: Scope,
+  documentId: string,
+  jobId: string,
+  agentRunId: string | null,
+) {
   const prepared = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -194,6 +221,13 @@ export async function embedDocument(
         "embedding",
         amount,
         approved,
+        new Date(),
+        jobId,
+        {
+          agentRunId,
+          taskClass: "document_embedding",
+          model: "text-embedding-3-small",
+        },
       );
       return {
         doc,
@@ -245,6 +279,7 @@ export async function embedDocument(
     await markTransmitted(tx, scope, prepared.reservationId);
   });
   let result: Awaited<ReturnType<typeof embed>>;
+  const callStartedAt = new Date();
   try {
     result = await embed(
       prepared.texts,
@@ -257,11 +292,33 @@ export async function embedDocument(
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),
     );
+    // Telemetry only after the settlement committed.
+    await recordSpan(scope, agentRunId, {
+      type: "embedding",
+      name: "embeddings.create",
+      model: "text-embedding-3-small",
+      status: "unknown",
+      errorCode: "EMBEDDING_COST_UNKNOWN",
+      startedAt: callStartedAt,
+      durationMs: Date.now() - callStartedAt.valueOf(),
+      budgetReservationId: prepared.reservationId,
+    });
     throw new DomainError("EMBEDDING_COST_UNKNOWN");
   }
   await scoped(scope.workspaceId, scope.projectId, (tx) =>
     settle(tx, scope, prepared.reservationId, result.usage.costMicros),
   );
+  await recordSpan(scope, agentRunId, {
+    type: "embedding",
+    name: "embeddings.create",
+    model: result.usage.model,
+    status: "succeeded",
+    startedAt: callStartedAt,
+    durationMs: Date.now() - callStartedAt.valueOf(),
+    usage: result.usage,
+    costMicros: result.usage.costMicros,
+    budgetReservationId: prepared.reservationId,
+  });
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },

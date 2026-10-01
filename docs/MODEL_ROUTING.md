@@ -8,7 +8,9 @@ Image generation is a separate capability. Orbit supports the current GPT Image 
 
 The image request sends the owner's prompt plus the project palette and bounded design rules to OpenAI. It instructs the model not to generate logos, trademarks, UI screenshots or readable copy; approved logos and copy are composed locally by the deterministic renderer. The raw prompt is not retained by Orbit after the call; only its hash and the derived provider-prompt hash are stored. The provider response is normalized to a metadata-stripped PNG and stored project-scoped with model, dimensions, usage when returned and reservation provenance. Because the image response does not provide a safely computable charge in the current adapter, the conservative reservation remains `unknown` and counted rather than being treated as zero. No live image call was made during implementation.
 
-Text uses OpenAI Responses API through the pinned SDK, `store:false`, no model tools, strict structured output, no automatic SDK retries, a 45-second timeout and 1800 output-token ceiling. Imported evidence is marked untrusted. All factual claims are checked separately against current evidence before publication; a model cannot certify arbitrary extra text. Free editorial text requires owner review.
+Draft generation uses OpenAI Responses API through the pinned SDK (`openai` 7.25.0), `store:false`, no model tools, strict structured output, no automatic SDK retries, a 45-second timeout and 1800 output-token ceiling. Orbit Chat is the only path with model tools: read tools plus the draft-only `propose_campaign` tool, streamed, `store:false`, no automatic retries (see `ORBIT_CHAT_V1.md`).
+
+Routing as implemented on 2026-09-30: only the `draft`/`blog` and `chat` task names reach the router. `chat` and `draft` resolve to the standard route, `blog` to the quality route. The `classify`, `extract`, `metadata`, `plan`, `review` and `conflict` tiers exist in the table but no caller uses them, and the escalation route is unreachable because every caller passes attempt 0. The accepted [alignment plan](OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md) §8 replaces this table with configurable task-class routes and evaluates `gpt-6-luna` and `gpt-6.1-sol` before any switch. Imported evidence is marked untrusted. All factual claims are checked separately against current evidence before publication; a model cannot certify arbitrary extra text. Free editorial text requires owner review.
 
 Query and document embeddings are separate calls and cost categories. Baseline is `text-embedding-3-small`/1536. The alternate large profile uses validated 1536/3072 dimensions. Profile, model, dimension, metric, chunker/retriever configuration and index generation are explicit. Model changes create separate immutable corpus manifests, bounded paid builds and evaluations, then explicit activation/rollback. A same-profile evaluated baseline checkpoint is required before an alternate profile replaces a legacy baseline. Live evaluation requires at least 60 cases (48 answerable and 12 negative), Recall@10 >= 0.90, zero forbidden hits, and exact settled build/evaluation receipts. It never activates itself.
 
@@ -19,5 +21,22 @@ Paid mocks exercise accounting, race handling and SQL attachment only. Genuine m
 `store:false` does not establish zero data retention or fully local processing. Approved text/query bytes leave the host for OpenAI; account-specific retention terms must be reviewed by the operator. Public-use rights and external-model-use rights are independent.
 
 Image prompts, palette values and design rules also leave the host after the per-request confirmation. The image endpoint does not claim zero retention. Do not place secrets, personal data, private customer material or unapproved source assets in an image prompt.
+
+## Rate card v2 and cache-aware settlement (2026-09-30)
+
+Each rate card entry has `inputMicrosPerMillion`, `outputMicrosPerMillion`, `verifiedAt` and two optional fields: `cachedInputMicrosPerMillion` (default: the input rate, so an omitted value never understates a cached read) and `cacheWriteMicrosPerMillion` (default: `ceil(1.25 x input rate)`, the documented cache-write multiplier). Existing cards stay valid without changes.
+
+Settlement from the provider usage object, in USD micros, rounded up with a minimum of 1:
+
+```
+(ordinary x input + cached x cachedInput + cacheWrite x cacheWriteRate + output x outputRate) / 1,000,000
+ordinary = input_tokens - cached_tokens - cache_write_tokens
+```
+
+Reasoning tokens are part of output tokens and are not charged twice. If the usage object lacks `cached_tokens` or `cache_write_tokens`, the split is unknown and all input tokens settle at `max(input rate, cache-write rate)` rather than being assumed cheap. Cached plus cache-write tokens greater than input tokens, or an unparseable usage object, fail with `USAGE_INCONSISTENT` or `USAGE_UNKNOWN`; the reservation then stays unknown and counted. An empty rate card fails with `VERIFIED_PRICE_CONFIGURATION_REQUIRED`; a missing model price or one verified more than 31 days ago fails with `CURRENT_PRICE_REQUIRED`.
+
+The pre-transmission estimate cannot know the cache split, so it charges all input tokens at the cache-write rate (implicit caching may write any prompt). Reservation ceilings therefore rise by up to about 25 % of their input part compared with the earlier estimate; output-dominated calls change less. Chat proposal ceilings shown to the owner include this increase. Settled cost is what the usage actually incurred and is normally lower than the reservation; the difference is released on settlement.
+
+Every paid reservation now also records `agentRunId`, `taskClass`, `model` and `missionId` (nullable) for attribution. A query embedding made while drafting keeps the draft task class, so a task class reports the full cost of producing a draft; the `category` still separates query-embedding from text rows. Read the breakdown through `GET /api/projects/:projectId/ai-cost` (see `API_CONTRACT.md` and `OPERATIONS.md`).
 
 Official references checked on 2026-09-19: [GPT Image 2.5 Flare](https://developers.openai.com/api/docs/models/gpt-image-2.5-flare), [GPT Image 2.5 Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst), and [Images API generate](https://developers.openai.com/api/reference/cli/resources/images/methods/generate).

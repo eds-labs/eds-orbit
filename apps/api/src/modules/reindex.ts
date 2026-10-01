@@ -11,12 +11,30 @@ import { reserve, markTransmitted, settle } from "./budget.ts";
 import { activePolicy } from "./policy.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { enqueue } from "./workflow.ts";
+import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
 import { data, entity, DomainError } from "../shared.ts";
 /** One bounded batch per durable job. It never activates its own index. */
 export async function buildIndexBatch(
   scope: Scope,
   indexId: string,
   jobId: string,
+) {
+  const agentRunId = await startRun(scope, {
+    kind: "reindex",
+    agentName: "orbit_reindex",
+    taskClass: "index_build",
+    subjectType: "index_generation",
+    subjectId: indexId,
+  });
+  return tracedRun(scope, agentRunId, () =>
+    buildIndexBatchTraced(scope, indexId, jobId, agentRunId),
+  );
+}
+async function buildIndexBatchTraced(
+  scope: Scope,
+  indexId: string,
+  jobId: string,
+  agentRunId: string | null,
 ) {
   const prepared = await scoped(
     scope.workspaceId,
@@ -87,6 +105,7 @@ export async function buildIndexBatch(
         approved,
         new Date(),
         `index:${indexId}:build`,
+        { agentRunId, taskClass: "index_build", model: index.model },
       );
       return {
         index,
@@ -126,20 +145,49 @@ export async function buildIndexBatch(
     await markTransmitted(tx, scope, prepared.reservationId);
   });
   let output: Awaited<ReturnType<typeof embed>>;
+  const callStartedAt = new Date();
   try {
-    output = await embed(prepared.texts, prepared.reservationId, true, {
-      model: prepared.index.model,
-      dimensions: prepared.index.dimensions,
-    }, prepared.ai);
+    output = await embed(
+      prepared.texts,
+      prepared.reservationId,
+      true,
+      {
+        model: prepared.index.model,
+        dimensions: prepared.index.dimensions,
+      },
+      prepared.ai,
+    );
   } catch {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),
     );
+    // Telemetry only after the settlement committed.
+    await recordSpan(scope, agentRunId, {
+      type: "embedding",
+      name: "embeddings.create",
+      model: prepared.index.model,
+      status: "unknown",
+      errorCode: "REINDEX_COST_UNKNOWN",
+      startedAt: callStartedAt,
+      durationMs: Date.now() - callStartedAt.valueOf(),
+      budgetReservationId: prepared.reservationId,
+    });
     throw new DomainError("REINDEX_COST_UNKNOWN");
   }
   await scoped(scope.workspaceId, scope.projectId, (tx) =>
     settle(tx, scope, prepared.reservationId, output.usage.costMicros),
   );
+  await recordSpan(scope, agentRunId, {
+    type: "embedding",
+    name: "embeddings.create",
+    model: output.usage.model,
+    status: "succeeded",
+    startedAt: callStartedAt,
+    durationMs: Date.now() - callStartedAt.valueOf(),
+    usage: output.usage,
+    costMicros: output.usage.costMicros,
+    budgetReservationId: prepared.reservationId,
+  });
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },

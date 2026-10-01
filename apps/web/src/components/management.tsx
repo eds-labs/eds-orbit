@@ -1697,6 +1697,8 @@ type OpenAiConfigurationView = {
     {
       inputMicrosPerMillion: number;
       outputMicrosPerMillion: number;
+      cachedInputMicrosPerMillion?: number;
+      cacheWriteMicrosPerMillion?: number;
       verifiedAt: string;
     }
   >;
@@ -1808,7 +1810,7 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
       type: "textarea",
       required: true,
       value: JSON.stringify(current?.rateCard ?? {}, null, 2),
-      hint: "Each model needs inputMicrosPerMillion, outputMicrosPerMillion and an ISO verifiedAt date.",
+      hint: "Each model needs inputMicrosPerMillion, outputMicrosPerMillion and an ISO verifiedAt date. Optional: cachedInputMicrosPerMillion and cacheWriteMicrosPerMillion (defaults: input rate and 1.25x input).",
     },
   ];
   return (

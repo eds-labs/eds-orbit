@@ -276,6 +276,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       linkFactIds.set(label, fact.id as string);
     }
     await page.goto("/settings");
+    await page.getByRole("tab", { name: "Brand", exact: true }).click();
     await page.getByRole("button", { name: "Review usage rights" }).click();
     dialog = page.getByRole("dialog", { name: "Approve brand usage" });
     await dialog
@@ -336,6 +337,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .getByRole("navigation", { name: "Workspace" })
       .getByRole("link", { name: "Settings" })
       .click();
+    await page.getByRole("tab", { name: "Brand", exact: true }).click();
     await page.getByRole("button", { name: "Configure project" }).click();
     dialog = page.getByRole("dialog", { name: "Project configuration" });
     await dialog
@@ -730,6 +732,9 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByRole("button", { name: "Add member", exact: true }),
     ).toHaveCount(0);
+    await page
+      .getByRole("tab", { name: "Policy & budget", exact: true })
+      .click();
     await expect(
       page.getByRole("button", { name: "New policy version", exact: true }),
     ).toHaveCount(0);

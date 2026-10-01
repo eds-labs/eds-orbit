@@ -15,6 +15,7 @@ import {
 } from "../../../../packages/ai/src/index.ts";
 import { activePolicy } from "./policy.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
+import { errorCode, finishRun, recordSpan, startRun } from "./telemetry.ts";
 import {
   data,
   entity,
@@ -75,6 +76,23 @@ export async function generateMissionLive(
   scope: Scope,
   missionId: string,
   jobId: string,
+) {
+  const trace: { runId: string | null } = { runId: null };
+  try {
+    const content = await generateMissionDraft(scope, missionId, jobId, trace);
+    await finishRun(scope, trace.runId, "succeeded");
+    return content;
+  } catch (error) {
+    await finishRun(scope, trace.runId, "failed", errorCode(error));
+    throw error;
+  }
+}
+// `trace.runId` is opened after the preconditions pass, so refused jobs leave no run.
+async function generateMissionDraft(
+  scope: Scope,
+  missionId: string,
+  jobId: string,
+  trace: { runId: string | null },
 ) {
   const saved = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     tx.entity.findFirst({
@@ -148,6 +166,16 @@ export async function generateMissionLive(
       return mission;
     },
   );
+  const taskClass =
+    data(initial).contentType === "blog" ? "draft_blog" : "draft_social";
+  trace.runId = await startRun(scope, {
+    kind: "generation",
+    agentName: "orbit_generator",
+    taskClass,
+    subjectType: "job",
+    subjectId: jobId,
+    missionId,
+  });
   const retrieved = await retrieveHybrid(
     scope,
     {
@@ -160,6 +188,8 @@ export async function generateMissionLive(
       at: new Date(),
     },
     "mission:" + jobId,
+    undefined,
+    { agentRunId: trace.runId, missionId, taskClass },
   );
   const prepared = await scoped(
     scope.workspaceId,
@@ -335,6 +365,7 @@ export async function generateMissionLive(
         parsed,
         new Date(),
         "mission:" + jobId,
+        { agentRunId: trace.runId, taskClass, model, missionId },
       );
       return {
         mission,
@@ -397,6 +428,7 @@ export async function generateMissionLive(
     await markTransmitted(tx, scope, prepared.reservationId);
   });
   let outcome: Awaited<ReturnType<typeof generate>>;
+  const callStartedAt = new Date();
   try {
     outcome = await generate({
       task: "draft",
@@ -410,11 +442,34 @@ export async function generateMissionLive(
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),
     );
+    // Telemetry only after the settlement committed.
+    await recordSpan(scope, trace.runId, {
+      type: "model_call",
+      name: "responses.create",
+      model: prepared.model,
+      status: "unknown",
+      errorCode: "MODEL_OUTCOME_OR_COST_UNKNOWN",
+      startedAt: callStartedAt,
+      durationMs: Date.now() - callStartedAt.valueOf(),
+      budgetReservationId: prepared.reservationId,
+    });
     throw new DomainError("MODEL_OUTCOME_OR_COST_UNKNOWN");
   }
   await scoped(scope.workspaceId, scope.projectId, (tx) =>
     settle(tx, scope, prepared.reservationId, outcome.usage.costMicros),
   );
+  await recordSpan(scope, trace.runId, {
+    type: "model_call",
+    name: "responses.create",
+    model: outcome.usage.model,
+    status: "succeeded",
+    startedAt: callStartedAt,
+    durationMs: Date.now() - callStartedAt.valueOf(),
+    usage: outcome.usage,
+    costMicros: outcome.usage.costMicros,
+    budgetReservationId: prepared.reservationId,
+    providerResponseId: outcome.responseId,
+  });
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },

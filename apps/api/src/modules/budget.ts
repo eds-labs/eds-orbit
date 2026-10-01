@@ -13,6 +13,12 @@ export async function reserve(
   policy: PolicyInput,
   now = new Date(),
   runKey = key,
+  attribution?: {
+    agentRunId?: string | null;
+    taskClass?: string;
+    model?: string;
+    missionId?: string | null;
+  },
 ) {
   if (now < new Date(policy.startAt) || now >= new Date(policy.endAt))
     throw new DomainError("PAID_MANDATE_EXPIRED");
@@ -84,6 +90,10 @@ export async function reserve(
       category,
       amountMicros: BigInt(amount),
       state: "reserved",
+      agentRunId: attribution?.agentRunId ?? null,
+      taskClass: attribution?.taskClass ?? null,
+      model: attribution?.model ?? null,
+      missionId: attribution?.missionId ?? null,
     },
   });
   if (run)

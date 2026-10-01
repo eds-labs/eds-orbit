@@ -109,6 +109,7 @@ model Project {
   knowledgeIndexes KnowledgeIndex[]
   marketingProfile ProjectMarketingProfile?
   chatConversations ChatConversation[]
+  agentRuns        AgentRun[]
 
   @@unique([workspaceId, id])
 }
@@ -291,9 +292,67 @@ model BudgetReservation {
   state         String
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   settledMicros BigInt?
+  agentRunId    String?  @db.Uuid
+  taskClass     String?
+  model         String?
+  missionId     String?  @db.Uuid
   project       Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
 
   @@index([workspaceId, projectId, createdAt])
+  @@index([workspaceId, projectId, agentRunId])
+}
+
+model AgentRun {
+  id          String      @id @db.Uuid
+  workspaceId String      @db.Uuid
+  projectId   String      @db.Uuid
+  kind        String
+  agentName   String
+  taskClass   String
+  subjectType String?
+  subjectId   String?
+  missionId   String?     @db.Uuid
+  status      String      @default("running")
+  errorCode   String?
+  startedAt   DateTime    @default(now()) @db.Timestamptz(3)
+  endedAt     DateTime?   @db.Timestamptz(3)
+  durationMs  Int?
+  project     Project     @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  spans       AgentSpan[]
+
+  @@unique([workspaceId, projectId, id])
+  @@index([workspaceId, projectId, startedAt(sort: Desc)])
+  @@index([workspaceId, projectId, subjectType, subjectId], map: "AgentRun_workspaceId_projectId_subject_idx")
+}
+
+model AgentSpan {
+  id                  String   @id @db.Uuid
+  workspaceId         String   @db.Uuid
+  projectId           String   @db.Uuid
+  runId               String   @db.Uuid
+  parentSpanId        String?  @db.Uuid
+  type                String
+  name                String
+  model               String?
+  status              String
+  errorCode           String?
+  attempt             Int      @default(1)
+  startedAt           DateTime @db.Timestamptz(3)
+  durationMs          Int
+  inputTokens         Int?
+  cachedTokens        Int?
+  cacheWriteTokens    Int?
+  outputTokens        Int?
+  reasoningTokens     Int?
+  costMicros          BigInt?
+  budgetReservationId String?  @db.Uuid
+  providerResponseId  String?
+  inputHash           String?
+  outputHash          String?
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  run                 AgentRun @relation(fields: [workspaceId, projectId, runId], references: [workspaceId, projectId, id], onDelete: Cascade)
+
+  @@index([workspaceId, projectId, runId])
 }
 
 model AuditEvent {

@@ -15,6 +15,7 @@ import { reserve, markTransmitted, settle } from "./budget.ts";
 import { activePolicy } from "./policy.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
+import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
 import { normalizeGeneratedPng } from "./assets.ts";
 import {
   connectionStatus,
@@ -74,6 +75,24 @@ export async function generateProjectImage(
 ) {
   if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
   const input = imageGenerationInput.parse(raw);
+  const agentRunId = await startRun(scope, {
+    kind: "image",
+    agentName: "orbit_image",
+    taskClass: "image_generation",
+    subjectType: "asset_request",
+    subjectId: input.requestId,
+  });
+  return tracedRun(scope, agentRunId, () =>
+    generateProjectImageTraced(scope, input, provider, agentRunId),
+  );
+}
+
+async function generateProjectImageTraced(
+  scope: Scope,
+  input: z.infer<typeof imageGenerationInput>,
+  provider: Provider,
+  agentRunId: string | null,
+) {
   const prepared = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -120,6 +139,11 @@ export async function generateProjectImage(
         parsedPolicy,
         new Date(),
         `image:${input.requestId}`,
+        {
+          agentRunId,
+          taskClass: "image_generation",
+          model: imageConfig.model,
+        },
       );
       await audit(
         tx,
@@ -145,7 +169,12 @@ export async function generateProjectImage(
 
   const driveEnabled =
     input.saveToDrive !== false && (await connectionStatus(scope)).enabled;
+  // Image cost is never known: the span keeps costMicros null, the reservation stays unknown.
+  let callStartedAt = new Date();
+  let providerReturned = false;
+  let spanRecorded = false;
   try {
+    callStartedAt = new Date();
     const generated = await provider({
       prompt: prepared.providerPrompt,
       size: input.size,
@@ -157,6 +186,7 @@ export async function generateProjectImage(
         .update(`${scope.workspaceId}:${scope.userId}`)
         .digest("hex"),
     });
+    providerReturned = true;
     const normalized = await normalizeGeneratedPng(generated.bytes);
     const asset = await scoped(
       scope.workspaceId,
@@ -213,6 +243,18 @@ export async function generateProjectImage(
         return asset;
       },
     );
+    // Telemetry only after the settlement committed.
+    spanRecorded = true;
+    await recordSpan(scope, agentRunId, {
+      type: "image",
+      name: "images.generate",
+      model: generated.model,
+      status: "succeeded",
+      startedAt: callStartedAt,
+      durationMs: Date.now() - callStartedAt.valueOf(),
+      costMicros: null,
+      budgetReservationId: prepared.reservationId,
+    });
     if (
       input.saveToDrive !== false &&
       (await connectionStatus(scope)).enabled
@@ -229,18 +271,32 @@ export async function generateProjectImage(
     }
     return asset;
   } catch (error) {
+    const failureCode =
+      error instanceof DomainError
+        ? error.message
+        : error instanceof z.ZodError
+          ? "VALIDATION_ERROR"
+          : "IMAGE_PROVIDER_ERROR";
     await scoped(scope.workspaceId, scope.projectId, async (tx) => {
       await settle(tx, scope, prepared.reservationId, null);
       await audit(tx, scope, "asset.generate_openai_failed", input.requestId, {
         reservationId: prepared.reservationId,
-        errorCode:
-          error instanceof DomainError
-            ? error.message
-            : error instanceof z.ZodError
-              ? "VALIDATION_ERROR"
-              : "IMAGE_PROVIDER_ERROR",
+        errorCode: failureCode,
       });
     });
+    if (!spanRecorded)
+      await recordSpan(scope, agentRunId, {
+        type: "image",
+        name: "images.generate",
+        model: prepared.imageConfig.model,
+        // A provider that returned was billed; a provider that threw has an unknown outcome.
+        status: providerReturned ? "succeeded" : "unknown",
+        errorCode: providerReturned ? undefined : failureCode,
+        startedAt: callStartedAt,
+        durationMs: Date.now() - callStartedAt.valueOf(),
+        costMicros: null,
+        budgetReservationId: prepared.reservationId,
+      });
     throw error;
   }
 }

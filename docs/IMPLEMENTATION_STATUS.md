@@ -1,5 +1,17 @@
 # Implementation status
 
+## Current state and agent platform alignment (2026-09-30)
+
+Orbit is deployed in production via Coolify. The latest documented release is `5587da6`, on which the final uLiquid acceptance run passed on 2026-09-30 (`docs/ORBIT_ULIQUID_PRODUCTION_GOAL.md`, Progress Log). Production keeps `EXECUTION_MODE=test` and `ENABLE_EXTERNAL_WRITES=false`; Postiz draft handoff is accepted, live publishing is not enabled. Statements below such as "no production deployment" or "local uncommitted change set" describe their own earlier checkpoints and are historical.
+
+Mario accepted the [OpenAI agent platform alignment plan](OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md) with decisions D1–D4. Phase 0 (local, no production change):
+
+- ADRs [0005 agent runtime](adr/0005-agent-runtime.md), [0006 agent state and data retention](adr/0006-agent-state-and-data-retention.md), [0007 tool registry](adr/0007-tool-registry.md) and [0008 action approvals](adr/0008-action-approvals.md).
+- `openai` npm package 7.17.0 → 7.25.0, no code changes required.
+- Cost baseline from settled production receipts: [agent-platform-baseline-2026-09-30](evidence/agent-platform-baseline-2026-09-30.md).
+- Known local issue: the real-Redis worker lifecycle test times out in local environments with a large accumulated test database; it fails identically before the upgrade.
+- Phase 1 (observability and cost foundation, local, no production change): cache-aware cost settlement with rate card v2, additive `AgentRun`/`AgentSpan` telemetry tables and budget attribution (migration `202609300001_agent_telemetry`), editor/owner endpoints `agent-runs` and `ai-cost`, and structured redacted API request logging with `LOG_LEVEL`. 429/430 tests pass; the failure is the known worker lifecycle test above. The migration is not deployed.
+
 ## Index activation control (2026-09-25)
 
 Index Management offers activation after an index generation reaches `evaluated`, while a `building` generation offers only build and evaluation actions. The server still checks the current corpus and live evaluation at activation time. A browser regression covers both UI states and opens the confirmation dialog without submitting a production change.

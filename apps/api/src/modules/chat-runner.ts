@@ -4,13 +4,22 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { policy as policySchema } from "../../../../packages/schemas/src/index.ts";
 import {
   CHAT_MAX_OUTPUT_TOKENS,
+  computeCost,
   estimateCost,
+  normalizeResponsesUsage,
   route,
   streamChat,
 } from "../../../../packages/ai/src/index.ts";
 import { data, DomainError } from "../shared.ts";
 import { activePolicy } from "./policy.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
+import {
+  errorCode as telemetryErrorCode,
+  finishRun,
+  hashText,
+  recordSpan,
+  startRun,
+} from "./telemetry.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { chatScoped, createProposal } from "./chat.ts";
 import {
@@ -19,6 +28,16 @@ import {
   validateReadToolResult,
   type ChatCard,
 } from "./chat-tools.ts";
+
+// Span names come from this fixed set; the model-supplied name is never stored.
+const KNOWN_TOOL_NAMES = new Set<string>([
+  ...readToolDefinitions.map((tool) => tool.name),
+  "propose_campaign",
+]);
+const toolSpanName = (name: unknown) =>
+  typeof name === "string" && KNOWN_TOOL_NAMES.has(name)
+    ? name
+    : "unknown_tool";
 
 const MAX_MODEL_CALLS = 6;
 const MAX_TOOL_CALLS = 8;
@@ -147,6 +166,9 @@ function errorCode(error: unknown) {
 export async function runChat(scope: Scope, runId: string) {
   let reservationId: string | null = null;
   let transmitted = false;
+  let agentRunId: string | null = null;
+  let callStartedAt = new Date();
+  let callModel: string | undefined;
   const controller = new AbortController();
   let cancelCheckBusy = false;
   const cancellation = setInterval(async () => {
@@ -175,6 +197,11 @@ export async function runChat(scope: Scope, runId: string) {
     }
   }, 500);
   try {
+    let recovered = null as {
+      agentRunId: string | null;
+      reservationId: string;
+      transmittedAt: Date;
+    } | null;
     const state = await chatScoped(scope, async (tx) => {
       const run = await tx.chatRun.findFirst({
         where: {
@@ -192,7 +219,15 @@ export async function runChat(scope: Scope, runId: string) {
       )
         return null;
       if (run.transmittedAt) {
-        if (run.reservationId) await settle(tx, scope, run.reservationId, null);
+        if (run.reservationId) {
+          const row = await settle(tx, scope, run.reservationId, null);
+          if (row.state === "unknown")
+            recovered = {
+              agentRunId: row.agentRunId,
+              reservationId: row.id,
+              transmittedAt: run.transmittedAt,
+            };
+        }
         await tx.chatRun.update({
           where: { id: runId },
           data: {
@@ -218,7 +253,33 @@ export async function runChat(scope: Scope, runId: string) {
       });
       return { run, messages: messages.reverse(), project };
     });
+    if (recovered) {
+      // A crashed invocation left its run open; close it after the settlement committed.
+      const crashed = recovered as NonNullable<typeof recovered>;
+      await recordSpan(scope, crashed.agentRunId, {
+        type: "model_call",
+        name: "responses.stream",
+        status: "unknown",
+        errorCode: "CHAT_OUTCOME_UNKNOWN",
+        startedAt: crashed.transmittedAt,
+        durationMs: 0,
+        budgetReservationId: crashed.reservationId,
+      });
+      await finishRun(
+        scope,
+        crashed.agentRunId,
+        "blocked",
+        "CHAT_OUTCOME_UNKNOWN",
+      );
+    }
     if (!state) return;
+    agentRunId = await startRun(scope, {
+      kind: "chat",
+      agentName: "orbit_operator",
+      taskClass: "chat_operator",
+      subjectType: "chat_run",
+      subjectId: runId,
+    });
     const input: any[] = state.messages.map((m) => ({
       role: m.role,
       content: m.text,
@@ -269,6 +330,7 @@ export async function runChat(scope: Scope, runId: string) {
           approved,
           new Date(),
           `chat:${runId}`,
+          { agentRunId, taskClass: "chat_operator", model },
         );
         await markTransmitted(tx, scope, reservation.id);
         await tx.chatRun.update({
@@ -283,6 +345,8 @@ export async function runChat(scope: Scope, runId: string) {
       });
       reservationId = prepared.reservationId;
       transmitted = true;
+      callModel = prepared.model;
+      callStartedAt = new Date();
       let completed: any = null;
       let lastSaved = Date.now();
       const stream = await streamChat({
@@ -322,17 +386,28 @@ export async function runChat(scope: Scope, runId: string) {
         }
       }
       if (!completed?.usage) throw new DomainError("USAGE_UNKNOWN");
-      const actual = estimateCost(
-        prepared.model,
-        completed.usage.input_tokens,
-        completed.usage.output_tokens,
-        prepared.runtime,
-      );
+      const usage = normalizeResponsesUsage(completed.usage);
+      const actual = computeCost(prepared.model, usage, prepared.runtime);
+      const settledId = reservationId!;
       await chatScoped(scope, (tx) =>
-        settle(tx, scope, reservationId!, actual).then(() => undefined),
+        settle(tx, scope, settledId, actual).then(() => undefined),
       );
       reservationId = null;
       transmitted = false;
+      // Telemetry only after settlement, outside its transaction.
+      await recordSpan(scope, agentRunId, {
+        type: "model_call",
+        name: "responses.stream",
+        model: prepared.model,
+        status: "succeeded",
+        startedAt: callStartedAt,
+        durationMs: Date.now() - callStartedAt.valueOf(),
+        usage,
+        costMicros: actual,
+        budgetReservationId: settledId,
+        providerResponseId:
+          typeof completed.id === "string" ? completed.id : undefined,
+      });
       modelCalls++;
       input.push(...completed.output);
       const calls = completed.output.filter(
@@ -347,6 +422,18 @@ export async function runChat(scope: Scope, runId: string) {
       for (const call of calls) {
         toolCalls++;
         let output: unknown;
+        let toolFailure: string | null = null;
+        const toolStartedAt = new Date();
+        const recordTool = () =>
+          recordSpan(scope, agentRunId, {
+            type: "tool_call",
+            name: toolSpanName(call.name),
+            status: toolFailure ? "failed" : "succeeded",
+            errorCode: toolFailure ?? undefined,
+            startedAt: toolStartedAt,
+            durationMs: Date.now() - toolStartedAt.valueOf(),
+            inputHash: hashText(String(call.arguments ?? "")),
+          });
         try {
           const args = JSON.parse(call.arguments);
           if (call.name === "propose_campaign") {
@@ -390,7 +477,11 @@ export async function runChat(scope: Scope, runId: string) {
             cards.push(...checked.cards);
           }
         } catch (error) {
-          if (call.name === "knowledge_search") throw error;
+          if (call.name === "knowledge_search") {
+            toolFailure = telemetryErrorCode(error);
+            await recordTool();
+            throw error;
+          }
           output =
             call.name === "propose_campaign" && error instanceof ZodError
               ? {
@@ -412,7 +503,12 @@ export async function runChat(scope: Scope, runId: string) {
                   ].slice(0, 8),
                 }
               : { error: errorCode(error) };
+          toolFailure =
+            call.name === "propose_campaign" && error instanceof ZodError
+              ? "PROPOSAL_VALIDATION_FAILED"
+              : telemetryErrorCode(error);
         }
+        await recordTool();
         input.push({
           type: "function_call_output",
           call_id: call.call_id,
@@ -420,9 +516,13 @@ export async function runChat(scope: Scope, runId: string) {
         });
       }
     }
+    let finalStatus = "succeeded" as "succeeded" | "canceled";
     await chatScoped(scope, async (tx) => {
       const run = await tx.chatRun.findUniqueOrThrow({ where: { id: runId } });
-      if (run.status === "canceled") return;
+      if (run.status === "canceled") {
+        finalStatus = "canceled";
+        return;
+      }
       const last = await tx.chatMessage.findFirst({
         where: { conversationId: run.conversationId, userId: scope.userId },
         orderBy: { sequence: "desc" },
@@ -448,31 +548,47 @@ export async function runChat(scope: Scope, runId: string) {
         },
       });
     });
+    await finishRun(scope, agentRunId, finalStatus);
   } catch (error) {
     const code = errorCode(error);
+    let failedStatus = null as "canceled" | "blocked" | "failed" | null;
+    const unsettled = reservationId && transmitted ? reservationId : null;
     await chatScoped(scope, async (tx) => {
       const run = await tx.chatRun.findFirst({
         where: { id: runId, userId: scope.userId },
       });
       if (!run) return;
-      if (reservationId && transmitted)
-        await settle(tx, scope, reservationId, null);
+      if (unsettled) await settle(tx, scope, unsettled, null);
+      failedStatus =
+        run.status === "canceled"
+          ? "canceled"
+          : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|RETRIEVAL/.test(
+                code,
+              )
+            ? "blocked"
+            : "failed";
       await tx.chatRun.update({
         where: { id: runId },
         data: {
-          status:
-            run.status === "canceled"
-              ? "canceled"
-              : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|RETRIEVAL/.test(
-                    code,
-                  )
-                ? "blocked"
-                : "failed",
+          status: failedStatus,
           errorCode: code,
           sequence: { increment: 1 },
         },
       });
     });
+    // Telemetry only after the failure settlement committed.
+    if (unsettled)
+      await recordSpan(scope, agentRunId, {
+        type: "model_call",
+        name: "responses.stream",
+        model: callModel,
+        status: "unknown",
+        errorCode: code,
+        startedAt: callStartedAt,
+        durationMs: Date.now() - callStartedAt.valueOf(),
+        budgetReservationId: unsettled,
+      });
+    if (failedStatus) await finishRun(scope, agentRunId, failedStatus, code);
   } finally {
     clearInterval(cancellation);
   }

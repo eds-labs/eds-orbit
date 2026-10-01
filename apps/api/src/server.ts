@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
 import { approveAndSchedule, configureAutopilot } from "./modules/autopilot.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
@@ -24,6 +25,12 @@ import {
   postizVerificationInput,
   postizVerificationApproval,
 } from "./modules/postiz-verification.ts";
+import {
+  agentRunsQuery,
+  aiCostQuery,
+  aiCostSummary,
+  listAgentRuns,
+} from "./modules/ai-usage.ts";
 import { pauseProject } from "./modules/pause.ts";
 import {
   blockCalendar,
@@ -195,10 +202,39 @@ import {
 } from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
-export async function buildServer(diagnostic?: (error: unknown) => void) {
+export async function buildServer(
+  diagnostic?: (error: unknown) => void,
+  options?: { logStream?: NodeJS.WritableStream },
+) {
   const config = loadConfig(),
     auth = makeAuth();
-  const app = Fastify({ logger: false, bodyLimit: 1500000, trustProxy: false });
+  const app = Fastify({
+    bodyLimit: 1500000,
+    trustProxy: false,
+    // Never trust or echo client-supplied request ids.
+    genReqId: () => randomUUID(),
+    logger: {
+      level: process.env.LOG_LEVEL ?? "info",
+      ...(options?.logStream ? { stream: options.logStream } : {}),
+      redact: {
+        paths: [
+          "req.headers.authorization",
+          "req.headers.cookie",
+          'res.headers["set-cookie"]',
+        ],
+        censor: "[redacted]",
+      },
+      // Path only (no query string), no headers, no bodies.
+      serializers: {
+        req: (req: { id: string; method: string; url?: string }) => ({
+          id: req.id,
+          method: req.method,
+          path: String(req.url).split("?")[0],
+        }),
+        res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
+      },
+    },
+  });
   await app.register(helmet, {
     contentSecurityPolicy: {
       directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
@@ -257,6 +293,16 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
             : status === 429
               ? "RATE_LIMITED"
               : "REQUEST_FAILED";
+    // Code/status only: error messages and stacks may carry secrets or user data.
+    // errorName is added only for errors outside the known classes.
+    const known =
+      error instanceof DomainError ||
+      error instanceof KnowledgeError ||
+      error instanceof z.ZodError;
+    req.log[status >= 500 ? "error" : "warn"](
+      { code, status, ...(known ? {} : { errorName: (error as Error)?.name }) },
+      "request failed",
+    );
     reply.code(status).send({
       error: { code, message: code.replaceAll("_", " ").slice(0, 200) },
     });
@@ -287,9 +333,13 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       }
     },
   );
-  app.get("/health", async () => ({ status: "ok", service: "orbit-api" }));
+  // Probes log at warn level only so they do not flood info logs.
+  app.get("/health", { logLevel: "warn" }, async () => ({
+    status: "ok",
+    service: "orbit-api",
+  }));
   // Public readiness for external uptime monitors: states only, no details.
-  app.get("/api/health/ready", async (_req, reply) => {
+  app.get("/api/health/ready", { logLevel: "warn" }, async (_req, reply) => {
     const database = await authDb.$queryRaw`SELECT 1`
       .then(() => "ok" as const)
       .catch(() => "unavailable" as const);
@@ -518,6 +568,16 @@ export async function buildServer(diagnostic?: (error: unknown) => void) {
       connectorStates: (await list(tx, scope, "connectors")).map(publicEntity),
       exceptions: await list(tx, scope, "exceptions"),
     }));
+  });
+  app.get("/api/projects/:projectId/agent-runs", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    return listAgentRuns(scope, agentRunsQuery.parse(req.query));
+  });
+  app.get("/api/projects/:projectId/ai-cost", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    return aiCostSummary(scope, aiCostQuery.parse(req.query));
   });
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };
