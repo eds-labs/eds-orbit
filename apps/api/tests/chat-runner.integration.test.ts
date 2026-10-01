@@ -1570,4 +1570,52 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       mocked.mode = "normal";
     }
   });
+  it("sends strict registry tools within the byte budget", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    mocked.tools = [];
+    await runChat(scope, sent.runId);
+    const tools = mocked.tools as Array<{ name: string; strict: boolean }>;
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "project_status",
+      "knowledge_search",
+      "approved_assets",
+      "analytics_memory",
+      "propose_campaign",
+    ]);
+    expect(tools.every((tool) => tool.strict === true)).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(tools))).toBeLessThanOrEqual(5500);
+  });
+  it("does not offer the proposal tool to a viewer and still refuses a forged call", async () => {
+    const viewer = { ...scope, role: "viewer" as const };
+    const thread = await createConversation(viewer);
+    const sent = await sendMessage(viewer, thread.id, {
+      text: "Propose a campaign",
+      clientRequestId: randomUUID(),
+    });
+    mocked.tools = [];
+    mocked.calls = 0;
+    mocked.inputs = [];
+    // This mock mode makes the model call propose_campaign in its first step.
+    mocked.mode = "invalid_proposal";
+    try {
+      await runChat(viewer, sent.runId);
+      expect((await getRun(viewer, sent.runId)).status).toBe("succeeded");
+      expect(
+        (mocked.tools as Array<{ name: string }>).map((t) => t.name),
+      ).not.toContain("propose_campaign");
+      // The mocked model still calls the tool; the run answers with the refusal.
+      const followup = mocked.inputs[1] as Array<Record<string, unknown>>;
+      const forged = followup
+        .filter((item) => item.type === "function_call_output")
+        .map((item) => JSON.parse(String(item.output)));
+      expect(forged).toEqual([{ error: "CHAT_TOOL_NOT_ALLOWED" }]);
+    } finally {
+      mocked.mode = "normal";
+      mocked.inputs = [];
+    }
+  });
 });

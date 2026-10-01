@@ -24,19 +24,17 @@ import {
   openAiConfigurationVersion,
   runtimeOpenAiConfiguration,
 } from "./openai-configuration.ts";
-import { chatScoped, createProposal } from "./chat.ts";
+import { chatScoped } from "./chat.ts";
+import { type ChatCard } from "./chat-tools.ts";
+import { chatTools } from "./agents/tools/index.ts";
 import {
-  readToolDefinitions,
-  runReadTool,
-  validateReadToolResult,
-  type ChatCard,
-} from "./chat-tools.ts";
+  availableTools,
+  findTool,
+  responsesTool,
+} from "./agents/tools/registry.ts";
 
 // Span names come from this fixed set; the model-supplied name is never stored.
-const KNOWN_TOOL_NAMES = new Set<string>([
-  ...readToolDefinitions.map((tool) => tool.name),
-  "propose_campaign",
-]);
+const KNOWN_TOOL_NAMES = new Set<string>(chatTools.map((tool) => tool.name));
 const toolSpanName = (name: unknown) =>
   typeof name === "string" && KNOWN_TOOL_NAMES.has(name)
     ? name
@@ -58,87 +56,6 @@ const instructions = [
   "When asked what Orbit can do or what blocks an action, use project_status.readiness.actions: report each relevant action's state and blocker codes, and never treat publisher or live-write blockers as blocking internal drafts, review or export.",
   "Use knowledge_search.retrieval.mode as the reported search mode. If it is lexical_degraded, say that semantic retrieval was unavailable for that result. Never describe a search as hybrid unless the tool reports hybrid.",
 ].join(" ");
-const proposalTool = {
-  type: "function",
-  name: "propose_campaign",
-  description:
-    "Save a reviewable draft-only mission proposal only after all mission fields, approved source IDs, relevant verified fact IDs, channels, period, campaign type, profile version, primary CTA and official target URL are known. This does not execute the mission.",
-  strict: false,
-  parameters: {
-    type: "object",
-    properties: {
-      mission: {
-        type: "object",
-        description:
-          "One draft-only mission. Use current project_status profile, policy and assigned channel IDs, plus source IDs returned by knowledge_search. The server validates every field again before saving.",
-        properties: {
-          title: { type: "string" },
-          goal: { type: "string" },
-          audience: { type: "string" },
-          product: { type: "string" },
-          allowedTopics: { type: "array", items: { type: "string" } },
-          language: { type: "string", enum: ["en", "de"] },
-          channels: {
-            type: "array",
-            minItems: 1,
-            items: { type: "string" },
-            description:
-              "Assigned integration IDs also allowed by the active policy",
-          },
-          startAt: { type: "string", description: "ISO 8601 UTC timestamp" },
-          endAt: {
-            type: "string",
-            description: "ISO 8601 UTC timestamp after startAt",
-          },
-          maxContents: { type: "integer", minimum: 1, maximum: 30 },
-          targetAction: {
-            type: "string",
-            description: "Exact primary CTA from the current marketing profile",
-          },
-          targetUrl: {
-            type: "string",
-            description:
-              "Exact official target URL from the current marketing profile",
-          },
-          sourceIds: {
-            type: "array",
-            minItems: 1,
-            items: { type: "string" },
-            description: "Approved source IDs returned by knowledge_search",
-          },
-          assetIds: { type: "array", items: { type: "string" } },
-          contentType: {
-            type: "string",
-            enum: ["social", "blog", "newsletter", "ad", "script", "community"],
-          },
-          campaignType: { type: "string", enum: ["product", "presale"] },
-          profileVersion: { type: "integer", minimum: 1 },
-        },
-        required: [
-          "title",
-          "goal",
-          "audience",
-          "language",
-          "channels",
-          "startAt",
-          "endAt",
-          "maxContents",
-          "targetAction",
-          "targetUrl",
-          "sourceIds",
-          "contentType",
-          "campaignType",
-          "profileVersion",
-        ],
-        additionalProperties: false,
-      },
-      factIds: { type: "array", minItems: 1, items: { type: "string" } },
-    },
-    required: ["mission", "factIds"],
-    additionalProperties: false,
-  },
-} as const;
-
 async function snapshot(scope: Scope, runId: string, text: string) {
   return chatScoped(scope, async (tx) => {
     const run = await tx.chatRun.findFirst({
@@ -293,13 +210,16 @@ export async function runChat(scope: Scope, runId: string) {
     let fullText = "";
     let modelCalls = 0;
     let toolCalls = 0;
+    // Offered tools follow the caller's role; execution checks the same set.
+    const offered = availableTools(chatTools, scope.role);
+    const toolDefinitions = offered.map(responsesTool);
     while (modelCalls < MAX_MODEL_CALLS) {
       if (controller.signal.aborted) throw new DomainError("CHAT_CANCELED");
       const bytes = Buffer.byteLength(
         JSON.stringify({
           input,
           instructions,
-          tools: [...readToolDefinitions, proposalTool],
+          tools: toolDefinitions,
         }),
       );
       if (bytes > MAX_INPUT_BYTES) throw new DomainError("CHAT_CONTEXT_LIMIT");
@@ -361,10 +281,7 @@ export async function runChat(scope: Scope, runId: string) {
       const stream = await streamChat({
         route: prepared.modelRoute,
         input: input as OpenAI.Responses.ResponseInput,
-        tools: [
-          ...readToolDefinitions,
-          proposalTool,
-        ] as unknown as OpenAI.Responses.Tool[],
+        tools: toolDefinitions as unknown as OpenAI.Responses.Tool[],
         instructions,
         reservationId,
         runtime: prepared.runtime,
@@ -445,46 +362,19 @@ export async function runChat(scope: Scope, runId: string) {
           });
         try {
           const args = JSON.parse(call.arguments);
-          if (call.name === "propose_campaign") {
-            if (scope.role === "viewer")
-              throw new DomainError("EDITOR_REQUIRED", 403);
-            const proposal = await createProposal(
+          const tool = findTool(offered, call.name);
+          if (!tool) throw new DomainError("CHAT_TOOL_NOT_ALLOWED", 403);
+          const result = await tool.execute(
+            {
               scope,
-              state.run.conversationId,
-              args,
-            );
-            output = {
-              proposalId: proposal.id,
-              version: proposal.version,
-              hash: proposal.payloadHash,
-              status: proposal.status,
-              payload: proposal.payload,
-            };
-            cards.push({
-              kind: "status",
-              label: "Proposal ready for confirmation",
-              status: "confirmation_required",
-            });
-          } else {
-            const read = await runReadTool(
-              scope,
-              call.name,
-              args,
-              call.name === "knowledge_search"
-                ? {
-                    retrievalJobKey: `chat:${runId}:knowledge:${toolCalls}`,
-                    budgetRunKey: `chat:${runId}`,
-                  }
-                : undefined,
-            );
-            const checked = validateReadToolResult(
-              call.name,
-              read.result,
-              read.cards,
-            );
-            output = checked.result;
-            cards.push(...checked.cards);
-          }
+              runId,
+              conversationId: state.run.conversationId,
+              callIndex: toolCalls,
+            },
+            args,
+          );
+          output = result.output;
+          cards.push(...result.cards);
         } catch (error) {
           if (call.name === "knowledge_search") {
             toolFailure = telemetryErrorCode(error);
