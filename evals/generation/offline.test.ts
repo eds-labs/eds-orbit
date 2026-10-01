@@ -305,7 +305,7 @@ describe.skipIf(!enabled)(
       replay.generate = async (params) => {
         const code =
           params.route.model === abstain.route.model
-            ? "INSUFFICIENT_EVIDENCE"
+            ? "MODEL_EVIDENCE_ABSTENTION"
             : params.route.model === invalid.route.model
               ? "MODEL_OUTPUT_NOT_VALID"
               : null;
@@ -356,7 +356,7 @@ describe.skipIf(!enabled)(
           result.settledMicros,
         ]),
       ).toEqual([
-        ["abstain", true, false, "INSUFFICIENT_EVIDENCE", 3, 3],
+        ["abstain", true, false, "MODEL_EVIDENCE_ABSTENTION", 3, 3],
         ["invalid", true, false, "MODEL_OUTPUT_NOT_VALID", 3, 3],
         ["good", true, true, null, expect.any(Number), expect.any(Number)],
       ]);

@@ -34,11 +34,15 @@ export type Usage = {
   reasoningTokens: number;
   costMicros: number;
 };
-/** A completed, priced response whose output cannot be used; its cost is known. */
+/**
+ * A completed, priced response whose output cannot be used; its cost is known.
+ * MODEL_EVIDENCE_ABSTENTION is the paid model abstention and is deliberately
+ * not INSUFFICIENT_EVIDENCE, which marks a free evidence failure before any call.
+ */
 export class GenerationOutputError extends Error {
   readonly costMicros: number;
   constructor(
-    readonly code: "MODEL_OUTPUT_NOT_VALID" | "INSUFFICIENT_EVIDENCE",
+    readonly code: "MODEL_OUTPUT_NOT_VALID" | "MODEL_EVIDENCE_ABSTENTION",
     readonly usage: Usage,
     readonly responseId: string | null,
   ) {
@@ -195,7 +199,7 @@ export async function generate(params: {
   }
   if (!output.body)
     throw new GenerationOutputError(
-      "INSUFFICIENT_EVIDENCE",
+      "MODEL_EVIDENCE_ABSTENTION",
       usage,
       response.id ?? null,
     );

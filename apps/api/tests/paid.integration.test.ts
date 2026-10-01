@@ -1667,7 +1667,7 @@ describe.skipIf(!enabled)(
         expect((await telemetry()).runs[0]!.routeVersion).toBeNull();
       });
     });
-    it.each(["MODEL_OUTPUT_NOT_VALID", "INSUFFICIENT_EVIDENCE"] as const)(
+    it.each(["MODEL_OUTPUT_NOT_VALID", "MODEL_EVIDENCE_ABSTENTION"] as const)(
       "settles the known cost of an unusable %s response and fails the run",
       async (code) => {
         provider.generate.mockRejectedValue(
