@@ -10,6 +10,7 @@ import {
   mission as missionSchema,
   policy as policySchema,
 } from "../../../packages/schemas/src/index.ts";
+import { estimateCost } from "../../../packages/ai/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
 import { missionFactKeys } from "../src/modules/mission-evidence.ts";
 import {
@@ -27,6 +28,8 @@ const mocked = vi.hoisted(() => ({
   inputs: [] as unknown[],
   tools: [] as unknown[],
   routes: [] as unknown[],
+  requestBytes: [] as number[],
+  onCall: null as null | ((step: number) => Promise<void>),
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
@@ -51,6 +54,17 @@ vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
     mocked.inputs.push(request.input);
     mocked.tools = request.tools;
     const step = mocked.calls;
+    const sent = request as { instructions?: unknown };
+    mocked.requestBytes.push(
+      Buffer.byteLength(
+        JSON.stringify({
+          input: request.input,
+          instructions: sent.instructions,
+          tools: request.tools,
+        }),
+      ),
+    );
+    await mocked.onCall?.(step);
     return {
       async *[Symbol.asyncIterator]() {
         if (
@@ -310,6 +324,37 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     await authDb.user.delete({ where: { id: scope.userId } });
     await closeDatabase();
   });
+  // Re-saves the stored configuration with priced output and optional task routes.
+  const rate = (outputMicrosPerMillion: number) => ({
+    inputMicrosPerMillion: 1000,
+    outputMicrosPerMillion,
+    verifiedAt: new Date().toISOString(),
+  });
+  const rateCard = (outputMicrosPerMillion: number) => ({
+    "synthetic-model": rate(outputMicrosPerMillion),
+    "text-embedding-3-small": rate(1000),
+  });
+  const configure = (
+    outputMicrosPerMillion: number,
+    taskRoutes: Record<string, unknown> = {},
+  ) =>
+    scoped(scope.workspaceId, scope.projectId, (tx) =>
+      saveOpenAiConfiguration(tx, scope, {
+        apiKey: "synthetic-no-provider-call-key",
+        verifiedModels: ["synthetic-model", "text-embedding-3-small"],
+        rateCard: {
+          "synthetic-model": rate(outputMicrosPerMillion),
+          "text-embedding-3-small": rate(1000),
+        },
+        modelRoutes: {
+          fast: "synthetic-model",
+          standard: "synthetic-model",
+          quality: "synthetic-model",
+          escalation: "synthetic-model",
+        },
+        taskRoutes,
+      }),
+    );
   it("gives the model the approved USD AI budget and distinguishes media spend", async () => {
     const tool = await runReadTool(scope, "project_status", {});
     const checked = validateReadToolResult(
@@ -1004,32 +1049,6 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         }),
       }),
     );
-    const rate = (outputMicrosPerMillion: number) => ({
-      inputMicrosPerMillion: 1000,
-      outputMicrosPerMillion,
-      verifiedAt: new Date().toISOString(),
-    });
-    const configure = (
-      outputMicrosPerMillion: number,
-      taskRoutes: Record<string, unknown> = {},
-    ) =>
-      scoped(scope.workspaceId, scope.projectId, (tx) =>
-        saveOpenAiConfiguration(tx, scope, {
-          apiKey: "synthetic-no-provider-call-key",
-          verifiedModels: ["synthetic-model", "text-embedding-3-small"],
-          rateCard: {
-            "synthetic-model": rate(outputMicrosPerMillion),
-            "text-embedding-3-small": rate(1000),
-          },
-          modelRoutes: {
-            fast: "synthetic-model",
-            standard: "synthetic-model",
-            quality: "synthetic-model",
-            escalation: "synthetic-model",
-          },
-          taskRoutes,
-        }),
-      );
     const mission = {
       title: "Synthetic route ceiling",
       goal: "Explain the verified official link",
@@ -1176,6 +1195,68 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     const { runs } = await traced(sent.runId);
     expect(runs[0]!.routeVersion).toBe(version);
     expect(version).toBeGreaterThan(0);
+  });
+  it("sizes the chat reservation from a configured chat_operator ceiling", async () => {
+    try {
+      await configure(1000000, {
+        chat_operator: { model: "synthetic-model", maxOutputTokens: 4000 },
+      });
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      mocked.calls = 0;
+      mocked.requestBytes = [];
+      await runChat(scope, sent.runId);
+      expect((await getRun(scope, sent.runId)).status).toBe("succeeded");
+      const { reservations } = await traced(sent.runId);
+      expect(reservations).toHaveLength(2);
+      for (const [index, row] of reservations.entries())
+        expect(row.amountMicros).toBe(
+          BigInt(
+            estimateCost("synthetic-model", mocked.requestBytes[index]!, 4000, {
+              rateCard: rateCard(1000000),
+            }),
+          ),
+        );
+    } finally {
+      await configure(1000);
+    }
+  });
+  it("blocks a run whose configuration version changed before the next model call", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    mocked.calls = 0;
+    mocked.onCall = async (step) => {
+      if (step !== 1) return;
+      // A new configuration version commits while the first call is in flight.
+      await configure(1000);
+    };
+    try {
+      await runChat(scope, sent.runId);
+    } finally {
+      mocked.onCall = null;
+    }
+    const run = await getRun(scope, sent.runId);
+    expect(run).toMatchObject({
+      status: "blocked",
+      errorCode: "CHAT_ROUTE_CHANGED",
+    });
+    expect(mocked.calls).toBe(1);
+    const { runs, spans, reservations } = await traced(sent.runId);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]!.state).toBe("settled");
+    expect(runs[0]).toMatchObject({
+      status: "blocked",
+      errorCode: "CHAT_ROUTE_CHANGED",
+    });
+    // The refused call never transmitted: no unknown span.
+    expect(spans.filter((span) => span.status === "unknown")).toHaveLength(0);
+    expect(spans.filter((span) => span.type === "model_call")).toHaveLength(1);
   });
   it("traces each model and tool call and attributes every chat reservation", async () => {
     const thread = await createConversation(scope);

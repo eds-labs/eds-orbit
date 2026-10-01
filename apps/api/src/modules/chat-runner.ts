@@ -19,7 +19,10 @@ import {
   recordSpan,
   startRun,
 } from "./telemetry.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
+import {
+  openAiConfigurationVersion,
+  runtimeOpenAiConfiguration,
+} from "./openai-configuration.ts";
 import { chatScoped, createProposal } from "./chat.ts";
 import {
   readToolDefinitions,
@@ -250,11 +253,7 @@ export async function runChat(scope: Scope, runId: string) {
         where: { id: runId },
         data: { status: "running", sequence: { increment: 1 } },
       });
-      // Telemetry only: an unreadable configuration surfaces later at routing.
-      const routeVersion = await runtimeOpenAiConfiguration(tx, scope).then(
-        (configuration) => configuration.routeVersion ?? null,
-        () => null,
-      );
+      const routeVersion = await openAiConfigurationVersion(tx, scope);
       return { run, messages: messages.reverse(), project, routeVersion };
     });
     if (recovered) {
@@ -319,6 +318,9 @@ export async function runChat(scope: Scope, runId: string) {
           ),
         );
         const runtime = await runtimeOpenAiConfiguration(tx, scope);
+        // Fail closed before reserving: the run records one configuration version.
+        if ((runtime.routeVersion ?? null) !== state.routeVersion)
+          throw new DomainError("CHAT_ROUTE_CHANGED", 409);
         const modelRoute = resolveRoute("chat_operator", runtime);
         const model = modelRoute.model;
         const estimate = estimateCost(
@@ -568,7 +570,7 @@ export async function runChat(scope: Scope, runId: string) {
       failedStatus =
         run.status === "canceled"
           ? "canceled"
-          : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|RETRIEVAL/.test(
+          : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|ROUTE_CHANGED|RETRIEVAL/.test(
                 code,
               )
             ? "blocked"

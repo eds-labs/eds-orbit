@@ -189,6 +189,22 @@ export function publicOpenAiConfiguration(
   };
 }
 
+/** Entity version of the stored configuration; null for the environment fallback. No secrets are read. */
+export async function openAiConfigurationVersion(
+  tx: DbTx,
+  scope: Scope,
+): Promise<number | null> {
+  const row = await tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "openai_configuration",
+    },
+    select: { version: true },
+  });
+  return row?.version ?? null;
+}
+
 export async function runtimeOpenAiConfiguration(
   tx: DbTx,
   scope: Scope,

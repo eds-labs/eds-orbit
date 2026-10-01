@@ -1580,18 +1580,16 @@ describe.skipIf(!enabled)(
               })
             ).version,
         );
-      it("sends the stored draft_social route, reserves its ceiling and records the route version", async () => {
-        const stored = {
-          model: "gpt-5.6-terra",
-          reasoningEffort: "low",
-          maxOutputTokens: 2400,
-        };
-        await configure({ draft_social: stored });
-        provider.actualRouting = true;
-        await generateMissionLive(s, missionId, randomUUID());
-        const call = provider.generate.mock.calls[0]![0];
-        expect(call.route).toEqual(stored);
-        expect(call).not.toHaveProperty("model");
+      // The text reservation is the real estimate for the sent payload and ceiling.
+      const expectTextReservation = async (
+        call: {
+          goal: string;
+          evidence: unknown;
+          route: { model: string };
+          runtime: any;
+        },
+        ceiling: number,
+      ) => {
         const bytes = Buffer.byteLength(
           JSON.stringify({ goal: call.goal, evidence: call.evidence }),
         );
@@ -1606,13 +1604,27 @@ describe.skipIf(!enabled)(
         expect(reservation.amountMicros).toBe(
           BigInt(
             actual.estimateCost(
-              "gpt-5.6-terra",
+              call.route.model,
               bytes + 4000,
-              2400,
+              ceiling,
               call.runtime,
             ),
           ),
         );
+      };
+      it("sends the stored draft_social route, reserves its ceiling and records the route version", async () => {
+        const stored = {
+          model: "gpt-5.6-terra",
+          reasoningEffort: "low",
+          maxOutputTokens: 2400,
+        };
+        await configure({ draft_social: stored });
+        provider.actualRouting = true;
+        await generateMissionLive(s, missionId, randomUUID());
+        const call = provider.generate.mock.calls[0]![0];
+        expect(call.route).toEqual(stored);
+        expect(call).not.toHaveProperty("model");
+        await expectTextReservation(call, 2400);
         const { runs } = await telemetry();
         expect(runs[0]!.routeVersion).toBe(await configurationVersion());
         expect(runs[0]!.routeVersion).toBeGreaterThan(0);
@@ -1627,8 +1639,27 @@ describe.skipIf(!enabled)(
           maxOutputTokens: 1800,
         });
         expect("reasoningEffort" in call.route).toBe(false);
+        await expectTextReservation(call, 1800);
         const { runs } = await telemetry();
         expect(runs[0]!.routeVersion).toBe(await configurationVersion());
+      });
+      it("fails closed when the configuration changes before the text reservation", async () => {
+        await configure();
+        provider.actualRouting = true;
+        // A new configuration version commits during the query embedding.
+        provider.embed.mockImplementation(async () => {
+          await configure();
+          return embedding();
+        });
+        await expect(
+          generateMissionLive(s, missionId, randomUUID()),
+        ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
+        expect(provider.generate).not.toHaveBeenCalled();
+        expect(
+          await run((tx) =>
+            tx.budgetReservation.count({ where: { category: "text" } }),
+          ),
+        ).toBe(0);
       });
       it("records no route version for the environment configuration", async () => {
         await generateMissionLive(s, missionId, randomUUID());

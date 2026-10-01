@@ -220,6 +220,9 @@ async function generateMissionDraft(
       if (data(evidence).status !== "ready")
         throw new DomainError("INSUFFICIENT_MODEL_APPROVED_EVIDENCE");
       const ai = await runtimeOpenAiConfiguration(tx, scope);
+      // Fail closed: the run records the configuration version that routed it.
+      if ((ai.routeVersion ?? null) !== routeVersion)
+        throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
       const modelRoute = resolveRoute(draftTaskClass(m.contentType), ai);
       const p = await activePolicy(tx, scope);
       if (!p) throw new DomainError("POLICY_REQUIRED");
