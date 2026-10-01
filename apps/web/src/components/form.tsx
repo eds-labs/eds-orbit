@@ -1,5 +1,5 @@
 "use client";
-import { useState, type FormEvent } from "react";
+import { Fragment, useState, type FormEvent } from "react";
 import { LoaderCircle } from "lucide-react";
 import {
   Alert,
@@ -35,6 +35,8 @@ export type FormField = {
   placeholder?: string;
   accept?: string;
   showWhen?: { name: string; values: string[] };
+  /** Optional section heading rendered above this field. */
+  heading?: string;
 };
 export type FormValues = Record<string, string | boolean | File>;
 export function DataForm({
@@ -88,83 +90,88 @@ export function DataForm({
               ),
           )
           .map((field) => (
-            <Field
-              key={field.name}
-              data-invalid={invalid || undefined}
-              className={field.type === "checkbox" ? "field-check" : ""}
-            >
-              <FieldLabel htmlFor={`form-${field.name}`}>
-                {field.label}
-                {field.required && <span aria-hidden="true"> *</span>}
-              </FieldLabel>
-              {field.type === "textarea" ? (
-                <Textarea
-                  id={`form-${field.name}`}
-                  name={field.name}
-                  defaultValue={String(field.value ?? "")}
-                  required={field.required}
-                  placeholder={field.placeholder}
-                  minLength={field.min}
-                  maxLength={field.max}
-                />
-              ) : field.type === "select" ? (
-                <select
-                  className="input"
-                  id={`form-${field.name}`}
-                  name={field.name}
-                  defaultValue={String(field.value ?? "")}
-                  required={field.required}
-                  onChange={(event) =>
-                    setSelected((current) => ({
-                      ...current,
-                      [field.name]: event.target.value,
-                    }))
-                  }
-                >
-                  {!field.value && (
-                    <option value="">
-                      {field.required ? t?.("required") || "Select…" : "—"}
-                    </option>
-                  )}
-                  {field.options?.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-              ) : field.type === "checkbox" ? (
-                <Input
-                  id={`form-${field.name}`}
-                  type="checkbox"
-                  name={field.name}
-                  defaultChecked={Boolean(field.value)}
-                  required={field.required}
-                />
-              ) : (
-                <Input
-                  id={`form-${field.name}`}
-                  type={field.type || "text"}
-                  name={field.name}
-                  defaultValue={
-                    typeof field.value === "boolean" ? "" : field.value
-                  }
-                  required={field.required}
-                  min={field.min}
-                  max={field.max}
-                  step={field.step}
-                  placeholder={field.placeholder}
-                  accept={field.accept}
-                  autoComplete={
-                    field.type === "password"
-                      ? "new-password"
-                      : field.type === "email"
-                        ? "email"
-                        : "off"
-                  }
-                />
-              )}{" "}
-              {field.hint && <p className="field-hint">{field.hint}</p>}
-            </Field>
+            <Fragment key={field.name}>
+              {field.heading && (
+                <h3 className="field-heading">{field.heading}</h3>
+              )}
+              <Field
+                data-invalid={invalid || undefined}
+                className={field.type === "checkbox" ? "field-check" : ""}
+              >
+                <FieldLabel htmlFor={`form-${field.name}`}>
+                  {field.label}
+                  {field.required && <span aria-hidden="true"> *</span>}
+                </FieldLabel>
+                {field.type === "textarea" ? (
+                  <Textarea
+                    id={`form-${field.name}`}
+                    name={field.name}
+                    defaultValue={String(field.value ?? "")}
+                    required={field.required}
+                    placeholder={field.placeholder}
+                    minLength={field.min}
+                    maxLength={field.max}
+                  />
+                ) : field.type === "select" ? (
+                  <select
+                    className="input"
+                    id={`form-${field.name}`}
+                    name={field.name}
+                    defaultValue={String(field.value ?? "")}
+                    required={field.required}
+                    onChange={(event) =>
+                      setSelected((current) => ({
+                        ...current,
+                        [field.name]: event.target.value,
+                      }))
+                    }
+                  >
+                    {!field.value &&
+                      !field.options?.some((o) => o.value === "") && (
+                        <option value="">
+                          {field.required ? t?.("required") || "Select…" : "—"}
+                        </option>
+                      )}
+                    {field.options?.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === "checkbox" ? (
+                  <Input
+                    id={`form-${field.name}`}
+                    type="checkbox"
+                    name={field.name}
+                    defaultChecked={Boolean(field.value)}
+                    required={field.required}
+                  />
+                ) : (
+                  <Input
+                    id={`form-${field.name}`}
+                    type={field.type || "text"}
+                    name={field.name}
+                    defaultValue={
+                      typeof field.value === "boolean" ? "" : field.value
+                    }
+                    required={field.required}
+                    min={field.min}
+                    max={field.max}
+                    step={field.step}
+                    placeholder={field.placeholder}
+                    accept={field.accept}
+                    autoComplete={
+                      field.type === "password"
+                        ? "new-password"
+                        : field.type === "email"
+                          ? "email"
+                          : "off"
+                    }
+                  />
+                )}{" "}
+                {field.hint && <p className="field-hint">{field.hint}</p>}
+              </Field>
+            </Fragment>
           ))}
       </FieldGroup>
       {error && <Alert kind="error">{error}</Alert>}

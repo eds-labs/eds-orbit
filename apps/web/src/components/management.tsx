@@ -1713,8 +1713,43 @@ type OpenAiConfigurationView = {
     maxCostMicrosPerImage: number;
     pricingVerifiedAt?: string;
   };
+  taskRoutes?: Partial<Record<TaskClass, StoredTaskRoute>>;
+  effectiveRoutes?: Partial<
+    Record<
+      TaskClass,
+      StoredTaskRoute | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
+    >
+  >;
+  routeVersion?: number | null;
   updatedAt?: string;
 };
+const taskClasses = [
+  { id: "chat_operator", label: "Chat operator", defaultTokens: 3000 },
+  { id: "draft_social", label: "Social drafts", defaultTokens: 1800 },
+  { id: "draft_blog", label: "Blog drafts", defaultTokens: 1800 },
+] as const;
+type TaskClass = (typeof taskClasses)[number]["id"];
+const reasoningEffortValues = [
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
+type StoredTaskRoute = {
+  model: string;
+  reasoningEffort?: (typeof reasoningEffortValues)[number];
+  maxOutputTokens: number;
+};
+function describeEffectiveRoute(
+  route: NonNullable<OpenAiConfigurationView["effectiveRoutes"]>[TaskClass],
+) {
+  if (!route) return "Effective route: unknown.";
+  if ("error" in route)
+    return "Effective route: not verified. Add the model to the verified model IDs or clear the route.";
+  return `Effective route: ${route.model} · ${route.reasoningEffort ?? "default effort"} · ${route.maxOutputTokens} max tokens.`;
+}
 function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
   const { project, refresh } = useWorkspace();
   const configuration = useResource<OpenAiConfigurationView>(
@@ -1754,12 +1789,50 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
       value: current?.verifiedModels.join(", ") ?? "",
       placeholder: "gpt-5.6-terra, text-embedding-3-small",
     },
+    ...taskClasses.flatMap(({ id, label, defaultTokens }): FormField[] => {
+      const stored = current?.taskRoutes?.[id];
+      return [
+        {
+          name: `route-${id}-model`,
+          heading: `${label} route`,
+          label: `${label} model`,
+          value: stored?.model ?? "",
+          placeholder: "Leave empty to use the fallback tier",
+          hint: describeEffectiveRoute(current?.effectiveRoutes?.[id]),
+        },
+        {
+          name: `route-${id}-effort`,
+          label: `${label} reasoning effort`,
+          type: "select",
+          value: stored?.reasoningEffort ?? "",
+          options: [
+            { value: "", label: "Default (not sent)" },
+            ...reasoningEffortValues.map((value) => ({ value, label: value })),
+          ],
+        },
+        {
+          name: `route-${id}-max-tokens`,
+          label: `${label} maximum output tokens`,
+          type: "number",
+          min: 256,
+          max: 16000,
+          step: "1",
+          value: stored?.maxOutputTokens ?? defaultTokens,
+          hint: "Used only when a model is entered (256 to 16000).",
+        },
+      ];
+    }),
     ...(["fast", "standard", "quality", "escalation"] as const).map(
-      (route) => ({
+      (route, index): FormField => ({
         name: `model-${route}`,
+        heading: index === 0 ? "Fallback tier models" : undefined,
         label: `${route.charAt(0).toUpperCase() + route.slice(1)} task model`,
         required: true,
         value: current?.modelRoutes?.[route] ?? "",
+        hint:
+          index === 0
+            ? "Used by every task class that has no model entered above."
+            : undefined,
       }),
     ),
     {
@@ -1819,6 +1892,11 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
         {current?.configured
           ? `Configured through ${current.source}${current.updatedAt ? ` · updated ${when(current.updatedAt)}` : ""}.`
           : "No application OpenAI configuration is saved yet."}
+        {current
+          ? typeof current.routeVersion === "number"
+            ? ` Route version ${current.routeVersion}.`
+            : " Environment configuration."
+          : ""}
         {current?.dedicatedImageKeyConfigured
           ? " A dedicated image key is active."
           : current?.imageKeyConfigured
@@ -1855,6 +1933,25 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
                 .map((model) => model.trim())
                 .filter(Boolean),
               rateCard,
+              taskRoutes: Object.fromEntries(
+                taskClasses.flatMap(({ id, defaultTokens }) => {
+                  const model = String(values[`route-${id}-model`]).trim();
+                  if (!model) return [];
+                  const effort = String(values[`route-${id}-effort`]);
+                  const maxOutputTokens =
+                    Number(values[`route-${id}-max-tokens`]) || defaultTokens;
+                  return [
+                    [
+                      id,
+                      {
+                        model,
+                        ...(effort ? { reasoningEffort: effort } : {}),
+                        maxOutputTokens,
+                      },
+                    ],
+                  ];
+                }),
+              ),
               modelRoutes: {
                 fast: String(values["model-fast"]),
                 standard: String(values["model-standard"]),
