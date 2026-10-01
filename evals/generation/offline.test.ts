@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { APIError } from "openai";
 import { randomUUID } from "node:crypto";
 import { authDb, closeDatabase } from "../../packages/db/src/index.ts";
 import {
@@ -290,7 +291,7 @@ describe.skipIf(!enabled)(
       await gone(report, since);
     }, 180_000);
 
-    it("counts priced unusable outputs and continues the eval", async () => {
+    it("counts priced unusable outputs and refused requests and continues the eval", async () => {
       const cases = xCases.slice(0, 1);
       const abstain: EvalCandidate = {
         label: "abstain",
@@ -300,9 +301,25 @@ describe.skipIf(!enabled)(
         label: "invalid",
         route: { model: "offline-invalid", maxOutputTokens: 1800 },
       };
-      const ordered = [abstain, invalid, candidates[0]!];
+      // The provider refuses this route, as for an unsupported reasoning effort.
+      const refused: EvalCandidate = {
+        label: "refused",
+        route: {
+          model: "offline-refused",
+          reasoningEffort: "none",
+          maxOutputTokens: 1800,
+        },
+      };
+      const ordered = [abstain, invalid, refused, candidates[0]!];
       const recorded = recordedGenerate(cases, [candidates[0]!]);
       replay.generate = async (params) => {
+        if (params.route.model === refused.route.model)
+          throw APIError.generate(
+            400,
+            { error: { message: "Unsupported value: 'reasoning.effort'" } },
+            "Unsupported value",
+            new Headers(),
+          );
         const code =
           params.route.model === abstain.route.model
             ? "MODEL_EVIDENCE_ABSTENTION"
@@ -336,11 +353,13 @@ describe.skipIf(!enabled)(
             ...runtime.verifiedModels,
             abstain.route.model,
             invalid.route.model,
+            refused.route.model,
           ],
           rateCard: {
             ...runtime.rateCard,
             [abstain.route.model]: rate,
             [invalid.route.model]: rate,
+            [refused.route.model]: rate,
           },
         },
         datasetVersion: fixtures.datasetVersion,
@@ -358,6 +377,7 @@ describe.skipIf(!enabled)(
       ).toEqual([
         ["abstain", true, false, "MODEL_EVIDENCE_ABSTENTION", 3, 3],
         ["invalid", true, false, "MODEL_OUTPUT_NOT_VALID", 3, 3],
+        ["refused", true, false, "MODEL_REQUEST_NOT_ACCEPTED", 0, 0],
         ["good", true, true, null, expect.any(Number), expect.any(Number)],
       ]);
       expect(report.summary).toEqual([
@@ -378,8 +398,24 @@ describe.skipIf(!enabled)(
           invalidOutput: 1,
           totalCostMicros: 3,
         }),
-        expect.objectContaining({ candidate: "good", runs: 1, passRate: 1 }),
+        expect.objectContaining({
+          candidate: "refused",
+          runs: 1,
+          passRate: 0,
+          rejected: 1,
+          totalCostMicros: 0,
+          costComplete: true,
+        }),
+        expect.objectContaining({
+          candidate: "good",
+          runs: 1,
+          passRate: 1,
+          rejected: 0,
+        }),
       ]);
+      expect(renderMarkdown(report)).toMatch(
+        /\| refused \| 1 \| 0\.0% \| 0 \| 0 \| 1 \|/,
+      );
       await gone(report, since);
     }, 180_000);
 

@@ -11,6 +11,7 @@ import {
   policy as policySchema,
 } from "../../../packages/schemas/src/index.ts";
 import { estimateCost } from "../../../packages/ai/src/index.ts";
+import { APIError } from "openai";
 import { create, data, update } from "../src/shared.ts";
 import { missionFactKeys } from "../src/modules/mission-evidence.ts";
 import {
@@ -1455,6 +1456,89 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     } finally {
       mocked.telemetryOff = false;
     }
+  });
+  it("blocks before any reservation when the chat route's price is stale", async () => {
+    const stale = new Date(Date.now() - 40 * 86_400_000).toISOString();
+    try {
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        saveOpenAiConfiguration(tx, scope, {
+          apiKey: "synthetic-no-provider-call-key",
+          verifiedModels: ["synthetic-model", "text-embedding-3-small"],
+          rateCard: {
+            "synthetic-model": { ...rate(1000), verifiedAt: stale },
+            "text-embedding-3-small": rate(1000),
+          },
+          modelRoutes: {
+            fast: "synthetic-model",
+            standard: "synthetic-model",
+            quality: "synthetic-model",
+            escalation: "synthetic-model",
+          },
+          taskRoutes: {
+            chat_operator: { model: "synthetic-model", maxOutputTokens: 3000 },
+          },
+        }),
+      );
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "What is our project status?",
+        clientRequestId: randomUUID(),
+      });
+      mocked.calls = 0;
+      await runChat(scope, sent.runId);
+      expect(await getRun(scope, sent.runId)).toMatchObject({
+        status: "blocked",
+        errorCode: "CURRENT_PRICE_REQUIRED",
+      });
+      expect(mocked.calls).toBe(0);
+      expect((await traced(sent.runId)).reservations).toHaveLength(0);
+    } finally {
+      await configure(1000);
+    }
+  });
+  it("releases the reservation when the provider rejects the request", async () => {
+    const thread = await createConversation(scope);
+    const sent = await sendMessage(scope, thread.id, {
+      text: "What is our project status?",
+      clientRequestId: randomUUID(),
+    });
+    mocked.calls = 0;
+    // The HTTP request fails before any stream event, as for an unsupported effort.
+    mocked.onCall = async () => {
+      throw APIError.generate(
+        400,
+        { error: { message: "Unsupported value: 'reasoning.effort'" } },
+        "Unsupported value",
+        new Headers(),
+      );
+    };
+    try {
+      await runChat(scope, sent.runId);
+    } finally {
+      mocked.onCall = null;
+    }
+    expect(await getRun(scope, sent.runId)).toMatchObject({
+      status: "blocked",
+      errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
+    });
+    expect(mocked.calls).toBe(1);
+    const { runs, spans, reservations } = await traced(sent.runId);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0]).toMatchObject({
+      state: "settled",
+      settledMicros: 0n,
+    });
+    expect(runs[0]).toMatchObject({
+      status: "blocked",
+      errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
+    });
+    const modelCalls = spans.filter((span) => span.type === "model_call");
+    expect(modelCalls).toHaveLength(1);
+    expect(modelCalls[0]).toMatchObject({
+      status: "failed",
+      errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
+      costMicros: 0n,
+    });
   });
   it("records an unknown model span and the blocked run for an incomplete response", async () => {
     mocked.mode = "incomplete";

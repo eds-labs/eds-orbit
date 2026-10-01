@@ -68,6 +68,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
 });
 import { generateMissionLive } from "../src/modules/generation.ts";
 import { GenerationOutputError } from "../../../packages/ai/src/index.ts";
+import { APIError } from "openai";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { postingSlot } from "../src/modules/posting-slots.ts";
 import { configureAutopilot, planAutopilot } from "../src/modules/autopilot.ts";
@@ -1662,6 +1663,67 @@ describe.skipIf(!enabled)(
           ),
         ).toBe(0);
       });
+      const textReservations = () =>
+        run((tx) =>
+          tx.budgetReservation.count({ where: { category: "text" } }),
+        );
+      it("fails closed before any text reservation when the routed model's price is stale", async () => {
+        const stale = new Date(Date.now() - 40 * 86_400_000).toISOString();
+        await run((tx) =>
+          saveOpenAiConfiguration(tx, s, {
+            apiKey: "synthetic-no-provider-call-key",
+            verifiedModels: [
+              "gpt-5.6-luna",
+              "gpt-5.6-terra",
+              "gpt-5.6-sol",
+              "text-embedding-3-small",
+            ],
+            rateCard: {
+              "gpt-5.6-terra": rate(1000, 1000000),
+              "gpt-5.6-sol": { ...rate(1000, 1000000), verifiedAt: stale },
+              "text-embedding-3-small": rate(1000, 1000),
+            },
+            taskRoutes: {
+              draft_social: { model: "gpt-5.6-sol", maxOutputTokens: 1800 },
+            },
+          }),
+        );
+        provider.actualRouting = true;
+        await expect(
+          generateMissionLive(s, missionId, randomUUID()),
+        ).rejects.toThrow("CURRENT_PRICE_REQUIRED");
+        expect(provider.generate).not.toHaveBeenCalled();
+        expect(await textReservations()).toBe(0);
+      });
+      it("fails closed before any text reservation for a stored route whose model is no longer verified", async () => {
+        await configure({
+          draft_social: { model: "gpt-5.6-sol", maxOutputTokens: 1800 },
+        });
+        // A legacy or hand-edited row: saving would reject this combination.
+        await run(async (tx) => {
+          const row = await tx.entity.findFirstOrThrow({
+            where: { projectId: s.projectId, kind: "openai_configuration" },
+          });
+          const stored = row.data as Record<string, unknown>;
+          await tx.entity.update({
+            where: { id: row.id },
+            data: {
+              data: {
+                ...stored,
+                verifiedModels: (stored.verifiedModels as string[]).filter(
+                  (model) => model !== "gpt-5.6-sol",
+                ),
+              },
+            },
+          });
+        });
+        provider.actualRouting = true;
+        await expect(
+          generateMissionLive(s, missionId, randomUUID()),
+        ).rejects.toThrow("MODEL_CAPABILITY_NOT_VERIFIED");
+        expect(provider.generate).not.toHaveBeenCalled();
+        expect(await textReservations()).toBe(0);
+      });
       it("records no route version for the environment configuration", async () => {
         await generateMissionLive(s, missionId, randomUUID());
         expect((await telemetry()).runs[0]!.routeVersion).toBeNull();
@@ -1718,6 +1780,41 @@ describe.skipIf(!enabled)(
         expect(provider.generate).toHaveBeenCalledTimes(1);
       },
     );
+    it("releases the reservation of a request the provider rejected", async () => {
+      provider.generate.mockRejectedValue(
+        APIError.generate(
+          400,
+          { error: { message: "Unsupported value: 'reasoning.effort'" } },
+          "Unsupported value",
+          new Headers(),
+        ),
+      );
+      const jobId = randomUUID();
+      const failure = await generateMissionLive(s, missionId, jobId).catch(
+        (error: unknown) => error,
+      );
+      // The worker stores error.message as the job error; NOT_ keeps it from retrying.
+      expect((failure as Error).message).toBe("MODEL_REQUEST_NOT_ACCEPTED");
+      const row = await run((tx) =>
+        tx.budgetReservation.findFirstOrThrow({ where: { category: "text" } }),
+      );
+      expect(row).toMatchObject({ state: "settled", settledMicros: 0n });
+      const { runs, spans } = await telemetry();
+      expect(runs[0]).toMatchObject({
+        status: "failed",
+        errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
+      });
+      expect(spans.find((x) => x.type === "model_call")).toMatchObject({
+        status: "failed",
+        errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
+        costMicros: 0n,
+        budgetReservationId: row.id,
+      });
+      await expect(generateMissionLive(s, missionId, jobId)).rejects.toThrow(
+        "RESERVATION_ALREADY_USED",
+      );
+      expect(provider.generate).toHaveBeenCalledTimes(1);
+    });
     it("traces an unknown generation outcome as unknown span and failed run", async () => {
       provider.generate.mockRejectedValue(
         new Error("Synthetic transport uncertainty"),

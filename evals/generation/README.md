@@ -71,7 +71,10 @@ Safeguards:
 
 ## After a live run
 
-Read the report's review pass rate, cost and latency per candidate. A route
+Read the report's review pass rate, cost and latency per candidate.
+"Rejected" counts runs the provider refused (for example an unsupported
+reasoning effort); they cost nothing, count as failed runs, and the eval
+continues with the next run. A route
 switch needs that report and an owner save of the task route in the OpenAI
 configuration dialog; it applies to new runs only (see `docs/MODEL_ROUTING.md`,
 "Task-class routes").

@@ -12,6 +12,7 @@ import {
   draftTaskClass,
   generate,
   GenerationOutputError,
+  isRejectedRequest,
   resolveRoute,
   estimateCost,
 } from "../../../../packages/ai/src/index.ts";
@@ -462,6 +463,24 @@ async function generateMissionDraft(
         providerResponseId: error.responseId,
       });
       throw new DomainError(error.code);
+    }
+    // A request the provider refused was not processed and costs nothing.
+    if (isRejectedRequest(error)) {
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        settle(tx, scope, prepared.reservationId, 0),
+      );
+      await recordSpan(scope, trace.runId, {
+        type: "model_call",
+        name: "responses.create",
+        model: prepared.modelRoute.model,
+        status: "failed",
+        errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
+        startedAt: callStartedAt,
+        durationMs: Date.now() - callStartedAt.valueOf(),
+        costMicros: 0,
+        budgetReservationId: prepared.reservationId,
+      });
+      throw new DomainError("MODEL_REQUEST_NOT_ACCEPTED");
     }
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       settle(tx, scope, prepared.reservationId, null),
