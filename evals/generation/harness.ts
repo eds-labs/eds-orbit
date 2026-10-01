@@ -91,6 +91,8 @@ export type EvalSummary = {
   // Counted runs ending in MODEL_EVIDENCE_ABSTENTION / MODEL_OUTPUT_NOT_VALID.
   abstained: number;
   invalidOutput: number;
+  // Counted runs the provider refused (MODEL_REQUEST_NOT_ACCEPTED); cost 0.
+  rejected: number;
   problemCounts: Record<string, number>;
 };
 export type EvalReport = {
@@ -123,10 +125,13 @@ const BUDGET_REFUSALS = new Set([
   "RUN_BUDGET_EXCEEDED",
   "BUDGET_NOT_APPROVED",
 ]);
-// Completed, priced provider responses without usable output.
+// Known per-run outcomes that count against a candidate without stopping the
+// eval: priced responses without usable output, and requests the provider
+// refused (settled at 0).
 const MODEL_OUTCOMES = new Set([
   "MODEL_EVIDENCE_ABSTENTION",
   "MODEL_OUTPUT_NOT_VALID",
+  "MODEL_REQUEST_NOT_ACCEPTED",
 ]);
 
 const factKey = z.string().regex(/^[a-z][a-z0-9]*(?:\.[a-z0-9-]+)+$/);
@@ -661,6 +666,7 @@ function summarize(
         : null,
       abstained: ended("MODEL_EVIDENCE_ABSTENTION"),
       invalidOutput: ended("MODEL_OUTPUT_NOT_VALID"),
+      rejected: ended("MODEL_REQUEST_NOT_ACCEPTED"),
       problemCounts,
     };
   });
@@ -885,6 +891,7 @@ export function renderMarkdown(report: EvalReport): string {
         "Pass rate",
         "Abstained",
         "Invalid output",
+        "Rejected",
         "Cost per accepted",
         "Total cost",
         "p50 model call (ms)",
@@ -896,6 +903,7 @@ export function renderMarkdown(report: EvalReport): string {
         row.passRate === null ? "–" : (row.passRate * 100).toFixed(1) + "%",
         row.abstained,
         row.invalidOutput,
+        row.rejected,
         usd(row.costPerAcceptedMicros),
         usd(row.totalCostMicros) + (row.costComplete ? "" : " (incomplete)"),
         row.p50DurationMs ?? "–",

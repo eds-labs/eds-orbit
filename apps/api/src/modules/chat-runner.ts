@@ -5,6 +5,7 @@ import { policy as policySchema } from "../../../../packages/schemas/src/index.t
 import {
   computeCost,
   estimateCost,
+  isRejectedRequest,
   normalizeResponsesUsage,
   resolveRoute,
   streamChat,
@@ -558,15 +559,17 @@ export async function runChat(scope: Scope, runId: string) {
     });
     await finishRun(scope, agentRunId, finalStatus);
   } catch (error) {
-    const code = errorCode(error);
-    let failedStatus = null as "canceled" | "blocked" | "failed" | null;
     const unsettled = reservationId && transmitted ? reservationId : null;
+    // A request the provider refused was not processed and costs nothing.
+    const rejected = unsettled !== null && isRejectedRequest(error);
+    const code = rejected ? "MODEL_REQUEST_NOT_ACCEPTED" : errorCode(error);
+    let failedStatus = null as "canceled" | "blocked" | "failed" | null;
     await chatScoped(scope, async (tx) => {
       const run = await tx.chatRun.findFirst({
         where: { id: runId, userId: scope.userId },
       });
       if (!run) return;
-      if (unsettled) await settle(tx, scope, unsettled, null);
+      if (unsettled) await settle(tx, scope, unsettled, rejected ? 0 : null);
       failedStatus =
         run.status === "canceled"
           ? "canceled"
@@ -590,10 +593,11 @@ export async function runChat(scope: Scope, runId: string) {
         type: "model_call",
         name: "responses.stream",
         model: callModel,
-        status: "unknown",
+        status: rejected ? "failed" : "unknown",
         errorCode: code,
         startedAt: callStartedAt,
         durationMs: Date.now() - callStartedAt.valueOf(),
+        ...(rejected ? { costMicros: 0 } : {}),
         budgetReservationId: unsettled,
       });
     if (failedStatus) await finishRun(scope, agentRunId, failedStatus, code);
