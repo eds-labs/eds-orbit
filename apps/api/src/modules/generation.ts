@@ -30,7 +30,10 @@ import {
   list,
 } from "../shared.ts";
 import { policy } from "../../../../packages/schemas/src/index.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
+import {
+  openAiConfigurationVersion,
+  runtimeOpenAiConfiguration,
+} from "./openai-configuration.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
 import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
@@ -408,6 +411,8 @@ async function generateMissionDraft(
       : null;
     if (
       project.paused ||
+      // The call must go out under the configuration that routed and priced it.
+      (await openAiConfigurationVersion(tx, scope)) !== routeVersion ||
       project.generation !== prepared.projectGeneration ||
       mission.version !== prepared.mission.version ||
       current?.id !== prepared.policyId ||

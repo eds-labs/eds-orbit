@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCost, estimateCost, normalizeResponsesUsage } from "./cost.ts";
+import { computeCost, estimateCost, normalizeResponsesUsage, rateStatus } from "./cost.ts";
 
 const verifiedAt = new Date().toISOString();
 const runtime = (rate: Record<string, unknown>) => ({
@@ -90,5 +90,21 @@ describe("computeCost", () => {
 describe("estimateCost", () => {
   it("is conservative: input at the cache-write rate", () => {
     expect(estimateCost("m", 1_000_000, 100_000, runtime(base))).toBe(2_500_000 + 1_200_000);
+  });
+});
+
+describe("rateStatus", () => {
+  const day = 86_400_000;
+  const card = (age: number) => ({
+    m: { ...base, verifiedAt: new Date(Date.now() - age).toISOString() },
+  });
+  it("matches the runtime price gate", () => {
+    expect(rateStatus("m", card(30 * day))).toBe("current");
+    expect(rateStatus("m", card(32 * day))).toBe("stale");
+    expect(rateStatus("other", card(0))).toBe("missing");
+    expect(rateStatus("m", {})).toBe("missing");
+    // The runtime refuses exactly the non-current states.
+    expect(() => estimateCost("m", 1000, 100, { rateCard: card(32 * day) })).toThrow("CURRENT_PRICE_REQUIRED");
+    expect(() => estimateCost("m", 1000, 100, { rateCard: {} })).toThrow("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
   });
 });

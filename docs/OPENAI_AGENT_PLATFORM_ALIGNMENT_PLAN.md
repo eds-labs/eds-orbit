@@ -728,3 +728,10 @@ Next: Mario runs the live generation eval with his own key; a route switch then 
 - A request the provider refuses before any model work (HTTP 400, 401, 403, 404, 422, 429; for example an unsupported reasoning effort or output ceiling chosen for a task route) now settles its reservation at 0 and ends with `MODEL_REQUEST_NOT_ACCEPTED`, in generation and in chat. Before, it settled as `unknown` and stayed counted against the budget until reconciled. Transport errors, timeouts, other statuses and errors inside a started stream stay `unknown`.
 - The generation eval counts such a refusal per candidate (`rejected`, cost 0) and continues, instead of stopping the whole eval as `UNEXPECTED`; a candidate with an unsupported effort then shows up in the report rather than ending the run early. The dry-run confirmation is unchanged.
 - Integration tests now cover a task route whose price is older than 31 days (generation and chat: `CURRENT_PRICE_REQUIRED`) and a stored route whose model is no longer verified (generation: `MODEL_CAPABILITY_NOT_VERIFIED`), each with no text reservation and no provider call.
+
+### 2026-10-01 — Follow-up: remaining Phase 2 review minors (local)
+
+- Generation re-checks the OpenAI configuration version in the last check before transmission, so a save that commits between reservation and transmission stops the run with `GENERATION_DEPENDENCY_CHANGED` instead of sending on the old route. Chat reserves and transmits in one transaction and needed no change.
+- `API_CONTRACT.md` documents `openai-configure` as a full replace (an omitted `taskRoutes` clears the task routes).
+- The configuration view reports `price: current|missing|stale` for each effective route, using the same rule as the runtime price gate, and the dialog explains that runs are refused until the price is current.
+- Stale comment about the removed `route()` corrected.

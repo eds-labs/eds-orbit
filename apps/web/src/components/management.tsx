@@ -1717,7 +1717,8 @@ type OpenAiConfigurationView = {
   effectiveRoutes?: Partial<
     Record<
       TaskClass,
-      StoredTaskRoute | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
+      | (StoredTaskRoute & { price?: "current" | "missing" | "stale" })
+      | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
     >
   >;
   routeVersion?: number | null;
@@ -1748,7 +1749,13 @@ function describeEffectiveRoute(
   if (!route) return "Effective route: unknown.";
   if ("error" in route)
     return "Effective route: not verified. Add the model to the verified model IDs or clear the route.";
-  return `Effective route: ${route.model} · ${route.reasoningEffort ?? "default effort"} · ${route.maxOutputTokens} max tokens.`;
+  const price =
+    route.price === "missing"
+      ? " No price for this model: runs are refused until the rate card has one."
+      : route.price === "stale"
+        ? " Price older than 31 days: runs are refused until it is verified again."
+        : "";
+  return `Effective route: ${route.model} · ${route.reasoningEffort ?? "default effort"} · ${route.maxOutputTokens} max tokens.${price}`;
 }
 function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
   const { project, refresh } = useWorkspace();
