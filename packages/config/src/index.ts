@@ -37,16 +37,3 @@ export const configSchema = z.object({
 export function loadConfig() {
   return configSchema.parse(process.env);
 }
-export function routeTask(task: string, attempt: number, escalations: number) {
-  if (attempt < 0 || attempt > 2 || escalations > 1)
-    throw new Error("RETRY_LIMIT");
-  if (attempt === 2) {
-    if (escalations !== 0) throw new Error("ESCALATION_LIMIT");
-    return modelRoutes.escalation;
-  }
-  if (["classify", "extract", "metadata"].includes(task))
-    return modelRoutes.fast;
-  if (["plan", "blog", "review", "conflict"].includes(task))
-    return modelRoutes.quality;
-  return modelRoutes.standard;
-}

@@ -1,10 +1,11 @@
 import OpenAI from "openai";
 import { z } from "zod";
+import { embeddingProfile, modelRoutes } from "../../config/src/index.ts";
 import {
-  routeTask,
-  embeddingProfile,
-  modelRoutes,
-} from "../../config/src/index.ts";
+  resolveRoute,
+  taskRoutesSchema,
+  type TaskClass,
+} from "./routing.ts";
 import {
   computeCost,
   embeddingUsage,
@@ -13,6 +14,7 @@ import {
   type Rate,
 } from "./cost.ts";
 export * from "./cost.ts";
+export * from "./routing.ts";
 const structuredOutput = z.object({
   title: z.string().max(200),
   body: z.string().max(40000),
@@ -62,6 +64,8 @@ export type OpenAiRuntimeConfig = {
   verifiedModels: string[];
   rateCard: Record<string, Rate>;
   modelRoutes?: Record<keyof typeof modelRoutes, string>;
+  taskRoutes?: z.infer<typeof taskRoutesSchema>;
+  routeVersion?: number;
   imageGeneration?: z.infer<typeof imageGenerationConfigurationSchema>;
 };
 export function environmentRuntimeConfig(): OpenAiRuntimeConfig {
@@ -92,25 +96,20 @@ export function rateCard(
     throw new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
   return runtime.rateCard;
 }
+/** @deprecated Use resolveRoute; removed in Task 3. */
 export function route(
   task: string,
-  attempt = 0,
-  escalations = 0,
+  _attempt = 0,
+  _escalations = 0,
   runtime = environmentRuntimeConfig(),
 ) {
-  const defaultModel = routeTask(task, attempt, escalations);
-  const model = runtime.modelRoutes
-    ? attempt === 2
-      ? runtime.modelRoutes.escalation
-      : ["classify", "extract", "metadata"].includes(task)
-        ? runtime.modelRoutes.fast
-        : ["plan", "blog", "review", "conflict"].includes(task)
-          ? runtime.modelRoutes.quality
-          : runtime.modelRoutes.standard
-    : defaultModel;
-  if (!runtime.verifiedModels.includes(model))
-    throw new Error("MODEL_CAPABILITY_NOT_VERIFIED");
-  return model;
+  const taskClass: TaskClass =
+    task === "chat"
+      ? "chat_operator"
+      : task === "blog"
+        ? "draft_blog"
+        : "draft_social";
+  return resolveRoute(taskClass, runtime).model;
 }
 export async function generate(params: {
   task: string;
