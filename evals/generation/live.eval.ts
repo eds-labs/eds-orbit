@@ -34,6 +34,7 @@ import {
   isLiveRequested,
   parseCandidatesFile,
   planLiveEval,
+  redactSecret,
   renderPlan,
 } from "./live-plan.ts";
 import rawFixtures from "./fixtures-v1.json" with { type: "json" };
@@ -59,12 +60,12 @@ describe("Live generation eval", () => {
         console.log(
           "\nDry run only. To run live, review the plan above, then run:\n" +
             "  ORBIT_EVAL_OPENAI_API_KEY=<key> ORBIT_EVAL_CONFIRM=" +
-            plan.hash +
+            plan.confirmation +
             " pnpm eval:generation",
         );
         return;
       }
-      const apiKey = assertLiveAllowed(env, plan.hash);
+      const apiKey = assertLiveAllowed(env, plan.confirmation);
       // The run must use only the key it was given.
       delete process.env.OPENAI_API_KEY;
       const { cases, datasetVersion } = parseFixtures(rawFixtures);
@@ -81,12 +82,10 @@ describe("Live generation eval", () => {
         });
       } catch (error) {
         // Never let the key reach the test output.
-        const message = String(error instanceof Error ? error.message : error);
-        throw new Error(message.split(apiKey).join("[redacted]"));
+        throw redactSecret(error, apiKey);
       } finally {
         await closeDatabase();
       }
-      expect(report.datasetHash).toBe(plan.hash);
       // Metrics only: no prompts, outputs or key.
       const stamp = evidenceStamp(startedAt);
       await mkdir(evidenceDir, { recursive: true });
@@ -96,6 +95,7 @@ describe("Live generation eval", () => {
         JSON.stringify(
           {
             ...report,
+            confirmation: plan.confirmation,
             maxCostMicros: plan.maxCostMicros,
             worstCaseMicros: plan.worstCaseMicros,
           },
@@ -106,6 +106,8 @@ describe("Live generation eval", () => {
       await writeFile(base + ".md", renderMarkdown(report));
       console.log("\n" + renderMarkdown(report));
       console.log(`Report written to ${base}.json and ${base}.md`);
+      // Checked only after the report is on disk.
+      expect(report.datasetHash).toBe(plan.hash);
       if (report.stoppedReason) {
         console.error(
           `\n!!! EVAL STOPPED EARLY: ${report.stoppedReason} !!!\n` +

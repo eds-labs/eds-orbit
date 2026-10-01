@@ -2,13 +2,19 @@
  * Planning and gating for the manual live generation eval. Pure functions:
  * nothing here reads a database, calls a provider or prints a secret.
  */
+import { createHash } from "node:crypto";
 import { z } from "zod";
 import {
   estimateCost,
   modelRouteSchema,
   type OpenAiRuntimeConfig,
 } from "../../packages/ai/src/index.ts";
-import { datasetHash, type EvalCandidate, type EvalCase } from "./harness.ts";
+import {
+  canonical,
+  datasetHash,
+  type EvalCandidate,
+  type EvalCase,
+} from "./harness.ts";
 
 // Hard ceiling of a live eval; ORBIT_EVAL_MAX_USD can only lower it.
 const CEILING_USD = 5;
@@ -63,7 +69,12 @@ export type LivePlan = {
   // Upper bound of the summed reservation estimates in USD micros.
   worstCaseMicros: number;
   maxCostMicros: number;
+  // Hash of fixtures, candidates, repetitions and ceiling (also in the report).
   hash: string;
+  // Value for ORBIT_EVAL_CONFIRM: binds the hash, the full rate card (the
+  // ceiling is enforced in rate-card micros), its verification date and the
+  // ceiling, so any later price edit invalidates the approval.
+  confirmation: string;
   // Rate card for the harness, with the verification date applied per model.
   runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
 };
@@ -90,6 +101,8 @@ export function planLiveEval(
   now = Date.now(),
 ): LivePlan {
   const verified = new Date(file.verifiedAt).valueOf();
+  // Production only rejects old prices; a future date would never go stale.
+  if (verified > now) throw new Error("EVAL_RATE_CARD_FUTURE");
   if (now - verified > RATE_MAX_AGE_MS) throw new Error("EVAL_RATE_CARD_STALE");
   const models = [
     ...new Set(file.candidates.map((candidate) => candidate.route.model)),
@@ -114,6 +127,12 @@ export function planLiveEval(
         estimateCost(route.model, bytes, route.maxOutputTokens, { rateCard }) *
         file.repetitions;
   }
+  const hash = datasetHash(
+    fixtures.cases,
+    file.candidates,
+    file.repetitions,
+    maxCostMicros,
+  );
   return {
     datasetVersion: fixtures.datasetVersion,
     caseCount: fixtures.cases.length,
@@ -122,12 +141,19 @@ export function planLiveEval(
     calls: fixtures.cases.length * file.candidates.length * file.repetitions,
     worstCaseMicros,
     maxCostMicros,
-    hash: datasetHash(
-      fixtures.cases,
-      file.candidates,
-      file.repetitions,
-      maxCostMicros,
-    ),
+    hash,
+    confirmation: createHash("sha256")
+      .update(
+        JSON.stringify(
+          canonical({
+            datasetHash: hash,
+            rateCard,
+            verifiedAt: file.verifiedAt,
+            maxCostMicros,
+          }),
+        ),
+      )
+      .digest("hex"),
     // The embedding model is priced for the harness, never listed as a route.
     runtime: { verifiedModels: [...models], rateCard },
   };
@@ -141,10 +167,10 @@ export function isLiveRequested(env: LiveEnv) {
 }
 
 /** Returns the key once both gates pass. Error messages never contain it. */
-export function assertLiveAllowed(env: LiveEnv, hash: string): string {
+export function assertLiveAllowed(env: LiveEnv, confirmation: string): string {
   const key = env.ORBIT_EVAL_OPENAI_API_KEY?.trim();
   if (!key) throw new Error("EVAL_KEY_REQUIRED");
-  if (env.ORBIT_EVAL_CONFIRM !== hash)
+  if (env.ORBIT_EVAL_CONFIRM !== confirmation)
     throw new Error("EVAL_CONFIRMATION_MISMATCH");
   return key;
 }
@@ -171,6 +197,7 @@ export function renderPlan(plan: LivePlan): string {
         ]
       : []),
     `  dataset hash: ${plan.hash}`,
+    `  confirmation (ORBIT_EVAL_CONFIRM): ${plan.confirmation}`,
   ].join("\n");
 }
 
@@ -180,4 +207,18 @@ export function evidenceStamp(date: Date) {
     .toISOString()
     .replace(/\.\d{3}Z$/, "Z")
     .replace(/:/g, "-");
+}
+
+/**
+ * Error safe to rethrow: the secret is removed from message and stack and
+ * no cause is kept, so nothing can print it later.
+ */
+export function redactSecret(error: unknown, secret: string): Error {
+  const clean = (text: string) =>
+    secret ? text.split(secret).join("[redacted]") : text;
+  const source = error instanceof Error ? error : null;
+  const safe = new Error(clean(source ? source.message : String(error)));
+  safe.name = source?.name ?? "Error";
+  safe.stack = clean(source?.stack ?? safe.stack ?? "");
+  return safe;
 }

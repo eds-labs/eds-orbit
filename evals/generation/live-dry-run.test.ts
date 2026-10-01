@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import { datasetHash, parseFixtures } from "./harness.ts";
 import {
   assertLiveAllowed,
+  type CandidatesFile,
   isLiveRequested,
   parseCandidatesFile,
   planLiveEval,
+  redactSecret,
   renderPlan,
 } from "./live-plan.ts";
 import rawFixtures from "./fixtures-v1.json" with { type: "json" };
@@ -90,6 +92,73 @@ describe("Live generation eval planning", () => {
     ).not.toThrow();
   });
 
+  it("refuses a future-dated rate card", () => {
+    expect(() =>
+      planLiveEval({}, fixtures, candidates, verifiedAt - 1),
+    ).toThrow("EVAL_RATE_CARD_FUTURE");
+    expect(() =>
+      planLiveEval({}, fixtures, candidates, verifiedAt),
+    ).not.toThrow();
+  });
+
+  it("binds the rate card, its date and the ceiling into the confirmation", () => {
+    const base = planLiveEval({}, fixtures, candidates, now);
+    expect(base.confirmation).toMatch(/^[0-9a-f]{64}$/);
+    expect(base.confirmation).not.toBe(base.hash);
+    expect(
+      planLiveEval(
+        {},
+        structuredClone(fixtures),
+        structuredClone(candidates),
+        now,
+      ).confirmation,
+    ).toBe(base.confirmation);
+    // The confirmation does not depend on when the plan was made.
+    expect(
+      planLiveEval({}, fixtures, candidates, now + 86_400_000).confirmation,
+    ).toBe(base.confirmation);
+
+    const priced = (edit: (card: CandidatesFile["rateCard"]) => void) => {
+      const copy = structuredClone(candidates);
+      edit(copy.rateCard);
+      return planLiveEval({}, fixtures, copy, now);
+    };
+    for (const field of [
+      "inputMicrosPerMillion",
+      "cachedInputMicrosPerMillion",
+      "cacheWriteMicrosPerMillion",
+      "outputMicrosPerMillion",
+    ] as const) {
+      const edited = priced((card) => {
+        card["gpt-6.1-sol"]![field] = card["gpt-6.1-sol"]![field]! + 1;
+      });
+      expect(edited.confirmation).not.toBe(base.confirmation);
+      // Prices are not part of the dataset hash.
+      expect(edited.hash).toBe(base.hash);
+    }
+    // The embedding price is bound as well.
+    expect(
+      priced((card) => {
+        card["text-embedding-3-small"]!.inputMicrosPerMillion += 1;
+      }).confirmation,
+    ).not.toBe(base.confirmation);
+
+    const redated = structuredClone(candidates);
+    redated.verifiedAt = new Date(verifiedAt + 1000).toISOString();
+    const dated = planLiveEval({}, fixtures, redated, now);
+    expect(dated.confirmation).not.toBe(base.confirmation);
+    expect(dated.hash).toBe(base.hash);
+
+    const lowered = planLiveEval(
+      { ORBIT_EVAL_MAX_USD: "4" },
+      fixtures,
+      candidates,
+      now,
+    );
+    expect(lowered.confirmation).not.toBe(base.confirmation);
+    expect(lowered.hash).not.toBe(base.hash);
+  });
+
   it("rejects a candidate without a price and a malformed file", () => {
     const unpriced = structuredClone(candidates);
     unpriced.candidates[0]!.route.model = "gpt-unpriced";
@@ -114,56 +183,92 @@ describe("Live generation eval planning", () => {
     const text = renderPlan(plan);
     expect(text).not.toContain(SYNTHETIC_KEY);
     expect(text).toContain(plan.hash);
+    expect(text).toContain(plan.confirmation);
     expect(text).toContain("64 planned calls");
     expect(text).toContain("terra-default");
   });
 });
 
 describe("Live run gate", () => {
-  const hash = planLiveEval({}, fixtures, candidates, now).hash;
+  const plan = planLiveEval({}, fixtures, candidates, now);
+  const confirmation = plan.confirmation;
 
   it("stays a dry run without key and confirmation", () => {
     expect(isLiveRequested({})).toBe(false);
     expect(isLiveRequested({ ORBIT_EVAL_OPENAI_API_KEY: "" })).toBe(false);
-    expect(isLiveRequested({ ORBIT_EVAL_CONFIRM: hash })).toBe(true);
+    // A whitespace-only key without confirmation is still a dry run.
+    expect(isLiveRequested({ ORBIT_EVAL_OPENAI_API_KEY: "  " })).toBe(false);
+    expect(isLiveRequested({ ORBIT_EVAL_CONFIRM: confirmation })).toBe(true);
     expect(isLiveRequested({ ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY })).toBe(
       true,
     );
   });
 
   it("requires a key", () => {
-    expect(() => assertLiveAllowed({}, hash)).toThrow("EVAL_KEY_REQUIRED");
+    expect(() => assertLiveAllowed({}, confirmation)).toThrow(
+      "EVAL_KEY_REQUIRED",
+    );
     expect(() =>
       assertLiveAllowed(
-        { ORBIT_EVAL_OPENAI_API_KEY: "  ", ORBIT_EVAL_CONFIRM: hash },
-        hash,
+        { ORBIT_EVAL_OPENAI_API_KEY: "  ", ORBIT_EVAL_CONFIRM: confirmation },
+        confirmation,
       ),
     ).toThrow("EVAL_KEY_REQUIRED");
   });
 
-  it("requires the exact confirmation hash", () => {
+  it("requires the exact confirmation, not the dataset hash", () => {
     const key = { ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY };
-    expect(() => assertLiveAllowed(key, hash)).toThrow(
+    expect(() => assertLiveAllowed(key, confirmation)).toThrow(
       "EVAL_CONFIRMATION_MISMATCH",
     );
-    expect(() =>
-      assertLiveAllowed({ ...key, ORBIT_EVAL_CONFIRM: "0".repeat(64) }, hash),
-    ).toThrow("EVAL_CONFIRMATION_MISMATCH");
-    expect(() =>
-      assertLiveAllowed({ ...key, ORBIT_EVAL_CONFIRM: hash + " " }, hash),
-    ).toThrow("EVAL_CONFIRMATION_MISMATCH");
+    for (const wrong of ["0".repeat(64), confirmation + " ", plan.hash])
+      expect(() =>
+        assertLiveAllowed({ ...key, ORBIT_EVAL_CONFIRM: wrong }, confirmation),
+      ).toThrow("EVAL_CONFIRMATION_MISMATCH");
   });
 
   it("returns the key only for a matching confirmation and never echoes it in errors", () => {
     const env = {
       ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY,
-      ORBIT_EVAL_CONFIRM: hash,
+      ORBIT_EVAL_CONFIRM: confirmation,
     };
-    expect(assertLiveAllowed(env, hash)).toBe(SYNTHETIC_KEY);
+    expect(assertLiveAllowed(env, confirmation)).toBe(SYNTHETIC_KEY);
+    let thrown: unknown = null;
     try {
-      assertLiveAllowed({ ...env, ORBIT_EVAL_CONFIRM: "wrong" }, hash);
+      assertLiveAllowed({ ...env, ORBIT_EVAL_CONFIRM: "wrong" }, confirmation);
     } catch (error) {
-      expect(String(error)).not.toContain(SYNTHETIC_KEY);
+      thrown = error;
     }
+    expect(thrown).toBeInstanceOf(Error);
+    expect(String(thrown)).toContain("EVAL_CONFIRMATION_MISMATCH");
+    expect(String(thrown)).not.toContain(SYNTHETIC_KEY);
+  });
+});
+
+describe("Secret redaction", () => {
+  it("removes the key from message and stack and drops the cause", () => {
+    const original = new Error(`provider rejected ${SYNTHETIC_KEY} twice`, {
+      cause: new Error(SYNTHETIC_KEY),
+    });
+    original.stack = `Error: ${SYNTHETIC_KEY}\n    at call (${SYNTHETIC_KEY}.ts:1:1)`;
+    const safe = redactSecret(original, SYNTHETIC_KEY);
+    expect(safe).toBeInstanceOf(Error);
+    expect(safe).not.toBe(original);
+    expect(safe.message).toBe("provider rejected [redacted] twice");
+    expect(safe.stack).not.toContain(SYNTHETIC_KEY);
+    expect(safe.stack).toContain("[redacted]");
+    expect(safe.cause).toBeUndefined();
+    expect(
+      JSON.stringify(safe, Object.getOwnPropertyNames(safe)),
+    ).not.toContain(SYNTHETIC_KEY);
+  });
+
+  it("handles non-Error values and keeps other text", () => {
+    expect(redactSecret(`bad ${SYNTHETIC_KEY}`, SYNTHETIC_KEY).message).toBe(
+      "bad [redacted]",
+    );
+    expect(
+      redactSecret(new Error("EVAL_DATABASE_NOT_LOCAL"), SYNTHETIC_KEY).message,
+    ).toBe("EVAL_DATABASE_NOT_LOCAL");
   });
 });
