@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   fetchCalls: [] as string[],
   driveFiles: {} as Record<string, any>,
   failUpload: false,
+  tokenFailure: null as null | { status: number; body?: unknown },
 }));
 vi.mock("../../../../packages/db/src/index.ts", () => ({
   scoped: async (
@@ -123,6 +124,7 @@ import {
   rootCandidates,
   saveGeneratedAsset,
   markSyncFailed,
+  testDriveConnection,
   uploadUserRaster,
 } from "./google-drive.ts";
 import {
@@ -136,11 +138,20 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
     state.fetchCalls = [];
     state.driveFiles = structuredClone(files);
     state.failUpload = false;
+    state.tokenFailure = null;
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string | URL, options?: RequestInit) => {
         const address = String(url);
         state.fetchCalls.push(address);
+        if (
+          address.includes("oauth2.googleapis.com/token") &&
+          state.tokenFailure
+        )
+          return new Response(JSON.stringify(state.tokenFailure.body ?? {}), {
+            status: state.tokenFailure.status,
+            headers: { "Content-Type": "application/json" },
+          });
         if (address.includes("oauth2.googleapis.com/token"))
           return json({
             access_token: "synthetic-access",
@@ -212,6 +223,81 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
     ).rejects.toMatchObject({ code: "GOOGLE_DRIVE_OAUTH_STATE_INVALID" });
     await disconnect(scope);
     expect((await connectionStatus(scope)).connected).toBe(false);
+  });
+  it("records a rejected token refresh and clears it after a successful refresh", async () => {
+    add("drive_connection", {
+      account: "owner@example.invalid",
+      encryptedRefreshToken: encrypt("synthetic-refresh", "a".repeat(64)),
+    });
+    add("drive_storage", { rootFolderId: root, enabled: true });
+    const connection = () =>
+      state.rows.find((r) => r.kind === "drive_connection");
+    // A successful refresh without a recorded failure does not write.
+    await testDriveConnection(scope);
+    expect(connection().version).toBe(1);
+    // Transient Google errors are not a reconnect signal.
+    state.tokenFailure = { status: 503 };
+    await expect(testDriveConnection(scope)).rejects.toMatchObject({
+      code: "GOOGLE_DRIVE_OAUTH_FAILED",
+    });
+    expect((await connectionStatus(scope)).reconnectRequired).toBe(false);
+    state.tokenFailure = {
+      status: 400,
+      body: {
+        error: "invalid_grant",
+        error_description: "Token has been expired or revoked.",
+      },
+    };
+    await expect(testDriveConnection(scope)).rejects.toMatchObject({
+      code: "GOOGLE_DRIVE_OAUTH_FAILED",
+    });
+    expect(await connectionStatus(scope)).toMatchObject({
+      connected: true,
+      reconnectRequired: true,
+      lastRefreshErrorCode: "invalid_grant",
+      account: "owner@example.invalid",
+    });
+    expect(Date.parse(data(connection()).lastRefreshFailedAt)).toBeGreaterThan(
+      0,
+    );
+    expect(JSON.stringify(connection())).not.toContain("expired or revoked");
+    // Unknown provider error strings are reduced to the HTTP status.
+    state.tokenFailure = { status: 401, body: { error: "<script>" } };
+    await expect(testDriveConnection(scope)).rejects.toMatchObject({
+      code: "GOOGLE_DRIVE_OAUTH_FAILED",
+    });
+    expect((await connectionStatus(scope)).lastRefreshErrorCode).toBe(
+      "HTTP_401",
+    );
+    state.tokenFailure = null;
+    await testDriveConnection(scope);
+    expect(await connectionStatus(scope)).toMatchObject({
+      connected: true,
+      reconnectRequired: false,
+      lastRefreshFailedAt: null,
+      lastRefreshErrorCode: null,
+    });
+    expect(data(connection()).encryptedRefreshToken).toBeTruthy();
+  });
+  it("clears a recorded refresh failure on reconnect", async () => {
+    add("drive_connection", {
+      account: "owner@example.invalid",
+      encryptedRefreshToken: encrypt("revoked-refresh", "a".repeat(64)),
+      lastRefreshFailedAt: "2026-10-01T08:00:00.000Z",
+      lastRefreshErrorCode: "invalid_grant",
+    });
+    expect((await connectionStatus(scope)).reconnectRequired).toBe(true);
+    const { url } = await beginConnect(scope);
+    await finishConnect(
+      scope,
+      new URL(url).searchParams.get("state")!,
+      "synthetic-code",
+    );
+    expect(await connectionStatus(scope)).toMatchObject({
+      reconnectRequired: false,
+      lastRefreshFailedAt: null,
+      lastRefreshErrorCode: null,
+    });
   });
   it("does not choose an ambiguous matching project folder", async () => {
     state.driveFiles.duplicateFolderABC123 = {

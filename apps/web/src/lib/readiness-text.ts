@@ -69,6 +69,8 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
     DRIVE_CLIENT_NOT_CONFIGURED: "Google Drive is not set up on the server.",
     DRIVE_NOT_CONNECTED: "Connect a Google Drive account.",
     DRIVE_ROOT_REQUIRED: "Choose and enable a Drive root folder.",
+    GOOGLE_DRIVE_RECONNECT_REQUIRED:
+      "Google rejected the Drive access token. Reconnect Google Drive.",
     POSTIZ_NOT_CONNECTED: "Connect and verify Postiz.",
     POSTIZ_CHANNELS_NOT_ASSIGNED: "Assign Postiz channels to this project.",
     POSTIZ_DRAFTS_DISABLED:
@@ -102,6 +104,8 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
       "Google Drive ist auf dem Server nicht eingerichtet.",
     DRIVE_NOT_CONNECTED: "Google-Drive-Konto verbinden.",
     DRIVE_ROOT_REQUIRED: "Drive-Stammordner wählen und aktivieren.",
+    GOOGLE_DRIVE_RECONNECT_REQUIRED:
+      "Google hat den Drive-Zugriff abgelehnt. Google Drive erneut verbinden.",
     POSTIZ_NOT_CONNECTED: "Postiz verbinden und prüfen.",
     POSTIZ_CHANNELS_NOT_ASSIGNED: "Postiz-Kanäle diesem Projekt zuweisen.",
     POSTIZ_DRAFTS_DISABLED:

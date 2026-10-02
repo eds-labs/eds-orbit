@@ -44,6 +44,10 @@ export type ReadinessInputs = {
   driveConfigured: boolean;
   driveConnected: boolean;
   driveRootConfigured: boolean;
+  // Google rejected the last refresh; cleared on success or reconnect.
+  driveReconnectRequired: boolean;
+  // Scheduled or live posts would read Drive-only assets at publish time.
+  publishingUsesDriveAssets: boolean;
   postizConnected: boolean;
   postizChannelsAssigned: boolean;
   postizDraftsEnabled: boolean;
@@ -91,6 +95,11 @@ export function actionReadiness(
     !i.postizWriteVerified && "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
     !i.postizChannelWriteVerified && "CHANNEL_WRITE_VERIFICATION_REQUIRED",
   ];
+  const driveReconnect =
+    i.driveConnected &&
+    i.driveReconnectRequired &&
+    "GOOGLE_DRIVE_RECONNECT_REQUIRED";
+  const publishDrive = i.publishingUsesDriveAssets && driveReconnect;
   return {
     chat: result(
       "internal",
@@ -135,6 +144,7 @@ export function actionReadiness(
         !i.driveConfigured && "DRIVE_CLIENT_NOT_CONFIGURED",
         !i.driveConnected && "DRIVE_NOT_CONNECTED",
         !i.driveRootConfigured && "DRIVE_ROOT_REQUIRED",
+        driveReconnect,
       ],
       ["DRIVE_CLIENT_NOT_CONFIGURED", "DRIVE_NOT_CONNECTED"],
     ),
@@ -151,12 +161,12 @@ export function actionReadiness(
     ),
     postiz_schedule: result(
       "external",
-      [paused, ...postizWrite, ...live],
+      [paused, ...postizWrite, publishDrive, ...live],
       ["POSTIZ_NOT_CONNECTED"],
     ),
     postiz_live: result(
       "external",
-      [paused, ...postizWrite, ...live],
+      [paused, ...postizWrite, publishDrive, ...live],
       ["POSTIZ_NOT_CONNECTED"],
     ),
     matomo: result(

@@ -15,6 +15,7 @@ import {
   list,
   update,
 } from "../shared.ts";
+import { driveReconnectRequired } from "./drive-readiness.ts";
 
 const scopeUrl = "https://www.googleapis.com/auth/drive";
 const folderMime = "application/vnd.google-apps.folder";
@@ -80,13 +81,41 @@ async function googleJson<T>(
     );
   return response.json() as Promise<T>;
 }
-async function tokenRequest(body: URLSearchParams) {
+// Bounded OAuth error codes; anything else is stored as its HTTP status.
+const oauthErrorCodes = new Set([
+  "invalid_grant",
+  "invalid_client",
+  "unauthorized_client",
+  "invalid_request",
+  "invalid_scope",
+  "unsupported_grant_type",
+]);
+async function oauthErrorCode(response: Response) {
+  const body = (await response.json().catch(() => null)) as {
+    error?: unknown;
+  } | null;
+  return typeof body?.error === "string" && oauthErrorCodes.has(body.error)
+    ? body.error
+    : `HTTP_${response.status}`;
+}
+/**
+ * `onRejected` runs when Google rejects the grant (400/401/403). Rate limits,
+ * server errors and timeouts are transient and are not recorded.
+ */
+async function tokenRequest(
+  body: URLSearchParams,
+  onRejected?: (code: string) => Promise<void>,
+) {
   const response = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     body,
     signal: AbortSignal.timeout(20000),
   });
-  if (!response.ok) throw new DomainError("GOOGLE_DRIVE_OAUTH_FAILED", 502);
+  if (!response.ok) {
+    if (onRejected && [400, 401, 403].includes(response.status))
+      await onRejected(await oauthErrorCode(response));
+    throw new DomainError("GOOGLE_DRIVE_OAUTH_FAILED", 502);
+  }
   return z
     .object({ access_token: z.string(), refresh_token: z.string().optional() })
     .parse(await response.json());
@@ -104,6 +133,9 @@ export async function connectionStatus(scope: Scope) {
         loadConfig().GOOGLE_DRIVE_CLIENT_SECRET,
       ),
       connected: Boolean(connection && data(connection).encryptedRefreshToken),
+      reconnectRequired: driveReconnectRequired(connection),
+      lastRefreshFailedAt: data(connection).lastRefreshFailedAt ?? null,
+      lastRefreshErrorCode: data(connection).lastRefreshErrorCode ?? null,
       account: data(connection).account ?? null,
       rootFolderId: data(storage).rootFolderId ?? null,
       brandLogoFolderId: data(storage).brandLogoFolderId ?? null,
@@ -218,17 +250,56 @@ async function accessToken(scope: Scope) {
     one(tx, scope, "drive_connection"),
   );
   if (!row) throw new DomainError("GOOGLE_DRIVE_NOT_CONNECTED", 409);
-  const refresh = decrypt(data(row).encryptedRefreshToken, c.key);
-  return (
-    await tokenRequest(
-      new URLSearchParams({
-        refresh_token: refresh,
-        client_id: c.clientId,
-        client_secret: c.clientSecret,
-        grant_type: "refresh_token",
+  const stored = data(row).encryptedRefreshToken;
+  const refresh = decrypt(stored, c.key);
+  const tokens = await tokenRequest(
+    new URLSearchParams({
+      refresh_token: refresh,
+      client_id: c.clientId,
+      client_secret: c.clientSecret,
+      grant_type: "refresh_token",
+    }),
+    (code) =>
+      recordRefreshState(scope, stored, {
+        lastRefreshFailedAt: new Date().toISOString(),
+        lastRefreshErrorCode: code,
       }),
-    )
-  ).access_token;
+  );
+  // Only write when a recorded failure has to be cleared.
+  if (data(row).lastRefreshFailedAt)
+    await recordRefreshState(scope, stored, null);
+  return tokens.access_token;
+}
+/**
+ * Persist or clear the last refresh failure so readiness can report a
+ * required reconnect without calling Google. Skips the write if the token
+ * was replaced meanwhile (reconnect or disconnect). Recording must never hide
+ * the original OAuth outcome, so its own errors are only logged.
+ */
+async function recordRefreshState(
+  scope: Scope,
+  encryptedRefreshToken: string,
+  failure: { lastRefreshFailedAt: string; lastRefreshErrorCode: string } | null,
+) {
+  try {
+    await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const row = await one(tx, scope, "drive_connection");
+      if (!row || data(row).encryptedRefreshToken !== encryptedRefreshToken)
+        return;
+      const {
+        lastRefreshFailedAt: _at,
+        lastRefreshErrorCode: _code,
+        ...rest
+      } = data(row);
+      if (!failure && !_at) return;
+      await update(tx, scope, row, failure ? { ...rest, ...failure } : rest);
+    });
+  } catch (error) {
+    console.error(
+      "Orbit Drive refresh state write failed",
+      error instanceof DomainError ? error.code : "unknown",
+    );
+  }
 }
 async function file(token: string, fileId: string): Promise<DriveFile> {
   return googleJson(
