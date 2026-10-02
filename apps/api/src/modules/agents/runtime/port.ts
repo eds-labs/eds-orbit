@@ -22,8 +22,10 @@ export type RuntimeLimits = { maxModelCalls: number; maxToolCalls: number };
 
 export type TurnInput = {
   input: unknown[];
+  // Names of the tools the host offered for this turn; the host also owns their definitions.
   model: BudgetedModel;
   tools: ToolHost;
+  toolNames: readonly string[];
   limits: RuntimeLimits;
   signal: AbortSignal;
 };
@@ -32,6 +34,6 @@ export type TurnResult = { modelCalls: number; toolCalls: number };
 
 /** Runs one chat turn's model/tool loop; budget, policy and persistence stay with the host. */
 export interface AgentRuntime {
-  readonly name: "legacy_responses";
+  readonly name: "legacy_responses" | "openai_agents_sdk";
   runTurn(turn: TurnInput): Promise<TurnResult>;
 }

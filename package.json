@@ -42,6 +42,7 @@
     "bullmq": "6.3.6",
     "pg": "8.23.0",
     "openai": "7.25.0",
+    "@openai/agents-core": "0.18.0",
     "zod": "4.6.5",
     "@fastify/cors": "11.3.0",
     "@fastify/rate-limit": "11.2.0",
