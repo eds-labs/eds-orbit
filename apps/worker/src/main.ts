@@ -3,6 +3,10 @@ import {
   nextMatomoRunAt,
 } from "../../api/src/modules/matomo-schedule.ts";
 import {
+  checkPostizQueue,
+  nextPostizQueueCheckAt,
+} from "../../api/src/modules/postiz-queue-watch.ts";
+import {
   saveGeneratedAsset,
   markSyncFailed,
   connectionStatus,
@@ -351,6 +355,7 @@ async function processProject(p: DueProject, claimed: Date) {
         await nextSweepAt(tx, scope),
         // Not gated by pause, matching runScheduledMatomo.
         await nextMatomoRunAt(tx, scope),
+        await nextPostizQueueCheckAt(tx, scope),
       ];
       // Crash recovery preserves the intent and never retries an ambiguous external write.
       const running = await tx.entity.findMany({
@@ -452,6 +457,26 @@ async function processProject(p: DueProject, claimed: Date) {
   }
   // Saved Matomo imports run at most twice a day per project.
   await runScheduledMatomo(scope).catch(() => {});
+  // Read-only Postiz queue check; its result feeds /api/health/postiz.
+  const postizQueue = await checkPostizQueue(scope).catch(
+    () => ({ checked: false }) as const,
+  );
+  if (postizQueue.checked) {
+    const key = "orbit:postiz-queue:" + config.PUBLISHER_INSTANCE_ID;
+    await connection
+      .multi()
+      .hset(
+        key,
+        p.id,
+        JSON.stringify({
+          status: postizQueue.status,
+          checkedAt: new Date().toISOString(),
+        }),
+      )
+      .expire(key, 3600)
+      .exec()
+      .catch(() => {});
+  }
   let drive = driveRetryChecks.get(p.id);
   if (!drive || Date.now() - drive.at > DRIVE_CHECK_MS) {
     // Gate the check itself, not only enabled projects, so disabled Drive costs no transaction per tick.

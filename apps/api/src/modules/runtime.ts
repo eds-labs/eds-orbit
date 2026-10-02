@@ -1,16 +1,35 @@
 import Redis from "ioredis";
+import { postizQueueHealth } from "./postiz-queue-watch.ts";
 let redis: Redis | undefined;
-export async function runtimeHealth() {
-  try {
-    if(!redis){redis = new Redis(process.env.REDIS_URL!, {
+function client() {
+  if (!redis) {
+    redis = new Redis(process.env.REDIS_URL!, {
       maxRetriesPerRequest: 1,
       connectTimeout: 2000,
       commandTimeout: 2000,
       retryStrategy: () => null,
       lazyConnect: true,
     });
-    redis.on("error", () => {});}
-    const raw = await redis.get(
+    redis.on("error", () => {});
+  }
+  return redis;
+}
+/** Aggregated worker queue check results; "unknown" when no fresh check exists. */
+export async function postizQueueState() {
+  try {
+    return postizQueueHealth(
+      await client().hgetall(
+        "orbit:postiz-queue:" + process.env.PUBLISHER_INSTANCE_ID,
+      ),
+      new Date(),
+    );
+  } catch {
+    return "unknown" as const;
+  }
+}
+export async function runtimeHealth() {
+  try {
+    const raw = await client().get(
       "orbit:worker:health:" + process.env.PUBLISHER_INSTANCE_ID,
     );
     const heartbeat = raw ? JSON.parse(raw) : null;
