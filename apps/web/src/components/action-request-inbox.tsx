@@ -1,4 +1,5 @@
 "use client";
+import Image from "next/image";
 import { useState } from "react";
 import { collectionPath, post, useResource, usd } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
@@ -22,6 +23,7 @@ type ActionRequestItem = {
     scheduledAt?: string;
     body?: string;
     executionMode?: "test" | "live";
+    assetId?: string | null;
     packageGoal?: string | null;
   };
 };
@@ -116,6 +118,15 @@ export function ActionRequestInbox() {
               <blockquote className="chat-package-draft">
                 {item.summary.body}
               </blockquote>
+              {item.summary.assetId && (
+                <Image
+                  unoptimized
+                  src={`/api/projects/${project.id}/assets/${item.summary.assetId}/content`}
+                  width={160}
+                  height={160}
+                  alt={de ? "Bild des Beitrags" : "Post image"}
+                />
+              )}
               <p className="chat-package-note">
                 {de
                   ? "Mit der Freigabe bestätigst du genau diesen Text und Termin. Alle Prüfungen laufen direkt vor der Übergabe erneut."

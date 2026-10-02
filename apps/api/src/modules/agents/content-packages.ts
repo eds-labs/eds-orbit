@@ -441,6 +441,7 @@ export async function packageSnapshot(
           body: data(draft).body,
           status: data(draft).status,
           scheduledAt: data(draft).scheduledAt ?? null,
+          assetId: data(draft).assetId ?? null,
           reused,
         };
         review = data(draft).review ?? null;
@@ -588,6 +589,8 @@ async function imageState(
     assetId: null as string | null,
     href: null as string | null,
     errorCode: null as string | null,
+    assetVersion: null as number | null,
+    rightsApproved: false,
   };
   const step = steps.find((candidate) => candidate.kind === "image");
   if (!step) return { ...base, status: "planned" };
@@ -607,6 +610,11 @@ async function imageState(
       ...base,
       status: "generated",
       assetId: asset.id,
+      assetVersion: asset.version,
+      // The owner's rights decision on the asset; only then can drafts use it.
+      rightsApproved:
+        data(asset).usageApproved === true &&
+        data(asset).assetStatus === "approved",
       href: `/api/projects/${scope.projectId}/assets/${asset.id}/content`,
     };
   if (request.status === "canceled") return { ...base, status: "canceled" };

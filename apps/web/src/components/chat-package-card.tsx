@@ -42,6 +42,7 @@ export type ContentPackage = {
       body: string;
       status: string;
       reused?: boolean;
+      assetId?: string | null;
     } | null;
     review: { valid: boolean; problems: string[] } | null;
     revisions?: number;
@@ -58,6 +59,8 @@ export type ContentPackage = {
     maxCostMicros: number;
     status: ImageStatus;
     assetId: string | null;
+    assetVersion?: number | null;
+    rightsApproved?: boolean;
     href: string | null;
     errorCode: string | null;
   } | null;
@@ -143,6 +146,9 @@ export function PackageCard({
   pending,
   onStart,
   onCancel,
+  canApproveRights = false,
+  onApproveRights,
+  onAttachImage,
 }: {
   pkg: ContentPackage;
   de: boolean;
@@ -150,7 +156,23 @@ export function PackageCard({
   pending: boolean;
   onStart: (pkg: ContentPackage) => void;
   onCancel: (pkg: ContentPackage) => void;
+  canApproveRights?: boolean;
+  onApproveRights?: (pkg: ContentPackage) => void;
+  onAttachImage?: (pkg: ContentPackage, deliverableKeys: string[]) => void;
 }) {
+  const image = pkg.image;
+  // Drafts that could still take the rights-approved image.
+  const withoutImage =
+    image?.status === "generated" && image.rightsApproved
+      ? pkg.deliverables.filter(
+          (deliverable) =>
+            deliverable.content &&
+            deliverable.content.assetId !== image.assetId &&
+            !["scheduled", "sending", "published", "published_test"].includes(
+              deliverable.schedule?.status ?? "",
+            ),
+        )
+      : [];
   const tone =
     pkg.status === "completed"
       ? "success"
@@ -200,6 +222,23 @@ export function PackageCard({
                 {deliverable.content.body}
               </blockquote>
             )}
+            {deliverable.content?.assetId && (
+              <p className="chat-package-note">
+                {de ? "Mit Paketbild" : "With package image"}
+              </p>
+            )}
+            {withoutImage.includes(deliverable) &&
+              canStart &&
+              onAttachImage && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onAttachImage(pkg, [deliverable.key])}
+                  disabled={pending}
+                >
+                  {de ? "Paketbild anhängen" : "Attach package image"}
+                </Button>
+              )}
             {Boolean(deliverable.revisions) && (
               <p className="chat-package-note">
                 {de
@@ -288,6 +327,31 @@ export function PackageCard({
           {pkg.image.errorCode && (
             <Alert kind="warning">{pkg.image.errorCode}</Alert>
           )}
+          {pkg.image.status === "generated" && (
+            <p className="chat-package-note">
+              {pkg.image.rightsApproved
+                ? de
+                  ? "Nutzungsrechte bestätigt."
+                  : "Usage rights approved."
+                : de
+                  ? "Erst nach der Rechtebestätigung eines Owners an Beiträge anhängbar."
+                  : "Can be attached to posts once an owner approved its usage rights."}
+            </p>
+          )}
+          <div className="chat-links">
+            {pkg.image.status === "generated" &&
+              !pkg.image.rightsApproved &&
+              canApproveRights &&
+              onApproveRights && (
+                <Button
+                  variant="outline"
+                  onClick={() => onApproveRights(pkg)}
+                  disabled={pending}
+                >
+                  {de ? "Nutzungsrechte bestätigen" : "Approve usage rights"}
+                </Button>
+              )}
+          </div>
         </div>
       )}
       {pkg.status === "proposed" && (

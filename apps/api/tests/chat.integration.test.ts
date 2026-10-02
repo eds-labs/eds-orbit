@@ -369,6 +369,20 @@ describe.skipIf(!enabled)("Orbit Chat private and idempotent API", () => {
     expect((await cancel(viewerCookie)).statusCode).toBe(403);
     expect((await cancel(ownerCookie)).statusCode).toBe(404);
   });
+  it("attaches a package image only with write access and the package flag", async () => {
+    const attach = (cookie: string, payload: unknown) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/chat/packages/${randomUUID()}/attach-image`,
+        headers: { origin, cookie },
+        payload: payload as Record<string, unknown>,
+      });
+    const body = { deliverableKeys: ["x"] };
+    expect((await attach(viewerCookie, body)).statusCode).toBe(403);
+    const disabled = await attach(ownerCookie, body);
+    expect(disabled.statusCode).toBe(409);
+    expect(disabled.json().error.code).toBe("CONTENT_PACKAGES_DISABLED");
+  });
   it("lists pending owner decisions only for owners", async () => {
     const list = (cookie: string) =>
       app.inject({

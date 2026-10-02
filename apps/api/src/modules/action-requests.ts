@@ -326,6 +326,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
         scheduledAt: d.payload?.scheduledAt,
         body: d.payload?.body,
         executionMode: d.payload?.executionMode,
+        assetId: d.payload?.assetId,
         packageGoal: pkg ? data(pkg).goal : null,
       },
     });

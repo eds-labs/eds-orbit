@@ -358,6 +358,137 @@ test("starts a content package with one click and shows both drafts", async ({
   );
 });
 
+test("owner approves the package image's rights and attaches it to one draft", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8501";
+  let rights: Record<string, unknown> | null = null;
+  let attached: Record<string, unknown> | null = null;
+  const draft = (key: string, channelName: string, body: string) => ({
+    key,
+    channelId: key,
+    channelName,
+    platform: key,
+    plannedSlotAt: null,
+    status: "drafted",
+    errorCode: null,
+    content: {
+      id: `${key}-content`,
+      version: 2,
+      body,
+      status: "reviewed",
+      assetId: attached && key === "x" ? "asset-1" : null,
+    },
+    review: { valid: true, problems: [] },
+    revisions: 0,
+    schedule: null,
+  });
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              id: conversationId,
+              title: "Synthetic image package",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic image package",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [],
+          runs: [],
+          proposals: [],
+          packages: [
+            {
+              id: "package-2",
+              goal: "Announce that beta access is open",
+              status: "completed",
+              ceilingMicros: 120000,
+              image: {
+                prompt: "Abstract open door of soft light, no text",
+                maxCostMicros: 50000,
+                status: "generated",
+                assetId: "asset-1",
+                assetVersion: 1,
+                rightsApproved: Boolean(rights),
+                href: `/api/projects/${user.projectId}/assets/asset-1/content`,
+                errorCode: null,
+              },
+              actionRequest: null,
+              deliverables: [
+                draft("x", "Synthetic X", "Beta access is open. Learn more."),
+                draft(
+                  "telegram",
+                  "Synthetic Telegram",
+                  "Beta access is now open for teams.",
+                ),
+              ],
+            },
+          ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/actions/asset-status`,
+    (route) => {
+      rights = route.request().postDataJSON();
+      return route.fulfill({ json: { id: "asset-1", version: 2 } });
+    },
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/packages/package-2/attach-image`,
+    (route) => {
+      attached = route.request().postDataJSON();
+      return route.fulfill({ json: { id: "package-2" } });
+    },
+  );
+  await page.goto("/chat");
+  await page
+    .getByRole("button", { name: "Synthetic image package", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "Content package" });
+  await expect(
+    card.getByText(/once an owner approved its usage rights/),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Attach package image" }),
+  ).toHaveCount(0);
+  await card.getByRole("button", { name: "Approve usage rights" }).click();
+  await expect
+    .poll(() => rights)
+    .toEqual({
+      assetId: "asset-1",
+      version: 1,
+      assetStatus: "approved",
+      confirmUsageRights: true,
+    });
+  await expect(card.getByText("Usage rights approved.")).toBeVisible();
+  await card
+    .getByRole("button", { name: "Attach package image" })
+    .first()
+    .click();
+  await expect.poll(() => attached).toEqual({ deliverableKeys: ["x"] });
+  await expect(card.getByText("With package image")).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Attach package image" }),
+  ).toHaveCount(1);
+});
+
 test("cancels a running content package and shows what stopped", async ({
   page,
 }) => {
@@ -549,6 +680,7 @@ test("owner schedules an exact package post from the approvals inbox", async ({
                     scheduledAt: "2026-10-05T07:00:00.000Z",
                     body: "Beta access is open. Learn more.",
                     executionMode: "test",
+                    assetId: "asset-1",
                     packageGoal: "Announce that beta access is open",
                   },
                 },
@@ -575,6 +707,7 @@ test("owner schedules an exact package post from the approvals inbox", async ({
   await expect(
     inbox.getByText(/Approving confirms exactly this text and slot/),
   ).toBeVisible();
+  await expect(inbox.getByRole("img", { name: "Post image" })).toBeVisible();
   await inbox.getByRole("button", { name: "Approve" }).click();
   await expect
     .poll(() => decision)
