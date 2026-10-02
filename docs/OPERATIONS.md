@@ -46,6 +46,10 @@ For each project with a verified Postiz connector and assigned channels, the wor
 
 The worker also writes each project's result to the Redis hash `orbit:postiz-queue:<PUBLISHER_INSTANCE_ID>`. The public `GET /api/health/postiz` returns `{"status":"ok"}`, `{"status":"unknown"}` (no check within the last 30 minutes, for example no assigned channel) with HTTP 200, or `{"status":"stalled"}` with HTTP 503. Point an external monitor (Uptime Kuma) at it with an interval of 5 minutes. When it alerts: in Coolify open the Postiz terminal, run `pm2 logs orchestrator --lines 30 --nostream`, and if it shows no "Nest application successfully started" run `pm2 restart orchestrator`. Overdue posts are sent immediately afterwards; delete queued test posts in Postiz first. After every Postiz restart or redeploy, check the orchestrator log once.
 
+## Content packages (Orbit Core)
+
+`ORBIT_CONTENT_PACKAGES=true` lets Orbit Chat offer `request_content_package` and `package_status` (default `false`). A package is one draft-only mission per channel; it starts only after the requesting user clicks "Start package" on its card, which decides its `content_package.start` action request. Drafts are prepared immediately through the normal generation path and share the run key `package:<id>`; nothing is reviewed for publishing, scheduled or published. Turning the flag off stops new packages and new starts; already started packages finish as ordinary draft-only missions. No migration is involved, so a rollback is a revert.
+
 ## Failure and recovery
 
 Pause before intervention. Unknown publication or Slack handoff must remain unknown until observed; do not create a fresh job to resend it. Known publication IDs are read-polled at most eight times with bounded delay. Postiz group cancellation remains a visible manual provider action, because current group scope cannot be proven safely from the list contract.
