@@ -313,34 +313,36 @@ Migrationsrisiko, Security Regression oder unklarem Production State.
 
 # 8. Current Capability Matrix
 
-Status as observed on 2026-09-28 19:35 CEST after PR #11 and PR #12. Coolify deployed `9ec09bb`. The single real internal Telegram draft passed claim review after an owner edit to the verbatim Fact wording and owner body review, and exported as a draft bundle with the approved logo. Rows below that predate this entry keep their earlier evidence unless updated.
+Status as observed on 2026-10-02 after the Phase 11 autopilot go-live (`c8cfeec`), the policy extension and PR #26 (`9979ad3`). Earlier evidence: the final uLiquid acceptance run passed on `5587da6` (2026-09-30), the first weekly Telegram/X series became Postiz drafts (2026-09-30) and both channels passed public write and media verification (2026-10-02). Rows not mentioned in those entries keep their earlier evidence.
 `DEPLOYED` means the code is in the running revision; it does not mean a
 provider action is enabled. `TESTED` records local or automated checks, not
 live uLiquid acceptance.
 
 | Capability | IMPLEMENTED | TESTED | DEPLOYED | ACCEPTED uLiquid | Blocker / evidence |
 | --- | --- | --- | --- | --- | --- |
-| Orbit Chat | YES | YES | YES | PARTIAL | Exact-key hybrid fact retrieval, approved asset-ID lookup and the confirmed proposal passed live. Its Mission generated one draft through the approved recovery, but review did not pass. |
-| OpenAI text generation | YES | YES | YES | PARTIAL | The recovery Job `b056b9df-732b-45a1-b2c8-7c2bfecdf721` completed one attempt with `gpt-5.6-terra`. Its generation reservation settled 5,158 USD micros and its retrieval reservation settled 1 USD micro. The earlier blocked Job remains unchanged. |
+| Orbit Chat | YES | YES | YES | YES | The final acceptance run on `5587da6` (2026-09-30) went from a Chat request through proposal confirmation and Mission to a reviewed draft without owner edits. |
+| OpenAI text generation | YES | YES | YES | YES | Final acceptance run and the weekly series (2026-09-30) generated reviewed drafts with `gpt-5.6-terra` at 6,000–7,650 USD micros per draft; settled costs are recorded per run. |
 | Knowledge ingestion | YES | YES | YES | PARTIAL | Official public platform page was reviewed on 2026-09-26; Orbit still reports five stale sources and one dependent content item with missing evidence. This review does not clear their sync warnings. |
 | Hybrid retrieval | YES | YES | YES | PARTIAL | Exact-key Mission retrieval returned ready public Evidence from active generation 2. The selected Evidence omitted the CTA Fact referenced by the generated claim; no new RAG evaluation or index activation occurred. |
-| Chat and Mission retrieval alignment | YES | YES | YES | PARTIAL | The deployed exact-key correction produced ready public Evidence with two `product.user_control` Facts. The model also emitted a CTA claim against `url.beta_registration`, which is absent from that Evidence pack, so claim review fails. |
+| Chat and Mission retrieval alignment | YES | YES | YES | YES | The final acceptance Mission carried `factKeys` `url.beta_registration` and `product.user_control`; Evidence and claim ledger matched and review passed without problems. |
 | Live RAG evaluation | YES | YES | YES | PARTIAL | Local gates passed; existing generation 2 live evaluation: 60 cases, passed, MRR 0.85417. |
 | Marketing profile | YES | YES | YES | PARTIAL | Live profile v2 now approves the exact `Explore the beta` CTA and retains the existing guardrails. An older profile-v1 test draft moved to needs review. Generation contract is not accepted. |
-| Shared generation contract | YES | YES | YES | PARTIAL | Policy, profile v2, assigned Telegram channel, official target and approved logo passed the live one-draft run. Claim review blocked acceptance. |
-| Channel-aware social rules | YES | YES | YES | PARTIAL | The live draft uses the assigned Telegram channel and official beta URL. Review remains blocked and no publication intent exists. |
+| Shared generation contract | YES | YES | YES | YES | Policy, profile v2, assigned channel, official target and approved logo were used in the final acceptance run and the weekly series. |
+| Channel-aware social rules | YES | YES | YES | YES | Telegram and X drafts used their channel limits; X Premium long posts (4,000 characters, Postiz limit) are enabled for the uLiquid X account. |
 | Evidence-aware status and claim guardrails | YES | YES | YES | YES | The approved CTA is now classified as campaign copy (PR #11). The model paraphrase of `product.user_control` stayed blocked by `FACT_VALUE_MISMATCH`; after the owner edit to the verbatim Fact and owner body review, v8 is `reviewed` with no problems. |
 | Single text draft | YES | YES | YES | YES | Unedited paid verification Content `ba81892b-efed-412e-a826-7c425c6a2161` passed review after owner confirmation and exports as `draft_export` on `00f2050`; earlier Content `8b2d23c1…` needed one owner wording edit. |
-| Approved early single live draft | YES | YES | YES | PARTIAL | The owner action created exactly one separate recovery Job with `maxAttempts=1`; it succeeded in one attempt. The original blocked Job was not retried. Review and Phase 6 acceptance remain open. |
+| Approved early single live draft | YES | YES | YES | YES | The final acceptance run used the owner live-draft-once action: one Job, one attempt, no second Job. |
 | Brand assets | YES | YES | YES | YES | The reviewed Content references approved Drive-imported logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`; the export bundle contains it as `assets/creative.png` after PR #12. Visual rendering and Drive save remain untested. |
-| Visual rendering | YES | YES | YES | NO | An approved logo exists, but no uLiquid visual was generated or accepted. The current OpenAI settings dialog reports no usable image key. |
-| Google Drive save | YES | YES | YES | VERIFY | Mock/local tests passed; project account/root visible, no real save/readback performed. |
+| Visual rendering | YES | YES | YES | NO | An approved logo exists and the autopilot attaches it; no uLiquid visual has been generated or accepted. On 2026-10-02 Mario saved a new image key in Orbit; its use is being checked separately. |
+| Google Drive save | YES | YES | YES | PARTIAL | Drive reads of the approved logo work in production (write verification and Postiz uploads, 2026-10-02, after Mario reconnected Drive). A real save and readback of a generated asset has not been performed. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
-| Postiz draft handoff | PARTIAL | PARTIAL | YES | NO | Connector `draft` contract tested; explicit Orbit handoff and live provider proof absent. |
-| Postiz live publish | YES | YES | YES | NO | Local safety tests passed; writes disabled and project channel verification required. |
+| Postiz draft handoff | YES | YES | YES | YES | Text-only and image drafts accepted live 2026-09-29; the ten drafts of the weekly series 2026-09-30 to 2026-10-04 were accepted by Postiz (X after the `who_can_reply_post` fix in `226dccf`). |
+| Postiz live publish | YES | YES | YES | PARTIAL | `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`; Telegram uLiquid Desk and X uLiquid passed one public write and media verification each on 2026-10-02. No autopilot publication has run yet. |
 | Matomo import | YES | YES | YES | VERIFY | Local normalization/import tests passed; read verification last checked 2026-09-22. |
-| Batch drafts | PARTIAL | PARTIAL | YES | NO | Reviewable drafts exist; bounded batch and resume flow not tested end-to-end. |
+| Batch drafts | YES | YES | YES | YES | Weekly series 2026-09-30: Telegram 5/5, X 4/5 (run 5 ended `MODEL_OUTCOME_OR_COST_UNKNOWN`, replaced by a single Mission); resume of the unknown run was refused as designed. |
 | Production backup/restore | YES | YES | YES | PARTIAL | Daily age-encrypted off-host backup to the private EU R2 bucket (`orbit/`, 30-day lifecycle) is live; the first production object `orbit-20260929T093308Z.dump.age` passed checksum, decryption and a full restore into an isolated throwaway database on 2026-09-29. Earlier on-host archives before PR #11/#12 also passed full reads. Off-host production restore and key escrow remain unproven. |
+| Weekly autopilot (Phase 11) | YES | YES | YES | PARTIAL | Live since 2026-10-02 07:10 UTC: policy `cbf34b26…` (`autopilot`, one post per channel and day, until 2026-12-31T23:00Z), slots Telegram 10:00 and X 17:00 Europe/Berlin, plan Sundays 12:00 from start date 2026-10-05. The first weekly plan (2026-10-04) has not run yet. |
+| Postiz queue watch | YES | YES | YES | N/A | Released with PR #26; production `GET /api/health/postiz` answers 200. An external Uptime Kuma / Better Stack monitor on it is not yet confirmed. |
 
 Allowed values: `YES`, `NO`, `PARTIAL`, `VERIFY`, `N/A`.
 
