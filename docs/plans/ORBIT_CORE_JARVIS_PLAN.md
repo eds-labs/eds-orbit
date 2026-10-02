@@ -284,7 +284,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J1.1 | Automatic scoped context and content-history access | DONE (local) | PR2 `60d0358`: server-filled context; content history deferred to PR3 |
 | J1.2 | Durable package/step linkage and trusted work submission | DONE (local) | PR2 `60d0358` |
 | J1.3 | Reuse copy generation and bounded image executor | DONE (local) | PR1 `e7224bc`, PR2 `60d0358`, PR3 `00e66f3` |
-| J1.4 | Review + combined preview + targeted revision | IN PROGRESS | PR3 review and combined preview DONE (local, `00e66f3`); PR4 revision |
+| J1.4 | Review + combined preview + targeted revision | DONE (local) | PR3 `00e66f3`, PR4 `b5bbb70` |
 | J2.1 | Runtime port/spike with ADR-0005 evidence | TODO | S1 (port), S2 (spike) |
 | J2.2 | Budget, role, restart, cancellation and approval tests | TODO | Tests in PR1–PR4, acceptance in PR5 |
 | J3.1 | Exact-package conversational scheduling | TODO | |
@@ -424,3 +424,14 @@ No J1 PR needs a database migration. Merging to `main` deploys through the Cooli
 - Deployment and rollback: no migration; flag-gated. Cancel pending packages before reverting code that removes the `image` queue.
 - Open: targeted revision (PR4); owner approvals inbox for editors' images; content history in the operator context.
 - CI finding on PR2 (#34): browser acceptance failed in the existing Postiz test at sign-in. better-auth allows three sign-ins per 10 seconds; the short new package card test made the Postiz test the fourth sign-in in one window. Fixed in `e47f44a` (PR2 branch) with one shared sign-in helper in `chat.spec.ts` that waits out the window once on HTTP 429; the limit itself is unchanged. PR3 is rebased on it.
+
+### 2026-10-02 — J1.4 / PR4: targeted revision (local)
+
+- Base `fa923d1` (PR3 branch), code head `b5bbb70` on branch `claude/orbit-core-pr4-targeted-revision`. Risk: high (agent tool that queues a paid draft under an existing decision; change to the draft prompt). Environment: local; behind `ORBIT_CONTENT_PACKAGES`.
+- Summary: tool `revise_package_deliverable` (`W0_internal`, editor/owner). A revision is a draft-only mission with `revisionOf` (draft id, version, instruction), validated against current facts and profile, under the package run key and per-draft ceiling. Plans reserve two revisions at the largest draft ceiling inside the confirmed ceiling, so no new click is needed; a third revision, a second one on a channel still being revised and one above the remaining ceiling are refused. Generation adds `revision` (instruction, previous body) to the contract only for such missions and refuses to send if the draft changed since the request (contract build and pre-transmission check). The draft prompt gained one sentence that a revision changes only what is asked and never authorizes new claims. The sweep marks the replaced draft `supersededBy`, invalidates its approvals and publications and reviews the new draft. The card shows revising states and the revision count.
+- Changed files: `apps/api/src/modules/agents/content-packages.ts`, `apps/api/src/modules/agents/tools/package-tools.ts`, `apps/api/src/modules/generation.ts`, `packages/ai/src/index.ts` (one prompt sentence), `apps/api/src/modules/chat-runner.ts` (one operator sentence), web card; tests: 5 revision cases (text model mocked), updated ceiling, tool-list and Playwright assertions.
+- Acceptance covered locally with a mocked text model: JC04 (shorter X: one text call with the previous body and instruction, new X draft, Telegram draft and the image unchanged, no new image request, the old X draft superseded and its approval blocked), plus revision limits, ownership and the changed-draft case.
+- Red/green evidence: the new cases failed on the missing function. Removing only the contract-time version check left the changed-draft case green (the pre-transmission check still caught it); removing both made it fail.
+- Checks on Node 24.18.0 against the local isolated PostgreSQL and Redis: `pnpm test` 631/631 in 61 files (including the offline generation eval with the extended prompt); `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check`, `pnpm api:generate` (no contract change) and Prettier pass. Not run locally: `pnpm test:e2e` (CI runs it).
+- Deployment and rollback: no migration; flag-gated. The prompt sentence applies to every draft but only acts when a contract contains `revision`.
+- With PR0–PR4 the J1 milestone (one request -> two channel drafts + one authorized image -> review -> preview -> targeted revision, without manual mission setup) is covered locally with fake providers. It is not verified against a live provider; that needs the separately approved paid acceptance run.
