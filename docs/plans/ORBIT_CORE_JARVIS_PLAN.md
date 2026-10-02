@@ -281,7 +281,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J0.2 | Inspect actual schema, permissions and deployed-version evidence | PARTIAL | Schema and permissions in section 15.1; deployed version not verified |
 | J0.3 | Decide smallest J1 design and SDK spike scope | DONE | Sections 15.2–15.4 |
 | J1.0 | Worker chat jobs run with the requesting user's current role (PR0) | DONE (local) | Section 16; `eb9470f` |
-| J1.1 | Automatic scoped context and content-history access | DONE (local) | PR2 `60d0358`: server-filled context; content history deferred to PR3 |
+| J1.1 | Automatic scoped context and content-history access | DONE (local) | PR2 `60d0358` (server-filled context); content history `0ad4fb3` |
 | J1.2 | Durable package/step linkage and trusted work submission | DONE (local) | PR2 `60d0358` |
 | J1.3 | Reuse copy generation and bounded image executor | DONE (local) | PR1 `e7224bc`, PR2 `60d0358`, PR3 `00e66f3` |
 | J1.4 | Review + combined preview + targeted revision | DONE (local) | PR3 `00e66f3`, PR4 `b5bbb70` |
@@ -456,3 +456,9 @@ No J1 PR needs a database migration. Merging to `main` deploys through the Cooli
 - Summary: resolves the PR3 deviation from section 15.2. Editors may request a package image; their start click starts the drafts and leaves the `image.generate` request pending. `GET /api/projects/:projectId/action-requests` (owners only) lists pending, unexpired owner decisions with prompt, model, ceiling, requester, expiry and package goal; owners decide through the existing decide route. Rejected and expired images report `IMAGE_REJECTED` and `IMAGE_APPROVAL_EXPIRED`; the drafts stay and the package is partly ready. The approvals page shows the inbox.
 - Tests: three new package cases (owner approves from the inbox and the package completes; rejection; expiry) that replace the earlier editor refusal case, one route case (viewer 403, owner 200) and one Playwright case (stubbed inbox, approve). The API cases failed before the change (editor refused; no route).
 - Checks on Node 24.18.0: `pnpm test` 642/642 in 63 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` and `pnpm api:generate` pass. Not run locally: `pnpm test:e2e` (CI runs it).
+
+### 2026-10-02 — J1.1: content history for the operator (local)
+
+- Base `7186831` (owner inbox branch), code head `0ad4fb3` on branch `claude/orbit-core-content-history`. Risk: low (read-only tool behind the flag). Environment: local.
+- Summary: read tool `recent_content` (`apps/api/src/modules/agents/content-history.ts`): newest drafts and publications per channel, at most five per channel, 1 to 60 days (default 14), title, 280-character excerpt, status, origin and publication state; archived and replaced drafts are left out and `truncated` reports skipped items. The operator instruction asks it to check the same channels before preparing new posts. With the flag off the legacy tool list is unchanged (JC20).
+- Tests: four cases in `content-history.integration.test.ts` (failed before the module existed) plus updated tool-list expectations. `pnpm test` 646/646 in 64 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` and `pnpm api:generate` (no contract change) pass.
