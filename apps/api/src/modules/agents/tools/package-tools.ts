@@ -6,6 +6,7 @@ import {
 } from "../content-packages.ts";
 import { chatScoped } from "../../chat.ts";
 import { recentContent } from "../content-history.ts";
+import { channelSlots } from "../scheduling.ts";
 import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
 
 export const packageTools: readonly OrbitTool[] = [
@@ -13,7 +14,7 @@ export const packageTools: readonly OrbitTool[] = [
     name: "request_content_package",
     namespace: "proposals",
     description:
-      "Prepare finished channel drafts (one per channel) for the user's goal. The server fills CTA, official link, language, profile and timing. It only saves a package card; nothing runs until the user confirms it there, and nothing is published.",
+      "Prepare one draft per channel for the user's goal; the server fills CTA, link, language and timing. Saves a package card only: nothing runs before the user confirms it, nothing is published.",
     parameters: z
       .object({
         goal: z
@@ -22,20 +23,14 @@ export const packageTools: readonly OrbitTool[] = [
         audience: z
           .string()
           .nullable()
-          .describe(
-            "Only when the user named an audience other than the project profile's",
-          ),
+          .describe("Only if the user named another audience"),
         channels: z
           .array(z.string())
           .min(1)
-          .describe(
-            "Integration IDs from project_status.availableChannels that the active policy allows",
-          ),
+          .describe("Channel IDs from project_status that the policy allows"),
         factKeys: z
           .array(z.string())
-          .describe(
-            "Exact Verified Fact keys returned by knowledge_search that the posts may state",
-          ),
+          .describe("Verified Fact keys from knowledge_search"),
         campaignType: z.enum(["product", "presale"]).nullable(),
         imageBrief: z
           .string()
@@ -46,9 +41,7 @@ export const packageTools: readonly OrbitTool[] = [
         intendedDate: z
           .string()
           .nullable()
-          .describe(
-            "Project-local publication date YYYY-MM-DD if the user named one; drafts are still prepared now",
-          ),
+          .describe("Project-local YYYY-MM-DD if named; drafts start now"),
       })
       .strict(),
     risk: "P_proposal",
@@ -84,7 +77,7 @@ export const packageTools: readonly OrbitTool[] = [
     name: "package_status",
     namespace: "content",
     description:
-      "Current state of this conversation's content packages: confirmation, per-channel draft status, draft text and errors. Report results only from this tool.",
+      "This conversation's packages: confirmation, per-channel status, draft text and errors. Report results only from this tool.",
     parameters: z.object({}).strict(),
     risk: "R0_read",
     roles: ["viewer", "editor", "owner"],
@@ -101,7 +94,7 @@ export const packageTools: readonly OrbitTool[] = [
     name: "revise_package_deliverable",
     namespace: "content",
     description:
-      "Revise one channel's current draft in this conversation's started package, for example shorter or more formal. Other channels and the image stay unchanged; at most two revisions per package. Report the result only from package_status.",
+      "Revise one channel's current draft in the started package (e.g. shorter). Other channels and the image stay; at most two revisions per package.",
     parameters: z
       .object({
         deliverableKey: z
@@ -144,18 +137,14 @@ export const packageTools: readonly OrbitTool[] = [
     name: "recent_content",
     namespace: "content",
     description:
-      "Recent drafts and publications per channel (newest first, at most five per channel, default 14 days): title, excerpt, status, origin and publication state. Check it before preparing new posts so they do not repeat recent ones.",
+      "Recent drafts and publications per channel (newest first, five per channel, default 14 days). Check it before new posts to avoid repeats.",
     parameters: z
       .object({
         channels: z
           .array(z.string())
           .nullable()
-          .describe("Channel integration IDs to include; all when null"),
-        days: z
-          .number()
-          .int()
-          .nullable()
-          .describe("Look-back window in days, 1 to 60; 14 when null"),
+          .describe("Channel IDs; all when null"),
+        days: z.number().int().nullable().describe("1 to 60; 14 when null"),
       })
       .strict(),
     risk: "R0_read",
@@ -167,6 +156,31 @@ export const packageTools: readonly OrbitTool[] = [
         recentContent(tx, context.scope, dropNullFields(args)),
       );
       return { output: history, cards: [] };
+    },
+  }),
+  defineTool({
+    name: "schedule_options",
+    namespace: "calendar",
+    description:
+      "Free and taken publication slots per channel (project timezone, up to 14 days) with reasons and the next free slot. Schedules nothing.",
+    parameters: z
+      .object({
+        channels: z
+          .array(z.string())
+          .nullable()
+          .describe("Channel IDs; policy channels when null"),
+        days: z.number().int().nullable().describe("1 to 14; 14 when null"),
+      })
+      .strict(),
+    risk: "R0_read",
+    roles: ["viewer", "editor", "owner"],
+    feature: "content_packages",
+    deferLoading: false,
+    async execute(context, args) {
+      const slots = await chatScoped(context.scope, (tx) =>
+        channelSlots(tx, context.scope, dropNullFields(args)),
+      );
+      return { output: slots, cards: [] };
     },
   }),
 ];

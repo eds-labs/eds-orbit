@@ -1644,6 +1644,7 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
         "package_status",
         "revise_package_deliverable",
         "recent_content",
+        "schedule_options",
       ]);
       expect(tools.every((tool) => tool.strict === true)).toBe(true);
       expect(Buffer.byteLength(JSON.stringify(tools))).toBeLessThanOrEqual(
