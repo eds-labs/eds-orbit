@@ -283,7 +283,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J1.0 | Worker chat jobs run with the requesting user's current role (PR0) | DONE (local) | Section 16; `eb9470f` |
 | J1.1 | Automatic scoped context and content-history access | TODO | PR2 |
 | J1.2 | Durable package/step linkage and trusted work submission | TODO | PR2 |
-| J1.3 | Reuse copy generation and bounded image executor | TODO | PR1 (image executor), PR2 (copy), PR3 (image step) |
+| J1.3 | Reuse copy generation and bounded image executor | IN PROGRESS | PR1 image executor DONE (local, `e7224bc`); PR2 (copy), PR3 (image step) |
 | J1.4 | Review + combined preview + targeted revision | TODO | PR3 (review, preview), PR4 (revision) |
 | J2.1 | Runtime port/spike with ADR-0005 evidence | TODO | S1 (port), S2 (spike) |
 | J2.2 | Budget, role, restart, cancellation and approval tests | TODO | Tests in PR1–PR4, acceptance in PR5 |
@@ -391,3 +391,13 @@ No J1 PR needs a database migration. Merging to `main` deploys through the Cooli
 - Checks on Node 24.18.0 against the local isolated PostgreSQL and Redis: focused suites 44/44 and real-Redis worker suite 2/2; `pnpm test` 586/586 in 59 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check` and `pnpm framework:check` pass. Not run: `pnpm test:e2e` (no UI change) and `pnpm api:generate` (no route change).
 - Deployment and rollback: no migration and no configuration change. Merging to `main` deploys; rollback is a revert. Not pushed or merged yet.
 - Follow-up: generation jobs created from a chat proposal still run with the worker scope (unchanged here).
+
+### 2026-10-02 — J1.3 / PR1: action requests and worker image executor (local)
+
+- Base `86c8d2b` (PR0 branch), code head `e7224bc` on branch `claude/orbit-core-pr1-action-requests`. Risk: high (approvals, paid image path, background job). Environment: local.
+- Summary: `ActionRequest` core as `Entity(kind="action_requests")` with the first type `image.generate` (see the ADR 0008 addendum). Approval queues one single-attempt job in the new `image` queue; the worker runs it with the decider's current role and consumes the approval in the reservation transaction. Repeated dispatch returns the existing asset; a reservation without an asset ends as `IMAGE_OUTCOME_UNKNOWN` without a second provider call; a failed Drive save keeps the asset. `generateProjectImage` gains an optional `authorize` hook; the owner image route is unchanged. No HTTP route creates or decides requests yet.
+- Changed files: `apps/api/src/modules/action-requests.ts` (new), `apps/api/src/modules/image-requests.ts` (new), `apps/api/src/modules/image-generation.ts`, `apps/worker/src/main.ts`, `apps/api/tests/action-requests.integration.test.ts` (new, 16 cases), `apps/worker/tests/workflow.integration.test.ts` (image queue case); ADR 0008 addendum.
+- Red before the code: the API tests failed on the missing modules; the real-Redis worker case timed out because no worker served the `image` queue. Two mutations (no unknown-outcome guard; no existing-asset lookup) each made the matching tests fail.
+- Checks on Node 24.18.0 against the local isolated PostgreSQL and Redis: new suite 16/16; real-Redis worker suite 3/3; `pnpm test` 603/603 in 60 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check` and Prettier pass. Not run: `pnpm test:e2e` and `pnpm api:generate` (no UI or route change). No provider call and no paid call were made.
+- Deployment and rollback: no migration and no configuration change; nothing creates image requests until PR3. Rolling back after image requests exist leaves their outbox rows undispatched (the worker skips unknown topics); cancel pending requests first. Not pushed yet.
+- Note: the image executor, like the existing owner image route, does not check `EXECUTION_MODE`; the gate is the owner's decision plus configuration and budget.

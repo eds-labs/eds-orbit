@@ -25,3 +25,14 @@ Keeping five flavours avoids a migration but lets approval rules drift. SDK `nee
 ## Consequences
 
 One approvals inbox and one audit trail for web, Slack and later Telegram decisions. Expiry becomes configurable per action type instead of the fixed 24 hours.
+
+## Addendum 2026-10-02: storage and first consumers
+
+Decided by Mario with the [Orbit Core plan](../plans/ORBIT_CORE_JARVIS_PLAN.md) (D-J2).
+
+- `ActionRequest` is stored as `Entity(kind="action_requests")` without a migration (`apps/api/src/modules/action-requests.ts`). It inherits FORCE RLS, optimistic versions and `EntityVersion` history. It is not a generic collection, so the generic collection routes neither list nor write it.
+- Fields: `actionType`, `riskClass`, `approvalMode`, `policy` (id, version), `requestedBy` (user, or agent on behalf of a user), `payload`, `packageHash` (canonical hash of type and payload), `costCeilingMicros`, `status`, `expiresAt`, `decision` (user, decision, time, channel) and `consumedBy` (execution, time).
+- Action types are code constants: risk class, approval mode, deciding role and expiry cannot be changed by a policy, prompt, document or model output. The first type is `image.generate`: `C2`, `approval_required`, owner decision, 24 hours. Its payload is bound to the image model and per-image ceiling configured at creation; a different configuration at decision or execution makes it stale.
+- A decision must match the version and hash that were shown, comes from an authenticated user and never from the worker's scope, and is idempotent for a repeated identical click. Expired, rejected or already decided requests cannot be approved.
+- Approval queues one single-attempt job. The worker runs it with the decider's current project role. The approval is consumed in the same transaction as the budget reservation, after every other precondition, so a failed precondition leaves it unused. A reservation without a result is an unknown outcome and is never sent again.
+- Existing approval flavours are unchanged. Content-package start and the decision route follow with the Orbit Core packages (PR2, PR3); publication approvals come later as adapters.
