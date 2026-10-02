@@ -301,6 +301,7 @@ describe("proposal tool", () => {
       "propose_campaign",
       "request_content_package",
       "package_status",
+      "revise_package_deliverable",
     ]);
   });
   it("offers the package tools only with their feature, and the request only to editors and owners", () => {

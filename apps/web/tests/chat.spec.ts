@@ -234,6 +234,7 @@ test("starts a content package with one click and shows both drafts", async ({
     review: body
       ? { valid: false, problems: ["HUMAN_CONTENT_REVIEW_REQUIRED"] }
       : null,
+    revisions: body && key === "x" ? 1 : 0,
   });
   await page.route(
     `**/api/projects/${user.projectId}/chat/conversations?*`,
@@ -336,6 +337,7 @@ test("starts a content package with one click and shows both drafts", async ({
     card.getByText("Beta access is now open for teams."),
   ).toBeVisible();
   await expect(card.getByText("Needs review")).toHaveCount(2);
+  await expect(card.getByText("Revised 1×")).toBeVisible();
   await expect(card.getByText("Generated, rights review open")).toBeVisible();
   await expect(
     card.getByRole("img", { name: "Generated package image" }),

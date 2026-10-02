@@ -30,6 +30,7 @@ import { resolveChannelRules } from "../channel-rules.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
 import { zonedTime } from "../posting-slots.ts";
 import { enqueue, reviewContent } from "../workflow.ts";
+import { invalidateContent } from "../content-invalidation.ts";
 
 /**
  * Content packages: one chat request becomes one draft-only mission per
@@ -41,6 +42,8 @@ const DRAFT_WINDOW_MS = 7 * 86400000;
 const SLOT_WINDOW_MS = 2 * 3600000;
 // Reversible default for channels without a configured posting time.
 const DEFAULT_POSTING_TIME = "09:00";
+// Text revisions per package; their cost is reserved in the confirmed ceiling.
+const MAX_REVISIONS = 2;
 
 export function contentPackagesEnabled() {
   return loadConfig().ORBIT_CONTENT_PACKAGES === "true";
@@ -206,11 +209,16 @@ async function buildPackagePlan(
       maxCostMicros: imageConfig.maxCostMicrosPerImage,
     };
   }
+  const revisionReserveMicros =
+    MAX_REVISIONS *
+    Math.max(...deliverables.map((deliverable) => deliverable.ceilingMicros));
   const ceilingMicros =
     deliverables.reduce(
       (sum, deliverable) => sum + deliverable.ceilingMicros,
       0,
-    ) + (image?.maxCostMicros ?? 0);
+    ) +
+    (image?.maxCostMicros ?? 0) +
+    revisionReserveMicros;
   // All paid calls of a package share one run key, so one per-run limit covers them.
   if (ceilingMicros > checked!.policy.perRunBudgetMicros)
     throw new DomainError("RUN_BUDGET_EXCEEDED", 409);
@@ -234,6 +242,7 @@ async function buildPackagePlan(
     draftModel: checked!.draftModel,
     deliverables,
     image,
+    revisionReserveMicros,
     ceilingMicros,
   });
 }
@@ -408,9 +417,14 @@ export async function packageSnapshot(
     let content = null as null | Record<string, unknown>;
     let errorCode = null as string | null;
     let review = null as null | { valid: boolean; problems: string[] };
+    let revisions = 0;
+    let revisionError = null as string | null;
     if (canceled && !step) status = "canceled";
     if (step) {
-      const { draft, reused } = await stepDraft(tx, scope, step.missionId);
+      const current = await currentDraft(tx, scope, step);
+      const { draft, reused } = current;
+      revisions = current.revisions;
+      revisionError = current.revisionError;
       const job = await tx.entity.findFirst({
         where: {
           workspaceId: scope.workspaceId,
@@ -420,7 +434,7 @@ export async function packageSnapshot(
         },
       });
       if (draft) {
-        status = "drafted";
+        status = current.pending ? "revising" : "drafted";
         content = {
           id: draft.id,
           version: draft.version,
@@ -438,12 +452,20 @@ export async function packageSnapshot(
       } else if (data(job).status === "running") status = "running";
       else status = canceled ? "canceled" : "queued";
     }
-    deliverables.push({ ...deliverable, status, content, errorCode, review });
+    deliverables.push({
+      ...deliverable,
+      status,
+      content,
+      errorCode,
+      review,
+      revisions,
+      revisionError,
+    });
   }
   const image = d.image ? await imageState(tx, scope, d.image, steps) : null;
   const states = deliverables.map((deliverable) => deliverable.status);
   const waiting =
-    states.some((state) => state === "queued" || state === "running") ||
+    states.some((state) => ["queued", "running", "revising"].includes(state)) ||
     ["queued", "running", "awaiting_approval"].includes(image?.status ?? "");
   const status = canceled
     ? "canceled"
@@ -585,11 +607,8 @@ export async function cancelContentPackage(scope: Scope, packageId: string) {
     if (d.actionRequestId)
       await cancelActionRequest(tx, scope, d.actionRequestId);
     const jobs = await list(tx, scope, "jobs");
-    for (const step of (d.steps ?? []) as Array<Record<string, any>>) {
-      const resourceId =
-        step.kind === "image" ? step.actionRequestId : step.missionId;
-      if (step.kind === "image")
-        await cancelActionRequest(tx, scope, step.actionRequestId);
+    // Returns whether a job for the resource is already running.
+    const cancelQueued = async (resourceId: string) => {
       let running = false;
       for (const job of jobs.filter(
         (row) => data(row).resourceId === resourceId,
@@ -602,11 +621,27 @@ export async function cancelContentPackage(scope: Scope, packageId: string) {
             error: "PACKAGE_CANCELED",
           });
       }
-      if (step.kind !== "copy" || running) continue;
-      const mission = await entity(tx, scope, "missions", step.missionId);
-      const { draft } = await stepDraft(tx, scope, step.missionId);
-      if (!draft && data(mission).status === "ready")
-        await markMissionArchived(tx, scope, mission);
+      return running;
+    };
+    for (const step of (d.steps ?? []) as Array<Record<string, any>>) {
+      if (step.kind === "image") {
+        await cancelActionRequest(tx, scope, step.actionRequestId);
+        await cancelQueued(step.actionRequestId);
+        continue;
+      }
+      const missionIds = [
+        step.missionId,
+        ...(step.revisions ?? []).map(
+          (r: { missionId: string }) => r.missionId,
+        ),
+      ];
+      for (const missionId of missionIds) {
+        if (await cancelQueued(missionId)) continue;
+        const mission = await entity(tx, scope, "missions", missionId);
+        const { draft } = await stepDraft(tx, scope, missionId);
+        if (!draft && data(mission).status === "ready")
+          await markMissionArchived(tx, scope, mission);
+      }
     }
     const saved = await update(tx, scope, pkg, {
       ...d,
@@ -623,7 +658,29 @@ export async function advanceContentPackages(tx: DbTx, scope: Scope) {
     if (data(pkg).status !== "started") continue;
     for (const step of (data(pkg).steps ?? []) as Array<Record<string, any>>) {
       if (step.kind !== "copy") continue;
-      const { draft } = await stepDraft(tx, scope, step.missionId);
+      // A finished revision replaces its parent: the parent's approvals and publications are blocked.
+      for (const revision of step.revisions ?? []) {
+        const { draft: revised } = await stepDraft(
+          tx,
+          scope,
+          revision.missionId,
+        );
+        if (!revised) continue;
+        const parent = await entity(
+          tx,
+          scope,
+          "content",
+          revision.parentContentId,
+        );
+        if (data(parent).supersededBy) continue;
+        await update(tx, scope, parent, {
+          ...data(parent),
+          supersededBy: revised.id,
+          supersededAt: new Date().toISOString(),
+        });
+        await invalidateContent(tx, scope, parent.id);
+      }
+      const { draft } = await currentDraft(tx, scope, step);
       if (draft) {
         if (data(draft).status !== "draft" || data(draft).review) continue;
         try {
@@ -660,4 +717,194 @@ async function stepDraft(tx: DbTx, scope: Scope, missionId: string) {
       })
     : null;
   return { draft: reused, reused: Boolean(reused) };
+}
+
+/**
+ * The draft a deliverable shows: the newest revision that produced one, else
+ * the original. A queued or running revision keeps the previous draft visible.
+ */
+async function currentDraft(tx: DbTx, scope: Scope, step: Record<string, any>) {
+  let current = {
+    ...(await stepDraft(tx, scope, step.missionId)),
+    revisions: 0,
+    pending: false,
+    revisionError: null as string | null,
+  };
+  for (const [index, revision] of (step.revisions ?? []).entries()) {
+    const { draft } = await stepDraft(tx, scope, revision.missionId);
+    if (draft) {
+      current = {
+        draft,
+        reused: false,
+        revisions: index + 1,
+        pending: false,
+        revisionError: null,
+      };
+      continue;
+    }
+    const job = await tx.entity.findFirst({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "jobs",
+        id: revision.jobId,
+      },
+    });
+    const state = data(job).status;
+    current = ["blocked_dependency", "failed", "canceled"].includes(state)
+      ? { ...current, pending: false, revisionError: data(job).error ?? state }
+      : { ...current, pending: true };
+  }
+  return current;
+}
+
+export const deliverableRevision = z
+  .object({
+    deliverableKey: z.string().trim().min(1).max(80),
+    instruction: z.string().trim().min(3).max(500),
+  })
+  .strict();
+
+/**
+ * Revises one channel's current draft in the conversation's latest package.
+ * Covered by the confirmed package ceiling; other channels and the image stay as they are.
+ */
+export async function reviseDeliverable(
+  scope: Scope,
+  conversationId: string,
+  raw: unknown,
+) {
+  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  if (!contentPackagesEnabled())
+    throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
+  const input = deliverableRevision.parse(raw);
+  return chatScoped(scope, async (tx) => {
+    await conversation(tx, scope, conversationId);
+    const pkg = await tx.entity.findFirst({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: KIND,
+        AND: [
+          { data: { path: ["conversationId"], equals: conversationId } },
+          { data: { path: ["userId"], equals: scope.userId } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!pkg) throw new DomainError("NOT_FOUND", 404);
+    const d = data(pkg);
+    if (d.status !== "started")
+      throw new DomainError("PACKAGE_NOT_STARTED", 409);
+    const steps = (d.steps ?? []) as Array<Record<string, any>>;
+    const step = steps.find(
+      (candidate) =>
+        candidate.kind === "copy" && candidate.key === input.deliverableKey,
+    );
+    if (!step) throw new DomainError("DELIVERABLE_NOT_FOUND", 404);
+    const used = steps.reduce(
+      (sum, candidate) => sum + (candidate.revisions?.length ?? 0),
+      0,
+    );
+    if (used >= MAX_REVISIONS)
+      throw new DomainError("PACKAGE_REVISION_LIMIT", 409);
+    const current = await currentDraft(tx, scope, step);
+    if (current.pending) throw new DomainError("REVISION_IN_PROGRESS", 409);
+    if (!current.draft) throw new DomainError("DRAFT_REQUIRED", 409);
+    const plan = data(
+      await entity(tx, scope, "action_requests", d.actionRequestId),
+    ).payload as PackagePlan;
+    const deliverable = plan.deliverables.find(
+      (candidate) => candidate.key === step.key,
+    )!;
+    const spent = await packageSpentMicros(tx, scope, pkg.id);
+    if (spent + deliverable.ceilingMicros > d.ceilingMicros)
+      throw new DomainError("PACKAGE_BUDGET_EXHAUSTED", 409);
+    const now = new Date();
+    const policyRow = await activePolicy(tx, scope);
+    if (!policyRow) throw new DomainError("POLICY_REQUIRED", 409);
+    // A revision is checked against current facts and profile like a new draft.
+    const facts = await usableFacts(tx, scope, plan.request.factKeys, now);
+    const checked = await validateDraftMission(
+      tx,
+      scope,
+      {
+        ...deliverable.mission,
+        ...missionWindow(now, deliverable.plannedSlotAt, data(policyRow).endAt),
+      },
+      facts.map((fact) => fact.id),
+    );
+    const mission = await create(tx, scope, "missions", {
+      ...checked.parsed,
+      ...(deliverable.plannedSlotAt
+        ? { plannedSlotAt: deliverable.plannedSlotAt }
+        : {}),
+      status: "ready",
+      factKeys: facts.map((fact) => data(fact).key),
+      packageId: pkg.id,
+      budgetRunKey: `package:${pkg.id}`,
+      chatCostCeilingMicros: deliverable.ceilingMicros,
+      mediaPlanned: Boolean(plan.image),
+      revisionOf: {
+        contentId: current.draft.id,
+        version: current.draft.version,
+        instruction: input.instruction,
+      },
+    });
+    const job = await enqueue(
+      tx,
+      scope,
+      "generation",
+      mission.id,
+      "mission:" + mission.id + ":" + mission.version,
+      now,
+    );
+    const saved = await update(tx, scope, pkg, {
+      ...d,
+      steps: steps.map((candidate) =>
+        candidate === step
+          ? {
+              ...step,
+              revisions: [
+                ...(step.revisions ?? []),
+                {
+                  missionId: mission.id,
+                  jobId: job.id,
+                  instruction: input.instruction,
+                  parentContentId: current.draft!.id,
+                  requestedAt: now.toISOString(),
+                },
+              ],
+            }
+          : candidate,
+      ),
+    });
+    return packageSnapshot(tx, scope, saved);
+  });
+}
+
+/** Reserved or settled cost of all paid calls under the package run key. */
+async function packageSpentMicros(tx: DbTx, scope: Scope, packageId: string) {
+  const run = await tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "budget_runs",
+      data: { path: ["runKey"], equals: `package:${packageId}` },
+    },
+  });
+  if (!run) return 0;
+  const rows = await tx.budgetReservation.findMany({
+    where: {
+      projectId: scope.projectId,
+      id: { in: data(run).reservationIds },
+      state: { not: "released" },
+    },
+  });
+  return rows.reduce(
+    (sum, row) =>
+      sum +
+      Number(row.state === "settled" ? row.settledMicros : row.amountMicros),
+    0,
+  );
 }

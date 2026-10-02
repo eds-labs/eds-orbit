@@ -29,7 +29,13 @@ export type ContentPackage = {
     platform: string;
     plannedSlotAt: string | null;
     status:
-      "planned" | "queued" | "running" | "drafted" | "failed" | "canceled";
+      | "planned"
+      | "queued"
+      | "running"
+      | "drafted"
+      | "revising"
+      | "failed"
+      | "canceled";
     errorCode: string | null;
     content: {
       id: string;
@@ -38,6 +44,8 @@ export type ContentPackage = {
       reused?: boolean;
     } | null;
     review: { valid: boolean; problems: string[] } | null;
+    revisions?: number;
+    revisionError?: string | null;
   }[];
   image: {
     prompt: string;
@@ -76,6 +84,7 @@ const deliverableLabels: Record<
   queued: ["Queued", "In Warteschlange"],
   running: ["Drafting", "Wird erstellt"],
   drafted: ["Draft ready", "Entwurf fertig"],
+  revising: ["Revising", "Wird überarbeitet"],
   failed: ["Blocked", "Blockiert"],
   canceled: ["Canceled", "Abgebrochen"],
 };
@@ -162,6 +171,16 @@ export function PackageCard({
               <blockquote className="chat-package-draft">
                 {deliverable.content.body}
               </blockquote>
+            )}
+            {Boolean(deliverable.revisions) && (
+              <p className="chat-package-note">
+                {de
+                  ? `${deliverable.revisions}× überarbeitet`
+                  : `Revised ${deliverable.revisions}×`}
+              </p>
+            )}
+            {deliverable.revisionError && (
+              <Alert kind="warning">{deliverable.revisionError}</Alert>
             )}
             {deliverable.content?.reused && (
               <p className="chat-package-note">

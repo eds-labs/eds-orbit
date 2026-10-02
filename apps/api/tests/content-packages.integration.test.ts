@@ -1,4 +1,23 @@
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+
+// Only the targeted revision cases call the text model; every other draft here is deterministic.
+const provider = vi.hoisted(() => ({
+  generate: vi.fn(),
+  embed: vi.fn(),
+}));
+vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
+  return { ...actual, generate: provider.generate, embed: provider.embed };
+});
 import { randomUUID } from "node:crypto";
 import {
   authDb,
@@ -8,7 +27,7 @@ import {
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { ingest, setFact } from "../../../packages/knowledge/src/index.ts";
-import { create, data, entity, list } from "../src/shared.ts";
+import { create, data, entity, list, update } from "../src/shared.ts";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { createConversation, getConversation } from "../src/modules/chat.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
@@ -22,7 +41,9 @@ import {
   cancelContentPackage,
   packageSnapshot,
   requestContentPackage,
+  reviseDeliverable,
 } from "../src/modules/agents/content-packages.ts";
+import { generateMissionLive } from "../src/modules/generation.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -322,8 +343,14 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
       allowedActions: ["draft"],
       sourceIds: [sourceId],
     });
+    // Two revisions at the largest draft ceiling are reserved in the confirmed ceiling.
+    const largest = Math.max(
+      ...plan.deliverables.map((d: any) => d.ceilingMicros),
+    );
+    expect(plan.revisionReserveMicros).toBe(2 * largest);
     expect(plan.ceilingMicros).toBe(
-      plan.deliverables.reduce((n: number, d: any) => n + d.ceilingMicros, 0),
+      plan.deliverables.reduce((n: number, d: any) => n + d.ceilingMicros, 0) +
+        2 * largest,
     );
     expect(await missionsOf(pkg.id)).toHaveLength(0);
     expect((await snapshot(pkg.id)).status).toBe("proposed");
@@ -599,7 +626,9 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
         plan.deliverables.reduce(
           (n: number, d: any) => n + d.ceilingMicros,
           0,
-        ) + IMAGE_MAX,
+        ) +
+          IMAGE_MAX +
+          plan.revisionReserveMicros,
       );
       // The planned image keeps Telegram's caption limit in view while drafting.
       expect(missions.every((m) => data(m).mediaPlanned === true)).toBe(true);
@@ -764,6 +793,239 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
         runImageJob(worker(), owner.userId, imageRequestId, imageJob!.id),
       ).rejects.toThrow("ACTION_REQUEST_NOT_APPROVED");
       await expect(cancelContentPackage(viewer, pkg.id)).rejects.toThrow();
+    });
+  });
+
+  describe("targeted revision", () => {
+    const worker = () => ({
+      ...owner,
+      userId: "worker",
+      role: "owner" as const,
+    });
+    const revised = "Beta access is open for product teams. Learn more.";
+    beforeAll(() => {
+      provider.embed.mockResolvedValue({
+        vectors: [
+          Array.from({ length: 1536 }, (_, index) => (index === 0 ? 1 : 0)),
+        ],
+        usage: {
+          model: "text-embedding-3-small",
+          inputTokens: 20,
+          cachedTokens: 0,
+          cacheWriteTokens: 0,
+          outputTokens: 0,
+          reasoningTokens: 0,
+          costMicros: 1,
+        },
+      });
+    });
+    afterEach(() => provider.generate.mockReset());
+    const generated = (body: string) => ({
+      responseId: "resp_revision",
+      output: {
+        title: "Revised beta post",
+        body,
+        claims: [{ text: "Learn more.", kind: "style" }],
+      },
+      usage: {
+        model: "synthetic-model",
+        inputTokens: 40,
+        cachedTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 20,
+        reasoningTokens: 0,
+        costMicros: 5,
+      },
+    });
+    const started = async () => {
+      const asked = await ask(owner);
+      await approve(owner, asked.actionRequest);
+      const missions = await missionsOf(asked.package.id);
+      await run(async (tx) => {
+        for (const mission of missions) {
+          const job = (await list(tx, owner, "jobs")).find(
+            (row) => data(row).resourceId === mission.id,
+          )!;
+          await deterministicDraft(tx, owner, mission.id, job.id);
+        }
+      });
+      await run((tx) => sweepProject(tx, worker()));
+      return { ...asked, before: await snapshot(asked.package.id) };
+    };
+    const revisionMission = (packageId: string, contentId: string) =>
+      run(async (tx) =>
+        (await list(tx, owner, "missions")).find(
+          (row) =>
+            data(row).packageId === packageId &&
+            data(row).revisionOf?.contentId === contentId,
+        ),
+      );
+    const jobOf = (missionId: string) =>
+      run(async (tx) =>
+        (await list(tx, owner, "jobs")).find(
+          (row) => data(row).resourceId === missionId,
+        ),
+      );
+    const contentOf = (
+      snap: Awaited<ReturnType<typeof snapshot>>,
+      key: string,
+    ) => snap.deliverables.find((d) => d.channelId === key)!.content!;
+
+    it("revises only the X draft, keeps Telegram, and supersedes the old X draft", async () => {
+      const { package: pkg, thread, before } = await started();
+      const oldX = contentOf(before, X);
+      const oldTelegram = contentOf(before, TELEGRAM);
+      const approval = await run((tx) =>
+        create(tx, owner, "approvals", {
+          contentId: oldX.id,
+          packageHash: "e".repeat(64),
+          status: "approved",
+          userId: owner.userId,
+        }),
+      );
+      const pending = await reviseDeliverable(owner, thread.id, {
+        deliverableKey: X,
+        instruction: "Make it shorter and more professional.",
+      });
+      expect(pending.deliverables.find((d) => d.channelId === X)!.status).toBe(
+        "revising",
+      );
+      const mission = (await revisionMission(pkg.id, String(oldX.id)))!;
+      expect(data(mission)).toMatchObject({
+        allowedActions: ["draft"],
+        budgetRunKey: `package:${pkg.id}`,
+        channels: [X],
+        revisionOf: {
+          contentId: oldX.id,
+          version: oldX.version,
+          instruction: "Make it shorter and more professional.",
+        },
+      });
+      provider.generate.mockResolvedValue(generated(revised));
+      const job = (await jobOf(mission.id))!;
+      await generateMissionLive(worker(), mission.id, job.id);
+      expect(provider.generate).toHaveBeenCalledTimes(1);
+      const contract = JSON.parse(provider.generate.mock.calls[0]![0].goal);
+      expect(contract.revision).toEqual({
+        instruction: "Make it shorter and more professional.",
+        previousBody: oldX.body,
+      });
+      await run((tx) => sweepProject(tx, worker()));
+      const after = await snapshot(pkg.id);
+      const x = after.deliverables.find((d) => d.channelId === X)!;
+      expect(x).toMatchObject({ status: "drafted", revisions: 1 });
+      expect(x.content).toMatchObject({
+        body: expect.stringContaining(revised),
+      });
+      expect(x.content!.id).not.toBe(oldX.id);
+      expect(contentOf(after, TELEGRAM).id).toBe(oldTelegram.id);
+      expect(after.status).toBe("completed");
+      const old = await run((tx) =>
+        entity(tx, owner, "content", String(oldX.id)),
+      );
+      expect(data(old).supersededBy).toBe(x.content!.id);
+      expect(
+        data(await run((tx) => entity(tx, owner, "approvals", approval.id)))
+          .status,
+      ).toBe("blocked_dependency");
+    });
+
+    it("keeps the package image when only text is revised", async () => {
+      const asked = await ask(owner, { imageBrief: IMAGE_BRIEF });
+      await approve(owner, asked.actionRequest);
+      const imageRequests = () =>
+        run(async (tx) =>
+          (await list(tx, owner, "action_requests")).filter(
+            (row) =>
+              data(row).actionType === "image.generate" &&
+              data(row).payload.budgetRunKey === `package:${asked.package.id}`,
+          ),
+        );
+      expect(await imageRequests()).toHaveLength(1);
+      const missions = await missionsOf(asked.package.id);
+      await run(async (tx) => {
+        for (const mission of missions) {
+          const job = (await list(tx, owner, "jobs")).find(
+            (row) => data(row).resourceId === mission.id,
+          )!;
+          await deterministicDraft(tx, owner, mission.id, job.id);
+        }
+      });
+      await reviseDeliverable(owner, asked.thread.id, {
+        deliverableKey: X,
+        instruction: "Shorter, please.",
+      });
+      expect(await imageRequests()).toHaveLength(1);
+      const plan = data(asked.actionRequest).payload;
+      expect((await snapshot(asked.package.id)).image?.prompt).toBe(
+        plan.image.brief.prompt,
+      );
+    });
+
+    it("allows at most two revisions per package and one at a time per channel", async () => {
+      const { thread } = await started();
+      await reviseDeliverable(owner, thread.id, {
+        deliverableKey: X,
+        instruction: "Shorter.",
+      });
+      await expect(
+        reviseDeliverable(owner, thread.id, {
+          deliverableKey: X,
+          instruction: "Even shorter.",
+        }),
+      ).rejects.toThrow("REVISION_IN_PROGRESS");
+      await reviseDeliverable(owner, thread.id, {
+        deliverableKey: TELEGRAM,
+        instruction: "Friendlier.",
+      });
+      await expect(
+        reviseDeliverable(owner, thread.id, {
+          deliverableKey: TELEGRAM,
+          instruction: "Again.",
+        }),
+      ).rejects.toThrow("PACKAGE_REVISION_LIMIT");
+    });
+
+    it("revises only a started package in the user's own conversation", async () => {
+      const proposed = await ask(owner);
+      await expect(
+        reviseDeliverable(owner, proposed.thread.id, {
+          deliverableKey: X,
+          instruction: "Shorter.",
+        }),
+      ).rejects.toThrow("PACKAGE_NOT_STARTED");
+      const { thread } = await started();
+      await expect(
+        reviseDeliverable(editor, thread.id, {
+          deliverableKey: X,
+          instruction: "Shorter.",
+        }),
+      ).rejects.toThrow("NOT_FOUND");
+      await expect(
+        reviseDeliverable(owner, thread.id, {
+          deliverableKey: "li-int",
+          instruction: "Shorter.",
+        }),
+      ).rejects.toThrow("DELIVERABLE_NOT_FOUND");
+    });
+
+    it("does not send a revision when the draft changed after it was requested", async () => {
+      const { package: pkg, thread, before } = await started();
+      const oldX = contentOf(before, X);
+      await reviseDeliverable(owner, thread.id, {
+        deliverableKey: X,
+        instruction: "Shorter.",
+      });
+      await run(async (tx) => {
+        const row = await entity(tx, owner, "content", String(oldX.id));
+        await update(tx, owner, row, { ...data(row), body: "Edited by hand." });
+      });
+      const mission = (await revisionMission(pkg.id, String(oldX.id)))!;
+      const job = (await jobOf(mission.id))!;
+      await expect(
+        generateMissionLive(worker(), mission.id, job.id),
+      ).rejects.toThrow("GENERATION_DEPENDENCY_CHANGED");
+      expect(provider.generate).not.toHaveBeenCalled();
     });
   });
 });

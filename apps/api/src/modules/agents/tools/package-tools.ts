@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   conversationPackages,
   requestContentPackage,
+  reviseDeliverable,
 } from "../content-packages.ts";
 import { chatScoped } from "../../chat.ts";
 import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
@@ -93,6 +94,49 @@ export const packageTools: readonly OrbitTool[] = [
         conversationPackages(tx, context.scope, context.conversationId),
       );
       return { output: { packages: packages.slice(0, 3) }, cards: [] };
+    },
+  }),
+  defineTool({
+    name: "revise_package_deliverable",
+    namespace: "content",
+    description:
+      "Revise one channel's current draft in this conversation's started package, for example shorter or more formal. Other channels and the image stay unchanged; at most two revisions per package. Report the result only from package_status.",
+    parameters: z
+      .object({
+        deliverableKey: z
+          .string()
+          .describe("The channelId of the deliverable from package_status"),
+        instruction: z
+          .string()
+          .describe(
+            "The user's change request for this one draft, in their words",
+          ),
+      })
+      .strict(),
+    risk: "W0_internal",
+    roles: ["editor", "owner"],
+    feature: "content_packages",
+    deferLoading: false,
+    async execute(context, args) {
+      const snapshot = await reviseDeliverable(
+        context.scope,
+        context.conversationId,
+        args,
+      );
+      return {
+        output: {
+          packageId: snapshot.id,
+          status: snapshot.status,
+          revising: (args as { deliverableKey: string }).deliverableKey,
+        },
+        cards: [
+          {
+            kind: "status",
+            label: "Revision queued",
+            status: "in_progress",
+          },
+        ],
+      };
     },
   }),
 ];
