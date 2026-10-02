@@ -286,6 +286,7 @@ type OrbitTool = {
 - **Trigger:** enable when the operator exposes more than ~15 tools or tool definitions exceed ~3,000 tokens.
 - **Mode:** **client-executed** tool search. The application returns only tools the current user role, project policy and verified connector capabilities allow — exactly the "tenant state" case the OpenAI guide describes. Hosted search over all tools would let the model discover tools it may not use.
 - **Cost note:** loaded tools are appended at the end of the context so the cached prefix survives; changing the loaded set breaks the cache from that point. Keep namespaces under 10 tools each (OpenAI guidance).
+- **Status 2026-10-02:** implemented behind `ORBIT_TOOL_SEARCH` (ADR 0007 addendum); live verification pending.
 
 ### 6.5 Skills
 

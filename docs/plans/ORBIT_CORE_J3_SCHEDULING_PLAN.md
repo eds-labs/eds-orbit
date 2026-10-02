@@ -112,7 +112,7 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 ## 7. Open after J3
 
 - Production: merges #31–#47 (without #37), `ORBIT_CONTENT_PACKAGES` in production, the first deliberate live package post, and the paid live operator acceptance run; each needs Mario's approval.
-- Tool definitions are at about 6,990 of 7,000 bytes; the next operator tool needs tool search (`deferLoading`) or a decision on the guard.
+- Tool definitions are at about 6,990 of 7,000 bytes; client-executed tool search is now implemented behind `ORBIT_TOOL_SEARCH` (`c371031`, ADR 0007 addendum), with the core at about 4.7 KB.
 - Done (`d32519a`): a draft reused from another package is refused with `DRAFT_REUSED` for scheduling and image attach, and revising it no longer supersedes the other package's draft.
 - Moving checks the new day like a fresh slot; the old publication still counts for its own day until the move is approved, which is correct for different days but cannot move a post within the same day.
 
