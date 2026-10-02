@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import Image from "next/image";
 import { usd } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
 
@@ -13,7 +14,8 @@ export type ContentPackage = {
     | "partially_completed"
     | "failed"
     | "rejected"
-    | "expired";
+    | "expired"
+    | "canceled";
   ceilingMicros: number | null;
   actionRequest: {
     id: string;
@@ -26,11 +28,35 @@ export type ContentPackage = {
     channelName: string;
     platform: string;
     plannedSlotAt: string | null;
-    status: "planned" | "queued" | "running" | "drafted" | "failed";
+    status:
+      "planned" | "queued" | "running" | "drafted" | "failed" | "canceled";
     errorCode: string | null;
-    content: { id: string; body: string; status: string } | null;
+    content: {
+      id: string;
+      body: string;
+      status: string;
+      reused?: boolean;
+    } | null;
+    review: { valid: boolean; problems: string[] } | null;
   }[];
+  image: {
+    prompt: string;
+    maxCostMicros: number;
+    status: ImageStatus;
+    assetId: string | null;
+    href: string | null;
+    errorCode: string | null;
+  } | null;
 };
+type ImageStatus =
+  | "planned"
+  | "awaiting_approval"
+  | "queued"
+  | "running"
+  | "generated"
+  | "outcome_unknown"
+  | "failed"
+  | "canceled";
 
 const packageLabels: Record<ContentPackage["status"], [string, string]> = {
   proposed: ["Confirmation required", "Bestätigung erforderlich"],
@@ -40,6 +66,7 @@ const packageLabels: Record<ContentPackage["status"], [string, string]> = {
   failed: ["Blocked", "Blockiert"],
   rejected: ["Rejected", "Abgelehnt"],
   expired: ["Expired", "Abgelaufen"],
+  canceled: ["Canceled", "Abgebrochen"],
 };
 const deliverableLabels: Record<
   ContentPackage["deliverables"][number]["status"],
@@ -50,11 +77,27 @@ const deliverableLabels: Record<
   running: ["Drafting", "Wird erstellt"],
   drafted: ["Draft ready", "Entwurf fertig"],
   failed: ["Blocked", "Blockiert"],
+  canceled: ["Canceled", "Abgebrochen"],
+};
+const imageLabels: Record<ImageStatus, [string, string]> = {
+  planned: ["Planned", "Geplant"],
+  awaiting_approval: ["Waiting for owner", "Wartet auf Owner"],
+  queued: ["Queued", "In Warteschlange"],
+  running: ["Generating", "Wird erzeugt"],
+  generated: ["Generated, rights review open", "Erzeugt, Rechteprüfung offen"],
+  outcome_unknown: [
+    "Unclear result, not resent",
+    "Ergebnis unklar, nicht erneut gesendet",
+  ],
+  failed: ["Blocked", "Blockiert"],
+  canceled: ["Canceled", "Abgebrochen"],
 };
 
 /** A package is still changing while its drafts are queued or being written. */
 export const packageInProgress = (pkg: ContentPackage) =>
   pkg.status === "running";
+const cancelable = (pkg: ContentPackage) =>
+  pkg.status === "proposed" || pkg.status === "running";
 
 export function PackageCard({
   pkg,
@@ -62,12 +105,14 @@ export function PackageCard({
   canStart,
   pending,
   onStart,
+  onCancel,
 }: {
   pkg: ContentPackage;
   de: boolean;
   canStart: boolean;
   pending: boolean;
   onStart: (pkg: ContentPackage) => void;
+  onCancel: (pkg: ContentPackage) => void;
 }) {
   const tone =
     pkg.status === "completed"
@@ -118,12 +163,59 @@ export function PackageCard({
                 {deliverable.content.body}
               </blockquote>
             )}
+            {deliverable.content?.reused && (
+              <p className="chat-package-note">
+                {de
+                  ? "Identischer früherer Entwurf wiederverwendet."
+                  : "Identical earlier draft reused."}
+              </p>
+            )}
+            {deliverable.review && (
+              <p className="chat-package-note">
+                <Badge tone={deliverable.review.valid ? "success" : "warning"}>
+                  {deliverable.review.valid
+                    ? de
+                      ? "Prüfung bestanden"
+                      : "Review passed"
+                    : de
+                      ? "Prüfung nötig"
+                      : "Needs review"}
+                </Badge>{" "}
+                {deliverable.review.problems.join(", ")}
+              </p>
+            )}
             {deliverable.errorCode && (
               <Alert kind="warning">{deliverable.errorCode}</Alert>
             )}
           </li>
         ))}
       </ul>
+      {pkg.image && (
+        <div className="chat-package-image">
+          <div className="chat-proposal-head">
+            <span>{de ? "Bild" : "Image"}</span>
+            <Badge tone={pkg.image.status === "generated" ? "success" : "blue"}>
+              {imageLabels[pkg.image.status][de ? 1 : 0]}
+            </Badge>
+          </div>
+          <p className="chat-package-note">
+            {pkg.image.prompt} · {de ? "höchstens" : "at most"}{" "}
+            {usd(pkg.image.maxCostMicros)}
+          </p>
+          {pkg.image.href && (
+            <Image
+              unoptimized
+              src={pkg.image.href}
+              width={240}
+              height={240}
+              alt={de ? "Erzeugtes Paketbild" : "Generated package image"}
+            />
+          )}
+          {pkg.image.errorCode && (
+            <Alert kind="warning">{pkg.image.errorCode}</Alert>
+          )}
+        </div>
+      )}
       {pkg.status === "proposed" && (
         <>
           <p className="chat-package-note">
@@ -138,11 +230,20 @@ export function PackageCard({
           )}
         </>
       )}
-      {pkg.status !== "proposed" && (
-        <div className="chat-links">
+      <div className="chat-links">
+        {cancelable(pkg) && canStart && (
+          <Button
+            variant="outline"
+            onClick={() => onCancel(pkg)}
+            disabled={pending}
+          >
+            {de ? "Paket abbrechen" : "Cancel package"}
+          </Button>
+        )}
+        {pkg.status !== "proposed" && (
           <Link href="/content">{de ? "Entwürfe ansehen" : "View drafts"}</Link>
-        </div>
-      )}
+        )}
+      </div>
     </section>
   );
 }

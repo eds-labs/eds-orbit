@@ -10,18 +10,26 @@ import {
   data,
   DomainError,
   entity,
+  exception,
   hash,
   list,
   update,
 } from "../../shared.ts";
 import { chatScoped, conversation, validateDraftMission } from "../chat.ts";
-import { createActionRequest } from "../action-requests.ts";
+import {
+  cancelActionRequest,
+  createActionRequest,
+  decideActionRequest,
+} from "../action-requests.ts";
+import { currentImageTerms, imageRequestBrief } from "../image-generation.ts";
+import { proposeImageRequest } from "../image-requests.ts";
+import { markMissionArchived } from "../mission-archive.ts";
 import { currentMarketingProfile } from "../marketing-profile.ts";
 import { activePolicy } from "../policy.ts";
 import { resolveChannelRules } from "../channel-rules.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
 import { zonedTime } from "../posting-slots.ts";
-import { enqueue } from "../workflow.ts";
+import { enqueue, reviewContent } from "../workflow.ts";
 
 /**
  * Content packages: one chat request becomes one draft-only mission per
@@ -47,6 +55,8 @@ export const contentPackageRequest = z
     campaignType: z.enum(["product", "presale"]).optional(),
     // Project-local publication date; nothing is published from a package.
     intendedDate: z.iso.date().optional(),
+    // Artwork description for one package image; owners only.
+    imageBrief: z.string().trim().min(10).max(1000).optional(),
   })
   .strict();
 type PackageRequest = z.infer<typeof contentPackageRequest>;
@@ -179,10 +189,28 @@ async function buildPackagePlan(
       ceilingMicros: checked.firstDraftMaxMicros,
     });
   }
-  const ceilingMicros = deliverables.reduce(
-    (sum, deliverable) => sum + deliverable.ceilingMicros,
-    0,
-  );
+  let image = null;
+  if (request.imageBrief) {
+    const { imageConfig } = await currentImageTerms(tx, scope);
+    image = {
+      brief: imageRequestBrief.parse({
+        name: `Package image: ${request.goal}`.slice(0, 160),
+        prompt: request.imageBrief,
+        size: "1024x1024",
+        quality: "medium",
+        background: "opaque",
+        validUses: ["social"],
+        channel: "Social",
+      }),
+      model: imageConfig.model,
+      maxCostMicros: imageConfig.maxCostMicrosPerImage,
+    };
+  }
+  const ceilingMicros =
+    deliverables.reduce(
+      (sum, deliverable) => sum + deliverable.ceilingMicros,
+      0,
+    ) + (image?.maxCostMicros ?? 0);
   // All paid calls of a package share one run key, so one per-run limit covers them.
   if (ceilingMicros > checked!.policy.perRunBudgetMicros)
     throw new DomainError("RUN_BUDGET_EXCEEDED", 409);
@@ -205,6 +233,7 @@ async function buildPackagePlan(
     index: { id: checked!.index.id, model: checked!.index.model },
     draftModel: checked!.draftModel,
     deliverables,
+    image,
     ceilingMicros,
   });
 }
@@ -221,6 +250,9 @@ export async function requestContentPackage(
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const request = contentPackageRequest.parse(raw);
+  // Image decisions belong to owners; there is no owner inbox for editors' packages yet.
+  if (request.imageBrief && scope.role !== "owner")
+    throw new DomainError("IMAGE_OWNER_REQUIRED", 403);
   return chatScoped(scope, async (tx) => {
     await conversation(tx, scope, conversationId);
     const pkg = await create(tx, scope, KIND, {
@@ -239,6 +271,12 @@ export async function requestContentPackage(
       ...data(pkg),
       actionRequestId: actionRequest.id,
       ceilingMicros: plan.ceilingMicros,
+      image: plan.image
+        ? {
+            prompt: plan.image.brief.prompt,
+            maxCostMicros: plan.image.maxCostMicros,
+          }
+        : null,
       deliverables: plan.deliverables.map(
         ({ key, channelId, channelName, platform, plannedSlotAt }) => ({
           key,
@@ -265,6 +303,8 @@ export async function revalidateContentPackage(
   const pkg = await entity(tx, scope, KIND, plan.packageId);
   if (data(pkg).userId !== scope.userId)
     throw new DomainError("FORBIDDEN", 403);
+  if (plan.image && scope.role !== "owner")
+    throw new DomainError("IMAGE_OWNER_REQUIRED", 403);
   const current = await buildPackagePlan(
     tx,
     scope,
@@ -299,6 +339,7 @@ export async function startContentPackage(
       packageId: plan.packageId,
       budgetRunKey: `package:${plan.packageId}`,
       chatCostCeilingMicros: deliverable.ceilingMicros,
+      mediaPlanned: Boolean(plan.image),
     });
     // Same key as the project sweep, so the draft is queued once.
     const job = await enqueue(
@@ -314,6 +355,26 @@ export async function startContentPackage(
       kind: "copy",
       missionId: mission.id,
       jobId: job.id,
+    });
+  }
+  if (plan.image) {
+    const imageRequest = await proposeImageRequest(
+      tx,
+      scope,
+      plan.image.brief,
+      { kind: "user", userId: scope.userId },
+      { budgetRunKey: `package:${plan.packageId}` },
+    );
+    // The owner's start click covered the shown prompt and image ceiling.
+    await decideActionRequest(tx, scope, imageRequest.id, {
+      version: imageRequest.version,
+      packageHash: data(imageRequest).packageHash,
+      decision: "approve",
+    });
+    steps.push({
+      key: "image",
+      kind: "image",
+      actionRequestId: imageRequest.id,
     });
   }
   await update(tx, scope, pkg, {
@@ -335,24 +396,21 @@ export async function packageSnapshot(
     ? await entity(tx, scope, "action_requests", d.actionRequestId)
     : null;
   const r = data(request);
+  const canceled = d.status === "canceled";
+  const steps = (d.steps ?? []) as Array<Record<string, any>>;
   const deliverables = [];
   for (const deliverable of d.deliverables ?? []) {
-    const step = (d.steps ?? []).find(
-      (candidate: { key: string }) => candidate.key === deliverable.key,
+    const step = steps.find(
+      (candidate) =>
+        candidate.kind === "copy" && candidate.key === deliverable.key,
     );
     let status = "planned";
     let content = null as null | Record<string, unknown>;
     let errorCode = null as string | null;
+    let review = null as null | { valid: boolean; problems: string[] };
+    if (canceled && !step) status = "canceled";
     if (step) {
-      const draft = await tx.entity.findFirst({
-        where: {
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-          kind: "content",
-          data: { path: ["missionId"], equals: step.missionId },
-        },
-        orderBy: { createdAt: "desc" },
-      });
+      const { draft, reused } = await stepDraft(tx, scope, step.missionId);
       const job = await tx.entity.findFirst({
         where: {
           workspaceId: scope.workspaceId,
@@ -370,29 +428,38 @@ export async function packageSnapshot(
           body: data(draft).body,
           status: data(draft).status,
           scheduledAt: data(draft).scheduledAt ?? null,
+          reused,
         };
-      } else if (
-        ["blocked_dependency", "failed", "canceled"].includes(data(job).status)
-      ) {
+        review = data(draft).review ?? null;
+      } else if (data(job).status === "canceled") status = "canceled";
+      else if (["blocked_dependency", "failed"].includes(data(job).status)) {
         status = "failed";
         errorCode = data(job).error ?? null;
-      } else status = data(job).status === "running" ? "running" : "queued";
+      } else if (data(job).status === "running") status = "running";
+      else status = canceled ? "canceled" : "queued";
     }
-    deliverables.push({ ...deliverable, status, content, errorCode });
+    deliverables.push({ ...deliverable, status, content, errorCode, review });
   }
+  const image = d.image ? await imageState(tx, scope, d.image, steps) : null;
   const states = deliverables.map((deliverable) => deliverable.status);
-  const status =
-    d.status === "proposed"
+  const waiting =
+    states.some((state) => state === "queued" || state === "running") ||
+    ["queued", "running", "awaiting_approval"].includes(image?.status ?? "");
+  const status = canceled
+    ? "canceled"
+    : d.status === "proposed"
       ? r.status === "rejected"
         ? "rejected"
         : Date.parse(r.expiresAt) <= Date.now()
           ? "expired"
           : "proposed"
-      : states.every((state) => state === "drafted")
-        ? "completed"
-        : states.some((state) => state === "queued" || state === "running")
-          ? "running"
-          : states.some((state) => state === "drafted")
+      : waiting
+        ? "running"
+        : states.every((state) => state === "drafted") &&
+            (!image || image.status === "generated")
+          ? "completed"
+          : states.some((state) => state === "drafted") ||
+              image?.status === "generated"
             ? "partially_completed"
             : "failed";
   return {
@@ -402,6 +469,7 @@ export async function packageSnapshot(
     status,
     ceilingMicros: d.ceilingMicros ?? null,
     createdAt: pkg.createdAt,
+    image,
     actionRequest: request
       ? {
           id: request.id,
@@ -437,4 +505,159 @@ export async function conversationPackages(
   const snapshots = [];
   for (const row of rows) snapshots.push(await packageSnapshot(tx, scope, row));
   return snapshots;
+}
+
+/** Image step state from its request, job, reservation and asset; never a model claim. */
+async function imageState(
+  tx: DbTx,
+  scope: Scope,
+  planned: { prompt: string; maxCostMicros: number },
+  steps: Array<Record<string, any>>,
+) {
+  const base = {
+    prompt: planned.prompt,
+    maxCostMicros: planned.maxCostMicros,
+    assetId: null as string | null,
+    href: null as string | null,
+    errorCode: null as string | null,
+  };
+  const step = steps.find((candidate) => candidate.kind === "image");
+  if (!step) return { ...base, status: "planned" };
+  const where = { workspaceId: scope.workspaceId, projectId: scope.projectId };
+  const request = data(
+    await entity(tx, scope, "action_requests", step.actionRequestId),
+  );
+  const asset = await tx.entity.findFirst({
+    where: {
+      ...where,
+      kind: "assets",
+      data: { path: ["generationId"], equals: step.actionRequestId },
+    },
+  });
+  if (asset)
+    return {
+      ...base,
+      status: "generated",
+      assetId: asset.id,
+      href: `/api/projects/${scope.projectId}/assets/${asset.id}/content`,
+    };
+  if (request.status === "canceled") return { ...base, status: "canceled" };
+  if (request.status === "pending")
+    return { ...base, status: "awaiting_approval" };
+  const reservation = await tx.budgetReservation.findFirst({
+    where: {
+      projectId: scope.projectId,
+      key: `${scope.projectId}:image:${step.actionRequestId}`,
+    },
+  });
+  // Sent without a stored result: reconcile, never send again.
+  if (reservation) return { ...base, status: "outcome_unknown" };
+  const job = await tx.entity.findFirst({
+    where: {
+      ...where,
+      kind: "jobs",
+      data: { path: ["resourceId"], equals: step.actionRequestId },
+    },
+  });
+  const jobStatus = data(job).status;
+  if (["blocked_dependency", "failed", "canceled"].includes(jobStatus))
+    return {
+      ...base,
+      status: jobStatus === "canceled" ? "canceled" : "failed",
+      errorCode: data(job).error ?? null,
+    };
+  if (request.status !== "approved" && request.status !== "consumed")
+    return { ...base, status: "failed", errorCode: "IMAGE_NOT_APPROVED" };
+  return { ...base, status: jobStatus === "running" ? "running" : "queued" };
+}
+
+/**
+ * Stops what has not started: the start or image decision, queued jobs and
+ * missions without a draft. Drafts, running jobs and sent requests stay and
+ * are reported as they are.
+ */
+export async function cancelContentPackage(scope: Scope, packageId: string) {
+  return chatScoped(scope, async (tx) => {
+    const pkg = await entity(tx, scope, KIND, packageId);
+    const d = data(pkg);
+    if (d.userId !== scope.userId) throw new DomainError("NOT_FOUND", 404);
+    if (d.status === "canceled") return packageSnapshot(tx, scope, pkg);
+    if (d.actionRequestId)
+      await cancelActionRequest(tx, scope, d.actionRequestId);
+    const jobs = await list(tx, scope, "jobs");
+    for (const step of (d.steps ?? []) as Array<Record<string, any>>) {
+      const resourceId =
+        step.kind === "image" ? step.actionRequestId : step.missionId;
+      if (step.kind === "image")
+        await cancelActionRequest(tx, scope, step.actionRequestId);
+      let running = false;
+      for (const job of jobs.filter(
+        (row) => data(row).resourceId === resourceId,
+      )) {
+        if (data(job).status === "running") running = true;
+        if (["queued", "retry_scheduled"].includes(data(job).status))
+          await update(tx, scope, job, {
+            ...data(job),
+            status: "canceled",
+            error: "PACKAGE_CANCELED",
+          });
+      }
+      if (step.kind !== "copy" || running) continue;
+      const mission = await entity(tx, scope, "missions", step.missionId);
+      const { draft } = await stepDraft(tx, scope, step.missionId);
+      if (!draft && data(mission).status === "ready")
+        await markMissionArchived(tx, scope, mission);
+    }
+    const saved = await update(tx, scope, pkg, {
+      ...d,
+      status: "canceled",
+      canceledAt: new Date().toISOString(),
+    });
+    return packageSnapshot(tx, scope, saved);
+  });
+}
+
+/** Project sweep: reviews new package drafts with the existing claim checks. */
+export async function advanceContentPackages(tx: DbTx, scope: Scope) {
+  for (const pkg of await list(tx, scope, KIND)) {
+    if (data(pkg).status !== "started") continue;
+    for (const step of (data(pkg).steps ?? []) as Array<Record<string, any>>) {
+      if (step.kind !== "copy") continue;
+      const { draft } = await stepDraft(tx, scope, step.missionId);
+      if (draft) {
+        if (data(draft).status !== "draft" || data(draft).review) continue;
+        try {
+          await reviewContent(tx, scope, draft.id, draft.version);
+        } catch (error) {
+          // One unreviewable draft must not stop the project sweep.
+          if (!(error instanceof DomainError)) throw error;
+          await exception(tx, scope, error.code, draft.id);
+        }
+      }
+    }
+  }
+}
+
+/** A step's draft: its own, or the identical earlier draft its mission reused. */
+async function stepDraft(tx: DbTx, scope: Scope, missionId: string) {
+  const where = { workspaceId: scope.workspaceId, projectId: scope.projectId };
+  const own = await tx.entity.findFirst({
+    where: {
+      ...where,
+      kind: "content",
+      data: { path: ["missionId"], equals: missionId },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (own) return { draft: own, reused: false };
+  const mission = await tx.entity.findFirst({
+    where: { ...where, kind: "missions", id: missionId },
+  });
+  const lastContentId = data(mission).lastContentId;
+  const reused = lastContentId
+    ? await tx.entity.findFirst({
+        where: { ...where, kind: "content", id: lastContentId },
+      })
+    : null;
+  return { draft: reused, reused: Boolean(reused) };
 }

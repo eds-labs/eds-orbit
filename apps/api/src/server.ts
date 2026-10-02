@@ -59,6 +59,7 @@ import {
   confirmProposal,
 } from "./modules/chat.ts";
 import { decideActionRequest } from "./modules/action-requests.ts";
+import { cancelContentPackage } from "./modules/agents/content-packages.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
   configureSlack,
@@ -1103,6 +1104,12 @@ export async function buildServer(
       return confirmProposal(scope, z.uuid().parse(id), req.body);
     },
   );
+  // Stops what has not started; the requester only.
+  app.post("/api/projects/:projectId/chat/packages/:id/cancel", async (req) => {
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    return cancelContentPackage(scope, z.uuid().parse(id));
+  });
   // Decision on one exact action request; role and checks come from its action type.
   app.post(
     "/api/projects/:projectId/action-requests/:id/decide",

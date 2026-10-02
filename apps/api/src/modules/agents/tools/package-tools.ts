@@ -35,6 +35,12 @@ export const packageTools: readonly OrbitTool[] = [
             "Exact Verified Fact keys returned by knowledge_search that the posts may state",
           ),
         campaignType: z.enum(["product", "presale"]).nullable(),
+        imageBrief: z
+          .string()
+          .nullable()
+          .describe(
+            "Only if the user asked for an image: one artwork description without text, logos, UI or claims. Owners only.",
+          ),
         intendedDate: z
           .string()
           .nullable()
@@ -60,6 +66,7 @@ export const packageTools: readonly OrbitTool[] = [
           status: "awaiting_confirmation",
           ceilingMicros: d.ceilingMicros,
           deliverables: d.deliverables,
+          image: d.image,
         },
         cards: [
           {

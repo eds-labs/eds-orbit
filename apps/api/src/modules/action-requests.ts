@@ -228,3 +228,20 @@ export async function consumeActionRequest(
     consumedBy: { executionId, consumedAt: new Date().toISOString() },
   });
 }
+
+/** Withdraws a request before it is used; a consumed request is returned unchanged. */
+export async function cancelActionRequest(tx: DbTx, scope: Scope, id: string) {
+  const row = await entity(tx, scope, KIND, id);
+  const d = data(row);
+  if (!["pending", "approved"].includes(d.status)) return row;
+  const canceled = await update(tx, scope, row, {
+    ...d,
+    status: "canceled",
+    canceledBy: scope.userId,
+    canceledAt: new Date().toISOString(),
+  });
+  await audit(tx, scope, "action_request.canceled", row.id, {
+    actionType: d.actionType,
+  });
+  return canceled;
+}

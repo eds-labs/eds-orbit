@@ -14,6 +14,7 @@ import {
   exception,
 } from "../shared.ts";
 import { analyze, enqueue } from "./workflow.ts";
+import { advanceContentPackages } from "./agents/content-packages.ts";
 
 export async function correctMetric(
   tx: DbTx,
@@ -232,6 +233,7 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
     );
     queued++;
   }
+  await advanceContentPackages(tx, scope);
   const requests = await list(tx, scope, "sync_requests");
   for (const source of await list(tx, scope, "sources")) {
     const d = data(source);

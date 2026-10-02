@@ -78,6 +78,11 @@ type GenerationContract = {
     previousDrafts: { title: string; claims: string[] }[];
   } | null;
 };
+/** Channel limits for attached media apply to approved assets and to a planned package image. */
+export function missionHasMedia(m: Record<string, any>) {
+  return Boolean(m.assetIds?.length) || m.mediaPlanned === true;
+}
+
 export async function generateMissionLive(
   scope: Scope,
   missionId: string,
@@ -259,7 +264,7 @@ async function generateMissionDraft(
         scope,
         channel,
         m.contentType,
-        !!m.assetIds?.length,
+        missionHasMedia(m),
       );
       const targetUrl =
         campaignContext?.officialTargetUrl ?? m.targetUrl ?? null;
@@ -430,7 +435,7 @@ async function generateMissionDraft(
             (data(mission).completedRuns ?? 0) % data(mission).channels.length
           ],
           data(mission).contentType,
-          !!data(mission).assetIds?.length,
+          missionHasMedia(data(mission)),
         ),
       ) !== hash(prepared.channelRules)
     )
@@ -558,7 +563,7 @@ async function generateMissionDraft(
             (data(mission).completedRuns ?? 0) % data(mission).channels.length
           ],
           data(mission).contentType,
-          !!data(mission).assetIds?.length,
+          missionHasMedia(data(mission)),
         ),
       ) !== hash(prepared.channelRules)
     )

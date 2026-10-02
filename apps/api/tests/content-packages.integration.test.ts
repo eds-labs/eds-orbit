@@ -14,7 +14,12 @@ import { createConversation, getConversation } from "../src/modules/chat.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { deterministicDraft } from "../src/modules/workflow.ts";
 import { zonedTime } from "../src/modules/posting-slots.ts";
+import { sweepProject } from "../src/modules/lifecycle.ts";
+import { runImageJob } from "../src/modules/image-requests.ts";
+import { missionHasMedia } from "../src/modules/generation.ts";
+import { renderRasterTemplate } from "../../../packages/creative/src/index.ts";
 import {
+  cancelContentPackage,
   packageSnapshot,
   requestContentPackage,
 } from "../src/modules/agents/content-packages.ts";
@@ -25,6 +30,10 @@ const enabled = Boolean(
 const X = "x-int";
 const TELEGRAM = "tg-int";
 const URL = "https://example.invalid";
+const IMAGE_MODEL = "gpt-image-2.5-flare";
+const IMAGE_MAX = 50_000;
+const IMAGE_BRIEF =
+  "A calm abstract artwork of an open door made of soft light, no text.";
 
 describe.skipIf(!enabled)("Content packages from one chat request", () => {
   let owner: Scope, editor: Scope, viewer: Scope;
@@ -255,13 +264,22 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
       };
       await saveOpenAiConfiguration(tx, owner, {
         apiKey: "synthetic-no-provider-call-key",
-        verifiedModels: ["synthetic-model", "text-embedding-3-small"],
+        verifiedModels: [
+          "synthetic-model",
+          "text-embedding-3-small",
+          IMAGE_MODEL,
+        ],
         rateCard: { "synthetic-model": rate, "text-embedding-3-small": rate },
         modelRoutes: {
           fast: "synthetic-model",
           standard: "synthetic-model",
           quality: "synthetic-model",
           escalation: "synthetic-model",
+        },
+        imageGeneration: {
+          model: IMAGE_MODEL,
+          maxCostMicrosPerImage: IMAGE_MAX,
+          pricingVerifiedAt: new Date().toISOString(),
         },
       });
     });
@@ -499,5 +517,253 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
     const ownView = await createConversation(owner);
     expect((await getConversation(owner, ownView.id)).packages).toEqual([]);
     expect((await getConversation(editor, thread.id)).packages).toHaveLength(1);
+  });
+
+  describe("image, review, cancel and partial results", () => {
+    const worker = () => ({
+      ...owner,
+      userId: "worker",
+      role: "owner" as const,
+    });
+    let png: Buffer;
+    beforeAll(async () => {
+      const rendered = await renderRasterTemplate({
+        format: "square",
+        logoApproved: true,
+        title: "Synthetic fixture",
+      });
+      if (rendered.status !== "rendered")
+        throw new Error("FIXTURE_RENDER_FAILED");
+      png = rendered.bytes;
+    });
+    const image = (fail = false) => {
+      const calls = { count: 0 };
+      const generate = async () => {
+        calls.count++;
+        if (fail) throw new Error("connection reset after transmission");
+        return {
+          bytes: png,
+          model: IMAGE_MODEL,
+          size: "1024x1024",
+          quality: "medium",
+          background: "opaque",
+          usage: null,
+        };
+      };
+      return { calls, generate: generate as never };
+    };
+    const jobsFor = (resourceIds: string[]) =>
+      run(async (tx) =>
+        (await list(tx, owner, "jobs")).filter((job) =>
+          resourceIds.includes(data(job).resourceId),
+        ),
+      );
+    const startedWithImage = async () => {
+      const asked = await ask(owner, { imageBrief: IMAGE_BRIEF });
+      await approve(owner, asked.actionRequest);
+      const missions = await missionsOf(asked.package.id);
+      const steps = data(
+        await run((tx) =>
+          entity(tx, owner, "content_packages", asked.package.id),
+        ),
+      ).steps as Array<{ kind: string; actionRequestId?: string }>;
+      const imageRequestId = steps.find(
+        (s) => s.kind === "image",
+      )!.actionRequestId!;
+      return { ...asked, missions, imageRequestId };
+    };
+    const draftAll = (missions: Array<{ id: string }>) =>
+      run(async (tx) => {
+        for (const mission of missions) {
+          const job = (await list(tx, owner, "jobs")).find(
+            (row) => data(row).resourceId === mission.id,
+          )!;
+          await deterministicDraft(tx, owner, mission.id, job.id);
+        }
+      });
+
+    it("lets an owner's start click also approve the package image", async () => {
+      const {
+        package: pkg,
+        actionRequest,
+        missions,
+        imageRequestId,
+      } = await startedWithImage();
+      const plan = data(actionRequest).payload;
+      expect(plan.image).toMatchObject({
+        brief: { prompt: IMAGE_BRIEF },
+        model: IMAGE_MODEL,
+        maxCostMicros: IMAGE_MAX,
+      });
+      expect(plan.ceilingMicros).toBe(
+        plan.deliverables.reduce(
+          (n: number, d: any) => n + d.ceilingMicros,
+          0,
+        ) + IMAGE_MAX,
+      );
+      // The planned image keeps Telegram's caption limit in view while drafting.
+      expect(missions.every((m) => data(m).mediaPlanned === true)).toBe(true);
+      expect(missionHasMedia(data(missions[0]))).toBe(true);
+      const imageRequest = await run((tx) =>
+        entity(tx, owner, "action_requests", imageRequestId),
+      );
+      expect(data(imageRequest)).toMatchObject({
+        actionType: "image.generate",
+        status: "approved",
+        decision: { userId: owner.userId },
+        payload: { budgetRunKey: `package:${pkg.id}`, prompt: IMAGE_BRIEF },
+      });
+      const [job] = await jobsFor([imageRequestId]);
+      expect(data(job)).toMatchObject({
+        topic: "image",
+        maxAttempts: 1,
+        actorId: owner.userId,
+      });
+      expect((await snapshot(pkg.id)).image).toMatchObject({
+        status: "queued",
+        prompt: IMAGE_BRIEF,
+      });
+    });
+
+    it("does not let an editor add an image without an owner", async () => {
+      await expect(ask(editor, { imageBrief: IMAGE_BRIEF })).rejects.toThrow(
+        "IMAGE_OWNER_REQUIRED",
+      );
+    });
+
+    it("combines two reviewed drafts and one generated image in one result", async () => {
+      const {
+        package: pkg,
+        missions,
+        imageRequestId,
+      } = await startedWithImage();
+      await draftAll(missions);
+      const [imageJob] = await jobsFor([imageRequestId]);
+      const fake = image();
+      const asset = await runImageJob(
+        worker(),
+        owner.userId,
+        imageRequestId,
+        imageJob!.id,
+        fake.generate,
+      );
+      // The project sweep reviews package drafts with the existing claim checks.
+      await run((tx) => sweepProject(tx, worker()));
+      const result = await snapshot(pkg.id);
+      expect(result.status).toBe("completed");
+      for (const deliverable of result.deliverables) {
+        expect(["reviewed", "needs_review"]).toContain(
+          deliverable.content?.status,
+        );
+        expect(deliverable.review).toMatchObject({
+          valid: expect.any(Boolean),
+          problems: expect.any(Array),
+        });
+      }
+      expect(result.image).toMatchObject({
+        status: "generated",
+        assetId: asset.id,
+        href: `/api/projects/${owner.projectId}/assets/${asset.id}/content`,
+      });
+      expect(data(asset)).toMatchObject({
+        assetStatus: "reference",
+        usageApproved: false,
+      });
+      expect(fake.calls.count).toBe(1);
+      const runRow = await run((tx) =>
+        tx.entity.findFirstOrThrow({
+          where: {
+            kind: "budget_runs",
+            data: { path: ["runKey"], equals: `package:${pkg.id}` },
+          },
+        }),
+      );
+      const categories = (
+        await run((tx) =>
+          tx.budgetReservation.findMany({
+            where: { id: { in: data(runRow).reservationIds } },
+          }),
+        )
+      ).map((row) => row.category);
+      expect(categories).toContain("image_generation");
+    });
+
+    it("keeps both drafts and reports a partial package when the image outcome is unknown", async () => {
+      const {
+        package: pkg,
+        missions,
+        imageRequestId,
+      } = await startedWithImage();
+      await draftAll(missions);
+      const [imageJob] = await jobsFor([imageRequestId]);
+      const failing = image(true);
+      await expect(
+        runImageJob(
+          worker(),
+          owner.userId,
+          imageRequestId,
+          imageJob!.id,
+          failing.generate,
+        ),
+      ).rejects.toThrow();
+      const result = await snapshot(pkg.id);
+      expect(result.status).toBe("partially_completed");
+      expect(result.deliverables.every((d) => d.status === "drafted")).toBe(
+        true,
+      );
+      expect(result.image).toMatchObject({ status: "outcome_unknown" });
+      expect(failing.calls.count).toBe(1);
+    });
+
+    it("cancels a proposed package so it can no longer start", async () => {
+      const { package: pkg, actionRequest } = await ask();
+      const canceled = await cancelContentPackage(editor, pkg.id);
+      expect(canceled.status).toBe("canceled");
+      expect(
+        data(
+          await run((tx) =>
+            entity(tx, owner, "action_requests", actionRequest.id),
+          ),
+        ).status,
+      ).toBe("canceled");
+      await expect(approve(editor, actionRequest)).rejects.toThrow(
+        "ACTION_REQUEST_NOT_PENDING",
+      );
+      expect(await missionsOf(pkg.id)).toHaveLength(0);
+    });
+
+    it("stops queued work on cancel and reports what already exists", async () => {
+      const {
+        package: pkg,
+        missions,
+        imageRequestId,
+      } = await startedWithImage();
+      const xMission = missions.find((m) => data(m).channels[0] === X)!;
+      const telegramMission = missions.find(
+        (m) => data(m).channels[0] === TELEGRAM,
+      )!;
+      await draftAll([xMission]);
+      const result = await cancelContentPackage(owner, pkg.id);
+      expect(result.status).toBe("canceled");
+      const byChannel = Object.fromEntries(
+        result.deliverables.map((d) => [d.channelId, d.status]),
+      );
+      expect(byChannel[X]).toBe("drafted");
+      expect(byChannel[TELEGRAM]).toBe("canceled");
+      const [telegramJob] = await jobsFor([telegramMission.id]);
+      expect(data(telegramJob).status).toBe("canceled");
+      expect(
+        data(
+          await run((tx) => entity(tx, owner, "missions", telegramMission.id)),
+        ).status,
+      ).toBe("archived");
+      const [imageJob] = await jobsFor([imageRequestId]);
+      expect(data(imageJob).status).toBe("canceled");
+      expect(result.image).toMatchObject({ status: "canceled" });
+      await expect(
+        runImageJob(worker(), owner.userId, imageRequestId, imageJob!.id),
+      ).rejects.toThrow("ACTION_REQUEST_NOT_APPROVED");
+      await expect(cancelContentPackage(viewer, pkg.id)).rejects.toThrow();
+    });
   });
 });

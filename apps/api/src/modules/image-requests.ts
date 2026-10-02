@@ -22,6 +22,7 @@ export async function proposeImageRequest(
   scope: Scope,
   brief: unknown,
   requestedBy: RequestedBy,
+  options: { budgetRunKey?: string } = {},
 ) {
   const { imageConfig } = await currentImageTerms(tx, scope);
   return createActionRequest(tx, scope, {
@@ -30,6 +31,7 @@ export async function proposeImageRequest(
       ...imageRequestBrief.parse(brief),
       model: imageConfig.model,
       maxCostMicros: imageConfig.maxCostMicrosPerImage,
+      ...(options.budgetRunKey ? { budgetRunKey: options.budgetRunKey } : {}),
     },
     requestedBy,
   });
@@ -94,9 +96,8 @@ export async function executeImageRequest(
   );
   if (prepared.asset) return prepared.asset;
   const request = data(prepared.request);
-  const { model, maxCostMicros, ...brief } = imageRequestPayload.parse(
-    request.payload,
-  );
+  const { model, maxCostMicros, budgetRunKey, ...brief } =
+    imageRequestPayload.parse(request.payload);
   return generateProjectImage(
     scope,
     {
@@ -108,6 +109,7 @@ export async function executeImageRequest(
     },
     provider,
     {
+      runKey: budgetRunKey,
       authorize: async (tx) => {
         const { imageConfig } = await currentImageTerms(tx, scope);
         if (imageConfig.model !== model)

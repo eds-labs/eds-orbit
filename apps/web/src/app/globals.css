@@ -3082,6 +3082,18 @@ body:has(dialog[open]) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.chat-package-image {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.chat-package-image img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
 .chat-package-note {
   color: var(--muted-foreground);
   margin: 8px 0;

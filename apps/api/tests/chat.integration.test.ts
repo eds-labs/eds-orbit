@@ -358,4 +358,15 @@ describe.skipIf(!enabled)("Orbit Chat private and idempotent API", () => {
       (await decide(ownerCookie, "a".repeat(64), randomUUID())).statusCode,
     ).toBe(404);
   });
+  it("cancels a content package only with write access and only the requester's", async () => {
+    const cancel = (cookie: string) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/chat/packages/${randomUUID()}/cancel`,
+        headers: { origin, cookie },
+        payload: {},
+      });
+    expect((await cancel(viewerCookie)).statusCode).toBe(403);
+    expect((await cancel(ownerCookie)).statusCode).toBe(404);
+  });
 });

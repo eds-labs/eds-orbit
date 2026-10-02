@@ -322,6 +322,19 @@ export function OrbitChat() {
       setPending(false);
     }
   }
+  async function cancelPackage(pkg: ContentPackage) {
+    if (!canEdit) return;
+    setPending(true);
+    setError("");
+    try {
+      await post(`${base}/packages/${pkg.id}/cancel`, {});
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Cancel failed");
+    } finally {
+      setPending(false);
+    }
+  }
   useEffect(() => {
     if (
       !detail.data?.packages?.some(packageInProgress) &&
@@ -544,6 +557,7 @@ export function OrbitChat() {
                 canStart={canEdit}
                 pending={pending}
                 onStart={startPackage}
+                onCancel={cancelPackage}
               />
             ))}
             {proposals.map((proposal) => (

@@ -59,6 +59,8 @@ export const imageRequestBrief = imageGenerationInput.omit({
 export const imageRequestPayload = imageRequestBrief.extend({
   model: z.string().min(1),
   maxCostMicros: z.number().int().positive(),
+  // A content package's run key, so one per-run limit covers the whole package.
+  budgetRunKey: z.string().min(1).max(120).optional(),
 });
 
 /** Current image route; fails closed without a key, a configured price or a verified model. */
@@ -99,6 +101,8 @@ type Provider = typeof generateImage;
 type ImageOptions = {
   /** Runs in the reservation transaction after every other check; a throw stops before any cost. */
   authorize?: (tx: DbTx) => Promise<void>;
+  /** Budget run shared with other calls; defaults to this image request alone. */
+  runKey?: string;
 };
 
 export async function generateProjectImage(
@@ -161,7 +165,7 @@ async function generateProjectImageTraced(
         imageConfig.maxCostMicrosPerImage,
         parsedPolicy,
         new Date(),
-        `image:${input.requestId}`,
+        options.runKey ?? `image:${input.requestId}`,
         {
           agentRunId,
           taskClass: "image_generation",
