@@ -95,10 +95,11 @@ describe.skipIf(!enabled)("Drive reconnect readiness on PostgreSQL", () => {
       }),
     );
     const broken = await run((tx) => readiness(tx, scope));
-    expect(broken.actions.drive_save).toMatchObject({
-      state: "blocked",
-      blockers: expect.arrayContaining(["GOOGLE_DRIVE_RECONNECT_REQUIRED"]),
-    });
+    // The state also depends on whether the OAuth client is configured here.
+    expect(broken.actions.drive_save.state).not.toBe("ready");
+    expect(broken.actions.drive_save.blockers).toContain(
+      "GOOGLE_DRIVE_RECONNECT_REQUIRED",
+    );
     for (const action of ["postiz_live", "postiz_schedule"] as const)
       expect(broken.actions[action].blockers).toContain(
         "GOOGLE_DRIVE_RECONNECT_REQUIRED",
