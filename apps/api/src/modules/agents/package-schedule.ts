@@ -20,6 +20,7 @@ import { activePolicy, approve, packageFor } from "../policy.ts";
 import { publishIntent, reviewContent } from "../workflow.ts";
 import { invalidateContent } from "../content-invalidation.ts";
 import {
+  assertPackageDraft,
   contentPackagesEnabled,
   currentDraft,
   packageSnapshot,
@@ -97,9 +98,8 @@ export async function proposeSchedule(
     const draft = current.draft;
     if (data(draft).supersededBy)
       throw new DomainError("DRAFT_SUPERSEDED", 409);
+    await assertPackageDraft(tx, scope, pkg.id, draft);
     const mission = await entity(tx, scope, "missions", data(draft).missionId);
-    if (data(mission).packageId !== pkg.id)
-      throw new DomainError("SCHEDULE_DRAFT_NOT_IN_PACKAGE", 409);
     const replaces = await openSchedule(tx, scope, step);
     const channel = String(data(draft).channel);
     const overview = (await channelSlots(tx, scope, { channels: [channel] }))

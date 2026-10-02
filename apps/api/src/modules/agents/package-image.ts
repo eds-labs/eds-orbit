@@ -13,6 +13,7 @@ import { channelLimitExceeded, resolveChannelRules } from "../channel-rules.ts";
 import { invalidateContent } from "../content-invalidation.ts";
 import { reviewContent } from "../workflow.ts";
 import {
+  assertPackageDraft,
   contentPackagesEnabled,
   currentDraft,
   packageSnapshot,
@@ -79,6 +80,7 @@ export async function attachPackageImage(
       const draft = current.draft;
       const v = data(draft);
       if (v.supersededBy) throw new DomainError("DRAFT_SUPERSEDED", 409);
+      await assertPackageDraft(tx, scope, pkg.id, draft);
       if (
         publications.some(
           (row) =>

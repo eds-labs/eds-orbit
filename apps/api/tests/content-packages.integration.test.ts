@@ -793,9 +793,12 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
       key: string,
     ) => snap.deliverables.find((d) => d.channelId === key)!.content!;
 
-    it("revises only the X draft, keeps Telegram, and supersedes the old X draft", async () => {
+    // In this shared project the X draft is the identical draft generation reused
+    // from an earlier package; package-reused-draft covers superseding an own draft.
+    it("revises only the X draft, keeps Telegram, and leaves the reused X draft of another package untouched", async () => {
       const { package: pkg, thread, before } = await started();
       const oldX = contentOf(before, X);
+      expect(oldX.reused).toBe(true);
       const oldTelegram = contentOf(before, TELEGRAM);
       const approval = await run((tx) =>
         create(tx, owner, "approvals", {
@@ -845,11 +848,11 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
       const old = await run((tx) =>
         entity(tx, owner, "content", String(oldX.id)),
       );
-      expect(data(old).supersededBy).toBe(x.content!.id);
+      expect(data(old).supersededBy).toBeUndefined();
       expect(
         data(await run((tx) => entity(tx, owner, "approvals", approval.id)))
           .status,
-      ).toBe("blocked_dependency");
+      ).toBe("approved");
     });
 
     it("keeps the package image when only text is revised", async () => {

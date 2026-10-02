@@ -379,6 +379,8 @@ test("owner approves the package image's rights and attaches it to one draft", a
       body,
       status: "reviewed",
       assetId: attached && key === "x" ? "asset-1" : null,
+      // The Telegram draft was reused from another package.
+      reused: key === "telegram",
     },
     review: { valid: true, problems: [] },
     revisions: 0,
@@ -478,15 +480,19 @@ test("owner approves the package image's rights and attaches it to one draft", a
       confirmUsageRights: true,
     });
   await expect(card.getByText("Usage rights approved.")).toBeVisible();
-  await card
-    .getByRole("button", { name: "Attach package image" })
-    .first()
-    .click();
+  // A reused draft from another package offers no attach, with the reason.
+  await expect(
+    card.getByText(/from another package reused. Revise it first/),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Attach package image" }),
+  ).toHaveCount(1);
+  await card.getByRole("button", { name: "Attach package image" }).click();
   await expect.poll(() => attached).toEqual({ deliverableKeys: ["x"] });
   await expect(card.getByText("With package image")).toBeVisible();
   await expect(
     card.getByRole("button", { name: "Attach package image" }),
-  ).toHaveCount(1);
+  ).toHaveCount(0);
 });
 
 test("cancels a scheduled package post and reports a handed-over one honestly", async ({

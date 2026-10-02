@@ -762,7 +762,12 @@ export async function advanceContentPackages(tx: DbTx, scope: Scope) {
           "content",
           revision.parentContentId,
         );
-        if (data(parent).supersededBy) continue;
+        // A reused draft belongs to another package; only its own drafts are replaced.
+        if (
+          data(parent).supersededBy ||
+          !(await isPackageDraft(tx, scope, pkg.id, parent))
+        )
+          continue;
         await update(tx, scope, parent, {
           ...data(parent),
           supersededBy: revised.id,
@@ -783,6 +788,38 @@ export async function advanceContentPackages(tx: DbTx, scope: Scope) {
       }
     }
   }
+}
+
+/** Whether a draft was written by one of this package's missions, not reused from elsewhere. */
+export async function isPackageDraft(
+  tx: DbTx,
+  scope: Scope,
+  packageId: string,
+  draft: { data: unknown },
+) {
+  const mission = await tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "missions",
+      id: String(data(draft).missionId ?? ""),
+    },
+  });
+  return data(mission).packageId === packageId;
+}
+
+/**
+ * Refuses a draft that generation reused from another package: it may be
+ * scheduled or changed only from its own package. Revising creates an own draft.
+ */
+export async function assertPackageDraft(
+  tx: DbTx,
+  scope: Scope,
+  packageId: string,
+  draft: { data: unknown },
+) {
+  if (!(await isPackageDraft(tx, scope, packageId, draft)))
+    throw new DomainError("DRAFT_REUSED", 409);
 }
 
 /** A step's draft: its own, or the identical earlier draft its mission reused. */

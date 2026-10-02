@@ -178,6 +178,7 @@ export function PackageCard({
       ? pkg.deliverables.filter(
           (deliverable) =>
             deliverable.content &&
+            !deliverable.content.reused &&
             deliverable.content.assetId !== image.assetId &&
             !["scheduled", "sending", "published", "published_test"].includes(
               deliverable.schedule?.status ?? "",
@@ -263,8 +264,8 @@ export function PackageCard({
             {deliverable.content?.reused && (
               <p className="chat-package-note">
                 {de
-                  ? "Identischer früherer Entwurf wiederverwendet."
-                  : "Identical earlier draft reused."}
+                  ? "Identischer früherer Entwurf aus einem anderen Paket wiederverwendet. Zum Terminieren oder für ein Bild zuerst überarbeiten."
+                  : "Identical earlier draft from another package reused. Revise it first to schedule it or add an image."}
               </p>
             )}
             {deliverable.review && (
