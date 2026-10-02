@@ -348,14 +348,7 @@ test("starts a content package with one click and shows both drafts", async ({
 test("cancels a running content package and shows what stopped", async ({
   page,
 }) => {
-  const user = account();
-  await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
-  ).toBeVisible();
+  const user = await signIn(page);
   const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8201";
   let canceled = false;
   const deliverable = (
