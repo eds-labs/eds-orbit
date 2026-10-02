@@ -333,8 +333,8 @@ live uLiquid acceptance.
 | Single text draft | YES | YES | YES | YES | Unedited paid verification Content `ba81892b-efed-412e-a826-7c425c6a2161` passed review after owner confirmation and exports as `draft_export` on `00f2050`; earlier Content `8b2d23c1…` needed one owner wording edit. |
 | Approved early single live draft | YES | YES | YES | YES | The final acceptance run used the owner live-draft-once action: one Job, one attempt, no second Job. |
 | Brand assets | YES | YES | YES | YES | The reviewed Content references approved Drive-imported logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a`; the export bundle contains it as `assets/creative.png` after PR #12. Visual rendering and Drive save remain untested. |
-| Visual rendering | YES | YES | YES | NO | An approved logo exists and the autopilot attaches it; no uLiquid visual has been generated or accepted. On 2026-10-02 Mario saved a new image key in Orbit; its use is being checked separately. |
-| Google Drive save | YES | YES | YES | PARTIAL | Drive reads of the approved logo work in production (write verification and Postiz uploads, 2026-10-02, after Mario reconnected Drive). A real save and readback of a generated asset has not been performed. |
+| Visual rendering | YES | YES | YES | PARTIAL | 2026-10-02: one owner-approved test image with the new dedicated image key: asset `2e387b8e-4f44-490a-bda6-9059edba3287`, `gpt-image-2.5-flare`, 1024×1024 PNG, 1,168,504 bytes, status `reference`, `usageApproved=false`. Open: owner rights/brand review and use in a draft; the autopilot still attaches the approved logo. |
+| Google Drive save | YES | YES | YES | YES | 2026-10-02: the test image was saved to Drive (`SYNCED`, file `1uEmS-nkc-_C8RKX6SMfuyPF4CJ19eUs8` in the Social/X folder) and is visible in Drive; Orbit's asset content endpoint returned the stored SHA-256 `41d435e6…055c2`. |
 | Postiz assignment | YES | YES | YES | YES | Project-scoping browser test passed; Telegram and X assigned to uLiquid. |
 | Postiz draft handoff | YES | YES | YES | YES | Text-only and image drafts accepted live 2026-09-29; the ten drafts of the weekly series 2026-09-30 to 2026-10-04 were accepted by Postiz (X after the `who_can_reply_post` fix in `226dccf`). |
 | Postiz live publish | YES | YES | YES | PARTIAL | `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`; Telegram uLiquid Desk and X uLiquid passed one public write and media verification each on 2026-10-02. No autopilot publication has run yet. |
@@ -911,6 +911,18 @@ Each post was prepared, executed and reconciled once; no retry. Postiz connector
 **Status:** COMPLETE
 
 Mario asked to extend the autopilot policy to the end of December. New active policy `cbf34b26-61cd-4bde-bc56-8e3c9c31806f` copies `dc9a602c-caf8-47e8-b216-a27f6f634bb7` exactly except `endAt`, which moves from 2026-10-18T15:00Z to 2026-12-31T23:00Z (2027-01-01 00:00 Europe/Berlin), so the last X slot on 2026-12-31 (17:00 Berlin) is inside the window. Mode `autopilot`, channels, limits and the $10 daily/monthly/per-run budgets are unchanged. Before the change there were no autopilot missions and no open publications. After it, the only active policy is `cbf34b26…`, dashboard readiness blockers are `[]`, and the project mode is `autopilot`. No paid AI cost and no provider write.
+
+### 2026-10-02 CEST -- Image generation and Drive save test run
+
+**Status:** COMPLETE
+
+**Preflight:** Mario saved a new dedicated image key at 09:09:16 UTC (OpenAI configuration version 7). The configuration reports `dedicatedImageKeyConfigured=true`, model `gpt-image-2.5-flare` verified, `maxCostMicrosPerImage` 1,000,000, pricing verified 2026-09-19T17:30Z. Dashboard readiness: `visual` and `drive_save` ready, no blockers.
+
+**Run (approved by Mario):** one image through Assets → Generate with OpenAI: 1024×1024, quality medium, opaque, Drive category Social/X, uses social and blog; an abstract artwork prompt without text, logos or claims. Result: asset `2e387b8e-4f44-490a-bda6-9059edba3287` (`reference`, not usage-approved), 1,168,504 bytes, SHA-256 `41d435e6ad300490abd945b80e7250c0ea3a61385a428650d03689caeaa055c2`, provider usage 175 input and 439 output tokens, reservation `25cfcab3-d163-4ac9-b29e-68b66544a228`. Drive: `SYNCED`, file `1uEmS-nkc-_C8RKX6SMfuyPF4CJ19eUs8`, opened in Drive. The Orbit content endpoint returned the same bytes and hash.
+
+**Costs / external effects:** one image call; the reservation keeps the $1.00 ceiling as `unknown` cost by design until reconciliation. One Drive upload. No publication, no Postiz call.
+
+**Open:** the owner reviews rights and brand fit before the image can be used; the pricing date expires after 2026-10-20T17:30Z (`IMAGE_PRICING_REQUIRED`); the autopilot image setting still uses the logo.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
