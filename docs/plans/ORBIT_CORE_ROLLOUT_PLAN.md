@@ -51,7 +51,7 @@ Each phase starts only after the previous one is verified. "Owner" means Mario.
 
 - [ ] CI green on the integration PR.
 - [ ] Latest encrypted off-host backup succeeded within the last 26 hours (`orbit-backup ok`, Coolify scheduled task) and the `CREDENTIAL_KEY` escrow is current (`docs/BACKUP_RESTORE.md`).
-- [ ] **Approval B (read-only production query):** list uLiquid publications that are active (`intent_created`, `sending`) and not created by the autopilot, by channel and day. Every such day the autopilot has not yet planned will be skipped after the deploy (section 2). Confirm that this is wanted for each listed day.
+- [ ] **Approval B (read-only production query):** run the two queries from the [Phase 0 runbook](#appendix-phase-0-runbook): the context (timezone, autopilot plan moment, posting times, policy) and the preview of every channel-day the deployed autopilot will skip (`will_skip`). Confirm each `will_skip = true` row, or cancel the publication behind it before the deploy.
 - [ ] Note the current Coolify deployment ID, Git commit (`9c46b0d`) and image digest as the rollback target.
 - [ ] Agree the window: outside the uLiquid posting times and not at the weekly autopilot plan moment.
 
@@ -139,3 +139,59 @@ Rollback: cancel the schedule on the card before the handoff. After the handoff 
 | Phase 2–5, feature     | Set the flag to `false`, redeploy | Started packages finish as drafts; approved schedules stay ordinary publications and can still be canceled from the card.                                                                                                                 |
 | Phase 4                | `ORBIT_TOOL_SEARCH=false`         | none                                                                                                                                                                                                                                      |
 | Phase 5, after handoff | Remove the post in Postiz         | Orbit records the outcome; it never retracts or resends.                                                                                                                                                                                  |
+
+## Appendix: Phase 0 runbook
+
+Everything here is read-only. Nothing is printed that contains a secret; the database password stays inside the container.
+
+### Step 1 — backup and key escrow
+
+1. Coolify, Orbit application, Scheduled Tasks: the last run of `orbit-backup once` succeeded less than 26 hours ago. Alternatively the `backup` container log shows `orbit-backup ok` within that time, and its health is `healthy`.
+2. Confirm in the password manager that the running `CREDENTIAL_KEY` and the `age` backup key are stored (`docs/BACKUP_RESTORE.md`, one-time setup).
+
+### Step 2 — rollback target
+
+Coolify, Orbit application, Deployments: note the current deployment ID and its Git commit (expected `9c46b0d`). On the host, note the API image digest without printing environment values:
+
+```sh
+docker inspect --format '{{.Image}}' <orbit-api-container>
+```
+
+### Step 3 — Approval B queries
+
+The queries are versioned in `scripts/rollout/` and covered by `apps/api/tests/rollout-phase0.integration.test.ts`. That test checks that the preview predicts exactly the days the deployed `planAutopilot` skips (daily quota, spacing, already planned days, canceled posts), and that both queries run in a read-only transaction. They run in the Orbit `postgres` container as the database owner (`orbit_migrator`, which can read across projects). `default_transaction_read_only=on` makes the session refuse any write (SQLSTATE `25006`).
+
+1. Find the uLiquid project ID (read-only):
+
+   ```sh
+   docker exec -i <orbit-postgres-container> env PGOPTIONS='-c default_transaction_read_only=on' \
+     psql -U orbit_migrator -d orbit -v ON_ERROR_STOP=1 \
+     -c 'SELECT id, name, timezone, mode FROM "Project" ORDER BY "createdAt";'
+   ```
+
+2. Context and preview, with the files from this repository revision piped in from a checkout (for example over SSH from the workstation):
+
+   ```sh
+   docker exec -i <orbit-postgres-container> env PGOPTIONS='-c default_transaction_read_only=on' \
+     psql -U orbit_migrator -d orbit -v ON_ERROR_STOP=1 -v project_id=<project-uuid> \
+     < scripts/rollout/phase0-context.sql
+   docker exec -i <orbit-postgres-container> env PGOPTIONS='-c default_transaction_read_only=on' \
+     psql -U orbit_migrator -d orbit -v ON_ERROR_STOP=1 -v project_id=<project-uuid> \
+     < scripts/rollout/phase0-autopilot-skip-preview.sql
+   ```
+
+3. Read the preview. It lists the next 14 local days, a superset of the autopilot planning horizon, for the autopilot's channels that have active publications:
+   - `already_planned = true`: the autopilot already planned that day. Nothing changes; the existing quota check at handoff still applies.
+   - `will_skip = true`: after the deploy, the autopilot plans no paid draft for that day. Decide per row: keep it (the scheduled post takes the day) or cancel the publication before the deploy.
+   - `will_skip = false`, not planned: the autopilot plans the day as before.
+4. Record in the rollout ledger below: the date, the row count, the `will_skip` count and the decision. Do not record the publication IDs or post texts here.
+
+### Step 4 — window
+
+From the context row: avoid two hours around every `posting_times` value (project timezone), the weekly plan moment (`plan_weekday_0_is_sunday`, `plan_time`), and any time when `open_publications` includes a post due within two hours. Prefer a weekday morning outside these times, with Mario available for Phase 1 checks.
+
+### Phase 0 record
+
+| Date | Backup age | Rollback target | Preview rows / `will_skip` | Decision | Window |
+| ---- | ---------- | --------------- | -------------------------- | -------- | ------ |
+|      |            |                 |                            |          |        |
