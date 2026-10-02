@@ -40,7 +40,7 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 
 - Public writes: the owner decides each exact post; live checks in preflight are unchanged and run immediately before handoff; the agent can never approve.
 - Autopilot: J3.2 touches the running uLiquid weekly plan; it may only skip days, never delete missions, with a regression test for one post per channel and day.
-- Rollback: flag off stops new proposals; approved schedules are ordinary publications with the existing cancel and reconciliation paths.
+- Rollback: flag off stops new proposals; approved schedules are ordinary publications. Correction (J3.4): Orbit had no cancel path for a single publication; J3.4 adds one that also works with the flag off. Reconciliation of handed-over posts uses the existing `reconcile` action.
 - Production: merges, the flag and the first real package post each need Mario's approval; the first live post should be a deliberate test post on a verified channel.
 
 ## 6. Progress log
@@ -51,7 +51,7 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 | J3.1 | Scheduling by decision | DONE (local) | `30bd2c7`, see below |
 | J3.2 | Autopilot coexistence | DONE (local) | `d9430c7`, see below |
 | J3.3 | Package image in a post | DONE (local) | `d620d35`, see below |
-| J3.4 | Cancel and reschedule | TODO | |
+| J3.4 | Cancel and reschedule | DONE (local) | `5479565`, see below |
 | J3.5 | Acceptance | TODO | |
 
 ### 2026-10-02 — J3.0 slot overview (local)
@@ -89,3 +89,14 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 - An open `content.schedule` proposal for the draft becomes stale through its post hash; the owner proposes again. The approvals inbox shows the image of a post to schedule; preflight keeps checking asset rights before every handoff, and live posts still need the channel's media verification.
 - Tests (written first, failed before the module existed): six cases in `package-image.integration.test.ts` — no attach before rights, attach with a fresh review and no change on repeat, Telegram caption limit with all-or-nothing, stale proposal and blocked approval, scheduling a post with its image and refusing changes once scheduled, requester and viewer limits; plus an HTTP route case in `chat.integration.test.ts` (failed with 404 before the route) and a Playwright case for rights and attach on the card. Mutation checks: removing the rights check, the caption check, the invalidation, the scheduled check or the new review each fails a test.
 - Checks on Node 24.18.0: `pnpm test` 672/672 in 69 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` pass; `pnpm api:generate` added the new route to `openapi.json` and the generated client.
+
+### 2026-10-02 — J3.4 cancel and reschedule (local)
+
+- Base `10ead04` (J3.3 branch), code head `5479565` on branch `claude/orbit-core-j3-cancel`. Risk: high (stopping and moving scheduled public posts). Environment: local, no migration.
+- Finding: Orbit had no way to cancel a single publication (the J3.1 note on "existing cancel paths" was wrong; corrected above and in `OPERATIONS.md`).
+- `cancelPackageSchedule()` and `POST /api/projects/:projectId/chat/packages/:id/unschedule` (`{deliverableKey}`, the requester or an owner, deliberately not gated by `ORBIT_CONTENT_PACKAGES`): withdraws open proposals, takes a publication back before the handoff (status `canceled`, reason, user and time; its queued publishing job canceled; audit `publication.withdrawn`) and removes the mission's publish right (`mission.publish_revoked`). Results: `canceled`, `withdrawn`, `handoff_in_progress` (status `sending`), `not_retractable` (`published`, `published_test`, `outcome_unknown`), `nothing_scheduled`. A handed-over post is never retracted or sent again; the existing claim skips canceled publications.
+- Moving: `propose_schedule` on a scheduled post that is not handed over creates a new `content.schedule` request with `replacesPublicationId`; the card shows it as `move` next to the current slot. The post keeps its slot until the owner approves; approval cancels the old publication (`RESCHEDULED`) and schedules the new slot in the same transaction; a rejected move changes nothing. A handed-over post cannot be moved (`PUBLICATION_NOT_RETRACTABLE`).
+- Design change to J3.1: a proposal no longer writes the slot to the draft. The slot is bound by the request hash and set on the draft only on approval, so a rejected or withdrawn proposal leaves the draft unchanged and a move cannot break the current schedule. The J3.1 test now checks this.
+- Tests (written first; they failed because the function did not exist): six cases in `package-reschedule.integration.test.ts` — cancel before the handoff with no later send, honest report after the handoff and no move, handoff in progress untouched, open proposal withdrawn, move only with a new owner decision (reject keeps the slot, approval replaces it once), requester or owner with the flag off and no viewers; plus a route case in `chat.integration.test.ts` (failed with 404 before the route) and a Playwright case (move shown, cancel, not-retractable message). Mutation checks: cancelling during `sending`, cancelling handed-over posts, keeping the old publication on a move, moving after the handoff, keeping the publish right and leaving the job queued each fail a test.
+- Tool definitions: 6,990 bytes after the `propose_schedule` description mentions moving.
+- Checks on Node 24.18.0: `pnpm test` 679/679 in 70 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` pass; `pnpm api:generate` added the route.
