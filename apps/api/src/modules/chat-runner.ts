@@ -60,7 +60,7 @@ const instructions = [
 ].join(" ");
 // Added only while content packages are offered.
 const packageInstructions = [
-  "When the user wants finished posts, call knowledge_search for the Verified Facts the posts may state, then request_content_package with the user's goal, the channel integration IDs and those fact keys; the server fills CTA, official link, language and timing.",
+  "When the user wants finished posts, check recent_content for the same channels and avoid repeating recent posts, call knowledge_search for the Verified Facts the posts may state, then request_content_package with the user's goal, the channel integration IDs and those fact keys; the server fills CTA, official link, language and timing.",
   "It only prepares a package card. Tell the user to confirm it there; nothing runs before that and nothing is published. When a needed fact is missing or unusable, name the blocker instead of inventing a claim.",
   "Describe drafts and their status only from package_status.",
   "When the user wants one channel's draft changed, call revise_package_deliverable with that channelId and their instruction; the other channels and the image stay unchanged.",

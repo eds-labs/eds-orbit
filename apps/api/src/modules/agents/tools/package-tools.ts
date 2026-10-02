@@ -5,6 +5,7 @@ import {
   reviseDeliverable,
 } from "../content-packages.ts";
 import { chatScoped } from "../../chat.ts";
+import { recentContent } from "../content-history.ts";
 import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
 
 export const packageTools: readonly OrbitTool[] = [
@@ -137,6 +138,35 @@ export const packageTools: readonly OrbitTool[] = [
           },
         ],
       };
+    },
+  }),
+  defineTool({
+    name: "recent_content",
+    namespace: "content",
+    description:
+      "Recent drafts and publications per channel (newest first, at most five per channel, default 14 days): title, excerpt, status, origin and publication state. Check it before preparing new posts so they do not repeat recent ones.",
+    parameters: z
+      .object({
+        channels: z
+          .array(z.string())
+          .nullable()
+          .describe("Channel integration IDs to include; all when null"),
+        days: z
+          .number()
+          .int()
+          .nullable()
+          .describe("Look-back window in days, 1 to 60; 14 when null"),
+      })
+      .strict(),
+    risk: "R0_read",
+    roles: ["viewer", "editor", "owner"],
+    feature: "content_packages",
+    deferLoading: false,
+    async execute(context, args) {
+      const history = await chatScoped(context.scope, (tx) =>
+        recentContent(tx, context.scope, dropNullFields(args)),
+      );
+      return { output: history, cards: [] };
     },
   }),
 ];

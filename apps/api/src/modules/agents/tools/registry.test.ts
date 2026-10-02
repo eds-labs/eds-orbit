@@ -302,6 +302,7 @@ describe("proposal tool", () => {
       "request_content_package",
       "package_status",
       "revise_package_deliverable",
+      "recent_content",
     ]);
   });
   it("offers the package tools only with their feature, and the request only to editors and owners", () => {
@@ -315,6 +316,8 @@ describe("proposal tool", () => {
       expect.arrayContaining(["request_content_package", "package_status"]),
     );
     expect(names("viewer", ["content_packages"])).toContain("package_status");
+    expect(names("viewer", ["content_packages"])).toContain("recent_content");
+    expect(names("owner", [])).not.toContain("recent_content");
     expect(names("viewer", ["content_packages"])).not.toContain(
       "request_content_package",
     );
