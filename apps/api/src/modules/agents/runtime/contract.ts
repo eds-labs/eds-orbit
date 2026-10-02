@@ -58,6 +58,7 @@ function recordingTools(onExecute?: (call: ToolCallRequest) => void) {
 }
 
 const limits: RuntimeLimits = { maxModelCalls: 6, maxToolCalls: 8 };
+const toolNames = ["project_status", "knowledge_search"];
 
 export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
   describe(`AgentRuntime contract: ${name}`, () => {
@@ -69,6 +70,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
         model,
         tools,
         limits,
+        toolNames,
         signal: new AbortController().signal,
       });
       expect(result).toEqual({ modelCalls: 1, toolCalls: 0 });
@@ -89,6 +91,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
         model,
         tools,
         limits,
+        toolNames,
         signal: new AbortController().signal,
       });
       expect(executed.map((entry) => entry.callId)).toEqual([
@@ -124,6 +127,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
         model,
         tools,
         limits,
+        toolNames,
         signal: new AbortController().signal,
       });
       expect(executed).toEqual([
@@ -146,6 +150,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
           input: [user],
           model,
           tools,
+          toolNames,
           limits: { maxModelCalls: 6, maxToolCalls: 2 },
           signal: new AbortController().signal,
         }),
@@ -165,6 +170,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
           input: [user],
           model,
           tools,
+          toolNames,
           limits: { maxModelCalls: 2, maxToolCalls: 8 },
           signal: new AbortController().signal,
         }),
@@ -181,6 +187,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
           input: [user],
           model,
           tools,
+          toolNames,
           limits: { maxModelCalls: 3, maxToolCalls: 100 },
           signal: new AbortController().signal,
         }),
@@ -199,6 +206,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
           model,
           tools,
           limits,
+          toolNames,
           signal: controller.signal,
         }),
       ).rejects.toThrow("CHAT_CANCELED");
@@ -218,6 +226,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
           model,
           tools,
           limits,
+          toolNames,
           signal: controller.signal,
         }),
       ).rejects.toThrow("CHAT_CANCELED");
@@ -240,6 +249,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
           model,
           tools,
           limits,
+          toolNames,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("RETRIEVAL_UNAVAILABLE");
@@ -256,6 +266,7 @@ export function describeRuntimeContract(name: string, runtime: AgentRuntime) {
           model,
           tools,
           limits,
+          toolNames,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("USAGE_UNKNOWN");

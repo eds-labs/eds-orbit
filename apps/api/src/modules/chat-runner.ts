@@ -36,6 +36,13 @@ import {
 } from "./agents/tools/registry.ts";
 import type { BudgetedModel, ToolHost } from "./agents/runtime/port.ts";
 import { legacyResponsesRuntime } from "./agents/runtime/legacy-responses.ts";
+import { openAiAgentsRuntime } from "./agents/runtime/openai-agents.ts";
+
+// Spike selection (ADR 0005, S2); the legacy loop stays the default.
+const agentRuntime = () =>
+  process.env.ORBIT_AGENT_RUNTIME === "openai_agents_sdk"
+    ? openAiAgentsRuntime
+    : legacyResponsesRuntime;
 
 // Span names come from this fixed set; the model-supplied name is never stored.
 const KNOWN_TOOL_NAMES = new Set<string>(chatTools.map((tool) => tool.name));
@@ -446,7 +453,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         };
       },
     };
-    await legacyResponsesRuntime.runTurn({
+    await agentRuntime().runTurn({
       input,
       model: budgetedModel,
       tools: chatToolHost(
@@ -457,6 +464,8 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         offered,
         cards,
       ),
+      // Every registry name is dispatchable; the ToolHost enforces the offered set.
+      toolNames: [...KNOWN_TOOL_NAMES],
       limits: { maxModelCalls: MAX_MODEL_CALLS, maxToolCalls: MAX_TOOL_CALLS },
       signal: controller.signal,
     });
