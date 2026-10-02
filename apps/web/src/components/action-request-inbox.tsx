@@ -18,6 +18,10 @@ type ActionRequestItem = {
     maxCostMicros?: number;
     size?: string;
     quality?: string;
+    channel?: string;
+    scheduledAt?: string;
+    body?: string;
+    executionMode?: "test" | "live";
     packageGoal?: string | null;
   };
 };
@@ -66,16 +70,58 @@ export function ActionRequestInbox() {
                 ? de
                   ? "Bild erzeugen"
                   : "Generate image"
-                : item.actionType}
+                : item.actionType === "content.schedule"
+                  ? de
+                    ? "Beitrag terminieren"
+                    : "Schedule post"
+                  : item.actionType}
             </strong>
-            <Badge tone="warning">
-              {de ? "höchstens" : "at most"} {usd(item.costCeilingMicros)}
-            </Badge>
+            {item.actionType === "content.schedule" ? (
+              <Badge
+                tone={
+                  item.summary.executionMode === "live" ? "danger" : "warning"
+                }
+              >
+                {item.summary.executionMode === "live"
+                  ? de
+                    ? "Öffentlicher Beitrag"
+                    : "Public post"
+                  : de
+                    ? "Testmodus"
+                    : "Test mode"}
+              </Badge>
+            ) : (
+              <Badge tone="warning">
+                {de ? "höchstens" : "at most"} {usd(item.costCeilingMicros)}
+              </Badge>
+            )}
           </div>
           {item.summary.packageGoal && (
             <p>
               {de ? "Paket" : "Package"}: {item.summary.packageGoal}
             </p>
+          )}
+          {item.summary.scheduledAt && (
+            <p>
+              {item.summary.channel} ·{" "}
+              <time dateTime={item.summary.scheduledAt}>
+                {new Date(item.summary.scheduledAt).toLocaleString(
+                  de ? "de-DE" : "en-GB",
+                )}
+              </time>
+            </p>
+          )}
+          {item.summary.body && (
+            <>
+              <blockquote className="chat-package-draft">
+                {item.summary.body}
+              </blockquote>
+              <p className="chat-package-note">
+                {de
+                  ? "Mit der Freigabe bestätigst du genau diesen Text und Termin. Alle Prüfungen laufen direkt vor der Übergabe erneut."
+                  : "Approving confirms exactly this text and slot. All checks run again right before the handoff."}
+              </p>
+            </>
           )}
           {item.summary.prompt && (
             <blockquote className="chat-package-draft">

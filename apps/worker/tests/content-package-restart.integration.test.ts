@@ -1,10 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { spawn, type ChildProcess } from "node:child_process";
-import { randomUUID } from "node:crypto";
 import { statSync } from "node:fs";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import {
   closeDatabase,
   scoped,
@@ -25,6 +20,7 @@ import {
   TELEGRAM,
   X,
 } from "../../api/tests/support/package-project.ts";
+import { workerProcess } from "./support/worker-process.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL &&
@@ -35,67 +31,11 @@ describe.skipIf(!enabled)(
   "Content package across a worker crash and restart (JC06)",
   () => {
     let project: Awaited<ReturnType<typeof createPackageProject>>;
-    let worker: ChildProcess | undefined;
-    let diagnostic = "";
-    const queueNamespace = "orbit-package-" + randomUUID().slice(0, 8);
-    const healthDir = join(tmpdir(), queueNamespace);
-    const healthFile = join(healthDir, "worker.json");
+    const worker = workerProcess("orbit-package");
+    const { stop, waitFor, healthFile } = worker;
+    const start = () => worker.start(project.owner.workspaceId);
     const run = <T>(work: (tx: DbTx) => Promise<T>) =>
       scoped(project.owner.workspaceId, project.owner.projectId, work);
-    function start() {
-      worker = spawn(
-        process.execPath,
-        ["--import", "tsx", "apps/worker/src/main.ts"],
-        {
-          cwd: process.cwd(),
-          env: {
-            ...process.env,
-            DATABASE_URL: process.env.TEST_DATABASE_URL,
-            AUTH_DATABASE_URL: process.env.TEST_AUTH_DATABASE_URL,
-            QUEUE_NAMESPACE: queueNamespace,
-            PUBLISHER_INSTANCE_ID: queueNamespace,
-            WORKER_HEALTH_FILE: healthFile,
-            WORKER_WORKSPACE_ALLOWLIST: project.owner.workspaceId,
-            EXECUTION_MODE: "test",
-            ENABLE_EXTERNAL_WRITES: "false",
-            LIVE_RAG_EVAL_PASSED: "false",
-            OPENAI_API_KEY: "",
-          },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      worker.stderr!.on("data", (chunk) => {
-        diagnostic = (diagnostic + chunk.toString()).slice(-3000);
-      });
-    }
-    async function stop(crash = false) {
-      if (!worker || worker.exitCode !== null) return;
-      const p = worker;
-      await new Promise<void>((done) => {
-        const timer = setTimeout(() => {
-          p.kill("SIGKILL");
-          done();
-        }, 3000);
-        p.once("exit", () => {
-          clearTimeout(timer);
-          done();
-        });
-        p.kill(crash ? "SIGKILL" : "SIGTERM");
-      });
-      worker = undefined;
-    }
-    async function waitFor<T>(
-      check: () => Promise<T | false>,
-      timeout = 30000,
-    ) {
-      const end = Date.now() + timeout;
-      while (Date.now() < end) {
-        const result = await check();
-        if (result) return result;
-        await new Promise((r) => setTimeout(r, 200));
-      }
-      throw new Error("Worker package timeout " + diagnostic);
-    }
     const snapshotOf = (packageId: string) =>
       run(async (tx) =>
         packageSnapshot(
@@ -142,11 +82,10 @@ describe.skipIf(!enabled)(
       project = await createPackageProject();
     });
     afterAll(async () => {
-      await stop();
+      await worker.cleanup();
       delete process.env.ORBIT_CONTENT_PACKAGES;
       await project?.cleanup();
       await closeDatabase();
-      await rm(healthDir, { recursive: true, force: true });
     });
 
     it("finishes once after a crash in a draft job and changes nothing after a restart", async () => {

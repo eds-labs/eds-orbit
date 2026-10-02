@@ -43,7 +43,7 @@ export const actionDecision = z
   .strict();
 
 type ActionDefinition<P> = {
-  riskClass: "C1" | "C2";
+  riskClass: "C1" | "C2" | "W2";
   approvalMode: "approval_required";
   deciderRole: "owner" | "editor";
   ttlMs: number;
@@ -100,9 +100,31 @@ const contentPackageStart: ActionDefinition<Record<string, unknown>> = {
     await packages.startContentPackage(tx, scope, request);
   },
 };
+// A public post at a fixed slot: an owner decides the exact post (ADR 0008, J3.1).
+const contentSchedule: ActionDefinition<Record<string, unknown>> = {
+  riskClass: "W2",
+  approvalMode: "approval_required",
+  deciderRole: "owner",
+  ttlMs: 24 * 3600000,
+  payload: z.record(z.string(), z.unknown()),
+  costCeilingMicros: () => 0,
+  async revalidate(tx, scope, payload) {
+    const schedule = await import("./agents/package-schedule.ts");
+    await schedule.revalidateSchedule(
+      tx,
+      scope,
+      schedule.scheduleRequestPayload.parse(payload),
+    );
+  },
+  async onApproved(tx, scope, request) {
+    const schedule = await import("./agents/package-schedule.ts");
+    await schedule.executeSchedule(tx, scope, request);
+  },
+};
 const actionTypes = {
   "image.generate": imageGenerate,
   "content_package.start": contentPackageStart,
+  "content.schedule": contentSchedule,
 } as const;
 export type ActionType = keyof typeof actionTypes;
 
@@ -268,11 +290,12 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
     const type = actionTypes[d.actionType as ActionType];
     if (!type || type.deciderRole !== "owner") continue;
     if (Date.parse(d.expiresAt) <= Date.now()) continue;
-    const packageId = String(d.payload?.budgetRunKey ?? "").startsWith(
-      "package:",
-    )
-      ? String(d.payload.budgetRunKey).slice("package:".length)
-      : null;
+    const packageId =
+      typeof d.payload?.packageId === "string"
+        ? d.payload.packageId
+        : String(d.payload?.budgetRunKey ?? "").startsWith("package:")
+          ? String(d.payload.budgetRunKey).slice("package:".length)
+          : null;
     const pkg = packageId
       ? await tx.entity.findFirst({
           where: {
@@ -299,6 +322,10 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
         maxCostMicros: d.payload?.maxCostMicros,
         size: d.payload?.size,
         quality: d.payload?.quality,
+        channel: d.payload?.channel,
+        scheduledAt: d.payload?.scheduledAt,
+        body: d.payload?.body,
+        executionMode: d.payload?.executionMode,
         packageGoal: pkg ? data(pkg).goal : null,
       },
     });

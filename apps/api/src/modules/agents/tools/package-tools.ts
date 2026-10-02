@@ -7,6 +7,7 @@ import {
 import { chatScoped } from "../../chat.ts";
 import { recentContent } from "../content-history.ts";
 import { channelSlots } from "../scheduling.ts";
+import { proposeSchedule } from "../package-schedule.ts";
 import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
 
 export const packageTools: readonly OrbitTool[] = [
@@ -14,20 +15,15 @@ export const packageTools: readonly OrbitTool[] = [
     name: "request_content_package",
     namespace: "proposals",
     description:
-      "Prepare one draft per channel for the user's goal; the server fills CTA, link, language and timing. Saves a package card only: nothing runs before the user confirms it, nothing is published.",
+      "One draft per channel for the user's goal; the server fills CTA, link, language, timing. Nothing runs before the user confirms; nothing is published.",
     parameters: z
       .object({
-        goal: z
-          .string()
-          .describe("What the posts should achieve, in the user's words"),
-        audience: z
-          .string()
-          .nullable()
-          .describe("Only if the user named another audience"),
+        goal: z.string().describe("The user's goal in their words"),
+        audience: z.string().nullable().describe("Only if the user named one"),
         channels: z
           .array(z.string())
           .min(1)
-          .describe("Channel IDs from project_status that the policy allows"),
+          .describe("Policy channel IDs from project_status"),
         factKeys: z
           .array(z.string())
           .describe("Verified Fact keys from knowledge_search"),
@@ -36,12 +32,12 @@ export const packageTools: readonly OrbitTool[] = [
           .string()
           .nullable()
           .describe(
-            "Only if the user asked for an image: one artwork description without text, logos, UI or claims. For an editor the image waits for an owner's approval.",
+            "Only if asked: artwork without text, logos, UI or claims; editors need owner approval",
           ),
         intendedDate: z
           .string()
           .nullable()
-          .describe("Project-local YYYY-MM-DD if named; drafts start now"),
+          .describe("YYYY-MM-DD if named; drafts start now"),
       })
       .strict(),
     risk: "P_proposal",
@@ -77,7 +73,7 @@ export const packageTools: readonly OrbitTool[] = [
     name: "package_status",
     namespace: "content",
     description:
-      "This conversation's packages: confirmation, per-channel status, draft text and errors. Report results only from this tool.",
+      "This conversation's packages: status, drafts, schedules, errors. Report only from this tool.",
     parameters: z.object({}).strict(),
     risk: "R0_read",
     roles: ["viewer", "editor", "owner"],
@@ -94,17 +90,11 @@ export const packageTools: readonly OrbitTool[] = [
     name: "revise_package_deliverable",
     namespace: "content",
     description:
-      "Revise one channel's current draft in the started package (e.g. shorter). Other channels and the image stay; at most two revisions per package.",
+      "Revise one channel's draft in the started package (e.g. shorter); at most two revisions per package.",
     parameters: z
       .object({
-        deliverableKey: z
-          .string()
-          .describe("The channelId of the deliverable from package_status"),
-        instruction: z
-          .string()
-          .describe(
-            "The user's change request for this one draft, in their words",
-          ),
+        deliverableKey: z.string().describe("channelId from package_status"),
+        instruction: z.string().describe("The user's change, in their words"),
       })
       .strict(),
     risk: "W0_internal",
@@ -137,7 +127,7 @@ export const packageTools: readonly OrbitTool[] = [
     name: "recent_content",
     namespace: "content",
     description:
-      "Recent drafts and publications per channel (newest first, five per channel, default 14 days). Check it before new posts to avoid repeats.",
+      "Recent drafts and posts per channel (five each, default 14 days); check to avoid repeats.",
     parameters: z
       .object({
         channels: z
@@ -162,13 +152,13 @@ export const packageTools: readonly OrbitTool[] = [
     name: "schedule_options",
     namespace: "calendar",
     description:
-      "Free and taken publication slots per channel (project timezone, up to 14 days) with reasons and the next free slot. Schedules nothing.",
+      "Free and taken slots per channel (up to 14 days) with reasons and the next free slot.",
     parameters: z
       .object({
         channels: z
           .array(z.string())
           .nullable()
-          .describe("Channel IDs; policy channels when null"),
+          .describe("Channel IDs; all when null"),
         days: z.number().int().nullable().describe("1 to 14; 14 when null"),
       })
       .strict(),
@@ -181,6 +171,47 @@ export const packageTools: readonly OrbitTool[] = [
         channelSlots(tx, context.scope, dropNullFields(args)),
       );
       return { output: slots, cards: [] };
+    },
+  }),
+  defineTool({
+    name: "propose_schedule",
+    namespace: "calendar",
+    description:
+      "Propose a package draft for a slot; an owner decides. Publishes nothing.",
+    parameters: z
+      .object({
+        deliverableKey: z.string().describe("channelId from package_status"),
+        date: z.string().nullable().describe("YYYY-MM-DD; next free when null"),
+      })
+      .strict(),
+    risk: "P_proposal",
+    roles: ["editor", "owner"],
+    feature: "content_packages",
+    deferLoading: false,
+    async execute(context, args) {
+      const result = await proposeSchedule(
+        context.scope,
+        context.conversationId,
+        dropNullFields(args),
+        {
+          kind: "agent",
+          userId: context.scope.userId,
+          agentRunId: context.runId,
+        },
+      );
+      return {
+        output: result,
+        cards:
+          result.status === "proposed"
+            ? [
+                {
+                  kind: "status",
+                  label: "Schedule awaiting owner decision",
+                  status: "confirmation_required",
+                },
+              ]
+            : [],
+      };
     },
   }),
 ];

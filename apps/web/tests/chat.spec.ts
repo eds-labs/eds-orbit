@@ -235,6 +235,15 @@ test("starts a content package with one click and shows both drafts", async ({
       ? { valid: false, problems: ["HUMAN_CONTENT_REVIEW_REQUIRED"] }
       : null,
     revisions: body && key === "x" ? 1 : 0,
+    schedule:
+      body && key === "x"
+        ? {
+            status: "scheduled",
+            scheduledAt: "2026-10-05T07:00:00.000Z",
+            executionMode: "test",
+            blockers: [],
+          }
+        : null,
   });
   await page.route(
     `**/api/projects/${user.projectId}/chat/conversations?*`,
@@ -338,6 +347,8 @@ test("starts a content package with one click and shows both drafts", async ({
   ).toBeVisible();
   await expect(card.getByText("Needs review")).toHaveCount(2);
   await expect(card.getByText("Revised 1×")).toBeVisible();
+  await expect(card.getByText("Scheduled", { exact: true })).toBeVisible();
+  await expect(card.getByText(/· test mode/)).toBeVisible();
   await expect(card.getByText("Generated, rights review open")).toBeVisible();
   await expect(
     card.getByRole("img", { name: "Generated package image" }),
@@ -506,6 +517,70 @@ test("owner approves an editor's package image from the approvals inbox", async 
     .toEqual({
       version: 1,
       packageHash: "d".repeat(64),
+      decision: "approve",
+    });
+  await expect(inbox).toHaveCount(0);
+});
+
+test("owner schedules an exact package post from the approvals inbox", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const requestId = "b38d9050-3dba-4ae0-851e-98d5b59e8401";
+  let decision: Record<string, unknown> | null = null;
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: decision
+            ? []
+            : [
+                {
+                  id: requestId,
+                  version: 1,
+                  actionType: "content.schedule",
+                  packageHash: "e".repeat(64),
+                  costCeilingMicros: 0,
+                  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                  requestedBy: { kind: "agent", userId: "editor-1" },
+                  summary: {
+                    channel: "x",
+                    scheduledAt: "2026-10-05T07:00:00.000Z",
+                    body: "Beta access is open. Learn more.",
+                    executionMode: "test",
+                    packageGoal: "Announce that beta access is open",
+                  },
+                },
+              ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests/${requestId}/decide`,
+    (route) => {
+      decision = route.request().postDataJSON();
+      return route.fulfill({
+        json: { id: requestId, version: 3, status: "consumed" },
+      });
+    },
+  );
+  await page.goto("/approvals");
+  const inbox = page.getByRole("region", { name: "Open decisions" });
+  await expect(inbox.getByText("Schedule post")).toBeVisible();
+  await expect(inbox.getByText("Test mode")).toBeVisible();
+  await expect(
+    inbox.getByText("Beta access is open. Learn more."),
+  ).toBeVisible();
+  await expect(
+    inbox.getByText(/Approving confirms exactly this text and slot/),
+  ).toBeVisible();
+  await inbox.getByRole("button", { name: "Approve" }).click();
+  await expect
+    .poll(() => decision)
+    .toEqual({
+      version: 1,
+      packageHash: "e".repeat(64),
       decision: "approve",
     });
   await expect(inbox).toHaveCount(0);

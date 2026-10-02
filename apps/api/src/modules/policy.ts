@@ -396,10 +396,12 @@ export async function preflight(
     blockers: [...new Set(blockers)],
   };
 }
+/** An owner's approval of one exact package; it lasts 24 hours unless a scheduled post needs it until its slot. */
 export async function approve(
   tx: DbTx,
   scope: Scope,
   input: { contentId: string; version: number; packageHash: string },
+  expiresAt = new Date(Date.now() + 86400000),
 ) {
   if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
   const p = await packageFor(tx, scope, input.contentId);
@@ -423,6 +425,6 @@ export async function approve(
     packageHash: p.packageHash,
     status: "approved",
     userId: scope.userId,
-    expiresAt: new Date(Date.now() + 86400000).toISOString(),
+    expiresAt: expiresAt.toISOString(),
   });
 }

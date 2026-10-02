@@ -304,6 +304,7 @@ describe("proposal tool", () => {
       "revise_package_deliverable",
       "recent_content",
       "schedule_options",
+      "propose_schedule",
     ]);
   });
   it("offers the package tools only with their feature, and the request only to editors and owners", () => {
@@ -324,10 +325,18 @@ describe("proposal tool", () => {
     expect(names("viewer", ["content_packages"])).not.toContain(
       "request_content_package",
     );
+    expect(names("viewer", ["content_packages"])).not.toContain(
+      "propose_schedule",
+    );
+    expect(names("editor", ["content_packages"])).toContain("propose_schedule");
     const request = chatTools.find(
       (tool) => tool.name === "request_content_package",
     )!;
     expect(request.risk).toBe("P_proposal");
+    // Scheduling is only ever proposed; an owner decides the exact post.
+    expect(
+      chatTools.find((tool) => tool.name === "propose_schedule")!.risk,
+    ).toBe("P_proposal");
   });
   it("passes a null optional mission field to createProposal as omitted", async () => {
     proposals.raw.length = 0;

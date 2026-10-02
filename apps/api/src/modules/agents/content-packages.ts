@@ -416,12 +416,14 @@ export async function packageSnapshot(
     let review = null as null | { valid: boolean; problems: string[] };
     let revisions = 0;
     let revisionError = null as string | null;
+    let schedule = null as Awaited<ReturnType<typeof scheduleState>>;
     if (canceled && !step) status = "canceled";
     if (step) {
       const current = await currentDraft(tx, scope, step);
       const { draft, reused } = current;
       revisions = current.revisions;
       revisionError = current.revisionError;
+      schedule = await scheduleState(tx, scope, step.schedule, draft);
       const job = await tx.entity.findFirst({
         where: {
           workspaceId: scope.workspaceId,
@@ -457,6 +459,7 @@ export async function packageSnapshot(
       review,
       revisions,
       revisionError,
+      schedule,
     });
   }
   const image = d.image ? await imageState(tx, scope, d.image, steps) : null;
@@ -500,6 +503,52 @@ export async function packageSnapshot(
       : null,
     deliverables,
   };
+}
+
+/**
+ * A deliverable's schedule from its decision request and publication; the
+ * publication status is the truth once the owner approved.
+ */
+async function scheduleState(
+  tx: DbTx,
+  scope: Scope,
+  schedule: Record<string, any> | undefined,
+  draft: { id: string; version: number } | null,
+) {
+  if (!schedule) return null;
+  const where = { workspaceId: scope.workspaceId, projectId: scope.projectId };
+  const request = await tx.entity.findFirst({
+    where: { ...where, kind: "action_requests", id: schedule.actionRequestId },
+  });
+  const r = data(request);
+  const base = {
+    scheduledAt: schedule.scheduledAt as string,
+    contentId: schedule.contentId as string,
+    actionRequestId: schedule.actionRequestId as string,
+    executionMode: r.payload?.executionMode ?? null,
+  };
+  if (schedule.publicationId) {
+    const publication = await tx.entity.findFirst({
+      where: { ...where, kind: "publications", id: schedule.publicationId },
+    });
+    const p = data(publication);
+    return {
+      ...base,
+      status: p.status === "intent_created" ? "scheduled" : String(p.status),
+      publicationId: schedule.publicationId as string,
+      blockers: (p.blockers as string[] | undefined) ?? [],
+    };
+  }
+  let status = String(r.status);
+  if (r.status === "pending")
+    status =
+      Date.parse(r.expiresAt) <= Date.now()
+        ? "expired"
+        : draft?.id !== r.payload?.contentId ||
+            draft?.version !== r.payload?.contentVersion
+          ? "stale"
+          : "awaiting_approval";
+  return { ...base, status, publicationId: null, blockers: [] as string[] };
 }
 
 /** The requesting user's packages in one conversation, newest first. */
@@ -724,7 +773,11 @@ async function stepDraft(tx: DbTx, scope: Scope, missionId: string) {
  * The draft a deliverable shows: the newest revision that produced one, else
  * the original. A queued or running revision keeps the previous draft visible.
  */
-async function currentDraft(tx: DbTx, scope: Scope, step: Record<string, any>) {
+export async function currentDraft(
+  tx: DbTx,
+  scope: Scope,
+  step: Record<string, any>,
+) {
   let current = {
     ...(await stepDraft(tx, scope, step.missionId)),
     revisions: 0,
@@ -759,6 +812,38 @@ async function currentDraft(tx: DbTx, scope: Scope, step: Record<string, any>) {
   return current;
 }
 
+/** One channel's step in the user's latest started package of a conversation. */
+export async function startedDeliverable(
+  tx: DbTx,
+  scope: Scope,
+  conversationId: string,
+  deliverableKey: string,
+) {
+  await conversation(tx, scope, conversationId);
+  const pkg = await tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: KIND,
+      AND: [
+        { data: { path: ["conversationId"], equals: conversationId } },
+        { data: { path: ["userId"], equals: scope.userId } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!pkg) throw new DomainError("NOT_FOUND", 404);
+  if (data(pkg).status !== "started")
+    throw new DomainError("PACKAGE_NOT_STARTED", 409);
+  const steps = (data(pkg).steps ?? []) as Array<Record<string, any>>;
+  const step = steps.find(
+    (candidate) =>
+      candidate.kind === "copy" && candidate.key === deliverableKey,
+  );
+  if (!step) throw new DomainError("DELIVERABLE_NOT_FOUND", 404);
+  return { pkg, steps, step };
+}
+
 export const deliverableRevision = z
   .object({
     deliverableKey: z.string().trim().min(1).max(80),
@@ -780,29 +865,13 @@ export async function reviseDeliverable(
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const input = deliverableRevision.parse(raw);
   return chatScoped(scope, async (tx) => {
-    await conversation(tx, scope, conversationId);
-    const pkg = await tx.entity.findFirst({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        kind: KIND,
-        AND: [
-          { data: { path: ["conversationId"], equals: conversationId } },
-          { data: { path: ["userId"], equals: scope.userId } },
-        ],
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    if (!pkg) throw new DomainError("NOT_FOUND", 404);
-    const d = data(pkg);
-    if (d.status !== "started")
-      throw new DomainError("PACKAGE_NOT_STARTED", 409);
-    const steps = (d.steps ?? []) as Array<Record<string, any>>;
-    const step = steps.find(
-      (candidate) =>
-        candidate.kind === "copy" && candidate.key === input.deliverableKey,
+    const { pkg, steps, step } = await startedDeliverable(
+      tx,
+      scope,
+      conversationId,
+      input.deliverableKey,
     );
-    if (!step) throw new DomainError("DELIVERABLE_NOT_FOUND", 404);
+    const d = data(pkg);
     const used = steps.reduce(
       (sum, candidate) => sum + (candidate.revisions?.length ?? 0),
       0,

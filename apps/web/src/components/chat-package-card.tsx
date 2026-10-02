@@ -46,6 +46,12 @@ export type ContentPackage = {
     review: { valid: boolean; problems: string[] } | null;
     revisions?: number;
     revisionError?: string | null;
+    schedule?: {
+      status: string;
+      scheduledAt: string;
+      executionMode: "test" | "live" | null;
+      blockers: string[];
+    } | null;
   }[];
   image: {
     prompt: string;
@@ -102,6 +108,28 @@ const imageLabels: Record<ImageStatus, [string, string]> = {
   canceled: ["Canceled", "Abgebrochen"],
 };
 
+// Schedule states from the decision request, then from the publication itself.
+const scheduleLabels: Record<string, [string, string]> = {
+  awaiting_approval: [
+    "Waiting for owner decision",
+    "Wartet auf Owner-Freigabe",
+  ],
+  stale: ["Draft changed, propose again", "Entwurf geändert, neu vorschlagen"],
+  expired: ["Decision expired", "Freigabe abgelaufen"],
+  rejected: ["Rejected by owner", "Vom Owner abgelehnt"],
+  canceled: ["Canceled", "Abgebrochen"],
+  scheduled: ["Scheduled", "Terminiert"],
+  sending: ["Handing over", "Wird übergeben"],
+  published: ["Published", "Veröffentlicht"],
+  published_test: ["Published (test mode)", "Veröffentlicht (Testmodus)"],
+  blocked_dependency: ["Blocked before handoff", "Vor Übergabe blockiert"],
+  outcome_unknown: [
+    "Unclear result, not resent",
+    "Ergebnis unklar, nicht erneut gesendet",
+  ],
+  failed: ["Failed", "Fehlgeschlagen"],
+};
+
 /** A package is still changing while its drafts are queued or being written. */
 export const packageInProgress = (pkg: ContentPackage) =>
   pkg.status === "running";
@@ -156,7 +184,7 @@ export function PackageCard({
                 {deliverableLabels[deliverable.status][de ? 1 : 0]}
               </Badge>
             </div>
-            {deliverable.plannedSlotAt && (
+            {deliverable.plannedSlotAt && !deliverable.schedule && (
               <p className="chat-package-note">
                 {de ? "Geplanter Termin" : "Planned slot"}:{" "}
                 <time dateTime={deliverable.plannedSlotAt}>
@@ -205,6 +233,33 @@ export function PackageCard({
             )}
             {deliverable.errorCode && (
               <Alert kind="warning">{deliverable.errorCode}</Alert>
+            )}
+            {deliverable.schedule && (
+              <p className="chat-package-note chat-package-schedule">
+                <Badge
+                  tone={
+                    ["scheduled", "published", "published_test"].includes(
+                      deliverable.schedule.status,
+                    )
+                      ? "success"
+                      : deliverable.schedule.status === "awaiting_approval"
+                        ? "blue"
+                        : "warning"
+                  }
+                >
+                  {scheduleLabels[deliverable.schedule.status]?.[de ? 1 : 0] ??
+                    deliverable.schedule.status}
+                </Badge>{" "}
+                <time dateTime={deliverable.schedule.scheduledAt}>
+                  {new Date(deliverable.schedule.scheduledAt).toLocaleString(
+                    de ? "de-DE" : "en-GB",
+                  )}
+                </time>
+                {deliverable.schedule.executionMode === "test" &&
+                  (de ? " · Testmodus" : " · test mode")}
+                {deliverable.schedule.blockers.length > 0 &&
+                  ` · ${deliverable.schedule.blockers.join(", ")}`}
+              </p>
             )}
           </li>
         ))}
