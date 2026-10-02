@@ -1,6 +1,6 @@
 # Orbit Core J3 — Scheduling content packages
 
-**Status:** ACCEPTED by Mario on 2026-10-02 with the decisions in section 3. Part of the [Orbit Core plan](ORBIT_CORE_JARVIS_PLAN.md) (stage J3, acceptance rows JC15 and JC16). No production change, merge, flag activation or live post is implied.
+**Status:** ACCEPTED by Mario on 2026-10-02 with the decisions in section 3. All slices DONE locally on 2026-10-02 (stacked PRs #42–#47); not merged or released. Part of the [Orbit Core plan](ORBIT_CORE_JARVIS_PLAN.md) (stage J3, acceptance rows JC15 and JC16). No production change, merge, flag activation or live post is implied.
 
 ## 1. Goal
 
@@ -52,7 +52,7 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 | J3.2 | Autopilot coexistence | DONE (local) | `d9430c7`, see below |
 | J3.3 | Package image in a post | DONE (local) | `d620d35`, see below |
 | J3.4 | Cancel and reschedule | DONE (local) | `5479565`, see below |
-| J3.5 | Acceptance | TODO | |
+| J3.5 | Acceptance | DONE (local) | `8f08622`, see below |
 
 ### 2026-10-02 — J3.0 slot overview (local)
 
@@ -100,3 +100,18 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 - Tests (written first; they failed because the function did not exist): six cases in `package-reschedule.integration.test.ts` — cancel before the handoff with no later send, honest report after the handoff and no move, handoff in progress untouched, open proposal withdrawn, move only with a new owner decision (reject keeps the slot, approval replaces it once), requester or owner with the flag off and no viewers; plus a route case in `chat.integration.test.ts` (failed with 404 before the route) and a Playwright case (move shown, cancel, not-retractable message). Mutation checks: cancelling during `sending`, cancelling handed-over posts, keeping the old publication on a move, moving after the handoff, keeping the publish right and leaving the job queued each fail a test.
 - Tool definitions: 6,990 bytes after the `propose_schedule` description mentions moving.
 - Checks on Node 24.18.0: `pnpm test` 679/679 in 70 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` pass; `pnpm api:generate` added the route.
+
+### 2026-10-02 — J3.5 acceptance (local)
+
+- Base `5479565` docs head (J3.4 branch), code head `8f08622` on branch `claude/orbit-core-j3-acceptance`. Risk: low (tests and eval harness only). Environment: local.
+- `evals/operator/cases-v2.json` (sha256 `cea007abbde595650038b76da79f385c63b664cd4a7ce3eb70b5736630c6e6f3`) replays three operator runs through the real chat runner, tools and services: JC16 an owner's proposal waits for the decision and creates no publication; JC15 a day the autopilot covers is refused with `DAILY_QUOTA` and the next free slot, nothing proposed; JC13 a viewer is offered `schedule_options` but not `propose_schedule`, and a forged call is refused. The harness gained an optional case fixture (a started package in the case's conversation, an autopilot day), named date placeholders, and checks for created schedule requests and tool output. Each case now runs in a fresh project. `cases-v1.json` is unchanged (sha256 `09093f58ac7a33395e61ecbf159f42a7958f8d5a4e2132be031eb83db4c57361`) and still passes. Mutation checks: proposing a taken day, or offering scheduling to viewers, each fails a case.
+- Finding: with two identical drafts, generation reuses the earlier draft, and that draft belongs to another package; scheduling it is refused (`SCHEDULE_DRAFT_NOT_IN_PACKAGE`). This is safe, because the same text would also be blocked as a duplicate. The operator should explain it as a duplicate. Follow-up: a clearer error code.
+- Acceptance rows: JC15 and JC16 PASS_TEST (17 PASS_TEST, 3 NOT_RUN overall). No live run: the first real package post needs Mario's approval of the merges, `ORBIT_CONTENT_PACKAGES` in production and a deliberate test post on a verified channel (with media verification if it carries the image).
+- Checks on Node 24.18.0: `pnpm test` 682/682 in 70 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` and `pnpm api:generate` (no contract change) pass.
+
+## 7. Open after J3
+
+- Production: merges #31–#47 (without #37), `ORBIT_CONTENT_PACKAGES` in production, the first deliberate live package post, and the paid live operator acceptance run; each needs Mario's approval.
+- Tool definitions are at about 6,990 of 7,000 bytes; the next operator tool needs tool search (`deferLoading`) or a decision on the guard.
+- A reused identical draft cannot be scheduled from another package; a clearer code (`DRAFT_REUSED`) and operator wording would help.
+- Moving checks the new day like a fresh slot; the old publication still counts for its own day until the move is approved, which is correct for different days but cannot move a post within the same day.
