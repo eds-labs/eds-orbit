@@ -35,6 +35,8 @@ export const configSchema = z.object({
   LIVE_RAG_EVAL_PASSED: z.enum(["false", "true"]).default("false"),
   // New content packages from Orbit Chat; existing packages keep running when off.
   ORBIT_CONTENT_PACKAGES: z.enum(["false", "true"]).default("false"),
+  // Client-executed tool search for Orbit Chat on models from gpt-5.4 (ADR 0007).
+  ORBIT_TOOL_SEARCH: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

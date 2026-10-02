@@ -31,9 +31,14 @@ import { type ChatCard } from "./chat-tools.ts";
 import { chatTools } from "./agents/tools/index.ts";
 import {
   availableTools,
+  deferredDefinition,
   findTool,
   responsesTool,
+  searchTools,
+  supportsToolSearch,
+  TOOL_SEARCH,
 } from "./agents/tools/registry.ts";
+import { loadConfig } from "../../../../packages/config/src/index.ts";
 
 // Span names come from this fixed set; the model-supplied name is never stored.
 const KNOWN_TOOL_NAMES = new Set<string>(chatTools.map((tool) => tool.name));
@@ -245,10 +250,35 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       scope.role,
       packages ? ["content_packages"] : [],
     );
-    const runInstructions = packages
-      ? instructions + " " + packageInstructions
-      : instructions;
-    const toolDefinitions = offered.map(responsesTool);
+    // Tool search (ADR 0007): deferred tools load on request, client-executed,
+    // and only from the role's offered set. The loaded set never changes in a run.
+    const deferred =
+      loadConfig().ORBIT_TOOL_SEARCH === "true" &&
+      supportsToolSearch(
+        await chatScoped(
+          scope,
+          async (tx) =>
+            resolveRoute(
+              "chat_operator",
+              await runtimeOpenAiConfiguration(tx, scope),
+            ).model,
+        ),
+      )
+        ? offered.filter((tool) => tool.deferLoading)
+        : [];
+    const runInstructions = [
+      instructions,
+      ...(packages ? [packageInstructions] : []),
+      ...(deferred.length
+        ? [
+            `Load these tools with tool_search before calling them: ${deferred.map((tool) => tool.name).join(", ")}.`,
+          ]
+        : []),
+    ].join(" ");
+    const toolDefinitions = [
+      ...offered.filter((tool) => !deferred.includes(tool)).map(responsesTool),
+      ...(deferred.length ? [TOOL_SEARCH] : []),
+    ];
     while (modelCalls < MAX_MODEL_CALLS) {
       if (controller.signal.aborted) throw new DomainError("CHAT_CANCELED");
       const bytes = Buffer.byteLength(
@@ -375,12 +405,39 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       const calls = completed.output.filter(
         (item: any) => item.type === "function_call",
       );
-      if (!calls.length) break;
+      const searches = completed.output.filter(
+        (item: any) => item.type === "tool_search_call",
+      );
+      if (!calls.length && !searches.length) break;
       if (
-        toolCalls + calls.length > MAX_TOOL_CALLS ||
+        toolCalls + calls.length + searches.length > MAX_TOOL_CALLS ||
         modelCalls >= MAX_MODEL_CALLS
       )
         throw new DomainError("CHAT_TOOL_LIMIT");
+      for (const found of searches) {
+        toolCalls++;
+        const startedAt = new Date();
+        const args =
+          typeof found.arguments === "string"
+            ? JSON.parse(found.arguments)
+            : found.arguments;
+        const tools = searchTools(deferred, String(args?.goal ?? ""));
+        input.push({
+          type: "tool_search_output",
+          call_id: found.call_id,
+          execution: "client",
+          status: "completed",
+          tools: tools.map(deferredDefinition),
+        });
+        await recordSpan(scope, agentRunId, {
+          type: "tool_call",
+          name: "tool_search",
+          status: "succeeded",
+          startedAt,
+          durationMs: Date.now() - startedAt.valueOf(),
+          inputHash: hashText(String(args?.goal ?? "")),
+        });
+      }
       for (const call of calls) {
         toolCalls++;
         let output: unknown;

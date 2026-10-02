@@ -100,7 +100,7 @@ export const packageTools: readonly OrbitTool[] = [
     risk: "W0_internal",
     roles: ["editor", "owner"],
     feature: "content_packages",
-    deferLoading: false,
+    deferLoading: true,
     async execute(context, args) {
       const snapshot = await reviseDeliverable(
         context.scope,
@@ -140,7 +140,7 @@ export const packageTools: readonly OrbitTool[] = [
     risk: "R0_read",
     roles: ["viewer", "editor", "owner"],
     feature: "content_packages",
-    deferLoading: false,
+    deferLoading: true,
     async execute(context, args) {
       const history = await chatScoped(context.scope, (tx) =>
         recentContent(tx, context.scope, dropNullFields(args)),
@@ -165,7 +165,7 @@ export const packageTools: readonly OrbitTool[] = [
     risk: "R0_read",
     roles: ["viewer", "editor", "owner"],
     feature: "content_packages",
-    deferLoading: false,
+    deferLoading: true,
     async execute(context, args) {
       const slots = await chatScoped(context.scope, (tx) =>
         channelSlots(tx, context.scope, dropNullFields(args)),
@@ -187,7 +187,7 @@ export const packageTools: readonly OrbitTool[] = [
     risk: "P_proposal",
     roles: ["editor", "owner"],
     feature: "content_packages",
-    deferLoading: false,
+    deferLoading: true,
     async execute(context, args) {
       const result = await proposeSchedule(
         context.scope,

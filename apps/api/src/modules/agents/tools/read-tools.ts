@@ -16,6 +16,7 @@ function readTool(
   namespace: OrbitTool["namespace"],
   description: string,
   parameters: z.ZodObject,
+  deferLoading = false,
 ): OrbitTool {
   return defineTool({
     name,
@@ -24,7 +25,7 @@ function readTool(
     parameters,
     risk: "R0_read",
     roles: everyone,
-    deferLoading: false,
+    deferLoading,
     async execute(context: ToolContext, args: unknown) {
       const read = await runReadTool(
         context.scope,
@@ -66,11 +67,13 @@ export const readTools: readonly OrbitTool[] = [
     "assets",
     "Find approved brand assets in this project. Empty query lists all. Return metadata, never asset bytes or credentials.",
     z.object({ query: z.string().nullable() }).strict(),
+    true,
   ),
   readTool(
     "analytics_memory",
     "analytics",
     "Summarize existing metrics, insights, and confirmed preferences as observations, not verified product facts.",
     z.object({ campaign: z.string().nullable() }).strict(),
+    true,
   ),
 ];
