@@ -1307,6 +1307,13 @@ export async function buildServer(
       return importMatomoReport(scope, matomoImportInput.parse(input));
     if (action === "postiz-draft-handoff")
       return handoffPostizDraft(scope, input);
+    // Preparation may read a Drive asset, which needs the project lock that a
+    // shared transaction would already hold.
+    if (action === "postiz-test-prepare")
+      return preparePostizVerification(
+        scope,
+        postizVerificationInput.parse(input),
+      );
     if (action === "postiz-test-execute")
       return executePostizVerification(
         scope,
@@ -1474,12 +1481,6 @@ export async function buildServer(
           scope,
           schemas.id.parse(input.factId),
           z.number().int().positive().parse(input.version),
-        );
-      if (action === "postiz-test-prepare")
-        return preparePostizVerification(
-          tx,
-          scope,
-          postizVerificationInput.parse(input),
         );
       if (action === "evaluate-index")
         return queueIndexEvaluation(

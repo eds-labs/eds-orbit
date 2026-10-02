@@ -9,6 +9,33 @@ import {
   vi,
 } from "vitest";
 import { randomUUID } from "node:crypto";
+// Like the real Drive read, the fake opens its own project transaction. It
+// fails fast instead of waiting for the transaction timeout when the caller
+// still holds the project lock.
+const drive = vi.hoisted(() => ({ png: null as Buffer | null, reads: 0 }));
+vi.mock("./content-export.ts", () => ({
+  exportAssetContent: async (
+    s: { workspaceId: string; projectId: string },
+    asset: Record<string, any>,
+  ) => {
+    const { scoped: lock } =
+      await import("../../../../packages/db/src/index.ts");
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([
+      lock(s.workspaceId, s.projectId, async () => true),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("PROJECT_LOCK_HELD_DURING_DRIVE_READ")),
+          2000,
+        );
+      }),
+    ]).finally(() => clearTimeout(timer));
+    drive.reads++;
+    return asset.driveFileId && drive.png
+      ? { bytes: drive.png, mime: "image/png" }
+      : null;
+  },
+}));
 import {
   authDb,
   scoped,
@@ -100,13 +127,11 @@ describe.skipIf(!enabled)(
       await closeDatabase();
     });
     const prepare = () =>
-      run((tx) =>
-        preparePostizVerification(tx, scope, {
-          connectorId,
-          integrationId: "account-one",
-          confirmSandboxAccount: true,
-        }),
-      );
+      preparePostizVerification(scope, {
+        connectorId,
+        integrationId: "account-one",
+        confirmSandboxAccount: true,
+      });
     const approval = (v: { id: string; data: unknown }) => ({
       verificationId: v.id,
       packageHash: data(v).packageHash,
@@ -424,14 +449,12 @@ describe.skipIf(!enabled)(
           base64: png.toString("base64"),
         }),
       );
-      const verification = await run((tx) =>
-        preparePostizVerification(tx, scope, {
-          connectorId,
-          integrationId: "account-one",
-          confirmSandboxAccount: true,
-          assetId: asset.id,
-        }),
-      );
+      const verification = await preparePostizVerification(scope, {
+        connectorId,
+        integrationId: "account-one",
+        confirmSandboxAccount: true,
+        assetId: asset.id,
+      });
       return { asset, verification, png };
     }
     it("binds approved PNG bytes, persists upload receipt and verifies media only after publication", async () => {
@@ -500,18 +523,86 @@ describe.skipIf(!enabled)(
           .status,
       ).toBe("read_verified");
     });
+    async function driveAsset() {
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6iAAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      drive.png = png;
+      drive.reads = 0;
+      const asset = await run((tx) =>
+        create(tx, scope, "assets", {
+          mime: "image/png",
+          usageApproved: true,
+          width: 1,
+          height: 1,
+          driveFileId: "drive-logo",
+          md5Checksum: "synthetic-md5",
+        }),
+      );
+      return { asset, png };
+    }
+    it("prepares a Drive-only PNG without reading Drive inside the project lock", async () => {
+      const { asset, png } = await driveAsset();
+      const v = await preparePostizVerification(scope, {
+        connectorId,
+        integrationId: "account-one",
+        confirmSandboxAccount: true,
+        assetId: asset.id,
+      });
+      expect(drive.reads).toBe(1);
+      expect(data(v).status).toBe("prepared");
+      expect(data(v).asset.assetId).toBe(asset.id);
+      expect(data(v).asset.width).toBe(1);
+      expect(data(v).asset.hash).toMatch(/^[a-f0-9]{64}$/);
+      expect(png.length).toBeGreaterThan(24);
+    });
+    it("publishes and verifies a Drive-only PNG without reading Drive inside the project lock", async () => {
+      enable();
+      const { asset, png } = await driveAsset();
+      const verification = await preparePostizVerification(scope, {
+        connectorId,
+        integrationId: "account-one",
+        confirmSandboxAccount: true,
+        assetId: asset.id,
+      });
+      const fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
+        if (String(url).endsWith("/upload")) {
+          const file = (init!.body as FormData).get("file") as File;
+          expect(Buffer.from(await file.arrayBuffer())).toEqual(png);
+          return json({
+            id: "media-one",
+            path: "https://cdn.example.invalid/test.png",
+          });
+        }
+        return json([
+          { postId: "remote-test-one", integration: "account-one" },
+        ]);
+      });
+      const accepted = data(
+        await executePostizVerification(scope, approval(verification), {
+          fetch,
+        }),
+      );
+      expect(accepted.status).toBe("accepted");
+      expect(fetch).toHaveBeenCalledTimes(2);
+      await reconcilePostizVerification(scope, verification.id, {
+        fetch: async () => remote(),
+      });
+      expect(
+        data(await run((tx) => entity(tx, scope, "connectors", connectorId)))
+          .writeVerifiedMediaIntegrationIds,
+      ).toEqual(["account-one"]);
+    });
     it("rechecks current owner membership and project scope", async () => {
       await expect(
-        run((tx) =>
-          preparePostizVerification(
-            tx,
-            { ...scope, role: "viewer" },
-            {
-              connectorId,
-              integrationId: "account-one",
-              confirmSandboxAccount: true,
-            },
-          ),
+        preparePostizVerification(
+          { ...scope, role: "viewer" },
+          {
+            connectorId,
+            integrationId: "account-one",
+            confirmSandboxAccount: true,
+          },
         ),
       ).rejects.toThrow("OWNER_REQUIRED");
       await authDb.workspaceMember.updateMany({

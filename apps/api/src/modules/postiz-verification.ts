@@ -88,10 +88,24 @@ async function connector(
     throw new DomainError("POSTIZ_VERIFICATION_DEPENDENCY_CHANGED", 409);
   return { row, c };
 }
+type AssetFile = { version: number; bytes: Buffer } | null;
+/**
+ * Drive-only assets are read checksum-bound, like live publishing. The Drive
+ * read opens its own project transaction, so it must run before the caller's
+ * transaction takes the project lock; approvedAsset binds it to the version.
+ */
+async function readAssetFile(s: Scope, assetId: string): Promise<AssetFile> {
+  const row = await run(s, (tx) => entity(tx, s, "assets", assetId)),
+    a = data(row);
+  if (typeof a.base64 === "string" || !a.driveFileId) return null;
+  const file = await exportAssetContent(s, a);
+  return file ? { version: row.version, bytes: Buffer.from(file.bytes) } : null;
+}
 async function approvedAsset(
   tx: DbTx,
   s: Scope,
   assetId: string,
+  file: AssetFile,
   expected?: Record<string, any>,
 ) {
   const row = await entity(tx, s, "assets", assetId),
@@ -102,14 +116,14 @@ async function approvedAsset(
     (typeof a.base64 !== "string" && !a.driveFileId)
   )
     throw new DomainError("POSTIZ_TEST_ASSET_NOT_APPROVED", 409);
-  // Drive-only assets are read checksum-bound, like live publishing.
-  const file =
-    typeof a.base64 === "string" ? null : await exportAssetContent(s, a);
   if (typeof a.base64 !== "string" && !file)
     throw new DomainError("POSTIZ_TEST_ASSET_NOT_APPROVED", 409);
-  const bytes = file
-    ? Buffer.from(file.bytes)
-    : Buffer.from(a.base64, "base64");
+  if (typeof a.base64 !== "string" && file!.version !== row.version)
+    throw new DomainError("POSTIZ_TEST_ASSET_CHANGED", 409);
+  const bytes =
+    typeof a.base64 === "string"
+      ? Buffer.from(a.base64, "base64")
+      : file!.bytes;
   if (
     bytes.length < 24 ||
     bytes.length > 20 * 1024 * 1024 ||
@@ -130,70 +144,72 @@ async function approvedAsset(
 }
 /** Preparation records a reviewable, fixed test package; it makes no provider request. */
 export async function preparePostizVerification(
-  tx: DbTx,
   s: Scope,
   raw: z.input<typeof postizVerificationInput>,
 ) {
   await owner(s);
-  const input = postizVerificationInput.parse(raw),
-    row = await entity(tx, s, "connectors", input.connectorId),
-    c = data(row);
-  if (
-    c.provider !== "postiz" ||
-    !["read_verified", "write_verified"].includes(c.status) ||
-    !process.env.PUBLISHER_INSTANCE_ID
-  )
-    throw new DomainError("POSTIZ_READ_VERIFICATION_REQUIRED", 409);
-  const account = (c.channels ?? []).find(
-    (a: any) => a.id === input.integrationId && !a.disabled,
-  );
-  if (!account || !isAssignedPostizChannel(c, input.integrationId))
-    throw new DomainError("POSTIZ_ACCOUNT_NOT_ASSIGNED", 409);
-  const pending = (await list(tx, s, "connector_verifications")).find(
-    (v) =>
-      data(v).connectorId === row.id &&
-      data(v).integrationId === account.id &&
-      ["prepared", "sending", "accepted", "outcome_unknown"].includes(
-        data(v).status,
-      ) &&
-      (data(v).status !== "prepared" ||
-        Date.parse(data(v).expiresAt) > Date.now()),
-  );
-  if (pending) return pending;
-  const reference = randomUUID(),
-    date = new Date().toISOString();
-  const asset = input.assetId
-    ? (await approvedAsset(tx, s, input.assetId)).metadata
-    : null;
-  const packet = {
-    connectorId: row.id,
-    connectorVersion: row.version,
-    baseUrl: c.baseUrl,
-    instanceId: process.env.PUBLISHER_INSTANCE_ID,
-    integrationId: account.id,
-    integrationName: account.name,
-    integrationIdentifier: account.identifier,
-    reference,
-    date,
-    body: `EDS Orbit connection verification. Test reference: ${reference}.`,
-    expiresAt: new Date(Date.now() + 15 * 60000).toISOString(),
-    type: "now",
-    asset,
-  };
-  const result = await create(tx, s, "connector_verifications", {
-    ...packet,
-    packageHash: hash(packet),
-    status: "prepared",
-    createdBy: s.userId,
-    sandboxAccountAcknowledged: true,
-    cleanup:
-      "Review and remove the test post in the provider after verification. Automatic group deletion is not authorized.",
+  const input = postizVerificationInput.parse(raw);
+  const file = input.assetId ? await readAssetFile(s, input.assetId) : null;
+  return run(s, async (tx) => {
+    const row = await entity(tx, s, "connectors", input.connectorId),
+      c = data(row);
+    if (
+      c.provider !== "postiz" ||
+      !["read_verified", "write_verified"].includes(c.status) ||
+      !process.env.PUBLISHER_INSTANCE_ID
+    )
+      throw new DomainError("POSTIZ_READ_VERIFICATION_REQUIRED", 409);
+    const account = (c.channels ?? []).find(
+      (a: any) => a.id === input.integrationId && !a.disabled,
+    );
+    if (!account || !isAssignedPostizChannel(c, input.integrationId))
+      throw new DomainError("POSTIZ_ACCOUNT_NOT_ASSIGNED", 409);
+    const pending = (await list(tx, s, "connector_verifications")).find(
+      (v) =>
+        data(v).connectorId === row.id &&
+        data(v).integrationId === account.id &&
+        ["prepared", "sending", "accepted", "outcome_unknown"].includes(
+          data(v).status,
+        ) &&
+        (data(v).status !== "prepared" ||
+          Date.parse(data(v).expiresAt) > Date.now()),
+    );
+    if (pending) return pending;
+    const reference = randomUUID(),
+      date = new Date().toISOString();
+    const asset = input.assetId
+      ? (await approvedAsset(tx, s, input.assetId, file)).metadata
+      : null;
+    const packet = {
+      connectorId: row.id,
+      connectorVersion: row.version,
+      baseUrl: c.baseUrl,
+      instanceId: process.env.PUBLISHER_INSTANCE_ID,
+      integrationId: account.id,
+      integrationName: account.name,
+      integrationIdentifier: account.identifier,
+      reference,
+      date,
+      body: `EDS Orbit connection verification. Test reference: ${reference}.`,
+      expiresAt: new Date(Date.now() + 15 * 60000).toISOString(),
+      type: "now",
+      asset,
+    };
+    const result = await create(tx, s, "connector_verifications", {
+      ...packet,
+      packageHash: hash(packet),
+      status: "prepared",
+      createdBy: s.userId,
+      sandboxAccountAcknowledged: true,
+      cleanup:
+        "Review and remove the test post in the provider after verification. Automatic group deletion is not authorized.",
+    });
+    await audit(tx, s, "postiz.verification_prepared", result.id, {
+      packageHash: data(result).packageHash,
+      integrationId: account.id,
+    });
+    return result;
   });
-  await audit(tx, s, "postiz.verification_prepared", result.id, {
-    packageHash: data(result).packageHash,
-    integrationId: account.id,
-  });
-  return result;
 }
 /** A single explicit owner approval authorizes exactly the prepared test post, never a campaign. */
 export async function executePostizVerification(
@@ -204,6 +220,13 @@ export async function executePostizVerification(
   await owner(s);
   writes();
   const input = postizVerificationApproval.parse(raw);
+  const assetId = await run(s, async (tx) => {
+    const d = data(
+      await entity(tx, s, "connector_verifications", input.verificationId),
+    );
+    return d.status === "prepared" ? (d.asset?.assetId ?? null) : null;
+  });
+  const file = assetId ? await readAssetFile(s, assetId) : null;
   const prepared = await run(s, async (tx) => {
     const v = await entity(
         tx,
@@ -227,7 +250,7 @@ export async function executePostizVerification(
       throw new DomainError("POSTIZ_ACCOUNT_NOT_ASSIGNED", 409);
     const token = decrypt(c.encryptedCredential, process.env.CREDENTIAL_KEY!);
     const assetBytes = d.asset
-      ? (await approvedAsset(tx, s, d.asset.assetId, d.asset)).bytes
+      ? (await approvedAsset(tx, s, d.asset.assetId, file, d.asset)).bytes
       : null;
     const fence = randomUUID();
     await update(tx, s, v, {
@@ -295,7 +318,7 @@ export async function executePostizVerification(
       )
         throw new DomainError("PROJECT_PAUSED", 409);
       await connector(tx, s, d);
-      if (d.asset) await approvedAsset(tx, s, d.asset.assetId, d.asset);
+      if (d.asset) await approvedAsset(tx, s, d.asset.assetId, file, d.asset);
     });
     const result = await client.createPost({
       type: "now",

@@ -859,6 +859,20 @@ The ten drafts of 2026-09-30 to 2026-10-04 were moved in Postiz to their days (T
 4. Configure the autopilot: both channels, the five product facts, logo, plan Sunday 12:00, start date 2026-10-05.
 5. Sunday 12:00: first weekly plan, 14 drafts, approvals in Orbit.
 
+### 2026-10-02 CEST -- Phase 11 go-live: write verification blocked, fix prepared
+
+**Status:** BLOCKED (go-live step 2 of the list above). `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true` were active; the only readiness blocker was `CHANNEL_WRITE_VERIFICATION_REQUIRED` (policy v1 still lists `internal`, X not write-verified, no channel media-verified). Mario approved one logo test post each on Telegram uLiquid Desk and X uLiquid, a new autopilot policy and the autopilot configuration.
+
+**Observed:**
+- 2026-10-01: `postiz-test-prepare` for Telegram with logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` failed with `GOOGLE_DRIVE_OAUTH_FAILED`; the Drive health check failed the same way. Mario reconnected Google Drive on 2026-10-02; health and the logo read (`GET /assets/:id/content`, 200, PNG) then passed.
+- 2026-10-02: the same prepare failed with 500 `REQUEST_FAILED`. Neither attempt created a verification row or reached Postiz; no public post exists.
+
+**Root cause:** the prepare route ran inside the shared project transaction, which holds the project advisory lock, and the Drive read (`driveContent` → `storage`) opens a second project transaction that waits for the same lock until the 30 s transaction timeout. Execute read Drive inside its own transaction the same way. Write verification with a Drive-only PNG therefore could never succeed. Live publishing, draft handoff and rendering read Drive outside a transaction and are not affected.
+
+**Fix (PR, not deployed):** prepare and execute read the Drive PNG before opening their transaction; inside it, the asset row version, approval and package hash are checked against the pre-read bytes. The prepare route no longer runs in the shared transaction. A real-database regression test fails with the old call pattern and passes with the fix. Lint, typecheck, 560/560 Vitest and build passed locally.
+
+**Next action:** Mario approves the release; after deployment, continue with the Telegram write verification (step 2), then X, policy and autopilot.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
