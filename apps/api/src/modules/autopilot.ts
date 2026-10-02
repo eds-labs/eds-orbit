@@ -56,6 +56,8 @@ type Settings = z.infer<typeof autopilotInput> & {
 
 const PLAN_CHECK_MS = 10 * 60_000;
 const MIN_LEAD_MS = 2 * 3600_000;
+// Publications in these states no longer occupy their slot.
+const INACTIVE_PUBLICATION = ["canceled", "failed", "blocked_dependency"];
 
 export async function autopilotSettings(tx: DbTx, scope: Scope) {
   return (await list(tx, scope, "autopilot_settings"))[0] ?? null;
@@ -188,11 +190,25 @@ export function planningDays(
   return days;
 }
 
+/** Remembers skipped slots so each skip is recorded once. */
+async function saveSkips(
+  tx: DbTx,
+  scope: Scope,
+  settingsId: string,
+  skippedSlots: Record<string, unknown>,
+) {
+  const row = await entity(tx, scope, "autopilot_settings", settingsId);
+  await update(tx, scope, row, { ...data(row), skippedSlots });
+}
+
 /** Plans missing autopilot slots; idempotent per channel and day. */
 export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
   const row = await autopilotSettings(tx, scope);
   if (!row || data(row).enabled !== true) return { planned: 0 };
-  const settings = data(row) as Settings & { lastPlanCheckAt?: string };
+  const settings = data(row) as Settings & {
+    lastPlanCheckAt?: string;
+    skippedSlots?: Record<string, unknown>;
+  };
   if (
     settings.lastPlanCheckAt &&
     now.valueOf() - Date.parse(settings.lastPlanCheckAt) < PLAN_CHECK_MS
@@ -220,6 +236,24 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
       .map((mission) => data(mission).autopilotSlot)
       .filter(Boolean),
   );
+  // Scheduled posts, for example owner-approved package posts, keep their day:
+  // the autopilot plans no paid draft that the daily quota would block later.
+  const policy = await activePolicy(tx, scope);
+  const maxPerDay = Number(data(policy)?.maxPerDay ?? 1);
+  const minIntervalMinutes = Number(data(policy)?.minIntervalMinutes ?? 0);
+  const scheduled = (await list(tx, scope, "publications")).filter(
+    (row) => !INACTIVE_PUBLICATION.includes(data(row).status),
+  );
+  const previouslySkipped = (settings.skippedSlots ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const skippedSlots: Record<string, unknown> = {};
+  const skipped: {
+    slot: string;
+    reason: "PUBLICATION_SCHEDULED";
+    publicationIds: string[];
+  }[] = [];
   let planned = 0;
   for (const day of planningDays(
     now,
@@ -238,6 +272,37 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
       const [hh, mm] = time.split(":").map(Number);
       const slot = zonedTime(day.y, day.m, day.d, hh!, mm!, project.timezone);
       if (slot.valueOf() - now.valueOf() < MIN_LEAD_MS) continue;
+      // Same day quota and spacing as publishIntent.
+      const sameChannel = scheduled.filter(
+        (publication) => data(publication).channel === channelId,
+      );
+      const sameDay = sameChannel.filter((publication) => {
+        const local = localDate(
+          new Date(data(publication).scheduledAt),
+          project.timezone,
+        );
+        return dayKey(local.y, local.m, local.d) === key;
+      });
+      const tooClose = sameChannel.filter(
+        (publication) =>
+          Math.abs(Date.parse(data(publication).scheduledAt) - slot.valueOf()) <
+          minIntervalMinutes * 60000,
+      );
+      if (sameDay.length >= maxPerDay || tooClose.length) {
+        const skip = {
+          slot: slotKey,
+          reason: "PUBLICATION_SCHEDULED" as const,
+          publicationIds: [
+            ...new Set([...sameDay, ...tooClose].map((item) => item.id)),
+          ],
+        };
+        skippedSlots[slotKey] = skip;
+        if (!previouslySkipped[slotKey]) {
+          skipped.push(skip);
+          await audit(tx, scope, "autopilot.slot_skipped", row.id, skip);
+        }
+        continue;
+      }
       // Different facts per channel on the same day, rotating daily.
       const dayNumber = Math.floor(
         Date.UTC(day.y, day.m - 1, day.d) / 86_400_000,
@@ -269,6 +334,10 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
       } catch (error) {
         if (!(error instanceof DomainError)) throw error;
         await exception(tx, scope, "AUTOPILOT_PLANNING_BLOCKED", row.id);
+        await saveSkips(tx, scope, row.id, {
+          ...previouslySkipped,
+          ...skippedSlots,
+        });
         return { planned, blocked: error.code };
       }
       await create(tx, scope, "missions", {
@@ -284,7 +353,9 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
     }
   }
   if (planned) await audit(tx, scope, "autopilot.planned", row.id, { planned });
-  return { planned };
+  // The current skips replace the previous ones: a freed day is planned again.
+  await saveSkips(tx, scope, row.id, skippedSlots);
+  return skipped.length ? { planned, skipped } : { planned };
 }
 
 /** Owner one-click approval: confirm the reviewed text, then schedule it. */
