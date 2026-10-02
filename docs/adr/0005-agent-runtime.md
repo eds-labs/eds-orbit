@@ -33,3 +33,7 @@ Orbit Chat runs a hand-written Responses API tool loop (`apps/api/src/modules/ch
 ## Consequences
 
 The SDK becomes an exchangeable adapter. SDK upgrades are isolated to one module and covered by the existing chat-runner integration tests. Budget, policy, approval and audit remain Orbit's responsibility, as required by master specification §5.
+
+## Addendum 2026-10-02: spike result
+
+The spike ran the SDK (`@openai/agents-core` 0.18.0) behind the `AgentRuntime` port with Orbit's budgeted model and tool host. G1, G2, G5 and G7 were met (G5 only with adapter fixes), G4 brought no gain, G3 was not demonstrated and G6 was not met. Decided by Mario on 2026-10-02: **no-go**; the custom loop stays behind the port, and the spike branch is not merged. Evidence: [agents-sdk-spike-2026-10-02](../evidence/agents-sdk-spike-2026-10-02.md).
