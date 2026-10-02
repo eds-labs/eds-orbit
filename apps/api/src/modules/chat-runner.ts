@@ -178,11 +178,14 @@ export async function runChatJob(base: Scope, actorId: unknown, runId: string) {
  * after an earlier transmission was recovered as an unknown outcome.
  */
 export async function runChat(scope: Scope, runId: string, refusal?: string) {
-  let reservationId: string | null = null;
-  let transmitted = false;
+  // The model call in flight, set inside the budgeted model; the catch block settles it.
+  const inFlight = {
+    reservationId: null as string | null,
+    transmitted: false,
+    startedAt: new Date(),
+    model: undefined as string | undefined,
+  };
   let agentRunId: string | null = null;
-  let callStartedAt = new Date();
-  let callModel: string | undefined;
   const controller = new AbortController();
   let cancelCheckBusy = false;
   const cancellation = setInterval(async () => {
@@ -368,10 +371,10 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
           });
           return { runtime, model, modelRoute, reservationId: reservation.id };
         });
-        reservationId = prepared.reservationId;
-        transmitted = true;
-        callModel = prepared.model;
-        callStartedAt = new Date();
+        inFlight.reservationId = prepared.reservationId;
+        inFlight.transmitted = true;
+        inFlight.model = prepared.model;
+        inFlight.startedAt = new Date();
         let completed: any = null;
         let lastSaved = Date.now();
         const stream = await streamChat({
@@ -379,7 +382,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
           input: request.input as OpenAI.Responses.ResponseInput,
           tools: toolDefinitions as unknown as OpenAI.Responses.Tool[],
           instructions,
-          reservationId,
+          reservationId: prepared.reservationId,
           runtime: prepared.runtime,
           signal: request.signal,
         });
@@ -410,20 +413,20 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         if (!completed?.usage) throw new DomainError("USAGE_UNKNOWN");
         const usage = normalizeResponsesUsage(completed.usage);
         const actual = computeCost(prepared.model, usage, prepared.runtime);
-        const settledId = reservationId!;
+        const settledId = prepared.reservationId;
         await chatScoped(scope, (tx) =>
           settle(tx, scope, settledId, actual).then(() => undefined),
         );
-        reservationId = null;
-        transmitted = false;
+        inFlight.reservationId = null;
+        inFlight.transmitted = false;
         // Telemetry only after settlement, outside its transaction.
         await recordSpan(scope, agentRunId, {
           type: "model_call",
           name: "responses.stream",
           model: prepared.model,
           status: "succeeded",
-          startedAt: callStartedAt,
-          durationMs: Date.now() - callStartedAt.valueOf(),
+          startedAt: inFlight.startedAt,
+          durationMs: Date.now() - inFlight.startedAt.valueOf(),
           usage,
           costMicros: actual,
           budgetReservationId: settledId,
@@ -491,7 +494,10 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     });
     await finishRun(scope, agentRunId, finalStatus);
   } catch (error) {
-    const unsettled = reservationId && transmitted ? reservationId : null;
+    const unsettled =
+      inFlight.reservationId && inFlight.transmitted
+        ? inFlight.reservationId
+        : null;
     // A request the provider refused was not processed and costs nothing.
     const rejected = unsettled !== null && isRejectedRequest(error);
     const code = rejected ? "MODEL_REQUEST_NOT_ACCEPTED" : errorCode(error);
@@ -524,11 +530,11 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       await recordSpan(scope, agentRunId, {
         type: "model_call",
         name: "responses.stream",
-        model: callModel,
+        model: inFlight.model,
         status: rejected ? "failed" : "unknown",
         errorCode: code,
-        startedAt: callStartedAt,
-        durationMs: Date.now() - callStartedAt.valueOf(),
+        startedAt: inFlight.startedAt,
+        durationMs: Date.now() - inFlight.startedAt.valueOf(),
         ...(rejected ? { costMicros: 0 } : {}),
         budgetReservationId: unsettled,
       });
