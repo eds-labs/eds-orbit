@@ -48,7 +48,7 @@ The worker also writes each project's result to the Redis hash `orbit:postiz-que
 
 ## Content packages (Orbit Core)
 
-`ORBIT_CONTENT_PACKAGES=true` lets Orbit Chat offer `request_content_package` and `package_status` (default `false`). A package is one draft-only mission per channel; it starts only after the requesting user clicks "Start package" on its card, which decides its `content_package.start` action request. Drafts are prepared immediately through the normal generation path and share the run key `package:<id>`; nothing is reviewed for publishing, scheduled or published. Turning the flag off stops new packages and new starts; already started packages finish as ordinary draft-only missions. No migration is involved, so a rollback is a revert.
+`ORBIT_CONTENT_PACKAGES=true` lets Orbit Chat offer `request_content_package` and `package_status` (default `false`). A package is one draft-only mission per channel; it starts only after the requesting user clicks "Start package" on its card, which decides its `content_package.start` action request. Drafts are prepared immediately through the normal generation path and share the run key `package:<id>`; nothing is reviewed for publishing, scheduled or published. Turning the flag off stops new packages and new starts; already started packages finish as ordinary draft-only missions. No migration is involved, so a rollback is a revert. An owner's package may include one image; it runs in the `image` worker queue with one attempt and counts toward the package's run key. A package image with `outcome_unknown` was sent without a stored result: check the provider usage, never resend it automatically. Cancel pending packages before rolling back code that removes the `image` queue.
 
 ## Failure and recovery
 
