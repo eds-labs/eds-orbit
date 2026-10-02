@@ -69,11 +69,12 @@ describe("computeCost", () => {
     expect(computeCost("m", usage, runtime({ ...base, inputMicrosPerMillion: 100_000 }))).toBe(1);
     expect(computeCost("m", { ...usage, inputTokens: 0 }, runtime(base))).toBe(1);
   });
-  it("fails closed on stale or missing prices", () => {
+  it("fails closed on missing prices and accepts old ones", () => {
     const usage = { inputTokens: 1, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0, detailsKnown: true };
     expect(() => computeCost("x", usage, runtime(base))).toThrow("CURRENT_PRICE_REQUIRED");
-    const stale = { verifiedModels: ["m"], rateCard: { m: { ...base, verifiedAt: "2020-01-01T00:00:00.000Z" } } } as any;
-    expect(() => computeCost("m", usage, stale)).toThrow("CURRENT_PRICE_REQUIRED");
+    // A saved price stays valid until the owner changes it; there is no expiry.
+    const old = { verifiedModels: ["m"], rateCard: { m: { ...base, verifiedAt: "2020-01-01T00:00:00.000Z" } } } as any;
+    expect(computeCost("m", usage, old)).toBe(computeCost("m", usage, runtime(base)));
   });
   it("requires a verified price configuration when the rate card is empty", () => {
     const usage = { inputTokens: 1, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0, detailsKnown: true };
@@ -100,11 +101,12 @@ describe("rateStatus", () => {
   });
   it("matches the runtime price gate", () => {
     expect(rateStatus("m", card(30 * day))).toBe("current");
-    expect(rateStatus("m", card(32 * day))).toBe("stale");
+    expect(rateStatus("m", card(400 * day))).toBe("current");
     expect(rateStatus("other", card(0))).toBe("missing");
     expect(rateStatus("m", {})).toBe("missing");
     // The runtime refuses exactly the non-current states.
-    expect(() => estimateCost("m", 1000, 100, { rateCard: card(32 * day) })).toThrow("CURRENT_PRICE_REQUIRED");
+    expect(estimateCost("m", 1000, 100, { rateCard: card(400 * day) })).toBe(estimateCost("m", 1000, 100, { rateCard: card(0) }));
+    expect(() => estimateCost("other", 1000, 100, { rateCard: card(0) })).toThrow("CURRENT_PRICE_REQUIRED");
     expect(() => estimateCost("m", 1000, 100, { rateCard: {} })).toThrow("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
   });
 });

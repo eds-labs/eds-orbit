@@ -1457,15 +1457,13 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       mocked.telemetryOff = false;
     }
   });
-  it("blocks before any reservation when the chat route's price is stale", async () => {
-    const stale = new Date(Date.now() - 40 * 86_400_000).toISOString();
+  it("blocks before any reservation when the chat route's model has no price", async () => {
     try {
       await scoped(scope.workspaceId, scope.projectId, (tx) =>
         saveOpenAiConfiguration(tx, scope, {
           apiKey: "synthetic-no-provider-call-key",
           verifiedModels: ["synthetic-model", "text-embedding-3-small"],
           rateCard: {
-            "synthetic-model": { ...rate(1000), verifiedAt: stale },
             "text-embedding-3-small": rate(1000),
           },
           modelRoutes: {

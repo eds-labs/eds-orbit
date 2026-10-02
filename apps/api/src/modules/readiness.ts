@@ -7,6 +7,7 @@ import { publicOpenAiConfiguration } from "./openai-configuration.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
 import { actionReadiness } from "./action-readiness.ts";
 import { loadConfig } from "../../../../packages/config/src/index.ts";
+import { imagePriceConfigured } from "../../../../packages/ai/src/index.ts";
 import {
   driveReconnectRequired,
   publishingUsesDriveAssets,
@@ -123,11 +124,7 @@ export async function readiness(tx: DbTx, scope: Scope) {
       openAi.textKeyConfigured && openAi.verifiedModels.length,
     ),
     imageKeyConfigured: openAi.imageKeyConfigured,
-    imagePricingCurrent: Boolean(
-      image.maxCostMicrosPerImage > 0 &&
-      image.pricingVerifiedAt &&
-      now - Date.parse(image.pricingVerifiedAt) <= 31 * 86400000,
-    ),
+    imagePricingCurrent: imagePriceConfigured(image),
     imageModelVerified: Boolean(
       image.model && openAi.verifiedModels.includes(image.model),
     ),

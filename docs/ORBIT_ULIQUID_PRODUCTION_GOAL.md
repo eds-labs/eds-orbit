@@ -912,6 +912,18 @@ Each post was prepared, executed and reconciled once; no retry. Postiz connector
 
 Mario asked to extend the autopilot policy to the end of December. New active policy `cbf34b26-61cd-4bde-bc56-8e3c9c31806f` copies `dc9a602c-caf8-47e8-b216-a27f6f634bb7` exactly except `endAt`, which moves from 2026-10-18T15:00Z to 2026-12-31T23:00Z (2027-01-01 00:00 Europe/Berlin), so the last X slot on 2026-12-31 (17:00 Berlin) is inside the window. Mode `autopilot`, channels, limits and the $10 daily/monthly/per-run budgets are unchanged. Before the change there were no autopilot missions and no open publications. After it, the only active policy is `cbf34b26…`, dashboard readiness blockers are `[]`, and the project mode is `autopilot`. No paid AI cost and no provider write.
 
+### 2026-10-02 CEST -- Model switch to GPT-6 Luna and GPT-6.1 Sol; price dates no longer expire
+
+**Status:** COMPLETE (configuration); code change in review
+
+**Mario's decisions:** use only `gpt-6-luna` and `gpt-6.1-sol` as text models and route every task to Sol; drop the 31-day expiry of text and image prices (a saved price stays valid until the owner changes it).
+
+**Production configuration (owner save at 09:37:43 UTC, route version 8):** verified models `gpt-6-luna`, `gpt-6.1-sol`, `text-embedding-3-small`, `gpt-image-2.5-flare` (removed: `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`, `gpt-6-astra`). Rate card from the OpenAI price list on 2026-10-02 (short context, USD per 1M tokens): Luna input 0.10, cached 0.01, cache write 0.125, output 0.50; Sol input 2.00, cached 0.10, cache write 2.50, output 10.00; embedding unchanged. Tiers: fast Luna, standard/quality/escalation Sol. Task routes `chat_operator`, `draft_social`, `draft_blog` on `gpt-6.1-sol` with reasoning effort `low` (Sol has no `none`; reasoning tokens count against the output ceiling) and output ceilings 4,000 / 3,000 / 4,000. No job was running at the save. Readiness afterwards: no blockers, all routes `price: current`.
+
+**Not yet proven:** no generation has run on the new models; the first paid run (at the latest the weekly autopilot plan on 2026-10-04) shows whether Sol drafts pass claim review as before. The live generation eval has not been run.
+
+**Code:** the price age gate is removed in `rateStatus`/`computeCost`, image generation and readiness (one shared `imagePriceConfigured` check); a missing price still fails closed with `CURRENT_PRICE_REQUIRED` or `IMAGE_PRICING_REQUIRED`. The generation eval keeps its own 31-day rule.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.

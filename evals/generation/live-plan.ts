@@ -18,7 +18,8 @@ import {
 
 // Hard ceiling of a live eval; ORBIT_EVAL_MAX_USD can only lower it.
 const CEILING_USD = 5;
-// Production requires prices verified within 31 days.
+// The eval keeps its own 31-day price freshness rule so the hard ceiling is
+// planned against recent prices; production prices no longer expire.
 const RATE_MAX_AGE_MS = 31 * 86_400_000;
 // The mission contract and evidence wrapped around a case; a planning bound
 // only, because each real reservation uses the exact payload size.
@@ -101,7 +102,7 @@ export function planLiveEval(
   now = Date.now(),
 ): LivePlan {
   const verified = new Date(file.verifiedAt).valueOf();
-  // Production only rejects old prices; a future date would never go stale.
+  // A future date would never go stale, so it is rejected as well.
   if (verified > now) throw new Error("EVAL_RATE_CARD_FUTURE");
   if (now - verified > RATE_MAX_AGE_MS) throw new Error("EVAL_RATE_CARD_STALE");
   const models = [

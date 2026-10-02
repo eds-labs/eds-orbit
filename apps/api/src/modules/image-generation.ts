@@ -4,6 +4,7 @@ import { scoped } from "../../../../packages/db/src/index.ts";
 import {
   generateImage,
   imageGenerationConfigurationSchema,
+  imagePriceConfigured,
 } from "../../../../packages/ai/src/index.ts";
 import {
   marketingProfile,
@@ -111,10 +112,7 @@ async function generateProjectImageTraced(
       );
       if (
         !(runtime.imageApiKey || runtime.apiKey) ||
-        imageConfig.maxCostMicrosPerImage <= 0 ||
-        !imageConfig.pricingVerifiedAt ||
-        Date.now() - new Date(imageConfig.pricingVerifiedAt).valueOf() >
-          31 * 86400000
+        !imagePriceConfigured(imageConfig)
       )
         throw new DomainError("IMAGE_GENERATION_NOT_CONFIGURED", 409);
       if (!runtime.verifiedModels.includes(imageConfig.model))

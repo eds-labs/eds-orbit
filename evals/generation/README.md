@@ -55,7 +55,8 @@ Safeguards:
 - The ceiling is a hard limit across the whole run: each call may reserve at
   most what remains, and the run stops when a reservation is refused.
 - The rate card in `candidates-v1.json` carries one verification date applied
-  to every model. Production rejects prices older than 31 days, so a stale
+  to every model. The eval rejects prices older than 31 days (production
+  prices do not expire) so its ceiling is planned on recent prices; a stale
   card fails with `EVAL_RATE_CARD_STALE` before any transmission; a
   future-dated one fails with `EVAL_RATE_CARD_FUTURE`. Update the
   prices and `verifiedAt` from the provider's price list before re-running.

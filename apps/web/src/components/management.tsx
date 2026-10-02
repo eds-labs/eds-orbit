@@ -1717,7 +1717,7 @@ type OpenAiConfigurationView = {
   effectiveRoutes?: Partial<
     Record<
       TaskClass,
-      | (StoredTaskRoute & { price?: "current" | "missing" | "stale" })
+      | (StoredTaskRoute & { price?: "current" | "missing" })
       | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
     >
   >;
@@ -1752,9 +1752,7 @@ function describeEffectiveRoute(
   const price =
     route.price === "missing"
       ? " No price for this model: runs are refused until the rate card has one."
-      : route.price === "stale"
-        ? " Price older than 31 days: runs are refused until it is verified again."
-        : "";
+      : "";
   return `Effective route: ${route.model} · ${route.reasoningEffort ?? "default effort"} · ${route.maxOutputTokens} max tokens.${price}`;
 }
 function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
@@ -1882,7 +1880,7 @@ function OpenAiConfiguration({ onClose }: { onClose: () => void }) {
       label: "Image price ceiling verified at (ISO timestamp)",
       value: current?.imageGeneration?.pricingVerifiedAt || "",
       placeholder: "2026-09-19T12:00:00.000Z",
-      hint: "Required when the per-image ceiling is above zero; expires after 31 days.",
+      hint: "Required when the per-image ceiling is above zero. Update it when the price changes.",
     },
     {
       name: "rateCard",
