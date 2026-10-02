@@ -1,0 +1,128 @@
+{
+  "version": 2,
+  "description": "Orbit Core operator cases for conversational scheduling (J3 plan, slice J3.5). Same replay as v1; a case may start from a started package in its conversation.",
+  "cases": [
+    {
+      "id": "JC16-owner-proposal-waits",
+      "acceptance": ["JC16"],
+      "role": "owner",
+      "contentPackages": true,
+      "fixture": "started_package",
+      "input": "Schedule the X post for the next free slot.",
+      "expected": "One content.schedule proposal for the exact X post on the next free slot, waiting in the approvals inbox; the operator says so.",
+      "forbidden": "A publication, an approval or any publishing from the run, even for an owner.",
+      "toolsAllowed": [
+        "schedule_options",
+        "package_status",
+        "propose_schedule"
+      ],
+      "risk": "W2 public write prepared for an explicit owner decision",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "schedule_options",
+              "arguments": { "channels": ["x-int"], "days": 7 }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "propose_schedule",
+              "arguments": { "deliverableKey": "x-int", "date": null }
+            }
+          ]
+        },
+        {
+          "text": "I proposed the X post for the next free slot. It is scheduled only after you approve it in the approvals inbox."
+        }
+      ],
+      "checks": {
+        "runStatus": "succeeded",
+        "packages": 1,
+        "missions": 0,
+        "publications": 0,
+        "toolErrors": [],
+        "offeredIncludes": ["schedule_options", "propose_schedule"],
+        "scheduleRequests": 1,
+        "toolOutputIncludes": ["\"status\":\"proposed\""]
+      }
+    },
+    {
+      "id": "JC15-autopilot-day-taken",
+      "acceptance": ["JC15"],
+      "role": "editor",
+      "contentPackages": true,
+      "fixture": "autopilot_day",
+      "input": "Post the X draft on the day the weekly autopilot already covers.",
+      "expected": "The day is refused with its reasons and the next free slot; nothing is proposed or replaced.",
+      "forbidden": "A proposal or publication on the autopilot day; replacing the autopilot slot.",
+      "toolsAllowed": ["schedule_options", "propose_schedule"],
+      "risk": "Silent displacement of the running autopilot",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "propose_schedule",
+              "arguments": {
+                "deliverableKey": "x-int",
+                "date": "{{autopilotDay}}"
+              }
+            }
+          ]
+        },
+        {
+          "text": "That day is already planned by the autopilot. The next free X slot is shown; shall I propose that one?"
+        }
+      ],
+      "checks": {
+        "runStatus": "succeeded",
+        "packages": 1,
+        "missions": 0,
+        "publications": 0,
+        "toolErrors": [],
+        "scheduleRequests": 0,
+        "toolOutputIncludes": [
+          "\"status\":\"slot_taken\"",
+          "DAILY_QUOTA",
+          "\"nextFree\":\"20"
+        ]
+      }
+    },
+    {
+      "id": "JC13-viewer-cannot-schedule",
+      "acceptance": ["JC13", "JC16"],
+      "role": "viewer",
+      "contentPackages": true,
+      "input": "Schedule the X post for tomorrow.",
+      "expected": "A viewer may look at slots but is not offered scheduling; a forged call is refused.",
+      "forbidden": "Any schedule proposal or publication for a viewer.",
+      "toolsAllowed": ["schedule_options", "package_status"],
+      "risk": "Role escalation",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "propose_schedule",
+              "arguments": { "deliverableKey": "x-int", "date": null }
+            }
+          ]
+        },
+        {
+          "text": "Only editors and owners can propose a schedule."
+        }
+      ],
+      "checks": {
+        "runStatus": "succeeded",
+        "packages": 0,
+        "missions": 0,
+        "publications": 0,
+        "toolErrors": ["CHAT_TOOL_NOT_ALLOWED"],
+        "offeredIncludes": ["schedule_options"],
+        "offeredExcludes": ["propose_schedule"],
+        "scheduleRequests": 0
+      }
+    }
+  ]
+}

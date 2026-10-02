@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import { randomUUID } from "node:crypto";
 import { closeDatabase, scoped } from "../../packages/db/src/index.ts";
 import type { Scope } from "../../packages/schemas/src/index.ts";
@@ -8,6 +16,7 @@ import { ingest } from "../../packages/knowledge/src/index.ts";
 const replay = vi.hoisted(() => ({
   steps: [] as unknown[],
   timezone: "Europe/Berlin",
+  vars: {} as Record<string, string>,
   calls: 0,
   inputs: [] as unknown[],
   tools: [] as Array<{ name: string }>,
@@ -36,7 +45,12 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => {
         replay.tools = request.tools;
         const recorded = replay.steps[index];
         if (!recorded) throw new Error("EVAL_STEP_MISSING");
-        const events = streamEvents(recorded as never, index, replay.timezone);
+        const events = streamEvents(
+          recorded as never,
+          index,
+          replay.timezone,
+          replay.vars,
+        );
         return {
           async *[Symbol.asyncIterator]() {
             yield* events;
@@ -46,7 +60,7 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => {
     ),
   };
 });
-import { data, entity } from "../../apps/api/src/shared.ts";
+import { create, data, entity, list } from "../../apps/api/src/shared.ts";
 import {
   createConversation,
   getConversation,
@@ -54,17 +68,37 @@ import {
   sendMessage,
 } from "../../apps/api/src/modules/chat.ts";
 import { runChat } from "../../apps/api/src/modules/chat-runner.ts";
-import { createPackageProject } from "../../apps/api/tests/support/package-project.ts";
-import { loadCases, toolErrorCodes, type OperatorCase } from "./harness.ts";
+import { decideActionRequest } from "../../apps/api/src/modules/action-requests.ts";
+import { deterministicDraft } from "../../apps/api/src/modules/workflow.ts";
+import { sweepProject } from "../../apps/api/src/modules/lifecycle.ts";
+import { requestContentPackage } from "../../apps/api/src/modules/agents/content-packages.ts";
+import { channelSlots } from "../../apps/api/src/modules/agents/scheduling.ts";
+import {
+  createPackageProject,
+  X,
+} from "../../apps/api/tests/support/package-project.ts";
+import {
+  loadCases,
+  toolErrorCodes,
+  toolOutputs,
+  type OperatorCase,
+} from "./harness.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
-const { cases, hash } = loadCases();
+afterAll(async () => {
+  await closeDatabase();
+});
 
-describe.skipIf(!enabled)(
-  `Orbit Core operator eval (cases-v1, ${hash.slice(0, 12)})`,
-  () => {
+const datasets = ["cases-v1", "cases-v2"].map((name) => ({
+  name,
+  ...loadCases(`evals/operator/${name}.json`),
+}));
+
+describe.skipIf(!enabled).each(datasets)(
+  "Orbit Core operator eval ($name, $hash)",
+  ({ cases }) => {
     let project: Awaited<ReturnType<typeof createPackageProject>>;
     const scopes = () =>
       ({
@@ -76,13 +110,83 @@ describe.skipIf(!enabled)(
       scoped(project.owner.workspaceId, project.owner.projectId, (tx) =>
         tx.entity.count({ where: { kind } }),
       );
-    beforeAll(async () => {
+    const run = <T>(
+      work: (tx: Parameters<Parameters<typeof scoped>[2]>[0]) => Promise<T>,
+    ) => scoped(project.owner.workspaceId, project.owner.projectId, work);
+    const scheduleRequests = () =>
+      scoped(project.owner.workspaceId, project.owner.projectId, (tx) =>
+        tx.entity.count({
+          where: {
+            kind: "action_requests",
+            data: { path: ["actionType"], equals: "content.schedule" },
+          },
+        }),
+      );
+    const worker = () => ({
+      ...project.owner,
+      userId: "worker",
+      role: "owner" as const,
+    });
+    // A started X package with a reviewed draft in the case's conversation.
+    async function startedPackage(scope: Scope, conversationId: string) {
+      const { actionRequest } = await requestContentPackage(
+        scope,
+        conversationId,
+        {
+          goal: "Announce that beta access is open",
+          channels: [X],
+          factKeys: ["beta.access"],
+        },
+      );
+      await run((tx) =>
+        decideActionRequest(tx, scope, actionRequest.id, {
+          version: actionRequest.version,
+          packageHash: data(actionRequest).packageHash,
+          decision: "approve",
+        }),
+      );
+      await run(async (tx) => {
+        const pkg = await entity(
+          tx,
+          project.owner,
+          "content_packages",
+          data(actionRequest).payload.packageId,
+        );
+        for (const step of data(pkg).steps as Array<Record<string, any>>)
+          await deterministicDraft(
+            tx,
+            project.owner,
+            step.missionId,
+            step.jobId,
+          );
+      });
+      await run((tx) => sweepProject(tx, worker()));
+    }
+    // Plans the last free X day for the autopilot and returns that date.
+    async function autopilotDay() {
+      const free = (
+        await run((tx) => channelSlots(tx, project.owner, { channels: [X] }))
+      ).channels[0]!.slots.filter((slot) => slot.free);
+      const day = free[free.length - 1]!;
+      await run((tx) =>
+        create(tx, project.owner, "missions", {
+          title: "Autopilot X slot",
+          status: "ready",
+          autopilot: true,
+          autopilotSlot: `${X}|${day.date}`,
+          channels: [X],
+          plannedSlotAt: day.at,
+        }),
+      );
+      return day.date;
+    }
+    // A fresh project per case: equal drafts from earlier cases would be reused.
+    beforeEach(async () => {
       project = await createPackageProject();
     });
-    afterAll(async () => {
+    afterEach(async () => {
       delete process.env.ORBIT_CONTENT_PACKAGES;
       await project.cleanup();
-      await closeDatabase();
     });
 
     it.each(cases.map((c) => [c.id, c] as const))(
@@ -107,12 +211,17 @@ describe.skipIf(!enabled)(
               ],
             }),
           );
+        const thread = await createConversation(scope);
+        replay.vars = {};
+        if (testCase.fixture) await startedPackage(scope, thread.id);
+        if (testCase.fixture === "autopilot_day")
+          replay.vars.autopilotDay = await autopilotDay();
         replay.steps = testCase.steps;
         replay.calls = 0;
         replay.inputs = [];
         const missionsBefore = await count("missions");
         const publicationsBefore = await count("publications");
-        const thread = await createConversation(scope);
+        const schedulesBefore = await scheduleRequests();
         const sent = await sendMessage(scope, thread.id, {
           text: testCase.input,
           clientRequestId: randomUUID(),
@@ -170,6 +279,15 @@ describe.skipIf(!enabled)(
         expect((await count("publications")) - publicationsBefore).toBe(
           checks.publications,
         );
+        if (checks.scheduleRequests !== undefined)
+          expect((await scheduleRequests()) - schedulesBefore).toBe(
+            checks.scheduleRequests,
+          );
+        const outputs = toolOutputs(
+          replay.inputs[replay.inputs.length - 1],
+        ).join("\n");
+        for (const fragment of checks.toolOutputIncludes ?? [])
+          expect(outputs).toContain(fragment);
       },
     );
   },

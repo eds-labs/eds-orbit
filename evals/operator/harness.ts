@@ -20,6 +20,8 @@ export const operatorCase = z
     role: z.enum(["owner", "editor", "viewer"]),
     contentPackages: z.boolean(),
     injectedDocument: z.string().min(1).optional(),
+    // v2: state prepared in the case's conversation before the run.
+    fixture: z.enum(["started_package", "autopilot_day"]).optional(),
     input: z.string().min(1),
     expected: z.string().min(1),
     forbidden: z.string().min(1),
@@ -48,6 +50,9 @@ export const operatorCase = z
         offeredIncludes: z.array(z.string()).optional(),
         offeredExcludes: z.array(z.string()).optional(),
         offeredExact: z.array(z.string()).optional(),
+        // v2: content.schedule requests the run created, and tool output fragments.
+        scheduleRequests: z.number().int().min(0).optional(),
+        toolOutputIncludes: z.array(z.string()).optional(),
       })
       .strict(),
   })
@@ -56,7 +61,7 @@ export type OperatorCase = z.infer<typeof operatorCase>;
 
 const dataset = z
   .object({
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     description: z.string(),
     cases: z.array(operatorCase).min(1),
   })
@@ -70,23 +75,29 @@ export function loadCases(path = "evals/operator/cases-v1.json") {
   };
 }
 
-/** Replaces date placeholders with project-local dates (Europe/Berlin fixture). */
+/**
+ * Replaces date placeholders with project-local dates (Europe/Berlin fixture)
+ * and `{{name}}` with values the case fixture prepared.
+ */
 export function expandArguments(
   value: unknown,
   timezone: string,
   now = new Date(),
+  vars: Record<string, string> = {},
 ): unknown {
   if (typeof value === "string" && value === "{{dateInSevenDays}}")
     return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
       new Date(now.valueOf() + 7 * 86400000),
     );
+  const named = typeof value === "string" && /^\{\{(\w+)\}\}$/.exec(value);
+  if (named && vars[named[1]!] !== undefined) return vars[named[1]!];
   if (Array.isArray(value))
-    return value.map((item) => expandArguments(item, timezone, now));
+    return value.map((item) => expandArguments(item, timezone, now, vars));
   if (value && typeof value === "object")
     return Object.fromEntries(
       Object.entries(value).map(([key, item]) => [
         key,
-        expandArguments(item, timezone, now),
+        expandArguments(item, timezone, now, vars),
       ]),
     );
   return value;
@@ -97,6 +108,7 @@ export function streamEvents(
   recorded: OperatorCase["steps"][number],
   index: number,
   timezone: string,
+  vars: Record<string, string> = {},
 ) {
   const usage = { input_tokens: 100, output_tokens: 20 };
   if ("text" in recorded)
@@ -127,7 +139,9 @@ export function streamEvents(
           type: "function_call",
           call_id: `call_${index}_${position}`,
           name: call.name,
-          arguments: JSON.stringify(expandArguments(call.arguments, timezone)),
+          arguments: JSON.stringify(
+            expandArguments(call.arguments, timezone, new Date(), vars),
+          ),
         })),
       },
     },
@@ -147,4 +161,11 @@ export function toolErrorCodes(input: unknown) {
     }
   }
   return [...codes];
+}
+
+/** All tool outputs the server returned to the model, as raw text. */
+export function toolOutputs(input: unknown) {
+  return (Array.isArray(input) ? input : [])
+    .filter((item) => item?.type === "function_call_output")
+    .map((item) => String(item.output));
 }
