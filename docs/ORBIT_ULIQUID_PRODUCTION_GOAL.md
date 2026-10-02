@@ -873,6 +873,37 @@ The ten drafts of 2026-09-30 to 2026-10-04 were moved in Postiz to their days (T
 
 **Next action:** Mario approves the release; after deployment, continue with the Telegram write verification (step 2), then X, policy and autopilot.
 
+### 2026-10-02 09:10 CEST -- Phase 11 go-live: autopilot live
+
+**Repo SHA before:** `1bb280f`\
+**Repo SHA after / Deployment SHA:** `c8cfeece875fe66b3dcba654d15a6bd888db6044` (PR [#24](https://github.com/eds-labs/eds-orbit/pull/24), merged 06:58:45 UTC after Mario's release approval; all three PR checks passed). The release also contains PR [#23](https://github.com/eds-labs/eds-orbit/pull/23) (Drive reconnect readiness), merged by Mario at 06:55:21 UTC\
+**Status:** COMPLETE
+
+**Release:** Coolify rolled out the merge; the public readiness probe was briefly unavailable during the container swap (07:02:53–07:03:25 UTC) and then reported `ok` with database `ok` and worker `ready`. No schema migration and no configuration or secret change. The deployed fix was confirmed functionally: the Telegram prepare with the Drive logo returned 200 in 2.7 s (before: 500 after the 30 s transaction timeout).
+
+**Write verification (Mario's approval of 2026-10-01, one public test post per channel with the approved logo `cfe2bfa8-ef84-4a30-93bc-96cf863d307a` v2, 1024×1024 PNG, image hash `04c22b40…`):**
+
+| Channel | Verification | Postiz post | Result |
+| --- | --- | --- | --- |
+| Telegram uLiquid Desk `cmu9g999m0001o18n6dfzymud` | `25260345-aacd-4792-bfcf-69649cb94741` | `cmuqmfhvy0003o789hv7cgsqo` | `PUBLISHED`, verified 07:08:19 UTC |
+| X uLiquid `cmufswv260001pg89nlreglzx` | `6b65a900-8d07-484d-b4da-611055ba3444` | `cmuqmgo0c0004o789oumaesfu` | `QUEUE`, then `PUBLISHED`, verified 07:09:30 UTC |
+
+Each post was prepared, executed and reconciled once; no retry. Postiz connector `f1ab9ce9-0f2e-4d56-9438-46b5f85f925e` is now v13 with both channels in `writeVerifiedIntegrationIds` and `writeVerifiedMediaIntegrationIds` (capability `png_publish_now`). Mario deletes both test posts in Postiz.
+
+**Policy:** new active policy `dc9a602c-caf8-47e8-b216-a27f6f634bb7`, mode `autopilot`, channels Telegram and X (`internal` dropped), `maxPerDay` 1 (per channel), `minIntervalMinutes` 60; content types, allowed origin, $10 daily/monthly/per-run budgets, approved paid tests and the window 2026-09-26T13:00Z to 2026-10-18T15:00Z unchanged from v1 (Mario kept `endAt`). Live activation passed the readiness check; v1 `04f9ae71…` is inactive.
+
+**Autopilot:** settings `a4d8e6b4-4b85-48d6-a2d8-81e8f50121a4`, enabled 07:10:19 UTC: both channels (slots Telegram 10:00, X 17:00 Europe/Berlin), facts `product.description`, `product.tagline`, `product.positioning`, `product.user_control`, `feature.ai_predictions.boundary`, logo `cfe2bfa8…`, plan Sunday 12:00, start date 2026-10-05. The worker's first plan check (07:10:20 UTC) correctly planned nothing, as the remaining days of this week precede the start date.
+
+**Verification:** dashboard readiness blockers `[]`; project mode `autopilot`, not paused; `postiz_draft`, `postiz_schedule` and `postiz_live` ready; no new exceptions; no publication created by the go-live.
+
+**Costs / external effects:** paid AI cost none; provider writes two media uploads and two public test posts (approved); no other publication.
+
+**Open blockers / follow-ups:**
+- The policy ends 2026-10-18T15:00Z. The X slot on Sunday 2026-10-18 (17:00 Berlin = 15:00Z) is not before `endAt` and will be blocked by preflight; afterwards readiness reports `OWNER_POLICY_REQUIRED` and the autopilot stops. Extend the policy before then.
+- Readiness reported Drive as ready while its OAuth refresh failed (2026-10-01); fixed by PR #23 in this release.
+
+**Next action:** Sunday 2026-10-04 12:00: first weekly plan (14 drafts for 2026-10-05 to 2026-10-11); Mario approves drafts with marketing copy in Orbit.
+
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 
 **Goal and risk:** Release the reviewed exact-key retrieval correction and owner-only recovery action, then create at most one new paid internal Telegram draft Job for the same confirmed Mission. Production release and Job creation are critical; the bounded OpenAI call is high risk. This plan does not authorize a public post, Postiz/Drive write, schedule, index activation or new evaluation.
