@@ -1719,8 +1719,7 @@ describe.skipIf(!enabled)(
         run((tx) =>
           tx.budgetReservation.count({ where: { category: "text" } }),
         );
-      it("fails closed before any text reservation when the routed model's price is stale", async () => {
-        const stale = new Date(Date.now() - 40 * 86_400_000).toISOString();
+      it("fails closed before any text reservation when the routed model has no price", async () => {
         await run((tx) =>
           saveOpenAiConfiguration(tx, s, {
             apiKey: "synthetic-no-provider-call-key",
@@ -1732,7 +1731,6 @@ describe.skipIf(!enabled)(
             ],
             rateCard: {
               "gpt-5.6-terra": rate(1000, 1000000),
-              "gpt-5.6-sol": { ...rate(1000, 1000000), verifiedAt: stale },
               "text-embedding-3-small": rate(1000, 1000),
             },
             taskRoutes: {

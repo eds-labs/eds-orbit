@@ -48,13 +48,12 @@ export function normalizeResponsesUsage(usage: unknown): NormalizedUsage {
   };
 }
 
-const RATE_MAX_AGE_MS = 31 * 86400000;
-
-/** Whether a paid call for `model` would find a current price; the runtime gate below uses the same rule. */
-export function rateStatus(model: string, rateCard: Record<string, Rate> | undefined): "current" | "missing" | "stale" {
-  const rate = rateCard?.[model];
-  if (!rate) return "missing";
-  return Date.now() - new Date(rate.verifiedAt).valueOf() > RATE_MAX_AGE_MS ? "stale" : "current";
+/**
+ * Whether a paid call for `model` would find a price; the runtime gate below uses the same rule.
+ * A saved price stays valid until the owner changes it (no expiry, owner decision 2026-10-02).
+ */
+export function rateStatus(model: string, rateCard: Record<string, Rate> | undefined): "current" | "missing" {
+  return rateCard?.[model] ? "current" : "missing";
 }
 
 function currentRate(model: string, runtime: CostRuntime): Required<Omit<Rate, "verifiedAt">> {

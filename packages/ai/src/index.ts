@@ -72,6 +72,13 @@ export const imageGenerationConfigurationSchema = z
         message: "IMAGE_PRICE_DATE_REQUIRED",
       });
   });
+/** Images need a non-zero per-image ceiling with a verification date; the price does not expire. */
+export function imagePriceConfigured(config: {
+  maxCostMicrosPerImage?: number;
+  pricingVerifiedAt?: string;
+}) {
+  return (config.maxCostMicrosPerImage ?? 0) > 0 && Boolean(config.pricingVerifiedAt);
+}
 export type OpenAiRuntimeConfig = {
   apiKey?: string;
   imageApiKey?: string;
@@ -317,12 +324,7 @@ export async function generateImage(params: {
   const apiKey = runtime.imageApiKey ?? runtime.apiKey;
   if (!apiKey || !params.reservationId)
     throw new Error("PAID_CALL_NOT_AUTHORIZED");
-  if (
-    configured.maxCostMicrosPerImage <= 0 ||
-    !configured.pricingVerifiedAt ||
-    Date.now() - new Date(configured.pricingVerifiedAt).valueOf() >
-      31 * 86400000
-  )
+  if (!imagePriceConfigured(configured))
     throw new Error("CURRENT_IMAGE_PRICE_LIMIT_REQUIRED");
   if (!runtime.verifiedModels.includes(configured.model))
     throw new Error("IMAGE_MODEL_NOT_VERIFIED");

@@ -922,7 +922,18 @@ Mario asked to extend the autopilot policy to the end of December. New active po
 
 **Costs / external effects:** one image call; the reservation keeps the $1.00 ceiling as `unknown` cost by design until reconciliation. One Drive upload. No publication, no Postiz call.
 
-**Open:** the owner reviews rights and brand fit before the image can be used; the pricing date expires after 2026-10-20T17:30Z (`IMAGE_PRICING_REQUIRED`); the autopilot image setting still uses the logo.
+**Open:** the owner reviews rights and brand fit before the image can be used; the pricing date would have expired after 2026-10-20T17:30Z (superseded by the next entry: prices no longer expire); the autopilot image setting still uses the logo.
+### 2026-10-02 CEST -- Model switch to GPT-6 Luna and GPT-6.1 Sol; price dates no longer expire
+
+**Status:** COMPLETE (configuration); code change in review
+
+**Mario's decisions:** use only `gpt-6-luna` and `gpt-6.1-sol` as text models and route every task to Sol; drop the 31-day expiry of text and image prices (a saved price stays valid until the owner changes it).
+
+**Production configuration (owner save at 09:37:43 UTC, route version 8):** verified models `gpt-6-luna`, `gpt-6.1-sol`, `text-embedding-3-small`, `gpt-image-2.5-flare` (removed: `gpt-5.6-luna`, `gpt-5.6-terra`, `gpt-5.6-sol`, `gpt-6-astra`). Rate card from the OpenAI price list on 2026-10-02 (short context, USD per 1M tokens): Luna input 0.10, cached 0.01, cache write 0.125, output 0.50; Sol input 2.00, cached 0.10, cache write 2.50, output 10.00; embedding unchanged. Tiers: fast Luna, standard/quality/escalation Sol. Task routes `chat_operator`, `draft_social`, `draft_blog` on `gpt-6.1-sol` with reasoning effort `low` (Sol has no `none`; reasoning tokens count against the output ceiling) and output ceilings 4,000 / 3,000 / 4,000. No job was running at the save. Readiness afterwards: no blockers, all routes `price: current`.
+
+**Not yet proven:** no generation has run on the new models; the first paid run (at the latest the weekly autopilot plan on 2026-10-04) shows whether Sol drafts pass claim review as before. The live generation eval has not been run.
+
+**Code:** the price age gate is removed in `rateStatus`/`computeCost`, image generation and readiness (one shared `imagePriceConfigured` check); a missing price still fails closed with `CURRENT_PRICE_REQUIRED` or `IMAGE_PRICING_REQUIRED`. The generation eval keeps its own 31-day rule.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 

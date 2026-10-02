@@ -87,7 +87,7 @@ describe("Live generation eval planning", () => {
     expect(() =>
       planLiveEval({}, fixtures, candidates, verifiedAt + 32 * 86_400_000),
     ).toThrow("EVAL_RATE_CARD_STALE");
-    // Still valid at the production limit of 31 days.
+    // Still valid at the eval limit of 31 days.
     expect(() =>
       planLiveEval({}, fixtures, candidates, verifiedAt + 31 * 86_400_000),
     ).not.toThrow();
