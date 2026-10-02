@@ -32,7 +32,10 @@ import {
   availableTools,
   findTool,
   responsesTool,
+  type OrbitTool,
 } from "./agents/tools/registry.ts";
+import type { BudgetedModel, ToolHost } from "./agents/runtime/port.ts";
+import { legacyResponsesRuntime } from "./agents/runtime/legacy-responses.ts";
 
 // Span names come from this fixed set; the model-supplied name is never stored.
 const KNOWN_TOOL_NAMES = new Set<string>(chatTools.map((tool) => tool.name));
@@ -82,6 +85,78 @@ async function snapshot(scope: Scope, runId: string, text: string) {
 function errorCode(error: unknown) {
   const raw = error instanceof Error ? error.message : "CHAT_FAILED";
   return /^[A-Z][A-Z0-9_]{2,80}$/.test(raw) ? raw : "CHAT_FAILED";
+}
+
+/** Executes model-requested tools from the offered set; one span per call. */
+function chatToolHost(
+  scope: Scope,
+  runId: string,
+  conversationId: string,
+  agentRunId: string | null,
+  offered: OrbitTool[],
+  cards: ChatCard[],
+): ToolHost {
+  return {
+    async execute(call, callIndex) {
+      let output: unknown;
+      let toolFailure: string | null = null;
+      const toolStartedAt = new Date();
+      const recordTool = () =>
+        recordSpan(scope, agentRunId, {
+          type: "tool_call",
+          name: toolSpanName(call.name),
+          status: toolFailure ? "failed" : "succeeded",
+          errorCode: toolFailure ?? undefined,
+          startedAt: toolStartedAt,
+          durationMs: Date.now() - toolStartedAt.valueOf(),
+          inputHash: hashText(String(call.arguments ?? "")),
+        });
+      try {
+        const args = JSON.parse(call.arguments);
+        const tool = findTool(offered, call.name);
+        if (!tool) throw new DomainError("CHAT_TOOL_NOT_ALLOWED", 403);
+        const result = await tool.execute(
+          { scope, runId, conversationId, callIndex },
+          args,
+        );
+        output = result.output;
+        cards.push(...result.cards);
+      } catch (error) {
+        if (call.name === "knowledge_search") {
+          toolFailure = telemetryErrorCode(error);
+          await recordTool();
+          throw error;
+        }
+        output =
+          call.name === "propose_campaign" && error instanceof ZodError
+            ? {
+                error: "PROPOSAL_VALIDATION_FAILED",
+                invalidFields: [
+                  ...new Set(
+                    error.issues.map(
+                      (issue) =>
+                        issue.path
+                          .filter(
+                            (part): part is string =>
+                              typeof part === "string" &&
+                              /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(part),
+                          )
+                          .slice(0, 2)
+                          .join(".") || "mission",
+                    ),
+                  ),
+                ].slice(0, 8),
+              }
+            : { error: errorCode(error) };
+        toolFailure =
+          call.name === "propose_campaign" && error instanceof ZodError
+            ? "PROPOSAL_VALIDATION_FAILED"
+            : telemetryErrorCode(error);
+      }
+      await recordTool();
+      return JSON.stringify(output).slice(0, 12000);
+    },
+  };
 }
 
 /**
@@ -229,212 +304,159 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     const cards: ChatCard[] = [];
     let fullText = "";
     let modelCalls = 0;
-    let toolCalls = 0;
     // Offered tools follow the caller's role; execution checks the same set.
     const offered = availableTools(chatTools, scope.role);
     const toolDefinitions = offered.map(responsesTool);
-    while (modelCalls < MAX_MODEL_CALLS) {
-      if (controller.signal.aborted) throw new DomainError("CHAT_CANCELED");
-      const bytes = Buffer.byteLength(
-        JSON.stringify({
-          input,
-          instructions,
-          tools: toolDefinitions,
-        }),
-      );
-      if (bytes > MAX_INPUT_BYTES) throw new DomainError("CHAT_CONTEXT_LIMIT");
-      const prepared = await chatScoped(scope, async (tx) => {
-        const run = await tx.chatRun.findUniqueOrThrow({
-          where: { id: runId },
-        });
-        if (run.status === "canceled") throw new DomainError("CHAT_CANCELED");
-        const p = await activePolicy(tx, scope);
-        if (!p) throw new DomainError("POLICY_REQUIRED");
-        const approved = policySchema.parse(
-          Object.fromEntries(
-            Object.entries(data(p)).filter(
-              ([key]) =>
-                !["active", "activatedAt", "activatedBy"].includes(key),
-            ),
-          ),
+    const budgetedModel: BudgetedModel = {
+      async call(request) {
+        const bytes = Buffer.byteLength(
+          JSON.stringify({
+            input: request.input,
+            instructions,
+            tools: toolDefinitions,
+          }),
         );
-        const runtime = await runtimeOpenAiConfiguration(tx, scope);
-        // Fail closed before reserving: the run records one configuration version.
-        if ((runtime.routeVersion ?? null) !== state.routeVersion)
-          throw new DomainError("CHAT_ROUTE_CHANGED", 409);
-        const modelRoute = resolveRoute("chat_operator", runtime);
-        const model = modelRoute.model;
-        const estimate = estimateCost(
-          model,
-          bytes,
-          modelRoute.maxOutputTokens,
-          runtime,
-        );
-        const reservation = await reserve(
-          tx,
-          scope,
-          `chat:${runId}:${modelCalls}`,
-          "chat_text",
-          estimate,
-          approved,
-          new Date(),
-          `chat:${runId}`,
-          { agentRunId, taskClass: "chat_operator", model },
-        );
-        await markTransmitted(tx, scope, reservation.id);
-        await tx.chatRun.update({
-          where: { id: runId },
-          data: {
-            reservationId: reservation.id,
-            transmittedAt: new Date(),
-            sequence: { increment: 1 },
-          },
-        });
-        return { runtime, model, modelRoute, reservationId: reservation.id };
-      });
-      reservationId = prepared.reservationId;
-      transmitted = true;
-      callModel = prepared.model;
-      callStartedAt = new Date();
-      let completed: any = null;
-      let lastSaved = Date.now();
-      const stream = await streamChat({
-        route: prepared.modelRoute,
-        input: input as OpenAI.Responses.ResponseInput,
-        tools: toolDefinitions as unknown as OpenAI.Responses.Tool[],
-        instructions,
-        reservationId,
-        runtime: prepared.runtime,
-        signal: controller.signal,
-      });
-      for await (const event of stream) {
-        if (event.type === "response.output_text.delta") {
-          fullText += event.delta;
-          if (fullText.length > MAX_OUTPUT_CHARS)
-            throw new DomainError("CHAT_OUTPUT_LIMIT");
-          if (Date.now() - lastSaved >= 450) {
-            await snapshot(scope, runId, fullText);
-            lastSaved = Date.now();
-          }
-        }
-        if (event.type === "response.completed") completed = event.response;
-        if (event.type === "response.failed")
-          throw new DomainError("CHAT_MODEL_FAILED");
-        if (event.type === "response.incomplete") {
-          const reason = event.response.incomplete_details?.reason;
-          throw new DomainError(
-            reason === "max_output_tokens"
-              ? "CHAT_MODEL_OUTPUT_LIMIT"
-              : reason === "content_filter"
-                ? "CHAT_MODEL_CONTENT_FILTER"
-                : "CHAT_MODEL_INCOMPLETE",
-          );
-        }
-      }
-      if (!completed?.usage) throw new DomainError("USAGE_UNKNOWN");
-      const usage = normalizeResponsesUsage(completed.usage);
-      const actual = computeCost(prepared.model, usage, prepared.runtime);
-      const settledId = reservationId!;
-      await chatScoped(scope, (tx) =>
-        settle(tx, scope, settledId, actual).then(() => undefined),
-      );
-      reservationId = null;
-      transmitted = false;
-      // Telemetry only after settlement, outside its transaction.
-      await recordSpan(scope, agentRunId, {
-        type: "model_call",
-        name: "responses.stream",
-        model: prepared.model,
-        status: "succeeded",
-        startedAt: callStartedAt,
-        durationMs: Date.now() - callStartedAt.valueOf(),
-        usage,
-        costMicros: actual,
-        budgetReservationId: settledId,
-        providerResponseId:
-          typeof completed.id === "string" ? completed.id : undefined,
-      });
-      modelCalls++;
-      input.push(...completed.output);
-      const calls = completed.output.filter(
-        (item: any) => item.type === "function_call",
-      );
-      if (!calls.length) break;
-      if (
-        toolCalls + calls.length > MAX_TOOL_CALLS ||
-        modelCalls >= MAX_MODEL_CALLS
-      )
-        throw new DomainError("CHAT_TOOL_LIMIT");
-      for (const call of calls) {
-        toolCalls++;
-        let output: unknown;
-        let toolFailure: string | null = null;
-        const toolStartedAt = new Date();
-        const recordTool = () =>
-          recordSpan(scope, agentRunId, {
-            type: "tool_call",
-            name: toolSpanName(call.name),
-            status: toolFailure ? "failed" : "succeeded",
-            errorCode: toolFailure ?? undefined,
-            startedAt: toolStartedAt,
-            durationMs: Date.now() - toolStartedAt.valueOf(),
-            inputHash: hashText(String(call.arguments ?? "")),
+        if (bytes > MAX_INPUT_BYTES)
+          throw new DomainError("CHAT_CONTEXT_LIMIT");
+        const prepared = await chatScoped(scope, async (tx) => {
+          const run = await tx.chatRun.findUniqueOrThrow({
+            where: { id: runId },
           });
-        try {
-          const args = JSON.parse(call.arguments);
-          const tool = findTool(offered, call.name);
-          if (!tool) throw new DomainError("CHAT_TOOL_NOT_ALLOWED", 403);
-          const result = await tool.execute(
-            {
-              scope,
-              runId,
-              conversationId: state.run.conversationId,
-              callIndex: toolCalls,
-            },
-            args,
+          if (run.status === "canceled") throw new DomainError("CHAT_CANCELED");
+          const p = await activePolicy(tx, scope);
+          if (!p) throw new DomainError("POLICY_REQUIRED");
+          const approved = policySchema.parse(
+            Object.fromEntries(
+              Object.entries(data(p)).filter(
+                ([key]) =>
+                  !["active", "activatedAt", "activatedBy"].includes(key),
+              ),
+            ),
           );
-          output = result.output;
-          cards.push(...result.cards);
-        } catch (error) {
-          if (call.name === "knowledge_search") {
-            toolFailure = telemetryErrorCode(error);
-            await recordTool();
-            throw error;
-          }
-          output =
-            call.name === "propose_campaign" && error instanceof ZodError
-              ? {
-                  error: "PROPOSAL_VALIDATION_FAILED",
-                  invalidFields: [
-                    ...new Set(
-                      error.issues.map(
-                        (issue) =>
-                          issue.path
-                            .filter(
-                              (part): part is string =>
-                                typeof part === "string" &&
-                                /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(part),
-                            )
-                            .slice(0, 2)
-                            .join(".") || "mission",
-                      ),
-                    ),
-                  ].slice(0, 8),
-                }
-              : { error: errorCode(error) };
-          toolFailure =
-            call.name === "propose_campaign" && error instanceof ZodError
-              ? "PROPOSAL_VALIDATION_FAILED"
-              : telemetryErrorCode(error);
-        }
-        await recordTool();
-        input.push({
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: JSON.stringify(output).slice(0, 12000),
+          const runtime = await runtimeOpenAiConfiguration(tx, scope);
+          // Fail closed before reserving: the run records one configuration version.
+          if ((runtime.routeVersion ?? null) !== state.routeVersion)
+            throw new DomainError("CHAT_ROUTE_CHANGED", 409);
+          const modelRoute = resolveRoute("chat_operator", runtime);
+          const model = modelRoute.model;
+          const estimate = estimateCost(
+            model,
+            bytes,
+            modelRoute.maxOutputTokens,
+            runtime,
+          );
+          // Keyed by the number of model calls settled so far in this run.
+          const reservation = await reserve(
+            tx,
+            scope,
+            `chat:${runId}:${modelCalls}`,
+            "chat_text",
+            estimate,
+            approved,
+            new Date(),
+            `chat:${runId}`,
+            { agentRunId, taskClass: "chat_operator", model },
+          );
+          await markTransmitted(tx, scope, reservation.id);
+          await tx.chatRun.update({
+            where: { id: runId },
+            data: {
+              reservationId: reservation.id,
+              transmittedAt: new Date(),
+              sequence: { increment: 1 },
+            },
+          });
+          return { runtime, model, modelRoute, reservationId: reservation.id };
         });
-      }
-    }
+        reservationId = prepared.reservationId;
+        transmitted = true;
+        callModel = prepared.model;
+        callStartedAt = new Date();
+        let completed: any = null;
+        let lastSaved = Date.now();
+        const stream = await streamChat({
+          route: prepared.modelRoute,
+          input: request.input as OpenAI.Responses.ResponseInput,
+          tools: toolDefinitions as unknown as OpenAI.Responses.Tool[],
+          instructions,
+          reservationId,
+          runtime: prepared.runtime,
+          signal: request.signal,
+        });
+        for await (const event of stream) {
+          if (event.type === "response.output_text.delta") {
+            fullText += event.delta;
+            if (fullText.length > MAX_OUTPUT_CHARS)
+              throw new DomainError("CHAT_OUTPUT_LIMIT");
+            if (Date.now() - lastSaved >= 450) {
+              await snapshot(scope, runId, fullText);
+              lastSaved = Date.now();
+            }
+          }
+          if (event.type === "response.completed") completed = event.response;
+          if (event.type === "response.failed")
+            throw new DomainError("CHAT_MODEL_FAILED");
+          if (event.type === "response.incomplete") {
+            const reason = event.response.incomplete_details?.reason;
+            throw new DomainError(
+              reason === "max_output_tokens"
+                ? "CHAT_MODEL_OUTPUT_LIMIT"
+                : reason === "content_filter"
+                  ? "CHAT_MODEL_CONTENT_FILTER"
+                  : "CHAT_MODEL_INCOMPLETE",
+            );
+          }
+        }
+        if (!completed?.usage) throw new DomainError("USAGE_UNKNOWN");
+        const usage = normalizeResponsesUsage(completed.usage);
+        const actual = computeCost(prepared.model, usage, prepared.runtime);
+        const settledId = reservationId!;
+        await chatScoped(scope, (tx) =>
+          settle(tx, scope, settledId, actual).then(() => undefined),
+        );
+        reservationId = null;
+        transmitted = false;
+        // Telemetry only after settlement, outside its transaction.
+        await recordSpan(scope, agentRunId, {
+          type: "model_call",
+          name: "responses.stream",
+          model: prepared.model,
+          status: "succeeded",
+          startedAt: callStartedAt,
+          durationMs: Date.now() - callStartedAt.valueOf(),
+          usage,
+          costMicros: actual,
+          budgetReservationId: settledId,
+          providerResponseId:
+            typeof completed.id === "string" ? completed.id : undefined,
+        });
+        modelCalls++;
+        return {
+          output: completed.output,
+          toolCalls: completed.output
+            .filter((item: any) => item.type === "function_call")
+            .map((item: any) => ({
+              callId: item.call_id,
+              name: item.name,
+              arguments: item.arguments,
+            })),
+        };
+      },
+    };
+    await legacyResponsesRuntime.runTurn({
+      input,
+      model: budgetedModel,
+      tools: chatToolHost(
+        scope,
+        runId,
+        state.run.conversationId,
+        agentRunId,
+        offered,
+        cards,
+      ),
+      limits: { maxModelCalls: MAX_MODEL_CALLS, maxToolCalls: MAX_TOOL_CALLS },
+      signal: controller.signal,
+    });
     let finalStatus = "succeeded" as "succeeded" | "canceled";
     await chatScoped(scope, async (tx) => {
       const run = await tx.chatRun.findUniqueOrThrow({ where: { id: runId } });
