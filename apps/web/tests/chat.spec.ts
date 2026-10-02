@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -8,17 +8,31 @@ function account() {
   ) as { email: string; password: string; projectId: string };
 }
 
-test("private chat blocks without a paid mandate and resumes after reload and project switch", async ({
-  page,
-}) => {
+// better-auth allows three sign-ins per 10 seconds; short consecutive tests can
+// exceed that, so a rate-limited sign-in waits out the window once.
+async function signIn(page: Page) {
   const user = account();
   await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.getByLabel(/^Email/).fill(user.email);
+    await page.getByLabel(/^Password/).fill(user.password);
+    const response = page.waitForResponse((r) =>
+      r.url().includes("/api/auth/sign-in/email"),
+    );
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    if ((await response).status() !== 429) break;
+    await page.waitForTimeout(10_500);
+  }
   await expect(
     page.getByRole("heading", { name: "Your marketing, in orbit." }),
   ).toBeVisible();
+  return user;
+}
+
+test("private chat blocks without a paid mandate and resumes after reload and project switch", async ({
+  page,
+}) => {
+  const user = await signIn(page);
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "Orbit Chat" })).toBeVisible();
   await page.getByRole("button", { name: "Plan next week" }).click();
@@ -64,14 +78,7 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
 test("renders streamed text, action states, source links and cancellation", async ({
   page,
 }) => {
-  const user = account();
-  await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
-  ).toBeVisible();
+  const user = await signIn(page);
   const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8001";
   const runId = "b38d9050-3dba-4ae0-851e-98d5b59e8002";
   let canceled = false;
@@ -206,14 +213,7 @@ test("renders streamed text, action states, source links and cancellation", asyn
 test("starts a content package with one click and shows both drafts", async ({
   page,
 }) => {
-  const user = account();
-  await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
-  ).toBeVisible();
+  const user = await signIn(page);
   const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8101";
   const requestId = "b38d9050-3dba-4ae0-851e-98d5b59e8102";
   const packageHash = "c".repeat(64);
@@ -330,14 +330,7 @@ test("starts a content package with one click and shows both drafts", async ({
 test("Postiz owner selects exact channels for the current project", async ({
   page,
 }) => {
-  const user = account();
-  await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
-  ).toBeVisible();
+  const user = await signIn(page);
   const connectorId = "e0e1b285-a615-4dcf-a7c2-a38bdd1d80a6";
   let selected: string[] | null = null;
   await page.route(`**/api/projects/${user.projectId}/connectors?*`, (route) =>
