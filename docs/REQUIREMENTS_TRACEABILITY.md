@@ -18,6 +18,7 @@ This supplemental scope is local-only and does not change the historical 88-mast
 | CH06 | Concurrent confirmation creates one mission and first draft job; draft-only mission cannot autopublish | `chat-runner.integration.test.ts`; `main.ts`                                    | PASS_TEST        |
 | CH07 | Real Responses streaming, live provider usage and charged cost                                         | No authorized paid acceptance run                                               | BLOCKED_EXTERNAL |
 | CH08 | Production migration, remote CI and deployment                                                         | Separate release authorization and remote run required                          | BLOCKED_EXTERNAL |
+| CH09 | Worker chat jobs use the requesting user's current project role; lost access blocks before any model call | `member-scope.integration.test.ts`; `chat-runner.integration.test.ts`; `workflow.integration.test.ts` | PASS_TEST        |
 
 ## Configuration-parity acceptance (2026-09-18)
 

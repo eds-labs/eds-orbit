@@ -743,3 +743,9 @@ Next: Mario runs the live generation eval with his own key; a route switch then 
 - Tools are offered per role and checked against the same set at execution: viewers no longer receive `propose_campaign`; a forged call returns `CHAT_TOOL_NOT_ALLOWED`. Tool names, descriptions, limits and span names are unchanged.
 - Tool definitions: 3,383 bytes before, 3,637 bytes after (+8 %, strict nullable fields); 1,378 bytes for viewers. The 32,000-byte input cap is unchanged; a test keeps the definitions at or below 5,500 bytes.
 - Finding for 3b: `project_status.approvals` filters on status `pending`, which nothing writes, so open approvals never appear in chat.
+
+### 2026-10-02 — Orbit Core / Jarvis Mode plan and Phase 3b order
+
+- The [Orbit Core / Jarvis Mode plan](plans/ORBIT_CORE_JARVIS_PLAN.md) extends this plan with the user-facing workflow (one chat request yields a reviewed multi-channel content package with an image and targeted revisions). It does not restart Phases 0–3a.
+- Mario decided: a content package starts with one explicit click (ADR 0008 default kept); Phase 3b starts with an `ActionRequest` core stored as `Entity(kind="action_requests")` without a migration, first used for package start and image generation, with adapters for the existing approval flavours following. Phase 3c is unchanged and may run in parallel.
+- Security finding fixed locally (PR0, not released): the worker ran chat jobs with its own owner role, so role-based tool filtering never applied there. Chat jobs now run with the requesting user's current project role.
