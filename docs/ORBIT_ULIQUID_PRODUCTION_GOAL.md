@@ -899,10 +899,16 @@ Each post was prepared, executed and reconciled once; no retry. Postiz connector
 **Costs / external effects:** paid AI cost none; provider writes two media uploads and two public test posts (approved); no other publication.
 
 **Open blockers / follow-ups:**
-- The policy ends 2026-10-18T15:00Z. The X slot on Sunday 2026-10-18 (17:00 Berlin = 15:00Z) is not before `endAt` and will be blocked by preflight; afterwards readiness reports `OWNER_POLICY_REQUIRED` and the autopilot stops. Extend the policy before then.
+- The policy ends 2026-10-18T15:00Z. The X slot on Sunday 2026-10-18 (17:00 Berlin = 15:00Z) is not before `endAt` and will be blocked by preflight; afterwards readiness reports `OWNER_POLICY_REQUIRED` and the autopilot stops. Extend the policy before then. Resolved the same day: see the policy extension entry below.
 - Readiness reported Drive as ready while its OAuth refresh failed (2026-10-01); fixed by PR #23 in this release.
 
 **Next action:** Sunday 2026-10-04 12:00: first weekly plan (14 drafts for 2026-10-05 to 2026-10-11); Mario approves drafts with marketing copy in Orbit.
+
+### 2026-10-02 CEST -- Phase 11: policy extended to end of December
+
+**Status:** COMPLETE
+
+Mario asked to extend the autopilot policy to the end of December. New active policy `cbf34b26-61cd-4bde-bc56-8e3c9c31806f` copies `dc9a602c-caf8-47e8-b216-a27f6f634bb7` exactly except `endAt`, which moves from 2026-10-18T15:00Z to 2026-12-31T23:00Z (2027-01-01 00:00 Europe/Berlin), so the last X slot on 2026-12-31 (17:00 Berlin) is inside the window. Mode `autopilot`, channels, limits and the $10 daily/monthly/per-run budgets are unchanged. Before the change there were no autopilot missions and no open publications. After it, the only active policy is `cbf34b26…`, dashboard readiness blockers are `[]`, and the project mode is `autopilot`. No paid AI cost and no provider write.
 
 ## Production Change Plan -- Phase 6 evidence-scoped recovery (executed; review blocked)
 

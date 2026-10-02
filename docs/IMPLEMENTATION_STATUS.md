@@ -2,7 +2,7 @@
 
 ## Current state and agent platform alignment (2026-10-02)
 
-Orbit is deployed in production via Coolify. The latest documented release is `c8cfeec` (2026-10-02, PRs #23 and #24). Production runs `EXECUTION_MODE=live` with `ENABLE_EXTERNAL_WRITES=true`. The uLiquid project is in `autopilot` mode: Telegram uLiquid Desk and X uLiquid are write- and media-verified, the active policy allows one post per channel and day until 2026-10-18T15:00Z, and the weekly plan runs Sundays at 12:00 from 2026-10-05 (`docs/ORBIT_ULIQUID_PRODUCTION_GOAL.md`, Progress Log 2026-10-02). Postiz write verification now reads Drive-only PNGs before taking the project lock (PR #24). Statements below such as "no production deployment" or "local uncommitted change set" describe their own earlier checkpoints and are historical.
+Orbit is deployed in production via Coolify. The latest documented release is `c8cfeec` (2026-10-02, PRs #23 and #24). Production runs `EXECUTION_MODE=live` with `ENABLE_EXTERNAL_WRITES=true`. The uLiquid project is in `autopilot` mode: Telegram uLiquid Desk and X uLiquid are write- and media-verified, the active policy allows one post per channel and day until 2026-12-31T23:00Z, and the weekly plan runs Sundays at 12:00 from 2026-10-05 (`docs/ORBIT_ULIQUID_PRODUCTION_GOAL.md`, Progress Log 2026-10-02). Postiz write verification now reads Drive-only PNGs before taking the project lock (PR #24). Statements below such as "no production deployment" or "local uncommitted change set" describe their own earlier checkpoints and are historical.
 
 Mario accepted the [OpenAI agent platform alignment plan](OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md) with decisions D1–D4. Phase 0 (local, no production change):
 
