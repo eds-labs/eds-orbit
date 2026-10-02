@@ -285,7 +285,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J1.2 | Durable package/step linkage and trusted work submission | TODO | PR2 |
 | J1.3 | Reuse copy generation and bounded image executor | TODO | PR1 (image executor), PR2 (copy), PR3 (image step) |
 | J1.4 | Review + combined preview + targeted revision | TODO | PR3 (review, preview), PR4 (revision) |
-| J2.1 | Runtime port/spike with ADR-0005 evidence | TODO | S1 (port), S2 (spike) |
+| J2.1 | Runtime port/spike with ADR-0005 evidence | IN PROGRESS | S1 port DONE (local, `d0d606d`); S2 spike |
 | J2.2 | Budget, role, restart, cancellation and approval tests | TODO | Tests in PR1–PR4, acceptance in PR5 |
 | J3.1 | Exact-package conversational scheduling | TODO | |
 | J3.2 | Autopilot coexistence and provider reconciliation | TODO | |
@@ -391,3 +391,13 @@ No J1 PR needs a database migration. Merging to `main` deploys through the Cooli
 - Checks on Node 24.18.0 against the local isolated PostgreSQL and Redis: focused suites 44/44 and real-Redis worker suite 2/2; `pnpm test` 586/586 in 59 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check` and `pnpm framework:check` pass. Not run: `pnpm test:e2e` (no UI change) and `pnpm api:generate` (no route change).
 - Deployment and rollback: no migration and no configuration change. Merging to `main` deploys; rollback is a revert. Not pushed or merged yet.
 - Follow-up: generation jobs created from a chat proposal still run with the worker scope (unchanged here).
+
+### 2026-10-02 — J2.1 / S1: AgentRuntime port with the legacy adapter (local)
+
+- Base `86c8d2b` (PR0 branch), code head `d0d606d` on branch `claude/orbit-core-s1-runtime-port`. Risk: medium (behaviour-preserving refactor of the paid chat path). Environment: local.
+- Summary: `apps/api/src/modules/agents/runtime/port.ts` defines the provider-neutral port (`AgentRuntime`, `BudgetedModel`, `ToolHost`, limits) without OpenAI or SDK types. `legacy-responses.ts` is the existing turn loop (abort check, model call, tool calls, `CHAT_TOOL_LIMIT`). `chat-runner.ts` keeps everything Orbit owns: run state and crash recovery, the budgeted model call (reservation, transmission, settlement, span), tool execution through the registry, snapshots, the final message and failure settlement. `contract.ts` holds ten adapter contract cases that the S2 SDK adapter must also pass. A follow-up commit keeps the in-flight call state on one object so the failure path's settlement stays visible to the type checker.
+- Size for ADR 0005 G6: `chat-runner.ts` 517 lines before, 545 after; port 37 and legacy adapter 33 lines; contract cases 266 lines (test support).
+- Red/green evidence: removing the `CHAT_TOOL_LIMIT` throw failed three contract cases and the chat-runner tool-ceiling test; disabling the failure-path settlement failed three chat-runner settlement tests.
+- Checks on Node 24.18.0 against the local isolated PostgreSQL and Redis (this branch does not contain PR1): chat-runner and chat suites unchanged and passing with the contract cases (42/42); `pnpm test` 596/596 in 60 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` and Prettier pass.
+- Deviation from section 15.4: the runtime choice is not yet stored per run because only one adapter exists; S2 adds the per-run snapshot together with the second adapter.
+- Deployment and rollback: no behaviour, schema or configuration change; rollback is a revert. Not pushed yet.
