@@ -287,7 +287,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J1.4 | Review + combined preview + targeted revision | DONE (local) | PR3 `00e66f3`, PR4 `b5bbb70` |
 | J2.1 | Runtime port/spike with ADR-0005 evidence | TODO | S1 (port), S2 (spike) |
 | J2.2 | Budget, role, restart, cancellation and approval tests | DONE (local) | PR0–PR5; JC06 real-Redis restart test |
-| J3.1 | Exact-package conversational scheduling | IN PROGRESS | [J3 plan](ORBIT_CORE_J3_SCHEDULING_PLAN.md); J3.0 slot overview `be24721` |
+| J3.1 | Exact-package conversational scheduling | IN PROGRESS | [J3 plan](ORBIT_CORE_J3_SCHEDULING_PLAN.md); J3.0 slot overview `be24721`; J3.1 owner-decided scheduling `30bd2c7` (JC16 PASS_TEST) |
 | J3.2 | Autopilot coexistence and provider reconciliation | TODO | [J3 plan](ORBIT_CORE_J3_SCHEDULING_PLAN.md) |
 | J4.1 | Push-to-talk into the same operator | TODO | |
 | J4.2 | Optional Realtime and recurring-goal interface | DEFERRED | |
