@@ -31,7 +31,7 @@ Rows from the [Orbit Core plan](plans/ORBIT_CORE_JARVIS_PLAN.md), section 11. Lo
 | JC03 | Missing, expired or conflicting fact is a named blocker                                       | `content-packages.integration.test.ts`; operator eval JC03                                                          | PASS_TEST |
 | JC04 | Shorter X text keeps Telegram and the image; replaced draft's approvals blocked               | `content-packages.integration.test.ts` (targeted revision)                                                          | PASS_TEST |
 | JC05 | Next week: drafts now, later project-local slot, nothing published                            | `content-packages.integration.test.ts`; operator eval JC05                                                          | PASS_TEST |
-| JC06 | Reopen and worker restart resume or report a precise blocker                                  | State is rebuilt from PostgreSQL (snapshot tests); no worker-restart test in the middle of a package                | NOT_RUN   |
+| JC06 | Reopen and worker restart resume or report a precise blocker                                  | `content-package-restart.integration.test.ts` (real Redis worker: crash mid-draft, restart, reopen)                 | PASS_TEST |
 | JC07 | Repeated click or dispatch creates nothing twice                                              | `content-packages` (repeated click); `action-requests` (duplicate image dispatch)                                   | PASS_TEST |
 | JC08 | Crash after transmission is not replayed                                                      | `action-requests` (image outcome unknown); existing chat and generation unknown-outcome tests                       | PASS_TEST |
 | JC09 | Cancel stops queued work and reports existing effects                                         | `content-packages` (cancel before and after start); `chat.integration` (route)                                      | PASS_TEST |
@@ -47,7 +47,7 @@ Rows from the [Orbit Core plan](plans/ORBIT_CORE_JARVIS_PLAN.md), section 11. Lo
 | JC19 | No analytics measurements reported honestly                                                   | Not addressed by the package workflow                                                                               | NOT_RUN   |
 | JC20 | Legacy chat, autopilot and stored prices unchanged                                            | Full suite with the flag off by default; operator eval JC20                                                         | PASS_TEST |
 
-Totals: **14 PASS_TEST, 6 NOT_RUN**. JC15, JC16, JC18 and JC19 belong to later stages (J3, J4); JC06 needs a worker-restart test in the middle of a package; JC17 does not apply after the SDK no-go.
+Totals: **15 PASS_TEST, 5 NOT_RUN**. JC15, JC16, JC18 and JC19 belong to later stages (J3, J4); JC17 does not apply after the SDK no-go.
 
 ## Configuration-parity acceptance (2026-09-18)
 

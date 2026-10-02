@@ -286,7 +286,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J1.3 | Reuse copy generation and bounded image executor | DONE (local) | PR1 `e7224bc`, PR2 `60d0358`, PR3 `00e66f3` |
 | J1.4 | Review + combined preview + targeted revision | DONE (local) | PR3 `00e66f3`, PR4 `b5bbb70` |
 | J2.1 | Runtime port/spike with ADR-0005 evidence | TODO | S1 (port), S2 (spike) |
-| J2.2 | Budget, role, restart, cancellation and approval tests | PARTIAL | PR0–PR5; worker restart in the middle of a package (JC06) not tested |
+| J2.2 | Budget, role, restart, cancellation and approval tests | DONE (local) | PR0–PR5; JC06 real-Redis restart test |
 | J3.1 | Exact-package conversational scheduling | TODO | |
 | J3.2 | Autopilot coexistence and provider reconciliation | TODO | |
 | J4.1 | Push-to-talk into the same operator | TODO | |
@@ -442,3 +442,10 @@ No J1 PR needs a database migration. Merging to `main` deploys through the Cooli
 - Summary: `evals/operator/` adds seven fixed cases (JC01, JC02, JC03, JC05, JC11, JC13, JC20) that replay recorded model steps through the real chat runner, tools, package services and database and check only server outcomes; they run in `pnpm test`. The content package fixture moved to `apps/api/tests/support/package-project.ts` and is shared by the package tests and the evals. `REQUIREMENTS_TRACEABILITY.md` gains rows JC01–JC20 (14 PASS_TEST, 6 NOT_RUN); `IMPLEMENTATION_STATUS.md` summarizes the Orbit Core state.
 - Evidence: the cases passed on the existing code; two mutations (request tool offered to viewers; no policy channel check) each made the matching case fail (JC13, JC11).
 - Open: JC06 (worker restart in the middle of a package), J3 scheduling (JC15, JC16), J4 voice (JC18), analytics freshness (JC19), an owner approvals inbox for editors' images, content history in the operator context, and the paid live acceptance run.
+
+### 2026-10-02 — J2.2 / JC06: package across a worker crash and restart (local)
+
+- Base `644dae1` (PR5 branch), branch `claude/orbit-core-jc06-restart`. Risk: low (test only). Environment: local, real Redis worker in test execution mode.
+- Test `apps/worker/tests/content-package-restart.integration.test.ts`: a two-channel package is started; one draft job is left as if its worker had died (running, expired lease, outbox dispatched). A fresh worker finishes the package with reviewed drafts, one draft and one job per channel, the crashed job retried once and no reservation. A hard kill and restart change nothing; reopening the conversation rebuilds the same result from PostgreSQL.
+- Evidence: passed on the existing code; mutations "no lease recovery" (timeout) and "re-review on every sweep" (draft versions change after restart) both failed it. `pnpm test` 639/639 in 63 files; lint and typecheck pass.
+- Traceability: JC06 now PASS_TEST (15 PASS_TEST, 5 NOT_RUN).
