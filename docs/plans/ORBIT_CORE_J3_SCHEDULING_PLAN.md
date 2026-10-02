@@ -50,7 +50,7 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 | J3.0 | Slot overview | DONE (local) | `be24721`, see below |
 | J3.1 | Scheduling by decision | DONE (local) | `30bd2c7`, see below |
 | J3.2 | Autopilot coexistence | DONE (local) | `d9430c7`, see below |
-| J3.3 | Package image in a post | TODO | |
+| J3.3 | Package image in a post | DONE (local) | `d620d35`, see below |
 | J3.4 | Cancel and reschedule | TODO | |
 | J3.5 | Acceptance | TODO | |
 
@@ -80,3 +80,12 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 - Behaviour change beyond packages: a manual or other scheduled post on an unplanned day now also stops the autopilot draft for that day, which previously would have been drafted and then blocked by the quota.
 - Tests (failed before the change): three cases in `autopilot-coexistence.integration.test.ts` — an owner-approved package post keeps its day free of autopilot drafts, the skip is audited once and the other days keep one post per channel and day; the canceled post frees the day; with two posts a day allowed, the spacing still skips the slot. The existing weekly plan tests in `paid.integration.test.ts` pass unchanged. Mutation checks: removing the skip, auditing on every check, or counting canceled publications each fails a test.
 - Checks on Node 24.18.0: `pnpm test` 665/665 in 68 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` and `pnpm api:generate` (no contract change) pass.
+
+### 2026-10-02 — J3.3 package image in a post (local)
+
+- Base `b7a1a32` (J3.2 branch), code head `d620d35` on branch `claude/orbit-core-j3-image`. Risk: medium (draft content and asset rights; no publishing path changes). Environment: local, behind `ORBIT_CONTENT_PACKAGES`, no migration.
+- Rights (D-J3-3): the package snapshot reports `image.rightsApproved` and `assetVersion`; owners confirm usage rights from the package card through the existing owner action `asset-status` (`confirmUsageRights: true`), the same decision as on the assets page. No new approval type.
+- `attachPackageImage()` in `apps/api/src/modules/agents/package-image.ts` and `POST /api/projects/:projectId/chat/packages/:id/attach-image` (`{deliverableKeys}`, the package's requester only): refuses without approved rights (`ASSET_RIGHTS_REQUIRED`), a Telegram or other text above the channel's media limit (`CAPTION_TOO_LONG`, Telegram 1,024 characters as a caption), a post with an active publication (`ALREADY_SCHEDULED`), a superseded draft or a running revision. It sets the asset, blocks approvals and publications of the previous version (`invalidateContent`), and reviews the draft again with the existing claim checks. All chosen drafts change together or none. Attaching the same image again changes nothing.
+- An open `content.schedule` proposal for the draft becomes stale through its post hash; the owner proposes again. The approvals inbox shows the image of a post to schedule; preflight keeps checking asset rights before every handoff, and live posts still need the channel's media verification.
+- Tests (written first, failed before the module existed): six cases in `package-image.integration.test.ts` — no attach before rights, attach with a fresh review and no change on repeat, Telegram caption limit with all-or-nothing, stale proposal and blocked approval, scheduling a post with its image and refusing changes once scheduled, requester and viewer limits; plus an HTTP route case in `chat.integration.test.ts` (failed with 404 before the route) and a Playwright case for rights and attach on the card. Mutation checks: removing the rights check, the caption check, the invalidation, the scheduled check or the new review each fails a test.
+- Checks on Node 24.18.0: `pnpm test` 672/672 in 69 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` pass; `pnpm api:generate` added the new route to `openapi.json` and the generated client.
