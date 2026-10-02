@@ -20,6 +20,35 @@ This supplemental scope is local-only and does not change the historical 88-mast
 | CH08 | Production migration, remote CI and deployment                                                         | Separate release authorization and remote run required                          | BLOCKED_EXTERNAL |
 | CH09 | Worker chat jobs use the requesting user's current project role; lost access blocks before any model call | `member-scope.integration.test.ts`; `chat-runner.integration.test.ts`; `workflow.integration.test.ts` | PASS_TEST        |
 
+## Orbit Core / Jarvis Mode acceptance (2026-10-02)
+
+Rows from the [Orbit Core plan](plans/ORBIT_CORE_JARVIS_PLAN.md), section 11. Local evidence only, with fake providers, behind `ORBIT_CONTENT_PACKAGES`. None of the rows proves a live provider result; that needs the separately approved paid acceptance run. These rows do not change the historical 88-master totals.
+
+| ID   | Requirement                                                                                   | Local evidence                                                                                                      | Result    |
+| ---- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- | --------- |
+| JC01 | One request: two persisted channel drafts and one authorized generated image, combined result | `content-packages.integration.test.ts` (combined result); operator eval JC01                                        | PASS_TEST |
+| JC02 | Missing stylistic detail uses project defaults                                                | `content-packages.integration.test.ts`; operator eval JC02                                                          | PASS_TEST |
+| JC03 | Missing, expired or conflicting fact is a named blocker                                       | `content-packages.integration.test.ts`; operator eval JC03                                                          | PASS_TEST |
+| JC04 | Shorter X text keeps Telegram and the image; replaced draft's approvals blocked               | `content-packages.integration.test.ts` (targeted revision)                                                          | PASS_TEST |
+| JC05 | Next week: drafts now, later project-local slot, nothing published                            | `content-packages.integration.test.ts`; operator eval JC05                                                          | PASS_TEST |
+| JC06 | Reopen and worker restart resume or report a precise blocker                                  | State is rebuilt from PostgreSQL (snapshot tests); no worker-restart test in the middle of a package                | NOT_RUN   |
+| JC07 | Repeated click or dispatch creates nothing twice                                              | `content-packages` (repeated click); `action-requests` (duplicate image dispatch)                                   | PASS_TEST |
+| JC08 | Crash after transmission is not replayed                                                      | `action-requests` (image outcome unknown); existing chat and generation unknown-outcome tests                       | PASS_TEST |
+| JC09 | Cancel stops queued work and reports existing effects                                         | `content-packages` (cancel before and after start); `chat.integration` (route)                                      | PASS_TEST |
+| JC10 | Image or Drive failure keeps the text; no regeneration                                        | `content-packages` (partial result); `action-requests` (Drive failure)                                              | PASS_TEST |
+| JC11 | Untrusted source text grants nothing                                                          | Operator eval JC11                                                                                                  | PASS_TEST |
+| JC12 | Changed facts, configuration or drafts stop stale work                                        | `content-packages` (fact revision, changed draft); `action-requests` (image ceiling change)                         | PASS_TEST |
+| JC13 | Lost access or role is revalidated; viewers cannot request                                    | `member-scope`, `chat-runner` worker jobs, real-Redis worker; `action-requests` (demoted owner); operator eval JC13 | PASS_TEST |
+| JC14 | Package and per-call limits hold                                                              | `paid.integration` (package run key, ceiling); `content-packages` (image under the run key, revision budget)        | PASS_TEST |
+| JC15 | Autopilot slot collisions are shown                                                           | Conversational scheduling (J3) not built; packages are draft-only                                                   | NOT_RUN   |
+| JC16 | Publishing needs an exact decision and capability                                             | Packages never publish; existing publisher gates unchanged; J3 not built                                            | NOT_RUN   |
+| JC17 | SDK approval interrupt and restart                                                            | Agents SDK spike no-go (ADR 0005 addendum); not applicable to the legacy loop                                       | NOT_RUN   |
+| JC18 | Voice permission or session loss                                                              | Voice (J4) not built                                                                                                | NOT_RUN   |
+| JC19 | No analytics measurements reported honestly                                                   | Not addressed by the package workflow                                                                               | NOT_RUN   |
+| JC20 | Legacy chat, autopilot and stored prices unchanged                                            | Full suite with the flag off by default; operator eval JC20                                                         | PASS_TEST |
+
+Totals: **14 PASS_TEST, 6 NOT_RUN**. JC15, JC16, JC18 and JC19 belong to later stages (J3, J4); JC06 needs a worker-restart test in the middle of a package; JC17 does not apply after the SDK no-go.
+
 ## Configuration-parity acceptance (2026-09-18)
 
 The rows below are deliberately separate from the historical master count. They distinguish local backend safety coverage from the newly added user workflow; prior browser evidence is not reused as proof of configuration parity.

@@ -286,7 +286,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J1.3 | Reuse copy generation and bounded image executor | DONE (local) | PR1 `e7224bc`, PR2 `60d0358`, PR3 `00e66f3` |
 | J1.4 | Review + combined preview + targeted revision | DONE (local) | PR3 `00e66f3`, PR4 `b5bbb70` |
 | J2.1 | Runtime port/spike with ADR-0005 evidence | TODO | S1 (port), S2 (spike) |
-| J2.2 | Budget, role, restart, cancellation and approval tests | TODO | Tests in PR1–PR4, acceptance in PR5 |
+| J2.2 | Budget, role, restart, cancellation and approval tests | PARTIAL | PR0–PR5; worker restart in the middle of a package (JC06) not tested |
 | J3.1 | Exact-package conversational scheduling | TODO | |
 | J3.2 | Autopilot coexistence and provider reconciliation | TODO | |
 | J4.1 | Push-to-talk into the same operator | TODO | |
@@ -435,3 +435,10 @@ No J1 PR needs a database migration. Merging to `main` deploys through the Cooli
 - Checks on Node 24.18.0 against the local isolated PostgreSQL and Redis: `pnpm test` 631/631 in 61 files (including the offline generation eval with the extended prompt); `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check`, `pnpm api:generate` (no contract change) and Prettier pass. Not run locally: `pnpm test:e2e` (CI runs it).
 - Deployment and rollback: no migration; flag-gated. The prompt sentence applies to every draft but only acts when a contract contains `revision`.
 - With PR0–PR4 the J1 milestone (one request -> two channel drafts + one authorized image -> review -> preview -> targeted revision, without manual mission setup) is covered locally with fake providers. It is not verified against a live provider; that needs the separately approved paid acceptance run.
+
+### 2026-10-02 — J2.2 / PR5: operator evals and acceptance rows (local)
+
+- Base `2e6f50e` (PR4 branch), branch `claude/orbit-core-pr5-acceptance`. Risk: low (tests and documentation; one test fixture moved). Environment: local.
+- Summary: `evals/operator/` adds seven fixed cases (JC01, JC02, JC03, JC05, JC11, JC13, JC20) that replay recorded model steps through the real chat runner, tools, package services and database and check only server outcomes; they run in `pnpm test`. The content package fixture moved to `apps/api/tests/support/package-project.ts` and is shared by the package tests and the evals. `REQUIREMENTS_TRACEABILITY.md` gains rows JC01–JC20 (14 PASS_TEST, 6 NOT_RUN); `IMPLEMENTATION_STATUS.md` summarizes the Orbit Core state.
+- Evidence: the cases passed on the existing code; two mutations (request tool offered to viewers; no policy channel check) each made the matching case fail (JC13, JC11).
+- Open: JC06 (worker restart in the middle of a package), J3 scheduling (JC15, JC16), J4 voice (JC18), analytics freshness (JC19), an owner approvals inbox for editors' images, content history in the operator context, and the paid live acceptance run.
