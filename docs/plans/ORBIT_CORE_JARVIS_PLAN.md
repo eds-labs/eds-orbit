@@ -285,7 +285,7 @@ Use this plan as the shared progress record. Keep documentation/comments in Engl
 | J1.2 | Durable package/step linkage and trusted work submission | DONE (local) | PR2 `60d0358` |
 | J1.3 | Reuse copy generation and bounded image executor | DONE (local) | PR1 `e7224bc`, PR2 `60d0358`, PR3 `00e66f3` |
 | J1.4 | Review + combined preview + targeted revision | DONE (local) | PR3 `00e66f3`, PR4 `b5bbb70` |
-| J2.1 | Runtime port/spike with ADR-0005 evidence | TODO | S1 (port), S2 (spike) |
+| J2.1 | Runtime port/spike with ADR-0005 evidence | PARTIAL | S2 SDK spike NO-GO (ADR 0005 addendum, `docs/evidence/agents-sdk-spike-2026-10-02.md`); S1 port kept (Mario, 2026-10-02) on PR #33, rebased after the rollout, see [rollout plan](ORBIT_CORE_ROLLOUT_PLAN.md) section 6 |
 | J2.2 | Budget, role, restart, cancellation and approval tests | DONE (local) | PR0–PR5; JC06 real-Redis restart test |
 | J3.1 | Exact-package conversational scheduling | DONE (local) | [J3 plan](ORBIT_CORE_J3_SCHEDULING_PLAN.md); J3.0 slots `be24721`, J3.1 owner decision `30bd2c7`, J3.3 image `d620d35`, J3.4 cancel and move `5479565`, J3.5 evals `8f08622` (JC16 PASS_TEST) |
 | J3.2 | Autopilot coexistence and provider reconciliation | DONE (local) | [J3 plan](ORBIT_CORE_J3_SCHEDULING_PLAN.md); autopilot coexistence `d9430c7` (JC15 PASS_TEST); handed-over posts are reported, not retracted (J3.4), and reconciled with the existing `reconcile` action |

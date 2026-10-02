@@ -1,0 +1,141 @@
+# Orbit Core — merge and rollout plan
+
+**Status:** PROPOSED on 2026-10-02 for Mario's decision. This plan executes nothing by itself. Every step marked **Approval** needs Mario's explicit go for that step, in line with `AGENTS.md` (production deployments, paid calls, live posts, feature flags with production effect).
+
+Scope: the Orbit Core stack from [ORBIT_CORE_JARVIS_PLAN.md](ORBIT_CORE_JARVIS_PLAN.md) and [ORBIT_CORE_J3_SCHEDULING_PLAN.md](ORBIT_CORE_J3_SCHEDULING_PLAN.md), pull requests #31–#49 except #33 and #37.
+
+## 1. Facts this plan relies on (checked 2026-10-02)
+
+| Fact                                                                                                                                                                                                                     | Consequence                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `main` is at `9c46b0d` (#30), the base of #31.                                                                                                                                                                           | The stack applies without conflicts.                                                      |
+| Every PR from #31 to #49 is open, mergeable and stacked linearly (#31 → main, #32 → #31, #34 → #32 … #49 → #48). CI (`validate`, `isolated-acceptance` incl. Playwright) was green on each PR that has finished its run. | The head of #49 (plus this document) contains the whole stack.                            |
+| #33 (S1 runtime port) and #37 (S2 SDK spike, no-go) branch off #31 and are not in the stack.                                                                                                                             | They are decided separately (section 6).                                                  |
+| The stack changes nothing under `packages/db/prisma`: **no migration**.                                                                                                                                                  | The previous image stays compatible with the schema; rollback is a redeploy of `9c46b0d`. |
+| Coolify deploys every push to `main` through the GitHub webhook (`docs/deployment/COOLIFY.md`).                                                                                                                          | Merging 17 PRs one by one into `main` would cause up to 17 production deployments.        |
+| Repository settings: merge commits, squash and rebase allowed; head branches are not deleted on merge.                                                                                                                   | Stacked PRs are not retargeted automatically.                                             |
+| New configuration: `ORBIT_CONTENT_PACKAGES`, `ORBIT_TOOL_SEARCH`, both default `false`.                                                                                                                                  | Most new behaviour stays off after the deploy.                                            |
+| The $5 paid budget of decision D3 (2026-09-30) covered only the Phase 2 model comparison.                                                                                                                                | Every paid acceptance step below needs its own budget approval.                           |
+| The SDK no-go record (ADR 0005 addendum, spike evidence) existed only on #33's branch.                                                                                                                                   | Carried into the stack with this plan (section 6).                                        |
+
+## 2. What changes in production on deploy, even with both flags off
+
+| Change                                                                                            | PR            | Effect right after deploy                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Chat jobs run with the requesting user's **current** project role                                 | #31           | A removed or demoted member's queued chat job stops with `ACTOR_MEMBERSHIP_REQUIRED`. Intended.                                                                                                                                      |
+| Action requests, decide route, owner approvals inbox                                              | #32, #34, #40 | Inbox appears only when owner decisions are open; none exist before packages are used.                                                                                                                                               |
+| Worker queue class `image`                                                                        | #32           | The worker consumes one more queue; idle without approved image requests.                                                                                                                                                            |
+| **Weekly autopilot skips days that scheduled publications already fill** (daily quota or spacing) | #44           | Not behind a flag. A manual or other scheduled post on a day the autopilot has not yet planned now stops that day's paid autopilot draft (audit `autopilot.slot_skipped`); before, the draft was made and then blocked by the quota. |
+| Cancel route for a package post's schedule                                                        | #46           | Only reachable for package posts; works without the flag by design.                                                                                                                                                                  |
+| Everything else (packages, images in posts, scheduling, history, slots, tool search)              | #34–#49       | Off until the flags are set.                                                                                                                                                                                                         |
+
+## 3. Merge strategy (recommended: one integration PR)
+
+**Recommendation:** merge the whole stack into `main` through one integration pull request from the top of the stack, with a merge commit, inside the approved deployment window. One merge means one deployment, one image to verify and one rollback point (`9c46b0d`).
+
+1. Open a pull request from the top branch (`claude/orbit-core-rollout-plan`, which contains #31–#49 and this plan) to `main`. Its description lists #31–#49 as the reviewed parts.
+2. Let CI run on that PR; it must be green (`validate`, `isolated-acceptance`).
+3. **Approval A (merge = production deploy):** merge it with a merge commit (no squash, so the per-PR commits and their review history stay traceable), in the window agreed in section 4.
+4. After the merge, close #31–#49 with a comment "merged via #<integration PR>" (#31 may be marked merged by GitHub automatically). Delete the head branches afterwards, except #33 and #37 until section 6 is decided.
+
+Alternatives considered:
+
+- Merging bottom-up PR by PR into `main`: keeps GitHub's merged state per PR, but deploys up to 17 times and needs each PR retargeted to `main` by hand. Only acceptable with the Coolify auto-deploy paused, which is itself a production configuration change.
+- Squash merge: loses the commit trail the plans and ledgers reference by hash. Not recommended.
+
+## 4. Rollout phases
+
+Each phase starts only after the previous one is verified. "Owner" means Mario.
+
+### Phase 0 — preparation (no production effect)
+
+- [ ] CI green on the integration PR.
+- [ ] Latest encrypted off-host backup succeeded within the last 26 hours (`orbit-backup ok`, Coolify scheduled task) and the `CREDENTIAL_KEY` escrow is current (`docs/BACKUP_RESTORE.md`).
+- [ ] **Approval B (read-only production query):** list uLiquid publications that are active (`intent_created`, `sending`) and not created by the autopilot, by channel and day. Every such day the autopilot has not yet planned will be skipped after the deploy (section 2). Confirm that this is wanted for each listed day.
+- [ ] Note the current Coolify deployment ID, Git commit (`9c46b0d`) and image digest as the rollback target.
+- [ ] Agree the window: outside the uLiquid posting times and not at the weekly autopilot plan moment.
+
+### Phase 1 — deploy with both flags off
+
+- [ ] **Approval A:** merge the integration PR (section 3); Coolify deploys it.
+- [ ] Verify: `migrate` completed with no pending migration; API, worker and web healthy; worker heartbeat current; authenticated browser login; Operations queues show no growing backlog.
+- [ ] Verify unchanged behaviour: one ordinary Orbit Chat question succeeds; the autopilot plan check runs (every ten minutes) without `AUTOPILOT_PLANNING_BLOCKED`; `autopilot.slot_skipped` appears only for the days approved in Phase 0; scheduled autopilot posts are handed over as before.
+- [ ] Observe at least until the next autopilot post has been handed over and reconciled.
+
+Rollback: redeploy `9c46b0d` in Coolify. No data repair is needed; no package data exists yet.
+
+### Phase 2 — content packages, drafts only
+
+- [ ] **Approval C (flag + paid drafts):** set `ORBIT_CONTENT_PACKAGES=true` in Coolify and redeploy (the flag is read from the environment; it applies to every project on this instance). Paid drafts stay inside the existing uLiquid policy budget; each package shows its cost ceiling before the start click.
+- [ ] Scripted acceptance in production by the owner (no publishing in this phase):
+  1. JC01: "Erstelle einen X- und einen Telegram-Post über <aktueller verifizierter Fakt>, nichts veröffentlichen." → one package card with the ceiling; nothing runs before "Start package".
+  2. Start it → two drafts, automatic review shown; spend recorded under `package:<id>` and below the ceiling.
+  3. JC05: a request "für nächste Woche" → planned slot next week, drafts start now.
+  4. Revision of one draft ("kürzer") → only that channel changes.
+  5. Cancel a second, just-started package → the card reports what stopped.
+- [ ] Record the actual spend per step next to the acceptance rows (`docs/REQUIREMENTS_TRACEABILITY.md`).
+
+Rollback: set the flag to `false` and redeploy; started packages finish as draft-only missions. Cancel pending packages first if the image queue should drain.
+
+### Phase 3 — package image (optional)
+
+- [ ] **Approval D (paid image):** one owner package with an image brief (ceiling shown on the card). Approve the usage rights on the card, attach the image to one draft, check the new review. Telegram drafts above 1,024 characters are refused by design.
+
+### Phase 4 — tool search
+
+- [ ] **Approval E (paid check + flag):** with the configured chat route on `gpt-5.4` or later, set `ORBIT_TOOL_SEARCH=true` and redeploy. Ask one question that needs a deferred tool ("Welche X-Slots sind diese Woche frei?").
+- [ ] Verify in the run's spans: one `tool_search` span, then `schedule_options` succeeded; the answer lists slots. If the provider rejects `tool_search` (run fails with a model error), set the flag back to `false`; nothing else changes.
+
+### Phase 5 — first live scheduled package post
+
+Preconditions: Phases 1–2 verified; the target channel is write-verified for this publisher instance (and media-verified if the post carries the image); `EXECUTION_MODE=live` and external writes are already the approved production state for uLiquid; the policy window and channel allow the post.
+
+- [ ] Choose a deliberate, low-risk post that the owner would publish anyway.
+- [ ] "Plane den X-Post für den nächsten freien Termin" → a `content.schedule` request appears in the approvals inbox with the exact text, channel, time and "Öffentlicher Beitrag".
+- [ ] **Approval F (public post):** the owner approves exactly that request in the inbox. Verify: one publication `intent_created`, the card shows "Terminiert", audit `mission.publish_authorized`.
+- [ ] Before the slot, propose a second post and cancel it from the card → `withdrawn`/`canceled`, nothing sent.
+- [ ] At the slot: preflight passes, the post is handed over to Postiz and published; reconcile the remote ID. Confirm no duplicate, and that the autopilot did not plan a draft for that day.
+
+Rollback: cancel the schedule on the card before the handoff. After the handoff the post can only be removed in Postiz itself; Orbit reports it as not retractable and never resends.
+
+### Phase 6 — normal use
+
+- [ ] Two weeks of normal use with the checks in section 5.
+- [ ] Then decide: keep both flags on permanently, and whether to remove the flag-off tool path (the 7,000-byte guard on the full tool set stays binding until then).
+
+## 5. Monitoring during and after the rollout
+
+| Signal                                                                                | Where                    | Expected                                  | Action if not                                                             |
+| ------------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------- | ------------------------------------------------------------------------- |
+| Worker heartbeat, queue backlog                                                       | Operations page, Coolify | Heartbeat current, no growing backlog     | Stop rollout; check worker logs (`Orbit queue pump unavailable (<code>)`) |
+| Exceptions `PUBLISH_PREFLIGHT_BLOCKED`, `PUBLISH_OUTCOME_UNKNOWN`                     | Exceptions, audit        | None for package posts                    | Reconcile; do not resend                                                  |
+| `autopilot.slot_skipped`                                                              | Audit                    | Only days with an intended scheduled post | Cancel the unintended publication; the next plan check plans the day      |
+| Package spend under `package:<id>`                                                    | Budget journal, card     | ≤ shown ceiling                           | Stop; flag off                                                            |
+| `action_request.*`, `content_package.*`, `publication.withdrawn`, `mission.publish_*` | Audit                    | Each owner decision recorded once         | Investigate before the next decision                                      |
+| Backup heartbeat                                                                      | Coolify scheduled task   | `orbit-backup ok` daily                   | Fix before Phase 5                                                        |
+
+## 6. Branches outside the stack
+
+- **#37 (S2 SDK spike):** stays a draft reference PR, as decided on 2026-10-02; never merged. Its no-go record (ADR 0005 addendum and `docs/evidence/agents-sdk-spike-2026-10-02.md`) was only on #33's branch and is now carried into the stack with this plan, so it reaches `main` independently of #33.
+- **#33 (S1 runtime port):** Mario decided on 2026-10-02 to keep the port and the legacy adapter. It is not part of this rollout because it branches off #31 and moves the chat turn loop, which the stack has changed since (package instructions, content packages, tool search). **Plan:** after Phase 2, rebase #33 onto the new `main` as its own pull request, carry the stack's loop changes into `runtime/legacy-responses.ts` and `chat-runner.ts`, and keep the chat-runner, tool-search and runtime contract suites green. It is a behaviour-preserving refactor; it deploys like any merge to `main` and needs its own **Approval G**.
+
+## 7. Approvals summary
+
+| ID  | Step                                                        | Production effect                               | Cost                                                      |
+| --- | ----------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
+| A   | Merge the integration PR (= Coolify deploy)                 | New code live, flags off; autopilot skip active | none                                                      |
+| B   | Read-only query of active non-autopilot publications        | none                                            | none                                                      |
+| C   | `ORBIT_CONTENT_PACKAGES=true` + scripted package acceptance | Package drafts for all projects on the instance | paid drafts within the policy budget and package ceilings |
+| D   | One package image                                           | One generated image (reference asset)           | ≤ image ceiling                                           |
+| E   | `ORBIT_TOOL_SEARCH=true` + one check                        | Fewer tools sent per chat call                  | one chat run                                              |
+| F   | Approve the first live package post                         | One public post                                 | none beyond the drafts                                    |
+| G   | Merge the rebased runtime port (#33) after Phase 2          | Refactor of the chat loop, no behaviour change  | none                                                      |
+
+## 8. Rollback summary
+
+| From                   | How                               | Remaining effects to handle                                                                                                                                                                                                               |
+| ---------------------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Any phase, code        | Redeploy `9c46b0d` in Coolify     | Before that: cancel scheduled package posts that must not go out (the old code has no cancel path and would publish them), cancel pending packages and image requests. Package data stays in the database and is ignored by the old code. |
+| Phase 2–5, feature     | Set the flag to `false`, redeploy | Started packages finish as drafts; approved schedules stay ordinary publications and can still be canceled from the card.                                                                                                                 |
+| Phase 4                | `ORBIT_TOOL_SEARCH=false`         | none                                                                                                                                                                                                                                      |
+| Phase 5, after handoff | Remove the post in Postiz         | Orbit records the outcome; it never retracts or resends.                                                                                                                                                                                  |
