@@ -43,7 +43,11 @@ import {
   activateIndexGeneration,
   rollbackIndexGeneration,
 } from "../../../packages/knowledge/src/index.ts";
-import { runtimeHealth, closeRuntime } from "./modules/runtime.ts";
+import {
+  runtimeHealth,
+  closeRuntime,
+  postizQueueState,
+} from "./modules/runtime.ts";
 import {
   createConversation,
   listConversations,
@@ -347,6 +351,12 @@ export async function buildServer(
     const ready = database === "ok" && worker === "ready";
     reply.status(ready ? 200 : 503);
     return { status: ready ? "ok" : "degraded", database, worker };
+  });
+  // Public Postiz delivery state for external monitors: 503 only when the worker saw overdue queued posts.
+  app.get("/api/health/postiz", { logLevel: "warn" }, async (_req, reply) => {
+    const status = await postizQueueState();
+    reply.status(status === "stalled" ? 503 : 200);
+    return { status };
   });
   app.get("/api/setup", async () => ({
     configured: (await authDb.workspace.count()) > 0,

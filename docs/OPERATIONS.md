@@ -38,6 +38,14 @@ Saving the OpenAI configuration (any field, including image-only settings) while
 
 Before switching a route, run the generation eval (`evals/generation/README.md`): the dry run (`pnpm eval:generation` with the local environment) prints the plan, the worst-case cost, the ceiling (at most $5) and the confirmation value; the live run needs Mario's key in `ORBIT_EVAL_OPENAI_API_KEY` and the printed confirmation. It runs only against the local database and writes metrics-only evidence to `docs/evidence/generation-eval-<UTC>.{json,md}`. Roll back a switch by saving the previous route or clearing the task route.
 
+## Postiz queue watch
+
+Postiz can accept posts while its orchestrator (the Temporal worker that sends them) is hung: on 2026-10-01 the orchestrator hung at startup after a container restart, wrote no log line and left every scheduled post in `QUEUE`. A `pm2 restart orchestrator` inside the Postiz container released it. Orbit now detects this state.
+
+For each project with a verified Postiz connector and assigned channels, the worker reads the Postiz posts of the last seven days at most every 10 minutes (read-only `GET /posts`; the public API allows only a few calls per hour). A post of an assigned channel that is still `QUEUE` more than 15 minutes after its publish date opens the exception `POSTIZ_QUEUE_STALLED`; a failed read opens `POSTIZ_QUEUE_CHECK_FAILED`. Both carry a title and an instruction, appear under Approvals and in the Overview count, and close themselves after the next good check. The last result is stored per project in `postiz_queue_watch`.
+
+The worker also writes each project's result to the Redis hash `orbit:postiz-queue:<PUBLISHER_INSTANCE_ID>`. The public `GET /api/health/postiz` returns `{"status":"ok"}`, `{"status":"unknown"}` (no check within the last 30 minutes, for example no assigned channel) with HTTP 200, or `{"status":"stalled"}` with HTTP 503. Point an external monitor (Uptime Kuma) at it with an interval of 5 minutes. When it alerts: in Coolify open the Postiz terminal, run `pm2 logs orchestrator --lines 30 --nostream`, and if it shows no "Nest application successfully started" run `pm2 restart orchestrator`. Overdue posts are sent immediately afterwards; delete queued test posts in Postiz first. After every Postiz restart or redeploy, check the orchestrator log once.
+
 ## Failure and recovery
 
 Pause before intervention. Unknown publication or Slack handoff must remain unknown until observed; do not create a fresh job to resend it. Known publication IDs are read-polled at most eight times with bounded delay. Postiz group cancellation remains a visible manual provider action, because current group scope cannot be proven safely from the list contract.
