@@ -24,7 +24,8 @@ import {
   openAiConfigurationVersion,
   runtimeOpenAiConfiguration,
 } from "./openai-configuration.ts";
-import { chatScoped } from "./chat.ts";
+import { chatScoped, getRun } from "./chat.ts";
+import { actorScope } from "./member-scope.ts";
 import { type ChatCard } from "./chat-tools.ts";
 import { chatTools } from "./agents/tools/index.ts";
 import {
@@ -83,7 +84,25 @@ function errorCode(error: unknown) {
   return /^[A-Z][A-Z0-9_]{2,80}$/.test(raw) ? raw : "CHAT_FAILED";
 }
 
-export async function runChat(scope: Scope, runId: string) {
+/**
+ * Worker entry for a queued chat job. The run executes with the requesting
+ * user's current project role; without project access it is closed with
+ * ACTOR_MEMBERSHIP_REQUIRED before any model call.
+ */
+export async function runChatJob(base: Scope, actorId: unknown, runId: string) {
+  if (typeof actorId !== "string" || !actorId)
+    throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
+  const actor = await actorScope(base.workspaceId, base.projectId, actorId);
+  const scope = actor ?? { ...base, userId: actorId, role: "viewer" as const };
+  await runChat(scope, runId, actor ? undefined : "ACTOR_MEMBERSHIP_REQUIRED");
+  return getRun(scope, runId);
+}
+
+/**
+ * Runs one chat turn. A `refusal` code closes the run without a model call,
+ * after an earlier transmission was recovered as an unknown outcome.
+ */
+export async function runChat(scope: Scope, runId: string, refusal?: string) {
   let reservationId: string | null = null;
   let transmitted = false;
   let agentRunId: string | null = null;
@@ -158,6 +177,7 @@ export async function runChat(scope: Scope, runId: string) {
         });
         return null;
       }
+      if (refusal) throw new DomainError(refusal, 403);
       const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       });

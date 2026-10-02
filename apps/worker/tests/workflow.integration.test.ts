@@ -6,6 +6,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  closeDatabase,
   createClient,
   scoped,
   type PrismaClient,
@@ -13,6 +14,11 @@ import {
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data } from "../../api/src/shared.ts";
+import {
+  createConversation,
+  getRun,
+  sendMessage,
+} from "../../api/src/modules/chat.ts";
 import {
   ingest,
   setFact,
@@ -198,6 +204,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
     }
     await db?.$disconnect();
     await auth?.$disconnect();
+    await closeDatabase();
     await rm(join(tmpdir(), queueNamespace), { recursive: true, force: true });
   });
   it("A10/A19/A26/B06: real worker plans, retrieves, drafts, reviews, publishes locally, survives restart, then applies revocation", async () => {
@@ -260,5 +267,37 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         ),
       ).status,
     ).toBe("published_test");
+  }, 40000);
+  it("runs a chat job only with the requesting user's current project access", async () => {
+    const former = await auth.user.create({
+      data: {
+        id: randomUUID(),
+        name: "Synthetic former member",
+        email: randomUUID() + "@example.invalid",
+      },
+    });
+    try {
+      // The message was queued while the user still had access; it was removed since.
+      const queuedBy: Scope = { ...scope, userId: former.id, role: "editor" };
+      const thread = await createConversation(queuedBy);
+      const sent = await sendMessage(queuedBy, thread.id, {
+        text: "What is the project status?",
+        clientRequestId: randomUUID(),
+      });
+      start();
+      const finished = await waitFor(async () => {
+        const chatRun = await getRun(queuedBy, sent.runId);
+        return ["blocked", "failed", "succeeded"].includes(chatRun.status)
+          ? chatRun
+          : false;
+      });
+      expect(finished).toMatchObject({
+        status: "blocked",
+        errorCode: "ACTOR_MEMBERSHIP_REQUIRED",
+      });
+    } finally {
+      await stop();
+      await auth.user.delete({ where: { id: former.id } });
+    }
   }, 40000);
 });

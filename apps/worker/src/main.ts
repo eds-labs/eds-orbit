@@ -60,8 +60,7 @@ import {
   publishIntent,
 } from "../../api/src/modules/workflow.ts";
 import { generateMissionLive } from "../../api/src/modules/generation.ts";
-import { runChat } from "../../api/src/modules/chat-runner.ts";
-import { getRun } from "../../api/src/modules/chat.ts";
+import { runChatJob } from "../../api/src/modules/chat-runner.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
@@ -184,9 +183,12 @@ const workers = classes.map(
           let chatResult: { status: string; errorCode: string | null } | null =
             null;
           if (topic === "chat") {
-            const actorScope = { ...scope, userId: data(claimed).actorId };
-            await runChat(actorScope, data(claimed).resourceId);
-            const finished = await getRun(actorScope, data(claimed).resourceId);
+            // Runs with the requesting user's current role, never the worker's.
+            const finished = await runChatJob(
+              scope,
+              data(claimed).actorId,
+              data(claimed).resourceId,
+            );
             chatResult = {
               status: finished.status,
               errorCode: finished.errorCode,

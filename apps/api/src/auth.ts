@@ -7,6 +7,7 @@ import { authDb } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import { DomainError } from "./shared.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
+import { projectMembership } from "./modules/member-scope.ts";
 export function makeAuth() {
   const config = loadConfig();
   return betterAuth({
@@ -52,32 +53,16 @@ export async function scopeFor(
   owner = false,
 ): Promise<Scope> {
   const user = await userFor(auth, req);
-  const project = await authDb.project.findFirst({
-    where: {
-      id: projectId,
-      OR: [
-        {
-          workspace: { members: { some: { userId: user.id, role: "owner" } } },
-        },
-        { members: { some: { userId: user.id } } },
-      ],
-    },
-    include: {
-      members: { where: { userId: user.id } },
-      workspace: { include: { members: { where: { userId: user.id } } } },
-    },
-  });
-  if (!project) throw new DomainError("NOT_FOUND", 404);
-  const role = project.workspace.members.find((x) => x.role === "owner")
-    ? "owner"
-    : (project.members[0]?.role as Scope["role"]);
+  const membership = await projectMembership(projectId, user.id);
+  if (!membership) throw new DomainError("NOT_FOUND", 404);
+  const role = membership.role;
   if (!role || (write && role === "viewer") || (owner && role !== "owner"))
     throw new DomainError("FORBIDDEN", 403);
   return {
-    workspaceId: project.workspaceId,
+    workspaceId: membership.workspaceId,
     projectId,
     userId: user.id,
-    role: role as Scope["role"],
+    role,
   };
 }
 export { fromNodeHeaders };
