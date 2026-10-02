@@ -64,6 +64,7 @@ import {
 } from "./modules/action-requests.ts";
 import { cancelContentPackage } from "./modules/agents/content-packages.ts";
 import { attachPackageImage } from "./modules/agents/package-image.ts";
+import { cancelPackageSchedule } from "./modules/agents/package-schedule.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
   configureSlack,
@@ -1121,6 +1122,15 @@ export async function buildServer(
       const { projectId, id } = req.params as { projectId: string; id: string };
       const scope = await scopeFor(auth, req, projectId, true);
       return attachPackageImage(scope, z.uuid().parse(id), req.body);
+    },
+  );
+  // Cancels a package post's schedule before the handoff; the requester or an owner.
+  app.post(
+    "/api/projects/:projectId/chat/packages/:id/unschedule",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      return cancelPackageSchedule(scope, z.uuid().parse(id), req.body);
     },
   );
   // Owners' open decisions (image requests from editors' packages and others).

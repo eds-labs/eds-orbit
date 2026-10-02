@@ -423,7 +423,13 @@ export async function packageSnapshot(
       const { draft, reused } = current;
       revisions = current.revisions;
       revisionError = current.revisionError;
-      schedule = await scheduleState(tx, scope, step.schedule, draft);
+      schedule = await scheduleState(
+        tx,
+        scope,
+        step.schedule,
+        draft,
+        step.reschedule,
+      );
       const job = await tx.entity.findFirst({
         where: {
           workspaceId: scope.workspaceId,
@@ -515,19 +521,45 @@ async function scheduleState(
   scope: Scope,
   schedule: Record<string, any> | undefined,
   draft: { id: string; version: number } | null,
+  reschedule?: Record<string, any>,
 ) {
   if (!schedule) return null;
   const where = { workspaceId: scope.workspaceId, projectId: scope.projectId };
-  const request = await tx.entity.findFirst({
-    where: { ...where, kind: "action_requests", id: schedule.actionRequestId },
-  });
-  const r = data(request);
+  // A proposal's state from its request: waiting, stale, expired or decided.
+  const proposalState = async (proposal: Record<string, any>) => {
+    const request = await tx.entity.findFirst({
+      where: {
+        ...where,
+        kind: "action_requests",
+        id: proposal.actionRequestId,
+      },
+    });
+    const r = data(request);
+    let status = String(r.status);
+    if (r.status === "pending")
+      status =
+        Date.parse(r.expiresAt) <= Date.now()
+          ? "expired"
+          : draft?.id !== r.payload?.contentId ||
+              draft?.version !== r.payload?.contentVersion
+            ? "stale"
+            : "awaiting_approval";
+    return { status, executionMode: r.payload?.executionMode ?? null };
+  };
   const base = {
     scheduledAt: schedule.scheduledAt as string,
     contentId: schedule.contentId as string,
     actionRequestId: schedule.actionRequestId as string,
-    executionMode: r.payload?.executionMode ?? null,
   };
+  // A move waits for its own decision; the post keeps its slot until then.
+  const move = reschedule
+    ? {
+        scheduledAt: reschedule.scheduledAt as string,
+        actionRequestId: reschedule.actionRequestId as string,
+        status: (await proposalState(reschedule)).status,
+      }
+    : null;
+  const proposal = await proposalState(schedule);
   if (schedule.publicationId) {
     const publication = await tx.entity.findFirst({
       where: { ...where, kind: "publications", id: schedule.publicationId },
@@ -535,21 +567,21 @@ async function scheduleState(
     const p = data(publication);
     return {
       ...base,
+      executionMode: proposal.executionMode,
       status: p.status === "intent_created" ? "scheduled" : String(p.status),
       publicationId: schedule.publicationId as string,
       blockers: (p.blockers as string[] | undefined) ?? [],
+      move,
     };
   }
-  let status = String(r.status);
-  if (r.status === "pending")
-    status =
-      Date.parse(r.expiresAt) <= Date.now()
-        ? "expired"
-        : draft?.id !== r.payload?.contentId ||
-            draft?.version !== r.payload?.contentVersion
-          ? "stale"
-          : "awaiting_approval";
-  return { ...base, status, publicationId: null, blockers: [] as string[] };
+  return {
+    ...base,
+    executionMode: proposal.executionMode,
+    status: proposal.status,
+    publicationId: null,
+    blockers: [] as string[],
+    move,
+  };
 }
 
 /** The requesting user's packages in one conversation, newest first. */

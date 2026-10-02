@@ -177,7 +177,7 @@ export const packageTools: readonly OrbitTool[] = [
     name: "propose_schedule",
     namespace: "calendar",
     description:
-      "Propose a package draft for a slot; an owner decides. Publishes nothing.",
+      "Propose or move a package post's slot; an owner decides. Publishes nothing.",
     parameters: z
       .object({
         deliverableKey: z.string().describe("channelId from package_status"),

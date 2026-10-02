@@ -52,6 +52,7 @@ export type ContentPackage = {
       scheduledAt: string;
       executionMode: "test" | "live" | null;
       blockers: string[];
+      move?: { status: string; scheduledAt: string } | null;
     } | null;
   }[];
   image: {
@@ -136,6 +137,14 @@ const scheduleLabels: Record<string, [string, string]> = {
 /** A package is still changing while its drafts are queued or being written. */
 export const packageInProgress = (pkg: ContentPackage) =>
   pkg.status === "running";
+// Before the handoff a schedule or an open proposal can still be stopped.
+const cancelableSchedule = (schedule: {
+  status: string;
+  move?: { status: string } | null;
+}) =>
+  ["awaiting_approval", "stale", "scheduled", "blocked_dependency"].includes(
+    schedule.status,
+  ) || schedule.move?.status === "awaiting_approval";
 const cancelable = (pkg: ContentPackage) =>
   pkg.status === "proposed" || pkg.status === "running";
 
@@ -149,6 +158,7 @@ export function PackageCard({
   canApproveRights = false,
   onApproveRights,
   onAttachImage,
+  onUnschedule,
 }: {
   pkg: ContentPackage;
   de: boolean;
@@ -159,6 +169,7 @@ export function PackageCard({
   canApproveRights?: boolean;
   onApproveRights?: (pkg: ContentPackage) => void;
   onAttachImage?: (pkg: ContentPackage, deliverableKeys: string[]) => void;
+  onUnschedule?: (pkg: ContentPackage, deliverableKey: string) => void;
 }) {
   const image = pkg.image;
   // Drafts that could still take the rights-approved image.
@@ -300,6 +311,33 @@ export function PackageCard({
                   ` · ${deliverable.schedule.blockers.join(", ")}`}
               </p>
             )}
+            {deliverable.schedule?.move && (
+              <p className="chat-package-note">
+                {de ? "Verschieben auf" : "Move to"}{" "}
+                <time dateTime={deliverable.schedule.move.scheduledAt}>
+                  {new Date(
+                    deliverable.schedule.move.scheduledAt,
+                  ).toLocaleString(de ? "de-DE" : "en-GB")}
+                </time>
+                :{" "}
+                {scheduleLabels[deliverable.schedule.move.status]?.[
+                  de ? 1 : 0
+                ] ?? deliverable.schedule.move.status}
+              </p>
+            )}
+            {deliverable.schedule &&
+              cancelableSchedule(deliverable.schedule) &&
+              canStart &&
+              onUnschedule && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onUnschedule(pkg, deliverable.key)}
+                  disabled={pending}
+                >
+                  {de ? "Termin abbrechen" : "Cancel schedule"}
+                </Button>
+              )}
           </li>
         ))}
       </ul>

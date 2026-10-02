@@ -489,6 +489,116 @@ test("owner approves the package image's rights and attaches it to one draft", a
   ).toHaveCount(1);
 });
 
+test("cancels a scheduled package post and reports a handed-over one honestly", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8601";
+  const requests: Record<string, unknown>[] = [];
+  const draft = (key: string, channelName: string, status: string) => ({
+    key,
+    channelId: key,
+    channelName,
+    platform: key,
+    plannedSlotAt: null,
+    status: "drafted",
+    errorCode: null,
+    content: {
+      id: `${key}-content`,
+      version: 3,
+      body: `${channelName} post`,
+      status: "reviewed",
+      assetId: null,
+    },
+    review: { valid: true, problems: [] },
+    revisions: 0,
+    schedule: {
+      status,
+      scheduledAt: "2026-10-05T07:00:00.000Z",
+      executionMode: "test",
+      blockers: [],
+      move:
+        key === "x"
+          ? {
+              status: "awaiting_approval",
+              scheduledAt: "2026-10-06T07:00:00.000Z",
+            }
+          : null,
+    },
+  });
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              id: conversationId,
+              title: "Synthetic scheduled package",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic scheduled package",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [],
+          runs: [],
+          proposals: [],
+          packages: [
+            {
+              id: "package-3",
+              goal: "Announce that beta access is open",
+              status: "completed",
+              ceilingMicros: 120000,
+              image: null,
+              actionRequest: null,
+              deliverables: [
+                draft("x", "Synthetic X", "scheduled"),
+                draft("telegram", "Synthetic Telegram", "published_test"),
+              ],
+            },
+          ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/packages/package-3/unschedule`,
+    (route) => {
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: { result: "not_retractable", publicationStatus: "published" },
+      });
+    },
+  );
+  await page.goto("/chat");
+  await page
+    .getByRole("button", { name: "Synthetic scheduled package", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "Content package" });
+  await expect(card.getByText(/Move to/)).toBeVisible();
+  await expect(card.getByText(/Waiting for owner decision/)).toBeVisible();
+  // Only the post that was not handed over offers a cancel.
+  await expect(
+    card.getByRole("button", { name: "Cancel schedule" }),
+  ).toHaveCount(1);
+  await card.getByRole("button", { name: "Cancel schedule" }).click();
+  await expect.poll(() => requests).toEqual([{ deliverableKey: "x" }]);
+  await expect(
+    page.getByText(/already handed over and cannot be taken back/),
+  ).toBeVisible();
+});
+
 test("cancels a running content package and shows what stopped", async ({
   page,
 }) => {

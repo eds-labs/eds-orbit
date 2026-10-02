@@ -134,10 +134,11 @@ describe.skipIf(!enabled)(
       expect(proposed.scheduledAt).toBe(free.nextFree);
       const contentId = (await snapshot(pkg.id)).deliverables[0]!.content!
         .id as string;
+      // A proposal changes nothing on the draft: the slot is only in the request.
       expect(
         data(await run((tx) => entity(tx, project.owner, "content", contentId)))
-          .scheduledAt,
-      ).toBe(proposed.scheduledAt);
+          .scheduledAt ?? null,
+      ).toBeNull();
       expect(await publicationsOf(contentId)).toHaveLength(0);
       const item = await inboxItem(proposed.actionRequestId!);
       expect(item).toMatchObject({
@@ -177,7 +178,10 @@ describe.skipIf(!enabled)(
       const content = await run((tx) =>
         entity(tx, project.owner, "content", contentId),
       );
-      expect(data(content).status).toBe("reviewed");
+      expect(data(content)).toMatchObject({
+        status: "reviewed",
+        scheduledAt: proposed.scheduledAt,
+      });
       const mission = await run((tx) =>
         entity(tx, project.owner, "missions", data(content).missionId),
       );

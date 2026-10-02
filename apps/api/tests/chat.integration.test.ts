@@ -383,6 +383,18 @@ describe.skipIf(!enabled)("Orbit Chat private and idempotent API", () => {
     expect(disabled.statusCode).toBe(409);
     expect(disabled.json().error.code).toBe("CONTENT_PACKAGES_DISABLED");
   });
+  it("cancels a package post's schedule only with write access, also with the flag off", async () => {
+    const unschedule = (cookie: string) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/chat/packages/${randomUUID()}/unschedule`,
+        headers: { origin, cookie },
+        payload: { deliverableKey: "x" },
+      });
+    expect((await unschedule(viewerCookie)).statusCode).toBe(403);
+    // Not gated by the package flag: an unknown package is simply not found.
+    expect((await unschedule(ownerCookie)).statusCode).toBe(404);
+  });
   it("lists pending owner decisions only for owners", async () => {
     const list = (cookie: string) =>
       app.inject({
