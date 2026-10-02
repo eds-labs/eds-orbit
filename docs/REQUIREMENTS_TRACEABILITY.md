@@ -40,14 +40,14 @@ Rows from the [Orbit Core plan](plans/ORBIT_CORE_JARVIS_PLAN.md), section 11. Lo
 | JC12 | Changed facts, configuration or drafts stop stale work                                        | `content-packages` (fact revision, changed draft); `action-requests` (image ceiling change)                         | PASS_TEST |
 | JC13 | Lost access or role is revalidated; viewers cannot request                                    | `member-scope`, `chat-runner` worker jobs, real-Redis worker; `action-requests` (demoted owner); operator eval JC13 | PASS_TEST |
 | JC14 | Package and per-call limits hold                                                              | `paid.integration` (package run key, ceiling); `content-packages` (image under the run key, revision budget)        | PASS_TEST |
-| JC15 | Autopilot slot collisions are shown                                                           | Conversational scheduling (J3) not built; packages are draft-only                                                   | NOT_RUN   |
+| JC15 | Autopilot slot collisions are shown | `scheduling-slots` (autopilot occupancy, next free slot); `package-schedule` (autopilot day refused with `nextFree`, slot taken after the proposal); `autopilot-coexistence` (no autopilot draft on a day with a scheduled post, spacing, freed day planned again) | PASS_TEST |
 | JC16 | Publishing needs an exact decision and capability | `package-schedule` (no publish without an owner decision, rollback when live publishing is blocked, stale post, taken slot, repeated click); real-Redis worker ends as `published_test` | PASS_TEST |
 | JC17 | SDK approval interrupt and restart                                                            | Agents SDK spike no-go (ADR 0005 addendum); not applicable to the legacy loop                                       | NOT_RUN   |
 | JC18 | Voice permission or session loss                                                              | Voice (J4) not built                                                                                                | NOT_RUN   |
 | JC19 | No analytics measurements reported honestly                                                   | Not addressed by the package workflow                                                                               | NOT_RUN   |
 | JC20 | Legacy chat, autopilot and stored prices unchanged                                            | Full suite with the flag off by default; operator eval JC20                                                         | PASS_TEST |
 
-Totals: **16 PASS_TEST, 4 NOT_RUN**. JC15 (autopilot coexistence, J3.2), JC18 and JC19 belong to later stages; JC17 does not apply after the SDK no-go.
+Totals: **17 PASS_TEST, 3 NOT_RUN**. JC18 and JC19 belong to later stages; JC17 does not apply after the SDK no-go.
 
 ## Configuration-parity acceptance (2026-09-18)
 

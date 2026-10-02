@@ -49,7 +49,7 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 | --- | --- | --- | --- |
 | J3.0 | Slot overview | DONE (local) | `be24721`, see below |
 | J3.1 | Scheduling by decision | DONE (local) | `30bd2c7`, see below |
-| J3.2 | Autopilot coexistence | TODO | |
+| J3.2 | Autopilot coexistence | DONE (local) | `d9430c7`, see below |
 | J3.3 | Package image in a post | TODO | |
 | J3.4 | Cancel and reschedule | TODO | |
 | J3.5 | Acceptance | TODO | |
@@ -72,3 +72,11 @@ Everything stays behind `ORBIT_CONTENT_PACKAGES` except the J3.2 autopilot chang
 - The JC06 worker test now uses the shared `apps/worker/tests/support/worker-process.ts`.
 - Tool definitions were 7,489 bytes with the new tool; package tool descriptions were shortened to about 6,990 bytes. Headroom under the 7,000-byte guard is now small: the next operator tool needs tool search (`deferLoading`) or a separate decision on the guard.
 - Checks on Node 24.18.0: `pnpm test` 662/662 in 67 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` and `pnpm api:generate` (no generated contract change) pass.
+
+### 2026-10-02 — J3.2 autopilot coexistence (local)
+
+- Base `ef66630` (J3.1 branch), code head `d9430c7` on branch `claude/orbit-core-j3-autopilot`. Risk: high, because it changes the weekly autopilot that runs for uLiquid; it only skips days and never deletes or changes missions. Environment: local; not behind the package flag, because it acts on any scheduled publication.
+- `planAutopilot` skips a channel and day when its active publications (not canceled, failed or blocked) already use the policy's daily quota or one sits within the policy spacing of the autopilot slot. These are the same rules `publishIntent` applies, so no paid draft is made that would later fail with `CHANNEL_DAILY_QUOTA` or `CHANNEL_SPACING`. Each skip is audited once (`autopilot.slot_skipped` with the publication ids) and kept in the autopilot settings (`skippedSlots`); a canceled publication frees the day, and the next check plans it. Package scheduling already refuses planned autopilot days (J3.0, J3.1).
+- Behaviour change beyond packages: a manual or other scheduled post on an unplanned day now also stops the autopilot draft for that day, which previously would have been drafted and then blocked by the quota.
+- Tests (failed before the change): three cases in `autopilot-coexistence.integration.test.ts` — an owner-approved package post keeps its day free of autopilot drafts, the skip is audited once and the other days keep one post per channel and day; the canceled post frees the day; with two posts a day allowed, the spacing still skips the slot. The existing weekly plan tests in `paid.integration.test.ts` pass unchanged. Mutation checks: removing the skip, auditing on every check, or counting canceled publications each fails a test.
+- Checks on Node 24.18.0: `pnpm test` 665/665 in 68 files; `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm secrets:check`, `pnpm framework:check` and `pnpm api:generate` (no contract change) pass.
