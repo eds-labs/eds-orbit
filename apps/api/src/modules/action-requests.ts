@@ -1,0 +1,209 @@
+import { z } from "zod";
+import type { DbTx } from "../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import {
+  audit,
+  create,
+  data,
+  DomainError,
+  entity,
+  hash,
+  update,
+} from "../shared.ts";
+import { activePolicy } from "./policy.ts";
+import { enqueue } from "./workflow.ts";
+import { currentImageTerms, imageRequestPayload } from "./image-generation.ts";
+
+/**
+ * Generic action requests (ADR 0008), stored as Entity(kind="action_requests").
+ * A request binds one exact payload by hash; a decision is single-use and is
+ * consumed by the executor in the same transaction as its budget reservation.
+ */
+const KIND = "action_requests";
+type Row = Awaited<ReturnType<typeof create>>;
+
+export const requestedBy = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("user"), userId: z.string().min(1) }).strict(),
+  z
+    .object({
+      kind: z.literal("agent"),
+      userId: z.string().min(1),
+      agentRunId: z.string().nullable(),
+    })
+    .strict(),
+]);
+export type RequestedBy = z.infer<typeof requestedBy>;
+
+export const actionDecision = z
+  .object({
+    version: z.number().int().positive(),
+    packageHash: z.string().regex(/^[a-f0-9]{64}$/),
+    decision: z.enum(["approve", "reject"]),
+  })
+  .strict();
+
+type ActionDefinition<P> = {
+  riskClass: "C2";
+  approvalMode: "approval_required";
+  deciderRole: "owner" | "editor";
+  ttlMs: number;
+  payload: z.ZodType<P>;
+  costCeilingMicros: (payload: P) => number;
+  /** Rechecked at decision time; throws when the request no longer matches. */
+  revalidate: (tx: DbTx, scope: Scope, payload: P) => Promise<void>;
+  onApproved: (tx: DbTx, scope: Scope, request: Row) => Promise<void>;
+};
+
+// Code constants: no policy, prompt, imported document or model output can change them.
+const imageGenerate: ActionDefinition<z.infer<typeof imageRequestPayload>> = {
+  riskClass: "C2",
+  approvalMode: "approval_required",
+  deciderRole: "owner",
+  ttlMs: 24 * 3600000,
+  payload: imageRequestPayload,
+  costCeilingMicros: (payload) => payload.maxCostMicros,
+  async revalidate(tx, scope, payload) {
+    const { imageConfig } = await currentImageTerms(tx, scope);
+    if (
+      imageConfig.model !== payload.model ||
+      imageConfig.maxCostMicrosPerImage !== payload.maxCostMicros
+    )
+      throw new DomainError("IMAGE_REQUEST_STALE", 409);
+  },
+  async onApproved(tx, scope, request) {
+    const job = await enqueue(
+      tx,
+      scope,
+      "image",
+      request.id,
+      "action:" + request.id,
+    );
+    // One paid attempt: an unclear provider outcome is never retried.
+    await update(tx, scope, job, { ...data(job), maxAttempts: 1 });
+  },
+};
+const actionTypes = { "image.generate": imageGenerate } as const;
+export type ActionType = keyof typeof actionTypes;
+
+function definition(actionType: unknown): ActionDefinition<any> {
+  const found = actionTypes[actionType as ActionType];
+  if (!found) throw new DomainError("ACTION_TYPE_NOT_SUPPORTED", 409);
+  return found;
+}
+
+export async function createActionRequest(
+  tx: DbTx,
+  scope: Scope,
+  input: { actionType: ActionType; payload: unknown; requestedBy: RequestedBy },
+) {
+  const type = definition(input.actionType);
+  const payload = type.payload.parse(input.payload);
+  const policy = await activePolicy(tx, scope);
+  if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
+  return create(tx, scope, KIND, {
+    actionType: input.actionType,
+    riskClass: type.riskClass,
+    approvalMode: type.approvalMode,
+    policy: { id: policy.id, version: policy.version },
+    requestedBy: requestedBy.parse(input.requestedBy),
+    payload,
+    packageHash: hash({ actionType: input.actionType, payload }),
+    costCeilingMicros: type.costCeilingMicros(payload),
+    status: "pending",
+    expiresAt: new Date(Date.now() + type.ttlMs).toISOString(),
+  });
+}
+
+/** Records an authenticated user's decision on the exact version and hash that were shown. */
+export async function decideActionRequest(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  raw: unknown,
+) {
+  const input = actionDecision.parse(raw);
+  if (scope.userId === "worker")
+    throw new DomainError("DECISION_USER_REQUIRED", 403);
+  const row = await entity(tx, scope, KIND, id);
+  const d = data(row);
+  const type = definition(d.actionType);
+  if (type.deciderRole === "owner" && scope.role !== "owner")
+    throw new DomainError("OWNER_REQUIRED", 403);
+  if (type.deciderRole === "editor" && scope.role === "viewer")
+    throw new DomainError("EDITOR_REQUIRED", 403);
+  if (d.status !== "pending") {
+    // A repeated click with the same decision returns the recorded result.
+    if (
+      d.decision?.userId === scope.userId &&
+      d.decision?.decision === input.decision &&
+      d.packageHash === input.packageHash
+    )
+      return row;
+    throw new DomainError("ACTION_REQUEST_NOT_PENDING", 409);
+  }
+  if (row.version !== input.version || d.packageHash !== input.packageHash)
+    throw new DomainError("ACTION_REQUEST_STALE", 409);
+  if (Date.parse(d.expiresAt) <= Date.now())
+    throw new DomainError("ACTION_REQUEST_EXPIRED", 409);
+  const approve = input.decision === "approve";
+  if (approve) await type.revalidate(tx, scope, type.payload.parse(d.payload));
+  const decided = await update(tx, scope, row, {
+    ...d,
+    status: approve ? "approved" : "rejected",
+    decision: {
+      userId: scope.userId,
+      decision: input.decision,
+      decidedAt: new Date().toISOString(),
+      channel: "web",
+    },
+  });
+  await audit(
+    tx,
+    scope,
+    approve ? "action_request.approved" : "action_request.rejected",
+    row.id,
+    { actionType: d.actionType, packageHash: d.packageHash },
+  );
+  if (approve) await type.onApproved(tx, scope, decided);
+  return decided;
+}
+
+/** An approved request an execution may run; also the same execution re-entering after a crash. */
+export async function executableActionRequest(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  executionId: string,
+) {
+  const row = await entity(tx, scope, KIND, id);
+  const d = data(row);
+  if (d.status === "consumed") {
+    if (d.consumedBy?.executionId === executionId) return row;
+    throw new DomainError("ACTION_REQUEST_CONSUMED", 409);
+  }
+  if (d.status !== "approved")
+    throw new DomainError("ACTION_REQUEST_NOT_APPROVED", 409);
+  if (Date.parse(d.expiresAt) <= Date.now())
+    throw new DomainError("ACTION_REQUEST_EXPIRED", 409);
+  return row;
+}
+
+/** Uses the approval once; call it in the executor's reservation transaction. */
+export async function consumeActionRequest(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  executionId: string,
+  packageHash: string,
+) {
+  const row = await executableActionRequest(tx, scope, id, executionId);
+  const d = data(row);
+  if (d.packageHash !== packageHash)
+    throw new DomainError("ACTION_REQUEST_STALE", 409);
+  if (d.status === "consumed") return row;
+  return update(tx, scope, row, {
+    ...d,
+    status: "consumed",
+    consumedBy: { executionId, consumedAt: new Date().toISOString() },
+  });
+}

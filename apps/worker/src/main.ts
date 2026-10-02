@@ -61,6 +61,7 @@ import {
 } from "../../api/src/modules/workflow.ts";
 import { generateMissionLive } from "../../api/src/modules/generation.ts";
 import { runChatJob } from "../../api/src/modules/chat-runner.ts";
+import { runImageJob } from "../../api/src/modules/image-requests.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
@@ -93,6 +94,7 @@ const classes = [
   "analytics",
   "reconciliation",
   "slack_notification",
+  "image",
 ] as const;
 const queues = new Map(
   classes.map((c) => [
@@ -288,6 +290,14 @@ const workers = classes.map(
             await reconcilePublication(scope, data(claimed).resourceId);
           } else if (topic === "slack_notification") {
             await dispatchSlackDigest(scope, data(claimed).resourceId);
+          } else if (topic === "image") {
+            // Runs an owner-approved image request with the decider's current role.
+            await runImageJob(
+              scope,
+              data(claimed).actorId,
+              data(claimed).resourceId,
+              jobId,
+            );
           } else if (topic === "analytics") {
             await scoped(workspaceId, projectId, (tx) =>
               evaluateExperiment(tx, scope, data(claimed).resourceId),

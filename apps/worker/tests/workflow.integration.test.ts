@@ -13,7 +13,8 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create, data } from "../../api/src/shared.ts";
+import { create, data, update } from "../../api/src/shared.ts";
+import { enqueue } from "../../api/src/modules/workflow.ts";
 import {
   createConversation,
   getRun,
@@ -298,6 +299,75 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
     } finally {
       await stop();
       await auth.user.delete({ where: { id: former.id } });
+    }
+  }, 40000);
+  it("runs an approved image request in the image queue and stops before any provider call when images are not set up", async () => {
+    // Recorded as decideActionRequest would; this project has no image configuration or profile.
+    const request = await run((tx) =>
+      create(tx, scope, "action_requests", {
+        actionType: "image.generate",
+        riskClass: "C2",
+        approvalMode: "approval_required",
+        requestedBy: { kind: "user", userId: scope.userId },
+        payload: {
+          name: "Synthetic artwork",
+          prompt: "A calm geometric abstract artwork.",
+          size: "1024x1024",
+          quality: "low",
+          background: "opaque",
+          validUses: ["social"],
+          model: "gpt-image-2.5-flare",
+          maxCostMicros: 5000,
+        },
+        packageHash: "0".repeat(64),
+        costCeilingMicros: 5000,
+        status: "approved",
+        decision: {
+          userId: scope.userId,
+          decision: "approve",
+          decidedAt: new Date().toISOString(),
+          channel: "web",
+        },
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      }),
+    );
+    const job = await run(async (tx) => {
+      const queued = await enqueue(
+        tx,
+        scope,
+        "image",
+        request.id,
+        "action:" + request.id,
+      );
+      return update(tx, scope, queued, { ...data(queued), maxAttempts: 1 });
+    });
+    start();
+    try {
+      const finished = await waitFor(() =>
+        run(async (tx) => {
+          const row = await tx.entity.findUniqueOrThrow({
+            where: { id: job.id },
+          });
+          return data(row).status === "blocked_dependency" ? row : false;
+        }),
+      );
+      expect(data(finished)).toMatchObject({
+        attempts: 1,
+        error: "MARKETING_PROFILE_REQUIRED",
+      });
+      const after = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: request.id } }),
+      );
+      expect(data(after).status).toBe("approved");
+      expect(
+        await run((tx) =>
+          tx.budgetReservation.count({
+            where: { key: `${scope.projectId}:image:${request.id}` },
+          }),
+        ),
+      ).toBe(0);
+    } finally {
+      await stop();
     }
   }, 40000);
 });
