@@ -203,6 +203,130 @@ test("renders streamed text, action states, source links and cancellation", asyn
   await expect(page.getByText(/Canceled/)).toBeVisible({ timeout: 15000 });
 });
 
+test("starts a content package with one click and shows both drafts", async ({
+  page,
+}) => {
+  const user = account();
+  await page.goto("/");
+  await page.getByLabel(/^Email/).fill(user.email);
+  await page.getByLabel(/^Password/).fill(user.password);
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Your marketing, in orbit." }),
+  ).toBeVisible();
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8101";
+  const requestId = "b38d9050-3dba-4ae0-851e-98d5b59e8102";
+  const packageHash = "c".repeat(64);
+  let decision: Record<string, unknown> | null = null;
+  const deliverable = (
+    key: string,
+    channelName: string,
+    body: string | null,
+  ) => ({
+    key,
+    channelId: key,
+    channelName,
+    platform: key,
+    plannedSlotAt: null,
+    status: body ? "drafted" : "planned",
+    errorCode: null,
+    content: body ? { id: `${key}-content`, body, status: "draft" } : null,
+  });
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              id: conversationId,
+              title: "Synthetic beta package",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic beta package",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [],
+          runs: [],
+          proposals: [],
+          packages: [
+            {
+              id: "package-1",
+              goal: "Announce that beta access is open",
+              status: decision ? "completed" : "proposed",
+              ceilingMicros: 120000,
+              actionRequest: {
+                id: requestId,
+                version: 1,
+                packageHash,
+                status: decision ? "consumed" : "pending",
+              },
+              deliverables: [
+                deliverable(
+                  "x",
+                  "Synthetic X",
+                  decision ? "Beta access is open. Learn more." : null,
+                ),
+                deliverable(
+                  "telegram",
+                  "Synthetic Telegram",
+                  decision ? "Beta access is now open for teams." : null,
+                ),
+              ],
+            },
+          ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests/${requestId}/decide`,
+    (route) => {
+      decision = route.request().postDataJSON();
+      return route.fulfill({
+        json: { id: requestId, version: 2, status: "approved" },
+      });
+    },
+  );
+  await page.goto("/chat");
+  await page
+    .getByRole("button", { name: "Synthetic beta package", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "Content package" });
+  await expect(card.getByText("Confirmation required")).toBeVisible();
+  await expect(card.getByText("Synthetic Telegram")).toBeVisible();
+  await expect(card.getByText(/Nothing is published/)).toBeVisible();
+  await card.getByRole("button", { name: "Start package" }).click();
+  await expect
+    .poll(() => decision)
+    .toEqual({
+      version: 1,
+      packageHash,
+      decision: "approve",
+    });
+  await expect(card.getByText("Drafts ready")).toBeVisible();
+  await expect(
+    card.getByText("Beta access is open. Learn more."),
+  ).toBeVisible();
+  await expect(
+    card.getByText("Beta access is now open for teams."),
+  ).toBeVisible();
+  await expect(card.getByRole("button", { name: "Start package" })).toHaveCount(
+    0,
+  );
+});
+
 test("Postiz owner selects exact channels for the current project", async ({
   page,
 }) => {

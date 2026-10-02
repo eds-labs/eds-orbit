@@ -299,7 +299,28 @@ describe("proposal tool", () => {
       "approved_assets",
       "analytics_memory",
       "propose_campaign",
+      "request_content_package",
+      "package_status",
     ]);
+  });
+  it("offers the package tools only with their feature, and the request only to editors and owners", () => {
+    const names = (
+      role: "viewer" | "editor" | "owner",
+      features: "content_packages"[],
+    ) => availableTools(chatTools, role, features).map((tool) => tool.name);
+    expect(names("owner", [])).not.toContain("request_content_package");
+    expect(names("owner", [])).not.toContain("package_status");
+    expect(names("editor", ["content_packages"])).toEqual(
+      expect.arrayContaining(["request_content_package", "package_status"]),
+    );
+    expect(names("viewer", ["content_packages"])).toContain("package_status");
+    expect(names("viewer", ["content_packages"])).not.toContain(
+      "request_content_package",
+    );
+    const request = chatTools.find(
+      (tool) => tool.name === "request_content_package",
+    )!;
+    expect(request.risk).toBe("P_proposal");
   });
   it("passes a null optional mission field to createProposal as omitted", async () => {
     proposals.raw.length = 0;

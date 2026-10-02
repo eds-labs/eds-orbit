@@ -58,6 +58,7 @@ import {
   cancelRun,
   confirmProposal,
 } from "./modules/chat.ts";
+import { decideActionRequest } from "./modules/action-requests.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
   configureSlack,
@@ -1100,6 +1101,22 @@ export async function buildServer(
       const { projectId, id } = req.params as { projectId: string; id: string };
       const scope = await scopeFor(auth, req, projectId, true);
       return confirmProposal(scope, z.uuid().parse(id), req.body);
+    },
+  );
+  // Decision on one exact action request; role and checks come from its action type.
+  app.post(
+    "/api/projects/:projectId/action-requests/:id/decide",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      const decided = await scoped(scope.workspaceId, projectId, (tx) =>
+        decideActionRequest(tx, scope, z.uuid().parse(id), req.body),
+      );
+      return {
+        id: decided.id,
+        version: decided.version,
+        status: data(decided).status,
+      };
     },
   );
   app.get("/api/projects/:projectId/:collection", async (req) => {

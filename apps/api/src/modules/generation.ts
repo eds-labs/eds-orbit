@@ -192,7 +192,8 @@ async function generateMissionDraft(
       at: new Date(),
     },
     "mission:" + jobId,
-    undefined,
+    // A content package shares one run key, so one per-run limit covers all its drafts.
+    data(initial).budgetRunKey ?? undefined,
     { agentRunId: trace.runId, missionId, taskClass },
   );
   const prepared = await scoped(
@@ -332,7 +333,7 @@ async function generateMissionDraft(
         modelRoute.maxOutputTokens,
         ai,
       );
-      if (m.chatProposalId) {
+      if (m.chatProposalId || m.packageId) {
         const query = await tx.budgetReservation.findFirst({
           where: {
             projectId: scope.projectId,
@@ -366,7 +367,7 @@ async function generateMissionDraft(
         cost,
         parsed,
         new Date(),
-        "mission:" + jobId,
+        m.budgetRunKey ?? "mission:" + jobId,
         {
           agentRunId: trace.runId,
           taskClass,

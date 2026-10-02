@@ -1617,6 +1617,41 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
     }
   });
 
+  it("offers the content package tools only while content packages are enabled", async () => {
+    const offeredTools = async () => {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Which tools can you use?",
+        clientRequestId: randomUUID(),
+      });
+      mocked.tools = [];
+      await runChat(scope, sent.runId);
+      return mocked.tools as Array<{ name: string; strict: boolean }>;
+    };
+    expect((await offeredTools()).map((tool) => tool.name)).not.toContain(
+      "request_content_package",
+    );
+    process.env.ORBIT_CONTENT_PACKAGES = "true";
+    try {
+      const tools = await offeredTools();
+      expect(tools.map((tool) => tool.name)).toEqual([
+        "project_status",
+        "knowledge_search",
+        "approved_assets",
+        "analytics_memory",
+        "propose_campaign",
+        "request_content_package",
+        "package_status",
+      ]);
+      expect(tools.every((tool) => tool.strict === true)).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(tools))).toBeLessThanOrEqual(
+        7000,
+      );
+    } finally {
+      delete process.env.ORBIT_CONTENT_PACKAGES;
+    }
+  });
+
   describe("worker chat jobs", () => {
     // The worker's own infrastructure scope; a chat job must never run with it.
     const workerScope = () => ({

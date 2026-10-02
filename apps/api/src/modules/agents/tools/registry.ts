@@ -22,6 +22,8 @@ export type ToolNamespace =
   | "proposals";
 // Agents never receive tools with external or irreversible effects.
 export type ToolRisk = "R0_read" | "W0_internal" | "P_proposal";
+// Tools behind a feature flag are offered only while it is on.
+export type ToolFeature = "content_packages";
 export type ToolContext = {
   scope: Scope;
   runId: string;
@@ -37,6 +39,7 @@ export type OrbitTool = {
   parameters: z.ZodObject;
   risk: ToolRisk;
   roles: readonly ToolRole[];
+  feature?: ToolFeature;
   // Design for tool search (plan §6.4); unused until it is enabled.
   deferLoading: boolean;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
@@ -117,8 +120,13 @@ export function defineTool(tool: OrbitTool): OrbitTool {
 export function availableTools(
   registry: readonly OrbitTool[],
   role: ToolRole,
+  features: readonly ToolFeature[] = [],
 ): OrbitTool[] {
-  return registry.filter((tool) => tool.roles.includes(role));
+  return registry.filter(
+    (tool) =>
+      tool.roles.includes(role) &&
+      (!tool.feature || features.includes(tool.feature)),
+  );
 }
 
 export function findTool(

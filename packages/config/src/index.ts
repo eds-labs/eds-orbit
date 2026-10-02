@@ -33,6 +33,8 @@ export const configSchema = z.object({
   GOOGLE_DRIVE_CLIENT_SECRET: z.string().optional(),
   PUBLISHER_INSTANCE_ID: z.string().min(1).default("local-orbit"),
   LIVE_RAG_EVAL_PASSED: z.enum(["false", "true"]).default("false"),
+  // New content packages from Orbit Chat; existing packages keep running when off.
+  ORBIT_CONTENT_PACKAGES: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

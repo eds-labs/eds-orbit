@@ -25,6 +25,7 @@ import {
   runtimeOpenAiConfiguration,
 } from "./openai-configuration.ts";
 import { chatScoped, getRun } from "./chat.ts";
+import { contentPackagesEnabled } from "./agents/content-packages.ts";
 import { actorScope } from "./member-scope.ts";
 import { type ChatCard } from "./chat-tools.ts";
 import { chatTools } from "./agents/tools/index.ts";
@@ -56,6 +57,12 @@ const instructions = [
   "For website analysis, state when no current retrievable website passages are returned; never imply a live website crawl occurred.",
   "When asked what Orbit can do or what blocks an action, use project_status.readiness.actions: report each relevant action's state and blocker codes, and never treat publisher or live-write blockers as blocking internal drafts, review or export.",
   "Use knowledge_search.retrieval.mode as the reported search mode. If it is lexical_degraded, say that semantic retrieval was unavailable for that result. Never describe a search as hybrid unless the tool reports hybrid.",
+].join(" ");
+// Added only while content packages are offered.
+const packageInstructions = [
+  "When the user wants finished posts, call knowledge_search for the Verified Facts the posts may state, then request_content_package with the user's goal, the channel integration IDs and those fact keys; the server fills CTA, official link, language and timing.",
+  "It only prepares a package card. Tell the user to confirm it there; nothing runs before that and nothing is published. When a needed fact is missing or unusable, name the blocker instead of inventing a claim.",
+  "Describe drafts and their status only from package_status.",
 ].join(" ");
 async function snapshot(scope: Scope, runId: string, text: string) {
   return chatScoped(scope, async (tx) => {
@@ -231,14 +238,22 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     let modelCalls = 0;
     let toolCalls = 0;
     // Offered tools follow the caller's role; execution checks the same set.
-    const offered = availableTools(chatTools, scope.role);
+    const packages = contentPackagesEnabled();
+    const offered = availableTools(
+      chatTools,
+      scope.role,
+      packages ? ["content_packages"] : [],
+    );
+    const runInstructions = packages
+      ? instructions + " " + packageInstructions
+      : instructions;
     const toolDefinitions = offered.map(responsesTool);
     while (modelCalls < MAX_MODEL_CALLS) {
       if (controller.signal.aborted) throw new DomainError("CHAT_CANCELED");
       const bytes = Buffer.byteLength(
         JSON.stringify({
           input,
-          instructions,
+          instructions: runInstructions,
           tools: toolDefinitions,
         }),
       );
@@ -302,7 +317,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         route: prepared.modelRoute,
         input: input as OpenAI.Responses.ResponseInput,
         tools: toolDefinitions as unknown as OpenAI.Responses.Tool[],
-        instructions,
+        instructions: runInstructions,
         reservationId,
         runtime: prepared.runtime,
         signal: controller.signal,

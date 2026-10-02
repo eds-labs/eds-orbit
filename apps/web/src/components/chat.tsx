@@ -22,6 +22,11 @@ import {
 } from "./ui/primitives";
 import { PageHead } from "./work";
 import { ChatMarkdown } from "./chat-markdown";
+import {
+  PackageCard,
+  packageInProgress,
+  type ContentPackage,
+} from "./chat-package-card";
 import { useWorkspace } from "./workspace-context";
 
 type Conversation = { id: string; title: string; updatedAt: string };
@@ -82,6 +87,7 @@ type Detail = {
   messages: Message[];
   runs: Run[];
   proposals: Proposal[];
+  packages?: ContentPackage[];
 };
 const terminal = new Set(["succeeded", "blocked", "failed", "canceled"]);
 
@@ -293,8 +299,32 @@ export function OrbitChat() {
       setPending(false);
     }
   }
+  async function startPackage(pkg: ContentPackage) {
+    if (!canEdit || !pkg.actionRequest) return;
+    setPending(true);
+    setError("");
+    try {
+      await post(
+        collectionPath(
+          project.id,
+          `action-requests/${pkg.actionRequest.id}/decide`,
+        ),
+        {
+          version: pkg.actionRequest.version,
+          packageHash: pkg.actionRequest.packageHash,
+          decision: "approve",
+        },
+      );
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Start failed");
+    } finally {
+      setPending(false);
+    }
+  }
   useEffect(() => {
     if (
+      !detail.data?.packages?.some(packageInProgress) &&
       !detail.data?.proposals.some(
         (proposal) =>
           proposal.status === "confirmed" &&
@@ -506,6 +536,16 @@ export function OrbitChat() {
                   {statusLabel(stream.status, de)}: {stream.errorCode ?? "—"}
                 </Alert>
               )}
+            {(detail.data?.packages ?? []).map((pkg) => (
+              <PackageCard
+                key={pkg.id}
+                pkg={pkg}
+                de={de}
+                canStart={canEdit}
+                pending={pending}
+                onStart={startPackage}
+              />
+            ))}
             {proposals.map((proposal) => (
               <section key={proposal.id} className="chat-proposal">
                 <div className="chat-proposal-head">

@@ -43,7 +43,7 @@ export const actionDecision = z
   .strict();
 
 type ActionDefinition<P> = {
-  riskClass: "C2";
+  riskClass: "C1" | "C2";
   approvalMode: "approval_required";
   deciderRole: "owner" | "editor";
   ttlMs: number;
@@ -82,7 +82,28 @@ const imageGenerate: ActionDefinition<z.infer<typeof imageRequestPayload>> = {
     await update(tx, scope, job, { ...data(job), maxAttempts: 1 });
   },
 };
-const actionTypes = { "image.generate": imageGenerate } as const;
+// Paid drafts inside the mandate; the user confirms the exact package plan once.
+const contentPackageStart: ActionDefinition<Record<string, unknown>> = {
+  riskClass: "C1",
+  approvalMode: "approval_required",
+  deciderRole: "editor",
+  ttlMs: 24 * 3600000,
+  payload: z.record(z.string(), z.unknown()),
+  costCeilingMicros: (payload) => Number(payload.ceilingMicros),
+  // Loaded on use: the package module itself builds on action requests.
+  async revalidate(tx, scope, payload) {
+    const packages = await import("./agents/content-packages.ts");
+    await packages.revalidateContentPackage(tx, scope, payload);
+  },
+  async onApproved(tx, scope, request) {
+    const packages = await import("./agents/content-packages.ts");
+    await packages.startContentPackage(tx, scope, request);
+  },
+};
+const actionTypes = {
+  "image.generate": imageGenerate,
+  "content_package.start": contentPackageStart,
+} as const;
 export type ActionType = keyof typeof actionTypes;
 
 function definition(actionType: unknown): ActionDefinition<any> {
