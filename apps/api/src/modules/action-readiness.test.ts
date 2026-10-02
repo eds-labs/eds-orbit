@@ -23,6 +23,8 @@ const draftOnly: ReadinessInputs = {
   driveConfigured: true,
   driveConnected: true,
   driveRootConfigured: true,
+  driveReconnectRequired: false,
+  publishingUsesDriveAssets: false,
   postizConnected: true,
   postizChannelsAssigned: true,
   postizDraftsEnabled: false,
@@ -135,6 +137,52 @@ describe("action-specific readiness", () => {
       state: "blocked",
       blockers: ["APPROVED_PAID_BUDGET_REQUIRED"],
     });
+  });
+
+  it("blocks Drive saves and Drive-backed publishing after a rejected token refresh", () => {
+    const live = {
+      ...fullyVerified,
+      executionMode: "live",
+      externalWritesEnabled: true,
+      driveReconnectRequired: true,
+    };
+    const inlineOnly = actionReadiness(live);
+    expect(inlineOnly.drive_save).toMatchObject({
+      state: "blocked",
+      blockers: ["GOOGLE_DRIVE_RECONNECT_REQUIRED"],
+    });
+    // Posts with inline assets do not read Drive, so they stay publishable.
+    expect(inlineOnly.postiz_live).toMatchObject({ state: "ready" });
+    expect(inlineOnly.postiz_schedule).toMatchObject({ state: "ready" });
+    const driveBacked = actionReadiness({
+      ...live,
+      publishingUsesDriveAssets: true,
+    });
+    for (const action of ["postiz_live", "postiz_schedule"] as const)
+      expect(driveBacked[action]).toMatchObject({
+        state: "blocked",
+        blockers: ["GOOGLE_DRIVE_RECONNECT_REQUIRED"],
+      });
+    expect(driveBacked.text_draft.state).toBe("ready");
+    expect(driveBacked.postiz_draft.blockers).not.toContain(
+      "GOOGLE_DRIVE_RECONNECT_REQUIRED",
+    );
+  });
+
+  it("reports a missing connection instead of a reconnect without a token", () => {
+    const actions = actionReadiness({
+      ...draftOnly,
+      driveConnected: false,
+      driveReconnectRequired: true,
+      publishingUsesDriveAssets: true,
+    });
+    expect(actions.drive_save).toMatchObject({
+      state: "not_configured",
+      blockers: ["DRIVE_NOT_CONNECTED"],
+    });
+    expect(actions.postiz_live.blockers).not.toContain(
+      "GOOGLE_DRIVE_RECONNECT_REQUIRED",
+    );
   });
 
   it("blocks every action while the project is paused", () => {

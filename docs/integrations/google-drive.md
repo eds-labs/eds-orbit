@@ -36,6 +36,16 @@ The existing OpenAI image flow records the normalized PNG in an Orbit asset firs
 
 `GOOGLE_DRIVE_CLIENT_ID` and `GOOGLE_DRIVE_CLIENT_SECRET` are optional until a connection is attempted. Use a dedicated Google test account and an isolated test root. `APP_ORIGIN` must match the OAuth redirect origin exactly. Run `pnpm typecheck`, `pnpm lint`, and `pnpm exec vitest run apps/api/src/modules/google-drive.test.ts apps/api/src/modules/google-drive.mock.test.ts`. A real acceptance run additionally needs a reachable local database, a Google OAuth client/test user, Drive access to the chosen root, and an explicitly approved paid image generation test. Verify OAuth connect, unique-folder auto setup, ambiguous-folder selection, refresh, existing logo preview, generation, Drive upload, re-read and disconnect/reconnect with that environment. Do not infer live acceptance from typechecks or mocks.
 
+## Refresh failures and readiness
+
+Every Drive call first exchanges the stored refresh token for an access token. When Google rejects that exchange (HTTP 400, 401 or 403, for example `invalid_grant` after revocation or expiry), Orbit records `lastRefreshFailedAt` and a bounded `lastRefreshErrorCode` (a known OAuth error code or `HTTP_<status>`; never the provider description) on the project's `drive_connection` record. The API error stays `GOOGLE_DRIVE_OAUTH_FAILED`. Rate limits, server errors and timeouts are treated as transient and are not recorded. The next successful refresh, a reconnect or a disconnect clears the state; a failure recorded for a token that was replaced meanwhile is discarded.
+
+Readiness uses only this recorded state and never calls Google, so a dashboard load costs no Google request. A failure therefore becomes visible after the next Drive use, such as **Test connection**, a Drive upload retry, a preview or a publish that reads a Drive asset. While it is set:
+
+- `drive_save` is blocked with `GOOGLE_DRIVE_RECONNECT_REQUIRED`.
+- `postiz_schedule` and `postiz_live`, plus the global readiness blockers, report the same code when enabled autopilot settings or a running mission (`ready`, `awaiting_followup`) reference an asset whose bytes exist only in Drive (`driveFileId` without inline bytes). Live posts read such assets at publish time. The global blockers also refuse activating a live autopilot policy.
+- Settings → Integrations · Google Drive shows **Reconnect required**. The status endpoint returns `reconnectRequired`, `lastRefreshFailedAt` and `lastRefreshErrorCode`.
+
 ## Production and rollback
 
 Before production setup, back up the Orbit database, verify restore, provision the OAuth client/redirect URI and secret values through the deployment secret store, and complete Google scope review. Monitor OAuth refresh failures, `FAILED` Drive sync states, retry exhaustion and Drive API quota errors. Rollback is to disable Google Drive storage for the project and revert the application version; existing Drive files and Orbit asset records remain. Do not delete Drive files during rollback. Disconnect only removes the refresh token.
@@ -44,7 +54,8 @@ Before production setup, back up the Orbit database, verify restore, provision t
 
 - `GOOGLE_DRIVE_NOT_CONFIGURED`: set both OAuth client variables on the server.
 - `GOOGLE_DRIVE_OAUTH_STATE_INVALID`: restart connect; the ten-minute state expired, was used, or belongs to another session/project.
-- `GOOGLE_DRIVE_RECONNECT_REQUIRED`: reconnect the Google account; its refresh grant may have been revoked.
+- `GOOGLE_DRIVE_RECONNECT_REQUIRED`: reconnect the Google account; its refresh grant may have been revoked. As a readiness blocker, it means Google rejected the last recorded refresh (see `lastRefreshErrorCode` in the Drive status).
+- `GOOGLE_DRIVE_OAUTH_FAILED`: the token exchange failed. If the Drive status then shows **Reconnect required**, reconnect; otherwise retry later, as the failure was transient.
 - `GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT`: choose a folder inside the configured project root.
 - `GOOGLE_DRIVE_REQUEST_FAILED`: inspect Google consent, API enablement, folder permission and quota without logging credentials.
 - `FAILED` on a generated asset: use Retry Drive upload after checking the connection; the local result is retained.

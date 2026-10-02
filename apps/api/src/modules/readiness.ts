@@ -7,6 +7,10 @@ import { publicOpenAiConfiguration } from "./openai-configuration.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
 import { actionReadiness } from "./action-readiness.ts";
 import { loadConfig } from "../../../../packages/config/src/index.ts";
+import {
+  driveReconnectRequired,
+  publishingUsesDriveAssets,
+} from "./drive-readiness.ts";
 export async function readiness(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
@@ -64,6 +68,13 @@ export async function readiness(tx: DbTx, scope: Scope) {
       (c) =>
         data(c).provider === "matomo" && data(c).status === "read_verified",
     );
+  const driveConnection = (await list(tx, scope, "drive_connection"))[0],
+    driveStorage = (await list(tx, scope, "drive_storage"))[0];
+  // Recorded refresh state only; readiness never calls Google. Asset usage is
+  // checked only when the connection is known to be broken.
+  const driveReconnect = driveReconnectRequired(driveConnection),
+    drivePublishing =
+      driveReconnect && (await publishingUsesDriveAssets(tx, scope));
   const blockers = [
     ...(!knowledge ? ["CURRENT_PUBLIC_KNOWLEDGE_REQUIRED"] : []),
     ...(!policy ? ["OWNER_POLICY_REQUIRED"] : []),
@@ -85,11 +96,10 @@ export async function readiness(tx: DbTx, scope: Scope) {
         process.env.PUBLISHER_INSTANCE_ID)
       ? ["CHANNEL_WRITE_VERIFICATION_REQUIRED"]
       : []),
+    ...(drivePublishing ? ["GOOGLE_DRIVE_RECONNECT_REQUIRED"] : []),
     ...(project.paused ? ["PROJECT_PAUSED"] : []),
   ];
   const image = openAi.imageGeneration ?? {};
-  const driveConnection = (await list(tx, scope, "drive_connection"))[0],
-    driveStorage = (await list(tx, scope, "drive_storage"))[0];
   const config = loadConfig();
   const postizConnector = connectors.find((c) => data(c).provider === "postiz");
   const postiz =
@@ -132,6 +142,8 @@ export async function readiness(tx: DbTx, scope: Scope) {
       data(driveStorage).rootFolderId &&
       data(driveStorage).enabled === true,
     ),
+    driveReconnectRequired: driveReconnect,
+    publishingUsesDriveAssets: drivePublishing,
     postizConnected: Boolean(postiz),
     postizChannelsAssigned: assignedChannels.length > 0,
     postizDraftsEnabled: process.env.ENABLE_POSTIZ_DRAFTS === "true",

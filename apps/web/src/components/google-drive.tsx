@@ -9,6 +9,8 @@ import { FolderOpen, RefreshCw } from "lucide-react";
 type Status = {
   configured: boolean;
   connected: boolean;
+  reconnectRequired: boolean;
+  lastRefreshFailedAt: string | null;
   account: string | null;
   rootFolderId: string | null;
   brandLogoFolderId: string | null;
@@ -74,12 +76,21 @@ export function GoogleDriveSettings() {
           <p>Private project assets and generated media.</p>
         </div>
         <span>
-          {status.data?.connected
-            ? `Connected · ${status.data.account}`
-            : "Disconnected"}
+          {status.data?.reconnectRequired
+            ? `Reconnect required · ${status.data.account}`
+            : status.data?.connected
+              ? `Connected · ${status.data.account}`
+              : "Disconnected"}
         </span>
       </div>
       {status.error && <Alert kind="error">{status.error.message}</Alert>}
+      {status.data?.reconnectRequired && (
+        <Alert kind="error">
+          {locale === "de"
+            ? "Google hat den gespeicherten Drive-Zugriff abgelehnt. Drive-Assets können weder gelesen noch gespeichert werden, bis ein Owner Google Drive erneut verbindet."
+            : "Google rejected the stored Drive access. Drive assets cannot be read or saved until an owner reconnects Google Drive."}
+        </Alert>
+      )}
       {status.data && !status.data.configured && (
         <Alert>
           {locale === "de"
@@ -129,7 +140,10 @@ export function GoogleDriveSettings() {
                 const result = await api<{
                   healthy: boolean;
                   rootAccessible: boolean;
-                }>(`${base}/health`);
+                }>(`${base}/health`).catch((error) => {
+                  status.refresh();
+                  throw error;
+                });
                 setHealth(
                   result.rootAccessible
                     ? "Connection healthy · root accessible"
