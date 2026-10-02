@@ -40,7 +40,7 @@ export const packageTools: readonly OrbitTool[] = [
           .string()
           .nullable()
           .describe(
-            "Only if the user asked for an image: one artwork description without text, logos, UI or claims. Owners only.",
+            "Only if the user asked for an image: one artwork description without text, logos, UI or claims. For an editor the image waits for an owner's approval.",
           ),
         intendedDate: z
           .string()

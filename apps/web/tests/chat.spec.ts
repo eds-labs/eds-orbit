@@ -447,6 +447,70 @@ test("cancels a running content package and shows what stopped", async ({
   ).toHaveCount(0);
 });
 
+test("owner approves an editor's package image from the approvals inbox", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const requestId = "b38d9050-3dba-4ae0-851e-98d5b59e8301";
+  let decision: Record<string, unknown> | null = null;
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: decision
+            ? []
+            : [
+                {
+                  id: requestId,
+                  version: 1,
+                  actionType: "image.generate",
+                  packageHash: "d".repeat(64),
+                  costCeilingMicros: 50000,
+                  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                  requestedBy: { kind: "user", userId: "editor-1" },
+                  summary: {
+                    prompt: "Abstract open door of soft light, no text",
+                    model: "gpt-image-2.5-flare",
+                    maxCostMicros: 50000,
+                    size: "1024x1024",
+                    quality: "medium",
+                    packageGoal: "Announce that beta access is open",
+                  },
+                },
+              ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests/${requestId}/decide`,
+    (route) => {
+      decision = route.request().postDataJSON();
+      return route.fulfill({
+        json: { id: requestId, version: 2, status: "approved" },
+      });
+    },
+  );
+  await page.goto("/approvals");
+  const inbox = page.getByRole("region", { name: "Open decisions" });
+  await expect(inbox.getByText("Generate image")).toBeVisible();
+  await expect(
+    inbox.getByText("Abstract open door of soft light, no text"),
+  ).toBeVisible();
+  await expect(
+    inbox.getByText("Package: Announce that beta access is open"),
+  ).toBeVisible();
+  await inbox.getByRole("button", { name: "Approve" }).click();
+  await expect
+    .poll(() => decision)
+    .toEqual({
+      version: 1,
+      packageHash: "d".repeat(64),
+      decision: "approve",
+    });
+  await expect(inbox).toHaveCount(0);
+});
+
 test("Postiz owner selects exact channels for the current project", async ({
   page,
 }) => {

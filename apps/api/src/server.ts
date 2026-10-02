@@ -58,7 +58,10 @@ import {
   cancelRun,
   confirmProposal,
 } from "./modules/chat.ts";
-import { decideActionRequest } from "./modules/action-requests.ts";
+import {
+  decideActionRequest,
+  listActionRequests,
+} from "./modules/action-requests.ts";
 import { cancelContentPackage } from "./modules/agents/content-packages.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
@@ -1109,6 +1112,16 @@ export async function buildServer(
     const { projectId, id } = req.params as { projectId: string; id: string };
     const scope = await scopeFor(auth, req, projectId, true);
     return cancelContentPackage(scope, z.uuid().parse(id));
+  });
+  // Owners' open decisions (image requests from editors' packages and others).
+  app.get("/api/projects/:projectId/action-requests", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        listActionRequests(tx, scope),
+      ),
+    };
   });
   // Decision on one exact action request; role and checks come from its action type.
   app.post(

@@ -245,3 +245,63 @@ export async function cancelActionRequest(tx: DbTx, scope: Scope, id: string) {
   });
   return canceled;
 }
+
+/**
+ * Owners' open decisions: pending, unexpired requests whose action type needs
+ * an owner, newest first, with what the owner must see to decide.
+ */
+export async function listActionRequests(tx: DbTx, scope: Scope) {
+  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: KIND,
+      data: { path: ["status"], equals: "pending" },
+    },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+  const items = [];
+  for (const row of rows) {
+    const d = data(row);
+    const type = actionTypes[d.actionType as ActionType];
+    if (!type || type.deciderRole !== "owner") continue;
+    if (Date.parse(d.expiresAt) <= Date.now()) continue;
+    const packageId = String(d.payload?.budgetRunKey ?? "").startsWith(
+      "package:",
+    )
+      ? String(d.payload.budgetRunKey).slice("package:".length)
+      : null;
+    const pkg = packageId
+      ? await tx.entity.findFirst({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: "content_packages",
+            id: packageId,
+          },
+        })
+      : null;
+    items.push({
+      id: row.id,
+      version: row.version,
+      actionType: d.actionType,
+      riskClass: d.riskClass,
+      packageHash: d.packageHash,
+      costCeilingMicros: d.costCeilingMicros,
+      expiresAt: d.expiresAt,
+      createdAt: row.createdAt,
+      requestedBy: d.requestedBy,
+      summary: {
+        prompt: d.payload?.prompt,
+        model: d.payload?.model,
+        maxCostMicros: d.payload?.maxCostMicros,
+        size: d.payload?.size,
+        quality: d.payload?.quality,
+        packageGoal: pkg ? data(pkg).goal : null,
+      },
+    });
+  }
+  return items;
+}

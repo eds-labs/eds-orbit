@@ -259,9 +259,6 @@ export async function requestContentPackage(
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const request = contentPackageRequest.parse(raw);
-  // Image decisions belong to owners; there is no owner inbox for editors' packages yet.
-  if (request.imageBrief && scope.role !== "owner")
-    throw new DomainError("IMAGE_OWNER_REQUIRED", 403);
   return chatScoped(scope, async (tx) => {
     await conversation(tx, scope, conversationId);
     const pkg = await create(tx, scope, KIND, {
@@ -312,8 +309,6 @@ export async function revalidateContentPackage(
   const pkg = await entity(tx, scope, KIND, plan.packageId);
   if (data(pkg).userId !== scope.userId)
     throw new DomainError("FORBIDDEN", 403);
-  if (plan.image && scope.role !== "owner")
-    throw new DomainError("IMAGE_OWNER_REQUIRED", 403);
   const current = await buildPackagePlan(
     tx,
     scope,
@@ -374,12 +369,14 @@ export async function startContentPackage(
       { kind: "user", userId: scope.userId },
       { budgetRunKey: `package:${plan.packageId}` },
     );
-    // The owner's start click covered the shown prompt and image ceiling.
-    await decideActionRequest(tx, scope, imageRequest.id, {
-      version: imageRequest.version,
-      packageHash: data(imageRequest).packageHash,
-      decision: "approve",
-    });
+    // An owner's start click covers the shown prompt and image ceiling;
+    // an editor's image waits in the owners' approval inbox.
+    if (scope.role === "owner")
+      await decideActionRequest(tx, scope, imageRequest.id, {
+        version: imageRequest.version,
+        packageHash: data(imageRequest).packageHash,
+        decision: "approve",
+      });
     steps.push({
       key: "image",
       kind: "image",
@@ -564,8 +561,12 @@ async function imageState(
       href: `/api/projects/${scope.projectId}/assets/${asset.id}/content`,
     };
   if (request.status === "canceled") return { ...base, status: "canceled" };
+  if (request.status === "rejected")
+    return { ...base, status: "failed", errorCode: "IMAGE_REJECTED" };
   if (request.status === "pending")
-    return { ...base, status: "awaiting_approval" };
+    return Date.parse(request.expiresAt) <= Date.now()
+      ? { ...base, status: "failed", errorCode: "IMAGE_APPROVAL_EXPIRED" }
+      : { ...base, status: "awaiting_approval" };
   const reservation = await tx.budgetReservation.findFirst({
     where: {
       projectId: scope.projectId,

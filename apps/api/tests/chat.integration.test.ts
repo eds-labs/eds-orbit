@@ -369,4 +369,15 @@ describe.skipIf(!enabled)("Orbit Chat private and idempotent API", () => {
     expect((await cancel(viewerCookie)).statusCode).toBe(403);
     expect((await cancel(ownerCookie)).statusCode).toBe(404);
   });
+  it("lists pending owner decisions only for owners", async () => {
+    const list = (cookie: string) =>
+      app.inject({
+        url: `/api/projects/${projectId}/action-requests`,
+        headers: { cookie },
+      });
+    expect((await list(viewerCookie)).statusCode).toBe(403);
+    const owned = await list(ownerCookie);
+    expect(owned.statusCode).toBe(200);
+    expect(Array.isArray(owned.json().items)).toBe(true);
+  });
 });

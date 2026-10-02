@@ -30,7 +30,10 @@ import { ingest, setFact } from "../../../packages/knowledge/src/index.ts";
 import { create, data, entity, list, update } from "../src/shared.ts";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { createConversation, getConversation } from "../src/modules/chat.ts";
-import { decideActionRequest } from "../src/modules/action-requests.ts";
+import {
+  decideActionRequest,
+  listActionRequests,
+} from "../src/modules/action-requests.ts";
 import { deterministicDraft } from "../src/modules/workflow.ts";
 import { zonedTime } from "../src/modules/posting-slots.ts";
 import {
@@ -460,10 +463,123 @@ describe.skipIf(!enabled)("Content packages from one chat request", () => {
       });
     });
 
-    it("does not let an editor add an image without an owner", async () => {
-      await expect(ask(editor, { imageBrief: IMAGE_BRIEF })).rejects.toThrow(
-        "IMAGE_OWNER_REQUIRED",
+    // An editor's start click starts the drafts; the image waits for an owner.
+    const editorPackageWithImage = async () => {
+      const asked = await ask(editor, { imageBrief: IMAGE_BRIEF });
+      await approve(editor, asked.actionRequest);
+      const steps = data(
+        await run((tx) =>
+          entity(tx, owner, "content_packages", asked.package.id),
+        ),
+      ).steps as Array<{ kind: string; actionRequestId?: string }>;
+      const imageRequestId = steps.find(
+        (s) => s.kind === "image",
+      )!.actionRequestId!;
+      return {
+        ...asked,
+        missions: await missionsOf(asked.package.id),
+        imageRequestId,
+      };
+    };
+    const inbox = (scope: Scope) => run((tx) => listActionRequests(tx, scope));
+
+    it("lets an editor's package image wait for an owner, who approves it from the inbox", async () => {
+      const {
+        package: pkg,
+        missions,
+        imageRequestId,
+      } = await editorPackageWithImage();
+      expect(await jobsFor([imageRequestId])).toHaveLength(0);
+      expect((await snapshot(pkg.id)).image).toMatchObject({
+        status: "awaiting_approval",
+      });
+      await expect(inbox(editor)).rejects.toThrow("OWNER_REQUIRED");
+      const pending = (await inbox(owner)).find(
+        (item) => item.id === imageRequestId,
+      )!;
+      expect(pending).toMatchObject({
+        actionType: "image.generate",
+        costCeilingMicros: IMAGE_MAX,
+        requestedBy: { userId: editor.userId },
+        summary: {
+          prompt: IMAGE_BRIEF,
+          model: IMAGE_MODEL,
+          maxCostMicros: IMAGE_MAX,
+          packageGoal: "Announce that beta access is open for product teams",
+        },
+      });
+      await run((tx) =>
+        decideActionRequest(tx, owner, imageRequestId, {
+          version: pending.version,
+          packageHash: pending.packageHash,
+          decision: "approve",
+        }),
       );
+      expect(
+        (await inbox(owner)).some((item) => item.id === imageRequestId),
+      ).toBe(false);
+      const [imageJob] = await jobsFor([imageRequestId]);
+      expect(data(imageJob)).toMatchObject({ actorId: owner.userId });
+      await draftAll(missions);
+      await runImageJob(
+        worker(),
+        owner.userId,
+        imageRequestId,
+        imageJob!.id,
+        image().generate,
+      );
+      expect((await snapshot(pkg.id)).status).toBe("completed");
+    });
+
+    it("keeps the drafts when an owner rejects the package image", async () => {
+      const {
+        package: pkg,
+        missions,
+        imageRequestId,
+      } = await editorPackageWithImage();
+      await draftAll(missions);
+      const pending = (await inbox(owner)).find(
+        (item) => item.id === imageRequestId,
+      )!;
+      await run((tx) =>
+        decideActionRequest(tx, owner, imageRequestId, {
+          version: pending.version,
+          packageHash: pending.packageHash,
+          decision: "reject",
+        }),
+      );
+      const result = await snapshot(pkg.id);
+      expect(result.image).toMatchObject({
+        status: "failed",
+        errorCode: "IMAGE_REJECTED",
+      });
+      expect(result.status).toBe("partially_completed");
+      expect(await jobsFor([imageRequestId])).toHaveLength(0);
+    });
+
+    it("reports an image approval that expired without a decision", async () => {
+      const {
+        package: pkg,
+        missions,
+        imageRequestId,
+      } = await editorPackageWithImage();
+      await draftAll(missions);
+      await run(async (tx) => {
+        const row = await entity(tx, owner, "action_requests", imageRequestId);
+        await update(tx, owner, row, {
+          ...data(row),
+          expiresAt: new Date(Date.now() - 1000).toISOString(),
+        });
+      });
+      expect(
+        (await inbox(owner)).some((item) => item.id === imageRequestId),
+      ).toBe(false);
+      const result = await snapshot(pkg.id);
+      expect(result.image).toMatchObject({
+        status: "failed",
+        errorCode: "IMAGE_APPROVAL_EXPIRED",
+      });
+      expect(result.status).toBe("partially_completed");
     });
 
     it("combines two reviewed drafts and one generated image in one result", async () => {

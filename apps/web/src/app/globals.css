@@ -3082,6 +3082,17 @@ body:has(dialog[open]) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.action-request-inbox {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.action-request {
+  border: 1px solid #f2d7a6;
+  border-radius: 12px;
+  background: #fffaf0;
+  padding: 12px;
+}
 .chat-package-image {
   border: 1px solid var(--border);
   border-radius: 12px;
