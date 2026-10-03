@@ -3064,6 +3064,51 @@ body:has(dialog[open]) {
   justify-content: flex-start;
   margin-top: 12px;
 }
+.chat-package-deliverables {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+.chat-package-deliverables > li {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  padding: 12px;
+}
+.chat-package-draft {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.action-request-inbox {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.action-request {
+  border: 1px solid #f2d7a6;
+  border-radius: 12px;
+  background: #fffaf0;
+  padding: 12px;
+}
+.chat-package-image {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.chat-package-image img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+.chat-package-note {
+  color: var(--muted-foreground);
+  margin: 8px 0;
+}
 .chat-compose {
   border-top: 1px solid var(--border);
   padding: 16px;

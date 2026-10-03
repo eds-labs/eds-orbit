@@ -26,3 +26,12 @@ Keeping hand-written schemas avoids a generator but repeats the failure class se
 ## Consequences
 
 One schema source per tool, strict calls, and a clean path to tool search and a future MCP server. Adding a tool requires registry metadata, tests for role/capability filtering and output caps.
+
+## Addendum 2026-10-02: client-executed tool search implemented
+
+- Trigger reached: with the Orbit Core tools the chat exposes 11 tools and about 7 KB of definitions, at the 7,000-byte guard.
+- Implementation (`apps/api/src/modules/chat-runner.ts`, `agents/tools/registry.ts`), behind `ORBIT_TOOL_SEARCH` (default `false`) and only when the chat route's model is `gpt-5.4` or later (`supportsToolSearch`). The request carries the always-loaded core (`project_status`, `knowledge_search`, `propose_campaign`, `request_content_package`, `package_status`) plus `{type:"tool_search", execution:"client"}` with a `goal` parameter. Deferred (`deferLoading: true`): `approved_assets`, `analytics_memory`, `revise_package_deliverable`, `recent_content`, `schedule_options`, `propose_schedule`.
+- Orbit answers each `tool_search_call` with a `tool_search_output` for the same `call_id`: strict function definitions marked `defer_loading`, at most three tools whose name, namespace or description share goal words (at least half the best score), or every candidate when nothing matches. Candidates are only the deferred tools the user's role and features allow; execution still checks the role's full set, so a forged call stays refused. The search is deterministic and costs no model call. It counts toward the eight tool calls per run, and found definitions count toward the 32,000-byte input cap.
+- The tool list stays the same for a whole run, so the cached prefix holds; found tools enter at the end of the input as the guide recommends. The core definitions are about 4.7 KB (guarded at 5,000 bytes); the full set with the flag off stays guarded at 7,000 bytes, so new tools still need the flag on in production once that guard is reached.
+- With the flag off, or on a model before `gpt-5.4`, every offered tool is loaded as before and no route lookup is added.
+- Not yet verified against the live API: enabling it in production needs one small paid check with the configured chat model, approved by Mario.

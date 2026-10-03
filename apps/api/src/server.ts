@@ -58,6 +58,13 @@ import {
   cancelRun,
   confirmProposal,
 } from "./modules/chat.ts";
+import {
+  decideActionRequest,
+  listActionRequests,
+} from "./modules/action-requests.ts";
+import { cancelContentPackage } from "./modules/agents/content-packages.ts";
+import { attachPackageImage } from "./modules/agents/package-image.ts";
+import { cancelPackageSchedule } from "./modules/agents/package-schedule.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
   configureSlack,
@@ -1100,6 +1107,56 @@ export async function buildServer(
       const { projectId, id } = req.params as { projectId: string; id: string };
       const scope = await scopeFor(auth, req, projectId, true);
       return confirmProposal(scope, z.uuid().parse(id), req.body);
+    },
+  );
+  // Stops what has not started; the requester only.
+  app.post("/api/projects/:projectId/chat/packages/:id/cancel", async (req) => {
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    return cancelContentPackage(scope, z.uuid().parse(id));
+  });
+  // Attaches the package's rights-approved image to chosen drafts; the requester only.
+  app.post(
+    "/api/projects/:projectId/chat/packages/:id/attach-image",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      return attachPackageImage(scope, z.uuid().parse(id), req.body);
+    },
+  );
+  // Cancels a package post's schedule before the handoff; the requester or an owner.
+  app.post(
+    "/api/projects/:projectId/chat/packages/:id/unschedule",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      return cancelPackageSchedule(scope, z.uuid().parse(id), req.body);
+    },
+  );
+  // Owners' open decisions (image requests from editors' packages and others).
+  app.get("/api/projects/:projectId/action-requests", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        listActionRequests(tx, scope),
+      ),
+    };
+  });
+  // Decision on one exact action request; role and checks come from its action type.
+  app.post(
+    "/api/projects/:projectId/action-requests/:id/decide",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      const decided = await scoped(scope.workspaceId, projectId, (tx) =>
+        decideActionRequest(tx, scope, z.uuid().parse(id), req.body),
+      );
+      return {
+        id: decided.id,
+        version: decided.version,
+        status: data(decided).status,
+      };
     },
   );
   app.get("/api/projects/:projectId/:collection", async (req) => {

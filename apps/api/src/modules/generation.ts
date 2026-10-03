@@ -2,7 +2,7 @@ import { postingSlot } from "./posting-slots.ts";
 import { resolveFactPlaceholders } from "./fact-placeholders.ts";
 import { finishMissionRun } from "./planning.ts";
 import { retrieveHybrid } from "./retrieval.ts";
-import { scoped } from "../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   retrieve,
@@ -77,7 +77,29 @@ type GenerationContract = {
     size: number;
     previousDrafts: { title: string; claims: string[] }[];
   } | null;
+  // Present only for a package revision of one existing draft.
+  revision?: { instruction: string; previousBody: string };
 };
+/** The draft a revision changes; it must still be the version the user asked to revise. */
+async function revisionContext(
+  tx: DbTx,
+  scope: Scope,
+  revisionOf: { contentId: string; version: number; instruction: string },
+) {
+  const parent = await entity(tx, scope, "content", revisionOf.contentId);
+  if (parent.version !== revisionOf.version)
+    throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+  return {
+    instruction: revisionOf.instruction,
+    previousBody: String(data(parent).body ?? ""),
+  };
+}
+
+/** Channel limits for attached media apply to approved assets and to a planned package image. */
+export function missionHasMedia(m: Record<string, any>) {
+  return Boolean(m.assetIds?.length) || m.mediaPlanned === true;
+}
+
 export async function generateMissionLive(
   scope: Scope,
   missionId: string,
@@ -192,7 +214,8 @@ async function generateMissionDraft(
       at: new Date(),
     },
     "mission:" + jobId,
-    undefined,
+    // A content package shares one run key, so one per-run limit covers all its drafts.
+    data(initial).budgetRunKey ?? undefined,
     { agentRunId: trace.runId, missionId, taskClass },
   );
   const prepared = await scoped(
@@ -258,7 +281,7 @@ async function generateMissionDraft(
         scope,
         channel,
         m.contentType,
-        !!m.assetIds?.length,
+        missionHasMedia(m),
       );
       const targetUrl =
         campaignContext?.officialTargetUrl ?? m.targetUrl ?? null;
@@ -270,7 +293,11 @@ async function generateMissionDraft(
         reservedCharacters > channelRules.characterLimit
       )
         throw new DomainError("CHANNEL_LIMIT_EXCEEDED", 409);
+      const revision = m.revisionOf
+        ? await revisionContext(tx, scope, m.revisionOf)
+        : null;
       const contract: GenerationContract = {
+        ...(revision ? { revision } : {}),
         goal: m.goal,
         audience: m.audience,
         product: campaignContext?.product ?? m.product,
@@ -332,7 +359,7 @@ async function generateMissionDraft(
         modelRoute.maxOutputTokens,
         ai,
       );
-      if (m.chatProposalId) {
+      if (m.chatProposalId || m.packageId) {
         const query = await tx.budgetReservation.findFirst({
           where: {
             projectId: scope.projectId,
@@ -366,7 +393,7 @@ async function generateMissionDraft(
         cost,
         parsed,
         new Date(),
-        "mission:" + jobId,
+        m.budgetRunKey ?? "mission:" + jobId,
         {
           agentRunId: trace.runId,
           taskClass,
@@ -420,6 +447,9 @@ async function generateMissionDraft(
       Date.now() < Date.parse(data(current).startAt) ||
       Date.now() >= Date.parse(data(current).endAt) ||
       !valid.valid ||
+      (data(mission).revisionOf &&
+        (await entity(tx, scope, "content", data(mission).revisionOf.contentId))
+          .version !== data(mission).revisionOf.version) ||
       hash(currentCampaignContext) !== hash(prepared.campaignContext) ||
       hash(
         await resolveChannelRules(
@@ -429,7 +459,7 @@ async function generateMissionDraft(
             (data(mission).completedRuns ?? 0) % data(mission).channels.length
           ],
           data(mission).contentType,
-          !!data(mission).assetIds?.length,
+          missionHasMedia(data(mission)),
         ),
       ) !== hash(prepared.channelRules)
     )
@@ -557,7 +587,7 @@ async function generateMissionDraft(
             (data(mission).completedRuns ?? 0) % data(mission).channels.length
           ],
           data(mission).contentType,
-          !!data(mission).assetIds?.length,
+          missionHasMedia(data(mission)),
         ),
       ) !== hash(prepared.channelRules)
     )

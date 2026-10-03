@@ -3,9 +3,13 @@ import { z } from "zod";
 import {
   availableTools,
   defineTool,
+  deferredDefinition,
   dropNullFields,
   findTool,
   responsesTool,
+  searchTools,
+  supportsToolSearch,
+  TOOL_SEARCH,
   type OrbitTool,
 } from "./registry.ts";
 
@@ -299,7 +303,44 @@ describe("proposal tool", () => {
       "approved_assets",
       "analytics_memory",
       "propose_campaign",
+      "request_content_package",
+      "package_status",
+      "revise_package_deliverable",
+      "recent_content",
+      "schedule_options",
+      "propose_schedule",
     ]);
+  });
+  it("offers the package tools only with their feature, and the request only to editors and owners", () => {
+    const names = (
+      role: "viewer" | "editor" | "owner",
+      features: "content_packages"[],
+    ) => availableTools(chatTools, role, features).map((tool) => tool.name);
+    expect(names("owner", [])).not.toContain("request_content_package");
+    expect(names("owner", [])).not.toContain("package_status");
+    expect(names("editor", ["content_packages"])).toEqual(
+      expect.arrayContaining(["request_content_package", "package_status"]),
+    );
+    expect(names("viewer", ["content_packages"])).toContain("package_status");
+    expect(names("viewer", ["content_packages"])).toContain("recent_content");
+    expect(names("owner", [])).not.toContain("recent_content");
+    expect(names("viewer", ["content_packages"])).toContain("schedule_options");
+    expect(names("owner", [])).not.toContain("schedule_options");
+    expect(names("viewer", ["content_packages"])).not.toContain(
+      "request_content_package",
+    );
+    expect(names("viewer", ["content_packages"])).not.toContain(
+      "propose_schedule",
+    );
+    expect(names("editor", ["content_packages"])).toContain("propose_schedule");
+    const request = chatTools.find(
+      (tool) => tool.name === "request_content_package",
+    )!;
+    expect(request.risk).toBe("P_proposal");
+    // Scheduling is only ever proposed; an owner decides the exact post.
+    expect(
+      chatTools.find((tool) => tool.name === "propose_schedule")!.risk,
+    ).toBe("P_proposal");
   });
   it("passes a null optional mission field to createProposal as omitted", async () => {
     proposals.raw.length = 0;
@@ -334,5 +375,83 @@ describe("proposal tool", () => {
         },
       ],
     });
+  });
+});
+
+describe("client-executed tool search", () => {
+  const deferred = [
+    tool({
+      name: "schedule_options",
+      namespace: "calendar",
+      description: "Free and taken slots per channel.",
+      deferLoading: true,
+    }),
+    tool({
+      name: "propose_schedule",
+      namespace: "calendar",
+      description: "Propose or move a package post's slot.",
+      deferLoading: true,
+    }),
+    tool({
+      name: "recent_content",
+      namespace: "content",
+      description: "Recent drafts and posts per channel.",
+      deferLoading: true,
+    }),
+    tool({
+      name: "analytics_memory",
+      namespace: "analytics",
+      description: "Measured performance memory.",
+      deferLoading: true,
+    }),
+  ];
+  const names = (found: OrbitTool[]) => found.map((t) => t.name);
+
+  it("returns the deferred tools that match the goal, best first and at most three", () => {
+    expect(
+      names(searchTools(deferred, "Propose a slot to schedule the X post")),
+    ).toEqual(["propose_schedule", "schedule_options"]);
+    // Weak matches below half of the best match are left out.
+    expect(names(searchTools(deferred, "recent posts on X"))).toEqual([
+      "recent_content",
+    ]);
+    expect(
+      searchTools(deferred, "slots schedule posts channel recent analytics")
+        .length,
+    ).toBeLessThanOrEqual(3);
+  });
+
+  it("returns every deferred tool when nothing matches, for example a German goal", () => {
+    expect(names(searchTools(deferred, "Termin für morgen finden"))).toEqual(
+      names(deferred),
+    );
+    expect(searchTools([], "anything")).toEqual([]);
+  });
+
+  it("loads found tools as strict deferred function definitions", () => {
+    expect(deferredDefinition(deferred[0]!)).toMatchObject({
+      type: "function",
+      name: "schedule_options",
+      strict: true,
+      defer_loading: true,
+    });
+    expect(TOOL_SEARCH).toMatchObject({
+      type: "tool_search",
+      execution: "client",
+      parameters: {
+        type: "object",
+        required: ["goal"],
+        additionalProperties: false,
+      },
+    });
+  });
+
+  it("uses tool search only on models from gpt-5.4", () => {
+    expect(supportsToolSearch("gpt-5.4")).toBe(true);
+    expect(supportsToolSearch("gpt-5.6-terra")).toBe(true);
+    expect(supportsToolSearch("gpt-6-astra")).toBe(true);
+    expect(supportsToolSearch("gpt-5.3-mini")).toBe(false);
+    expect(supportsToolSearch("gpt-4.1")).toBe(false);
+    expect(supportsToolSearch("synthetic-model")).toBe(false);
   });
 });

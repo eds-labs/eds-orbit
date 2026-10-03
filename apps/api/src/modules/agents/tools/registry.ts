@@ -22,6 +22,8 @@ export type ToolNamespace =
   | "proposals";
 // Agents never receive tools with external or irreversible effects.
 export type ToolRisk = "R0_read" | "W0_internal" | "P_proposal";
+// Tools behind a feature flag are offered only while it is on.
+export type ToolFeature = "content_packages";
 export type ToolContext = {
   scope: Scope;
   runId: string;
@@ -37,6 +39,7 @@ export type OrbitTool = {
   parameters: z.ZodObject;
   risk: ToolRisk;
   roles: readonly ToolRole[];
+  feature?: ToolFeature;
   // Design for tool search (plan §6.4); unused until it is enabled.
   deferLoading: boolean;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
@@ -117,8 +120,13 @@ export function defineTool(tool: OrbitTool): OrbitTool {
 export function availableTools(
   registry: readonly OrbitTool[],
   role: ToolRole,
+  features: readonly ToolFeature[] = [],
 ): OrbitTool[] {
-  return registry.filter((tool) => tool.roles.includes(role));
+  return registry.filter(
+    (tool) =>
+      tool.roles.includes(role) &&
+      (!tool.feature || features.includes(tool.feature)),
+  );
 }
 
 export function findTool(
@@ -134,6 +142,58 @@ export function findTool(
  * Strict tool calls send null for every optional field the model leaves
  * empty; the server contracts expect such fields to be absent.
  */
+/** Tool search runs in Orbit (ADR 0007); the Responses API supports it from gpt-5.4. */
+export function supportsToolSearch(model: string) {
+  const version = /^gpt-(\d+)(?:\.(\d+))?/.exec(model);
+  if (!version) return false;
+  const major = Number(version[1]);
+  return major > 5 || (major === 5 && Number(version[2] ?? 0) >= 4);
+}
+
+// Client-executed: Orbit answers every search with tools this run may use.
+export const TOOL_SEARCH = {
+  type: "tool_search",
+  execution: "client",
+  description:
+    "Load more Orbit tools when the loaded ones do not fit: slots and scheduling, content history, revisions, assets, analytics.",
+  parameters: {
+    type: "object",
+    properties: {
+      goal: { type: "string", description: "What you need to do next" },
+    },
+    required: ["goal"],
+    additionalProperties: false,
+  },
+} as const;
+
+/** A found tool as the model loads it: the strict definition, marked deferred. */
+export function deferredDefinition(tool: OrbitTool) {
+  return { ...responsesTool(tool), defer_loading: true };
+}
+
+/**
+ * Deterministic search over the deferred tools a run may use: goal words found
+ * in a tool's name, namespace or description. Returns at most three tools with
+ * at least half the best score, or every candidate when nothing matches.
+ */
+export function searchTools(candidates: readonly OrbitTool[], goal: string) {
+  const words = [
+    ...new Set(goal.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []),
+  ];
+  const scored = candidates.map((tool) => {
+    const text =
+      `${tool.name} ${tool.namespace} ${tool.description}`.toLowerCase();
+    return { tool, score: words.filter((word) => text.includes(word)).length };
+  });
+  const best = Math.max(0, ...scored.map((entry) => entry.score));
+  if (best === 0) return [...candidates];
+  return scored
+    .filter((entry) => entry.score >= Math.max(1, Math.ceil(best / 2)))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((entry) => entry.tool);
+}
+
 export function dropNullFields(value: unknown): unknown {
   if (Array.isArray(value))
     return value.map((item) =>

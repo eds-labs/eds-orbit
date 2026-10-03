@@ -68,7 +68,7 @@ function where(scope: Scope) {
   };
 }
 
-async function conversation(tx: DbTx, scope: Scope, id: string) {
+export async function conversation(tx: DbTx, scope: Scope, id: string) {
   const row = await tx.chatConversation.findFirst({
     where: { ...where(scope), id },
   });
@@ -243,7 +243,11 @@ export async function getConversation(scope: Scope, id: string) {
           : null,
       };
     });
-    return { conversation: row, messages, runs, proposals: linked };
+    // Loaded on use: the package module builds on this one.
+    const { conversationPackages } =
+      await import("./agents/content-packages.ts");
+    const packages = await conversationPackages(tx, scope, id);
+    return { conversation: row, messages, runs, proposals: linked, packages };
   });
 }
 
@@ -329,6 +333,111 @@ export async function cancelRun(scope: Scope, runId: string) {
   });
 }
 
+/**
+ * Checks one draft-only mission against the current marketing profile,
+ * policy, assigned channels, period, run budget, sources and verified facts.
+ * Shared by chat proposals and content packages.
+ */
+export async function validateDraftMission(
+  tx: DbTx,
+  scope: Scope,
+  mission: unknown,
+  factIds: string[],
+) {
+  const parsed = missionSchema.parse({
+    ...(mission as object),
+    allowedActions: ["draft"],
+  });
+  if (!parsed.sourceIds.length)
+    throw new DomainError("PROPOSAL_SOURCE_REQUIRED", 409);
+  await assertCampaignContext(tx, scope, parsed);
+  await assertMissionAssets(tx, scope, parsed.assetIds);
+  const policyRow = await activePolicy(tx, scope);
+  if (!policyRow) throw new DomainError("POLICY_REQUIRED", 409);
+  const p = policySchema.parse(
+    Object.fromEntries(
+      Object.entries(data(policyRow)).filter(
+        ([key]) => !["active", "activatedAt", "activatedBy"].includes(key),
+      ),
+    ),
+  );
+  if (parsed.channels.some((channel) => !p.channels.includes(channel)))
+    throw new DomainError("CHANNEL_NOT_APPROVED", 409);
+  if (!p.allowedOrigins.includes(new URL(parsed.targetUrl!).origin))
+    throw new DomainError("LINK_NOT_ALLOWED", 409);
+  if (parsed.contentType === "social")
+    await assertAssignedSocialChannels(tx, scope, parsed.channels);
+  if (
+    Date.parse(parsed.endAt) <= Date.now() ||
+    Date.parse(parsed.endAt) > Date.parse(p.endAt) ||
+    Date.parse(parsed.startAt) < Date.parse(p.startAt)
+  )
+    throw new DomainError("PROPOSAL_PERIOD_OUTSIDE_POLICY", 409);
+  const ai = await runtimeOpenAiConfiguration(tx, scope);
+  const draftRoute = resolveRoute(draftTaskClass(parsed.contentType), ai);
+  const draftModel = draftRoute.model;
+  const index = await getActiveIndex(tx, scope);
+  const firstDraftMaxMicros =
+    estimateCost(draftModel, 50000, draftRoute.maxOutputTokens, ai) +
+    estimateCost(index.model, 8000, 0, ai);
+  if (firstDraftMaxMicros > p.perRunBudgetMicros)
+    throw new DomainError("RUN_BUDGET_EXCEEDED", 409);
+  const sourceRows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "sources",
+      id: { in: parsed.sourceIds },
+    },
+  });
+  if (
+    sourceRows.length !== parsed.sourceIds.length ||
+    sourceRows.some(
+      (s) =>
+        data(s).status !== "active" || !data(s).publicUse || !data(s).modelUse,
+    )
+  )
+    throw new DomainError("SOURCE_NOT_APPROVED", 409);
+  const assetRows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "assets",
+      id: { in: parsed.assetIds },
+    },
+  });
+  const factRows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "facts",
+      id: { in: factIds },
+    },
+  });
+  const verifiedFacts = factRows.filter(
+    (f) =>
+      parsed.sourceIds.includes(data(f).sourceId) &&
+      data(f).status === "verified" &&
+      data(f).publicUse &&
+      data(f).modelUse &&
+      Date.parse(data(f).validFrom) <= Date.now() &&
+      (!data(f).validUntil || Date.parse(data(f).validUntil) > Date.now()),
+  );
+  if (verifiedFacts.length !== factIds.length)
+    throw new DomainError("VERIFIED_FACT_REQUIRED", 409);
+  return {
+    parsed,
+    policyRow,
+    policy: p,
+    sourceRows,
+    assetRows,
+    verifiedFacts,
+    firstDraftMaxMicros,
+    draftModel,
+    index,
+  };
+}
+
 export async function createProposal(
   scope: Scope,
   conversationId: string,
@@ -338,89 +447,16 @@ export async function createProposal(
   const input = proposeInput.parse(raw);
   return chatScoped(scope, async (tx) => {
     await conversation(tx, scope, conversationId);
-    const parsed = missionSchema.parse({
-      ...(input.mission as object),
-      allowedActions: ["draft"],
-    });
-    if (!parsed.sourceIds.length)
-      throw new DomainError("PROPOSAL_SOURCE_REQUIRED", 409);
-    await assertCampaignContext(tx, scope, parsed);
-    await assertMissionAssets(tx, scope, parsed.assetIds);
-    const policyRow = await activePolicy(tx, scope);
-    if (!policyRow) throw new DomainError("POLICY_REQUIRED", 409);
-    const p = policySchema.parse(
-      Object.fromEntries(
-        Object.entries(data(policyRow)).filter(
-          ([key]) => !["active", "activatedAt", "activatedBy"].includes(key),
-        ),
-      ),
-    );
-    if (parsed.channels.some((channel) => !p.channels.includes(channel)))
-      throw new DomainError("CHANNEL_NOT_APPROVED", 409);
-    if (!p.allowedOrigins.includes(new URL(parsed.targetUrl!).origin))
-      throw new DomainError("LINK_NOT_ALLOWED", 409);
-    if (parsed.contentType === "social")
-      await assertAssignedSocialChannels(tx, scope, parsed.channels);
-    if (
-      Date.parse(parsed.endAt) <= Date.now() ||
-      Date.parse(parsed.endAt) > Date.parse(p.endAt) ||
-      Date.parse(parsed.startAt) < Date.parse(p.startAt)
-    )
-      throw new DomainError("PROPOSAL_PERIOD_OUTSIDE_POLICY", 409);
-    const ai = await runtimeOpenAiConfiguration(tx, scope);
-    const draftRoute = resolveRoute(draftTaskClass(parsed.contentType), ai);
-    const draftModel = draftRoute.model;
-    const index = await getActiveIndex(tx, scope);
-    const firstDraftMaxMicros =
-      estimateCost(draftModel, 50000, draftRoute.maxOutputTokens, ai) +
-      estimateCost(index.model, 8000, 0, ai);
-    if (firstDraftMaxMicros > p.perRunBudgetMicros)
-      throw new DomainError("RUN_BUDGET_EXCEEDED", 409);
-    const sourceRows = await tx.entity.findMany({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        kind: "sources",
-        id: { in: parsed.sourceIds },
-      },
-    });
-    if (
-      sourceRows.length !== parsed.sourceIds.length ||
-      sourceRows.some(
-        (s) =>
-          data(s).status !== "active" ||
-          !data(s).publicUse ||
-          !data(s).modelUse,
-      )
-    )
-      throw new DomainError("SOURCE_NOT_APPROVED", 409);
-    const assetRows = await tx.entity.findMany({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        kind: "assets",
-        id: { in: parsed.assetIds },
-      },
-    });
-    const factRows = await tx.entity.findMany({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        kind: "facts",
-        id: { in: input.factIds },
-      },
-    });
-    const verifiedFacts = factRows.filter(
-      (f) =>
-        parsed.sourceIds.includes(data(f).sourceId) &&
-        data(f).status === "verified" &&
-        data(f).publicUse &&
-        data(f).modelUse &&
-        Date.parse(data(f).validFrom) <= Date.now() &&
-        (!data(f).validUntil || Date.parse(data(f).validUntil) > Date.now()),
-    );
-    if (verifiedFacts.length !== input.factIds.length)
-      throw new DomainError("VERIFIED_FACT_REQUIRED", 409);
+    const {
+      parsed,
+      policyRow,
+      sourceRows,
+      assetRows,
+      verifiedFacts,
+      firstDraftMaxMicros,
+      draftModel,
+      index,
+    } = await validateDraftMission(tx, scope, input.mission, input.factIds);
     const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
     });

@@ -60,8 +60,8 @@ import {
   publishIntent,
 } from "../../api/src/modules/workflow.ts";
 import { generateMissionLive } from "../../api/src/modules/generation.ts";
-import { runChat } from "../../api/src/modules/chat-runner.ts";
-import { getRun } from "../../api/src/modules/chat.ts";
+import { runChatJob } from "../../api/src/modules/chat-runner.ts";
+import { runImageJob } from "../../api/src/modules/image-requests.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
@@ -94,6 +94,7 @@ const classes = [
   "analytics",
   "reconciliation",
   "slack_notification",
+  "image",
 ] as const;
 const queues = new Map(
   classes.map((c) => [
@@ -184,9 +185,12 @@ const workers = classes.map(
           let chatResult: { status: string; errorCode: string | null } | null =
             null;
           if (topic === "chat") {
-            const actorScope = { ...scope, userId: data(claimed).actorId };
-            await runChat(actorScope, data(claimed).resourceId);
-            const finished = await getRun(actorScope, data(claimed).resourceId);
+            // Runs with the requesting user's current role, never the worker's.
+            const finished = await runChatJob(
+              scope,
+              data(claimed).actorId,
+              data(claimed).resourceId,
+            );
             chatResult = {
               status: finished.status,
               errorCode: finished.errorCode,
@@ -286,6 +290,14 @@ const workers = classes.map(
             await reconcilePublication(scope, data(claimed).resourceId);
           } else if (topic === "slack_notification") {
             await dispatchSlackDigest(scope, data(claimed).resourceId);
+          } else if (topic === "image") {
+            // Runs an owner-approved image request with the decider's current role.
+            await runImageJob(
+              scope,
+              data(claimed).actorId,
+              data(claimed).resourceId,
+              jobId,
+            );
           } else if (topic === "analytics") {
             await scoped(workspaceId, projectId, (tx) =>
               evaluateExperiment(tx, scope, data(claimed).resourceId),

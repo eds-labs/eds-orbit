@@ -233,7 +233,7 @@ import {
   confirmProposal,
   chatScoped,
 } from "../src/modules/chat.ts";
-import { runChat } from "../src/modules/chat-runner.ts";
+import { runChat, runChatJob } from "../src/modules/chat-runner.ts";
 import { activePolicy } from "../src/modules/policy.ts";
 import { reserve } from "../src/modules/budget.ts";
 import { hashText, startRun } from "../src/modules/telemetry.ts";
@@ -1615,5 +1615,146 @@ describe.skipIf(!enabled)("Bounded chat runner with mocked provider", () => {
       mocked.mode = "normal";
       mocked.inputs = [];
     }
+  });
+
+  it("offers the content package tools only while content packages are enabled", async () => {
+    const offeredTools = async () => {
+      const thread = await createConversation(scope);
+      const sent = await sendMessage(scope, thread.id, {
+        text: "Which tools can you use?",
+        clientRequestId: randomUUID(),
+      });
+      mocked.tools = [];
+      await runChat(scope, sent.runId);
+      return mocked.tools as Array<{ name: string; strict: boolean }>;
+    };
+    expect((await offeredTools()).map((tool) => tool.name)).not.toContain(
+      "request_content_package",
+    );
+    process.env.ORBIT_CONTENT_PACKAGES = "true";
+    try {
+      const tools = await offeredTools();
+      expect(tools.map((tool) => tool.name)).toEqual([
+        "project_status",
+        "knowledge_search",
+        "approved_assets",
+        "analytics_memory",
+        "propose_campaign",
+        "request_content_package",
+        "package_status",
+        "revise_package_deliverable",
+        "recent_content",
+        "schedule_options",
+        "propose_schedule",
+      ]);
+      expect(tools.every((tool) => tool.strict === true)).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(tools))).toBeLessThanOrEqual(
+        7000,
+      );
+    } finally {
+      delete process.env.ORBIT_CONTENT_PACKAGES;
+    }
+  });
+
+  describe("worker chat jobs", () => {
+    // The worker's own infrastructure scope; a chat job must never run with it.
+    const workerScope = () => ({
+      ...scope,
+      userId: "worker",
+      role: "owner" as const,
+    });
+    async function queuedViewerRun() {
+      const userId = randomUUID();
+      await authDb.user.create({
+        data: {
+          id: userId,
+          name: "Synthetic chat viewer",
+          email: `${userId}@example.invalid`,
+        },
+      });
+      // Same shape as the add-member action: workspace viewer plus a project role.
+      await authDb.workspaceMember.create({
+        data: { workspaceId: scope.workspaceId, userId, role: "viewer" },
+      });
+      await authDb.projectMember.create({
+        data: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          userId,
+          role: "viewer",
+        },
+      });
+      const viewer = { ...scope, userId, role: "viewer" as const };
+      const thread = await createConversation(viewer);
+      const sent = await sendMessage(viewer, thread.id, {
+        text: "Propose a campaign",
+        clientRequestId: randomUUID(),
+      });
+      return { userId, viewer, runId: sent.runId };
+    }
+    const removeAccess = (userId: string) =>
+      authDb.projectMember.delete({
+        where: { projectId_userId: { projectId: scope.projectId, userId } },
+      });
+
+    it("runs with the requesting viewer's current role, not the worker's", async () => {
+      const { userId, runId } = await queuedViewerRun();
+      try {
+        mocked.tools = [];
+        const finished = await runChatJob(workerScope(), userId, runId);
+        expect(finished.status).toBe("succeeded");
+        const offered = (mocked.tools as Array<{ name: string }>).map(
+          (tool) => tool.name,
+        );
+        expect(offered).toContain("project_status");
+        expect(offered).not.toContain("propose_campaign");
+      } finally {
+        await authDb.user.delete({ where: { id: userId } });
+      }
+    });
+
+    it("blocks a job whose user lost project access, before any model call", async () => {
+      const { userId, runId } = await queuedViewerRun();
+      try {
+        await removeAccess(userId);
+        mocked.calls = 0;
+        const finished = await runChatJob(workerScope(), userId, runId);
+        expect(finished).toMatchObject({
+          status: "blocked",
+          errorCode: "ACTOR_MEMBERSHIP_REQUIRED",
+        });
+        expect(mocked.calls).toBe(0);
+      } finally {
+        await authDb.user.delete({ where: { id: userId } });
+      }
+    });
+
+    it("still reports an unknown provider outcome before the lost access", async () => {
+      const { userId, viewer, runId } = await queuedViewerRun();
+      try {
+        await chatScoped(viewer, (tx) =>
+          tx.chatRun.update({
+            where: { id: runId },
+            data: { status: "running", transmittedAt: new Date() },
+          }),
+        );
+        await removeAccess(userId);
+        mocked.calls = 0;
+        const finished = await runChatJob(workerScope(), userId, runId);
+        expect(finished).toMatchObject({
+          status: "blocked",
+          errorCode: "CHAT_OUTCOME_UNKNOWN",
+        });
+        expect(mocked.calls).toBe(0);
+      } finally {
+        await authDb.user.delete({ where: { id: userId } });
+      }
+    });
+
+    it("refuses a job without a requesting user", async () => {
+      await expect(
+        runChatJob(workerScope(), undefined, randomUUID()),
+      ).rejects.toThrow("ACTOR_MEMBERSHIP_REQUIRED");
+    });
   });
 });

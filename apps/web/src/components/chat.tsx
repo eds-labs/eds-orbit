@@ -11,7 +11,7 @@ import {
   Square,
   ExternalLink,
 } from "lucide-react";
-import { api, collectionPath, post, useResource, usd } from "@/lib/api";
+import { action, api, collectionPath, post, useResource, usd } from "@/lib/api";
 import {
   Alert,
   Badge,
@@ -22,6 +22,11 @@ import {
 } from "./ui/primitives";
 import { PageHead } from "./work";
 import { ChatMarkdown } from "./chat-markdown";
+import {
+  PackageCard,
+  packageInProgress,
+  type ContentPackage,
+} from "./chat-package-card";
 import { useWorkspace } from "./workspace-context";
 
 type Conversation = { id: string; title: string; updatedAt: string };
@@ -82,6 +87,7 @@ type Detail = {
   messages: Message[];
   runs: Run[];
   proposals: Proposal[];
+  packages?: ContentPackage[];
 };
 const terminal = new Set(["succeeded", "blocked", "failed", "canceled"]);
 
@@ -107,7 +113,7 @@ function statusLabel(status: string, de: boolean) {
 }
 
 export function OrbitChat() {
-  const { project, identity, locale, canEdit } = useWorkspace();
+  const { project, identity, locale, canEdit, isOwner } = useWorkspace();
   const de = locale === "de";
   const templates = de
     ? [
@@ -293,8 +299,108 @@ export function OrbitChat() {
       setPending(false);
     }
   }
+  async function startPackage(pkg: ContentPackage) {
+    if (!canEdit || !pkg.actionRequest) return;
+    setPending(true);
+    setError("");
+    try {
+      await post(
+        collectionPath(
+          project.id,
+          `action-requests/${pkg.actionRequest.id}/decide`,
+        ),
+        {
+          version: pkg.actionRequest.version,
+          packageHash: pkg.actionRequest.packageHash,
+          decision: "approve",
+        },
+      );
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Start failed");
+    } finally {
+      setPending(false);
+    }
+  }
+  // Owners confirm the generated image's usage rights with the existing asset decision.
+  async function approveImageRights(pkg: ContentPackage) {
+    if (!isOwner || !pkg.image?.assetId || !pkg.image.assetVersion) return;
+    setPending(true);
+    setError("");
+    try {
+      await action(project.id, "asset-status", {
+        assetId: pkg.image.assetId,
+        version: pkg.image.assetVersion,
+        assetStatus: "approved",
+        confirmUsageRights: true,
+      });
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Approval failed");
+    } finally {
+      setPending(false);
+    }
+  }
+  async function attachImage(pkg: ContentPackage, deliverableKeys: string[]) {
+    if (!canEdit) return;
+    setPending(true);
+    setError("");
+    try {
+      await post(`${base}/packages/${pkg.id}/attach-image`, {
+        deliverableKeys,
+      });
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Attaching failed");
+    } finally {
+      setPending(false);
+    }
+  }
+  // Stops a post before the handoff; a handed-over post is reported, never retracted.
+  async function unschedule(pkg: ContentPackage, deliverableKey: string) {
+    if (!canEdit) return;
+    setPending(true);
+    setError("");
+    try {
+      const result = await post<{ result: string }>(
+        `${base}/packages/${pkg.id}/unschedule`,
+        { deliverableKey },
+      );
+      if (result.result === "not_retractable")
+        setError(
+          de
+            ? "Der Beitrag wurde bereits übergeben und kann nicht zurückgeholt werden."
+            : "The post was already handed over and cannot be taken back.",
+        );
+      else if (result.result === "handoff_in_progress")
+        setError(
+          de
+            ? "Der Beitrag wird gerade übergeben; das Ergebnis wird abgeglichen."
+            : "The post is being handed over right now; the result will be reconciled.",
+        );
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Cancel failed");
+    } finally {
+      setPending(false);
+    }
+  }
+  async function cancelPackage(pkg: ContentPackage) {
+    if (!canEdit) return;
+    setPending(true);
+    setError("");
+    try {
+      await post(`${base}/packages/${pkg.id}/cancel`, {});
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Cancel failed");
+    } finally {
+      setPending(false);
+    }
+  }
   useEffect(() => {
     if (
+      !detail.data?.packages?.some(packageInProgress) &&
       !detail.data?.proposals.some(
         (proposal) =>
           proposal.status === "confirmed" &&
@@ -506,6 +612,21 @@ export function OrbitChat() {
                   {statusLabel(stream.status, de)}: {stream.errorCode ?? "—"}
                 </Alert>
               )}
+            {(detail.data?.packages ?? []).map((pkg) => (
+              <PackageCard
+                key={pkg.id}
+                pkg={pkg}
+                de={de}
+                canStart={canEdit}
+                pending={pending}
+                onStart={startPackage}
+                onCancel={cancelPackage}
+                canApproveRights={isOwner}
+                onApproveRights={approveImageRights}
+                onAttachImage={attachImage}
+                onUnschedule={unschedule}
+              />
+            ))}
             {proposals.map((proposal) => (
               <section key={proposal.id} className="chat-proposal">
                 <div className="chat-proposal-head">

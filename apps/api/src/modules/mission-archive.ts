@@ -32,15 +32,7 @@ export async function archiveMission(tx: DbTx, scope: Scope, raw: unknown) {
         ["queued", "running", "retry_scheduled"].includes(data(job).status),
     );
     if (active) throw new DomainError("MISSION_RUN_IN_PROGRESS", 409);
-    const archived = await update(tx, scope, row, {
-      ...m,
-      status: "archived",
-      statusBeforeArchive: m.status,
-      archivedAt: new Date().toISOString(),
-      archivedBy: scope.userId,
-    });
-    await audit(tx, scope, "mission.archived", row.id, {});
-    return archived;
+    return markMissionArchived(tx, scope, row);
   }
   if (m.status !== "archived") return row;
   const { statusBeforeArchive, archivedAt, archivedBy, ...rest } = m;
@@ -50,4 +42,22 @@ export async function archiveMission(tx: DbTx, scope: Scope, raw: unknown) {
   });
   await audit(tx, scope, "mission.restored", row.id, {});
   return restored;
+}
+
+/** Archives one mission row; callers check role and running jobs first. */
+export async function markMissionArchived(
+  tx: DbTx,
+  scope: Scope,
+  row: Awaited<ReturnType<typeof entity>>,
+) {
+  const m = data(row);
+  const archived = await update(tx, scope, row, {
+    ...m,
+    status: "archived",
+    statusBeforeArchive: m.status,
+    archivedAt: new Date().toISOString(),
+    archivedBy: scope.userId,
+  });
+  await audit(tx, scope, "mission.archived", row.id, {});
+  return archived;
 }

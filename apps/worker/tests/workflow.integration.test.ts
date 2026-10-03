@@ -6,13 +6,20 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  closeDatabase,
   createClient,
   scoped,
   type PrismaClient,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create, data } from "../../api/src/shared.ts";
+import { create, data, update } from "../../api/src/shared.ts";
+import { enqueue } from "../../api/src/modules/workflow.ts";
+import {
+  createConversation,
+  getRun,
+  sendMessage,
+} from "../../api/src/modules/chat.ts";
 import {
   ingest,
   setFact,
@@ -198,6 +205,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
     }
     await db?.$disconnect();
     await auth?.$disconnect();
+    await closeDatabase();
     await rm(join(tmpdir(), queueNamespace), { recursive: true, force: true });
   });
   it("A10/A19/A26/B06: real worker plans, retrieves, drafts, reviews, publishes locally, survives restart, then applies revocation", async () => {
@@ -260,5 +268,106 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         ),
       ).status,
     ).toBe("published_test");
+  }, 40000);
+  it("runs a chat job only with the requesting user's current project access", async () => {
+    const former = await auth.user.create({
+      data: {
+        id: randomUUID(),
+        name: "Synthetic former member",
+        email: randomUUID() + "@example.invalid",
+      },
+    });
+    try {
+      // The message was queued while the user still had access; it was removed since.
+      const queuedBy: Scope = { ...scope, userId: former.id, role: "editor" };
+      const thread = await createConversation(queuedBy);
+      const sent = await sendMessage(queuedBy, thread.id, {
+        text: "What is the project status?",
+        clientRequestId: randomUUID(),
+      });
+      start();
+      const finished = await waitFor(async () => {
+        const chatRun = await getRun(queuedBy, sent.runId);
+        return ["blocked", "failed", "succeeded"].includes(chatRun.status)
+          ? chatRun
+          : false;
+      });
+      expect(finished).toMatchObject({
+        status: "blocked",
+        errorCode: "ACTOR_MEMBERSHIP_REQUIRED",
+      });
+    } finally {
+      await stop();
+      await auth.user.delete({ where: { id: former.id } });
+    }
+  }, 40000);
+  it("runs an approved image request in the image queue and stops before any provider call when images are not set up", async () => {
+    // Recorded as decideActionRequest would; this project has no image configuration or profile.
+    const request = await run((tx) =>
+      create(tx, scope, "action_requests", {
+        actionType: "image.generate",
+        riskClass: "C2",
+        approvalMode: "approval_required",
+        requestedBy: { kind: "user", userId: scope.userId },
+        payload: {
+          name: "Synthetic artwork",
+          prompt: "A calm geometric abstract artwork.",
+          size: "1024x1024",
+          quality: "low",
+          background: "opaque",
+          validUses: ["social"],
+          model: "gpt-image-2.5-flare",
+          maxCostMicros: 5000,
+        },
+        packageHash: "0".repeat(64),
+        costCeilingMicros: 5000,
+        status: "approved",
+        decision: {
+          userId: scope.userId,
+          decision: "approve",
+          decidedAt: new Date().toISOString(),
+          channel: "web",
+        },
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      }),
+    );
+    const job = await run(async (tx) => {
+      const queued = await enqueue(
+        tx,
+        scope,
+        "image",
+        request.id,
+        "action:" + request.id,
+      );
+      return update(tx, scope, queued, { ...data(queued), maxAttempts: 1 });
+    });
+    start();
+    try {
+      const finished = await waitFor(() =>
+        run(async (tx) => {
+          const row = await tx.entity.findUniqueOrThrow({
+            where: { id: job.id },
+          });
+          return data(row).status === "blocked_dependency" ? row : false;
+        }),
+      );
+      expect(data(finished)).toMatchObject({
+        attempts: 1,
+        error: "MARKETING_PROFILE_REQUIRED",
+      });
+      const after = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: request.id } }),
+      );
+      expect(data(after).status).toBe("approved");
+      expect(
+        await run((tx) =>
+          tx.budgetReservation.count({
+            where: { key: `${scope.projectId}:image:${request.id}` },
+          }),
+        ),
+      ).toBe(0);
+    } finally {
+      await stop();
+    }
   }, 40000);
 });

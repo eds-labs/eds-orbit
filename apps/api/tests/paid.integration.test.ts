@@ -2538,5 +2538,53 @@ describe.skipIf(!enabled)(
       await settled("query_embedding", 7n);
       await settled("text", 77n);
     });
+    // A content package's drafts share one run key, so one per-run limit covers the whole package.
+    const asPackageMission = (ceilingMicros: number) =>
+      run(async (tx) => {
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        const packageId = randomUUID();
+        await update(tx, s, mission, {
+          ...data(mission),
+          packageId,
+          budgetRunKey: `package:${packageId}`,
+          chatCostCeilingMicros: ceilingMicros,
+        });
+        return packageId;
+      });
+    it("reserves a package draft's query and text calls under the package run key", async () => {
+      const packageId = await asPackageMission(10_000);
+      const jobId = randomUUID();
+      await generateMissionLive(s, missionId, jobId);
+      const runRow = await run((tx) =>
+        tx.entity.findFirstOrThrow({
+          where: {
+            kind: "budget_runs",
+            data: { path: ["runKey"], equals: `package:${packageId}` },
+          },
+        }),
+      );
+      const keys = (
+        await run((tx) =>
+          tx.budgetReservation.findMany({
+            where: { id: { in: data(runRow).reservationIds } },
+          }),
+        )
+      ).map((row) => row.key);
+      expect(keys.sort()).toEqual(
+        [
+          `${s.projectId}:${jobId}`,
+          `${s.projectId}:query:mission:${jobId}`,
+        ].sort(),
+      );
+    });
+    it("stops a package draft above its ceiling before the text call", async () => {
+      await asPackageMission(1);
+      await expect(
+        generateMissionLive(s, missionId, randomUUID()),
+      ).rejects.toThrow("CHAT_PROPOSAL_COST_EXCEEDED");
+      expect(provider.generate).not.toHaveBeenCalled();
+    });
   },
 );

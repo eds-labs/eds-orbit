@@ -2,11 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { randomBytes, randomUUID } from "node:crypto";
 import { buildServer } from "../src/server.ts";
 import { makeAuth } from "../src/auth.ts";
-import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
+import {
+  authDb,
+  closeDatabase,
+  scoped,
+} from "../../../packages/db/src/index.ts";
 import { chatScoped } from "../src/modules/chat.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
 import { runReadTool } from "../src/modules/chat-tools.ts";
-import { hash } from "../src/shared.ts";
+import { create, hash } from "../src/shared.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 
 const enabled = Boolean(
@@ -318,5 +322,88 @@ describe.skipIf(!enabled)("Orbit Chat private and idempotent API", () => {
     expect(first.statusCode).toBe(200);
     expect(second.json()).toEqual(first.json());
     expect(first.json().missionId).toBe(rows.done.missionId);
+  });
+  it("decides an action request only with write access and the exact shown hash", async () => {
+    const ownerScope: Scope = {
+      workspaceId,
+      projectId,
+      userId: ownerId,
+      role: "owner",
+    };
+    const pending = await scoped(workspaceId, projectId, (tx) =>
+      create(tx, ownerScope, "action_requests", {
+        actionType: "image.generate",
+        riskClass: "C2",
+        approvalMode: "approval_required",
+        requestedBy: { kind: "user", userId: ownerId },
+        payload: {},
+        packageHash: "a".repeat(64),
+        costCeilingMicros: 1,
+        status: "pending",
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      }),
+    );
+    const decide = (cookie: string, packageHash: string, id = pending.id) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/action-requests/${id}/decide`,
+        headers: { origin, cookie },
+        payload: { version: 1, packageHash, decision: "approve" },
+      });
+    expect((await decide(viewerCookie, "a".repeat(64))).statusCode).toBe(403);
+    const stale = await decide(ownerCookie, "b".repeat(64));
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe("ACTION_REQUEST_STALE");
+    expect(
+      (await decide(ownerCookie, "a".repeat(64), randomUUID())).statusCode,
+    ).toBe(404);
+  });
+  it("cancels a content package only with write access and only the requester's", async () => {
+    const cancel = (cookie: string) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/chat/packages/${randomUUID()}/cancel`,
+        headers: { origin, cookie },
+        payload: {},
+      });
+    expect((await cancel(viewerCookie)).statusCode).toBe(403);
+    expect((await cancel(ownerCookie)).statusCode).toBe(404);
+  });
+  it("attaches a package image only with write access and the package flag", async () => {
+    const attach = (cookie: string, payload: unknown) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/chat/packages/${randomUUID()}/attach-image`,
+        headers: { origin, cookie },
+        payload: payload as Record<string, unknown>,
+      });
+    const body = { deliverableKeys: ["x"] };
+    expect((await attach(viewerCookie, body)).statusCode).toBe(403);
+    const disabled = await attach(ownerCookie, body);
+    expect(disabled.statusCode).toBe(409);
+    expect(disabled.json().error.code).toBe("CONTENT_PACKAGES_DISABLED");
+  });
+  it("cancels a package post's schedule only with write access, also with the flag off", async () => {
+    const unschedule = (cookie: string) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/chat/packages/${randomUUID()}/unschedule`,
+        headers: { origin, cookie },
+        payload: { deliverableKey: "x" },
+      });
+    expect((await unschedule(viewerCookie)).statusCode).toBe(403);
+    // Not gated by the package flag: an unknown package is simply not found.
+    expect((await unschedule(ownerCookie)).statusCode).toBe(404);
+  });
+  it("lists pending owner decisions only for owners", async () => {
+    const list = (cookie: string) =>
+      app.inject({
+        url: `/api/projects/${projectId}/action-requests`,
+        headers: { cookie },
+      });
+    expect((await list(viewerCookie)).statusCode).toBe(403);
+    const owned = await list(ownerCookie);
+    expect(owned.statusCode).toBe(200);
+    expect(Array.isArray(owned.json().items)).toBe(true);
   });
 });

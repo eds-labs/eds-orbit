@@ -63,6 +63,7 @@ import {
 } from "./form";
 import { CreativeRenderer } from "./advanced";
 import { useWorkspace } from "./workspace-context";
+import { ActionRequestInbox } from "./action-request-inbox";
 export function useCollection(name: string) {
   const { project, revision } = useWorkspace();
   return useResource<{ items: Entity[] }>(
@@ -2023,6 +2024,7 @@ export function ApprovalInbox() {
         }}
       />
       <AutopilotApprovals />
+      <ActionRequestInbox />
       {exceptions.data?.items.map((e) => (
         <Alert key={e.id} kind="warning">
           <strong>{value(e, "title", value(e, "code"))}</strong>

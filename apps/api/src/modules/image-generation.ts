@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { scoped } from "../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import {
   generateImage,
   imageGenerationConfigurationSchema,
@@ -49,6 +49,36 @@ export const imageGenerationInput = z
   })
   .strict();
 
+/** What an image action request asks for; the owner's decision replaces the confirmations. */
+export const imageRequestBrief = imageGenerationInput.omit({
+  requestId: true,
+  confirmPromptMayBeSentToOpenAI: true,
+  confirmMaximumCostMicros: true,
+});
+/** An image action request payload, bound to the model and ceiling configured when it was created. */
+export const imageRequestPayload = imageRequestBrief.extend({
+  model: z.string().min(1),
+  maxCostMicros: z.number().int().positive(),
+  // A content package's run key, so one per-run limit covers the whole package.
+  budgetRunKey: z.string().min(1).max(120).optional(),
+});
+
+/** Current image route; fails closed without a key, a configured price or a verified model. */
+export async function currentImageTerms(tx: DbTx, scope: Scope) {
+  const runtime = await runtimeOpenAiConfiguration(tx, scope);
+  const imageConfig = imageGenerationConfigurationSchema.parse(
+    runtime.imageGeneration ?? {},
+  );
+  if (
+    !(runtime.imageApiKey || runtime.apiKey) ||
+    !imagePriceConfigured(imageConfig)
+  )
+    throw new DomainError("IMAGE_GENERATION_NOT_CONFIGURED", 409);
+  if (!runtime.verifiedModels.includes(imageConfig.model))
+    throw new DomainError("IMAGE_MODEL_NOT_VERIFIED", 409);
+  return { runtime, imageConfig };
+}
+
 export function buildBrandImagePrompt(
   prompt: string,
   profile: z.infer<typeof marketingProfile>,
@@ -68,11 +98,18 @@ export function buildBrandImagePrompt(
 }
 
 type Provider = typeof generateImage;
+type ImageOptions = {
+  /** Runs in the reservation transaction after every other check; a throw stops before any cost. */
+  authorize?: (tx: DbTx) => Promise<void>;
+  /** Budget run shared with other calls; defaults to this image request alone. */
+  runKey?: string;
+};
 
 export async function generateProjectImage(
   scope: Scope,
   raw: unknown,
   provider: Provider = generateImage,
+  options: ImageOptions = {},
 ) {
   if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
   const input = imageGenerationInput.parse(raw);
@@ -84,7 +121,7 @@ export async function generateProjectImage(
     subjectId: input.requestId,
   });
   return tracedRun(scope, agentRunId, () =>
-    generateProjectImageTraced(scope, input, provider, agentRunId),
+    generateProjectImageTraced(scope, input, provider, agentRunId, options),
   );
 }
 
@@ -93,6 +130,7 @@ async function generateProjectImageTraced(
   input: z.infer<typeof imageGenerationInput>,
   provider: Provider,
   agentRunId: string | null,
+  options: ImageOptions,
 ) {
   const prepared = await scoped(
     scope.workspaceId,
@@ -106,17 +144,7 @@ async function generateProjectImageTraced(
       const profileRow = await currentMarketingProfile(tx, scope);
       if (!profileRow) throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
       const profileData = marketingProfile.parse(profileRow.data);
-      const runtime = await runtimeOpenAiConfiguration(tx, scope);
-      const imageConfig = imageGenerationConfigurationSchema.parse(
-        runtime.imageGeneration ?? {},
-      );
-      if (
-        !(runtime.imageApiKey || runtime.apiKey) ||
-        !imagePriceConfigured(imageConfig)
-      )
-        throw new DomainError("IMAGE_GENERATION_NOT_CONFIGURED", 409);
-      if (!runtime.verifiedModels.includes(imageConfig.model))
-        throw new DomainError("IMAGE_MODEL_NOT_VERIFIED", 409);
+      const { runtime, imageConfig } = await currentImageTerms(tx, scope);
       if (input.confirmMaximumCostMicros !== imageConfig.maxCostMicrosPerImage)
         throw new DomainError("IMAGE_COST_CONFIRMATION_STALE", 409);
       const currentPolicy = await activePolicy(tx, scope);
@@ -128,6 +156,7 @@ async function generateProjectImageTraced(
           ),
         ),
       );
+      await options.authorize?.(tx);
       const reservation = await reserve(
         tx,
         scope,
@@ -136,7 +165,7 @@ async function generateProjectImageTraced(
         imageConfig.maxCostMicrosPerImage,
         parsedPolicy,
         new Date(),
-        `image:${input.requestId}`,
+        options.runKey ?? `image:${input.requestId}`,
         {
           agentRunId,
           taskClass: "image_generation",

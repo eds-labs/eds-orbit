@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -8,17 +8,31 @@ function account() {
   ) as { email: string; password: string; projectId: string };
 }
 
-test("private chat blocks without a paid mandate and resumes after reload and project switch", async ({
-  page,
-}) => {
+// better-auth allows three sign-ins per 10 seconds; short consecutive tests can
+// exceed that, so a rate-limited sign-in waits out the window once.
+async function signIn(page: Page) {
   const user = account();
   await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.getByLabel(/^Email/).fill(user.email);
+    await page.getByLabel(/^Password/).fill(user.password);
+    const response = page.waitForResponse((r) =>
+      r.url().includes("/api/auth/sign-in/email"),
+    );
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    if ((await response).status() !== 429) break;
+    await page.waitForTimeout(10_500);
+  }
   await expect(
     page.getByRole("heading", { name: "Your marketing, in orbit." }),
   ).toBeVisible();
+  return user;
+}
+
+test("private chat blocks without a paid mandate and resumes after reload and project switch", async ({
+  page,
+}) => {
+  const user = await signIn(page);
   await page.goto("/chat");
   await expect(page.getByRole("heading", { name: "Orbit Chat" })).toBeVisible();
   await page.getByRole("button", { name: "Plan next week" }).click();
@@ -64,14 +78,7 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
 test("renders streamed text, action states, source links and cancellation", async ({
   page,
 }) => {
-  const user = account();
-  await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
-  ).toBeVisible();
+  const user = await signIn(page);
   const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8001";
   const runId = "b38d9050-3dba-4ae0-851e-98d5b59e8002";
   let canceled = false;
@@ -203,17 +210,635 @@ test("renders streamed text, action states, source links and cancellation", asyn
   await expect(page.getByText(/Canceled/)).toBeVisible({ timeout: 15000 });
 });
 
+test("starts a content package with one click and shows both drafts", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8101";
+  const requestId = "b38d9050-3dba-4ae0-851e-98d5b59e8102";
+  const packageHash = "c".repeat(64);
+  let decision: Record<string, unknown> | null = null;
+  const deliverable = (
+    key: string,
+    channelName: string,
+    body: string | null,
+  ) => ({
+    key,
+    channelId: key,
+    channelName,
+    platform: key,
+    plannedSlotAt: null,
+    status: body ? "drafted" : "planned",
+    errorCode: null,
+    content: body ? { id: `${key}-content`, body, status: "draft" } : null,
+    review: body
+      ? { valid: false, problems: ["HUMAN_CONTENT_REVIEW_REQUIRED"] }
+      : null,
+    revisions: body && key === "x" ? 1 : 0,
+    schedule:
+      body && key === "x"
+        ? {
+            status: "scheduled",
+            scheduledAt: "2026-10-05T07:00:00.000Z",
+            executionMode: "test",
+            blockers: [],
+          }
+        : null,
+  });
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              id: conversationId,
+              title: "Synthetic beta package",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic beta package",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [],
+          runs: [],
+          proposals: [],
+          packages: [
+            {
+              id: "package-1",
+              goal: "Announce that beta access is open",
+              status: decision ? "completed" : "proposed",
+              ceilingMicros: 120000,
+              image: {
+                prompt: "Abstract open door of soft light, no text",
+                maxCostMicros: 50000,
+                status: decision ? "generated" : "planned",
+                assetId: decision ? "asset-1" : null,
+                href: decision
+                  ? `/api/projects/${user.projectId}/assets/asset-1/content`
+                  : null,
+                errorCode: null,
+              },
+              actionRequest: {
+                id: requestId,
+                version: 1,
+                packageHash,
+                status: decision ? "consumed" : "pending",
+              },
+              deliverables: [
+                deliverable(
+                  "x",
+                  "Synthetic X",
+                  decision ? "Beta access is open. Learn more." : null,
+                ),
+                deliverable(
+                  "telegram",
+                  "Synthetic Telegram",
+                  decision ? "Beta access is now open for teams." : null,
+                ),
+              ],
+            },
+          ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests/${requestId}/decide`,
+    (route) => {
+      decision = route.request().postDataJSON();
+      return route.fulfill({
+        json: { id: requestId, version: 2, status: "approved" },
+      });
+    },
+  );
+  await page.goto("/chat");
+  await page
+    .getByRole("button", { name: "Synthetic beta package", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "Content package" });
+  await expect(card.getByText("Confirmation required")).toBeVisible();
+  await expect(card.getByText("Synthetic Telegram")).toBeVisible();
+  await expect(card.getByText(/Nothing is published/)).toBeVisible();
+  await card.getByRole("button", { name: "Start package" }).click();
+  await expect
+    .poll(() => decision)
+    .toEqual({
+      version: 1,
+      packageHash,
+      decision: "approve",
+    });
+  await expect(card.getByText("Drafts ready")).toBeVisible();
+  await expect(
+    card.getByText("Beta access is open. Learn more."),
+  ).toBeVisible();
+  await expect(
+    card.getByText("Beta access is now open for teams."),
+  ).toBeVisible();
+  await expect(card.getByText("Needs review")).toHaveCount(2);
+  await expect(card.getByText("Revised 1×")).toBeVisible();
+  await expect(card.getByText("Scheduled", { exact: true })).toBeVisible();
+  await expect(card.getByText(/· test mode/)).toBeVisible();
+  await expect(card.getByText("Generated, rights review open")).toBeVisible();
+  await expect(
+    card.getByRole("img", { name: "Generated package image" }),
+  ).toBeVisible();
+  await expect(card.getByRole("button", { name: "Start package" })).toHaveCount(
+    0,
+  );
+});
+
+test("owner approves the package image's rights and attaches it to one draft", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8501";
+  let rights: Record<string, unknown> | null = null;
+  let attached: Record<string, unknown> | null = null;
+  const draft = (key: string, channelName: string, body: string) => ({
+    key,
+    channelId: key,
+    channelName,
+    platform: key,
+    plannedSlotAt: null,
+    status: "drafted",
+    errorCode: null,
+    content: {
+      id: `${key}-content`,
+      version: 2,
+      body,
+      status: "reviewed",
+      assetId: attached && key === "x" ? "asset-1" : null,
+      // The Telegram draft was reused from another package.
+      reused: key === "telegram",
+    },
+    review: { valid: true, problems: [] },
+    revisions: 0,
+    schedule: null,
+  });
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              id: conversationId,
+              title: "Synthetic image package",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic image package",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [],
+          runs: [],
+          proposals: [],
+          packages: [
+            {
+              id: "package-2",
+              goal: "Announce that beta access is open",
+              status: "completed",
+              ceilingMicros: 120000,
+              image: {
+                prompt: "Abstract open door of soft light, no text",
+                maxCostMicros: 50000,
+                status: "generated",
+                assetId: "asset-1",
+                assetVersion: 1,
+                rightsApproved: Boolean(rights),
+                href: `/api/projects/${user.projectId}/assets/asset-1/content`,
+                errorCode: null,
+              },
+              actionRequest: null,
+              deliverables: [
+                draft("x", "Synthetic X", "Beta access is open. Learn more."),
+                draft(
+                  "telegram",
+                  "Synthetic Telegram",
+                  "Beta access is now open for teams.",
+                ),
+              ],
+            },
+          ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/actions/asset-status`,
+    (route) => {
+      rights = route.request().postDataJSON();
+      return route.fulfill({ json: { id: "asset-1", version: 2 } });
+    },
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/packages/package-2/attach-image`,
+    (route) => {
+      attached = route.request().postDataJSON();
+      return route.fulfill({ json: { id: "package-2" } });
+    },
+  );
+  await page.goto("/chat");
+  await page
+    .getByRole("button", { name: "Synthetic image package", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "Content package" });
+  await expect(
+    card.getByText(/once an owner approved its usage rights/),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Attach package image" }),
+  ).toHaveCount(0);
+  await card.getByRole("button", { name: "Approve usage rights" }).click();
+  await expect
+    .poll(() => rights)
+    .toEqual({
+      assetId: "asset-1",
+      version: 1,
+      assetStatus: "approved",
+      confirmUsageRights: true,
+    });
+  await expect(card.getByText("Usage rights approved.")).toBeVisible();
+  // A reused draft from another package offers no attach, with the reason.
+  await expect(
+    card.getByText(/from another package reused. Revise it first/),
+  ).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Attach package image" }),
+  ).toHaveCount(1);
+  await card.getByRole("button", { name: "Attach package image" }).click();
+  await expect.poll(() => attached).toEqual({ deliverableKeys: ["x"] });
+  await expect(card.getByText("With package image")).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Attach package image" }),
+  ).toHaveCount(0);
+});
+
+test("cancels a scheduled package post and reports a handed-over one honestly", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8601";
+  const requests: Record<string, unknown>[] = [];
+  const draft = (key: string, channelName: string, status: string) => ({
+    key,
+    channelId: key,
+    channelName,
+    platform: key,
+    plannedSlotAt: null,
+    status: "drafted",
+    errorCode: null,
+    content: {
+      id: `${key}-content`,
+      version: 3,
+      body: `${channelName} post`,
+      status: "reviewed",
+      assetId: null,
+    },
+    review: { valid: true, problems: [] },
+    revisions: 0,
+    schedule: {
+      status,
+      scheduledAt: "2026-10-05T07:00:00.000Z",
+      executionMode: "test",
+      blockers: [],
+      move:
+        key === "x"
+          ? {
+              status: "awaiting_approval",
+              scheduledAt: "2026-10-06T07:00:00.000Z",
+            }
+          : null,
+    },
+  });
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              id: conversationId,
+              title: "Synthetic scheduled package",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic scheduled package",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [],
+          runs: [],
+          proposals: [],
+          packages: [
+            {
+              id: "package-3",
+              goal: "Announce that beta access is open",
+              status: "completed",
+              ceilingMicros: 120000,
+              image: null,
+              actionRequest: null,
+              deliverables: [
+                draft("x", "Synthetic X", "scheduled"),
+                draft("telegram", "Synthetic Telegram", "published_test"),
+              ],
+            },
+          ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/packages/package-3/unschedule`,
+    (route) => {
+      requests.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: { result: "not_retractable", publicationStatus: "published" },
+      });
+    },
+  );
+  await page.goto("/chat");
+  await page
+    .getByRole("button", { name: "Synthetic scheduled package", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "Content package" });
+  await expect(card.getByText(/Move to/)).toBeVisible();
+  await expect(card.getByText(/Waiting for owner decision/)).toBeVisible();
+  // Only the post that was not handed over offers a cancel.
+  await expect(
+    card.getByRole("button", { name: "Cancel schedule" }),
+  ).toHaveCount(1);
+  await card.getByRole("button", { name: "Cancel schedule" }).click();
+  await expect.poll(() => requests).toEqual([{ deliverableKey: "x" }]);
+  await expect(
+    page.getByText(/already handed over and cannot be taken back/),
+  ).toBeVisible();
+});
+
+test("cancels a running content package and shows what stopped", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8201";
+  let canceled = false;
+  const deliverable = (
+    key: string,
+    channelName: string,
+    status: string,
+    body: string | null,
+  ) => ({
+    key,
+    channelId: key,
+    channelName,
+    platform: key,
+    plannedSlotAt: null,
+    status,
+    errorCode: null,
+    content: body ? { id: `${key}-content`, body, status: "draft" } : null,
+    review: null,
+  });
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [
+            {
+              id: conversationId,
+              title: "Synthetic running package",
+              updatedAt: new Date().toISOString(),
+            },
+          ],
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic running package",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [],
+          runs: [],
+          proposals: [],
+          packages: [
+            {
+              id: "package-2",
+              goal: "Announce that beta access is open",
+              status: canceled ? "canceled" : "running",
+              ceilingMicros: 70000,
+              image: null,
+              actionRequest: null,
+              deliverables: [
+                deliverable(
+                  "x",
+                  "Synthetic X",
+                  "drafted",
+                  "Beta access is open.",
+                ),
+                deliverable(
+                  "telegram",
+                  "Synthetic Telegram",
+                  canceled ? "canceled" : "queued",
+                  null,
+                ),
+              ],
+            },
+          ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/packages/package-2/cancel`,
+    (route) => {
+      canceled = true;
+      return route.fulfill({ json: { id: "package-2", status: "canceled" } });
+    },
+  );
+  await page.goto("/chat");
+  await page
+    .getByRole("button", { name: "Synthetic running package", exact: true })
+    .click();
+  const card = page.getByRole("region", { name: "Content package" });
+  await expect(card.getByText("Drafts in progress")).toBeVisible();
+  await card.getByRole("button", { name: "Cancel package" }).click();
+  await expect.poll(() => canceled).toBe(true);
+  await expect(card.getByText("Canceled").first()).toBeVisible();
+  await expect(card.getByText("Beta access is open.")).toBeVisible();
+  await expect(
+    card.getByRole("button", { name: "Cancel package" }),
+  ).toHaveCount(0);
+});
+
+test("owner approves an editor's package image from the approvals inbox", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const requestId = "b38d9050-3dba-4ae0-851e-98d5b59e8301";
+  let decision: Record<string, unknown> | null = null;
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: decision
+            ? []
+            : [
+                {
+                  id: requestId,
+                  version: 1,
+                  actionType: "image.generate",
+                  packageHash: "d".repeat(64),
+                  costCeilingMicros: 50000,
+                  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                  requestedBy: { kind: "user", userId: "editor-1" },
+                  summary: {
+                    prompt: "Abstract open door of soft light, no text",
+                    model: "gpt-image-2.5-flare",
+                    maxCostMicros: 50000,
+                    size: "1024x1024",
+                    quality: "medium",
+                    packageGoal: "Announce that beta access is open",
+                  },
+                },
+              ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests/${requestId}/decide`,
+    (route) => {
+      decision = route.request().postDataJSON();
+      return route.fulfill({
+        json: { id: requestId, version: 2, status: "approved" },
+      });
+    },
+  );
+  await page.goto("/approvals");
+  const inbox = page.getByRole("region", { name: "Open decisions" });
+  await expect(inbox.getByText("Generate image")).toBeVisible();
+  await expect(
+    inbox.getByText("Abstract open door of soft light, no text"),
+  ).toBeVisible();
+  await expect(
+    inbox.getByText("Package: Announce that beta access is open"),
+  ).toBeVisible();
+  await inbox.getByRole("button", { name: "Approve" }).click();
+  await expect
+    .poll(() => decision)
+    .toEqual({
+      version: 1,
+      packageHash: "d".repeat(64),
+      decision: "approve",
+    });
+  await expect(inbox).toHaveCount(0);
+});
+
+test("owner schedules an exact package post from the approvals inbox", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const requestId = "b38d9050-3dba-4ae0-851e-98d5b59e8401";
+  let decision: Record<string, unknown> | null = null;
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: decision
+            ? []
+            : [
+                {
+                  id: requestId,
+                  version: 1,
+                  actionType: "content.schedule",
+                  packageHash: "e".repeat(64),
+                  costCeilingMicros: 0,
+                  expiresAt: new Date(Date.now() + 86400000).toISOString(),
+                  requestedBy: { kind: "agent", userId: "editor-1" },
+                  summary: {
+                    channel: "x",
+                    scheduledAt: "2026-10-05T07:00:00.000Z",
+                    body: "Beta access is open. Learn more.",
+                    executionMode: "test",
+                    assetId: "asset-1",
+                    packageGoal: "Announce that beta access is open",
+                  },
+                },
+              ],
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/action-requests/${requestId}/decide`,
+    (route) => {
+      decision = route.request().postDataJSON();
+      return route.fulfill({
+        json: { id: requestId, version: 3, status: "consumed" },
+      });
+    },
+  );
+  await page.goto("/approvals");
+  const inbox = page.getByRole("region", { name: "Open decisions" });
+  await expect(inbox.getByText("Schedule post")).toBeVisible();
+  await expect(inbox.getByText("Test mode")).toBeVisible();
+  await expect(
+    inbox.getByText("Beta access is open. Learn more."),
+  ).toBeVisible();
+  await expect(
+    inbox.getByText(/Approving confirms exactly this text and slot/),
+  ).toBeVisible();
+  await expect(inbox.getByRole("img", { name: "Post image" })).toBeVisible();
+  await inbox.getByRole("button", { name: "Approve" }).click();
+  await expect
+    .poll(() => decision)
+    .toEqual({
+      version: 1,
+      packageHash: "e".repeat(64),
+      decision: "approve",
+    });
+  await expect(inbox).toHaveCount(0);
+});
+
 test("Postiz owner selects exact channels for the current project", async ({
   page,
 }) => {
-  const user = account();
-  await page.goto("/");
-  await page.getByLabel(/^Email/).fill(user.email);
-  await page.getByLabel(/^Password/).fill(user.password);
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
-  ).toBeVisible();
+  const user = await signIn(page);
   const connectorId = "e0e1b285-a615-4dcf-a7c2-a38bdd1d80a6";
   let selected: string[] | null = null;
   await page.route(`**/api/projects/${user.projectId}/connectors?*`, (route) =>
