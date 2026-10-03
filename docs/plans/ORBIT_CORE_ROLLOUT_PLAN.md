@@ -51,8 +51,8 @@ Each phase starts only after the previous one is verified. "Owner" means Mario.
 
 - [ ] CI green on the integration PR.
 - [ ] Latest encrypted off-host backup succeeded within the last 26 hours (`orbit-backup ok`, Coolify scheduled task) and the `CREDENTIAL_KEY` escrow is current (`docs/BACKUP_RESTORE.md`).
-- [ ] **Approval B (read-only production query):** run the two queries from the [Phase 0 runbook](#appendix-phase-0-runbook): the context (timezone, autopilot plan moment, posting times, policy) and the preview of every channel-day the deployed autopilot will skip (`will_skip`). Confirm each `will_skip = true` row, or cancel the publication behind it before the deploy.
-- [ ] Note the current Coolify deployment ID, Git commit (`9c46b0d`) and image digest as the rollback target.
+- [x] **Approval B — skipped by Mario on 2026-10-03.** Reason: the skip only stops autopilot drafts for days whose daily quota or spacing is already used by a scheduled post; such a draft would have been blocked at handoff by `CHANNEL_DAILY_QUOTA` or `CHANNEL_SPACING` anyway. The preview was informational. Skipped days show up after the deploy as `autopilot.slot_skipped` audit events. For reference, the step was: run the two queries from the [Phase 0 runbook](#appendix-phase-0-runbook): the context (timezone, autopilot plan moment, posting times, policy) and the preview of every channel-day the deployed autopilot will skip (`will_skip`). Confirm each `will_skip = true` row, or cancel the publication behind it before the deploy.
+- [ ] Rollback target: the integration merge commit on `main` (its first parent is `9c46b0d`). Rolling back needs no Coolify lookup: `git revert -m 1 <merge commit>` pushed to `main` makes Coolify deploy the previous state, and with no migration the schema stays compatible. Coolify's own "redeploy previous deployment" is an equivalent alternative.
 - [ ] Agree the window: outside the uLiquid posting times and not at the weekly autopilot plan moment.
 
 ### Phase 1 — deploy with both flags off
@@ -62,7 +62,7 @@ Each phase starts only after the previous one is verified. "Owner" means Mario.
 - [ ] Verify unchanged behaviour: one ordinary Orbit Chat question succeeds; the autopilot plan check runs (every ten minutes) without `AUTOPILOT_PLANNING_BLOCKED`; `autopilot.slot_skipped` appears only for the days approved in Phase 0; scheduled autopilot posts are handed over as before.
 - [ ] Observe at least until the next autopilot post has been handed over and reconciled.
 
-Rollback: redeploy `9c46b0d` in Coolify. No data repair is needed; no package data exists yet.
+Rollback: revert the integration merge on `main` (`git revert -m 1 <merge commit>`, push; Coolify deploys it), or redeploy `9c46b0d` in Coolify. No data repair is needed; no package data exists yet.
 
 ### Phase 2 — content packages, drafts only
 
@@ -192,6 +192,6 @@ From the context row: avoid two hours around every `posting_times` value (projec
 
 ### Phase 0 record
 
-| Date | Backup age | Rollback target | Preview rows / `will_skip` | Decision | Window |
-| ---- | ---------- | --------------- | -------------------------- | -------- | ------ |
-|      |            |                 |                            |          |        |
+| Date       | Backup age  | Rollback target                 | Preview rows / `will_skip` | Decision                                                         | Window                       |
+| ---------- | ----------- | ------------------------------- | -------------------------- | ---------------------------------------------------------------- | ---------------------------- |
+| 2026-10-03 | not checked | revert of the integration merge | not run                    | Approval B skipped by Mario (preview informational, see Phase 0) | to be chosen with Approval A |
