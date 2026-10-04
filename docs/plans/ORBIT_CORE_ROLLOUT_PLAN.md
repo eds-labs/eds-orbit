@@ -57,9 +57,9 @@ Each phase starts only after the previous one is verified. "Owner" means Mario.
 
 ### Phase 1 — deploy with both flags off
 
-- [ ] **Approval A:** merge the integration PR (section 3); Coolify deploys it.
-- [ ] Verify: `migrate` completed with no pending migration; API, worker and web healthy; worker heartbeat current; authenticated browser login; Operations queues show no growing backlog.
-- [ ] Verify unchanged behaviour: one ordinary Orbit Chat question succeeds; the autopilot plan check runs (every ten minutes) without `AUTOPILOT_PLANNING_BLOCKED`; `autopilot.slot_skipped` appears only for the days approved in Phase 0; scheduled autopilot posts are handed over as before.
+- [x] **Approval A:** merge the integration PR (section 3); Coolify deploys it. Done: Mario approved on 2026-10-03; #51 merged at 16:27:46 UTC after both required checks passed (merge commit `c3a1d07`); #31–#50 closed with a reference to #51, #33 and #37 kept open.
+- [x] Verify: `migrate` completed with no pending migration; API, worker and web healthy; worker heartbeat current; authenticated browser login; Operations queues show no growing backlog. Done 2026-10-03: new code answering from 16:32:11 UTC (the new `action-requests` route returns 401 instead of 400); `/api/health/ready` reported database and worker `ok`, `/api/health/postiz` `ok`; Mario confirmed login. Coolify logs and the `migrate` step were not inspected (no migration in the stack).
+- [ ] Verify unchanged behaviour (chat confirmed by Mario on 2026-10-03; autopilot handover still to observe): one ordinary Orbit Chat question succeeds; the autopilot plan check runs (every ten minutes) without `AUTOPILOT_PLANNING_BLOCKED`; `autopilot.slot_skipped` appears only for the days approved in Phase 0; scheduled autopilot posts are handed over as before.
 - [ ] Observe at least until the next autopilot post has been handed over and reconciled.
 
 Rollback: revert the integration merge on `main` (`git revert -m 1 <merge commit>`, push; Coolify deploys it), or redeploy `9c46b0d` in Coolify. No data repair is needed; no package data exists yet.
