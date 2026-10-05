@@ -44,7 +44,9 @@ export function resolveFactPlaceholders<
       ...claim,
       kind: "fact" as const,
       factId: claim.factId ?? id,
-      text: value,
+      // A single-word value such as a status is a claim only with the clause
+      // that names its subject; a longer value is claimed as written.
+      text: /\s/.test(value) ? value : insert(claim.text, facts),
     };
   });
   return { ...output, body: insert(output.body, facts), claims };

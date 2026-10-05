@@ -3,6 +3,7 @@ import {
   hasFactPlaceholder,
   resolveFactPlaceholders,
 } from "./fact-placeholders.ts";
+import { factClaimMatches } from "./fact-claims.ts";
 
 const facts = [
   {
@@ -54,6 +55,44 @@ describe("fact placeholders", () => {
     );
     expect(resolved.body).toBe(`${facts[0]!.value} More text.`);
     expect(resolved.claims[0]).toMatchObject({ factId: "fact-control" });
+  });
+
+  it("keeps the subject clause around a single-word value", () => {
+    // A bare "open" says nothing and fails claim review (production uLiquid,
+    // 2026-10-05); the clause names what is open.
+    const beta = {
+      id: "fact-beta",
+      key: "product.beta_access.status",
+      value: "open",
+    };
+    const resolved = resolveFactPlaceholders(
+      {
+        body: "Beta access is {{fact:fact-beta}}. Request beta access",
+        claims: [
+          {
+            kind: "fact",
+            text: "Beta access is {{fact:fact-beta}}",
+            factId: "fact-beta",
+          },
+        ],
+      },
+      [...facts, beta],
+    );
+    expect(resolved.body).toBe("Beta access is open. Request beta access");
+    expect(resolved.claims[0]!.text).toBe("Beta access is open");
+    expect(resolved.body.includes(resolved.claims[0]!.text)).toBe(true);
+    expect(factClaimMatches(resolved.claims[0]!.text, beta)).toBe(true);
+  });
+
+  it("still uses a multi-word value alone as the claim text", () => {
+    const resolved = resolveFactPlaceholders(
+      {
+        body: "Remember: {{fact:fact-control}}",
+        claims: [{ kind: "fact", text: "Remember: {{fact:fact-control}}" }],
+      },
+      facts,
+    );
+    expect(resolved.claims[0]!.text).toBe(facts[0]!.value);
   });
 
   it("leaves unknown placeholders visible for claim review", () => {
