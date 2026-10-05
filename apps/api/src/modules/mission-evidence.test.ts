@@ -27,6 +27,17 @@ describe("mission fact keys", () => {
     ).toBeUndefined();
   });
 
+  it("uses the exact fact keys of a content package mission", () => {
+    // Without them a package draft retrieves every public fact and exceeds
+    // the fact context limit (production uLiquid, 2026-10-05).
+    expect(
+      missionFactKeys({
+        packageId: "package",
+        factKeys: ["product.beta_access.status", "url.beta_registration"],
+      }),
+    ).toEqual(["product.beta_access.status", "url.beta_registration"]);
+  });
+
   it("ignores fact keys on missions outside a confirmed chat proposal", () => {
     expect(
       missionFactKeys({ factKeys: ["product.user_control"] }),
