@@ -40,6 +40,7 @@ The Compose definition uses Coolify's documented `SERVICE_*` variables to genera
 | Generated runtime identity | `APP_ORIGIN`, `PUBLISHER_INSTANCE_ID`, `SERVICE_URL_WEB` | Coolify generates a web URL and stable publisher identity. The port-specific `SERVICE_URL_WEB_4310` entry marks the routed container port, while runtime URL resolution uses `SERVICE_URL_WEB`. Override `APP_ORIGIN` when using the approved custom domain. |
 | Internal defaults | `POSTGRES_DB`, `REDIS_URL`, `QUEUE_NAMESPACE` | Defaults are `orbit`, `redis://redis:6379`, and `orbit`; retain Docker service names. |
 | Safety gates | `EXECUTION_MODE`, `ENABLE_EXTERNAL_WRITES`, `LIVE_RAG_EVAL_PASSED` | Defaults keep the system in test mode with external writes and live RAG evaluation disabled. Changing them requires separate authorization. |
+| Feature flags | `ORBIT_CONTENT_PACKAGES`, `ORBIT_TOOL_SEARCH` | Default `false`; passed to API and worker (Orbit Chat runs in the worker). Set to `true` in the Coolify environment variables and redeploy only after the matching approval in `docs/plans/ORBIT_CORE_ROLLOUT_PLAN.md`. |
 | Optional integration | `OPENAI_API_KEY`, `OPENAI_VERIFIED_MODELS`, `OPENAI_RATE_CARD_JSON` | Leave blank until model, budget, and provider controls have been approved and verified. |
 | Legacy only | `ORBIT_HOSTNAME` | Used only by the old Caddy standalone configuration under `infra/`; Coolify ignores it. |
 

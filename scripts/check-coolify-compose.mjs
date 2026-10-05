@@ -32,6 +32,8 @@ for (const key of [
   "MIGRATION_DATABASE_URL",
   "DATABASE_URL",
   "AUTH_DATABASE_URL",
+  "ORBIT_CONTENT_PACKAGES",
+  "ORBIT_TOOL_SEARCH",
 ])
   delete composeEnvironment[key];
 
@@ -102,6 +104,38 @@ for (const name of ["api", "worker"]) {
     "synthetic-google-secret",
   );
 }
+
+// Feature flags reach the API and the worker (Orbit Chat runs in the worker),
+// default off, and follow the value set in Coolify.
+for (const name of ["api", "worker"])
+  for (const flag of ["ORBIT_CONTENT_PACKAGES", "ORBIT_TOOL_SEARCH"])
+    assert.equal(
+      services[name].environment[flag],
+      "false",
+      `${name} must receive ${flag}, off by default`,
+    );
+const flagged = JSON.parse(
+  execFileSync(
+    "docker",
+    ["compose", "-f", "docker-compose.yml", "config", "--format", "json"],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...composeEnvironment,
+        ORBIT_CONTENT_PACKAGES: "true",
+        ORBIT_TOOL_SEARCH: "true",
+      },
+    },
+  ),
+).services;
+for (const name of ["api", "worker"])
+  for (const flag of ["ORBIT_CONTENT_PACKAGES", "ORBIT_TOOL_SEARCH"])
+    assert.equal(
+      flagged[name].environment[flag],
+      "true",
+      `${name} must follow ${flag} from the deployment environment`,
+    );
 
 const composeSource = readFileSync(`${root}/docker-compose.yml`, "utf8");
 assert.doesNotMatch(
