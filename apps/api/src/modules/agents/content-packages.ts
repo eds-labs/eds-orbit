@@ -165,7 +165,8 @@ async function buildPackagePlan(
       {
         title: `${platform}: ${request.goal}`.slice(0, 160),
         goal: request.goal,
-        audience: request.audience ?? profile.audience,
+        // A profile audience may be longer than a mission allows; same cut as the autopilot.
+        audience: request.audience ?? profile.audience.slice(0, 300),
         product: profile.productName,
         language: profile.contentLanguage,
         channels: [channelId],
