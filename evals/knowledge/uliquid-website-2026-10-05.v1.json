@@ -1,0 +1,719 @@
+{
+  "datasetVersion": "uliquid-website-2026-10-05.v1",
+  "cases": [
+    {
+      "id": "pos-01",
+      "query": "Does each trading bot get its own on-chain vault?",
+      "expectedChunkIds": [
+        "c475ecce-25f6-467f-b9b9-267b5e68453d",
+        "2513bfc7-8549-4bff-85d3-e9f19d04802c"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-02",
+      "query": "Where are bot vaults deployed and are bot funds kept separate?",
+      "expectedChunkIds": [
+        "2513bfc7-8549-4bff-85d3-e9f19d04802c",
+        "c475ecce-25f6-467f-b9b9-267b5e68453d",
+        "5c4cc497-9a46-43b5-a347-de5b969c038c"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-03",
+      "query": "What does the dashboard show about balances, positions and PnL?",
+      "expectedChunkIds": [
+        "41ee0b93-57d5-408c-98fa-1bf61c41cf02"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-04",
+      "query": "Does the portfolio view warn me when data is out of date?",
+      "expectedChunkIds": [
+        "41ee0b93-57d5-408c-98fa-1bf61c41cf02"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-05",
+      "query": "Where can I see charts, news and the economic calendar?",
+      "expectedChunkIds": [
+        "c73ab462-d433-4b71-a8ef-3462a0b4361f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-06",
+      "query": "Can I see funding rates and open interest?",
+      "expectedChunkIds": [
+        "c73ab462-d433-4b71-a8ef-3462a0b4361f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-07",
+      "query": "Can I practise with paper trading before trading live?",
+      "expectedChunkIds": [
+        "6b2a3b0e-07db-40bf-bd6c-dd6e9c6de2f0",
+        "7b8c3085-f1d1-4995-8981-93cb6ac11d7f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-08",
+      "query": "Is there a review step before an order goes live?",
+      "expectedChunkIds": [
+        "6b2a3b0e-07db-40bf-bd6c-dd6e9c6de2f0",
+        "1e8b6f3b-6a8e-46b1-8e07-5e3a719bab6d",
+        "1c19a9b7-ed5d-4b2c-a3c4-331e914a774f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-09",
+      "query": "Can I ask the AI about markets and my open positions?",
+      "expectedChunkIds": [
+        "290434d6-8573-452c-a6cd-00db1d8d6c29",
+        "3beb1b92-c4e1-47d0-8463-969dd9445bb7"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-10",
+      "query": "Can the AI place a trade on its own?",
+      "expectedChunkIds": [
+        "3beb1b92-c4e1-47d0-8463-969dd9445bb7",
+        "1c19a9b7-ed5d-4b2c-a3c4-331e914a774f",
+        "6cbb6e62-a37f-4e32-bf2c-a79fe47e35c8"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-11",
+      "query": "How many read-only skills can the AI analyse with?",
+      "expectedChunkIds": [
+        "3beb1b92-c4e1-47d0-8463-969dd9445bb7"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-12",
+      "query": "What does AI Predictions do?",
+      "expectedChunkIds": [
+        "b21640c3-b18a-484c-b414-758f4cd75031",
+        "290434d6-8573-452c-a6cd-00db1d8d6c29"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-13",
+      "query": "Which agent explains market moves and shows its sources?",
+      "expectedChunkIds": [
+        "eed01ae3-33ac-4270-8c47-74f9b062fab9"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-14",
+      "query": "Is the Position Copilot read-only?",
+      "expectedChunkIds": [
+        "99529fa8-393e-417d-95b0-491f6751eb47"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-15",
+      "query": "Do I approve every order before it is placed?",
+      "expectedChunkIds": [
+        "1e8b6f3b-6a8e-46b1-8e07-5e3a719bab6d",
+        "6b2a3b0e-07db-40bf-bd6c-dd6e9c6de2f0"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-16",
+      "query": "Are bot strategies checked against my risk rules?",
+      "expectedChunkIds": [
+        "1b15b5fd-f9cb-49bd-a88d-d8277cff95b8",
+        "89a44c82-a2c7-44c4-a05a-03d3be168b53"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-17",
+      "query": "Which notification channels are supported?",
+      "expectedChunkIds": [
+        "fa72ca67-5eb1-484f-92f4-a23a4a124a84"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-18",
+      "query": "Can I get Telegram or webhook notifications?",
+      "expectedChunkIds": [
+        "fa72ca67-5eb1-484f-92f4-a23a4a124a84"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-19",
+      "query": "Can I describe a trade idea in plain words and get entry and exit rules?",
+      "expectedChunkIds": [
+        "d15b3fb8-5cd9-4cf5-82a6-4891fe896b80"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-20",
+      "query": "Does the prediction builder create an automatic trade from my idea?",
+      "expectedChunkIds": [
+        "65f5d3f6-ae98-40af-9109-b90db8aa0817",
+        "1c19a9b7-ed5d-4b2c-a3c4-331e914a774f",
+        "d15b3fb8-5cd9-4cf5-82a6-4891fe896b80"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-21",
+      "query": "Example of a BTC trend continuation idea",
+      "expectedChunkIds": [
+        "65f5d3f6-ae98-40af-9109-b90db8aa0817"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-22",
+      "query": "Which timeframe does the example workflow use?",
+      "expectedChunkIds": [
+        "03aaa0c7-f3e0-4a17-b1a5-3a3a540727ce"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-23",
+      "query": "Example entry conditions with EMA and RSI",
+      "expectedChunkIds": [
+        "af4aab28-f8ab-44f1-8b68-eb1ed269719f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-24",
+      "query": "What invalidates the example trade idea?",
+      "expectedChunkIds": [
+        "ab1fdf2f-28df-41d4-9f8e-3e74df795770",
+        "895518fe-96d0-4473-9140-a9a1a7f0bd5b"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-25",
+      "query": "How much risk per idea and how many positions in the example risk rules?",
+      "expectedChunkIds": [
+        "610c6d61-9326-4a11-b446-e0c9cbadaf76",
+        "895518fe-96d0-4473-9140-a9a1a7f0bd5b"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-26",
+      "query": "Can I edit or discard an AI-structured workflow?",
+      "expectedChunkIds": [
+        "6cbb6e62-a37f-4e32-bf2c-a79fe47e35c8",
+        "1c19a9b7-ed5d-4b2c-a3c4-331e914a774f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-27",
+      "query": "Which exchanges does uLiquid connect to?",
+      "expectedChunkIds": [
+        "15cd707b-bf70-4e16-ba69-66edc3c76ab0"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-28",
+      "query": "Is live trading enabled separately for each exchange account?",
+      "expectedChunkIds": [
+        "15cd707b-bf70-4e16-ba69-66edc3c76ab0"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-29",
+      "query": "Can I trade perpetuals on-chain on Hyperliquid?",
+      "expectedChunkIds": [
+        "5c4cc497-9a46-43b5-a347-de5b969c038c",
+        "15cd707b-bf70-4e16-ba69-66edc3c76ab0"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-30",
+      "query": "What markets are available on Hyperliquid?",
+      "expectedChunkIds": [
+        "5c4cc497-9a46-43b5-a347-de5b969c038c"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-31",
+      "query": "Does uLiquid support Binance futures?",
+      "expectedChunkIds": [
+        "6a2d28d3-2a22-4cf0-a701-bd41aefa9e63"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-32",
+      "query": "Which Bitget markets are supported?",
+      "expectedChunkIds": [
+        "0d9af6a7-fbc3-4a55-a785-46df7a137338"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-33",
+      "query": "Which MEXC markets are supported?",
+      "expectedChunkIds": [
+        "7e6fb69e-65be-49c5-a4b0-ace54aff335a"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-34",
+      "query": "Is BingX supported?",
+      "expectedChunkIds": [
+        "7b8c3085-f1d1-4995-8981-93cb6ac11d7f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-35",
+      "query": "Which exchanges are planned next, like OKX or Bybit?",
+      "expectedChunkIds": [
+        "7b8c3085-f1d1-4995-8981-93cb6ac11d7f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-36",
+      "query": "How does a bot vault keep funds separate and recoverable?",
+      "expectedChunkIds": [
+        "2513bfc7-8549-4bff-85d3-e9f19d04802c"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-37",
+      "query": "Are Bot Vaults already part of a paid plan?",
+      "expectedChunkIds": [
+        "2513bfc7-8549-4bff-85d3-e9f19d04802c"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-38",
+      "query": "How is a vault created for a bot?",
+      "expectedChunkIds": [
+        "472cad1b-13f8-4922-89ed-65a40480b5fe",
+        "2513bfc7-8549-4bff-85d3-e9f19d04802c"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-39",
+      "query": "How do I fund a bot vault?",
+      "expectedChunkIds": [
+        "add2f120-4b98-4b74-9fea-0dd4c14708ee"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-40",
+      "query": "Where does the bot execute its trades from the vault?",
+      "expectedChunkIds": [
+        "b358eafb-f726-488b-9d3c-140f0e469423",
+        "5c4cc497-9a46-43b5-a347-de5b969c038c"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-41",
+      "query": "How are vault deposits and withdrawals reconciled?",
+      "expectedChunkIds": [
+        "126b786c-5894-416d-80fe-97e0a7aa27f4"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-42",
+      "query": "Is there an iOS app?",
+      "expectedChunkIds": [
+        "b080502a-d51c-4d47-8569-204c22226d15"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-43",
+      "query": "When will the mobile app be available in the App Store?",
+      "expectedChunkIds": [
+        "b080502a-d51c-4d47-8569-204c22226d15"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-44",
+      "query": "Is there a free plan?",
+      "expectedChunkIds": [
+        "c1d634c5-955d-43ac-8b51-2e37c5f17bda",
+        "d53e1f8f-b08f-4026-a38d-c260e2be4c79",
+        "611b1f97-bef0-491f-a456-dce338028cc8"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-45",
+      "query": "In which currency are subscriptions billed?",
+      "expectedChunkIds": [
+        "c1d634c5-955d-43ac-8b51-2e37c5f17bda",
+        "72826f1d-60b4-4c08-b233-84f54fa44b6f",
+        "c90fe9c9-5975-4891-b6b9-48afc6c1b4cb"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-46",
+      "query": "What is included in the Free plan?",
+      "expectedChunkIds": [
+        "d53e1f8f-b08f-4026-a38d-c260e2be4c79"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-47",
+      "query": "How much does the Pro plan cost per month?",
+      "expectedChunkIds": [
+        "72826f1d-60b4-4c08-b233-84f54fa44b6f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-48",
+      "query": "How many AI credits are included in Pro?",
+      "expectedChunkIds": [
+        "72826f1d-60b4-4c08-b233-84f54fa44b6f"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-49",
+      "query": "How much does Premium cost and how many bots does it allow?",
+      "expectedChunkIds": [
+        "c90fe9c9-5975-4891-b6b9-48afc6c1b4cb"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-50",
+      "query": "Which plan includes the Prediction Copier?",
+      "expectedChunkIds": [
+        "c90fe9c9-5975-4891-b6b9-48afc6c1b4cb"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-51",
+      "query": "Is the ULIQ token required to use the Desk?",
+      "expectedChunkIds": [
+        "4aa4d7f8-ea8a-419c-9ead-3b847640b755"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-52",
+      "query": "What will locking ULIQ unlock?",
+      "expectedChunkIds": [
+        "4aa4d7f8-ea8a-419c-9ead-3b847640b755",
+        "f81470a7-18ac-4a3b-8990-9d0d093ea5f7"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-53",
+      "query": "When does presale Round 1 start and end?",
+      "expectedChunkIds": [
+        "f81470a7-18ac-4a3b-8990-9d0d093ea5f7",
+        "ea8a8f8c-4b04-4654-b9c0-49db4a7937ad"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "pos-54",
+      "query": "Is AI-generated analysis financial advice?",
+      "expectedChunkIds": [
+        "1cdc501c-cab2-4c39-b934-15bcd29047c8"
+      ],
+      "forbiddenChunkIds": [],
+      "language": "en",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-01",
+      "query": "Bekommt jeder Bot einen eigenen Vault?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "c475ecce-25f6-467f-b9b9-267b5e68453d",
+        "2513bfc7-8549-4bff-85d3-e9f19d04802c"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-02",
+      "query": "Wie viel kostet der Pro-Plan?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "72826f1d-60b4-4c08-b233-84f54fa44b6f"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-03",
+      "query": "Welche Börsen werden unterstützt?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "15cd707b-bf70-4e16-ba69-66edc3c76ab0"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-04",
+      "query": "Kann die KI selbstständig Trades ausführen?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "3beb1b92-c4e1-47d0-8463-969dd9445bb7"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-05",
+      "query": "Gibt es eine iOS-App?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "b080502a-d51c-4d47-8569-204c22226d15"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-06",
+      "query": "Ist der ULIQ-Token für den Desk erforderlich?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "4aa4d7f8-ea8a-419c-9ead-3b847640b755"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-07",
+      "query": "Welche Benachrichtigungskanäle gibt es?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "fa72ca67-5eb1-484f-92f4-a23a4a124a84"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-lang-08",
+      "query": "Wann läuft die Presale-Runde 1?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "f81470a7-18ac-4a3b-8990-9d0d093ea5f7"
+      ],
+      "language": "de",
+      "purpose": "public"
+    },
+    {
+      "id": "neg-time-01",
+      "query": "Does each trading bot get its own on-chain vault?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "c475ecce-25f6-467f-b9b9-267b5e68453d",
+        "2513bfc7-8549-4bff-85d3-e9f19d04802c"
+      ],
+      "language": "en",
+      "purpose": "public",
+      "at": "2026-10-01T12:00:00.000Z"
+    },
+    {
+      "id": "neg-time-02",
+      "query": "How much does the Pro plan cost per month?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "72826f1d-60b4-4c08-b233-84f54fa44b6f"
+      ],
+      "language": "en",
+      "purpose": "public",
+      "at": "2026-10-01T12:00:00.000Z"
+    },
+    {
+      "id": "neg-time-03",
+      "query": "Which exchanges does uLiquid connect to?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "15cd707b-bf70-4e16-ba69-66edc3c76ab0"
+      ],
+      "language": "en",
+      "purpose": "public",
+      "at": "2026-10-01T12:00:00.000Z"
+    },
+    {
+      "id": "neg-time-04",
+      "query": "Is there an iOS app?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "b080502a-d51c-4d47-8569-204c22226d15"
+      ],
+      "language": "en",
+      "purpose": "public",
+      "at": "2026-10-01T12:00:00.000Z"
+    },
+    {
+      "id": "neg-time-05",
+      "query": "What is included in the Free plan?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "d53e1f8f-b08f-4026-a38d-c260e2be4c79"
+      ],
+      "language": "en",
+      "purpose": "public",
+      "at": "2026-10-01T12:00:00.000Z"
+    },
+    {
+      "id": "neg-time-06",
+      "query": "When does presale Round 1 start and end?",
+      "expectedChunkIds": [],
+      "forbiddenChunkIds": [
+        "f81470a7-18ac-4a3b-8990-9d0d093ea5f7"
+      ],
+      "language": "en",
+      "purpose": "public",
+      "at": "2026-10-01T12:00:00.000Z"
+    }
+  ]
+}
