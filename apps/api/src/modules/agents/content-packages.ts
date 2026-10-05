@@ -24,7 +24,10 @@ import {
 import { currentImageTerms, imageRequestBrief } from "../image-generation.ts";
 import { proposeImageRequest } from "../image-requests.ts";
 import { markMissionArchived } from "../mission-archive.ts";
-import { currentMarketingProfile } from "../marketing-profile.ts";
+import {
+  currentMarketingProfile,
+  officialTargetLink,
+} from "../marketing-profile.ts";
 import { activePolicy } from "../policy.ts";
 import { resolveChannelRules } from "../channel-rules.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
@@ -138,10 +141,18 @@ async function buildPackagePlan(
   const profileRow = await currentMarketingProfile(tx, scope);
   if (!profileRow) throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
   const profile = marketingProfile.parse(profileRow.data);
-  const link = profile.officialLinks[0];
-  if (!link) throw new DomainError("CAMPAIGN_TARGET_URL_REQUIRED", 409);
+  if (!profile.officialLinks.length)
+    throw new DomainError("CAMPAIGN_TARGET_URL_REQUIRED", 409);
   const policyRow = await activePolicy(tx, scope);
   if (!policyRow) throw new DomainError("POLICY_REQUIRED", 409);
+  const link = await officialTargetLink(
+    tx,
+    scope,
+    profile,
+    data(policyRow).allowedOrigins ?? [],
+    request.factKeys,
+  );
+  if (!link) throw new DomainError("LINK_NOT_ALLOWED", 409);
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });

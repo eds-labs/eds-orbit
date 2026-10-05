@@ -18,6 +18,7 @@ import { activePolicy } from "./policy.ts";
 import {
   assertCampaignContext,
   currentMarketingProfile,
+  officialTargetLink,
 } from "./marketing-profile.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
 import { assignedPostizChannels, postingTimeFor } from "./postiz-assignment.ts";
@@ -225,9 +226,20 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
   const profileRow = await currentMarketingProfile(tx, scope);
   if (!profileRow) return { planned: 0 };
   const profile = marketingProfile.parse(profileRow.data);
-  const link = profile.officialLinks[0];
   const cta = profile.primaryCtas[0];
-  if (!link || !cta) return { planned: 0 };
+  if (!profile.officialLinks.length || !cta) return { planned: 0 };
+  const policy = await activePolicy(tx, scope);
+  const link = await officialTargetLink(
+    tx,
+    scope,
+    profile,
+    data(policy)?.allowedOrigins ?? [],
+  );
+  // A target the policy forbids would block every draft: say so instead.
+  if (!link) {
+    await exception(tx, scope, "AUTOPILOT_PLANNING_BLOCKED", row.id);
+    return { planned: 0, blocked: "LINK_NOT_ALLOWED" };
+  }
   const linkFact = data(await entity(tx, scope, "facts", link.factId));
   const connector = await channelContext(tx, scope);
   const channels = assignedPostizChannels(connector);
@@ -238,7 +250,6 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
   );
   // Scheduled posts, for example owner-approved package posts, keep their day:
   // the autopilot plans no paid draft that the daily quota would block later.
-  const policy = await activePolicy(tx, scope);
   const maxPerDay = Number(data(policy)?.maxPerDay ?? 1);
   const minIntervalMinutes = Number(data(policy)?.minIntervalMinutes ?? 0);
   const scheduled = (await list(tx, scope, "publications")).filter(
