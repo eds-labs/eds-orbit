@@ -81,8 +81,20 @@ async function usableFacts(tx: DbTx, scope: Scope, keys: string[], at: Date) {
       );
     });
     if (!usable.length) throw new DomainError("FACT_NOT_USABLE", 409);
-    if (usable.length > 1) throw new DomainError("FACT_CONFLICT", 409);
-    return usable[0]!;
+    // Copies with the same statement (for example from an import that ran
+    // twice) are no contradiction: the newest copy is used. Differing values block.
+    const statement = (row: (typeof usable)[number]) => {
+      const f = data(row);
+      return hash([f.value, f.valueType, f.unit, f.currency, f.language]);
+    };
+    if (new Set(usable.map(statement)).size > 1)
+      throw new DomainError("FACT_CONFLICT", 409);
+    // Deterministic, so a rebuilt plan picks the same copy.
+    return [...usable].sort(
+      (a, b) =>
+        b.createdAt.valueOf() - a.createdAt.valueOf() ||
+        b.id.localeCompare(a.id),
+    )[0]!;
   });
 }
 
