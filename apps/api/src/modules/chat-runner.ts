@@ -47,6 +47,12 @@ const toolSpanName = (name: unknown) =>
     ? name
     : "unknown_tool";
 
+// Proposal tools whose invalid input is returned with the invalid fields.
+const VALIDATION_CODES = {
+  propose_campaign: "PROPOSAL_VALIDATION_FAILED",
+  request_content_package: "PACKAGE_VALIDATION_FAILED",
+} as const;
+
 const MAX_MODEL_CALLS = 6;
 const MAX_TOOL_CALLS = 8;
 const MAX_INPUT_BYTES = 32000;
@@ -474,10 +480,15 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
             await recordTool();
             throw error;
           }
+          // Invalid input of a proposal tool reaches the model with the fields to fix.
+          const validationCode =
+            error instanceof ZodError
+              ? VALIDATION_CODES[call.name as keyof typeof VALIDATION_CODES]
+              : undefined;
           output =
-            call.name === "propose_campaign" && error instanceof ZodError
+            validationCode && error instanceof ZodError
               ? {
-                  error: "PROPOSAL_VALIDATION_FAILED",
+                  error: validationCode,
                   invalidFields: [
                     ...new Set(
                       error.issues.map(
@@ -495,10 +506,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
                   ].slice(0, 8),
                 }
               : { error: errorCode(error) };
-          toolFailure =
-            call.name === "propose_campaign" && error instanceof ZodError
-              ? "PROPOSAL_VALIDATION_FAILED"
-              : telemetryErrorCode(error);
+          toolFailure = validationCode ?? telemetryErrorCode(error);
         }
         await recordTool();
         input.push({
