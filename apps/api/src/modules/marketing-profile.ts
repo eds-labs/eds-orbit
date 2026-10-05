@@ -9,6 +9,40 @@ import { factClaimMatches } from "./fact-claims.ts";
 
 export type MarketingProfile = ReturnType<typeof marketingProfile.parse>;
 
+/**
+ * The official link a post targets: the first one whose origin the active
+ * policy allows, preferring a link whose fact has one of the given keys (the
+ * facts a package states). Null when the policy allows none of them.
+ */
+export async function officialTargetLink(
+  tx: DbTx,
+  scope: Scope,
+  profile: MarketingProfile,
+  allowedOrigins: readonly string[],
+  preferredFactKeys: readonly string[] = [],
+) {
+  const allowed = profile.officialLinks.filter((link) => {
+    try {
+      return allowedOrigins.includes(new URL(link.url).origin);
+    } catch {
+      return false;
+    }
+  });
+  for (const link of allowed) {
+    if (!preferredFactKeys.length) break;
+    const fact = await tx.entity.findFirst({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "facts",
+        id: link.factId,
+      },
+    });
+    if (preferredFactKeys.includes(String(data(fact).key))) return link;
+  }
+  return allowed[0] ?? null;
+}
+
 function owner(scope: Scope) {
   if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
 }
