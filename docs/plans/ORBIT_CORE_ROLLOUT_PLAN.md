@@ -66,6 +66,8 @@ Rollback: revert the integration merge on `main` (`git revert -m 1 <merge commit
 
 ### Phase 2 — content packages, drafts only
 
+Finding on 2026-10-05, before Approval C: `docker-compose.yml` passes environment variables to the containers by name, and the two feature flags were missing, so a value set in Coolify would not have reached API or worker. Fixed in the pull request after #51: both flags are passed to API and worker with default `false`, checked by `pnpm test:coolify-compose`. That merge deploys with the flags still off; Approval C follows after it.
+
 - [ ] **Approval C (flag + paid drafts):** set `ORBIT_CONTENT_PACKAGES=true` in Coolify and redeploy (the flag is read from the environment; it applies to every project on this instance). Paid drafts stay inside the existing uLiquid policy budget; each package shows its cost ceiling before the start click.
 - [ ] Scripted acceptance in production by the owner (no publishing in this phase):
   1. JC01: "Erstelle einen X- und einen Telegram-Post über <aktueller verifizierter Fakt>, nichts veröffentlichen." → one package card with the ceiling; nothing runs before "Start package".
