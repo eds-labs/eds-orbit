@@ -100,8 +100,10 @@ Rollback: set the flag to `false` and redeploy; started packages finish as draft
 
 ### Phase 4 — tool search
 
-- [ ] **Approval E (paid check + flag):** with the configured chat route on `gpt-5.4` or later, set `ORBIT_TOOL_SEARCH=true` and redeploy. Ask one question that needs a deferred tool ("Welche X-Slots sind diese Woche frei?").
+- [x] **Approval E (paid check + flag):** with the configured chat route on `gpt-5.4` or later, set `ORBIT_TOOL_SEARCH=true` and redeploy. Ask one question that needs a deferred tool ("Welche X-Slots sind diese Woche frei?").
 - [ ] Verify in the run's spans: one `tool_search` span, then `schedule_options` succeeded; the answer lists slots. If the provider rejects `tool_search` (run fails with a model error), set the flag back to `false`; nothing else changes.
+- Phase 4 record (2026-10-06): chat route `gpt-6.1-sol` (supports tool search). Mario set `ORBIT_TOOL_SEARCH=true` for Production in Coolify and redeployed `4b4a629` (Claude's tool refused feature-flag writes in production). "Welche X-Slots sind diese Woche frei?" succeeded: no free X slot from 6 to 11 October (each day 17:00 taken by the autopilot; daily limit and spacing block more), answer cites `schedule_options`; run `11c0c11b`: 4 model calls, 3 tool calls, 11,343 micro-USD. `schedule_options` is deferred, so the provider could only call it after a `tool_search`. The individual spans are not exposed by the API or UI (`/agent-runs` returns run totals only); a span-level check needs a database query.
+- Finding on 2026-10-06: "Alle freigeben" for the 13 autopilot drafts failed with `INVALID_SCHEDULE` and approved nothing. The drafts are approved in slot order and the first slots (5 October) had already passed; Orbit refuses a past time and the loop stopped at the first error. Fixed in the pull request after #58: drafts whose slot has passed are shown as "Termin verstrichen" without an approve action, and "Alle freigeben" approves the remaining drafts one by one and lists any that were refused.
 
 ### Phase 5 — first live scheduled package post
 
