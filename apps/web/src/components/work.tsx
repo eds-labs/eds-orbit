@@ -1,5 +1,9 @@
 "use client";
-import { approveEach, autopilotApprovals } from "./autopilot-approvals";
+import {
+  approveEach,
+  autopilotApprovals,
+  pausedPosts,
+} from "./autopilot-approvals";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import {
   AdaptationDialog,
@@ -1913,6 +1917,86 @@ export function EvidenceItems({ evidence }: { evidence: Entity }) {
     </div>
   );
 }
+// Posts a project pause stopped; the owner schedules them again in one step.
+function PausedPublications() {
+  const { locale, project, isOwner, refresh } = useWorkspace();
+  const de = locale === "de";
+  const publications = useCollection("publications"),
+    content = useCollection("content");
+  const mutation = useMutation(refresh);
+  const [result, setResult] = useState<{
+    resumed: number;
+    blocked: { id: string; blockers: string[] }[];
+  } | null>(null);
+  const stopped = pausedPosts(publications.data?.items ?? []);
+  if (!stopped.length && !result) return null;
+  const title = (contentId: unknown) => {
+    const row = (content.data?.items ?? []).find((c) => c.id === contentId);
+    return row ? value(row, "title") : "";
+  };
+  const time = (id: string) =>
+    when(
+      stopped.find((p) => p.id === id)?.data.scheduledAt,
+      locale,
+      project.timezone,
+    );
+  return (
+    <section className="panel autopilot-approvals">
+      <div className="panel-head">
+        <div>
+          <h2>{de ? "Gestoppte Posts" : "Stopped posts"}</h2>
+          <p>
+            {project.paused
+              ? de
+                ? "Die Pause hat diese Posts gestoppt. Setze das Projekt unter Betrieb fort, um sie wieder einzuplanen."
+                : "The pause stopped these posts. Resume the project under Operations to schedule them again."
+              : de
+                ? "Die Pause hat diese Posts gestoppt. Fortsetzen allein sendet nichts; plane sie hier wieder ein. Orbit prüft jeden Post vorher erneut."
+                : "The pause stopped these posts. Resuming alone sends nothing; schedule them again here. Orbit checks every post again first."}
+          </p>
+        </div>
+        {isOwner && !project.paused && stopped.length > 0 && (
+          <Button
+            disabled={mutation.pending}
+            onClick={() =>
+              mutation.run(async () =>
+                setResult(
+                  await action(project.id, "resume-paused-publications", {}),
+                ),
+              )
+            }
+          >
+            {de
+              ? `${stopped.length} wieder einplanen`
+              : `Schedule ${stopped.length} again`}
+          </Button>
+        )}
+      </div>
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {result && (
+        <Alert kind={result.blocked.length ? "warning" : "success"}>
+          {de
+            ? `${result.resumed} wieder eingeplant.`
+            : `${result.resumed} scheduled again.`}
+          {result.blocked.map((b) => (
+            <span key={b.id}>
+              {" "}
+              {time(b.id)}: {b.blockers.join(", ")}
+            </span>
+          ))}
+        </Alert>
+      )}
+      {stopped.map((p) => (
+        <article key={p.id} className="autopilot-approval">
+          <p className="panel-note">
+            {when(p.data.scheduledAt, locale, project.timezone)} ·{" "}
+            {title(p.data.contentId)}
+          </p>
+        </article>
+      ))}
+    </section>
+  );
+}
 function AutopilotApprovals() {
   const { locale, project, isOwner, refresh } = useWorkspace();
   const de = locale === "de";
@@ -1978,8 +2062,8 @@ function AutopilotApprovals() {
           </p>
           <Alert kind="warning">
             {de
-              ? "Termin verstrichen: dieser Entwurf kann nicht mehr zu diesem Termin eingeplant werden."
-              : "Slot passed: this draft can no longer be scheduled for that time."}
+              ? "Termin verstrichen: dieser Entwurf wird nicht mehr eingeplant und gleich automatisch archiviert."
+              : "Slot passed: this draft is no longer scheduled and is archived automatically."}
           </Alert>
         </article>
       ))}
@@ -2037,6 +2121,7 @@ export function ApprovalInbox() {
           exceptions.refresh();
         }}
       />
+      <PausedPublications />
       <AutopilotApprovals />
       <ActionRequestInbox />
       {exceptions.data?.items.map((e) => (

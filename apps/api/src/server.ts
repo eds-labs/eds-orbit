@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
 import { approveAndSchedule, configureAutopilot } from "./modules/autopilot.ts";
+import { resumePausedPublications } from "./modules/paused-posts.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
 import {
   proposeBrief,
@@ -1291,6 +1292,7 @@ export async function buildServer(
       "configure-autopilot",
       "configure-matomo-schedule",
       "approve-and-schedule",
+      "resume-paused-publications",
       "postiz-test-reconcile",
       "calendar-block",
       "calendar-unblock",
@@ -1908,6 +1910,8 @@ export async function buildServer(
         return configureAutopilot(tx, scope, input);
       if (action === "approve-and-schedule")
         return approveAndSchedule(tx, scope, input);
+      if (action === "resume-paused-publications")
+        return resumePausedPublications(tx, scope);
       if (action === "archive-mission") return archiveMission(tx, scope, input);
       if (action === "run-mission")
         return planMission(tx, scope, schemas.id.parse(input.missionId));
