@@ -61,6 +61,7 @@ import {
 } from "../../api/src/modules/workflow.ts";
 import { generateMissionLive } from "../../api/src/modules/generation.ts";
 import { runChatJob } from "../../api/src/modules/chat-runner.ts";
+import { stopChatRunForPause } from "../../api/src/modules/chat.ts";
 import { runImageJob } from "../../api/src/modules/image-requests.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
@@ -170,6 +171,8 @@ const workers = classes.map(
               status: "blocked_dependency",
               error: "PROJECT_PAUSED",
             });
+            // The reply would otherwise wait forever.
+            if (topic === "chat") await stopChatRunForPause(tx, d);
             return null;
           }
           return update(tx, scope, job, {

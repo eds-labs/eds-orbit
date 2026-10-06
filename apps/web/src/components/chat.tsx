@@ -11,7 +11,16 @@ import {
   Square,
   ExternalLink,
 } from "lucide-react";
-import { action, api, collectionPath, post, useResource, usd } from "@/lib/api";
+import {
+  action,
+  api,
+  ApiError,
+  collectionPath,
+  post,
+  useResource,
+  usd,
+} from "@/lib/api";
+import { chatErrorText } from "./chat-errors";
 import {
   Alert,
   Badge,
@@ -269,7 +278,13 @@ export function OrbitChat() {
       });
       refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Request failed");
+      setError(
+        cause instanceof ApiError
+          ? chatErrorText(cause.code, de)
+          : cause instanceof Error
+            ? cause.message
+            : "Request failed",
+      );
     } finally {
       setPending(false);
     }
@@ -609,7 +624,8 @@ export function OrbitChat() {
               terminal.has(stream.status) &&
               stream.status !== "succeeded" && (
                 <Alert kind="warning">
-                  {statusLabel(stream.status, de)}: {stream.errorCode ?? "—"}
+                  {statusLabel(stream.status, de)}:{" "}
+                  {chatErrorText(stream.errorCode, de)}
                 </Alert>
               )}
             {(detail.data?.packages ?? []).map((pkg) => (
