@@ -786,6 +786,19 @@ td:first-child {
 .data-row > svg {
   color: #62829d;
 }
+.run-steps {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.run-steps small {
+  display: block;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
 .tabs {
   display: flex;
   gap: 21px;

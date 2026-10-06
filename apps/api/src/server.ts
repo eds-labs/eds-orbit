@@ -30,6 +30,7 @@ import {
   aiCostQuery,
   aiCostSummary,
   listAgentRuns,
+  listRunSpans,
 } from "./modules/ai-usage.ts";
 import { pauseProject } from "./modules/pause.ts";
 import {
@@ -590,6 +591,14 @@ export async function buildServer(
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, true);
     return listAgentRuns(scope, agentRunsQuery.parse(req.query));
+  });
+  app.get("/api/projects/:projectId/agent-runs/:runId/spans", async (req) => {
+    const { projectId, runId } = req.params as {
+      projectId: string;
+      runId: string;
+    };
+    const scope = await scopeFor(auth, req, projectId, true);
+    return { items: await listRunSpans(scope, z.uuid().parse(runId)) };
   });
   app.get("/api/projects/:projectId/ai-cost", async (req) => {
     const { projectId } = req.params as { projectId: string };
