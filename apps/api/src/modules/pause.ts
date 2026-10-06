@@ -8,6 +8,7 @@ import {
   audit,
   DomainError,
 } from "../shared.ts";
+import { stopChatRunForPause } from "./chat.ts";
 export async function pauseProject(tx: DbTx, scope: Scope, paused: boolean) {
   if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
   const result = await tx.project.update({
@@ -37,6 +38,21 @@ export async function pauseProject(tx: DbTx, scope: Scope, paused: boolean) {
           p.id,
         );
     }
+  // Waiting replies end visibly instead of showing "working" forever; on
+  // resume, replies whose job the worker blocked during the pause end too.
+  for (const job of await list(tx, scope, "jobs")) {
+    const d = data(job);
+    if (
+      d.topic === "chat" &&
+      (paused
+        ? d.status === "queued"
+        : d.status === "blocked_dependency" && d.error === "PROJECT_PAUSED")
+    )
+      await stopChatRunForPause(
+        tx,
+        d as { resourceId: string; actorId: string },
+      );
+  }
   await audit(tx, scope, "project.pause", scope.projectId, { paused });
   return result;
 }

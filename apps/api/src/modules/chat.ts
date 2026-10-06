@@ -273,6 +273,11 @@ export async function sendMessage(scope: Scope, id: string, raw: unknown) {
       },
     });
     if (active) throw new DomainError("CHAT_RUN_IN_PROGRESS", 409);
+    // A paused project runs no jobs, so a reply would never come.
+    const project = await tx.project.findUniqueOrThrow({
+      where: { id: scope.projectId },
+    });
+    if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
     const last = await tx.chatMessage.findFirst({
       where: { ...where(scope), conversationId: id },
       orderBy: { sequence: "desc" },
@@ -306,6 +311,27 @@ export async function sendMessage(scope: Scope, id: string, raw: unknown) {
     });
     return { runId: run.id, jobId: job.id, status: "queued" };
   });
+}
+
+/**
+ * A reply that will not run because the project is paused ends visibly. Chat
+ * rows are private to their sender, so this runs as the job's actor.
+ */
+export async function stopChatRunForPause(
+  tx: DbTx,
+  job: Record<string, unknown>,
+) {
+  await tx.$executeRaw`SELECT set_config('app.user_id',${String(job.actorId)},true)`;
+  await tx.chatRun.updateMany({
+    // A running reply checked the pause before its model call and finishes.
+    where: { id: String(job.resourceId), status: "queued" },
+    data: {
+      status: "blocked",
+      errorCode: "PROJECT_PAUSED",
+      sequence: { increment: 1 },
+    },
+  });
+  await tx.$executeRaw`SELECT set_config('app.user_id','',true)`;
 }
 
 export async function getRun(scope: Scope, runId: string) {
