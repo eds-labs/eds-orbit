@@ -16,7 +16,7 @@ import {
   resolveRoute,
   estimateCost,
 } from "../../../../packages/ai/src/index.ts";
-import { activePolicy } from "./policy.ts";
+import { activePolicy, withinClaimRepeatWindow } from "./policy.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
 import { errorCode, finishRun, recordSpan, startRun } from "./telemetry.ts";
 import {
@@ -79,6 +79,8 @@ type GenerationContract = {
   } | null;
   // Present only for a package revision of one existing draft.
   revision?: { instruction: string; previousBody: string };
+  // Present only for an autopilot day: the channel's posts around its slot.
+  recentChannelPosts?: { title: string; claims: string[] }[];
 };
 /** The draft a revision changes; it must still be the version the user asked to revise. */
 async function revisionContext(
@@ -93,6 +95,35 @@ async function revisionContext(
     instruction: revisionOf.instruction,
     previousBody: String(data(parent).body ?? ""),
   };
+}
+
+/**
+ * Each autopilot day is its own mission, so the batch's previous drafts never
+ * reach it; without this a later day repeated an earlier post word for word.
+ */
+async function recentChannelPosts(
+  tx: DbTx,
+  scope: Scope,
+  missionId: string,
+  channel: string,
+  slot: number,
+) {
+  const at = (row: Awaited<ReturnType<typeof list>>[number]) =>
+    Date.parse(String(data(row).scheduledAt ?? "")) || row.createdAt.valueOf();
+  return (await list(tx, scope, "content"))
+    .filter(
+      (row) =>
+        data(row).channel === channel &&
+        data(row).missionId !== missionId &&
+        data(row).status !== "archived" &&
+        withinClaimRepeatWindow(at(row), slot),
+    )
+    .sort((a, b) => Math.abs(at(a) - slot) - Math.abs(at(b) - slot))
+    .slice(0, MAX_BATCH_DRAFTS)
+    .map((row) => ({
+      title: String(data(row).title ?? ""),
+      claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
+    }));
 }
 
 /** Channel limits for attached media apply to approved assets and to a planned package image. */
@@ -343,6 +374,17 @@ async function generateMissionDraft(
                 })),
             }
           : null,
+        ...(m.autopilot === true
+          ? {
+              recentChannelPosts: await recentChannelPosts(
+                tx,
+                scope,
+                missionId,
+                channel,
+                Date.parse(m.plannedSlotAt ?? "") || Date.now(),
+              ),
+            }
+          : {}),
         planContext: m.planContext
           ? {
               ...m.planContext,

@@ -1220,6 +1220,56 @@ describe.skipIf(!enabled)(
         planned: 0,
       });
     });
+    it("autopilot shows each draft the channel's recent posts so a later day does not repeat one", async () => {
+      // Production uLiquid, 2026-10-06: the X drafts for 6 and 11 October were
+      // identical; each day is its own mission and saw no other draft.
+      await setCampaign("product");
+      const day = 86_400_000;
+      const second = await run(async (tx) => {
+        await setFact(tx, s, {
+          key: "product.user_control",
+          value: "Users remain in control of their accounts.",
+          valueType: "text",
+          language: "en",
+          sourceId,
+          validFrom: new Date(Date.now() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        const autopilotDay = (offset: number) => ({
+          ...data(mission),
+          factKeys: ["product.user_control"],
+          autopilot: true,
+          plannedSlotAt: new Date(Date.now() + offset * day).toISOString(),
+        });
+        await update(tx, s, mission, autopilotDay(1));
+        return create(tx, s, "missions", autopilotDay(5));
+      });
+      provider.generate.mockImplementation(async () => ({
+        ...generated(),
+        output: {
+          title: "Control first",
+          body: "Approved fixture content.",
+          claims: [{ text: "Fixture style", kind: "style" }],
+        },
+      }));
+      await generateMissionLive(s, missionId, randomUUID());
+      const firstGoal = JSON.parse(
+        provider.generate.mock.calls.at(-1)![0].goal,
+      );
+      expect(firstGoal.recentChannelPosts).toEqual([]);
+      await generateMissionLive(s, second.id, randomUUID());
+      const secondGoal = JSON.parse(
+        provider.generate.mock.calls.at(-1)![0].goal,
+      );
+      expect(secondGoal.recentChannelPosts).toEqual([
+        { title: "Control first", claims: ["Fixture style"] },
+      ]);
+    });
     it("autopilot skips days before its start date", async () => {
       await setCampaign("product");
       await run(async (tx) => {
