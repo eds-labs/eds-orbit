@@ -1,4 +1,5 @@
 "use client";
+import { approveEach, autopilotApprovals } from "./autopilot-approvals";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import {
   AdaptationDialog,
@@ -1918,26 +1919,30 @@ function AutopilotApprovals() {
   const content = useCollection("content"),
     missions = useCollection("missions");
   const mutation = useMutation(refresh);
-  const autopilot = new Set(
-    (missions.data?.items ?? [])
-      .filter((m) => m.data.autopilot === true)
-      .map((m) => m.id),
+  const { due: pending, missed } = autopilotApprovals(
+    content.data?.items ?? [],
+    missions.data?.items ?? [],
   );
-  const pending = (content.data?.items ?? [])
-    .filter(
-      (c) =>
-        c.data.status === "needs_review" &&
-        autopilot.has(String(c.data.missionId)),
-    )
-    .sort((a, b) =>
-      String(a.data.scheduledAt).localeCompare(String(b.data.scheduledAt)),
-    );
-  if (!pending.length) return null;
+  if (!pending.length && !missed.length) return null;
   const approve = (c: Entity) =>
     action(project.id, "approve-and-schedule", {
       contentId: c.id,
       version: c.version,
     });
+  const approveAll = async () => {
+    const failures = await approveEach(pending, approve);
+    if (!failures.length) return;
+    // Approved drafts leave the list even though others failed.
+    refresh();
+    throw new Error(
+      failures
+        .map((failure) => {
+          const c = pending.find((item) => item.id === failure.id)!;
+          return `${when(c.data.scheduledAt, locale, project.timezone)}: ${failure.error}`;
+        })
+        .join(" · "),
+    );
+  };
   return (
     <section className="panel autopilot-approvals">
       <div className="panel-head">
@@ -1953,14 +1958,10 @@ function AutopilotApprovals() {
               : "These posts contain marketing copy. Approving confirms the full text and Orbit schedules it for the shown time."}
           </p>
         </div>
-        {isOwner && (
+        {isOwner && pending.length > 0 && (
           <Button
             disabled={mutation.pending}
-            onClick={() =>
-              mutation.run(async () => {
-                for (const c of pending) await approve(c);
-              })
-            }
+            onClick={() => mutation.run(approveAll)}
           >
             {de
               ? `Alle ${pending.length} freigeben`
@@ -1969,6 +1970,19 @@ function AutopilotApprovals() {
         )}
       </div>
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {missed.map((c) => (
+        <article key={c.id} className="autopilot-approval">
+          <p className="panel-note">
+            {when(c.data.scheduledAt, locale, project.timezone)} ·{" "}
+            {value(c, "title")}
+          </p>
+          <Alert kind="warning">
+            {de
+              ? "Termin verstrichen: dieser Entwurf kann nicht mehr zu diesem Termin eingeplant werden."
+              : "Slot passed: this draft can no longer be scheduled for that time."}
+          </Alert>
+        </article>
+      ))}
       {pending.map((c) => (
         <article key={c.id} className="autopilot-approval">
           <p className="panel-note">
