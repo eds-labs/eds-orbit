@@ -1,4 +1,5 @@
 "use client";
+import { AgentRuns } from "./agent-runs";
 import { GoogleDriveSettings } from "./google-drive";
 import { useState } from "react";
 import {
@@ -1156,6 +1157,7 @@ export function Operations() {
                 </ul>
               </Alert>
             )}
+            <AgentRuns />
             <section className="panel">
               <div className="panel-head">
                 <h2>Persistent jobs</h2>

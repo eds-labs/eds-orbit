@@ -224,3 +224,34 @@ export async function aiCostSummary(
       })),
   };
 }
+
+/** The recorded steps of one run, without input hashes or provider response IDs. */
+export async function listRunSpans(scope: Scope, runId: string) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const run = await tx.agentRun.findFirst({
+      where: { id: runId, projectId: scope.projectId },
+      select: { id: true },
+    });
+    if (!run) throw new DomainError("NOT_FOUND", 404);
+    const spans = await tx.agentSpan.findMany({
+      where: { runId, projectId: scope.projectId },
+      orderBy: [{ startedAt: "asc" }, { createdAt: "asc" }],
+    });
+    return spans.map((s) => ({
+      id: s.id,
+      type: s.type,
+      name: s.name,
+      model: s.model,
+      status: s.status,
+      errorCode: s.errorCode,
+      attempt: s.attempt,
+      startedAt: s.startedAt.toISOString(),
+      durationMs: s.durationMs,
+      inputTokens: s.inputTokens,
+      cachedTokens: s.cachedTokens,
+      outputTokens: s.outputTokens,
+      reasoningTokens: s.reasoningTokens,
+      costMicros: s.costMicros === null ? null : s.costMicros.toString(),
+    }));
+  });
+}
