@@ -81,6 +81,8 @@ type GenerationContract = {
   revision?: { instruction: string; previousBody: string };
   // Present only for an autopilot day: the channel's posts around its slot.
   recentChannelPosts?: { title: string; claims: string[] }[];
+  // Present only for a package mission: its drafts for the other channels.
+  packageDrafts?: { channel: string; title: string; body: string }[];
 };
 /** The draft a revision changes; it must still be the version the user asked to revise. */
 async function revisionContext(
@@ -123,6 +125,35 @@ async function recentChannelPosts(
     .map((row) => ({
       title: String(data(row).title ?? ""),
       claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
+    }));
+}
+
+/**
+ * A package's channels are separate missions, so each would otherwise write
+ * without the others and the X and Telegram posts came out word for word.
+ */
+async function packageDrafts(
+  tx: DbTx,
+  scope: Scope,
+  packageId: string,
+  missionId: string,
+) {
+  const siblings = new Set(
+    (await list(tx, scope, "missions"))
+      .filter((m) => data(m).packageId === packageId && m.id !== missionId)
+      .map((m) => m.id),
+  );
+  return (await list(tx, scope, "content"))
+    .filter(
+      (row) =>
+        siblings.has(String(data(row).missionId)) &&
+        data(row).status !== "archived",
+    )
+    .slice(0, MAX_BATCH_DRAFTS)
+    .map((row) => ({
+      channel: String(data(row).channel ?? ""),
+      title: String(data(row).title ?? ""),
+      body: String(data(row).body ?? "").slice(0, 1000),
     }));
 }
 
@@ -374,6 +405,17 @@ async function generateMissionDraft(
                 })),
             }
           : null,
+        // A revision rewrites its own previous draft (revision.previousBody).
+        ...(typeof m.packageId === "string" && !m.revisionOf
+          ? {
+              packageDrafts: await packageDrafts(
+                tx,
+                scope,
+                m.packageId,
+                missionId,
+              ),
+            }
+          : {}),
         ...(m.autopilot === true
           ? {
               recentChannelPosts: await recentChannelPosts(

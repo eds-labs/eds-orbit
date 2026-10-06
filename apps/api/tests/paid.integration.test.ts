@@ -28,7 +28,7 @@ import {
   validateActiveIndexEvaluation,
 } from "../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create, data, encrypt, update } from "../src/shared.ts";
+import { create, data, encrypt, entity, list, update } from "../src/shared.ts";
 import {
   handoffPostizDraft,
   resolvePostizDraft,
@@ -1269,6 +1269,81 @@ describe.skipIf(!enabled)(
       expect(secondGoal.recentChannelPosts).toEqual([
         { title: "Control first", claims: ["Fixture style"] },
       ]);
+    });
+    it("shows a package draft the package's drafts for its other channels", async () => {
+      // Production uLiquid, 2026-10-06: a package's X and Telegram drafts were
+      // the same text; each channel is its own mission.
+      await setCampaign("product");
+      const packageId = randomUUID();
+      const telegram = await run(async (tx) => {
+        await setFact(tx, s, {
+          key: "product.user_control",
+          value: "Users remain in control of their accounts.",
+          valueType: "text",
+          language: "en",
+          sourceId,
+          validFrom: new Date(Date.now() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        });
+        const mission = await tx.entity.findUniqueOrThrow({
+          where: { id: missionId },
+        });
+        const packageMission = {
+          ...data(mission),
+          factKeys: ["product.user_control"],
+          packageId,
+          chatCostCeilingMicros: 10_000,
+        };
+        await update(tx, s, mission, packageMission);
+        return create(tx, s, "missions", packageMission);
+      });
+      provider.generate.mockImplementation(async () => ({
+        ...generated(),
+        output: {
+          title: "Control on X",
+          body: "Approved fixture content.",
+          claims: [{ text: "Fixture style", kind: "style" }],
+        },
+      }));
+      await generateMissionLive(s, missionId, randomUUID());
+      const firstGoal = JSON.parse(
+        provider.generate.mock.calls.at(-1)![0].goal,
+      );
+      expect(firstGoal.packageDrafts).toEqual([]);
+      await generateMissionLive(s, telegram.id, randomUUID());
+      const secondGoal = JSON.parse(
+        provider.generate.mock.calls.at(-1)![0].goal,
+      );
+      expect(secondGoal.packageDrafts).toEqual([
+        expect.objectContaining({
+          title: "Control on X",
+          body: "Approved fixture content.",
+        }),
+      ]);
+      expect(secondGoal.recentChannelPosts).toBeUndefined();
+      // A revision rewrites its own previous draft and sees no sibling drafts.
+      const draft = (await run((tx) => list(tx, s, "content"))).find(
+        (row) => data(row).missionId === missionId,
+      )!;
+      const revision = await run(async (tx) =>
+        create(tx, s, "missions", {
+          ...data(await entity(tx, s, "missions", telegram.id)),
+          status: "ready",
+          completedRuns: 0,
+          revisionOf: {
+            contentId: draft.id,
+            version: draft.version,
+            instruction: "Shorter",
+          },
+        }),
+      );
+      await generateMissionLive(s, revision.id, randomUUID());
+      const revisionGoal = JSON.parse(
+        provider.generate.mock.calls.at(-1)![0].goal,
+      );
+      expect(revisionGoal.packageDrafts).toBeUndefined();
     });
     it("autopilot skips days before its start date", async () => {
       await setCampaign("product");
