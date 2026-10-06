@@ -116,7 +116,7 @@ describe("bounded PNG export", () => {
       expect(output.logoHash).toBe(
         "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
       );
-      expect(output.renderer.version).toBe("0.35.4");
+      expect(output.renderer.version).toBe("0.35.5");
     },
   );
 });
