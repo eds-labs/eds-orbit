@@ -39,3 +39,5 @@ The SDK becomes an exchangeable adapter. SDK upgrades are isolated to one module
 The spike ran the SDK (`@openai/agents-core` 0.18.0) behind the `AgentRuntime` port with Orbit's budgeted model and tool host. G1, G2, G5 and G7 were met (G5 only with adapter fixes), G4 brought no gain, G3 was not demonstrated and G6 was not met. Decided by Mario on 2026-10-02: **no-go**; the custom loop stays behind the port, and the spike branch is not merged. Evidence: [agents-sdk-spike-2026-10-02](../evidence/agents-sdk-spike-2026-10-02.md).
 
 Note (carried into the Orbit Core stack on 2026-10-02): the `AgentRuntime` port itself (S1, PR #33) is not part of the merged stack; per the decision above it is kept and will be rebased after the rollout ([rollout plan](../plans/ORBIT_CORE_ROLLOUT_PLAN.md), section 6). Until then the turn loop stays in `chat-runner.ts`.
+
+Note 2026-10-06: #33 is rebased onto `main` (branch `claude/orbit-core-s1-runtime-port-rebased`, not merged yet). The port gained `ModelStep.toolSearches` and `ToolHost.search()` so the legacy adapter carries client-executed tool search (ADR 0007) unchanged.

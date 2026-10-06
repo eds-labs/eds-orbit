@@ -35,3 +35,4 @@ One schema source per tool, strict calls, and a clean path to tool search and a 
 - The tool list stays the same for a whole run, so the cached prefix holds; found tools enter at the end of the input as the guide recommends. The core definitions are about 4.7 KB (guarded at 5,000 bytes); the full set with the flag off stays guarded at 7,000 bytes, so new tools still need the flag on in production once that guard is reached.
 - With the flag off, or on a model before `gpt-5.4`, every offered tool is loaded as before and no route lookup is added.
 - Not yet verified against the live API: enabling it in production needs one small paid check with the configured chat model, approved by Mario.
+- Since the S1 runtime port (rebased 2026-10-06, ADR 0005) the turn loop that answers searches is `agents/runtime/legacy-responses.ts`; the search itself and its span stay in `chat-runner.ts` (`ToolHost.search()`).
