@@ -49,6 +49,20 @@ Rows from the [Orbit Core plan](plans/ORBIT_CORE_JARVIS_PLAN.md), section 11. Lo
 
 Totals: **17 PASS_TEST, 3 NOT_RUN**. JC18 and JC19 belong to later stages; JC17 does not apply after the SDK no-go.
 
+Production acceptance spend (uLiquid, 2026-10-05/06, settled run costs from `GET /agent-runs`; each package card showed its ceiling before the start):
+
+| Step | Runs | Actual cost |
+| --- | --- | --- |
+| JC01 package card (X + Telegram, after #57) | 1 chat | $0.014059 |
+| JC01 start: two drafts, both passed review | 2 generation | $0.014076 |
+| JC04 revision of the uLiquid Desk draft | 1 chat, 1 generation | $0.014477 |
+| JC05 "next week" card and two drafts | 1 chat, 2 generation | $0.031795 |
+| Cancel test package (drafts finished before cancel) | 1 chat, 2 generation | $0.026967 |
+| Package with image: card and X draft | 1 chat, 1 generation | $0.021863 |
+| Package image (GPT Image, at most $1.00) | 1 image | not on the run; settled in the image budget receipt |
+| Tool search check (Approval E) | 1 chat | $0.011343 |
+
+
 ## Configuration-parity acceptance (2026-09-18)
 
 The rows below are deliberately separate from the historical master count. They distinguish local backend safety coverage from the newly added user workflow; prior browser evidence is not reused as proof of configuration parity.
