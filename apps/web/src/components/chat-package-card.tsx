@@ -111,6 +111,10 @@ const imageLabels: Record<ImageStatus, [string, string]> = {
   failed: ["Blocked", "Blockiert"],
   canceled: ["Canceled", "Abgebrochen"],
 };
+const approvedImageLabel: [string, string] = [
+  "Generated, rights approved",
+  "Erzeugt, Rechte bestätigt",
+];
 
 // Schedule states from the decision request, then from the publication itself.
 const scheduleLabels: Record<string, [string, string]> = {
@@ -347,7 +351,11 @@ export function PackageCard({
           <div className="chat-proposal-head">
             <span>{de ? "Bild" : "Image"}</span>
             <Badge tone={pkg.image.status === "generated" ? "success" : "blue"}>
-              {imageLabels[pkg.image.status][de ? 1 : 0]}
+              {
+                (pkg.image.status === "generated" && pkg.image.rightsApproved
+                  ? approvedImageLabel
+                  : imageLabels[pkg.image.status])[de ? 1 : 0]
+              }
             </Badge>
           </div>
           <p className="chat-package-note">
