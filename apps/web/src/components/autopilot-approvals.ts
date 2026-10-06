@@ -45,3 +45,17 @@ export async function approveEach(
     }
   return failures;
 }
+
+// Posts a project pause stopped; only those still ahead can be scheduled again.
+export function pausedPosts(publications: Entity[], now = Date.now()) {
+  return publications
+    .filter(
+      (p) =>
+        p.data.status === "blocked_dependency" &&
+        p.data.reason === "PROJECT_PAUSED" &&
+        Date.parse(String(p.data.scheduledAt)) > now,
+    )
+    .sort((a, b) =>
+      String(a.data.scheduledAt).localeCompare(String(b.data.scheduledAt)),
+    );
+}
