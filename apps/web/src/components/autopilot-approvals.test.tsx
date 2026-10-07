@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   approveEach,
   autopilotApprovals,
+  openExceptions,
   pausedPosts,
 } from "./autopilot-approvals";
 
@@ -88,5 +89,29 @@ describe("posts stopped by a pause", () => {
         now,
       ).map((p) => p.id),
     ).toEqual(["next", "later"]);
+  });
+});
+
+describe("open exceptions", () => {
+  it("lists only open exceptions, most recently seen first", () => {
+    expect(
+      openExceptions([
+        item("old", {
+          code: "LINK_NOT_ALLOWED",
+          status: "open",
+          lastSeenAt: "2026-10-05T10:00:00Z",
+        }),
+        item("done", {
+          code: "FACT_CONFLICT",
+          status: "resolved",
+          lastSeenAt: "2026-10-06T10:00:00Z",
+        }),
+        item("new", {
+          code: "PUBLISH_PREFLIGHT_BLOCKED",
+          status: "open",
+          lastSeenAt: "2026-10-07T10:00:00Z",
+        }),
+      ]).map((e) => e.id),
+    ).toEqual(["new", "old"]);
   });
 });

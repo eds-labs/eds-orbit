@@ -2,6 +2,7 @@
 import {
   approveEach,
   autopilotApprovals,
+  openExceptions,
   pausedPosts,
 } from "./autopilot-approvals";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
@@ -2090,9 +2091,11 @@ function AutopilotApprovals() {
   );
 }
 export function ApprovalInbox() {
-  const { t, locale } = useWorkspace();
+  const { t, locale, project, isOwner, refresh } = useWorkspace();
+  const de = locale === "de";
   const content = useCollection("content"),
     exceptions = useCollection("exceptions");
+  const resolve = useMutation(refresh);
   const [selected, setSelected] = useState<Entity | null>(null);
   const items = (content.data?.items || []).filter((e) =>
     [
@@ -2124,13 +2127,32 @@ export function ApprovalInbox() {
       <PausedPublications />
       <AutopilotApprovals />
       <ActionRequestInbox />
-      {exceptions.data?.items.map((e) => (
+      {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
+      {openExceptions(exceptions.data?.items ?? []).map((e) => (
         <Alert key={e.id} kind="warning">
           <strong>{value(e, "title", value(e, "code"))}</strong>
           <p>{value(e, "message", value(e, "reason"))}</p>
           <small>
-            Version {e.version} · {value(e, "status")}
+            {de ? "Zuletzt" : "Last seen"}{" "}
+            {when(e.data.lastSeenAt, locale, project.timezone)} ·{" "}
+            {Number(e.data.count ?? 1)}×
           </small>
+          {isOwner && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={resolve.pending}
+              onClick={() =>
+                resolve.run(() =>
+                  action(project.id, "resolve-exception", {
+                    exceptionId: e.id,
+                  }),
+                )
+              }
+            >
+              {de ? "Erledigt" : "Resolved"}
+            </Button>
+          )}
         </Alert>
       ))}
       {content.loading ? (
