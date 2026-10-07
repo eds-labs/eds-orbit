@@ -8,8 +8,10 @@ import {
   DomainError,
   entity,
   hash,
+  list,
   update,
 } from "../shared.ts";
+import { assignedPostizChannels } from "./postiz-assignment.ts";
 import { activePolicy } from "./policy.ts";
 import { enqueue } from "./workflow.ts";
 import { currentImageTerms, imageRequestPayload } from "./image-generation.ts";
@@ -284,6 +286,13 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
     orderBy: { createdAt: "desc" },
     take: 50,
   });
+  // A decision names the channel as the owner knows it, not by its ID.
+  const channels = new Map<string, Record<string, unknown>>(
+    (await list(tx, scope, "connectors"))
+      .filter((row) => data(row).provider === "postiz")
+      .flatMap((row) => assignedPostizChannels(data(row)))
+      .map((channel: any) => [channel.id, channel]),
+  );
   const items = [];
   for (const row of rows) {
     const d = data(row);
@@ -323,6 +332,8 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
         size: d.payload?.size,
         quality: d.payload?.quality,
         channel: d.payload?.channel,
+        channelName: channels.get(d.payload?.channel)?.name ?? null,
+        channelPlatform: channels.get(d.payload?.channel)?.identifier ?? null,
         scheduledAt: d.payload?.scheduledAt,
         body: d.payload?.body,
         executionMode: d.payload?.executionMode,

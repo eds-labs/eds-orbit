@@ -59,3 +59,12 @@ export function pausedPosts(publications: Entity[], now = Date.now()) {
       String(a.data.scheduledAt).localeCompare(String(b.data.scheduledAt)),
     );
 }
+
+// A resolved exception is history; an open one shows when it was last seen.
+export function openExceptions(exceptions: Entity[]) {
+  return exceptions
+    .filter((e) => e.data.status === "open")
+    .sort((a, b) =>
+      String(b.data.lastSeenAt).localeCompare(String(a.data.lastSeenAt)),
+    );
+}

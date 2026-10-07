@@ -5,6 +5,28 @@ import { collectionPath, post, useResource, usd } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
 
+const platforms: Record<string, string> = {
+  x: "X",
+  telegram: "Telegram",
+  linkedin: "LinkedIn",
+  instagram: "Instagram",
+  facebook: "Facebook",
+};
+// The channel as the owner knows it; the ID only when it is no longer assigned.
+export function channelLabel(summary: {
+  channel?: string;
+  channelName?: string | null;
+  channelPlatform?: string | null;
+}) {
+  if (!summary.channelName) return summary.channel ?? "";
+  const platform = summary.channelPlatform
+    ? (platforms[summary.channelPlatform] ?? summary.channelPlatform)
+    : null;
+  return platform
+    ? `${summary.channelName} (${platform})`
+    : summary.channelName;
+}
+
 type ActionRequestItem = {
   id: string;
   version: number;
@@ -20,6 +42,8 @@ type ActionRequestItem = {
     size?: string;
     quality?: string;
     channel?: string;
+    channelName?: string | null;
+    channelPlatform?: string | null;
     scheduledAt?: string;
     body?: string;
     executionMode?: "test" | "live";
@@ -105,7 +129,7 @@ export function ActionRequestInbox() {
           )}
           {item.summary.scheduledAt && (
             <p>
-              {item.summary.channel} ·{" "}
+              {channelLabel(item.summary)} ·{" "}
               <time dateTime={item.summary.scheduledAt}>
                 {new Date(item.summary.scheduledAt).toLocaleString(
                   de ? "de-DE" : "en-GB",

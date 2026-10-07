@@ -146,6 +146,9 @@ describe.skipIf(!enabled)(
         requestedBy: { userId: project.editor.userId },
         summary: {
           channel: X,
+          // The owner reads the channel's name and network, not its ID.
+          channelName: "Synthetic X",
+          channelPlatform: "x",
           scheduledAt: proposed.scheduledAt,
           body: (await snapshot(pkg.id)).deliverables[0]!.content!.body,
           executionMode: "test",
