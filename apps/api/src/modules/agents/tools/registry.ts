@@ -31,6 +31,8 @@ export type ToolContext = {
   conversationId: string;
   // 1-based position of this call within the run.
   callIndex: number;
+  // Set for a specialist's task; its paid reads reserve under the task's keys, not as chat.
+  agentTask?: { taskId: string; runId: string };
 };
 export type ToolResult = { output: unknown; cards: ChatCard[] };
 export type OrbitTool = {

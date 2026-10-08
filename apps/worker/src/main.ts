@@ -63,12 +63,15 @@ import { generateMissionLive } from "../../api/src/modules/generation.ts";
 import { runChatJob } from "../../api/src/modules/chat-runner.ts";
 import { stopChatRunForPause } from "../../api/src/modules/chat.ts";
 import { runImageJob } from "../../api/src/modules/image-requests.ts";
+import { registerAgentSpecialists } from "../../api/src/modules/agents/specialists/index.ts";
 import { runAgentTask } from "../../api/src/modules/agents/specialists/runner.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
   reconcilePublication,
 } from "../../api/src/modules/publisher.ts";
+// Model specialists of the `agent` queue.
+registerAgentSpecialists();
 const config = loadConfig(),
   url = new URL(config.REDIS_URL);
 const connection = new Redis(config.REDIS_URL, {

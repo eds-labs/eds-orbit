@@ -24,7 +24,7 @@ Image prompts, palette values and design rules also leave the host after the per
 
 ## Rate card v2 and cache-aware settlement (2026-09-30)
 
-Each rate card entry has `inputMicrosPerMillion`, `outputMicrosPerMillion`, `verifiedAt` and two optional fields: `cachedInputMicrosPerMillion` (default: the input rate, so an omitted value never understates a cached read) and `cacheWriteMicrosPerMillion` (default: `ceil(1.25 x input rate)`, the documented cache-write multiplier). Existing cards stay valid without changes.
+Each rate card entry has `inputMicrosPerMillion`, `outputMicrosPerMillion`, `verifiedAt` and two optional fields: `cachedInputMicrosPerMillion` (default: the input rate, so an omitted value never understates a cached read) and `cacheWriteMicrosPerMillion` (default: `ceil(1.25 x input rate)`, the documented cache-write multiplier). Existing cards stay valid without changes. Orbit Agents research adds a third optional field, `webSearchMicrosPerCall`: the fee of one hosted `web_search` call with that model (default 10,000 micros, USD 10 per 1,000 calls, the OpenAI list price when this was written; verify and set it in the rate card). It is added to the reservation (searches still allowed per call) and to the settled cost (one per `web_search_call` item); the search content tokens are billed as ordinary input.
 
 Settlement from the provider usage object, in USD micros, rounded up with a minimum of 1:
 

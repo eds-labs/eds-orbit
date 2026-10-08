@@ -7,6 +7,7 @@ import {
   isRejectedRequest,
   resolveRoute,
   respond,
+  webSearchFee,
 } from "../../../../../../packages/ai/src/index.ts";
 import {
   data,
@@ -75,6 +76,13 @@ const BASE_INSTRUCTIONS =
 
 const handlers = new Map<StepRole, StepHandler>();
 
+// Hosted web search tool definitions; both names are the provider's search tool.
+const isWebSearch = (tool: unknown) =>
+  ["web_search", "web_search_preview"].includes((tool as any)?.type);
+// One `web_search_call` output item per hosted search the provider ran.
+const countSearches = (output: unknown[]) =>
+  output.filter((item: any) => item?.type === "web_search_call").length;
+
 /** The handler the worker calls for tasks of `role`; a later registration replaces an earlier one. */
 export function registerStepHandler(role: StepRole, handler: StepHandler) {
   handlers.set(role, handler);
@@ -87,8 +95,11 @@ export function registerSpecialist(specialist: Specialist) {
   );
 }
 
-const reservationPrefix = (scope: Scope, taskId: string) =>
-  `${scope.projectId}:agent:${taskId}:`;
+// Model calls reserve under `agent:<taskId>:<n>`, the task's knowledge searches under `query:agent:<taskId>:...`.
+const reservationPrefixes = (scope: Scope, taskId: string) => [
+  `${scope.projectId}:agent:${taskId}:`,
+  `${scope.projectId}:query:agent:${taskId}:`,
+];
 
 /** The budget reservations of one task, oldest first. */
 function taskReservations(tx: DbTx, scope: Scope, taskId: string) {
@@ -96,7 +107,9 @@ function taskReservations(tx: DbTx, scope: Scope, taskId: string) {
     where: {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
-      key: { startsWith: reservationPrefix(scope, taskId) },
+      OR: reservationPrefixes(scope, taskId).map((prefix) => ({
+        key: { startsWith: prefix },
+      })),
     },
     orderBy: { createdAt: "asc" },
   });
@@ -274,10 +287,7 @@ async function runSpecialist(
   };
   const deadline = AbortSignal.timeout(specialist.limits.timeoutMs);
   const instructions = `${BASE_INSTRUCTIONS} ${specialist.instructions}`;
-  const tools = [
-    ...specialist.tools.map(responsesTool),
-    ...specialist.hostedTools,
-  ];
+  const functionTools = specialist.tools.map(responsesTool);
   const outputSchema = outputJsonSchema(specialist);
   const knownTools = new Set(specialist.tools.map((tool) => tool.name));
   let modelCalls = 0;
@@ -286,6 +296,18 @@ async function runSpecialist(
 
   const model: BudgetedModel = {
     async call(request) {
+      // Searches left: priced into the reservation and capped at the provider; none left, no search tool.
+      const searchesLeft = Math.max(
+        0,
+        specialist.limits.maxWebSearches - webSearches,
+      );
+      const tools = [
+        ...functionTools,
+        ...specialist.hostedTools.filter(
+          (tool) => !isWebSearch(tool) || searchesLeft > 0,
+        ),
+      ];
+      const searchTool = tools.some(isWebSearch);
       const bytes = Buffer.byteLength(
         JSON.stringify({
           input: request.input,
@@ -319,12 +341,10 @@ async function runSpecialist(
           if ((runtime.routeVersion ?? null) !== routeVersion)
             throw new DomainError("AGENT_ROUTE_CHANGED", 409);
           const route = resolveRoute(specialist.taskClass, runtime);
-          const estimate = estimateCost(
-            route.model,
-            bytes,
-            route.maxOutputTokens,
-            runtime,
-          );
+          const estimate =
+            estimateCost(route.model, bytes, route.maxOutputTokens, runtime) +
+            // Every search this call may still run, at the per-search fee.
+            webSearchFee(route.model, searchTool ? searchesLeft : 0, runtime);
           // The task's share of the run budget from the work plan.
           if (
             held(await taskReservations(tx, scope, task.id)) + estimate >
@@ -373,20 +393,24 @@ async function runSpecialist(
         input: request.input,
         tools,
         outputSchema,
+        ...(searchTool ? { maxToolCalls: searchesLeft } : {}),
         reservationId: prepared.reservationId,
         runtime: prepared.runtime,
         signal: request.signal,
       });
+      const searches = countSearches(result.output);
+      // The token usage does not include the per-search fee.
+      const costMicros =
+        result.usage.costMicros +
+        webSearchFee(prepared.route.model, searches, prepared.runtime);
       const settledId = prepared.reservationId;
       await scoped(scope.workspaceId, scope.projectId, (tx) =>
-        settle(tx, scope, settledId, result.usage.costMicros).then(
-          () => undefined,
-        ),
+        settle(tx, scope, settledId, costMicros).then(() => undefined),
       );
       inFlight.reservationId = null;
       modelCalls++;
       // Telemetry only after settlement, outside its transaction.
-      const { model: _model, costMicros, ...usage } = result.usage;
+      const { model: _model, costMicros: _tokenCost, ...usage } = result.usage;
       await recordSpan(scope, agentRunId, {
         type: "model_call",
         name: "responses.create",
@@ -399,9 +423,7 @@ async function runSpecialist(
         budgetReservationId: settledId,
         providerResponseId: result.responseId,
       });
-      webSearches += result.output.filter(
-        (item: any) => item?.type === "web_search_call",
-      ).length;
+      webSearches += searches;
       if (webSearches > specialist.limits.maxWebSearches)
         throw new DomainError("AGENT_LIMIT");
       lastOutput = result.output;
@@ -432,7 +454,13 @@ async function runSpecialist(
         const tool = findTool(specialist.tools, call.name);
         if (!tool) throw new DomainError("AGENT_TOOL_NOT_ALLOWED", 403);
         const result = await tool.execute(
-          { scope, runId: task.id, conversationId: task.runId, callIndex },
+          {
+            scope,
+            runId: task.id,
+            conversationId: task.runId,
+            callIndex,
+            agentTask: { taskId: task.id, runId: task.runId },
+          },
           JSON.parse(call.arguments),
         );
         output = result.output;

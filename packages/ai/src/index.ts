@@ -259,6 +259,8 @@ export async function respond(params: {
   input: unknown[];
   tools: unknown[];
   outputSchema?: object;
+  // Provider-side cap on built-in tool calls (hosted web searches) in this response.
+  maxToolCalls?: number;
   reservationId: string;
   runtime: OpenAiRuntimeConfig;
   signal?: AbortSignal;
@@ -280,6 +282,9 @@ export async function respond(params: {
       input: params.input as OpenAI.Responses.ResponseInput,
       tools: params.tools as OpenAI.Responses.Tool[],
       parallel_tool_calls: false,
+      ...(params.maxToolCalls !== undefined
+        ? { max_tool_calls: params.maxToolCalls }
+        : {}),
       ...(params.outputSchema
         ? {
             text: {

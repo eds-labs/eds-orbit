@@ -372,7 +372,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
       await stop();
     }
   }, 40000);
-  it("runs a specialist task in the agent queue and records a role without a handler on the task", async () => {
+  it("runs a specialist task in the agent queue with the registered analytics specialist and records its failure on the task", async () => {
     const { assignment, task, job } = await run(async (tx) => {
       const assignment = await create(tx, scope, "assignments", {
         name: "Synthetic agent assignment",
@@ -440,7 +440,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
     process.env.ORBIT_AGENTS = "true";
     start();
     try {
-      // No specialist is registered in the worker yet: the task fails by name, the job completes.
+      // The worker registered the analytics specialist: it stops before any paid call (no verified model in this project), the job completes.
       const finished = await waitFor(() =>
         run(async (tx) => {
           const row = await tx.entity.findUniqueOrThrow({
@@ -455,7 +455,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
       );
       expect(data(after)).toMatchObject({
         status: "failed",
-        errorCode: "AGENT_ROLE_UNAVAILABLE",
+        errorCode: "MODEL_CAPABILITY_NOT_VERIFIED",
         input: { assignment: { id: assignment.id } },
       });
       expect(

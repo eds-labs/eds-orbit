@@ -495,16 +495,17 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       }));
       await runAgentTask(worker(), (await task("analytics")).id);
       expect(mocked.requests[1].tools).toContainEqual({ type: "web_search" });
+      // Two searches ran, each at the default per-search fee.
       expect(await task("analytics")).toMatchObject({
         status: "failed",
         errorCode: "AGENT_LIMIT",
-        costMicros: 7,
+        costMicros: 7 + 2 * 10_000,
       });
       // Both optional inputs dropped: the strategy still starts.
       expect(await task("strategy")).toMatchObject({ status: "queued" });
       expect(await runRow()).toMatchObject({
         status: "running",
-        costMicros: 14,
+        costMicros: 14 + 2 * 10_000,
       });
     } finally {
       registerSpecialist(echo("research"));
