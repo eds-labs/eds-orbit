@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { agentKnowledgeSearch } from "../tools/agent-tools.ts";
-import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
+import {
+  DEFAULT_SPECIALIST_LIMITS,
+  normalizeSourceUrl,
+  type Specialist,
+} from "./types.ts";
 
 const text = (max: number) =>
   z.string().refine((value) => value.length > 0 && value.length <= max);
@@ -37,11 +41,18 @@ export const researchSpecialist: Specialist = {
   taskClass: "agent_research",
   instructions: [
     "You are the research specialist. Find current, relevant public information for the assignment's topic frame with web search (at most three searches) and use knowledge_search to see what Orbit already knows.",
-    "Every finding is one checkable claim taken from one page you found: claim (your wording, no quotation of long passages), sourceUrl (the https URL of that page exactly as found), sourceTitle and observedAt (the day the page was published or you read it, YYYY-MM-DD).",
+    "Every finding is one checkable claim taken from one page you found: claim (your wording, no quotation of long passages), sourceUrl (the https URL of that page exactly as the search returned it; a finding whose page the searches did not return is discarded), sourceTitle and observedAt (the day the page was published or you read it, YYYY-MM-DD).",
     "All findings are unverified leads, never facts: do not state that anything is confirmed, and do not report a claim without a page you actually found. Prefer primary and recent sources; skip anything you cannot tie to a URL. If nothing useful is found, return an empty findings array.",
   ].join(" "),
   tools: [agentKnowledgeSearch],
   hostedTools: [{ type: "web_search" }],
   outputSchema: researchOutput,
   limits: { ...DEFAULT_SPECIALIST_LIMITS },
+  // A source the searches did not return or cite is invented: the finding is dropped.
+  finalize: (output: z.infer<typeof researchOutput>, sources) => ({
+    findings: output.findings.filter((finding) => {
+      const url = normalizeSourceUrl(finding.sourceUrl);
+      return url !== null && sources.has(url);
+    }),
+  }),
 };

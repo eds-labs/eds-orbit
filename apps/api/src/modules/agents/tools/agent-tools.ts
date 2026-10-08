@@ -3,7 +3,14 @@ import { createPostizClient } from "../../../../../../packages/connectors/src/in
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { runReadTool, validateReadToolResult } from "../../chat-tools.ts";
-import { data, decrypt, DomainError, list } from "../../../shared.ts";
+import {
+  create,
+  data,
+  decrypt,
+  DomainError,
+  list,
+  update,
+} from "../../../shared.ts";
 import { assignedPostizChannels } from "../../postiz-assignment.ts";
 import { runBudgetKey } from "../specialists/runner.ts";
 import { readTools } from "./read-tools.ts";
@@ -156,11 +163,16 @@ const metricsSummaryTool = defineTool({
   },
 });
 
-// Postiz allows 30 public API requests per hour for the whole project.
+// Postiz allows 30 public API requests per hour for the whole project; the history sync uses 3 of them.
 const MAX_CHANNELS = 3;
 const MAX_POSTS_PER_CHANNEL = 3;
-const MAX_REQUESTS_PER_TASK = 10;
-const POST_WINDOW_DAYS = 30;
+// Results are shared by every task of the project for an hour.
+export const ANALYTICS_CACHE_MS = 3_600_000;
+// Only recent posts have moving numbers worth a request.
+export const ANALYTICS_POST_DAYS = 7;
+export const ANALYTICS_POSTS_PER_TASK = 5;
+const CACHE = "postiz_analytics_cache";
+const TASK_POSTS = "postiz_analytics_posts";
 const SERIES_POINTS = 7;
 
 type PostizAnalyticsClient = {
@@ -172,22 +184,6 @@ type AnalyticsSeries = Array<{
   data: Array<{ total: string | number; date: string }>;
   percentageChange?: number | null;
 }>;
-// What one task already asked Postiz: a repeated question is answered from here, never asked again.
-type TaskAnalytics = { requests: number; answers: Map<string, unknown> };
-const TASK_CACHE_SIZE = 100;
-const taskAnalytics = new Map<string, TaskAnalytics>();
-
-function taskCache(taskId: string) {
-  let cache = taskAnalytics.get(taskId);
-  if (!cache) {
-    cache = { requests: 0, answers: new Map() };
-    taskAnalytics.set(taskId, cache);
-    if (taskAnalytics.size > TASK_CACHE_SIZE)
-      taskAnalytics.delete(taskAnalytics.keys().next().value!);
-  }
-  return cache;
-}
-
 /** Per label: the newest points, their sum and the latest value, as numbers the specialist can quote. */
 function summarize(series: AnalyticsSeries) {
   return series.slice(0, 12).map((entry) => {
@@ -220,49 +216,68 @@ const postizInput = z
   })
   .strict();
 
-async function postizClient(scope: Scope) {
-  const connector = await scoped(
-    scope.workspaceId,
-    scope.projectId,
-    async (tx) => {
-      const row = (await list(tx, scope, "connectors")).find(
-        (candidate) =>
-          data(candidate).provider === "postiz" &&
-          ["read_verified", "write_verified"].includes(data(candidate).status),
-      );
-      if (!row) return null;
-      const posts = (await list(tx, scope, "channel_posts")).map((post) =>
-        data(post),
-      );
-      return { value: data(row), posts };
-    },
-  );
-  if (
-    !connector ||
-    !connector.value.baseUrl ||
-    !connector.value.encryptedCredential
-  )
-    throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
-  return {
-    channelIds: assignedPostizChannels(connector.value).map((channel: any) =>
-      String(channel.id),
-    ),
-    posts: connector.posts,
-    client: createPostizClient({
-      baseUrl: connector.value.baseUrl as string,
-      token: decrypt(
-        connector.value.encryptedCredential as string,
-        process.env.CREDENTIAL_KEY!,
-      ),
-    }) as PostizAnalyticsClient,
-  };
+type Answer = { measured: boolean; metrics: unknown[]; fetchedAt: string };
+
+/** What the project already knows: connector, stored posts, fresh cached answers and the posts this task asked for. */
+async function postizState(scope: Scope, taskId: string, now: Date) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const connector = (await list(tx, scope, "connectors")).find(
+      (candidate) =>
+        data(candidate).provider === "postiz" &&
+        ["read_verified", "write_verified"].includes(data(candidate).status),
+    );
+    if (!connector) throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
+    const fresh = new Map<string, Answer>();
+    for (const row of await list(tx, scope, CACHE)) {
+      const value = data(row);
+      if (now.valueOf() - Date.parse(value.fetchedAt) < ANALYTICS_CACHE_MS)
+        fresh.set(value.key, value.result as Answer);
+    }
+    const usage = (await list(tx, scope, TASK_POSTS)).find(
+      (row) => data(row).taskId === taskId,
+    );
+    return {
+      connector: data(connector),
+      posts: (await list(tx, scope, "channel_posts")).map((post) => data(post)),
+      fresh,
+      taskPosts: (usage ? data(usage).postIds : []) as string[],
+    };
+  });
+}
+
+/** Stores an answer for every task of the project and drops cache rows older than a day. */
+function cacheAnswer(scope: Scope, key: string, result: Answer, now: Date) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const rows = await list(tx, scope, CACHE);
+    const value = { key, fetchedAt: result.fetchedAt, result };
+    const existing = rows.find((row) => data(row).key === key);
+    if (existing) await update(tx, scope, existing, value);
+    else await create(tx, scope, CACHE, value);
+    for (const row of rows)
+      if (now.valueOf() - Date.parse(data(row).fetchedAt) > 24 * 3_600_000)
+        await tx.entity.delete({ where: { id: row.id } });
+  });
+}
+
+/** Records, before its request, that the task asked for this post. */
+function countPost(scope: Scope, taskId: string, postIds: string[]) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const usage = (await list(tx, scope, TASK_POSTS)).find(
+      (row) => data(row).taskId === taskId,
+    );
+    const value = { taskId, postIds };
+    if (usage) await update(tx, scope, usage, value);
+    else await create(tx, scope, TASK_POSTS, value);
+  });
 }
 
 /**
  * Postiz analytics of assigned channels and of their newest published posts
- * (from the stored channel history). One request per channel and per post at
- * most once per task, ten requests per task: Postiz allows 30 requests per
- * hour for the whole project and the history sync uses some of them.
+ * (from the stored channel history). Postiz allows 30 requests per hour for
+ * the whole project, so every answer is cached project-wide for an hour and
+ * any task reuses it without a request; posts count only when published in
+ * the last 7 days, at most 5 distinct posts per task (the count is stored,
+ * not kept in memory). Failed requests are not cached.
  */
 export async function postizAnalytics(
   scope: Scope,
@@ -271,36 +286,50 @@ export async function postizAnalytics(
   now = new Date(),
 ) {
   const input = postizInput.parse(raw);
-  const { channelIds, posts, client } = await postizClient(scope);
-  const cache = taskCache(taskId);
-  async function once(key: string, request: () => Promise<AnalyticsSeries>) {
-    if (cache.answers.has(key)) return cache.answers.get(key);
-    if (cache.requests >= MAX_REQUESTS_PER_TASK)
-      return { error: "POSTIZ_ANALYTICS_LIMIT" };
-    cache.requests++;
-    let answer: unknown;
+  const state = await postizState(scope, taskId, now);
+  const channelIds = assignedPostizChannels(state.connector).map(
+    (channel: any) => String(channel.id),
+  );
+  let client: PostizAnalyticsClient | null = null;
+  async function answer(
+    key: string,
+    request: (client: PostizAnalyticsClient) => Promise<AnalyticsSeries>,
+  ): Promise<Answer | { error: string }> {
+    const cached = state.fresh.get(key);
+    if (cached) return cached;
     try {
-      const series = summarize(await request());
-      answer = series.length
-        ? { measured: true, metrics: series }
-        : { measured: false, metrics: [] };
+      const credential = state.connector.encryptedCredential;
+      if (!state.connector.baseUrl || !credential)
+        throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
+      client ??= createPostizClient({
+        baseUrl: state.connector.baseUrl as string,
+        token: decrypt(credential as string, process.env.CREDENTIAL_KEY!),
+      }) as PostizAnalyticsClient;
+      const series = summarize(await request(client));
+      const result: Answer = {
+        measured: series.length > 0,
+        metrics: series,
+        fetchedAt: now.toISOString(),
+      };
+      await cacheAnswer(scope, key, result, now);
+      state.fresh.set(key, result);
+      return result;
     } catch {
-      answer = { error: "POSTIZ_ANALYTICS_UNAVAILABLE" };
+      return { error: "POSTIZ_ANALYTICS_UNAVAILABLE" };
     }
-    cache.answers.set(key, answer);
-    return answer;
   }
-  const since = now.valueOf() - POST_WINDOW_DAYS * DAY;
+  const since = now.valueOf() - ANALYTICS_POST_DAYS * DAY;
+  const asked = [...state.taskPosts];
   const channels = [];
   for (const channelId of [...new Set(input.channels)]) {
     if (!channelIds.includes(channelId)) {
       channels.push({ channelId, error: "CHANNEL_NOT_ASSIGNED" });
       continue;
     }
-    const channel = await once(`channel:${channelId}`, () =>
-      client.getIntegrationAnalytics(channelId),
+    const channel = await answer(`channel:${channelId}`, (api) =>
+      api.getIntegrationAnalytics(channelId),
     );
-    const newest = posts
+    const newest = state.posts
       .filter(
         (post) =>
           post.channel === channelId &&
@@ -310,24 +339,34 @@ export async function postizAnalytics(
       .sort((a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt))
       .slice(0, input.postsPerChannel ?? 0);
     const postAnswers = [];
-    for (const post of newest)
+    for (const post of newest) {
+      const postId = String(post.remoteId);
+      const base = { postId, publishedAt: post.publishedAt };
+      if (!asked.includes(postId)) {
+        if (asked.length >= ANALYTICS_POSTS_PER_TASK) {
+          postAnswers.push({ ...base, error: "POSTIZ_POST_LIMIT" });
+          continue;
+        }
+        asked.push(postId);
+        await countPost(scope, taskId, asked);
+      }
       postAnswers.push({
-        postId: String(post.remoteId),
-        publishedAt: post.publishedAt,
-        ...((await once(`post:${post.remoteId}`, () =>
-          client.getPostAnalytics(String(post.remoteId)),
-        )) as object),
+        ...base,
+        ...(await answer(`post:${postId}`, (api) =>
+          api.getPostAnalytics(postId),
+        )),
       });
+    }
     channels.push({ channelId, channel, posts: postAnswers });
   }
-  return { fetchedAt: now.toISOString(), channels };
+  return { channels };
 }
 
 const postizAnalyticsTool = defineTool({
   name: "postiz_analytics",
   namespace: "analytics",
   description:
-    "Postiz analytics of up to three assigned channels, optionally with the newest published posts of each (up to three), as numbers per label with the latest value and recent days; read-only, one request per channel and post per task.",
+    "Postiz analytics of up to three assigned channels, optionally with the newest posts of each (up to three, only posts published in the last 7 days, at most 5 different posts per task), as numbers per label with the latest value, recent days and fetchedAt; answers up to one hour old are reused, so repeating a question costs nothing; read-only.",
   parameters: z
     .object({
       channels: z

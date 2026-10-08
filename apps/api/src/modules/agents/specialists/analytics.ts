@@ -40,7 +40,7 @@ export const analyticsSpecialist: Specialist = {
   taskClass: "agent_analytics",
   instructions: [
     "You are the analytics specialist. Report what has been measured about this assignment's channels, and nothing else.",
-    "Period: the 30 days before run.date (to = the day before run.date) unless the input names another. Call metrics_summary once with that period, postiz_analytics once with the assignment's channels (at most three, postsPerChannel 3), and channel_history when you need to know which posts exist.",
+    "Period: the 30 days before run.date (to = the day before run.date) unless the input names another. Call metrics_summary once with that period, postiz_analytics once with the assignment's channels (at most three; postsPerChannel 2, only posts of the last 7 days are available and a task may look at 5 posts), and channel_history when you need to know which posts exist.",
     "Every finding quotes a number or a state a tool returned: statement (one factual sentence), metric (the label the tool used), value (the number, null if the finding is not a number) and freshness (the fetch time or latest day the tool reported). Compare channels or periods only with numbers from the same report; never add up different reports.",
     "Never estimate, extrapolate or assume a cause. If every tool returned no measurement (noData, measured false, errors), answer with noData true and an empty findings array. If at least one measurement exists, noData is false and findings are not empty.",
   ].join(" "),

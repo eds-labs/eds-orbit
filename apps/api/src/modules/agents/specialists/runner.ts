@@ -45,6 +45,7 @@ import type {
   Specialist,
   StepHandler,
 } from "./types.ts";
+import { normalizeSourceUrl } from "./types.ts";
 
 /**
  * Specialist runner (Orbit Agents, spec §4/§5/§11). The worker's `agent`
@@ -82,6 +83,20 @@ const isWebSearch = (tool: unknown) =>
 // One `web_search_call` output item per hosted search the provider ran.
 const countSearches = (output: unknown[]) =>
   output.filter((item: any) => item?.type === "web_search_call").length;
+
+/** Normalized URLs a response cites (`url_citation` annotations) or searched (`web_search_call` sources). */
+function responseSources(output: unknown[]) {
+  const urls: unknown[] = [];
+  for (const item of output as any[]) {
+    if (item?.type === "web_search_call")
+      for (const source of item.action?.sources ?? []) urls.push(source?.url);
+    if (item?.type === "message")
+      for (const part of item.content ?? [])
+        for (const note of part?.annotations ?? [])
+          if (note?.type === "url_citation") urls.push(note.url);
+  }
+  return urls.map(normalizeSourceUrl).filter((url): url is string => !!url);
+}
 
 /** The handler the worker calls for tasks of `role`; a later registration replaces an earlier one. */
 export function registerStepHandler(role: StepRole, handler: StepHandler) {
@@ -293,6 +308,8 @@ async function runSpecialist(
   let modelCalls = 0;
   let webSearches = 0;
   let lastOutput: unknown[] = [];
+  // Every URL the task's searches returned or cited, over all turns.
+  const sources = new Set<string>();
 
   const model: BudgetedModel = {
     async call(request) {
@@ -393,7 +410,12 @@ async function runSpecialist(
         input: request.input,
         tools,
         outputSchema,
-        ...(searchTool ? { maxToolCalls: searchesLeft } : {}),
+        ...(searchTool
+          ? {
+              maxToolCalls: searchesLeft,
+              include: ["web_search_call.action.sources" as const],
+            }
+          : {}),
         reservationId: prepared.reservationId,
         runtime: prepared.runtime,
         signal: request.signal,
@@ -424,6 +446,7 @@ async function runSpecialist(
         providerResponseId: result.responseId,
       });
       webSearches += searches;
+      for (const url of responseSources(result.output)) sources.add(url);
       if (webSearches > specialist.limits.maxWebSearches)
         throw new DomainError("AGENT_LIMIT");
       lastOutput = result.output;
@@ -500,8 +523,11 @@ async function runSpecialist(
       // The cost of the last call is already settled.
       throw new DomainError("AGENT_OUTPUT_INVALID");
     }
+    const stored = specialist.finalize
+      ? specialist.finalize(parsed, sources)
+      : parsed;
     await finishRun(scope, agentRunId, "succeeded");
-    return parsed;
+    return stored;
   } catch (error) {
     const unsettled = inFlight.reservationId;
     // A request the provider refused was not processed and costs nothing.

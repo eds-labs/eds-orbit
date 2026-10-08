@@ -19,7 +19,12 @@ import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { analyticsSpecialist } from "../src/modules/agents/specialists/analytics.ts";
 import { researchSpecialist } from "../src/modules/agents/specialists/research.ts";
-import { createPackageProject, X } from "./support/package-project.ts";
+import { postizAnalytics } from "../src/modules/agents/tools/agent-tools.ts";
+import {
+  createPackageProject,
+  TELEGRAM,
+  X,
+} from "./support/package-project.ts";
 
 type Reply = { output: unknown[]; costMicros?: number };
 const mocked = vi.hoisted(() => ({
@@ -78,10 +83,22 @@ const enabled = Boolean(
 const MORNING = new Date("2026-10-20T04:00:00Z");
 const FEE = 10_000;
 
-const message = (value: unknown) => ({
+const message = (value: unknown, citations: string[] = []) => ({
   type: "message",
   role: "assistant",
-  content: [{ type: "output_text", text: JSON.stringify(value) }],
+  content: [
+    {
+      type: "output_text",
+      text: JSON.stringify(value),
+      annotations: citations.map((url) => ({
+        type: "url_citation",
+        url,
+        title: "t",
+        start_index: 0,
+        end_index: 1,
+      })),
+    },
+  ],
 });
 const call = (name: string, args: unknown, callId = "call-1") => ({
   type: "function_call",
@@ -89,11 +106,15 @@ const call = (name: string, args: unknown, callId = "call-1") => ({
   name,
   arguments: JSON.stringify(args),
 });
-const webSearch = (id: string) => ({
+const webSearch = (id: string, urls: string[] = []) => ({
   type: "web_search_call",
   id,
   status: "completed",
-  action: { type: "search", query: "beta" },
+  action: {
+    type: "search",
+    query: "beta",
+    sources: urls.map((url) => ({ type: "url", url })),
+  },
 });
 const output = (request: any, callId = "call-1") =>
   JSON.parse(
@@ -426,7 +447,7 @@ describe.skipIf(!enabled)("Analytics and research specialists", () => {
         },
       ],
     });
-    expect(postiz.fetchedAt).toBeTruthy();
+    expect(postiz.channels[0].channel.fetchedAt).toBeTruthy();
     expect(mocked.postiz.getIntegrationAnalytics).toHaveBeenCalledTimes(1);
     expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledTimes(1);
     expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledWith("post-new");
@@ -488,26 +509,45 @@ describe.skipIf(!enabled)("Analytics and research specialists", () => {
     const facts = await count("facts");
     const sources = await count("sources");
     const research = await task("research");
-    const findings = [
-      {
-        claim: "Competitor opened a public beta this month.",
-        sourceUrl: "https://news.example.com/beta",
-        sourceTitle: "Beta opens",
-        observedAt: "2026-10-18",
-      },
-    ];
+    const found = {
+      claim: "Competitor opened a public beta this month.",
+      sourceUrl: "https://news.example.com/beta",
+      sourceTitle: "Beta opens",
+      observedAt: "2026-10-18",
+    };
+    const cited = {
+      claim: "A review calls the beta stable.",
+      sourceUrl: "https://reviews.example.org/post/",
+      sourceTitle: "Review",
+      observedAt: "2026-10-17",
+    };
+    const invented = {
+      claim: "The beta has a million users.",
+      sourceUrl: "https://made-up.example.net/claim",
+      sourceTitle: "Never searched",
+      observedAt: "2026-10-18",
+    };
     mocked.replies.push(() => ({
-      output: [webSearch("ws1"), webSearch("ws2"), message({ findings })],
+      output: [
+        // A search source (the provider adds a tracking query) and a citation.
+        webSearch("ws1", ["https://News.example.com/beta?utm_source=openai"]),
+        webSearch("ws2"),
+        message({ findings: [found, cited, invented] }, [
+          "https://reviews.example.org/post#section",
+        ]),
+      ],
     }));
     await runAgentTask(worker(), research.id);
 
     const [request] = mocked.requests;
     expect(request.tools).toContainEqual({ type: "web_search" });
-    // The provider is told how many searches remain.
+    // The provider is told how many searches remain and to return the sources.
     expect(request.maxToolCalls).toBe(3);
+    expect(request.include).toEqual(["web_search_call.action.sources"]);
     expect(await task("research")).toMatchObject({
       status: "done",
-      output: { findings },
+      // The finding whose URL no search returned or cited is dropped.
+      output: { findings: [found, cited] },
       // 7 for the call and two searches at the per-search fee.
       costMicros: 7 + 2 * FEE,
     });
@@ -518,6 +558,29 @@ describe.skipIf(!enabled)("Analytics and research specialists", () => {
     // Findings stay on the task output.
     expect(await count("facts")).toBe(facts);
     expect(await count("sources")).toBe(sources);
+  });
+
+  it("collects the sources over all turns of the task", async () => {
+    const research = await task("research");
+    const finding = {
+      claim: "Searched in the first turn.",
+      sourceUrl: "https://early.example.com/a",
+      sourceTitle: "Early",
+      observedAt: "2026-10-18",
+    };
+    mocked.replies.push(
+      () => ({
+        output: [
+          webSearch("ws1", ["https://early.example.com/a"]),
+          call("knowledge_search", { query: "beta access", factKeys: null }),
+        ],
+      }),
+      () => ({ output: [message({ findings: [finding] })] }),
+    );
+    await runAgentTask(worker(), research.id);
+    expect(await task("research")).toMatchObject({
+      output: { findings: [finding] },
+    });
   });
 
   it("rejects a finding without an https source", async () => {
@@ -641,5 +704,151 @@ describe.skipIf(!enabled)("Analytics and research specialists", () => {
     ).find((row) => data(row).runKey === `assignment-run:${research.runId}`);
     expect(data(budgetRun!).reservationIds).toContain(query.id);
     expect((await task("research")).costMicros).toBe(7 + 7 + 3);
+  });
+
+  describe("Postiz analytics cache", () => {
+    const connect = () =>
+      run(async (tx) => {
+        const connector = (await list(tx, project.owner, "connectors")).find(
+          (row) => data(row).provider === "postiz",
+        )!;
+        await update(tx, project.owner, connector, {
+          ...data(connector),
+          baseUrl: "https://postiz.example/public/v1",
+          encryptedCredential: encrypt(
+            "synthetic-token",
+            process.env.CREDENTIAL_KEY!,
+          ),
+        });
+      });
+    const post = (id: string, channel: string, daysAgo: number) =>
+      run((tx) =>
+        create(tx, project.owner, "channel_posts", {
+          channel,
+          remoteId: id,
+          publishedAt: new Date(
+            Date.now() - daysAgo * 86_400_000,
+          ).toISOString(),
+          state: "PUBLISHED",
+          text: id,
+          source: "orbit",
+          syncedAt: new Date().toISOString(),
+        }),
+      );
+    const series = [
+      { label: "Likes", data: [{ total: 3, date: "2026-10-18" }] },
+    ];
+
+    beforeEach(async () => {
+      await connect();
+      mocked.postiz.getIntegrationAnalytics.mockResolvedValue(series);
+      mocked.postiz.getPostAnalytics.mockResolvedValue(series);
+    });
+
+    it("lets a second task within the hour reuse the answers without a request", async () => {
+      await post("p1", X, 1);
+      const args = { channels: [X], postsPerChannel: 1 };
+      const first = await postizAnalytics(project.owner, "task-a", args);
+      expect(mocked.postiz.getIntegrationAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledTimes(1);
+
+      const second = await postizAnalytics(project.owner, "task-b", args);
+      expect(mocked.postiz.getIntegrationAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledTimes(1);
+      expect(second).toEqual(first);
+      const rows = await run((tx) =>
+        list(tx, project.owner, "postiz_analytics_cache"),
+      );
+      expect(rows.map((row) => data(row).key).sort()).toEqual([
+        `channel:${X}`,
+        "post:p1",
+      ]);
+
+      // After the hour the answers are requested again.
+      await postizAnalytics(
+        project.owner,
+        "task-c",
+        args,
+        new Date(Date.now() + 61 * 60_000),
+      );
+      expect(mocked.postiz.getIntegrationAnalytics).toHaveBeenCalledTimes(2);
+      expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not cache a failed request", async () => {
+      mocked.postiz.getIntegrationAnalytics.mockRejectedValueOnce(
+        new Error("429"),
+      );
+      const failed = await postizAnalytics(project.owner, "task-a", {
+        channels: [X],
+        postsPerChannel: 0,
+      });
+      expect(failed.channels[0]!.channel).toEqual({
+        error: "POSTIZ_ANALYTICS_UNAVAILABLE",
+      });
+      await postizAnalytics(project.owner, "task-a", {
+        channels: [X],
+        postsPerChannel: 0,
+      });
+      expect(mocked.postiz.getIntegrationAnalytics).toHaveBeenCalledTimes(2);
+    });
+
+    it("skips posts older than seven days", async () => {
+      await post("old", X, 10);
+      await post("recent", X, 3);
+      const result = await postizAnalytics(project.owner, "task-a", {
+        channels: [X],
+        postsPerChannel: 3,
+      });
+      expect(
+        (result.channels[0] as any).posts.map((p: any) => p.postId),
+      ).toEqual(["recent"]);
+      expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledTimes(1);
+      expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledWith("recent");
+    });
+
+    it("refuses a sixth post in one task and keeps the count stored", async () => {
+      for (const [index, channel] of [
+        X,
+        X,
+        X,
+        TELEGRAM,
+        TELEGRAM,
+        TELEGRAM,
+      ].entries())
+        await post(`p${index}`, channel, 1 + index / 10);
+      const args = { channels: [X, TELEGRAM], postsPerChannel: 3 };
+      const result = await postizAnalytics(project.owner, "task-a", args);
+      const posts = result.channels.flatMap((c: any) => c.posts);
+      expect(posts).toHaveLength(6);
+      expect(
+        posts.filter((p: any) => p.error === "POSTIZ_POST_LIMIT"),
+      ).toHaveLength(1);
+      expect(mocked.postiz.getPostAnalytics).toHaveBeenCalledTimes(5);
+      const usage = await run((tx) =>
+        list(tx, project.owner, "postiz_analytics_posts"),
+      );
+      expect(usage.map((row) => data(row))).toEqual([
+        { taskId: "task-a", postIds: expect.any(Array) },
+      ]);
+      expect(data(usage[0]!).postIds).toHaveLength(5);
+
+      // The limit holds across calls of the same task (stored, not in memory) ...
+      await post("extra", X, 0.01);
+      const again = await postizAnalytics(project.owner, "task-a", {
+        channels: [X],
+        postsPerChannel: 1,
+      });
+      expect((again.channels[0] as any).posts[0]).toMatchObject({
+        postId: "extra",
+        error: "POSTIZ_POST_LIMIT",
+      });
+      // ... and is per task: another task may look at five posts again.
+      const other = await postizAnalytics(project.owner, "task-b", {
+        channels: [X],
+        postsPerChannel: 1,
+      });
+      expect((other.channels[0] as any).posts[0].error).toBeUndefined();
+    });
   });
 });

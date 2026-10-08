@@ -34,7 +34,23 @@ export type Specialist = {
   hostedTools: unknown[];
   outputSchema: z.ZodObject;
   limits: SpecialistLimits;
+  /**
+   * Runs on the parsed answer with the normalized URLs the task's web
+   * searches returned or cited (`normalizeSourceUrl`); returns the answer to store.
+   */
+  finalize?: (output: any, sources: ReadonlySet<string>) => unknown;
 };
+
+/** A URL as compared with search sources: scheme, lower-case host and path only (no query, fragment or trailing slash). */
+export function normalizeSourceUrl(value: unknown): string | null {
+  try {
+    const url = new URL(String(value));
+    if (!["https:", "http:"].includes(url.protocol)) return null;
+    return `${url.protocol}//${url.host.toLowerCase()}${url.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    return null;
+  }
+}
 
 export type AgentTaskStatus =
   "queued" | "running" | "done" | "failed" | "canceled" | "outcome_unknown";
