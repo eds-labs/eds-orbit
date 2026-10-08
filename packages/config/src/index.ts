@@ -37,6 +37,8 @@ export const configSchema = z.object({
   ORBIT_CONTENT_PACKAGES: z.enum(["false", "true"]).default("false"),
   // Client-executed tool search for Orbit Chat on models from gpt-5.4 (ADR 0007).
   ORBIT_TOOL_SEARCH: z.enum(["false", "true"]).default("false"),
+  // Orbit Agents: assignments, runs and specialists; everything stays off when false.
+  ORBIT_AGENTS: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

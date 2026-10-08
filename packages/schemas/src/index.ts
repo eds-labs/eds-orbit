@@ -30,6 +30,9 @@ export const collections = [
   "autopilot_settings",
   "matomo_schedules",
   "postiz_queue_watch",
+  "assignments",
+  "assignment_runs",
+  "channel_posts",
 ] as const;
 export const collection = z.enum(collections);
 export const source = z
