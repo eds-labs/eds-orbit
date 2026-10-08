@@ -2138,20 +2138,22 @@ export function ApprovalInbox() {
             {Number(e.data.count ?? 1)}×
           </small>
           {isOwner && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={resolve.pending}
-              onClick={() =>
-                resolve.run(() =>
-                  action(project.id, "resolve-exception", {
-                    exceptionId: e.id,
-                  }),
-                )
-              }
-            >
-              {de ? "Erledigt" : "Resolved"}
-            </Button>
+            <div className="form-actions">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={resolve.pending}
+                onClick={() =>
+                  resolve.run(() =>
+                    action(project.id, "resolve-exception", {
+                      exceptionId: e.id,
+                    }),
+                  )
+                }
+              >
+                {de ? "Erledigt" : "Resolved"}
+              </Button>
+            </div>
           )}
         </Alert>
       ))}

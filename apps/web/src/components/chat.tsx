@@ -21,6 +21,7 @@ import {
   usd,
 } from "@/lib/api";
 import { chatErrorText } from "./chat-errors";
+import { runToFollow } from "./chat-resume";
 import {
   Alert,
   Badge,
@@ -221,13 +222,12 @@ export function OrbitChat() {
     else localStorage.removeItem(savedKey);
   }, [conversationId, savedKey]);
   useEffect(() => {
-    if (!detail.data || activeRunId) return;
-    const current = detail.data.runs.find((run) => !terminal.has(run.status));
+    const current = runToFollow(detail.data, conversationId, activeRunId);
     if (current) {
       setActiveRunId(current.id);
       setStream(current);
     }
-  }, [detail.data, activeRunId]);
+  }, [detail.data, conversationId, activeRunId]);
   const refresh = useCallback(() => {
     setHistoryRevision((n) => n + 1);
     setDetailRevision((n) => n + 1);

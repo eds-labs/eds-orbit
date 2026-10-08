@@ -1,16 +1,16 @@
 # Implementation status
 
-## Orbit Core in production (2026-10-06)
+## Orbit Core in production (2026-10-08)
 
-Orbit Core (Jarvis Mode) is released: integration PR #51 merged on 2026-10-03 (`c3a1d07`), followed by fixes #52–#60 (latest `161ae52`, deployed by Coolify). The [rollout plan](plans/ORBIT_CORE_ROLLOUT_PLAN.md) records each phase, finding and approval; this section is the summary.
+Orbit Core (Jarvis Mode) is released: integration PR #51 merged on 2026-10-03 (`c3a1d07`), followed by fixes and features #52–#68 (latest `e8a0eeb`, deployed by Coolify). The [rollout plan](plans/ORBIT_CORE_ROLLOUT_PLAN.md) records each phase, finding and approval; this section is the summary.
 
 - Flags: `ORBIT_CONTENT_PACKAGES=true` since 2026-10-05 (Approval C), `ORBIT_TOOL_SEARCH=true` since 2026-10-06 (Approval E, chat route `gpt-6.1-sol`). Both are passed to API and worker by `docker-compose.yml` (#52).
-- Accepted in production: package card, start, drafts with passing review, revision of one channel, "next week" slots (JC05), package image with owner rights approval and attachment (Approval D), tool search answering a slot question. Cancel during drafting could not be shown (drafts finish in about ten seconds) and was waived by Mario.
-- Fixed from production findings: compose flags (#52), profile audience length and validation codes (#53), duplicate identical facts (#54), the first policy-allowed official link (#55), package fact keys (#56), single-word fact claims (#57), approved-image badge and the `source-map-js` audit advisory (#58), "approve all" past missed slots (#59), autopilot drafts that repeated an earlier day (#60).
-- Knowledge repair on 2026-10-05: website source re-imported, index generation 3 evaluated with `evals/knowledge/uliquid-website-2026-10-05.v1.json` and active, new policy allowing `https://uliquid.vip` and `https://desk.uliquid.vip`.
-- **The uLiquid project is paused** since 2026-10-06 14:15 UTC on Mario's request ("noch keine Posts veröffentlichen"). The 10 approved autopilot posts are `blocked_dependency` (`PROJECT_PAUSED`); nothing was published. No live package post has been made yet (Phase 5, Approval F).
-- Prepared after #60, not yet merged: scheduling posts stopped by a pause again and releasing missed slots, the steps of each AI run under Operations, and package drafts that see their other channels' drafts. #33 (runtime port, Approval G) is being brought up to date; #37 (Agents SDK spike) is a recorded no-go and is not merged.
-- Not built: voice (J4, JC18) and an honest "no analytics measurements" answer (JC19); both are planned after the production tests.
+- Accepted in production: package card, start, drafts with passing review, revision of one channel, "next week" slots (JC05), package image with owner rights approval and attachment (Approval D), tool search (its steps are visible under Operations since #63), different package texts per channel (#64), the runtime port (#65, Approval G).
+- Phase 5: Mario approved the first live package post (Approval F) — the beta post on X for 2026-10-12 17:00 (Europe/Berlin), one publication `intent_created`; a second proposal was canceled from the card before approval. The check after the slot is open.
+- Fixed from production findings: compose flags (#52), profile audience length and validation codes (#53), duplicate identical facts (#54), the first policy-allowed official link (#55), package fact keys (#56), single-word fact claims (#57), approved-image badge and the `source-map-js` advisory (#58), "approve all" past missed slots (#59), autopilot drafts that repeated an earlier day (#60), stopped posts after a pause and missed slots (#62), the `sharp` advisory (#66), chat while paused (#67), channel names in decisions and closable exceptions (#68).
+- The uLiquid project was paused on 2026-10-06 and resumed on the same day with Mario's approval; the posts stopped by the pause stay blocked until the owner schedules them again on the approvals page.
+- Known: the login cookie expires 8 hours after sign-in although the session is meant to slide; a fix needs Mario's approval (auth change).
+- Not built: voice (J4, JC18) and an honest "no analytics measurements" answer (JC19).
 
 ## Current state and agent platform alignment (2026-10-02)
 
