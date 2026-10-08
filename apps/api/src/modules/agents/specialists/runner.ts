@@ -110,10 +110,14 @@ export function registerSpecialist(specialist: Specialist) {
   );
 }
 
-// Model calls reserve under `agent:<taskId>:<n>`, the task's knowledge searches under `query:agent:<taskId>:...`.
+// Model calls reserve under `agent:<taskId>:<n>`, the task's knowledge searches under
+// `query:agent:<taskId>:...`; executor steps (R37) draft under `agent:<taskId>:copy:...`
+// with retrieval `query:mission:agent:<taskId>:...` and generate images under `image:agent:<taskId>:...`.
 const reservationPrefixes = (scope: Scope, taskId: string) => [
   `${scope.projectId}:agent:${taskId}:`,
   `${scope.projectId}:query:agent:${taskId}:`,
+  `${scope.projectId}:query:mission:agent:${taskId}:`,
+  `${scope.projectId}:image:agent:${taskId}:`,
 ];
 
 /** The budget reservations of one task, oldest first. */
@@ -203,6 +207,49 @@ async function assignmentMonthSpend(
       },
     }),
   );
+}
+
+/**
+ * What a task may still spend: its share of the run budget from the work plan
+ * and what is left of its assignment's month. Locks the assignment, so
+ * parallel tasks of one assignment check its month one after the other; call
+ * it in the transaction that reserves.
+ */
+export async function taskBudgetLeft(
+  tx: DbTx,
+  scope: Scope,
+  task: { id: string; assignmentId: string; ceilingMicros: number },
+  now = new Date(),
+) {
+  const spent = held(await taskReservations(tx, scope, task.id));
+  await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${task.assignmentId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
+  const assignment = data(
+    await entity(tx, scope, "assignments", task.assignmentId),
+  );
+  return {
+    taskMicros: task.ceilingMicros - spent,
+    monthMicros:
+      Number(assignment.monthlyBudgetMicros ?? 0) -
+      (await assignmentMonthSpend(tx, scope, task.assignmentId, now)),
+  };
+}
+
+/**
+ * Refuses a paid call of `estimate` that would exceed the task's ceiling
+ * (`AGENT_LIMIT`) or the assignment's month (`ASSIGNMENT_BUDGET_EXHAUSTED`,
+ * which exhausts the assignment when the task fails with it, R25).
+ */
+export async function assertTaskBudget(
+  tx: DbTx,
+  scope: Scope,
+  task: { id: string; assignmentId: string; ceilingMicros: number },
+  estimate: number,
+  now = new Date(),
+) {
+  const left = await taskBudgetLeft(tx, scope, task, now);
+  if (estimate > left.taskMicros) throw new DomainError("AGENT_LIMIT");
+  if (estimate > left.monthMicros)
+    throw new DomainError(ASSIGNMENT_BUDGET_EXHAUSTED);
 }
 
 /**
@@ -362,25 +409,9 @@ async function runSpecialist(
             estimateCost(route.model, bytes, route.maxOutputTokens, runtime) +
             // Every search this call may still run, at the per-search fee.
             webSearchFee(route.model, searchTool ? searchesLeft : 0, runtime);
-          // The task's share of the run budget from the work plan.
-          if (
-            held(await taskReservations(tx, scope, task.id)) + estimate >
-            task.ceilingMicros
-          )
-            throw new DomainError("AGENT_LIMIT");
           const now = new Date();
-          // Parallel tasks of one assignment check its month one after the other.
-          await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${task.assignmentId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
-          const assignment = data(
-            await entity(tx, scope, "assignments", task.assignmentId),
-          );
-          // Only the assignment's own budget exhausts it; project refusals from `reserve` fail the task (R25).
-          if (
-            (await assignmentMonthSpend(tx, scope, task.assignmentId, now)) +
-              estimate >
-            Number(assignment.monthlyBudgetMicros ?? 0)
-          )
-            throw new DomainError(ASSIGNMENT_BUDGET_EXHAUSTED);
+          // Task ceiling, then the assignment's month; project refusals from `reserve` fail the task (R25).
+          await assertTaskBudget(tx, scope, task, estimate, now);
           const reservation = await reserve(
             tx,
             scope,

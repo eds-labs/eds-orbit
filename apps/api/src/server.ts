@@ -88,7 +88,7 @@ import {
   brandAssetUploadInput,
   normalizeBrandAsset,
 } from "./modules/assets.ts";
-import { exportAssetContent } from "./modules/content-export.ts";
+import { exportContentBundle } from "./modules/content-export.ts";
 import {
   MAX_BATCH_DRAFTS,
   resumeLiveDraftBatch,
@@ -138,7 +138,6 @@ import {
   setSourceRights,
   revokeDocument,
   extractDocument,
-  validateEvidence,
   KnowledgeError,
 } from "../../../packages/knowledge/src/index.ts";
 import {
@@ -185,7 +184,6 @@ import {
   normalizePostizBaseUrl,
   createMatomoClient,
   importAdsCsv,
-  exportBlogArticle,
   ConnectorError,
 } from "../../../packages/connectors/src/index.ts";
 import { renderProjectAsset } from "./modules/render-asset.ts";
@@ -710,67 +708,7 @@ export async function buildServer(
   app.get("/api/projects/:projectId/content/:id/export", async (req, reply) => {
     const { projectId, id } = req.params as any,
       scope = await scopeFor(auth, req, projectId);
-    const loaded = await scoped(scope.workspaceId, projectId, async (tx) => {
-      const c = await entity(tx, scope, "content", id);
-      const evidence = await entity(tx, scope, "evidence", data(c).evidenceId);
-      if (
-        data(evidence).purpose !== "public" ||
-        !(await validateEvidence(tx, scope, evidence.id, new Date())).valid
-      )
-        throw new DomainError("EVIDENCE_INVALIDATED");
-      const asset = data(c).assetId
-        ? await entity(tx, scope, "assets", data(c).assetId)
-        : null;
-      return { c, evidence, asset };
-    });
-    const { c, evidence, asset } = loaded,
-      v = data(c),
-      a = asset ? data(asset) : null;
-    const assetContent = await exportAssetContent(scope, a);
-    const article = exportBlogArticle({
-      title: v.title,
-      slug:
-        (v.slug ??
-          v.title
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "")
-            .slice(0, 100)) ||
-        "article",
-      language: v.language,
-      bodyMarkdown: v.body,
-      description: v.description ?? v.title,
-      updatedAt: c.updatedAt.toISOString(),
-      sourceUrls: (data(evidence).items ?? [])
-        .filter((i: any) => i.publicUse && i.canonicalUrl)
-        .map((i: any) => i.canonicalUrl),
-      assets: assetContent
-        ? [
-            {
-              filename: "creative.png",
-              mime: "image/png",
-              bytes: assetContent.bytes,
-              alt: a!.title ?? v.title,
-            },
-          ]
-        : [],
-    });
-    const bundle = {
-      ...article,
-      contentType: v.type,
-      deliveryStatus: "draft_export",
-      metadata: {
-        outline: v.outline ?? [],
-        internalLinks: v.internalLinks ?? [],
-        altTexts: v.altTexts ?? [],
-        ...(v.type === "newsletter"
-          ? {
-              newsletter: v.newsletter ?? null,
-              sendCapability: "not_configured",
-            }
-          : {}),
-      },
-    };
+    const bundle = await exportContentBundle(scope, id);
     return reply
       .header("Content-Type", "application/json")
       .header(

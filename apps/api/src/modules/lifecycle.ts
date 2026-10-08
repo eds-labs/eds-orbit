@@ -232,6 +232,8 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
       continue;
     }
     if (liveDraftMissions.has(m.id)) continue;
+    // An assignment run's missions are drafted by their copywriter task only, under its budget (R37).
+    if (d.assignmentRunId) continue;
     await enqueue(
       tx,
       scope,

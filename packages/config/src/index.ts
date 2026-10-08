@@ -39,6 +39,8 @@ export const configSchema = z.object({
   ORBIT_TOOL_SEARCH: z.enum(["false", "true"]).default("false"),
   // Orbit Agents: assignments, runs and specialists; everything stays off when false.
   ORBIT_AGENTS: z.enum(["false", "true"]).default("false"),
+  // Assignment images: send style references through images.edit; "false" falls back to the stored style description.
+  ORBIT_IMAGE_REFERENCES: z.enum(["false", "true"]).default("true"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

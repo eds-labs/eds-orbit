@@ -123,6 +123,7 @@ import {
   finishConnect,
   rootCandidates,
   saveGeneratedAsset,
+  saveDraftDocument,
   markSyncFailed,
   testDriveConnection,
   uploadUserRaster,
@@ -169,11 +170,18 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
             : new Response("missing", { status: 404 });
         if (address.includes("/upload/drive/v3/files?")) {
           if (state.failUpload) return new Response("failed", { status: 503 });
+          // The multipart metadata part names the parents and app properties.
+          const metadata = JSON.parse(
+            String(options?.body ?? "")
+              .split("\r\n\r\n")[1]!
+              .split("\r\n--")[0]!,
+          );
           const uploaded = {
             id: "uploadedFileABC123",
-            name: "new.png",
+            name: metadata.name ?? "new.png",
             mimeType: "image/png",
-            parents: [root],
+            parents: metadata.parents ?? [root],
+            appProperties: metadata.appProperties,
           };
           state.driveFiles[uploaded.id] = uploaded;
           return json(uploaded);
@@ -199,7 +207,10 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
                 f.parents?.includes(parent) &&
                 (!q.includes("name =") || q.includes(`name = '${f.name}'`)) &&
                 (!q.includes("appProperties has") ||
-                  f.appProperties?.orbitAssetId),
+                  (f.appProperties &&
+                    [...q.matchAll(/key='(\w+)' and value='([^']*)'/g)].every(
+                      ([, key, value]) => f.appProperties[key!] === value,
+                    ))),
             ),
           });
         }
@@ -402,6 +413,44 @@ describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
       state.fetchCalls.filter((url) => url.includes("upload/drive/v3/files"))
         .length,
     ).toBe(2);
+  });
+  it("saves an approved draft as Markdown under Orbit_Drafts once per text", async () => {
+    add("drive_connection", {
+      encryptedRefreshToken: encrypt("synthetic-refresh", "a".repeat(64)),
+    });
+    add("drive_storage", { rootFolderId: root, enabled: true });
+    const draft = {
+      contentId: randomUUID(),
+      bodyHash: "a".repeat(64),
+      category: "Blog" as const,
+      filename: "beta-access.md",
+      mime: "text/markdown" as const,
+      bytes: Buffer.from("# Beta access\n\nOpen for product teams."),
+    };
+    const saved = await saveDraftDocument(scope, draft);
+    expect(saved.id).toBe("uploadedFileABC123");
+    const folder = (id: string) => state.driveFiles[id];
+    expect(folder(saved.folderId)).toMatchObject({ name: "Blog" });
+    expect(folder(folder(saved.folderId).parents[0])).toMatchObject({
+      name: "Orbit_Drafts",
+      parents: [root],
+    });
+    expect(state.driveFiles[saved.id]).toMatchObject({
+      name: "beta-access.md",
+      parents: [saved.folderId],
+      appProperties: {
+        orbitContentId: draft.contentId,
+        orbitBodyHash: draft.bodyHash,
+      },
+    });
+    const uploads = () =>
+      state.fetchCalls.filter((url) => url.includes("upload/drive/v3/files"))
+        .length;
+    // The same text is found again; a changed text is a new file.
+    await saveDraftDocument(scope, draft);
+    expect(uploads()).toBe(1);
+    await saveDraftDocument(scope, { ...draft, bodyHash: "b".repeat(64) });
+    expect(uploads()).toBe(2);
   });
   it("uploads validated PNG and WebP as private Drive files", async () => {
     add("drive_connection", {
