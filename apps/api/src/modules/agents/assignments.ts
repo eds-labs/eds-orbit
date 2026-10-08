@@ -61,7 +61,8 @@ const assignmentFields = z
     kind: z.enum(["one_off", "standing"]),
     schedule: assignmentSchedule,
     contentType: z.enum(["social", "blog", "newsletter", "report"]),
-    channels: z.array(z.string().trim().min(1).max(80)).min(1).max(4),
+    // A report goes to the owner, not to a channel: empty for `report`, at least one otherwise.
+    channels: z.array(z.string().trim().min(1).max(80)).max(4),
     topicFrame: z.string().trim().min(5).max(2000),
     tone: z.string().trim().min(1).max(300).optional(),
     image: z.boolean(),
@@ -81,6 +82,17 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(
       ["schedule", "rhythm"],
       "A one-off assignment runs once; a standing one repeats",
+    );
+  if (
+    value.contentType === "report"
+      ? value.channels.length
+      : !value.channels.length
+  )
+    issue(
+      ["channels"],
+      value.contentType === "report"
+        ? "A report has no channels"
+        : "Channels are required",
     );
   if (rhythm === "weekly" && !weekdays.length)
     issue(["schedule", "weekdays"], "A weekly rhythm needs weekdays");
@@ -112,13 +124,18 @@ async function assertWithinMandate(
   const policy = await activePolicy(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const mandate = data(policy);
+  // A report publishes nothing, so channel and content type scopes do not apply.
   if (
-    content.channels.some((channel) => !mandate.channels?.includes(channel)) ||
-    !mandate.contentTypes?.includes(content.contentType)
+    content.contentType !== "report" &&
+    (content.channels.some((channel) => !mandate.channels?.includes(channel)) ||
+      !mandate.contentTypes?.includes(content.contentType))
   )
     throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+  // Only confirmed assignments hold budget; drafts claim it when they are confirmed.
   const others = (await list(tx, scope, KIND)).filter(
-    (row) => row.id !== selfId && data(row).status !== "ended",
+    (row) =>
+      row.id !== selfId &&
+      ["active", "paused", "budget_exhausted"].includes(data(row).status),
   );
   const committed = others.reduce(
     (sum, row) => sum + Number(data(row).monthlyBudgetMicros ?? 0),
@@ -223,6 +240,12 @@ export async function confirmAssignment(
   if (d.status !== "draft") throw new DomainError("ASSIGNMENT_NOT_DRAFT", 409);
   if (d.image === true && imageRightsConsent !== true)
     throw new DomainError("IMAGE_RIGHTS_CONSENT_REQUIRED", 409);
+  await assertWithinMandate(
+    tx,
+    scope,
+    assignmentInput.parse(contentOf(d)),
+    row.id,
+  );
   const saved = await update(tx, scope, row, {
     ...d,
     status: "active",
@@ -287,10 +310,12 @@ export async function updateAssignment(
     ),
   });
   if (assignmentHash(next) === assignmentHash(d)) return row;
+  // Moving the times of any assignment is the owner's decision; an editor proposes a content change instead.
+  const timesChanged = hash(withoutTimes(next)) === hash(withoutTimes(d));
+  if (timesChanged && scope.role !== "owner")
+    throw new DomainError("OWNER_REQUIRED", 403);
   await assertWithinMandate(tx, scope, next, id);
-  const timesOnly =
-    d.status !== "draft" && hash(withoutTimes(next)) === hash(withoutTimes(d));
-  if (timesOnly) {
+  if (timesChanged && d.status !== "draft") {
     // The confirmation covers the unchanged content; its hash follows the new times.
     const saved = await update(tx, scope, row, {
       ...d,
@@ -329,6 +354,7 @@ export async function setAssignmentStatus(
   if (d.status === status) return row;
   if (d.status === "ended") throw new DomainError("ASSIGNMENT_ENDED", 409);
   if (status === "active") {
+    if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
     if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
     if (
       d.status === "draft" ||

@@ -90,8 +90,11 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
       const row = await entity(tx, scope, "assignments", id);
       return updateAssignment(tx, scope, id, row.version, patch);
     });
-  const status = (id: string, next: "active" | "paused" | "ended") =>
-    run((tx) => setAssignmentStatus(tx, project.editor, id, next));
+  const status = (
+    id: string,
+    next: "active" | "paused" | "ended",
+    scope: Scope = project.editor,
+  ) => run((tx) => setAssignmentStatus(tx, scope, id, next));
 
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
@@ -183,7 +186,7 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
   });
 
   it("refuses a monthly budget above the project budget left for assignments", async () => {
-    await propose({ monthlyBudgetMicros: 60_000_000 });
+    await confirmed({ monthlyBudgetMicros: 60_000_000 });
     await expect(propose({ monthlyBudgetMicros: 50_000_000 })).rejects.toThrow(
       "ASSIGNMENT_BUDGET_EXCEEDS_PROJECT",
     );
@@ -197,6 +200,50 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
     ).find((row) => data(row).monthlyBudgetMicros === 60_000_000)!;
     await status(first.id, "ended");
     await propose({ monthlyBudgetMicros: 60_000_000 });
+  });
+
+  it("counts a draft only once it is confirmed", async () => {
+    const first = await propose({ monthlyBudgetMicros: 60_000_000 });
+    const second = await propose({ monthlyBudgetMicros: 60_000_000 });
+    await decide(project.owner, first.actionRequest);
+    await expect(decide(project.owner, second.actionRequest)).rejects.toThrow(
+      "ASSIGNMENT_BUDGET_EXCEEDS_PROJECT",
+    );
+    expect(data(await assignmentOf(second.assignment.id)).status).toBe("draft");
+    // Paused assignments keep their share.
+    await status(first.assignment.id, "paused");
+    await expect(decide(project.owner, second.actionRequest)).rejects.toThrow(
+      "ASSIGNMENT_BUDGET_EXCEEDS_PROJECT",
+    );
+    await status(first.assignment.id, "ended");
+    await decide(project.owner, second.actionRequest);
+    expect(data(await assignmentOf(second.assignment.id)).status).toBe(
+      "active",
+    );
+  });
+
+  it("takes a report without channels and ignores the channel scope for it", async () => {
+    const report = {
+      contentType: "report" as const,
+      channels: [] as string[],
+    };
+    const { assignment, actionRequest } = await propose(report);
+    expect(data(assignment).channels).toEqual([]);
+    await decide(project.owner, actionRequest);
+    expect(data(await assignmentOf(assignment.id)).status).toBe("active");
+    // Budget still applies to a report.
+    await expect(
+      propose({ ...report, monthlyBudgetMicros: 80_000_000 }),
+    ).rejects.toThrow("ASSIGNMENT_BUDGET_EXCEEDS_PROJECT");
+    expect(assignmentInput.safeParse({ ...base, ...report }).success).toBe(
+      true,
+    );
+    expect(
+      assignmentInput.safeParse({ ...base, ...report, channels: [X] }).success,
+    ).toBe(false);
+    expect(assignmentInput.safeParse({ ...base, channels: [] }).success).toBe(
+      false,
+    );
   });
 
   it("rechecks the policy and budget when the owner decides", async () => {
@@ -217,14 +264,16 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
 
     const paused = await status(active.id, "paused");
     expect(data(paused).status).toBe("paused");
-    const resumed = await status(active.id, "active");
+    const resumed = await status(active.id, "active", project.owner);
     expect(data(resumed)).toMatchObject({ status: "active" });
     expect(data(resumed).confirmation).toEqual(before);
 
     // Moving the times alone keeps the confirmation, with the hash kept current.
-    const retimed = await edit(active.id, {
-      schedule: { ...base.schedule, times: ["10:30"] },
-    });
+    const retimed = await edit(
+      active.id,
+      { schedule: { ...base.schedule, times: ["10:30"] } },
+      project.owner,
+    );
     expect(data(retimed).status).toBe("active");
     expect(data(retimed).confirmation).toMatchObject({
       userId: before.userId,
@@ -257,11 +306,27 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
         assignmentHash: assignmentHash(data(changed)),
       },
     });
-    await expect(status(active.id, "active")).rejects.toThrow(
+    await expect(status(active.id, "active", project.owner)).rejects.toThrow(
       "ASSIGNMENT_NOT_CONFIRMED",
     );
     await decide(project.owner, request);
     expect(data(await assignmentOf(active.id)).status).toBe("active");
+  });
+
+  it("lets only an owner move times or resume, while an editor may pause", async () => {
+    const active = await confirmed();
+    const retime = { schedule: { ...base.schedule, times: ["11:00"] } };
+    await expect(edit(active.id, retime)).rejects.toThrow("OWNER_REQUIRED");
+    expect(data(await assignmentOf(active.id)).status).toBe("active");
+    await status(active.id, "paused");
+    await expect(status(active.id, "active")).rejects.toThrow("OWNER_REQUIRED");
+    expect(data(await assignmentOf(active.id)).status).toBe("paused");
+    await status(active.id, "active", project.owner);
+    const moved = await edit(active.id, retime, project.owner);
+    expect(data(moved).schedule.times).toEqual(["11:00"]);
+    // A draft's times are no exception for editors.
+    const { assignment } = await propose();
+    await expect(edit(assignment.id, retime)).rejects.toThrow("OWNER_REQUIRED");
   });
 
   it("withdraws the open request when a draft changes, and refuses a stale one", async () => {
@@ -302,7 +367,7 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
     expect(confirmation.assignmentHash).toBe(hash(content));
     const ended = await status(active.id, "ended");
     expect(data(ended).status).toBe("ended");
-    await expect(status(active.id, "active")).rejects.toThrow(
+    await expect(status(active.id, "active", project.owner)).rejects.toThrow(
       "ASSIGNMENT_ENDED",
     );
     await expect(edit(active.id, { name: "Again" })).rejects.toThrow(
