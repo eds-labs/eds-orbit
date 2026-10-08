@@ -1,6 +1,7 @@
 import { analyticsSpecialist } from "./analytics.ts";
 import { researchSpecialist } from "./research.ts";
 import { registerSpecialist } from "./runner.ts";
+import { strategySpecialist } from "./strategy.ts";
 
 /**
  * Registers every model specialist with the runner. The worker calls this
@@ -9,4 +10,5 @@ import { registerSpecialist } from "./runner.ts";
 export function registerAgentSpecialists() {
   registerSpecialist(analyticsSpecialist);
   registerSpecialist(researchSpecialist);
+  registerSpecialist(strategySpecialist);
 }

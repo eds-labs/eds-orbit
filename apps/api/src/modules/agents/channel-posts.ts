@@ -272,6 +272,31 @@ export async function channelPostsNear(
 }
 
 /**
+ * Stored posts (published, and queued up to 14 days ahead) of the given
+ * channels from the last `days` days, newest first, at most `perChannel`
+ * each; for specialists whose context is embedded rather than fetched.
+ */
+export async function recentChannelPosts(
+  tx: DbTx,
+  scope: Scope,
+  channels: string[],
+  days: number,
+  perChannel: number,
+  now = Date.now(),
+) {
+  const byChannel = new Map<string, ChannelPost[]>(
+    channels.map((channel) => [channel, []]),
+  );
+  for (const post of (await storedPosts(tx, scope, now - days * DAY)).sort(
+    (a, b) => Date.parse(b.publishedAt) - Date.parse(a.publishedAt),
+  )) {
+    const posts = byChannel.get(post.channel);
+    if (posts && posts.length < perChannel) posts.push(post);
+  }
+  return byChannel;
+}
+
+/**
  * Posts of other origin for the copywriter, shaped like the other
  * `recentChannelPosts` entries. Orbit's own posts are left out because they
  * are already part of the content history.
