@@ -1,3 +1,4 @@
+import { assignmentTools } from "./assignment-tools.ts";
 import { packageTools } from "./package-tools.ts";
 import { proposalTools } from "./proposal-tools.ts";
 import { readTools } from "./read-tools.ts";
@@ -7,4 +8,5 @@ export const chatTools = [
   ...readTools,
   ...proposalTools,
   ...packageTools,
+  ...assignmentTools,
 ] as const;

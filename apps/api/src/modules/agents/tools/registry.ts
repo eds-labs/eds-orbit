@@ -19,11 +19,12 @@ export type ToolNamespace =
   | "calendar"
   | "drive"
   | "research"
-  | "proposals";
+  | "proposals"
+  | "assignments";
 // Agents never receive tools with external or irreversible effects.
 export type ToolRisk = "R0_read" | "W0_internal" | "P_proposal";
 // Tools behind a feature flag are offered only while it is on.
-export type ToolFeature = "content_packages";
+export type ToolFeature = "content_packages" | "agents";
 export type ToolContext = {
   scope: Scope;
   runId: string;
