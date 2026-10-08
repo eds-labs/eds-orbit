@@ -38,12 +38,21 @@ export function makeAuth() {
   });
 }
 export type Auth = ReturnType<typeof makeAuth>;
+// A session renewed while checking a request must reach the browser too, or
+// its cookie ends 8 hours after sign-in although the session slides.
+const renewedCookies = new WeakMap<FastifyRequest, string[]>();
 export async function userFor(auth: Auth, req: FastifyRequest) {
-  const session = await auth.api.getSession({
+  const { headers, response: session } = await auth.api.getSession({
     headers: fromNodeHeaders(req.headers),
+    returnHeaders: true,
   });
+  const cookies = headers?.getSetCookie() ?? [];
+  if (cookies.length) renewedCookies.set(req, cookies);
   if (!session) throw new DomainError("UNAUTHENTICATED", 401);
   return session.user;
+}
+export function renewedSessionCookies(req: FastifyRequest) {
+  return renewedCookies.get(req) ?? [];
 }
 export async function scopeFor(
   auth: Auth,

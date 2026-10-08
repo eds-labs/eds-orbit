@@ -141,7 +141,13 @@ import {
   validateEvidence,
   KnowledgeError,
 } from "../../../packages/knowledge/src/index.ts";
-import { makeAuth, scopeFor, userFor, fromNodeHeaders } from "./auth.ts";
+import {
+  makeAuth,
+  renewedSessionCookies,
+  scopeFor,
+  userFor,
+  fromNodeHeaders,
+} from "./auth.ts";
 import {
   data,
   create,
@@ -285,6 +291,21 @@ export async function buildServer(
       req.headers.origin !== config.APP_ORIGIN
     )
       throw new DomainError("ORIGIN_REQUIRED", 403);
+  });
+  app.addHook("onSend", async (req, reply, payload) => {
+    const renewed = renewedSessionCookies(req);
+    if (renewed.length) {
+      const existing = reply.getHeader("set-cookie");
+      reply.header("set-cookie", [
+        ...(Array.isArray(existing)
+          ? existing
+          : existing
+            ? [String(existing)]
+            : []),
+        ...renewed,
+      ]);
+    }
+    return payload;
   });
   app.setErrorHandler((error, req, reply) => {
     diagnostic?.(error);
