@@ -22,13 +22,17 @@ import type { HeldSlot, SlotContext } from "./scheduling.ts";
 export type StepRole =
   "analytics" | "research" | "strategy" | "copywriter" | "visual" | "review";
 export type StepStatus =
-  "pending" | "queued" | "running" | "done" | "failed" | "skipped";
+  "pending" | "queued" | "running" | "done" | "failed" | "skipped" | "canceled";
 export type RunStatus =
   "planned" | "running" | "done" | "partial" | "failed" | "canceled";
 export type WorkStep = {
   key: string;
   role: StepRole;
+  // Every input of the step, hard and optional.
   dependsOn: string[];
+  // The inputs among `dependsOn` the step can do without: it starts once they
+  // are settled (done or not), with whatever exists.
+  optionalDependsOn: string[];
   taskId: string | null;
   status: StepStatus;
   ceilingMicros: number;
@@ -67,10 +71,12 @@ export function buildWorkPlan(assignment: Record<string, any>): WorkStep[] {
     key: string,
     role: StepRole,
     dependsOn: string[] = [],
+    optionalDependsOn: string[] = [],
   ): WorkStep => ({
     key,
     role,
-    dependsOn,
+    dependsOn: [...dependsOn, ...optionalDependsOn],
+    optionalDependsOn,
     taskId: null,
     status: "pending",
     ceilingMicros: 0,
@@ -80,17 +86,27 @@ export function buildWorkPlan(assignment: Record<string, any>): WorkStep[] {
   if (assignment.contentType === "report") {
     // A report goes to the owner only: figures, no research, no post.
     steps = [step("analytics", "analytics")];
-  } else if (assignment.contentType === "social") {
-    const copy = channels.map((channel) =>
-      step(`copywriter:${channel}`, "copywriter", ["strategy"]),
-    );
+  } else {
+    const social = assignment.contentType === "social";
+    const copy = social
+      ? channels.map((channel) =>
+          step(`copywriter:${channel}`, "copywriter", ["strategy"]),
+        )
+      : [step("copywriter", "copywriter", ["strategy"])];
+    // One image per run, reusable across channels.
     const visual = assignment.image
       ? [step("visual", "visual", ["strategy"])]
       : [];
     steps = [
-      step("analytics", "analytics"),
+      // Figures and research feed the strategy but never block it.
+      ...(social ? [step("analytics", "analytics")] : []),
       step("research", "research"),
-      step("strategy", "strategy", ["analytics", "research"]),
+      step(
+        "strategy",
+        "strategy",
+        [],
+        social ? ["analytics", "research"] : ["research"],
+      ),
       ...copy,
       ...visual,
       step(
@@ -98,13 +114,6 @@ export function buildWorkPlan(assignment: Record<string, any>): WorkStep[] {
         "review",
         [...copy, ...visual].map((s) => s.key),
       ),
-    ];
-  } else {
-    steps = [
-      step("research", "research"),
-      step("strategy", "strategy", ["research"]),
-      step("copywriter", "copywriter", ["strategy"]),
-      step("review", "review", ["copywriter"]),
     ];
   }
   const runCeiling = Math.floor(
@@ -230,10 +239,11 @@ async function plannedDates(
   assignmentId: string,
   from: string,
 ) {
+  // A canceled run (assignment paused or ended) leaves its date open for a resumed assignment.
   return new Set(
-    (await runsMatching(tx, scope, { assignmentId, dateFrom: from })).map(
-      (row) => String(data(row).date),
-    ),
+    (await runsMatching(tx, scope, { assignmentId, dateFrom: from }))
+      .filter((row) => data(row).status !== "canceled")
+      .map((row) => String(data(row).date)),
   );
 }
 
@@ -387,19 +397,29 @@ const TASK_TO_STEP: Record<string, StepStatus> = {
   running: "running",
   done: "done",
   failed: "failed",
+  canceled: "canceled",
   // A paid call of unknown outcome is never repeated: the step counts as failed.
   outcome_unknown: "failed",
 };
-const SETTLED: StepStatus[] = ["done", "failed", "skipped"];
+const SETTLED: StepStatus[] = ["done", "failed", "skipped", "canceled"];
+
+/** Serializes everything that changes one run (parallel task completions, cancellation). */
+const lockRun = (tx: DbTx, scope: Scope, runId: string) =>
+  tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${runId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
 
 /**
- * Brings a run up to date with its tasks and starts what can start: a step
- * whose dependencies are all done gets an `agent_tasks` row and an `agent`
- * job (`agent:<taskId>`); a step behind a failed one is skipped, the run goes
- * on without that deliverable. The run ends `done`, `partial` or `failed`
- * when no step is left. Safe to call repeatedly.
+ * Brings a run up to date with its tasks and starts what can start. A step
+ * is ready when its hard dependencies are done and its optional ones
+ * (`optionalDependsOn`, e.g. analytics and research for the strategy) are
+ * settled; it then gets an `agent_tasks` row and an `agent` job
+ * (`agent:<taskId>`). A step behind a failed or skipped hard dependency is
+ * skipped: only that deliverable drops, the rest of the run goes on. The run
+ * ends `done`, `partial` or `failed` when no step is left. The run row is
+ * locked first, so parallel task completions of one run are processed one
+ * after the other; calling again is safe.
  */
 export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
+  await lockRun(tx, scope, runId);
   const row = await entity(tx, scope, RUNS, runId);
   const d = data(row);
   if (TERMINAL_RUN.includes(d.status)) return row;
@@ -414,13 +434,18 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     return { ...step, status: mapped ?? step.status };
   });
   const byKey = new Map(steps.map((step) => [step.key, step]));
-  const deps = (step: WorkStep) => step.dependsOn.map((key) => byKey.get(key)!);
+  const hard = (step: WorkStep) =>
+    step.dependsOn
+      .filter((key) => !step.optionalDependsOn.includes(key))
+      .map((key) => byKey.get(key)!);
+  const optional = (step: WorkStep) =>
+    step.optionalDependsOn.map((key) => byKey.get(key)!);
   for (let changed = true; changed;) {
     changed = false;
     for (const step of steps)
       if (
         step.status === "pending" &&
-        deps(step).some(
+        hard(step).some(
           (dep) => dep.status === "failed" || dep.status === "skipped",
         )
       ) {
@@ -431,7 +456,8 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
   for (const step of steps) {
     if (
       step.status !== "pending" ||
-      !deps(step).every((s) => s.status === "done")
+      !hard(step).every((dep) => dep.status === "done") ||
+      !optional(step).every((dep) => SETTLED.includes(dep.status))
     )
       continue;
     const task = await create(tx, scope, TASKS, {
@@ -473,4 +499,45 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
   )
     return row;
   return update(tx, scope, row, { ...d, steps, status, costMicros });
+}
+
+/**
+ * Cancels the runs of an assignment that is paused or ended: every run that
+ * is not over becomes `canceled` with its open steps and `agent_tasks`, so no
+ * new step starts and its slots are free again. Settled work and its cost
+ * stay. Withdrawing publications already scheduled is the veto path's job.
+ */
+export async function cancelAssignmentRuns(
+  tx: DbTx,
+  scope: Scope,
+  assignmentId: string,
+) {
+  const open = (await runsMatching(tx, scope, { assignmentId })).filter(
+    (run) => !TERMINAL_RUN.includes(data(run).status),
+  );
+  let canceled = 0;
+  for (const found of open) {
+    await lockRun(tx, scope, found.id);
+    const row = await entity(tx, scope, RUNS, found.id);
+    const d = data(row);
+    if (TERMINAL_RUN.includes(d.status)) continue;
+    const tasks = await filtered(tx, scope, TASKS, [
+      { path: ["runId"], equals: row.id },
+    ]);
+    for (const task of tasks)
+      if (["queued", "running"].includes(data(task).status))
+        await update(tx, scope, task, { ...data(task), status: "canceled" });
+    await update(tx, scope, row, {
+      ...d,
+      status: "canceled",
+      steps: (d.steps as WorkStep[]).map((step) =>
+        SETTLED.includes(step.status) ? step : { ...step, status: "canceled" },
+      ),
+    });
+    await audit(tx, scope, "assignment.run_canceled", row.id, {
+      assignmentId,
+    });
+    canceled++;
+  }
+  return { canceled };
 }

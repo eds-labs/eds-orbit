@@ -21,6 +21,10 @@ import {
   planAssignmentRuns,
   startReadySteps,
 } from "../src/modules/agents/assignment-runs.ts";
+import {
+  assignmentHash,
+  setAssignmentStatus,
+} from "../src/modules/agents/assignments.ts";
 import { channelSlots } from "../src/modules/agents/scheduling.ts";
 import { assignmentTools } from "../src/modules/agents/tools/assignment-tools.ts";
 import {
@@ -116,6 +120,37 @@ describe("Work plan of an assignment", () => {
       ]);
   });
 
+  it("plans a visual for every content type with images except a report", () => {
+    for (const contentType of ["blog", "newsletter"])
+      expect(shape(plan({ contentType, image: true }))).toEqual([
+        ["research", "research", []],
+        ["strategy", "strategy", ["research"]],
+        ["copywriter", "copywriter", ["strategy"]],
+        ["visual", "visual", ["strategy"]],
+        ["review", "review", ["copywriter", "visual"]],
+      ]);
+    expect(
+      plan({ contentType: "report", channels: [], image: true }).map(
+        (step) => step.key,
+      ),
+    ).toEqual(["analytics"]);
+  });
+
+  it("treats analytics and research as optional inputs of the strategy only", () => {
+    const optional = (changes: Record<string, unknown>) =>
+      Object.fromEntries(
+        plan(changes)
+          .filter((step) => step.optionalDependsOn.length)
+          .map((step) => [step.key, step.optionalDependsOn]),
+      );
+    expect(optional({ image: true })).toEqual({
+      strategy: ["analytics", "research"],
+    });
+    expect(optional({ contentType: "blog" })).toEqual({
+      strategy: ["research"],
+    });
+  });
+
   it("gives a one-off assignment its whole budget and a weekly one a share per run", () => {
     const once = plan({
       kind: "one_off",
@@ -150,15 +185,20 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       )!;
       await update(tx, project.owner, row, { ...data(row), ...changes });
     });
-  const makeAssignment = (changes: Record<string, unknown> = {}) =>
-    run((tx) =>
-      create(
-        tx,
-        project.owner,
-        "assignments",
-        assignmentData(changes) as Record<string, unknown>,
-      ),
+  const makeAssignment = (changes: Record<string, unknown> = {}) => {
+    const content = assignmentData(changes);
+    return run((tx) =>
+      create(tx, project.owner, "assignments", {
+        ...content,
+        // As a confirmed assignment: the confirmation covers exactly this content.
+        confirmation: {
+          userId: "owner",
+          at: "2026-10-01T00:00:00.000Z",
+          assignmentHash: assignmentHash(content),
+        },
+      } as Record<string, unknown>),
     );
+  };
   const plan = (now: Date) =>
     run((tx) => planAssignmentRuns(tx, project.owner, now));
   const runs = async () =>
@@ -173,6 +213,10 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
           `${b.date}${b.assignmentId}`,
         ),
       );
+  const advanceRun = (runId: string) =>
+    run((tx) => startReadySteps(tx, project.owner, runId)).then((row) =>
+      data(row),
+    );
   const tasks = () =>
     run((tx) => list(tx, project.owner, "agent_tasks")).then((rows) =>
       rows.map((row): Record<string, any> => ({ id: row.id, ...data(row) })),
@@ -499,7 +543,7 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       );
     });
 
-    it("skips steps behind a failed step and ends the run partial", async () => {
+    it("starts the strategy with what exists when analytics or research failed", async () => {
       await makeAssignment();
       await plan(MORNING);
       const [created] = await runs();
@@ -508,22 +552,113 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       const analytics = [first!, second!].find(
         (t) => t.stepKey === "analytics",
       )!;
-      await finish([analytics.id], { status: "done", costMicros: 10 });
+      // One optional input still runs: the strategy waits for it.
       await finish([research.id], {
         status: "failed",
         errorCode: "AGENT_LIMIT",
         costMicros: 20,
       });
+      expect(statuses((await advance(created.id)).steps).strategy).toBe(
+        "pending",
+      );
+      await finish([analytics.id], { status: "done", costMicros: 10 });
       const after = await advance(created.id);
       expect(statuses(after.steps)).toEqual({
         analytics: "done",
         research: "failed",
-        strategy: "skipped",
-        [`copywriter:${X}`]: "skipped",
+        strategy: "queued",
+        [`copywriter:${X}`]: "pending",
+        review: "pending",
+      });
+      expect(after.status).toBe("running");
+      expect(after.costMicros).toBe(30);
+    });
+
+    it("skips only the dependents of a failed step and ends the run partial", async () => {
+      await makeAssignment({ channels: [X, TELEGRAM], image: true });
+      await plan(MORNING);
+      const [created] = await runs();
+      await finish(
+        (await tasks()).map((t) => t.id),
+        { status: "done", costMicros: 1 },
+      );
+      await advance(created.id);
+      await finish(
+        (await tasks())
+          .filter((t) => t.stepKey === "strategy")
+          .map((t) => t.id),
+        { status: "done", costMicros: 1 },
+      );
+      await advance(created.id);
+      const open = await tasks();
+      await finish(
+        open.filter((t) => t.stepKey === `copywriter:${X}`).map((t) => t.id),
+        { status: "failed", errorCode: "AGENT_LIMIT" },
+      );
+      await finish(
+        open
+          .filter((t) => /^(copywriter:tg|visual)/.test(t.stepKey))
+          .map((t) => t.id),
+        { status: "done", costMicros: 1 },
+      );
+      const after = await advance(created.id);
+      // The other channel and the image are untouched; the review needs every copy, so it drops.
+      expect(statuses(after.steps)).toMatchObject({
+        strategy: "done",
+        [`copywriter:${X}`]: "failed",
+        [`copywriter:${TELEGRAM}`]: "done",
+        visual: "done",
         review: "skipped",
       });
       expect(after.status).toBe("partial");
-      expect(after.costMicros).toBe(30);
+    });
+
+    it("lets parallel task completions of one run serialize and both advance it", async () => {
+      await makeAssignment({ channels: [X, TELEGRAM] });
+      await plan(MORNING);
+      const [created] = await runs();
+      await finish(
+        (await tasks()).map((t) => t.id),
+        { status: "done", costMicros: 1 },
+      );
+      await advance(created.id);
+      await finish(
+        (await tasks())
+          .filter((t) => t.stepKey === "strategy")
+          .map((t) => t.id),
+        { status: "done", costMicros: 1 },
+      );
+      await advance(created.id);
+      const copy = (await tasks()).filter((t) =>
+        t.stepKey.startsWith("copywriter"),
+      );
+      expect(copy).toHaveLength(2);
+      // Two transactions, each completing its own task and then advancing the
+      // run. (scoped() already serializes a project's transactions; the run
+      // row lock in startReadySteps holds for any other caller.)
+      const complete = (task: Record<string, any>) =>
+        run(async (tx) => {
+          const row = (await list(tx, project.owner, "agent_tasks")).find(
+            (candidate) => candidate.id === task.id,
+          )!;
+          await update(tx, project.owner, row, {
+            ...data(row),
+            status: "done",
+            costMicros: 5,
+          });
+          return startReadySteps(tx, project.owner, created.id);
+        });
+      await Promise.all(copy.map(complete));
+      const [after] = await runs();
+      expect(statuses(after.steps)).toMatchObject({
+        [`copywriter:${X}`]: "done",
+        [`copywriter:${TELEGRAM}`]: "done",
+        review: "queued",
+      });
+      expect(after.costMicros).toBe(2 + 1 + 10);
+      expect(
+        (await tasks()).filter((t) => t.stepKey === "review"),
+      ).toHaveLength(1);
     });
 
     it("fails a run in which no step finished", async () => {
@@ -535,6 +670,92 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
         { status: "outcome_unknown" },
       );
       expect((await advance(created.id)).status).toBe("failed");
+    });
+  });
+
+  describe("pausing and ending", () => {
+    const setStatus = (id: string, next: "active" | "paused" | "ended") =>
+      run((tx) => setAssignmentStatus(tx, project.owner, id, next));
+
+    it("cancels a planned run and its tasks on pause and frees its slot", async () => {
+      await setPolicy({ maxPerDay: 1 });
+      const first = await makeAssignment({ name: "First" });
+      await plan(MORNING);
+      const [planned] = await runs();
+      expect(planned.slots).toHaveLength(1);
+      await setStatus(first.id, "paused");
+      const [canceled] = await runs();
+      expect(canceled.status).toBe("canceled");
+      expect(canceled.steps.map((s: any) => s.status)).toEqual([
+        "canceled",
+        "canceled",
+        "canceled",
+        "canceled",
+        "canceled",
+      ]);
+      expect((await tasks()).map((t) => t.status)).toEqual([
+        "canceled",
+        "canceled",
+      ]);
+      // Nothing starts for a canceled run.
+      expect((await advanceRun(canceled.id)).status).toBe("canceled");
+      // Another assignment can now take the freed slot.
+      const second = await makeAssignment({ name: "Second" });
+      await plan(MORNING);
+      const taken = (await runs()).find(
+        (r: any) => r.assignmentId === second.id,
+      )!;
+      expect(taken.slots).toEqual([
+        { channel: X, at: "2026-10-20T08:00:00.000Z" },
+      ]);
+    });
+
+    it("plans the date again when a resumed assignment still has time", async () => {
+      const assignment = await makeAssignment();
+      await plan(MORNING);
+      await setStatus(assignment.id, "paused");
+      expect(await plan(MORNING)).toEqual({ created: 0 });
+      await setStatus(assignment.id, "active");
+      expect(await plan(MORNING)).toEqual({ created: 1 });
+      const all = await runs();
+      expect(all.map((r: any) => r.status).sort()).toEqual([
+        "canceled",
+        "running",
+      ]);
+      expect(all.find((r: any) => r.status === "running")!.slots).toEqual([
+        { channel: X, at: "2026-10-20T08:00:00.000Z" },
+      ]);
+      // Once the time has passed, resuming plans nothing for that day.
+      await setStatus(assignment.id, "paused");
+      await setStatus(assignment.id, "active");
+      expect(await plan(new Date("2026-10-20T09:00:00Z"))).toEqual({
+        created: 0,
+      });
+    });
+
+    it("cancels the open runs of an ended assignment but keeps finished ones", async () => {
+      const assignment = await makeAssignment({
+        contentType: "report",
+        channels: [],
+      });
+      await plan(MORNING);
+      const [report] = await runs();
+      await run(async (tx) => {
+        const row = (await list(tx, project.owner, "agent_tasks"))[0]!;
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "done",
+        });
+        await startReadySteps(tx, project.owner, report.id);
+      });
+      expect((await runs())[0].status).toBe("done");
+      await plan(NEXT_MORNING);
+      expect(await runs()).toHaveLength(2);
+      await setStatus(assignment.id, "ended");
+      expect((await runs()).map((r: any) => r.status)).toEqual([
+        "done",
+        "canceled",
+      ]);
     });
   });
 
