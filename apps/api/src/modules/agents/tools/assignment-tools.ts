@@ -3,6 +3,7 @@ import { chatScoped } from "../../chat.ts";
 import type { AssignmentCard, ChatCard } from "../../chat-tools.ts";
 import { zonedTime } from "../../posting-slots.ts";
 import { data, DomainError, entity, list } from "../../../shared.ts";
+import { runsMatching } from "../assignment-runs.ts";
 import {
   proposeAssignment,
   setAssignmentStatus,
@@ -164,12 +165,24 @@ function localDay(at: Date, timezone: string) {
 }
 const dayKey = (day: Date) => day.toISOString().slice(0, 10);
 
-/** Next slot of an active schedule as local "YYYY-MM-DD HH:MM", or null. */
+/**
+ * Next slot of an active assignment as local "YYYY-MM-DD HH:MM": the earliest
+ * slot its planned runs hold, else the next time of its schedule (a run is
+ * only planned shortly before it is due).
+ */
 function nextSlotLocal(
   schedule: Record<string, any>,
   timezone: string,
   now: Date,
+  runs: Array<Record<string, any>> = [],
 ) {
+  const planned = runs
+    .filter((run) => ["planned", "running"].includes(run.status))
+    .flatMap((run) => (run.slots ?? []) as Array<{ at: string }>)
+    .map((slot) => new Date(slot.at))
+    .filter((at) => at > now)
+    .sort((a, b) => a.valueOf() - b.valueOf())[0];
+  if (planned) return localSlot(planned, timezone);
   const today = localDay(now, timezone);
   const days =
     schedule.rhythm === "once"
@@ -200,6 +213,14 @@ function nextSlotLocal(
   }
   return null;
 }
+
+const localSlot = (at: Date, timezone: string) =>
+  `${localKey(at, timezone)} ${new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at)}`;
 
 export const assignmentTools: readonly OrbitTool[] = [
   defineTool({
@@ -245,17 +266,23 @@ export const assignmentTools: readonly OrbitTool[] = [
         const project = await tx.project.findUniqueOrThrow({
           where: { id: context.scope.projectId },
         });
-        return {
-          timezone: project.timezone,
-          assignments: await list(tx, context.scope, "assignments"),
-          runs: await list(tx, context.scope, "assignment_runs"),
-        };
+        const today = localKey(now, project.timezone);
+        const assignments = (
+          await list(tx, context.scope, "assignments")
+        ).slice(0, 20);
+        // Runs of this month and the not yet past ones, never the whole history.
+        const month = await runsMatching(tx, context.scope, {
+          monthPrefix: today.slice(0, 7),
+        });
+        const upcoming = await runsMatching(tx, context.scope, {
+          dateFrom: today,
+        });
+        return { timezone: project.timezone, assignments, month, upcoming };
       });
-      const month = localKey(now, listed.timezone).slice(0, 7);
       return {
         output: {
           timezone: listed.timezone,
-          assignments: listed.assignments.slice(0, 20).map((row) => {
+          assignments: listed.assignments.map((row) => {
             const d = data(row);
             return {
               id: row.id,
@@ -268,19 +295,19 @@ export const assignmentTools: readonly OrbitTool[] = [
               times: d.schedule.times,
               nextSlotLocal:
                 d.status === "active"
-                  ? nextSlotLocal(d.schedule, listed.timezone, now)
+                  ? nextSlotLocal(
+                      d.schedule,
+                      listed.timezone,
+                      now,
+                      listed.upcoming
+                        .map((run) => data(run))
+                        .filter((run) => run.assignmentId === row.id),
+                    )
                   : null,
-              // Runs record their cost per local date (assignment-runs.ts).
-              monthCostMicros: listed.runs
-                .filter(
-                  (run) =>
-                    data(run).assignmentId === row.id &&
-                    String(data(run).date ?? "").startsWith(month),
-                )
-                .reduce(
-                  (sum, run) => sum + Number(data(run).costMicros ?? 0),
-                  0,
-                ),
+              monthCostMicros: listed.month
+                .map((run) => data(run))
+                .filter((run) => run.assignmentId === row.id)
+                .reduce((sum, run) => sum + Number(run.costMicros ?? 0), 0),
               monthlyBudgetMicros: d.monthlyBudgetMicros,
               pendingActionRequestId:
                 d.status === "draft" ? (d.actionRequestId ?? null) : null,
@@ -409,44 +436,46 @@ export const assignmentTools: readonly OrbitTool[] = [
         const project = await tx.project.findUniqueOrThrow({
           where: { id: context.scope.projectId },
         });
+        const date = localKey(new Date(), project.timezone);
+        const rows = await runsMatching(tx, context.scope, {
+          date,
+          ...(assignmentId === null ? {} : { assignmentId }),
+        });
+        const names = new Map<string, unknown>();
+        for (const id of new Set(rows.map((run) => data(run).assignmentId)))
+          names.set(
+            id,
+            data(await entity(tx, context.scope, "assignments", id)).name,
+          );
+        return { date, rows, names };
+      });
+      const { date, names } = found;
+      // Run data is written by assignment-runs.ts: slots, unavailable, steps, costMicros.
+      const runs = found.rows.slice(0, 20).map((run) => {
+        const d = data(run);
         return {
-          timezone: project.timezone,
-          assignments: await list(tx, context.scope, "assignments"),
-          runs: await list(tx, context.scope, "assignment_runs"),
+          id: run.id,
+          assignmentId: d.assignmentId,
+          assignmentName: names.get(d.assignmentId) ?? null,
+          date: d.date,
+          status: d.status,
+          costMicros: Number(d.costMicros ?? 0),
+          slots: Array.isArray(d.slots) ? d.slots.slice(0, 20) : [],
+          unavailable: Array.isArray(d.unavailable)
+            ? d.unavailable.slice(0, 20)
+            : [],
+          steps: (Array.isArray(d.steps) ? d.steps : []).map((step: any) => ({
+            key: step.key,
+            role: step.role,
+            status: step.status,
+          })),
+          // Filled by the review and veto steps (publication, Telegram).
+          deliverables: Array.isArray(d.deliverables)
+            ? d.deliverables.slice(0, 10)
+            : [],
+          vetoes: Array.isArray(d.vetoes) ? d.vetoes.slice(0, 10) : [],
         };
       });
-      const date = localKey(new Date(), found.timezone);
-      const names = new Map(
-        found.assignments.map((row) => [row.id, data(row).name]),
-      );
-      // Run data follows the plan of assignment-runs.ts: date, status, steps, costMicros.
-      const runs = found.runs
-        .filter(
-          (run) =>
-            data(run).date === date &&
-            (assignmentId === null || data(run).assignmentId === assignmentId),
-        )
-        .slice(0, 20)
-        .map((run) => {
-          const d = data(run);
-          return {
-            id: run.id,
-            assignmentId: d.assignmentId,
-            assignmentName: names.get(d.assignmentId) ?? null,
-            date: d.date,
-            status: d.status,
-            costMicros: Number(d.costMicros ?? 0),
-            steps: (Array.isArray(d.steps) ? d.steps : []).map((step: any) => ({
-              key: step.key,
-              role: step.role,
-              status: step.status,
-            })),
-            deliverables: Array.isArray(d.deliverables)
-              ? d.deliverables.slice(0, 10)
-              : [],
-            vetoes: Array.isArray(d.vetoes) ? d.vetoes.slice(0, 10) : [],
-          };
-        });
       return { output: { date, runs }, cards: [] };
     },
   }),

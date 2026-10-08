@@ -32,6 +32,7 @@ export const collections = [
   "postiz_queue_watch",
   "assignments",
   "assignment_runs",
+  "agent_tasks",
   "channel_posts",
 ] as const;
 export const collection = z.enum(collections);

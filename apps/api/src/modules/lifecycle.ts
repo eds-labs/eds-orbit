@@ -16,6 +16,11 @@ import {
 } from "../shared.ts";
 import { analyze, enqueue } from "./workflow.ts";
 import { advanceContentPackages } from "./agents/content-packages.ts";
+import { agentsEnabled } from "./agents/assignments.ts";
+import {
+  nextAssignmentPlanAt,
+  planAssignmentRuns,
+} from "./agents/assignment-runs.ts";
 
 export async function correctMetric(
   tx: DbTx,
@@ -194,7 +199,9 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
   });
   if (project.paused) return { queued: 0 };
   await releaseMissedSlots(tx, scope, at);
-  await planAutopilot(tx, scope, at);
+  // Assignment runs replace the weekly autopilot: both fill the same slots.
+  if (agentsEnabled()) await planAssignmentRuns(tx, scope, at);
+  else await planAutopilot(tx, scope, at);
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
   // An owner-approved single live draft is the mission's only attempt; its
@@ -305,6 +312,8 @@ export async function nextSweepAt(tx: DbTx, scope: Scope, at = new Date()) {
   }
   for (const e of await list(tx, scope, "experiments"))
     if (data(e).status === "running") consider(data(e).endAt);
-  consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
+  if (agentsEnabled())
+    consider((await nextAssignmentPlanAt(tx, scope, at))?.valueOf());
+  else consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
   return Number.isFinite(next) ? new Date(next) : null;
 }
