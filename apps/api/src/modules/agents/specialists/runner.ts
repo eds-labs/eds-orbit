@@ -506,11 +506,12 @@ async function runSpecialist(
   };
 
   try {
-    const input = specialist.prepareInput
+    const prepared = specialist.prepareInput
       ? await scoped(scope.workspaceId, scope.projectId, (tx) =>
           specialist.prepareInput!(tx, scope, task.input),
         )
-      : task.input;
+      : { input: task.input };
+    const input = prepared.input;
     await legacyResponsesRuntime.runTurn({
       input: [{ role: "user", content: JSON.stringify(input) }],
       model,
@@ -529,7 +530,7 @@ async function runSpecialist(
       throw new DomainError("AGENT_OUTPUT_INVALID");
     }
     const stored = specialist.finalize
-      ? specialist.finalize(parsed, sources, input)
+      ? specialist.finalize(parsed, sources, prepared.context ?? input)
       : parsed;
     await finishRun(scope, agentRunId, "succeeded");
     return stored;

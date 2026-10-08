@@ -422,4 +422,66 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
     const posts = input.channelHistory.channels.flatMap((c: any) => c.posts);
     expect(posts.length).toBeLessThanOrEqual(10);
   });
+
+  it("offers the most relevant facts within a size budget and checks against all usable keys", async () => {
+    const [first, second] = await slots();
+    await run(async (tx) => {
+      const beta = (await list(tx, project.owner, "facts")).find(
+        (row) => data(row).key === "beta.access",
+      )!;
+      const base = {
+        ...data(beta),
+        valueType: "text",
+        language: "en",
+      };
+      for (let i = 0; i < 40; i++)
+        await create(tx, project.owner, "facts", {
+          ...base,
+          key: `filler.${String(i).padStart(2, "0")}`,
+          value: `Filler statement ${i} `.padEnd(200, "lorem ipsum "),
+        });
+      // Relevant to the topic frame, but its key sorts after every filler.
+      await create(tx, project.owner, "facts", {
+        ...base,
+        key: "zz.late",
+        value: "Product teams get beta access in week one",
+      });
+    });
+    mocked.replies.push(() => ({
+      output: [
+        message({
+          briefs: [
+            brief(first!, { factKeys: ["zz.late"] }),
+            // A real usable key that was not offered is not unknown.
+            brief(second!, { factKeys: ["filler.39"] }),
+          ],
+        }),
+      ],
+    }));
+    await runAgentTask(worker(), (await strategyTask()).id);
+
+    const input = JSON.parse(mocked.requests[0].input[0].content);
+    const keys = input.facts.map((f: any) => f.key);
+    // Ranked by overlap with the topic frame, then by key.
+    expect(keys.slice(0, 2)).toEqual(["beta.access", "zz.late"]);
+    expect(keys).not.toContain("filler.39");
+    expect(keys.length).toBeLessThan(43);
+    const size = input.facts.reduce(
+      (sum: number, f: any) => sum + f.key.length + f.value.length,
+      0,
+    );
+    expect(size).toBeGreaterThanOrEqual(6000);
+    expect(size).toBeLessThan(6000 + 300);
+    expect(await task("strategy")).toMatchObject({
+      status: "done",
+      output: {
+        briefs: [
+          brief(first!, { factKeys: ["zz.late"] }),
+          brief(second!, { factKeys: ["filler.39"] }),
+        ],
+        dropped: [],
+        uncovered: [],
+      },
+    });
+  });
 });

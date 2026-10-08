@@ -37,16 +37,25 @@ export type Specialist = {
   limits: SpecialistLimits;
   /**
    * Adds stored context (read-only) to the task input before the model sees
-   * it; the result is the input `finalize` gets. The stored task keeps the
-   * plain input.
+   * it. `input` is what the model gets; `context` (default: `input`) is
+   * what `finalize` gets, for data the model need not see. The stored task
+   * keeps the plain input.
    */
-  prepareInput?: (tx: DbTx, scope: Scope, input: any) => Promise<unknown>;
+  prepareInput?: (
+    tx: DbTx,
+    scope: Scope,
+    input: any,
+  ) => Promise<{ input: unknown; context?: unknown }>;
   /**
    * Runs on the parsed answer with the normalized URLs the task's web
-   * searches returned or cited (`normalizeSourceUrl`) and the input the model
-   * got; returns the answer to store.
+   * searches returned or cited (`normalizeSourceUrl`) and the context from
+   * `prepareInput`; returns the answer to store.
    */
-  finalize?: (output: any, sources: ReadonlySet<string>, input: any) => unknown;
+  finalize?: (
+    output: any,
+    sources: ReadonlySet<string>,
+    context: any,
+  ) => unknown;
 };
 
 /** A URL as compared with search sources: scheme, lower-case host and path only (no query, fragment or trailing slash). */

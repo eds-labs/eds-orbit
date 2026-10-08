@@ -10,7 +10,8 @@ import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
 export const STRATEGY_HISTORY_DAYS = 14;
 const HISTORY_PER_CHANNEL = 10;
 const HISTORY_TEXT = 240;
-const MAX_FACTS = 30;
+// Offered fact text (keys and values) stops growing once it reaches this size.
+const FACT_BUDGET = 6000;
 const FACT_VALUE = 200;
 const MAX_FACT_KEYS = 8;
 
@@ -44,6 +45,41 @@ export const strategyOutput = z
 type Brief = z.infer<typeof brief>;
 type Slot = { channel: string; at: string };
 
+const terms = (value: string) =>
+  new Set(value.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []);
+
+/**
+ * Usable facts ordered by relevance to the assignment (distinct terms of the
+ * fact key and value that also occur in its name or topic frame; ties by
+ * key), taken in that order until their text reaches the budget.
+ */
+function offeredFacts(
+  rows: Awaited<ReturnType<typeof listUsableFacts>>,
+  assignment: { name?: unknown; topicFrame?: unknown } | undefined,
+) {
+  const wanted = terms(
+    `${assignment?.name ?? ""} ${assignment?.topicFrame ?? ""}`,
+  );
+  const ranked = rows
+    .map((row) => {
+      const key = String(data(row).key);
+      const value = String(data(row).value ?? "").slice(0, FACT_VALUE);
+      const score = [...terms(`${key} ${value}`)].filter((term) =>
+        wanted.has(term),
+      ).length;
+      return { key, value, score };
+    })
+    .sort((a, b) => b.score - a.score || a.key.localeCompare(b.key));
+  const offered: Array<{ key: string; value: string }> = [];
+  let size = 0;
+  for (const { key, value } of ranked) {
+    if (size >= FACT_BUDGET) break;
+    offered.push({ key, value });
+    size += key.length + value.length;
+  }
+  return offered;
+}
+
 /** The task input plus the channel history of the last 14 days (Orbit and external posts, published and queued) and the usable Verified Facts. */
 async function withContext(
   ...[tx, scope, input]: Parameters<NonNullable<Specialist["prepareInput"]>>
@@ -64,8 +100,8 @@ async function withContext(
     HISTORY_PER_CHANNEL,
     now.valueOf(),
   );
-  const facts = (await listUsableFacts(tx, scope, now)).slice(0, MAX_FACTS);
-  return {
+  const usable = await listUsableFacts(tx, scope, now);
+  const prepared = {
     ...input,
     channelHistory: {
       days: STRATEGY_HISTORY_DAYS,
@@ -81,10 +117,15 @@ async function withContext(
           })),
         })),
     },
-    facts: facts.map((row) => ({
-      key: data(row).key as string,
-      value: String(data(row).value ?? "").slice(0, FACT_VALUE),
-    })),
+    facts: offeredFacts(usable, input.assignment),
+  };
+  // The answer is checked against every usable key, not only the offered ones.
+  return {
+    input: prepared,
+    context: {
+      slots,
+      usableKeys: usable.map((row) => String(data(row).key)),
+    },
   };
 }
 
@@ -97,10 +138,10 @@ async function withContext(
 function checkBriefs(
   output: z.infer<typeof strategyOutput>,
   _sources: ReadonlySet<string>,
-  input: { run: { slots: Slot[] }; facts: Array<{ key: string }> },
+  context: { slots: Slot[]; usableKeys: string[] },
 ) {
-  const slots = input.run.slots;
-  const usable = new Set(input.facts.map((fact) => fact.key));
+  const slots = context.slots;
+  const usable = new Set(context.usableKeys);
   const kept = new Map<Slot, Brief>();
   const dropped: Array<{ channel: string; slotAt: string; code: string }> = [];
   for (const candidate of output.briefs) {
@@ -140,9 +181,9 @@ export const strategySpecialist: Specialist = {
   taskClass: "agent_strategy",
   instructions: [
     "You are the strategy specialist. Write one brief for each slot in run.slots (channel and slotAt exactly as given) and none for any other time or channel.",
-    "Inputs: the assignment (topicFrame, tone, channels), inputs.analytics (measured numbers, may be null), inputs.research (findings, may be null), channelHistory (posts of the last 14 days from Orbit and from other tools, published and scheduled) and facts (the only usable Verified Facts, key and value).",
+    "Inputs: the assignment (topicFrame, tone, channels), inputs.analytics (measured numbers, may be null), inputs.research (findings, may be null), channelHistory (posts of the last 14 days from Orbit and from other tools, published and scheduled) and facts (the usable Verified Facts most relevant to the assignment, key and value; other usable facts exist and knowledge_search can show them).",
     "A brief has: topic (what the post is about), angle (how to approach it for this channel and tone), factKeys (one to eight keys from facts that carry every concrete statement of the post; copy them exactly), cta (a call to action), imageIdea (a short picture idea if the assignment has an image, else null) and notARepeatBecause (one sentence naming how it differs from the posts in channelHistory, including scheduled ones and posts from other tools).",
-    "Research findings are unverified leads: they may inspire topic and angle but never become claims. Only the facts named in factKeys may be stated as fact; use no figure, name, date or URL that is not in facts. Analytics numbers may justify what to emphasize, never an invented claim. If a slot has no suitable fact, leave the slot out.",
+    "Research findings are unverified leads: they may inspire topic and angle but never become claims. Only the facts named in factKeys may be stated as fact; use no figure, name, date or URL that is not in a fact you have seen. Analytics numbers may justify what to emphasize, never an invented claim. If a slot has no suitable fact, leave the slot out.",
     "Do not repeat a topic or angle of channelHistory on the same channel. Use channel_history for older posts and knowledge_search only to understand a fact, never to add new claims.",
   ].join(" "),
   tools: [agentKnowledgeSearch, ...channelTools],
