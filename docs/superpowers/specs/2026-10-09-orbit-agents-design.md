@@ -86,8 +86,8 @@ A review evaluation set (good drafts and deliberately bad ones: wrong number, pr
 
 ## 7. Channel history ("what was already posted")
 
-- Source: the Postiz post list (`listPosts`) for the assigned channels, which includes posts not made by Orbit (for example Mario's ChatGPT job). The client's `remoteSchema` is extended to read the post text and media (field names verified against the Postiz API during implementation).
-- A sync job stores normalized `channel_posts` (channel, remote ID, published at, text, media URLs, source `orbit` | `external`) for the last 60 days, refreshed before each run and at most hourly.
+- Source: the Postiz post list (`listPosts`) for the assigned channels, which includes posts not made by Orbit (for example Mario's ChatGPT job). The client's `remoteSchema` is extended to read the post text (`content`); the Postiz post list returns no media.
+- A sync job stores normalized `channel_posts` (channel, remote ID, published at, text, media URLs for Orbit-created posts only, source `orbit` | `external`) for the last 60 days, refreshed before each run and at most hourly.
 - Strategy, copywriter (`recentChannelPosts`) and the duplicate check use it, so repetition is avoided across Orbit and external posts.
 - X itself is not scraped and the X API is not used (cost and terms); Postiz is the source of truth for what was posted through it.
 
@@ -95,9 +95,9 @@ Verified (2026-10-09): Postiz `GET /posts` (public API docs and the open-source 
 
 ## 8. Banner style
 
-- Each assignment can name **style references**: approved assets (uploaded banners or images from past posts, imported from `channel_posts` media with Mario's confirmation).
-- The visual specialist writes a structured image brief that cites the references, and image generation is called with the reference images as input (image edit/reference mode of the configured image model), plus fixed constraints: no text, no logos, no identifiable persons; the logo and any text are composed afterwards by the existing raster template when the assignment asks for it.
-- Whether the configured image model accepts reference images through Orbit's current API path is verified first (plan task 1 spike); if not, the fallback is a written style description derived once from the references by a model and stored on the assignment.
+- Each assignment can name **style references**: approved assets (uploaded banners or approved Orbit-generated images), because Postiz returns no media to import from `channel_posts`.
+- The visual specialist writes a structured image brief that cites the references, and image generation is called with the reference images as input (`images.edit` of the configured image model), plus fixed constraints: no text, no logos, no identifiable persons; the logo and any text are composed afterwards by the existing raster template when the assignment asks for it.
+- The configured image model accepts reference images through `images.edit` (verified from the SDK types below, confirmed live in the first budgeted eval); if the live API rejects them, the fallback is a written style description derived once from the references by a model and stored on the assignment.
 
 Verified (2026-10-09): the pinned `openai` 7.25.0 types document `images.edit` for `gpt-image-2.5-flare` with `image: Uploadable | Uploadable[]` (up to 16 `png`, `webp` or `jpg` files, each under 50 MB), `prompt` (up to 32000 characters), and the same `size`, `quality`, `background`, `output_format` and `n` parameters as `images.generate`. `input_fidelity` is ignored only for `gpt-image-2` and `gpt-image-2-2026-04-21`, not for the flare model. Mechanism chosen: a new `generateImageWithReferences` next to `generateImage` in `packages/ai/src/index.ts` calls `api.images.edit` with the references wrapped by the SDK's own `toFile` helper, reusing the same reservation, price limit, verified-model check and PNG output validation, with no new dependency. This is verified from the types only, because no paid call was made; the first live call happens in the paid, budgeted eval, and if the API rejects references for the model the fallback in the bullet above applies. Because Postiz returns no media (section 7), style references are uploaded banners or Orbit-generated assets, not images imported from `channel_posts`.
 
