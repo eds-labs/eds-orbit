@@ -268,6 +268,8 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         ),
       ).status,
     ).toBe("published_test");
+    // Later tests start their own worker with their own environment.
+    await stop();
   }, 40000);
   it("runs a chat job only with the requesting user's current project access", async () => {
     const former = await auth.user.create({
@@ -377,6 +379,14 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         contentType: "report",
         channels: [],
         topicFrame: "Weekly figures",
+        // Long past: the sweep plans nothing for it.
+        schedule: {
+          rhythm: "once",
+          weekdays: [],
+          times: ["10:00"],
+          date: "2026-01-01",
+          leadMinutes: 60,
+        },
         monthlyBudgetMicros: 1000,
         status: "active",
       });
@@ -426,6 +436,8 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
       );
       return { assignment, task, job };
     });
+    // The runner refuses every task while Orbit Agents is off.
+    process.env.ORBIT_AGENTS = "true";
     start();
     try {
       // No specialist is registered in the worker yet: the task fails by name, the job completes.
@@ -454,6 +466,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         ),
       ).toBe(0);
     } finally {
+      delete process.env.ORBIT_AGENTS;
       await stop();
     }
   }, 40000);

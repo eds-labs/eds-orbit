@@ -182,7 +182,6 @@ describe.skipIf(!enabled)("Specialist runner", () => {
         orderBy: { createdAt: "asc" },
       }),
     );
-  const month = () => new Date().toISOString().slice(0, 7);
   let assignmentId = "";
 
   beforeEach(async () => {
@@ -317,7 +316,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     }
   });
 
-  it("reserves before and settles after every model call under the assignment run key", async () => {
+  it("reserves before and settles after every model call under the run's budget key", async () => {
     const research = await task("research");
     const states: string[] = [];
     const current = async () =>
@@ -357,9 +356,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     expect(rows.every((r) => r.agentRunId)).toBe(true);
     const budgetRun = (
       await run((tx) => list(tx, project.owner, "budget_runs"))
-    ).find(
-      (row) => data(row).runKey === `assignment:${assignmentId}:${month()}`,
-    );
+    ).find((row) => data(row).runKey === `assignment-run:${research.runId}`);
     expect(data(budgetRun!).reservationIds).toEqual(rows.map((r) => r.id));
     // The tool result went back to the model in the second call.
     expect(mocked.requests[1].input).toContainEqual({
@@ -422,7 +419,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
         5,
         approved,
         new Date(),
-        `assignment:${assignmentId}:${month()}`,
+        `assignment-run:${analytics.runId}`,
       );
       await markTransmitted(tx, project.owner, reservation.id);
     });
@@ -558,11 +555,40 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     expect(await agentJobs()).toHaveLength(2);
   });
 
-  it("treats a project budget refusal as an exhausted assignment", async () => {
-    await setPolicy({ dailyBudgetMicros: 1 });
-    await runAgentTask(worker(), (await task("research")).id);
-    expect(mocked.requests).toHaveLength(0);
-    expect(await task("research")).toMatchObject({
+  it("exhausts the assignment when its spend over several runs reaches the monthly budget", async () => {
+    // Tomorrow's run of the same assignment.
+    await run((tx) =>
+      planAssignmentRuns(tx, project.owner, new Date("2026-10-21T02:30:00Z")),
+    );
+    const runs = (await run((tx) => list(tx, project.owner, "assignment_runs")))
+      .map((row) => ({ id: row.id, date: String(data(row).date) }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+    expect(runs.map((r) => r.date)).toEqual(["2026-10-20", "2026-10-21"]);
+    const researchOf = async (runId: string) =>
+      (await tasks()).find(
+        (t) => t.runId === runId && t.stepKey === "research",
+      )!;
+    // The first run spends 1000; the budget leaves less than one more call.
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignmentId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        monthlyBudgetMicros: 1003,
+      });
+    });
+    mocked.replies.push(() => ({
+      output: [message('{"text":"first"}')],
+      costMicros: 1000,
+    }));
+    await runAgentTask(worker(), (await researchOf(runs[0]!.id)).id);
+    expect(await researchOf(runs[0]!.id)).toMatchObject({
+      status: "done",
+      costMicros: 1000,
+    });
+    const second = await researchOf(runs[1]!.id);
+    await runAgentTask(worker(), second.id);
+    expect(mocked.requests).toHaveLength(1);
+    expect(await researchOf(runs[1]!.id)).toMatchObject({
       status: "failed",
       errorCode: "ASSIGNMENT_BUDGET_EXHAUSTED",
     });
@@ -570,6 +596,49 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       entity(tx, project.owner, "assignments", assignmentId),
     );
     expect(data(assignment).status).toBe("budget_exhausted");
+    // Each run keeps its own budget key, so the policy's per-run ceiling applies to one run.
+    const keys = (
+      await run((tx) => list(tx, project.owner, "budget_runs"))
+    ).map((row) => data(row).runKey);
+    expect(keys).toEqual([`assignment-run:${runs[0]!.id}`]);
+  });
+
+  it("fails a task on a project budget refusal and leaves the assignment active", async () => {
+    await setPolicy({ dailyBudgetMicros: 1 });
+    await runAgentTask(worker(), (await task("research")).id);
+    expect(mocked.requests).toHaveLength(0);
+    expect(await task("research")).toMatchObject({
+      status: "failed",
+      errorCode: "BUDGET_EXCEEDED",
+    });
+    const assignment = await run((tx) =>
+      entity(tx, project.owner, "assignments", assignmentId),
+    );
+    expect(data(assignment).status).toBe("active");
+    // The run goes on: research is an optional input, analytics is still queued.
+    expect(await runRow()).toMatchObject({ status: "running" });
+    expect(await task("analytics")).toMatchObject({ status: "queued" });
+    const exceptions = await run((tx) => list(tx, project.owner, "exceptions"));
+    expect(exceptions.map((row) => data(row).code)).not.toContain(
+      "ASSIGNMENT_BUDGET_EXHAUSTED",
+    );
+  });
+
+  it("fails a task with AGENTS_DISABLED while Orbit Agents is off", async () => {
+    delete process.env.ORBIT_AGENTS;
+    const research = await task("research");
+    await runAgentTask(worker(), research.id);
+    expect(mocked.requests).toHaveLength(0);
+    expect(await task("research")).toMatchObject({
+      status: "failed",
+      errorCode: "AGENTS_DISABLED",
+      costMicros: 0,
+    });
+    expect(await reservations(research.id)).toEqual([]);
+    const agentRuns = await run((tx) =>
+      tx.agentRun.count({ where: { projectId: project.owner.projectId } }),
+    );
+    expect(agentRuns).toBe(0);
   });
 
   it("refuses an output that does not match the schema with AGENT_OUTPUT_INVALID (cost settled)", async () => {
