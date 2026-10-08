@@ -30,10 +30,16 @@ export async function exportAssetContent(
 
 /**
  * The portable draft bundle of one blog or newsletter content (article
- * Markdown, metadata, escaped preview and its approved image). Exports only;
- * it never publishes. Content whose public evidence is no longer valid is refused.
+ * Markdown, metadata, escaped preview and, unless `withAsset` is false, its
+ * approved image). Exports only, never publishes. Content whose public
+ * evidence is no longer valid is refused.
  */
-export async function exportContentBundle(scope: Scope, contentId: string) {
+export async function exportContentBundle(
+  scope: Scope,
+  contentId: string,
+  options: { withAsset?: boolean } = {},
+) {
+  const withAsset = options.withAsset !== false;
   const loaded = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -45,9 +51,10 @@ export async function exportContentBundle(scope: Scope, contentId: string) {
         !(await validateEvidence(tx, scope, evidence.id, new Date())).valid
       )
         throw new DomainError("EVIDENCE_INVALIDATED");
-      const asset = data(c).assetId
-        ? await entity(tx, scope, "assets", data(c).assetId)
-        : null;
+      const asset =
+        withAsset && data(c).assetId
+          ? await entity(tx, scope, "assets", data(c).assetId)
+          : null;
       return { c, evidence, asset };
     },
   );

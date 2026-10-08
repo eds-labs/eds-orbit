@@ -43,6 +43,7 @@ import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
 import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
+import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
 import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
@@ -225,6 +226,8 @@ async function generateMissionDraft(
     async (tx) => {
       const mission = await entity(tx, scope, "missions", missionId),
         m = data(mission);
+      // Only the assignment's copywriter task drafts its missions (R37).
+      assertMissionDraftOwner(m, jobId);
       const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       });

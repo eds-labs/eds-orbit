@@ -1,4 +1,5 @@
 import { finishMissionRun } from "./planning.ts";
+import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
 import { randomUUID } from "node:crypto";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
@@ -57,6 +58,7 @@ export async function enqueue(
 }
 export async function planMission(tx: DbTx, scope: Scope, missionId: string) {
   const m = await entity(tx, scope, "missions", missionId);
+  assertMissionDraftOwner(data(m));
   await assertMissionAssets(tx, scope, data(m).assetIds ?? []);
   if (["completed", "awaiting_followup"].includes(data(m).status)) return m;
   // An approved draft batch queues its own single-attempt runs.
@@ -87,6 +89,7 @@ export async function startApprovedLiveDraftOnce(
   expectedVersion: number,
 ) {
   if (scope.role !== "owner") throw new DomainError("FORBIDDEN", 403);
+  assertMissionDraftOwner(data(await entity(tx, scope, "missions", missionId)));
   if (
     process.env.EXECUTION_MODE !== "test" ||
     process.env.ENABLE_EXTERNAL_WRITES !== "false"

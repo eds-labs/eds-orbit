@@ -435,20 +435,19 @@ function imageResult(
     bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a"
   )
     throw new Error("IMAGE_OUTPUT_INVALID");
-  const r = response;
   return {
     bytes,
     model,
-    size: r.size ?? params.size,
-    quality: r.quality ?? params.quality,
-    background: r.background ?? params.background,
-    usage: r.usage
+    size: response.size ?? params.size,
+    quality: response.quality ?? params.quality,
+    background: response.background ?? params.background,
+    usage: response.usage
       ? {
-          inputTokens: r.usage.input_tokens,
-          inputTextTokens: r.usage.input_tokens_details.text_tokens,
-          inputImageTokens: r.usage.input_tokens_details.image_tokens,
-          outputTokens: r.usage.output_tokens,
-          totalTokens: r.usage.total_tokens,
+          inputTokens: response.usage.input_tokens,
+          inputTextTokens: response.usage.input_tokens_details.text_tokens,
+          inputImageTokens: response.usage.input_tokens_details.image_tokens,
+          outputTokens: response.usage.output_tokens,
+          totalTokens: response.usage.total_tokens,
         }
       : null,
   };

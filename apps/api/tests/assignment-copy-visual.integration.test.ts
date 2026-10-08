@@ -16,6 +16,8 @@ const provider = vi.hoisted(() => ({
   generateImage: vi.fn(),
   generateImageWithReferences: vi.fn(),
   saveDraftDocument: vi.fn(),
+  // Fails the image attach once when set.
+  failInvalidation: false,
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
@@ -33,6 +35,24 @@ vi.mock("../src/modules/google-drive.ts", async (importOriginal) => {
     await importOriginal<typeof import("../src/modules/google-drive.ts")>();
   return { ...actual, saveDraftDocument: provider.saveDraftDocument };
 });
+vi.mock("../src/modules/content-invalidation.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/modules/content-invalidation.ts")
+    >();
+  return {
+    ...actual,
+    invalidateContent: async (
+      ...args: Parameters<typeof actual.invalidateContent>
+    ) => {
+      if (provider.failInvalidation) {
+        provider.failInvalidation = false;
+        throw new Error("ATTACH_FAILED_FOR_TEST");
+      }
+      return actual.invalidateContent(...args);
+    },
+  };
+});
 import { createHash } from "node:crypto";
 import {
   closeDatabase,
@@ -48,6 +68,15 @@ import {
 import { assignmentHash } from "../src/modules/agents/assignments.ts";
 import { sweepProject } from "../src/modules/lifecycle.ts";
 import { GenerationOutputError } from "../../../packages/ai/src/index.ts";
+import { generateMissionLive } from "../src/modules/generation.ts";
+import {
+  planMission,
+  startApprovedLiveDraftOnce,
+} from "../src/modules/workflow.ts";
+import {
+  resumeLiveDraftBatch,
+  startApprovedLiveDraftBatch,
+} from "../src/modules/draft-batch.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import {
@@ -367,7 +396,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
       { briefKey: briefKey(briefs[0] as any), code: "FACT_NOT_USABLE" },
     ]);
 
-    // An unusable model answer fails its brief; its mission stays ready.
+    // An unusable model answer fails its brief and its mission.
     provider.generate.mockImplementationOnce(async () => {
       throw new GenerationOutputError(
         "MODEL_OUTPUT_NOT_VALID",
@@ -384,7 +413,13 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     const missions = (await rows("missions")).filter(
       (m) => m.assignmentRunId === runId,
     );
-    expect(missions.some((m) => m.status === "ready")).toBe(true);
+    expect(
+      missions
+        .filter((m) => m.channels[0] === TELEGRAM)
+        .map((m) => m.status)
+        .sort(),
+    ).toEqual(["completed", "failed"]);
+    expect(missions.some((m) => m.status === "ready")).toBe(false);
     // The project sweep leaves assignment missions to their copywriter (R37).
     await run((tx) => sweepProject(tx, worker()));
     const jobs = (await rows("jobs")).filter(
@@ -393,6 +428,121 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
         missions.some((m) => m.id === job.resourceId),
     );
     expect(jobs).toEqual([]);
+  });
+
+  it("lets no other entry draft an assignment mission", async () => {
+    await makeAssignment({ image: false });
+    const { runId } = await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot)),
+    );
+    provider.generate.mockImplementationOnce(async () => {
+      throw new GenerationOutputError(
+        "MODEL_OUTPUT_NOT_VALID",
+        generated(BODY).usage,
+        "resp_invalid",
+      );
+    });
+    await runAgentTask(worker(), (await task(`copywriter:${X}`)).id);
+    const missions = (await rows("missions")).filter(
+      (m) => m.assignmentRunId === runId,
+    );
+    expect(missions).toHaveLength(2);
+    const { owner } = project;
+    for (const mission of missions) {
+      // Ready again, as if an operator tried to restart it by hand.
+      await run(async (tx) => {
+        const row = await entity(tx, owner, "missions", mission.id);
+        await update(tx, owner, row, { ...data(row), status: "ready" });
+      });
+      const current = (await rows("missions")).find(
+        (m) => m.id === mission.id,
+      )!;
+      for (const attempt of [
+        (tx: DbTx): Promise<unknown> => planMission(tx, owner, mission.id),
+        (tx: DbTx) =>
+          startApprovedLiveDraftOnce(tx, owner, mission.id, current.version),
+        (tx: DbTx) =>
+          startApprovedLiveDraftBatch(tx, owner, mission.id, current.version),
+        (tx: DbTx) =>
+          resumeLiveDraftBatch(tx, owner, mission.id, current.version),
+      ])
+        await expect(run(attempt)).rejects.toMatchObject({
+          code: "ASSIGNMENT_MISSION_OWNED",
+        });
+      // A generation job of another owner is refused before any call.
+      provider.generate.mockClear();
+      await expect(
+        generateMissionLive(worker(), mission.id, `manual:${mission.id}`),
+      ).rejects.toMatchObject({ code: "ASSIGNMENT_MISSION_OWNED" });
+      expect(provider.generate).not.toHaveBeenCalled();
+    }
+    expect(
+      (await rows("jobs")).filter((job) =>
+        missions.some((m) => m.id === job.resourceId),
+      ),
+    ).toEqual([]);
+  });
+
+  it("fails the task with the first brief's code when no draft is written", async () => {
+    await makeAssignment({ image: false });
+    await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot, { factKeys: ["launch.deadline"] })),
+    );
+    await runAgentTask(worker(), (await task(`copywriter:${X}`)).id);
+    expect(await task(`copywriter:${X}`)).toMatchObject({
+      status: "failed",
+      errorCode: "FACT_NOT_USABLE",
+    });
+  });
+
+  it("reports a month-bound cost refusal of a reused mission as budget exhaustion", async () => {
+    const assignment = await makeAssignment({ image: false });
+    const { runId, briefs } = await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot)),
+    );
+    await runAgentTask(worker(), (await task(`copywriter:${X}`)).id);
+    // A Telegram mission left by an interrupted attempt, bounded by the month.
+    const template = (await rows("missions")).find(
+      (m) => m.assignmentRunId === runId,
+    )!;
+    const telegramTask = await task(`copywriter:${TELEGRAM}`);
+    const [first] = briefs.filter((b) => b.channel === TELEGRAM);
+    const key = briefKey(first as any);
+    await run(async (tx) => {
+      const {
+        id: _id,
+        version: _version,
+        completedRuns: _runs,
+        lastContentId: _last,
+        ...rest
+      } = template;
+      await create(tx, project.owner, "missions", {
+        ...rest,
+        status: "ready",
+        channels: [TELEGRAM],
+        plannedSlotAt: first!.slotAt,
+        briefKey: key,
+        agentTaskId: telegramTask.id,
+        agentJobId: `agent:${telegramTask.id}:copy:${key}`,
+        chatCostCeilingMicros: 1,
+        costCeilingBound: "month",
+      });
+    });
+    provider.generate.mockClear();
+    await runAgentTask(worker(), telegramTask.id);
+    expect(await task(`copywriter:${TELEGRAM}`)).toMatchObject({
+      status: "failed",
+      errorCode: "ASSIGNMENT_BUDGET_EXHAUSTED",
+    });
+    // The remaining brief was not attempted, and the assignment stops.
+    expect(provider.generate).not.toHaveBeenCalled();
+    expect(
+      data(
+        await run((tx) =>
+          entity(tx, project.owner, "assignments", assignment.id),
+        ),
+      ).status,
+    ).toBe("budget_exhausted");
   });
 
   it("revises a draft through the same mission path with the review's instruction", async () => {
@@ -509,6 +659,36 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     expect(laterDrafts.every((d) => d.assetId === later!.id)).toBe(true);
   });
 
+  it("keeps a paid image when attaching it fails", async () => {
+    await makeAssignment();
+    const { runId } = await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot)),
+    );
+    await runAgentTask(worker(), (await task(`copywriter:${X}`)).id);
+    provider.failInvalidation = true;
+    await runAgentTask(worker(), (await task("visual")).id);
+    const visual = await task("visual");
+    const assets = (await rows("assets")).filter(
+      (a) => a.assignmentRunId === runId,
+    );
+    expect(assets).toHaveLength(1);
+    expect(visual).toMatchObject({
+      status: "done",
+      output: {
+        assetId: assets[0]!.id,
+        attached: [],
+        attachError: "ATTACH_FAILED_FOR_TEST",
+      },
+    });
+    // The next copywriter attaches the kept image to every draft.
+    await runAgentTask(worker(), (await task(`copywriter:${TELEGRAM}`)).id);
+    const drafts = (await rows("content")).filter(
+      (c) => c.assignmentRunId === runId,
+    );
+    expect(drafts).toHaveLength(4);
+    expect(drafts.every((d) => d.assetId === assets[0]!.id)).toBe(true);
+  });
+
   it("approves the image's rights only through the assignment consent", async () => {
     const assignment = await makeAssignment();
     await planWithBriefs((slots) => slots.map((slot) => brief(slot)));
@@ -574,6 +754,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
   });
 
   it("sends approved style references, or their stored description when references are off", async () => {
+    process.env.ORBIT_IMAGE_REFERENCES = "true";
     const reference = await run((tx) =>
       create(tx, project.owner, "assets", {
         name: "Approved banner",
@@ -653,6 +834,56 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     );
   });
 
+  it("uses no reference images by default", async () => {
+    const banner = await run((tx) =>
+      create(tx, project.owner, "assets", {
+        name: "Approved banner",
+        type: "generated_artwork",
+        mime: "image/png",
+        base64: png.toString("base64"),
+        sha256: createHash("sha256").update(png).digest("hex"),
+        usageApproved: true,
+        assetStatus: "approved",
+        prompt: "Deep blue gradient with soft geometric light",
+      }),
+    );
+    await makeAssignment({ styleAssetIds: [banner.id] });
+    await planWithBriefs((slots) => slots.map((slot) => brief(slot)));
+    await runAgentTask(worker(), (await task("visual")).id);
+    expect(provider.generateImageWithReferences).not.toHaveBeenCalled();
+    expect(provider.generateImage).toHaveBeenCalledTimes(1);
+    expect(provider.generateImage.mock.calls[0]![0].prompt).toContain(
+      "Deep blue gradient with soft geometric light",
+    );
+  });
+
+  it("falls back to the style description when no reference can be read", async () => {
+    process.env.ORBIT_IMAGE_REFERENCES = "true";
+    const broken = await run((tx) =>
+      create(tx, project.owner, "assets", {
+        name: "Approved banner",
+        type: "generated_artwork",
+        mime: "image/png",
+        base64: png.toString("base64"),
+        // Bytes that no longer match their checksum are never sent.
+        sha256: "0".repeat(64),
+        usageApproved: true,
+        assetStatus: "approved",
+        prompt: "Warm sunrise colours over calm water",
+      }),
+    );
+    await makeAssignment({ styleAssetIds: [broken.id] });
+    await planWithBriefs((slots) => slots.map((slot) => brief(slot)));
+    await runAgentTask(worker(), (await task("visual")).id);
+    expect(provider.generateImageWithReferences).not.toHaveBeenCalled();
+    expect(provider.generateImage).toHaveBeenCalledTimes(1);
+    const [stored] = await rows("assignment_style_descriptions");
+    expect(stored!.text).toContain("Warm sunrise colours over calm water");
+    expect(provider.generateImage.mock.calls[0]![0].prompt).toContain(
+      stored!.text,
+    );
+  });
+
   it("saves an approved blog draft to Drive and publishes nothing", async () => {
     await makeAssignment({
       name: "Weekly article",
@@ -679,11 +910,26 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     });
     expect(provider.saveDraftDocument).not.toHaveBeenCalled();
 
+    // A body with its own H1 and an image whose bytes cannot be read: Markdown needs neither.
+    const image = await run((tx) =>
+      create(tx, project.owner, "assets", {
+        name: "Broken image",
+        type: "generated_artwork",
+        mime: "image/png",
+        base64: png.toString("base64"),
+        sha256: "0".repeat(64),
+        usageApproved: true,
+        assetStatus: "approved",
+      }),
+    );
+    const article = `# Beta access for teams\n\n${BODY}`;
     await run(async (tx) => {
       const row = await entity(tx, project.owner, "content", contentId!);
       await update(tx, project.owner, row, {
         ...data(row),
-        humanReviewedBodyHash: hash(data(row).body),
+        body: article,
+        assetId: image.id,
+        humanReviewedBodyHash: hash(article),
       });
     });
     const saved = await saveDraftToDrive(worker(), contentId!);
@@ -695,7 +941,9 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
       mime: "text/markdown",
     });
     expect(upload.filename).toMatch(/\.md$/);
-    expect(Buffer.from(upload.bytes).toString("utf8")).toContain(BODY);
+    const markdown = Buffer.from(upload.bytes).toString("utf8");
+    expect(markdown.startsWith(`${article}`)).toBe(true);
+    expect(markdown.match(/^# /gm)).toHaveLength(1);
     expect(data(saved).driveDraft).toMatchObject({
       fileId: "driveFileABC123",
       bodyHash: hash(data(saved).body),

@@ -193,6 +193,8 @@ async function briefMission(
     agentJobId: jobId,
     budgetRunKey: runBudgetKey(task.runId),
     chatCostCeilingMicros: ceiling.ceilingMicros,
+    // Which budget set the ceiling, so a reused mission's refusal is named right.
+    costCeilingBound: ceiling.monthBound ? "month" : "task",
     // A run with an image writes captions that fit media limits (Telegram 1,024).
     mediaPlanned: assignment.image === true,
     ...extra,
@@ -200,7 +202,11 @@ async function briefMission(
   return { missionId: mission.id, monthBound: ceiling.monthBound };
 }
 
-/** Drafts one prepared mission, then puts an existing run image on the draft. */
+/**
+ * Drafts one prepared mission, then puts an existing run image on the draft.
+ * The attach is best effort: the paid draft counts even if it fails, and the
+ * image reaches the draft with the next attach of the run.
+ */
 async function draft(
   scope: Scope,
   task: AgentTask,
@@ -208,10 +214,27 @@ async function draft(
   jobId: string,
 ) {
   const content = await generateMissionLive(scope, missionId, jobId);
-  await scoped(scope.workspaceId, scope.projectId, (tx) =>
-    attachRunImage(tx, scope, task.runId),
-  );
+  try {
+    await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      attachRunImage(tx, scope, task.runId),
+    );
+  } catch (error) {
+    console.error("Orbit assignment image attach failed", errorCode(error));
+  }
   return content;
+}
+
+/** A mission whose brief failed is closed, so nothing drafts it later. */
+async function failMission(scope: Scope, missionId: string, code: string) {
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const row = await entity(tx, scope, "missions", missionId);
+    if (data(row).status !== "ready") return;
+    await update(tx, scope, row, {
+      ...data(row),
+      status: "failed",
+      failureCode: code,
+    });
+  });
 }
 
 /** The task's code for a failed brief; a mission ceiling hit names the budget that bound it. */
@@ -235,13 +258,17 @@ export const copywriterStep: StepHandler = async (scope, task) => {
     }
     const jobId = `agent:${task.id}:copy:${key}`;
     let monthBound = false;
+    let missionId: string | null = null;
     try {
-      const missionId = await scoped(
+      missionId = await scoped(
         scope.workspaceId,
         scope.projectId,
         async (tx) => {
           const existing = await missionOfJob(tx, scope, jobId);
-          if (existing) return existing.id;
+          if (existing) {
+            monthBound = data(existing).costCeilingBound === "month";
+            return existing.id;
+          }
           const created = await briefMission(tx, scope, task, brief, jobId);
           monthBound = created.monthBound;
           return created.missionId;
@@ -252,12 +279,15 @@ export const copywriterStep: StepHandler = async (scope, task) => {
     } catch (error) {
       const code = briefFailure(error, monthBound);
       failed.push({ briefKey: key, code });
+      if (missionId) await failMission(scope, missionId, code);
       if (code === ASSIGNMENT_BUDGET_EXHAUSTED) exhausted = true;
     }
   }
-  // Nothing written because the month is used up: the task fails so the assignment pauses (R25).
-  if (exhausted && !contentIds.length)
-    throw new DomainError(ASSIGNMENT_BUDGET_EXHAUSTED);
+  if (!contentIds.length && failed.length)
+    // Nothing written: the task fails; a used-up month pauses the assignment (R25).
+    throw new DomainError(
+      exhausted ? ASSIGNMENT_BUDGET_EXHAUSTED : failed[0]!.code,
+    );
   return { contentIds, failed };
 };
 
@@ -273,7 +303,7 @@ export async function reviseAssignmentDraft(
   input: { contentId: string; instruction: string },
 ) {
   const jobId = `agent:${task.id}:revise:${input.contentId}`;
-  const missionId = await scoped(
+  const missionId: string = await scoped(
     scope.workspaceId,
     scope.projectId,
     async (tx) => {
@@ -308,7 +338,12 @@ export async function reviseAssignmentDraft(
       return created.missionId;
     },
   );
-  return draft(scope, task, missionId, jobId);
+  try {
+    return await draft(scope, task, missionId, jobId);
+  } catch (error) {
+    await failMission(scope, missionId, briefFailure(error, false));
+    throw error;
+  }
 }
 
 /**
@@ -333,12 +368,18 @@ export async function saveDraftToDrive(scope: Scope, contentId: string) {
   )
     throw new DomainError("CONTENT_APPROVAL_REQUIRED", 409);
   if (v.driveDraft?.bodyHash === bodyHash) return content;
-  const bundle = await exportContentBundle(scope, contentId);
+  // Text only: the attached image is neither loaded nor read.
+  const bundle = await exportContentBundle(scope, contentId, {
+    withAsset: false,
+  });
   const article = bundle.files.find((file) => file.path === "article.md");
   const sources = bundle.article.sourceUrls.length
     ? `\n\n---\nSources:\n${bundle.article.sourceUrls.map((url) => `- ${url}`).join("\n")}\n`
     : "\n";
-  const markdown = `# ${bundle.article.title}\n\n${article?.content ?? v.body}${sources}`;
+  const text = String(article?.content ?? v.body);
+  // A body that opens with its own H1 keeps it; otherwise the title becomes the H1.
+  const heading = /^\s*# /.test(text) ? "" : `# ${bundle.article.title}\n\n`;
+  const markdown = `${heading}${text}${sources}`;
   const saved = await saveDraftDocument(scope, {
     contentId,
     bodyHash,

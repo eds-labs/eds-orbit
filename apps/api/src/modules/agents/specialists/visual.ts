@@ -22,6 +22,7 @@ import {
   generateAssignmentImage,
 } from "../../image-generation.ts";
 import { assignmentHash } from "../assignments.ts";
+import { errorCode } from "../../telemetry.ts";
 import { assertTaskBudget, runBudgetKey } from "./runner.ts";
 import type { AgentTask, StepHandler } from "./types.ts";
 
@@ -312,14 +313,7 @@ export const visualStep: StepHandler = async (scope, task) => {
       },
     }),
   );
-  if (existing) {
-    const result = await inScope((tx) => attachRunImage(tx, scope, task.runId));
-    return {
-      assetId: existing.id,
-      attached: result.attached,
-      skipped: result.skipped,
-    };
-  }
+  if (existing) return { assetId: existing.id, ...(await attach(scope, task)) };
   const prepared = await inScope(async (tx) => {
     const row = await entity(tx, scope, "assignments", task.assignmentId);
     const rightsSource = imageRightsSource(row);
@@ -336,15 +330,17 @@ export const visualStep: StepHandler = async (scope, task) => {
       contentType: String(data(row).contentType),
       name: String(data(row).name),
       userId: String(data(row).confirmation.userId),
-      styleDescription: useReferences
-        ? null
-        : await storedStyleDescription(tx, scope, row.id, rows),
     };
   });
   const references = prepared.useReferences
     ? await referenceImages(scope, prepared.rows)
     : [];
-  let result: Awaited<ReturnType<typeof attachRunImage>> | null = null;
+  // Without readable references (switch off or none usable) the stored description carries the style.
+  const styleDescription = references.length
+    ? null
+    : await inScope((tx) =>
+        storedStyleDescription(tx, scope, task.assignmentId, prepared.rows),
+      );
   const asset = await generateAssignmentImage(
     scope,
     {
@@ -359,7 +355,7 @@ export const visualStep: StepHandler = async (scope, task) => {
             : "social",
       ],
       references,
-      styleDescription: prepared.styleDescription,
+      styleDescription,
       userId: prepared.userId,
       assetFields: {
         usageApproved: true,
@@ -387,17 +383,24 @@ export const visualStep: StepHandler = async (scope, task) => {
           imageConfig.maxCostMicrosPerImage,
         );
       },
-      onAsset: async (tx) => {
-        result = await attachRunImage(tx, scope, task.runId);
-      },
     },
   );
-  const attachedResult = result as Awaited<
-    ReturnType<typeof attachRunImage>
-  > | null;
-  return {
-    assetId: asset.id,
-    attached: attachedResult?.attached ?? [],
-    skipped: attachedResult?.skipped ?? [],
-  };
+  // The image is committed (and paid) before anything is attached.
+  return { assetId: asset.id, ...(await attach(scope, task)) };
 };
+
+/**
+ * Attaches the run image in its own transaction. A failure never touches the
+ * stored image: it is reported, and the next attach of the run (a later
+ * copywriter or a restarted task) puts the image on the drafts.
+ */
+async function attach(scope: Scope, task: AgentTask) {
+  try {
+    const result = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      attachRunImage(tx, scope, task.runId),
+    );
+    return { attached: result.attached, skipped: result.skipped };
+  } catch (error) {
+    return { attached: [], skipped: [], attachError: errorCode(error) };
+  }
+}

@@ -100,7 +100,6 @@ export function buildBrandImagePrompt(
 }
 
 type Provider = typeof generateImage;
-type Entity = Awaited<ReturnType<typeof create>>;
 type ImageOptions = {
   /** Runs in the reservation transaction after every other check; a throw stops before any cost. */
   authorize?: (tx: DbTx) => Promise<void>;
@@ -118,8 +117,6 @@ type AssignmentImage = {
   userId: string;
   // Rights and run fields stored on the asset.
   assetFields: Record<string, unknown>;
-  // Runs in the transaction that stores the asset.
-  onAsset?: (tx: DbTx, asset: Entity) => Promise<void>;
   withReferences: typeof generateImageWithReferences;
 };
 
@@ -187,7 +184,6 @@ export async function generateAssignmentImage(
   options: {
     authorize: (tx: DbTx) => Promise<void>;
     runKey: string;
-    onAsset?: (tx: DbTx, asset: Entity) => Promise<void>;
   },
   providers: {
     generate?: Provider;
@@ -230,7 +226,6 @@ export async function generateAssignmentImage(
         styleDescription: input.styleDescription,
         userId: input.userId,
         assetFields: input.assetFields,
-        onAsset: options.onAsset,
         withReferences: providers.withReferences ?? generateImageWithReferences,
       },
     ),
@@ -393,7 +388,6 @@ async function generateProjectImageTraced(
               }
             : {}),
         });
-        await assignment?.onAsset?.(tx, asset);
         await audit(tx, scope, "asset.generate_openai", asset.id, {
           model: generated.model,
           reservationId: prepared.reservationId,
