@@ -2871,6 +2871,8 @@ body:has(dialog[open]) {
 }
 .chat-history-list {
   display: grid;
+  /* Long titles truncate instead of widening the list under the chat. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   margin-top: 16px;
 }
