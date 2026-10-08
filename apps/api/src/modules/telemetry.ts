@@ -10,7 +10,9 @@ export type RunKind =
   | "ingestion"
   | "reindex"
   | "evaluation"
-  | "image";
+  | "image"
+  // One specialist task of an assignment run (Orbit Agents).
+  | "agent";
 export type SpanInput = {
   type: "model_call" | "tool_call" | "embedding" | "image";
   name: string;

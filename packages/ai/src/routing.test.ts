@@ -3,18 +3,22 @@ import {
   escalationEligible,
   modelRouteSchema,
   resolveRoute,
+  taskClasses,
 } from "./routing.ts";
 
 const all = ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6-astra"];
 
 describe("resolveRoute", () => {
   it("falls back to default tiers with default output ceilings and no effort", () => {
-    const blog = resolveRoute("draft_blog", { verifiedModels: ["gpt-5.6-sol"] });
+    const blog = resolveRoute("draft_blog", {
+      verifiedModels: ["gpt-5.6-sol"],
+    });
     expect(blog).toEqual({ model: "gpt-5.6-sol", maxOutputTokens: 1800 });
     expect("reasoningEffort" in blog).toBe(false);
-    expect(
-      resolveRoute("chat_operator", { verifiedModels: all }),
-    ).toEqual({ model: "gpt-5.6-terra", maxOutputTokens: 3000 });
+    expect(resolveRoute("chat_operator", { verifiedModels: all })).toEqual({
+      model: "gpt-5.6-terra",
+      maxOutputTokens: 3000,
+    });
     expect(resolveRoute("draft_social", { verifiedModels: all })).toEqual({
       model: "gpt-5.6-terra",
       maxOutputTokens: 1800,
@@ -47,6 +51,46 @@ describe("resolveRoute", () => {
       maxOutputTokens: 9000,
     });
   });
+  it("resolves the agent task classes", () => {
+    const runtime = {
+      verifiedModels: ["f", "s", "q", "e"],
+      modelRoutes: { fast: "f", standard: "s", quality: "q", escalation: "e" },
+    };
+    for (const taskClass of [
+      "agent_strategy",
+      "agent_research",
+      "agent_analytics",
+    ] as const)
+      expect(resolveRoute(taskClass, runtime)).toEqual({
+        model: "s",
+        maxOutputTokens: 1800,
+      });
+    expect(resolveRoute("agent_review", runtime)).toEqual({
+      model: "q",
+      maxOutputTokens: 1800,
+    });
+    expect(
+      resolveRoute("agent_research", {
+        ...runtime,
+        taskRoutes: {
+          agent_research: {
+            model: "e",
+            reasoningEffort: "low" as const,
+            maxOutputTokens: 4000,
+          },
+        },
+      }),
+    ).toEqual({ model: "e", reasoningEffort: "low", maxOutputTokens: 4000 });
+    expect(taskClasses).toEqual([
+      "chat_operator",
+      "draft_social",
+      "draft_blog",
+      "agent_strategy",
+      "agent_research",
+      "agent_analytics",
+      "agent_review",
+    ]);
+  });
   it("rejects unverified models", () => {
     expect(() =>
       resolveRoute("draft_blog", { verifiedModels: ["gpt-5.6-terra"] }),
@@ -64,10 +108,16 @@ describe("modelRouteSchema", () => {
   it("enforces ceilings, strict keys and known efforts", () => {
     const ok = { model: "m", maxOutputTokens: 256 };
     expect(modelRouteSchema.safeParse(ok).success).toBe(true);
-    expect(modelRouteSchema.safeParse({ ...ok, maxOutputTokens: 255 }).success).toBe(false);
-    expect(modelRouteSchema.safeParse({ ...ok, maxOutputTokens: 16001 }).success).toBe(false);
+    expect(
+      modelRouteSchema.safeParse({ ...ok, maxOutputTokens: 255 }).success,
+    ).toBe(false);
+    expect(
+      modelRouteSchema.safeParse({ ...ok, maxOutputTokens: 16001 }).success,
+    ).toBe(false);
     expect(modelRouteSchema.safeParse({ ...ok, extra: 1 }).success).toBe(false);
-    expect(modelRouteSchema.safeParse({ ...ok, reasoningEffort: "turbo" }).success).toBe(false);
+    expect(
+      modelRouteSchema.safeParse({ ...ok, reasoningEffort: "turbo" }).success,
+    ).toBe(false);
   });
 });
 

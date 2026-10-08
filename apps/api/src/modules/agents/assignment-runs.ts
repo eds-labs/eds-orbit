@@ -422,16 +422,29 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
   await lockRun(tx, scope, runId);
   const row = await entity(tx, scope, RUNS, runId);
   const d = data(row);
-  if (TERMINAL_RUN.includes(d.status)) return row;
   const tasks = new Map(
     (
       await filtered(tx, scope, TASKS, [{ path: ["runId"], equals: runId }])
     ).map((task) => [task.id, task]),
   );
+  const costMicros = [...tasks.values()].reduce(
+    (sum, task) => sum + Number(data(task).costMicros ?? 0),
+    0,
+  );
+  if (TERMINAL_RUN.includes(d.status))
+    // A task that settled after its run ended (e.g. canceled) still adds its cost.
+    return costMicros === d.costMicros
+      ? row
+      : update(tx, scope, row, { ...d, costMicros });
   const steps: WorkStep[] = (d.steps as WorkStep[]).map((step) => {
     const task = step.taskId ? tasks.get(step.taskId) : undefined;
     const mapped = task ? TASK_TO_STEP[String(data(task).status)] : undefined;
-    return { ...step, status: mapped ?? step.status };
+    // Runs planned before optional inputs existed have no `optionalDependsOn`.
+    return {
+      ...step,
+      optionalDependsOn: step.optionalDependsOn ?? [],
+      status: mapped ?? step.status,
+    };
   });
   const byKey = new Map(steps.map((step) => [step.key, step]));
   const hard = (step: WorkStep) =>
@@ -488,10 +501,6 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     : steps.some((step) => step.status !== "pending")
       ? "running"
       : "planned";
-  const costMicros = [...tasks.values()].reduce(
-    (sum, task) => sum + Number(data(task).costMicros ?? 0),
-    0,
-  );
   if (
     status === d.status &&
     costMicros === d.costMicros &&

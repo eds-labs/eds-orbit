@@ -1730,6 +1730,10 @@ const taskClasses = [
   { id: "chat_operator", label: "Chat operator", defaultTokens: 3000 },
   { id: "draft_social", label: "Social drafts", defaultTokens: 1800 },
   { id: "draft_blog", label: "Blog drafts", defaultTokens: 1800 },
+  { id: "agent_strategy", label: "Agent strategy", defaultTokens: 1800 },
+  { id: "agent_research", label: "Agent research", defaultTokens: 1800 },
+  { id: "agent_analytics", label: "Agent analytics", defaultTokens: 1800 },
+  { id: "agent_review", label: "Agent review", defaultTokens: 1800 },
 ] as const;
 type TaskClass = (typeof taskClasses)[number]["id"];
 const reasoningEffortValues = [

@@ -342,12 +342,17 @@ export async function updateAssignment(
   return saved;
 }
 
-/** Pause, resume or end. Resuming needs a confirmation that still covers the content. */
+/**
+ * Pause, resume or end. Resuming needs a confirmation that still covers the
+ * content. `budget_exhausted` is set by the specialist runner (never by a
+ * person) when the assignment's budget is used up; it stops like a pause and
+ * is resumed the same way.
+ */
 export async function setAssignmentStatus(
   tx: DbTx,
   scope: Scope,
   id: string,
-  status: "active" | "paused" | "ended",
+  status: "active" | "paused" | "ended" | "budget_exhausted",
 ) {
   requireEditor(scope);
   const row = await entity(tx, scope, KIND, id);
@@ -371,13 +376,14 @@ export async function setAssignmentStatus(
   }
   if (status === "paused" && !["active", "budget_exhausted"].includes(d.status))
     throw new DomainError("ASSIGNMENT_STATUS_INVALID", 409);
+  if (status === "budget_exhausted" && d.status !== "active")
+    throw new DomainError("ASSIGNMENT_STATUS_INVALID", 409);
   // An open confirmation request dies with the assignment.
   if (status === "ended" && d.actionRequestId)
     await cancelActionRequest(tx, scope, d.actionRequestId);
   const saved = await update(tx, scope, row, { ...d, status });
-  // A paused or ended assignment must not keep producing: its open runs stop and release their slots.
-  if (status === "paused" || status === "ended")
-    await cancelAssignmentRuns(tx, scope, id);
+  // A stopped assignment must not keep producing: its open runs stop and release their slots.
+  if (status !== "active") await cancelAssignmentRuns(tx, scope, id);
   await audit(tx, scope, "assignment.status_changed", id, {
     from: d.status,
     to: status,

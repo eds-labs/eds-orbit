@@ -63,6 +63,7 @@ import { generateMissionLive } from "../../api/src/modules/generation.ts";
 import { runChatJob } from "../../api/src/modules/chat-runner.ts";
 import { stopChatRunForPause } from "../../api/src/modules/chat.ts";
 import { runImageJob } from "../../api/src/modules/image-requests.ts";
+import { runAgentTask } from "../../api/src/modules/agents/specialists/runner.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
@@ -96,6 +97,8 @@ const classes = [
   "reconciliation",
   "slack_notification",
   "image",
+  // Specialist tasks of assignment runs (Orbit Agents).
+  "agent",
 ] as const;
 const queues = new Map(
   classes.map((c) => [
@@ -179,7 +182,10 @@ const workers = classes.map(
             ...d,
             status: "running",
             attempts: d.attempts + 1,
-            leaseUntil: new Date(Date.now() + 120000).toISOString(),
+            // A specialist task may run its full 120 s wall time; its lease outlasts it.
+            leaseUntil: new Date(
+              Date.now() + (topic === "agent" ? 180000 : 120000),
+            ).toISOString(),
             worker: config.PUBLISHER_INSTANCE_ID,
           });
         });
@@ -301,6 +307,9 @@ const workers = classes.map(
               data(claimed).resourceId,
               jobId,
             );
+          } else if (topic === "agent") {
+            // Records its own outcome on the task; never retried after a paid call.
+            await runAgentTask(scope, data(claimed).resourceId);
           } else if (topic === "analytics") {
             await scoped(workspaceId, projectId, (tx) =>
               evaluateExperiment(tx, scope, data(claimed).resourceId),

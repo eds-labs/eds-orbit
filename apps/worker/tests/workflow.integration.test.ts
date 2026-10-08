@@ -370,4 +370,91 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
       await stop();
     }
   }, 40000);
+  it("runs a specialist task in the agent queue and records a role without a handler on the task", async () => {
+    const { assignment, task, job } = await run(async (tx) => {
+      const assignment = await create(tx, scope, "assignments", {
+        name: "Synthetic agent assignment",
+        contentType: "report",
+        channels: [],
+        topicFrame: "Weekly figures",
+        monthlyBudgetMicros: 1000,
+        status: "active",
+      });
+      const taskRow = await create(tx, scope, "agent_tasks", {
+        runId: "00000000-0000-4000-8000-000000000000",
+        stepKey: "analytics",
+        role: "analytics",
+        assignmentId: assignment.id,
+        assignmentVersion: 1,
+        ceilingMicros: 1000,
+        input: null,
+        output: null,
+        status: "queued",
+        errorCode: null,
+        costMicros: 0,
+      });
+      const runRow = await create(tx, scope, "assignment_runs", {
+        assignmentId: assignment.id,
+        assignmentVersion: 1,
+        date: "2026-10-20",
+        status: "running",
+        slots: [],
+        unavailable: [],
+        steps: [
+          {
+            key: "analytics",
+            role: "analytics",
+            dependsOn: [],
+            optionalDependsOn: [],
+            taskId: taskRow.id,
+            status: "queued",
+            ceilingMicros: 1000,
+          },
+        ],
+        costMicros: 0,
+      });
+      const task = await update(tx, scope, taskRow, {
+        ...data(taskRow),
+        runId: runRow.id,
+      });
+      const job = await enqueue(
+        tx,
+        scope,
+        "agent",
+        task.id,
+        `agent:${task.id}`,
+      );
+      return { assignment, task, job };
+    });
+    start();
+    try {
+      // No specialist is registered in the worker yet: the task fails by name, the job completes.
+      const finished = await waitFor(() =>
+        run(async (tx) => {
+          const row = await tx.entity.findUniqueOrThrow({
+            where: { id: job.id },
+          });
+          return data(row).status === "succeeded" ? row : false;
+        }),
+      );
+      expect(data(finished).attempts).toBe(1);
+      const after = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: task.id } }),
+      );
+      expect(data(after)).toMatchObject({
+        status: "failed",
+        errorCode: "AGENT_ROLE_UNAVAILABLE",
+        input: { assignment: { id: assignment.id } },
+      });
+      expect(
+        await run((tx) =>
+          tx.budgetReservation.count({
+            where: { key: { startsWith: `${scope.projectId}:agent:` } },
+          }),
+        ),
+      ).toBe(0);
+    } finally {
+      await stop();
+    }
+  }, 40000);
 });

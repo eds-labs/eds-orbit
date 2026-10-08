@@ -247,6 +247,67 @@ export function streamChat(params: {
   );
 }
 
+/**
+ * One non-streaming model step of a specialist agent: function and hosted
+ * tools (for example `web_search`) and, with `outputSchema`, a strict JSON
+ * final answer. Never stored at the provider, never retried by the SDK.
+ * Returns the output items and the priced usage of the completed response.
+ */
+export async function respond(params: {
+  route: ModelRoute;
+  instructions: string;
+  input: unknown[];
+  tools: unknown[];
+  outputSchema?: object;
+  reservationId: string;
+  runtime: OpenAiRuntimeConfig;
+  signal?: AbortSignal;
+}): Promise<{ output: unknown[]; usage: Usage; responseId: string | null }> {
+  if (!params.runtime.apiKey || !params.reservationId)
+    throw new Error("PAID_CALL_NOT_AUTHORIZED");
+  const api = new OpenAI({
+    apiKey: params.runtime.apiKey,
+    maxRetries: 0,
+    timeout: 60000,
+  });
+  const response = await api.responses.create(
+    {
+      model: params.route.model,
+      store: false,
+      max_output_tokens: params.route.maxOutputTokens,
+      ...reasoningParameter(params.route),
+      instructions: params.instructions,
+      input: params.input as OpenAI.Responses.ResponseInput,
+      tools: params.tools as OpenAI.Responses.Tool[],
+      parallel_tool_calls: false,
+      ...(params.outputSchema
+        ? {
+            text: {
+              format: {
+                type: "json_schema" as const,
+                name: "orbit_agent_output",
+                strict: true,
+                schema: params.outputSchema as Record<string, unknown>,
+              },
+            },
+          }
+        : {}),
+    },
+    { signal: params.signal },
+  );
+  const normalized = normalizeResponsesUsage(response.usage);
+  const { detailsKnown: _detailsKnown, ...counts } = normalized;
+  return {
+    output: response.output as unknown[],
+    usage: {
+      model: params.route.model,
+      ...counts,
+      costMicros: computeCost(params.route.model, normalized, params.runtime),
+    },
+    responseId: response.id ?? null,
+  };
+}
+
 export async function embed(
   texts: string[],
   reservationId: string,
