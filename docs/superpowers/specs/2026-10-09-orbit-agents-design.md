@@ -34,7 +34,7 @@ Voice (J4), chatting with Orbit Core through Telegram, direct blog publishing an
 - **Work plan**: ordered steps of a run. Each step names a specialist, its input references, a cost ceiling and its state.
 - **Agent task** (`Entity(kind="agent_tasks")`): one specialist step, executed by the worker as one `AgentRun` with spans (visible under Operations → AI runs).
 
-Content packages (#51 onward) become the execution of a one-off social assignment: the package card and its actions stay; strategy and review steps are added in front of and after the copy step.
+Content packages (#51 onward) stay as they are for quick chat requests. A one-off assignment (`rhythm: once`) runs through the same run pipeline as standing assignments, so strategy, review and the veto window apply to it too.
 
 ## 4. Architecture
 
