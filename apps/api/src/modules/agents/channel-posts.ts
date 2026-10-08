@@ -16,10 +16,13 @@ import { assignedPostizChannels } from "../postiz-assignment.ts";
  * What was already posted on the assigned channels, read from Postiz so that
  * posts Orbit did not make (for example a ChatGPT job) count as well. Postiz
  * returns post text only, no media, and allows 30 public API requests per
- * hour, so one sync is a single request for the whole window and runs at most
- * hourly per project. X itself is never read.
+ * hour and one request covers at most 32 days, so a sync is three requests
+ * (60 days back in two windows, 14 days ahead) and runs at most hourly per
+ * project. Published and queued posts are kept: a post already scheduled in
+ * Postiz must not be repeated either. X itself is never read.
  */
 export const CHANNEL_HISTORY_DAYS = 60;
+export const CHANNEL_AHEAD_DAYS = 14;
 export const CHANNEL_SYNC_INTERVAL_MS = 3_600_000;
 const DAY = 86_400_000;
 const MAX_TEXT = 5_000;
@@ -29,10 +32,14 @@ const MAX_PER_CHANNEL = 20;
 const TOOL_CHANNELS = 4;
 
 export type ChannelPostSource = "orbit" | "external";
+// Postiz states kept in the history; ERROR and DRAFT posts were never posted.
+const KEPT_STATES = ["PUBLISHED", "QUEUE"];
 export type ChannelPost = {
   channel: string;
   remoteId: string;
+  // Publish date; the planned date while the post is still queued.
   publishedAt: string;
+  state: string;
   text: string;
   source: ChannelPostSource;
   syncedAt: string;
@@ -88,8 +95,9 @@ export function htmlToText(html: string) {
 
 /**
  * Refreshes the channel history of one project: posts of the assigned
- * channels published within the last 60 days, upserted per remote ID. A post
- * whose remote ID belongs to an Orbit publication is `orbit`, any other
+ * channels published within the last 60 days or queued for the next 14,
+ * upserted per remote ID; a queued row Postiz no longer returns is removed.
+ * A post whose remote ID belongs to an Orbit publication is `orbit`, any other
  * `external`. Skipped when the last attempt is under an hour old, unless
  * `force`; the attempt counts even when Postiz fails, so errors cannot burn
  * the hourly request budget.
@@ -152,7 +160,14 @@ export async function syncChannelPosts(
         });
     });
   const since = now.valueOf() - CHANNEL_HISTORY_DAYS * DAY;
-  let posts: RemotePost[];
+  const until = now.valueOf() + CHANNEL_AHEAD_DAYS * DAY;
+  // Each request stays within the connector's range cap (32 days).
+  const windows = [
+    [since, since + 30 * DAY],
+    [since + 30 * DAY, now.valueOf()],
+    [now.valueOf(), until],
+  ] as const;
+  const merged = new Map<string, RemotePost>();
   try {
     const source =
       client ??
@@ -163,24 +178,27 @@ export async function syncChannelPosts(
           process.env.CREDENTIAL_KEY!,
         ),
       });
-    posts = await source.listPosts({
-      startDate: new Date(since).toISOString(),
-      endDate: now.toISOString(),
-    });
+    for (const [from, to] of windows)
+      for (const post of await source.listPosts({
+        startDate: new Date(from).toISOString(),
+        endDate: new Date(to).toISOString(),
+      }))
+        merged.set(post.id, post);
   } catch (error) {
     await finish("failed", 0);
     throw error;
   }
-  const fresh = posts.filter((post) => {
+  const fresh = [...merged.values()].filter((post) => {
     const at = Date.parse(post.publishDate);
     return (
-      post.state === "PUBLISHED" &&
+      KEPT_STATES.includes(post.state) &&
       claimed.channelIds.includes(post.integration.id) &&
       Number.isFinite(at) &&
       at >= since &&
-      at <= now.valueOf()
+      at <= until
     );
   });
+  const returned = new Set(fresh.map((post) => post.id));
   const stored = await scoped(
     scope.workspaceId,
     scope.projectId,
@@ -197,7 +215,11 @@ export async function syncChannelPosts(
         ]),
       );
       for (const [remoteId, row] of existing)
-        if (Date.parse(data(row).publishedAt) < since) {
+        if (
+          Date.parse(data(row).publishedAt) < since ||
+          // A queued post that left the fetched range was deleted or failed.
+          (data(row).state === "QUEUE" && !returned.has(remoteId))
+        ) {
           await tx.entity.delete({ where: { id: row.id } });
           existing.delete(remoteId);
         }
@@ -206,6 +228,7 @@ export async function syncChannelPosts(
           channel: post.integration.id,
           remoteId: post.id,
           publishedAt: new Date(post.publishDate).toISOString(),
+          state: post.state,
           text: htmlToText(post.content ?? ""),
           source: orbitRemoteIds.has(post.id) ? "orbit" : "external",
           syncedAt: now.toISOString(),
@@ -233,7 +256,7 @@ async function storedPosts(tx: DbTx, scope: Scope, sinceMs: number) {
     .filter((post) => Date.parse(post.publishedAt) >= sinceMs);
 }
 
-/** The channel's stored posts within `windowDays` of a moment; used by the duplicate check. */
+/** The channel's stored posts (published or queued) within `windowDays` of a moment; used by the duplicate check. */
 export async function channelPostsNear(
   tx: DbTx,
   scope: Scope,
@@ -279,7 +302,7 @@ export const channelHistoryInput = z
   })
   .strict();
 
-/** Last posts per channel, newest first, with their source: what was already posted. */
+/** Last posts per channel, newest first, with source and status: what was already posted or is queued. Reads stored rows only. */
 export async function channelHistory(tx: DbTx, scope: Scope, raw: unknown) {
   const input = channelHistoryInput.parse(raw ?? {});
   const perChannel = input.perChannel ?? PER_CHANNEL;
@@ -299,6 +322,7 @@ export async function channelHistory(tx: DbTx, scope: Scope, raw: unknown) {
       channelId,
       posts: posts.map((post) => ({
         source: post.source,
+        status: post.state === "QUEUE" ? "scheduled" : "published",
         publishedAt: post.publishedAt,
         text: post.text.slice(0, EXCERPT),
       })),

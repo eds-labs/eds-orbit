@@ -111,9 +111,6 @@ const createSchema = z
   })
   .strict();
 
-/** Widest window one listPosts call may cover: Orbit's 60-day channel history in one request. */
-const MAX_POST_RANGE_MS = 62 * 86400_000;
-
 export type SocialChannel = z.infer<typeof integrationSchema>;
 export type SocialGroup = z.infer<typeof groupSchema>;
 export type SocialPost = z.infer<typeof remoteSchema>;
@@ -199,8 +196,7 @@ export function createPostizClient(options: HttpOptions) {
       !z.iso.datetime().safeParse(range.startDate).success ||
       !z.iso.datetime().safeParse(range.endDate).success ||
       Date.parse(range.endDate) < Date.parse(range.startDate) ||
-      Date.parse(range.endDate) - Date.parse(range.startDate) >
-        MAX_POST_RANGE_MS
+      Date.parse(range.endDate) - Date.parse(range.startDate) > 32 * 86400_000
     )
       throw new ConnectorError("INVALID_DATE_RANGE");
     return validated(

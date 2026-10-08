@@ -257,9 +257,8 @@ describe("Postiz documented contract", () => {
       }),
     );
     const client = createPostizClient({ ...options, fetch });
-    // One request may cover the 60 days the channel history reads.
     const posts = await client.listPosts({
-      startDate: "2026-08-02T00:00:00.000Z",
+      startDate: "2026-09-01T00:00:00.000Z",
       endDate: "2026-10-01T00:00:00.000Z",
     });
     expect(posts[0]).toMatchObject({
@@ -268,9 +267,10 @@ describe("Postiz documented contract", () => {
     });
     expect(posts[0]).not.toHaveProperty("image");
     expect(posts[1]!.content).toBeUndefined();
+    // A 60-day range stays refused: the channel history reads it in windows.
     await expect(
       client.listPosts({
-        startDate: "2026-01-01T00:00:00.000Z",
+        startDate: "2026-08-02T00:00:00.000Z",
         endDate: "2026-10-01T00:00:00.000Z",
       }),
     ).rejects.toMatchObject({ code: "INVALID_DATE_RANGE" });

@@ -45,6 +45,7 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
   const now = new Date();
   const hoursAgo = (hours: number) =>
     new Date(now.valueOf() - hours * 3_600_000).toISOString();
+  const hoursAhead = (hours: number) => hoursAgo(-hours);
   const remote = (
     id: string,
     channel: string,
@@ -52,9 +53,14 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
     publishDate: string,
     state = "PUBLISHED",
   ) => ({ id, state, publishDate, integration: { id: channel }, content });
+  // Like Postiz, a request returns only the posts inside its date range.
   const fake = (posts: ReturnType<typeof remote>[]) => ({
-    listPosts: vi.fn(
-      async (_range: { startDate: string; endDate: string }) => posts,
+    listPosts: vi.fn(async (range: { startDate: string; endDate: string }) =>
+      posts.filter(
+        (post) =>
+          post.publishDate >= range.startDate &&
+          post.publishDate <= range.endDate,
+      ),
     ),
   });
   const stored = () =>
@@ -105,19 +111,31 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
       ),
       remote("orbit-remote-1", X, "Beta access is open.", hoursAgo(20)),
       remote("other-channel", "unassigned-int", "Not ours.", hoursAgo(5)),
-      remote("queued", X, "Not posted yet.", hoursAgo(1), "QUEUE"),
+      remote("queued", X, "Scheduled by ChatGPT.", hoursAhead(5), "QUEUE"),
       remote("failed", X, "Never went out.", hoursAgo(2), "ERROR"),
+      remote("draft", X, "Only a draft.", hoursAhead(6), "DRAFT"),
     ]);
     expect(
       await syncChannelPosts(project.owner, client, now, { force: true }),
-    ).toMatchObject({ stored: 2 });
+    ).toMatchObject({ stored: 3 });
     // The same remote IDs again update the rows instead of adding new ones.
     await syncChannelPosts(project.owner, client, now, { force: true });
     const rows = await stored();
-    expect(rows).toHaveLength(2);
+    // Published and queued posts are kept; ERROR and DRAFT posts are not.
+    expect(rows.map((row) => row.remoteId).sort()).toEqual([
+      "ext-1",
+      "orbit-remote-1",
+      "queued",
+    ]);
+    expect(rows.find((row) => row.remoteId === "queued")).toMatchObject({
+      source: "external",
+      state: "QUEUE",
+      publishedAt: hoursAhead(5),
+    });
     expect(rows.find((row) => row.remoteId === "ext-1")).toMatchObject({
       channel: X,
       source: "external",
+      state: "PUBLISHED",
       text: "Our ChatGPT job: shipping & learning",
       publishedAt: hoursAgo(30),
       syncedAt: now.toISOString(),
@@ -125,11 +143,54 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
     expect(rows.find((row) => row.remoteId === "orbit-remote-1")).toMatchObject(
       { channel: X, source: "orbit", text: "Beta access is open." },
     );
-    // One request covers the whole 60 days (Postiz allows 30 per hour).
-    expect(client.listPosts).toHaveBeenCalledTimes(2);
-    const range = client.listPosts.mock.calls[0]![0];
-    expect(Date.parse(range.endDate)).toBe(now.valueOf());
-    expect(now.valueOf() - Date.parse(range.startDate)).toBe(60 * DAY);
+    // Three requests of at most 31 days (Postiz allows 30 per hour): 60 days back and 14 ahead.
+    expect(client.listPosts).toHaveBeenCalledTimes(6);
+    const ranges = client.listPosts.mock.calls
+      .slice(0, 3)
+      .map(([range]) => [
+        (Date.parse(range.startDate) - now.valueOf()) / DAY,
+        (Date.parse(range.endDate) - now.valueOf()) / DAY,
+      ]);
+    expect(ranges).toEqual([
+      [-60, -30],
+      [-30, 0],
+      [0, 14],
+    ]);
+  });
+
+  it("removes a queued post that Postiz no longer returns", async () => {
+    await reset();
+    const queued = remote("queued", X, "Scheduled.", hoursAhead(5), "QUEUE");
+    const old = remote("old", X, "Posted.", hoursAgo(50));
+    await syncChannelPosts(project.owner, fake([queued, old]), now, {
+      force: true,
+    });
+    expect((await stored()).map((row) => row.remoteId).sort()).toEqual([
+      "old",
+      "queued",
+    ]);
+    // Deleted in Postiz: gone.
+    await syncChannelPosts(project.owner, fake([old]), now, { force: true });
+    expect((await stored()).map((row) => row.remoteId)).toEqual(["old"]);
+    // A queued post that failed is no longer a plan either.
+    await syncChannelPosts(
+      project.owner,
+      fake([{ ...queued, state: "ERROR" }, old]),
+      now,
+      { force: true },
+    );
+    expect((await stored()).map((row) => row.remoteId)).toEqual(["old"]);
+    // A queued post that was sent becomes published.
+    await syncChannelPosts(project.owner, fake([queued]), now, { force: true });
+    await syncChannelPosts(
+      project.owner,
+      fake([{ ...queued, state: "PUBLISHED" }]),
+      now,
+      { force: true },
+    );
+    expect(
+      (await stored()).find((row) => row.remoteId === "queued"),
+    ).toMatchObject({ state: "PUBLISHED" });
   });
 
   it("skips a sync within the hour", async () => {
@@ -143,15 +204,15 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
       stored: 0,
       skipped: true,
     });
-    expect(client.listPosts).toHaveBeenCalledTimes(1);
+    expect(client.listPosts).toHaveBeenCalledTimes(3);
     await syncChannelPosts(project.owner, client, later, { force: true });
-    expect(client.listPosts).toHaveBeenCalledTimes(2);
+    expect(client.listPosts).toHaveBeenCalledTimes(6);
     await syncChannelPosts(
       project.owner,
       client,
       new Date(now.valueOf() + 91 * 60_000),
     );
-    expect(client.listPosts).toHaveBeenCalledTimes(3);
+    expect(client.listPosts).toHaveBeenCalledTimes(9);
   });
 
   it("keeps the hour gate when the provider fails and drops posts older than 60 days", async () => {
@@ -223,6 +284,7 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
         remote("ext-1", X, "External older.", hoursAgo(40)),
         remote("orbit-remote-1", X, "Orbit newer.", hoursAgo(10)),
         remote("tg-1", TELEGRAM, "Telegram post.", hoursAgo(12)),
+        remote("q-1", X, "Scheduled one.", hoursAhead(3), "QUEUE"),
       ]),
       now,
       { force: true },
@@ -234,9 +296,21 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
       {
         channelId: X,
         posts: [
-          { source: "orbit", publishedAt: hoursAgo(10), text: "Orbit newer." },
           {
             source: "external",
+            status: "scheduled",
+            publishedAt: hoursAhead(3),
+            text: "Scheduled one.",
+          },
+          {
+            source: "orbit",
+            status: "published",
+            publishedAt: hoursAgo(10),
+            text: "Orbit newer.",
+          },
+          {
+            source: "external",
+            status: "published",
             publishedAt: hoursAgo(40),
             text: "External older.",
           },
@@ -247,6 +321,7 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
         posts: [
           {
             source: "external",
+            status: "published",
             publishedAt: hoursAgo(12),
             text: "Telegram post.",
           },
@@ -258,6 +333,7 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
     );
     expect(one.channels).toHaveLength(1);
     expect(one.channels[0]!.posts).toHaveLength(1);
+    expect(all.lastSyncAt).toBe(now.toISOString());
   });
 
   it("offers channel_history as a deferred read tool for agents", async () => {
@@ -275,6 +351,28 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
       deferLoading: true,
       roles: ["viewer", "editor", "owner"],
     });
+    // With a credential on file a sync would claim the marker first; the tool must not.
+    const staleAttempt = hoursAgo(5);
+    await run(async (tx) => {
+      const [connector] = await tx.entity.findMany({
+        where: { projectId: project.owner.projectId, kind: "connectors" },
+      });
+      await tx.entity.update({
+        where: { id: connector!.id },
+        data: {
+          data: {
+            ...data(connector),
+            baseUrl: "https://postiz.example",
+            encryptedCredential: "a.b.c",
+          },
+        },
+      });
+      const [marker] = await list(tx, project.owner, "channel_post_sync");
+      await tx.entity.update({
+        where: { id: marker!.id },
+        data: { data: { ...data(marker), attemptedAt: staleAttempt } },
+      });
+    });
     const result = await tool.execute(
       {
         scope: project.viewer,
@@ -284,11 +382,16 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
       },
       { channels: null, perChannel: null },
     );
-    // The project has no Postiz credential, so the refresh is skipped silently.
     expect((result.output as any).channels[0].posts[0]).toMatchObject({
       source: "external",
       text: "External.",
     });
+    expect((result.output as any).lastSyncAt).toBe(staleAttempt);
+    expect(
+      await run(async (tx) =>
+        data((await list(tx, project.owner, "channel_post_sync"))[0]),
+      ),
+    ).toMatchObject({ attemptedAt: staleAttempt, status: "ok" });
   });
 
   it("refuses an Orbit draft identical to an external post of the same channel", async () => {
@@ -326,6 +429,13 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
           "Ancient news about beta.",
           hoursAgo(24 * 9),
         ),
+        remote(
+          "ext-queued",
+          X,
+          "Scheduled by a ChatGPT job.",
+          hoursAhead(12),
+          "QUEUE",
+        ),
       ]),
       now,
       { force: true },
@@ -333,6 +443,10 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
     // Same text, different case and punctuation, same channel.
     expect(
       await blockers((await draft(X, body.replace("!", "."))).id),
+    ).toContain("DUPLICATE_CONTENT");
+    // A post already queued in Postiz counts as well.
+    expect(
+      await blockers((await draft(X, "Scheduled by a ChatGPT job")).id),
     ).toContain("DUPLICATE_CONTENT");
     // Another channel, different text, and a post older than seven days do not block.
     expect(await blockers((await draft(TELEGRAM, body)).id)).not.toContain(

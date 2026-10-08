@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { chatScoped } from "../../chat.ts";
-import { channelHistory, syncChannelPosts } from "../channel-posts.ts";
+import { channelHistory } from "../channel-posts.ts";
 import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
 
 export const channelTools: readonly OrbitTool[] = [
@@ -8,7 +8,7 @@ export const channelTools: readonly OrbitTool[] = [
     name: "channel_history",
     namespace: "content",
     description:
-      "Posts already published per channel in the last 60 days, from Postiz, including posts Orbit did not make, with source (orbit or external) and date; check to avoid repeats.",
+      "Posts per channel from the last 60 days and those already scheduled, as last read from Postiz (lastSyncAt), including posts Orbit did not make, with source (orbit or external), status and date; check to avoid repeats.",
     parameters: z
       .object({
         channels: z
@@ -27,8 +27,6 @@ export const channelTools: readonly OrbitTool[] = [
     feature: "agents",
     deferLoading: true,
     async execute(context, args) {
-      // Refresh first; at most hourly, and a Postiz outage only leaves the stored history.
-      await syncChannelPosts(context.scope).catch(() => undefined);
       const history = await chatScoped(context.scope, (tx) =>
         channelHistory(tx, context.scope, dropNullFields(args)),
       );
