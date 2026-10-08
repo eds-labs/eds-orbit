@@ -14,28 +14,36 @@ const replay = vi.hoisted(() => ({
   calls: 0,
   inputs: [] as unknown[][],
   tools: [] as unknown[][],
+  instructions: [] as string[],
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
-  streamChat: vi.fn(async (request: { input: unknown[]; tools: unknown[] }) => {
-    const index = replay.calls++;
-    replay.inputs.push(structuredClone(request.input));
-    replay.tools.push(request.tools);
-    const output = replay.outputs[index];
-    if (!output) throw new Error("REPLAY_STEP_MISSING");
-    return {
-      async *[Symbol.asyncIterator]() {
-        yield {
-          type: "response.completed",
-          response: {
-            id: `resp_${index}`,
-            usage: { input_tokens: 100, output_tokens: 20 },
-            output,
-          },
-        };
-      },
-    };
-  }),
+  streamChat: vi.fn(
+    async (request: {
+      input: unknown[];
+      tools: unknown[];
+      instructions?: unknown;
+    }) => {
+      const index = replay.calls++;
+      replay.inputs.push(structuredClone(request.input));
+      replay.tools.push(request.tools);
+      replay.instructions.push(String(request.instructions));
+      const output = replay.outputs[index];
+      if (!output) throw new Error("REPLAY_STEP_MISSING");
+      return {
+        async *[Symbol.asyncIterator]() {
+          yield {
+            type: "response.completed",
+            response: {
+              id: `resp_${index}`,
+              usage: { input_tokens: 100, output_tokens: 20 },
+              output,
+            },
+          };
+        },
+      };
+    },
+  ),
 }));
 import { randomUUID } from "node:crypto";
 import {
@@ -53,7 +61,13 @@ import {
 } from "../src/modules/chat.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
-import { createPackageProject, X } from "./support/package-project.ts";
+import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
+import {
+  createPackageProject,
+  IMAGE_MAX,
+  IMAGE_MODEL,
+  X,
+} from "./support/package-project.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -65,6 +79,15 @@ const call = (name: string, args: Record<string, unknown>, id = "1") => ({
   call_id: `c${id}`,
   name,
   arguments: JSON.stringify(args),
+});
+// Assignment tools are deferred: the model finds them with tool search first.
+const search = (goal = "assignment run status") => ({
+  type: "tool_search_call",
+  id: "ts_0",
+  call_id: "s0",
+  execution: "client",
+  status: "completed",
+  arguments: { goal },
 });
 const answer = (text: string) => ({
   type: "message",
@@ -96,7 +119,7 @@ const proposeArgs = (changes: Record<string, unknown> = {}) => ({
 const changeArgs = (
   assignmentId: string,
   version: number | null,
-  action: "pause" | "resume" | "change",
+  action: "pause" | "resume" | "end" | "change",
   changes: Record<string, unknown> | null = null,
 ) => ({ assignmentId, version, action, changes });
 // A patch leaves every field it does not change at null.
@@ -120,20 +143,48 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
   const run = <T>(work: (tx: DbTx) => Promise<T>) =>
     scoped(project.owner.workspaceId, project.owner.projectId, work);
 
-  /** One chat turn replayed offline; returns the tool results the model saw. */
-  async function turn(
-    scope: Scope,
-    outputs: unknown[][],
-    conversationId?: string,
-  ) {
+  // Tool search needs a supporting chat model (gpt-5.4 or later).
+  const useChatModel = (model: string) =>
+    run((tx) => {
+      const rate = {
+        inputMicrosPerMillion: 1000,
+        outputMicrosPerMillion: 1000,
+        verifiedAt: new Date().toISOString(),
+      };
+      return saveOpenAiConfiguration(tx, project.owner, {
+        apiKey: "synthetic-no-provider-call-key",
+        verifiedModels: [model, "text-embedding-3-small", IMAGE_MODEL],
+        rateCard: { [model]: rate, "text-embedding-3-small": rate },
+        modelRoutes: {
+          fast: model,
+          standard: model,
+          quality: model,
+          escalation: model,
+        },
+        imageGeneration: {
+          model: IMAGE_MODEL,
+          maxCostMicrosPerImage: IMAGE_MAX,
+          pricingVerifiedAt: new Date().toISOString(),
+        },
+      });
+    });
+  const names = (tools: unknown[]) =>
+    (tools as Array<{ type: string; name?: string }>).map(
+      (tool) => tool.name ?? tool.type,
+    );
+
+  /**
+   * One chat turn replayed offline; returns the tool results the model saw.
+   * With tool search on, the model first loads the assignment tools.
+   */
+  async function turn(scope: Scope, steps: unknown[][], withSearch = true) {
+    const outputs = withSearch ? [[search()], ...steps] : steps;
     replay.outputs = outputs;
     replay.calls = 0;
     replay.inputs = [];
     replay.tools = [];
-    const thread =
-      conversationId !== undefined
-        ? { id: conversationId }
-        : await createConversation(scope);
+    replay.instructions = [];
+    const thread = await createConversation(scope);
     const sent = await sendMessage(scope, thread.id, {
       text: "Please handle this",
       clientRequestId: randomUUID(),
@@ -173,10 +224,13 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
 
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
+    process.env.ORBIT_TOOL_SEARCH = "true";
     project = await createPackageProject();
+    await useChatModel("gpt-5.6-terra");
   });
   afterEach(async () => {
     delete process.env.ORBIT_AGENTS;
+    delete process.env.ORBIT_TOOL_SEARCH;
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
@@ -465,6 +519,15 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     expect(results).toEqual([{ date: expect.any(String), runs: [] }]);
   });
 
+  const foundTools = () =>
+    names(
+      (
+        (replay.inputs[1] as Array<Record<string, any>>).find(
+          (item) => item.type === "tool_search_output",
+        ) as { tools: unknown[] }
+      ).tools,
+    );
+
   it("gives viewers read tools only", async () => {
     const id = await confirmed();
     const { results } = await turn(project.viewer, [
@@ -475,14 +538,12 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
       ],
       [answer("Read only.")],
     ]);
-    const offered = (replay.tools[0] as Array<{ name: string }>).map(
-      (tool) => tool.name,
-    );
-    expect(offered).toEqual(
+    const found = foundTools();
+    expect(found).toEqual(
       expect.arrayContaining(["assignment_list", "run_status"]),
     );
-    expect(offered).not.toContain("assignment_propose");
-    expect(offered).not.toContain("assignment_change");
+    expect(found).not.toContain("assignment_propose");
+    expect(found).not.toContain("assignment_change");
     expect(results[0]).toEqual({ error: "CHAT_TOOL_NOT_ALLOWED" });
     expect(results[1]).toEqual({ error: "CHAT_TOOL_NOT_ALLOWED" });
     expect(results[2].assignments).toHaveLength(1);
@@ -495,12 +556,112 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
       [call("assignment_list", {})],
       [answer("Not available.")],
     ]);
-    const offered = (replay.tools[0] as Array<{ name: string }>).map(
-      (tool) => tool.name,
+    expect(
+      [...names(replay.tools[0]!), ...foundTools()].filter((name) =>
+        /assignment|run_status/.test(name),
+      ),
+    ).toEqual([]);
+    expect(replay.instructions[0]).not.toContain("assignment_propose");
+    expect(results).toEqual([{ error: "CHAT_TOOL_NOT_ALLOWED" }]);
+  });
+
+  it("offers the assignment tools only as deferred tools with tool search", async () => {
+    await turn(project.editor, [[answer("Hello.")]]);
+    // Nothing of the assignment tools is loaded up front; the guard holds.
+    expect(names(replay.tools[0]!)).not.toContain("assignment_propose");
+    expect(names(replay.tools[0]!)).toContain("tool_search");
+    expect(
+      names(replay.tools[0]!).filter((name) =>
+        /assignment|run_status/.test(name),
+      ),
+    ).toEqual([]);
+    expect(
+      Buffer.byteLength(JSON.stringify(replay.tools[0])),
+    ).toBeLessThanOrEqual(7000);
+    expect(replay.instructions[0]).toContain(
+      "Load these tools with tool_search before calling them:",
+    );
+    expect(replay.instructions[0]).toMatch(
+      /tool_search before calling them: [^.]*assignment_propose[^.]*run_status/,
+    );
+    // One sentence, and the budget is asked for, never filled in by the model.
+    expect(replay.instructions[0]).toContain(
+      "ask for anything missing, including the monthly budget",
+    );
+    const found = foundTools();
+    expect(found).toEqual(expect.arrayContaining(["assignment_propose"]));
+    for (const tool of (
+      (replay.inputs[1] as Array<Record<string, any>>).find(
+        (item) => item.type === "tool_search_output",
+      ) as { tools: Array<Record<string, unknown>> }
+    ).tools)
+      expect(tool).toMatchObject({ strict: true, defer_loading: true });
+  });
+
+  it("offers no assignment tool without tool search and says why", async () => {
+    delete process.env.ORBIT_TOOL_SEARCH;
+    const { results } = await turn(
+      project.editor,
+      [[call("assignment_list", {})], [answer("Needs tool search.")]],
+      false,
     );
     expect(
-      offered.filter((name) => /assignment|run_status/.test(name)),
+      names(replay.tools[0]!).filter((name) =>
+        /assignment|run_status|tool_search/.test(name),
+      ),
     ).toEqual([]);
+    expect(replay.instructions[0]).toContain("they need tool search");
+    expect(replay.instructions[0]).not.toContain("assignment_propose");
     expect(results).toEqual([{ error: "CHAT_TOOL_NOT_ALLOWED" }]);
+  });
+
+  it("offers no assignment tool when the chat model cannot search tools", async () => {
+    await useChatModel("gpt-5.2-terra");
+    await turn(project.editor, [[answer("Hello.")]], false);
+    expect(
+      names(replay.tools[0]!).filter((name) =>
+        /assignment|run_status|tool_search/.test(name),
+      ),
+    ).toEqual([]);
+    expect(replay.instructions[0]).toContain("they need tool search");
+  });
+
+  it("lets an editor end an assignment", async () => {
+    const id = await confirmed();
+    const { results, cards } = await turn(project.editor, [
+      [call("assignment_change", changeArgs(id, null, "end"))],
+      [answer("Ended.")],
+    ]);
+    expect(results).toEqual([
+      {
+        assignmentId: id,
+        version: expect.any(Number),
+        status: "ended",
+        confirmationRequired: false,
+        actionRequestId: null,
+      },
+    ]);
+    expect(data(await assignmentOf(id)).status).toBe("ended");
+    expect(cards).toEqual([
+      {
+        kind: "status",
+        label: "Assignment ended: Daily product post",
+        status: "ended",
+      },
+    ]);
+  });
+
+  it("lets the owner end an assignment, and ending twice returns ASSIGNMENT_ENDED", async () => {
+    const id = await confirmed();
+    const ended = await turn(project.owner, [
+      [call("assignment_change", changeArgs(id, null, "end"))],
+      [answer("Ended.")],
+    ]);
+    expect(ended.results[0]).toMatchObject({ status: "ended" });
+    const again = await turn(project.owner, [
+      [call("assignment_change", changeArgs(id, null, "end"))],
+      [answer("It was already ended.")],
+    ]);
+    expect(again.results).toEqual([{ error: "ASSIGNMENT_ENDED" }]);
   });
 });

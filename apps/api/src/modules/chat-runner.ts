@@ -82,12 +82,12 @@ const packageInstructions = [
   "Describe drafts and their status only from package_status.",
   "When the user wants one channel's draft changed, call revise_package_deliverable with that channelId and their instruction; the other channels and the image stay unchanged.",
 ].join(" ");
-// Added only while Orbit Agents are on.
-const assignmentInstructions = [
-  "When the user wants Orbit to keep doing a job (for example posts every day), call assignment_propose with the schedule, the channel integration IDs, the content type, the topic frame and a monthly budget; it only prepares a card the owner confirms, and nothing runs or is published before that.",
-  "Describe assignments, their next slots and costs only from assignment_list, and today's runs only from run_status.",
-  "Use assignment_change with the version from assignment_list to pause or resume an assignment (resuming and moving its times are the owner's), or to change its content, which needs a new confirmation.",
-].join(" ");
+// Added only while Orbit Agents are on and the run uses tool search.
+const assignmentInstructions =
+  "When the user wants Orbit to keep doing a job (for example posts every day), ask for anything missing, including the monthly budget, then call assignment_propose to prepare a card the owner confirms (nothing runs or is published before that), describe assignments, slots, costs and runs only from assignment_list and run_status, and use assignment_change with the version from assignment_list to pause, resume or end an assignment (resuming and moving its times are the owner's) or to change its content (which needs a new confirmation).";
+// Orbit Agents are on, but the assignment tools are deferred and need tool search.
+const assignmentsUnavailable =
+  "Standing assignments (for example posts every day) are not available in this setup because they need tool search; say so when asked and do not simulate them.";
 async function snapshot(scope: Scope, runId: string, text: string) {
   return chatScoped(scope, async (tx) => {
     const run = await tx.chatRun.findFirst({
@@ -363,13 +363,9 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     // Offered tools follow the caller's role; execution checks the same set.
     const packages = contentPackagesEnabled();
     const agents = agentsEnabled();
-    const offered = availableTools(chatTools, scope.role, [
-      ...(packages ? ["content_packages" as const] : []),
-      ...(agents ? ["agents" as const] : []),
-    ]);
     // Tool search (ADR 0007): deferred tools load on request, client-executed,
     // and only from the role's offered set. The loaded set never changes in a run.
-    const deferred =
+    const toolSearch =
       loadConfig().ORBIT_TOOL_SEARCH === "true" &&
       supportsToolSearch(
         await chatScoped(
@@ -380,13 +376,21 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
               await runtimeOpenAiConfiguration(tx, scope),
             ).model,
         ),
-      )
-        ? offered.filter((tool) => tool.deferLoading)
-        : [];
+      );
+    // Assignment tools exist only as deferred tools, so they need tool search.
+    const offered = availableTools(chatTools, scope.role, [
+      ...(packages ? ["content_packages" as const] : []),
+      ...(agents && toolSearch ? ["agents" as const] : []),
+    ]);
+    const deferred = toolSearch
+      ? offered.filter((tool) => tool.deferLoading)
+      : [];
     const runInstructions = [
       instructions,
       ...(packages ? [packageInstructions] : []),
-      ...(agents ? [assignmentInstructions] : []),
+      ...(agents
+        ? [toolSearch ? assignmentInstructions : assignmentsUnavailable]
+        : []),
       ...(deferred.length
         ? [
             `Load these tools with tool_search before calling them: ${deferred.map((tool) => tool.name).join(", ")}.`,

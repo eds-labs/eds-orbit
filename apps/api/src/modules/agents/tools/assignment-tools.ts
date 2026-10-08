@@ -82,7 +82,7 @@ const changeParameters = z
       .int()
       .nullable()
       .describe("From assignment_list or its card; required for action change"),
-    action: z.enum(["pause", "resume", "change"]),
+    action: z.enum(["pause", "resume", "end", "change"]),
     changes: z
       .object({
         name: z.string().nullable(),
@@ -295,7 +295,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_change",
     namespace: "assignments",
     description:
-      "Pause or resume an assignment (resume: owner), or change it. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
+      "Pause, resume (owner) or end an assignment, or change it. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
     parameters: changeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],
@@ -320,6 +320,9 @@ export const assignmentTools: readonly OrbitTool[] = [
           "assignments",
           input.assignmentId,
         );
+        // Ending is not idempotent here: the model learns it was already over.
+        if (input.action === "end" && data(row).status === "ended")
+          throw new DomainError("ASSIGNMENT_ENDED", 409);
         return {
           before: row,
           after:
@@ -335,7 +338,11 @@ export const assignmentTools: readonly OrbitTool[] = [
                   tx,
                   context.scope,
                   row.id,
-                  input.action === "pause" ? "paused" : "active",
+                  input.action === "pause"
+                    ? "paused"
+                    : input.action === "end"
+                      ? "ended"
+                      : "active",
                 ),
         };
       });
@@ -354,7 +361,9 @@ export const assignmentTools: readonly OrbitTool[] = [
                     ? "Assignment paused"
                     : input.action === "resume"
                       ? "Assignment resumed"
-                      : "Assignment times updated",
+                      : input.action === "end"
+                        ? "Assignment ended"
+                        : "Assignment times updated",
                   name,
                 ),
                 status: d.status,
