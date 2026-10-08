@@ -314,6 +314,7 @@ describe("proposal tool", () => {
       "assignment_list",
       "assignment_change",
       "run_status",
+      "channel_history",
     ]);
   });
   it("offers assignment tools only with the agents feature", () => {

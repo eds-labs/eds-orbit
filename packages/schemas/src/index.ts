@@ -34,6 +34,7 @@ export const collections = [
   "assignment_runs",
   "agent_tasks",
   "channel_posts",
+  "channel_post_sync",
 ] as const;
 export const collection = z.enum(collections);
 export const source = z

@@ -37,6 +37,8 @@ const remoteSchema = z.object({
   releaseURL: z.string().nullable().optional(),
   releaseId: z.string().nullable().optional(),
   createdAt: z.string().optional(),
+  // Post text as Postiz stores it, possibly HTML; the list carries no media.
+  content: z.string().max(100_000).nullable().optional(),
 });
 const analyticsSchema = z
   .array(
@@ -108,6 +110,9 @@ const createSchema = z
       .max(10),
   })
   .strict();
+
+/** Widest window one listPosts call may cover: Orbit's 60-day channel history in one request. */
+const MAX_POST_RANGE_MS = 62 * 86400_000;
 
 export type SocialChannel = z.infer<typeof integrationSchema>;
 export type SocialGroup = z.infer<typeof groupSchema>;
@@ -194,7 +199,8 @@ export function createPostizClient(options: HttpOptions) {
       !z.iso.datetime().safeParse(range.startDate).success ||
       !z.iso.datetime().safeParse(range.endDate).success ||
       Date.parse(range.endDate) < Date.parse(range.startDate) ||
-      Date.parse(range.endDate) - Date.parse(range.startDate) > 32 * 86400_000
+      Date.parse(range.endDate) - Date.parse(range.startDate) >
+        MAX_POST_RANGE_MS
     )
       throw new ConnectorError("INVALID_DATE_RANGE");
     return validated(

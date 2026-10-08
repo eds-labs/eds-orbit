@@ -4,7 +4,12 @@ import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { invalidateContent } from "./content-invalidation.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "./marketing-profile.ts";
-import { channelLimitExceeded, resolveChannelRules } from "./channel-rules.ts";
+import {
+  channelLimitExceeded,
+  finalPostText,
+  resolveChannelRules,
+} from "./channel-rules.ts";
+import { channelPostsNear } from "./agents/channel-posts.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,
@@ -206,6 +211,10 @@ export async function checkClaims(
 export const CLAIM_REPEAT_WINDOW_DAYS = 7;
 
 /** A post's planned time, or its creation time when it has no slot. */
+/** Drafts and posts count as equal when they differ only in case, spacing or punctuation. */
+const duplicateKey = (v: string) =>
+  v.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
 export function postTime(content: Record<string, any>, createdAt: Date) {
   const planned = Date.parse(content.scheduledAt ?? "");
   return Number.isFinite(planned) ? planned : createdAt.valueOf();
@@ -257,9 +266,7 @@ export async function preflight(
         !["reviewed", "draft"].includes(d.status)
       )
         continue;
-      const normalized = (v: string) =>
-        v.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-      const exact = normalized(d.body ?? "") === normalized(c.body ?? "");
+      const exact = duplicateKey(d.body ?? "") === duplicateKey(c.body ?? "");
       const ownClaims = (c.claims ?? [])
           .filter((v: any) => v.kind !== "style")
           .map((v: any) => v.factId ?? v.chunkId),
@@ -281,6 +288,34 @@ export async function preflight(
         break;
       }
     }
+  if (c.type === "social" && !blockers.includes("DUPLICATE_CONTENT")) {
+    // Posts Postiz already published on the channel, also those Orbit did not make.
+    const ownTexts = new Set(
+      [c.body, finalPostText(c.body ?? "", c.targetUrl)].map(duplicateKey),
+    );
+    const own = new Set(
+      (await list(tx, scope, "publications"))
+        .filter((row) => data(row).contentId === contentId)
+        .map((row) => data(row).remoteId),
+    );
+    if (
+      (
+        await channelPostsNear(
+          tx,
+          scope,
+          c.channel,
+          postTime(c, pkg.content.createdAt),
+          CLAIM_REPEAT_WINDOW_DAYS,
+        )
+      ).some(
+        (post) =>
+          post.text &&
+          !own.has(post.remoteId) &&
+          ownTexts.has(duplicateKey(post.text)),
+      )
+    )
+      blockers.push("DUPLICATE_CONTENT");
+  }
 
   if ((await calendarConflicts(tx, scope, c.channel, at)).length)
     blockers.push("MANUAL_CALENDAR_BLOCK");

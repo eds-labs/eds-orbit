@@ -16,7 +16,12 @@ import {
   resolveRoute,
   estimateCost,
 } from "../../../../packages/ai/src/index.ts";
-import { activePolicy, withinClaimRepeatWindow } from "./policy.ts";
+import {
+  activePolicy,
+  CLAIM_REPEAT_WINDOW_DAYS,
+  withinClaimRepeatWindow,
+} from "./policy.ts";
+import { externalChannelPosts } from "./agents/channel-posts.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
 import { errorCode, finishRun, recordSpan, startRun } from "./telemetry.ts";
 import {
@@ -103,7 +108,7 @@ async function revisionContext(
  * Each autopilot day is its own mission, so the batch's previous drafts never
  * reach it; without this a later day repeated an earlier post word for word.
  */
-async function recentChannelPosts(
+export async function recentChannelPosts(
   tx: DbTx,
   scope: Scope,
   missionId: string,
@@ -112,7 +117,7 @@ async function recentChannelPosts(
 ) {
   const at = (row: Awaited<ReturnType<typeof list>>[number]) =>
     Date.parse(String(data(row).scheduledAt ?? "")) || row.createdAt.valueOf();
-  return (await list(tx, scope, "content"))
+  const own = (await list(tx, scope, "content"))
     .filter(
       (row) =>
         data(row).channel === channel &&
@@ -120,12 +125,23 @@ async function recentChannelPosts(
         data(row).status !== "archived" &&
         withinClaimRepeatWindow(at(row), slot),
     )
-    .sort((a, b) => Math.abs(at(a) - slot) - Math.abs(at(b) - slot))
-    .slice(0, MAX_BATCH_DRAFTS)
     .map((row) => ({
+      at: at(row),
       title: String(data(row).title ?? ""),
       claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
     }));
+  // Posts made outside Orbit count as well (channel history from Postiz).
+  const external = await externalChannelPosts(
+    tx,
+    scope,
+    channel,
+    slot,
+    CLAIM_REPEAT_WINDOW_DAYS,
+  );
+  return [...own, ...external]
+    .sort((a, b) => Math.abs(a.at - slot) - Math.abs(b.at - slot))
+    .slice(0, MAX_BATCH_DRAFTS)
+    .map(({ title, claims }) => ({ title, claims }));
 }
 
 /**
