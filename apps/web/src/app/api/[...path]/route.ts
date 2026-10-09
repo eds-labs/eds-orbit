@@ -50,6 +50,8 @@ async function proxy(
       "x-csrf-token",
       "x-slack-signature",
       "x-slack-request-timestamp",
+      // Telegram authenticates its webhook calls with this header.
+      "x-telegram-bot-api-secret-token",
     ]) {
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
