@@ -537,6 +537,156 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     });
   });
 
+  it("does not retry an unclear response, which a retry could duplicate", async () => {
+    await linkBot();
+    const pub = await post({}, false);
+    await queue("preview", pub.id);
+    // HTTP 200 with a body that is not Telegram's answer: the message may be out already.
+    failWith = () => new Response("not json", { status: 200 });
+    await send((await jobOf("preview", pub.id))!.id);
+    expect(sent()).toHaveLength(1);
+    expect(sleeps).toEqual([]);
+    expect((await exceptions())[0]).toMatchObject({
+      code: "TELEGRAM_DELIVERY_FAILED",
+    });
+  });
+
+  it("waits for Telegram's retry_after on a rate limit, at most 30 seconds", async () => {
+    await linkBot();
+    const limited = (retryAfter?: number) => {
+      let first = true;
+      failWith = () => {
+        if (!first) {
+          failWith = null;
+          return new Response(
+            JSON.stringify({ ok: true, result: { message_id: 3 } }),
+            { status: 200 },
+          );
+        }
+        first = false;
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            ...(retryAfter === undefined
+              ? {}
+              : { parameters: { retry_after: retryAfter } }),
+          }),
+          { status: 429 },
+        );
+      };
+    };
+    for (const [retryAfter, wanted] of [
+      [5, 5000],
+      [120, 30000],
+      [undefined, 1000],
+    ] as const) {
+      sleeps.length = 0;
+      const pub = await post({}, false);
+      await queue("preview", pub.id);
+      limited(retryAfter);
+      await send((await jobOf("preview", pub.id))!.id);
+      expect(sleeps).toEqual([wanted]);
+      expect((await jobOf("preview", pub.id))!.notification).toMatchObject({
+        outcome: "sent",
+      });
+    }
+  });
+
+  it("falls back to the text when Telegram refuses the photo", async () => {
+    await linkBot();
+    const short = await post();
+    const long = await post({}, true, "B".repeat(1500));
+    const transientFail = await post();
+    for (const pub of [short, long, transientFail])
+      await queue("preview", pub.id);
+    const photoRefused = (status: number) => {
+      const original = fetch;
+      return async (url: string | URL, init: RequestInit = {}) =>
+        String(url).endsWith("/sendPhoto")
+          ? (calls.push({ method: "sendPhoto", body: {} }),
+            new Response(JSON.stringify({ ok: false }), { status }))
+          : original(url, init);
+    };
+    const sendWith = (id: string, transport: typeof fetch) =>
+      sendNotification(h.worker(), id, { fetch: transport, sleep });
+
+    await sendWith((await jobOf("preview", short.id))!.id, photoRefused(400));
+    expect(calls.map((c) => c.method)).toEqual(["sendPhoto", "sendMessage"]);
+    // The same text and the same buttons as the photo would have had.
+    expect(textOf(calls[1]!)).toContain(BODY);
+    expect(markup(calls[1]!)[0]!.callback_data).toBe(
+      stopCallbackData(short.id, short.version),
+    );
+    expect((await jobOf("preview", short.id))!.notification).toMatchObject({
+      outcome: "sent",
+    });
+
+    // A long text: the photo (header only) is dropped, the full text still goes out once.
+    calls.length = 0;
+    await sendWith((await jobOf("preview", long.id))!.id, photoRefused(400));
+    expect(calls.map((c) => c.method)).toEqual(["sendPhoto", "sendMessage"]);
+    expect(textOf(calls[1]!)).toContain("B".repeat(1500));
+    expect(markup(calls[1]!)[0]!.callback_data).toBe(
+      stopCallbackData(long.id, long.version),
+    );
+
+    // A temporary failure is retried and, when it persists, the notification fails: no fallback.
+    calls.length = 0;
+    await sendWith(
+      (await jobOf("preview", transientFail.id))!.id,
+      photoRefused(500),
+    );
+    expect(calls.map((c) => c.method)).toEqual([
+      "sendPhoto",
+      "sendPhoto",
+      "sendPhoto",
+      "sendPhoto",
+    ]);
+    expect((await exceptions())[0]).toMatchObject({
+      code: "TELEGRAM_DELIVERY_FAILED",
+    });
+  });
+
+  it("shows the weekday and date of the deadline when it is not the day of sending", async () => {
+    await linkBot();
+    // 2026-10-09 12:00 in Berlin.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-09T10:00:00.000Z"));
+    const sameDay = await post({
+      vetoDeadline: "2026-10-09T15:00:00.000Z",
+      scheduledAt: "2026-10-09T18:00:00.000Z",
+    });
+    const nextDay = await post({
+      vetoDeadline: "2026-10-10T07:30:00.000Z",
+      scheduledAt: "2026-10-10T10:30:00.000Z",
+    });
+    for (const pub of [sameDay, nextDay]) {
+      await queue("preview", pub.id);
+      await send((await jobOf("preview", pub.id))!.id);
+    }
+    const [a, b] = sent().map(textOf);
+    expect(a).toContain("Stop möglich bis 17:00\n");
+    expect(b).toContain("Stop möglich bis Sa., 10.10., 09:30\n");
+  });
+
+  it("skips a Postiz error notice when the post is no longer failed", async () => {
+    await linkBot();
+    const failed = await post({ status: "failed" }, false);
+    const unclear = await post({ status: "outcome_unknown" }, false);
+    const published = await post({ status: "published" }, false);
+    for (const pub of [failed, unclear, published])
+      await queue("postiz_error", pub.id);
+    for (const pub of [failed, unclear, published])
+      await send((await jobOf("postiz_error", pub.id))!.id);
+    expect(sent().map(textOf)).toEqual([
+      expect.stringContaining("nicht veröffentlicht"),
+      expect.stringContaining("Ergebnis unklar"),
+    ]);
+    expect(
+      (await jobOf("postiz_error", published.id))!.notification,
+    ).toMatchObject({ outcome: "skipped", reason: "STALE" });
+  });
+
   it("reports rejection, budget pause and project pause", async () => {
     await linkBot();
     const assignment = await h.makeAssignment({ name: "Zwei Posts am Tag" });
@@ -658,7 +808,12 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
           vetoDeadline: iso(-2 * day),
         },
       ]);
-      for (let i = 0; i < 2; i++)
+      // Two rejections the owner was told about, and one draft replaced by its revision.
+      for (const [i, metadata] of [
+        { revisedTo: null },
+        {},
+        { revisedTo: "synthetic-revision" },
+      ].entries())
         await tx.auditEvent.create({
           data: {
             workspaceId: owner.workspaceId,
@@ -666,7 +821,7 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
             actorId: "worker",
             action: "content.agent_rejected",
             resourceId: `synthetic-${i}`,
-            metadata: {},
+            metadata,
           },
         });
       // Cost: 1.50 settled today, 0.25 on an earlier day of this month if there is one.

@@ -61,6 +61,19 @@ function keyboard(buttons: TelegramButton[] | undefined) {
   };
 }
 
+/** The wait Telegram asks for after a 429, in milliseconds; undefined unless it is a positive number. */
+async function retryAfter(response: Response) {
+  try {
+    const seconds = JSON.parse((await response.text()).slice(0, 4000))
+      ?.parameters?.retry_after;
+    return typeof seconds === "number" && seconds > 0 && seconds <= 86400
+      ? Math.round(seconds * 1000)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function chat(chatId: TelegramChatId) {
   if (
     (typeof chatId === "number" && Number.isSafeInteger(chatId)) ||
@@ -113,7 +126,10 @@ export function createTelegramClient(options: TelegramClientOptions) {
         );
       }
       if (!response.ok) {
+        // Telegram names the wait of a rate limit in `parameters.retry_after` (seconds).
+        const copy = response.status === 429 ? response.clone() : null;
         const detail = await providerDetail(response);
+        const retryAfterMs = copy ? await retryAfter(copy) : undefined;
         const ambiguous =
           sideEffect && (response.status >= 500 || response.status === 408);
         throw new ConnectorError(
@@ -128,6 +144,7 @@ export function createTelegramClient(options: TelegramClientOptions) {
           !ambiguous && (response.status === 429 || response.status >= 500),
           response.status,
           detail,
+          retryAfterMs,
         );
       }
       const text = await response.text();

@@ -4,7 +4,7 @@ import ipaddr from 'ipaddr.js';
 
 export type ConnectorOutcome = 'not_sent' | 'rejected' | 'unknown';
 export class ConnectorError extends Error {
-  constructor(public code: string, public outcome: ConnectorOutcome = 'not_sent', public retryable = false, public status?: number, public detail?: string) {
+  constructor(public code: string, public outcome: ConnectorOutcome = 'not_sent', public retryable = false, public status?: number, public detail?: string, public retryAfterMs?: number) {
     super(code); this.name = 'ConnectorError';
   }
 }

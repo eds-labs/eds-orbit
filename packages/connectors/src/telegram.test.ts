@@ -169,4 +169,39 @@ describe("Telegram bot client", () => {
       outcome: "not_sent",
     });
   });
+
+  it("reports Telegram's retry_after on a rate limit", async () => {
+    const limited = (body: unknown) =>
+      createTelegramClient({
+        token: TOKEN,
+        fetch: async () =>
+          new Response(JSON.stringify(body), {
+            status: 429,
+            headers: { "content-type": "application/json" },
+          }),
+      });
+    expect(
+      await limited({
+        ok: false,
+        error_code: 429,
+        description: "Too Many Requests: retry after 7",
+        parameters: { retry_after: 7 },
+      })
+        .sendMessage(1, "Hallo")
+        .catch((e: unknown) => e),
+    ).toMatchObject({ code: "RATE_LIMITED", status: 429, retryAfterMs: 7000 });
+    // Anything else is not trusted as a wait.
+    for (const body of [
+      { ok: false },
+      { ok: false, parameters: { retry_after: "soon" } },
+      { ok: false, parameters: { retry_after: -3 } },
+    ])
+      expect(
+        (await limited(body)
+          .sendMessage(1, "Hallo")
+          .catch((e: unknown) => e)) as {
+          retryAfterMs?: number;
+        },
+      ).toMatchObject({ code: "RATE_LIMITED", retryAfterMs: undefined });
+  });
 });

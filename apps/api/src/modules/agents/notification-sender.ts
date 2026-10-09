@@ -18,6 +18,7 @@ import {
 import { agentsEnabled } from "./assignments.ts";
 import { NOTIFY_KINDS, type NotifyKind } from "./notifications.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
+import { localDate } from "./scheduling.ts";
 
 /**
  * Renders and sends one queued `telegram_notification` job to the owner's
@@ -43,12 +44,15 @@ const TEXT_MAX = 4000;
 const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 const FACT_WINDOW_MS = 7 * 86400000;
 const FACTS_SHOWN = 5;
+// An unclear answer (`INVALID_PROVIDER_RESPONSE`, usually after an HTTP 200) is no reason to
+// send again: the message may be out already, and a retry would duplicate it.
 const TRANSIENT_CODES = new Set([
   "NETWORK_ERROR",
   "REQUEST_TIMEOUT",
   "DNS_TIMEOUT",
-  "INVALID_PROVIDER_RESPONSE",
 ]);
+// The longest wait Telegram's `retry_after` may impose on a notification.
+const RETRY_AFTER_MAX_MS = 30_000;
 
 export type NotificationOptions = {
   fetch?: FetchLike;
@@ -79,10 +83,9 @@ const maybe = async <T>(work: () => Promise<T>) => {
   }
 };
 
-const when = (iso: unknown, timezone: string) => {
-  const at = new Date(String(iso));
-  if (!Number.isFinite(at.valueOf())) return "unbekannt";
-  const text = new Intl.DateTimeFormat("de-DE", {
+/** Weekday, date and time, e.g. "Fr., 09.10., 17:00". */
+const dayTime = (at: Date, timezone: string) =>
+  new Intl.DateTimeFormat("de-DE", {
     timeZone: timezone,
     weekday: "short",
     day: "2-digit",
@@ -91,15 +94,26 @@ const when = (iso: unknown, timezone: string) => {
     minute: "2-digit",
     hourCycle: "h23",
   }).format(at);
-  return `${text} (${timezone})`;
+const when = (iso: unknown, timezone: string) => {
+  const at = new Date(String(iso));
+  if (!Number.isFinite(at.valueOf())) return "unbekannt";
+  return `${dayTime(at, timezone)} (${timezone})`;
 };
-const clock = (iso: unknown, timezone: string) =>
+/** Only the time when it falls on the local day of sending; otherwise with weekday and date. */
+const deadlineText = (iso: unknown, timezone: string) => {
+  const at = new Date(String(iso));
+  if (!Number.isFinite(at.valueOf())) return "unbekannt";
+  return localDate(at, timezone) === localDate(new Date(), timezone)
+    ? clock(at, timezone)
+    : dayTime(at, timezone);
+};
+const clock = (at: Date, timezone: string) =>
   new Intl.DateTimeFormat("de-DE", {
     timeZone: timezone,
     hour: "2-digit",
     minute: "2-digit",
     hourCycle: "h23",
-  }).format(new Date(String(iso)));
+  }).format(at);
 const shortDate = (at: Date, timezone: string) =>
   new Intl.DateTimeFormat("de-DE", {
     timeZone: timezone,
@@ -158,7 +172,7 @@ async function preview(
     "Neuer Beitrag",
     `Kanal: ${await channelName(tx, scope, p.channel)}`,
     `Zeit: ${when(p.scheduledAt, timezone)}`,
-    `Stop möglich bis ${clock(p.vetoDeadline, timezone)}`,
+    `Stop möglich bis ${deadlineText(p.vetoDeadline, timezone)}`,
   ].join("\n");
   const body = finalPostText(String(c.body ?? ""), c.targetUrl);
   return {
@@ -283,6 +297,9 @@ async function postizError(
   const pubRow = await maybe(() => entity(tx, scope, "publications", ref));
   if (!pubRow) return { skip: "STALE" };
   const p = data(pubRow);
+  // The post moved on (published after all, withdrawn, ...): the error is no longer true.
+  if (!["failed", "outcome_unknown"].includes(p.status))
+    return { skip: "STALE" };
   return plain(
     [
       "Postiz-Fehler",
@@ -324,14 +341,21 @@ async function dailyReport(
       within(p.completedAt ?? p.handoffCompletedAt),
   ).length;
   const stopped = pubs.filter((p) => within(p.vetoedAt)).length;
-  const rejectedCount = await tx.auditEvent.count({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      action: "content.agent_rejected",
-      createdAt: { gte: start, lt: end },
-    },
-  });
+  // A draft replaced by its revision (`revisedTo`) is not a rejection the owner was told about.
+  const rejectedCount = (
+    await tx.auditEvent.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        action: "content.agent_rejected",
+        createdAt: { gte: start, lt: end },
+      },
+      select: { metadata: true },
+    })
+  ).filter(
+    (event) =>
+      (event.metadata as Record<string, unknown> | null)?.revisedTo == null,
+  ).length;
   const spent = (from: Date, state: "settled" | "unknown") =>
     tx.budgetReservation.aggregate({
       where: {
@@ -426,19 +450,52 @@ function transient(error: unknown) {
   return TRANSIENT_CODES.has(error.code);
 }
 
-async function deliver(
-  steps: Array<() => Promise<unknown>>,
+/** One step of a delivery; `fallback` takes its place when Telegram refuses it for good. */
+type Step = {
+  send: () => Promise<unknown>;
+  fallback?: () => Promise<unknown>;
+};
+
+/** Telegram's own wait after a 429 (at most 30 s), else the growing backoff. */
+function waitBefore(error: unknown, attempt: number) {
+  if (
+    error instanceof ConnectorError &&
+    error.status === 429 &&
+    error.retryAfterMs
+  )
+    return Math.min(error.retryAfterMs, RETRY_AFTER_MAX_MS);
+  return BACKOFF_MS[attempt]!;
+}
+
+async function withRetries(
+  send: () => Promise<unknown>,
   sleep: (ms: number) => Promise<void>,
 ) {
+  for (let attempt = 0; ; attempt++)
+    try {
+      return await send();
+    } catch (error) {
+      if (attempt >= BACKOFF_MS.length || !transient(error)) throw error;
+      await sleep(waitBefore(error, attempt));
+    }
+}
+
+async function deliver(steps: Step[], sleep: (ms: number) => Promise<void>) {
   for (const step of steps)
-    for (let attempt = 0; ; attempt++)
-      try {
-        await step();
-        break;
-      } catch (error) {
-        if (attempt >= BACKOFF_MS.length || !transient(error)) throw error;
-        await sleep(BACKOFF_MS[attempt]!);
-      }
+    try {
+      await withRetries(step.send, sleep);
+    } catch (error) {
+      // A photo Telegram refuses for good (not a temporary error, not a revoked bot)
+      // must not cost the owner the preview: the text goes out instead.
+      if (
+        !step.fallback ||
+        !(error instanceof ConnectorError) ||
+        transient(error) ||
+        error.code === "PROVIDER_AUTH"
+      )
+        throw error;
+      await withRetries(step.fallback, sleep);
+    }
 }
 
 const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
@@ -510,27 +567,28 @@ export async function sendNotification(
     : null;
   const photo =
     image && image.bytes.byteLength <= PHOTO_MAX_BYTES ? image.bytes : null;
-  const steps: Array<() => Promise<unknown>> = [];
+  const text = () =>
+    sender.client.sendMessage(sender.chatId, message.text, message.buttons);
+  const steps: Step[] = [];
   if (photo && message.text.length <= CAPTION_MAX)
-    steps.push(() =>
-      sender.client.sendPhoto(
-        sender.chatId,
-        photo,
-        message.text,
-        message.buttons,
-      ),
-    );
+    steps.push({
+      send: () =>
+        sender.client.sendPhoto(
+          sender.chatId,
+          photo,
+          message.text,
+          message.buttons,
+        ),
+      fallback: text,
+    });
   else if (photo) {
-    steps.push(() =>
-      sender.client.sendPhoto(sender.chatId, photo, message.header),
-    );
-    steps.push(() =>
-      sender.client.sendMessage(sender.chatId, message.text, message.buttons),
-    );
-  } else
-    steps.push(() =>
-      sender.client.sendMessage(sender.chatId, message.text, message.buttons),
-    );
+    // The text follows in its own message, so a refused photo is simply left out.
+    steps.push({
+      send: () => sender.client.sendPhoto(sender.chatId, photo, message.header),
+      fallback: async () => undefined,
+    });
+    steps.push({ send: text });
+  } else steps.push({ send: text });
   try {
     await deliver(steps, sleep);
   } catch (error) {
