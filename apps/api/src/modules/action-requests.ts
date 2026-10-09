@@ -362,6 +362,30 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
         executionMode: d.payload?.executionMode,
         assetId: d.payload?.assetId,
         packageGoal: pkg ? data(pkg).goal : null,
+        // The exact assignment the owner confirms, with its channels by name.
+        ...(d.actionType === "assignment.confirm"
+          ? {
+              assignment: {
+                id: d.payload.assignmentId,
+                name: d.payload.name,
+                kind: d.payload.kind,
+                schedule: d.payload.schedule,
+                contentType: d.payload.contentType,
+                channels: d.payload.channels,
+                channelNames: Object.fromEntries(
+                  ((d.payload.channels ?? []) as string[])
+                    .filter((id) => channels.has(id))
+                    .map((id) => [id, channels.get(id)!.name]),
+                ),
+                topicFrame: d.payload.topicFrame,
+                ...(d.payload.tone ? { tone: d.payload.tone } : {}),
+                image: d.payload.image,
+                styleAssetIds: d.payload.styleAssetIds,
+                vetoMinutes: d.payload.vetoMinutes,
+                monthlyBudgetMicros: d.payload.monthlyBudgetMicros,
+              },
+            }
+          : {}),
       },
     });
   }

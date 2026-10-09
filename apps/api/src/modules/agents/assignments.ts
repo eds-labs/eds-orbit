@@ -347,18 +347,22 @@ export async function updateAssignment(
  * Pause, resume or end. Resuming needs a confirmation that still covers the
  * content. `budget_exhausted` is set by the specialist runner (never by a
  * person) when the assignment's budget is used up; it stops like a pause and
- * is resumed the same way.
+ * is resumed the same way. `version`, when given, is the assignment version
+ * the person saw (the web page); a change made since then is a conflict.
  */
 export async function setAssignmentStatus(
   tx: DbTx,
   scope: Scope,
   id: string,
   status: "active" | "paused" | "ended" | "budget_exhausted",
+  version?: number,
 ) {
   requireEditor(scope);
   const row = await entity(tx, scope, KIND, id);
   const d = data(row);
   if (d.status === status) return row;
+  if (version !== undefined && row.version !== version)
+    throw new DomainError("VERSION_CONFLICT", 409);
   if (d.status === "ended") throw new DomainError("ASSIGNMENT_ENDED", 409);
   if (status === "active") {
     if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);

@@ -247,7 +247,25 @@ export async function getConversation(scope: Scope, id: string) {
     const { conversationPackages } =
       await import("./agents/content-packages.ts");
     const packages = await conversationPackages(tx, scope, id);
-    return { conversation: row, messages, runs, proposals: linked, packages };
+    // Assignment cards carry their content by value; the live state comes by ID (R16).
+    const assignmentIds = messages.flatMap((message) =>
+      message.cards
+        .filter((card: any) => card.kind === "assignment")
+        .map((card: any) => card.assignment?.id),
+    );
+    const assignments = assignmentIds.length
+      ? await (
+          await import("./agents/assignment-overview.ts")
+        ).conversationAssignments(tx, scope, assignmentIds)
+      : [];
+    return {
+      conversation: row,
+      messages,
+      runs,
+      proposals: linked,
+      packages,
+      assignments,
+    };
   });
 }
 

@@ -47,7 +47,7 @@ const INACTIVE = ["canceled", "failed", "blocked_dependency"];
  * A blocked one counts only if it was never claimed (`handoffAt`), since a
  * changed content can block a post in the middle of its send.
  */
-const withdrawable = (pub: Record<string, any>) =>
+export const withdrawable = (pub: Record<string, any>) =>
   pub.status === "intent_created" ||
   (pub.status === "blocked_dependency" &&
     !pub.handoffAt &&

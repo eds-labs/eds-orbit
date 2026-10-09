@@ -9,6 +9,8 @@ import {
   WorkspacePause,
 } from "./operator-tools";
 import { SlackConfiguration, SlackDigest } from "./slack-connection";
+import { Assignments, useAssignments } from "./assignments";
+import { TelegramConnection } from "./telegram-connection";
 import {
   ExperimentControls,
   MemoryLifecycleControls,
@@ -917,6 +919,7 @@ export function Connectors() {
               </section>
             );
           })}
+          <TelegramConnection />
           <section className="connector">
             <div className="connector-mark">
               <FileText />
@@ -1244,6 +1247,8 @@ export function ProjectSettings() {
     [openAi, setOpenAi] = useState(false),
     [selected, setSelected] = useState<Entity | null>(null),
     [tab, setTab] = useState("project");
+  // Orbit Agents: the tab exists only while its route does (flag on).
+  const assignments = useAssignments();
   const d = dashboard.data;
   const de = locale === "de";
   return (
@@ -1260,6 +1265,9 @@ export function ProjectSettings() {
         tabs={[
           { key: "project", label: de ? "Projekt" : "Project" },
           { key: "autopilot", label: "Autopilot" },
+          ...(assignments.available
+            ? [{ key: "assignments", label: de ? "Aufträge" : "Assignments" }]
+            : []),
           {
             key: "policy",
             label: de ? "Richtlinie & Budget" : "Policy & budget",
@@ -1375,6 +1383,9 @@ export function ProjectSettings() {
       )}
       {tab === "project" && <ProjectAdministration />}
       {tab === "autopilot" && <AutopilotSettings />}
+      {tab === "assignments" && assignments.available && (
+        <Assignments resource={assignments.resource} />
+      )}
       {tab === "policy" && (
         <section className="panel">
           <div className="panel-head">

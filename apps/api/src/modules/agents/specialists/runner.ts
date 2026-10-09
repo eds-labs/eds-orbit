@@ -162,7 +162,7 @@ export const runBudgetKey = (runId: string) => `assignment-run:${runId}`;
  * runs (`assignment-run:<runId>`) created since the month began. A run lives
  * a few days, so runs created before the previous month are left out.
  */
-async function assignmentMonthSpend(
+export async function assignmentMonthSpend(
   tx: DbTx,
   scope: Scope,
   assignmentId: string,

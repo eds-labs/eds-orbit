@@ -37,16 +37,28 @@ import {
   packageInProgress,
   type ContentPackage,
 } from "./chat-package-card";
+import {
+  AssignmentCard,
+  type AssignmentContent,
+  type AssignmentRequest,
+} from "./assignment-card";
 import { useWorkspace } from "./workspace-context";
 
 type Conversation = { id: string; title: string; updatedAt: string };
 type Card = {
-  kind: "source" | "asset" | "link" | "status";
+  kind: "source" | "asset" | "link" | "status" | "assignment";
   label: string;
   href?: string;
   status?: string;
   resourceId?: string;
   version?: number;
+  // Assignment cards carry the content they showed (R16).
+  assignment?: AssignmentContent;
+};
+// Live state of an assignment a card names, read by its ID.
+type LiveAssignment = AssignmentContent & {
+  status: string;
+  actionRequest: (AssignmentRequest & { expiresAt: string }) | null;
 };
 type Message = {
   id: string;
@@ -98,6 +110,7 @@ type Detail = {
   runs: Run[];
   proposals: Proposal[];
   packages?: ContentPackage[];
+  assignments?: LiveAssignment[];
 };
 const terminal = new Set(["succeeded", "blocked", "failed", "canceled"]);
 
@@ -400,6 +413,66 @@ export function OrbitChat() {
       setPending(false);
     }
   }
+  // The owner decides the exact assignment.confirm request the card shows.
+  async function decideAssignment(
+    request: AssignmentRequest,
+    decision: "approve" | "reject",
+    imageRightsConsent = false,
+  ) {
+    if (!isOwner) return;
+    setPending(true);
+    setError("");
+    try {
+      await post(
+        collectionPath(project.id, `action-requests/${request.id}/decide`),
+        {
+          version: request.version,
+          packageHash: request.packageHash,
+          decision,
+          ...(decision === "approve" ? { imageRightsConsent } : {}),
+        },
+      );
+      refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Decision failed");
+    } finally {
+      setPending(false);
+    }
+  }
+  function assignmentCard(card: Card, key: string) {
+    const shown = card.assignment!;
+    const live = detail.data?.assignments?.find(
+      (assignment) => assignment.id === shown.id,
+    );
+    // Only the request this card was made for decides its content.
+    const own =
+      live?.actionRequest && live.actionRequest.id === shown.actionRequestId
+        ? live.actionRequest
+        : null;
+    return (
+      <AssignmentCard
+        key={key}
+        assignment={{
+          ...shown,
+          channelNames: shown.channelNames ?? live?.channelNames,
+        }}
+        status={live?.status ?? shown.status ?? "draft"}
+        request={own}
+        de={de}
+        canDecide={isOwner}
+        pending={pending}
+        superseded={
+          Boolean(live?.actionRequest) &&
+          !own &&
+          live?.actionRequest?.status === "pending"
+        }
+        onConfirm={(request, consent) =>
+          void decideAssignment(request, "approve", consent)
+        }
+        onReject={(request) => void decideAssignment(request, "reject")}
+      />
+    );
+  }
   async function cancelPackage(pkg: ContentPackage) {
     if (!canEdit) return;
     setPending(true);
@@ -563,46 +636,58 @@ export function OrbitChat() {
                     message.text
                   )}
                 </div>
-                {message.cards?.length > 0 && (
+                {message.cards
+                  ?.filter(
+                    (card) => card.kind === "assignment" && card.assignment,
+                  )
+                  .map((card, index) =>
+                    assignmentCard(card, `${message.id}-assignment-${index}`),
+                  )}
+                {message.cards?.some((card) => card.kind !== "assignment") && (
                   <div className="chat-cards">
-                    {message.cards.map((card, index) => (
-                      <div className="chat-card" key={`${card.kind}-${index}`}>
-                        <Badge
-                          tone={
-                            card.status === "stale"
-                              ? "warning"
-                              : card.kind === "asset"
-                                ? "blue"
-                                : "neutral"
-                          }
+                    {message.cards
+                      .filter((card) => card.kind !== "assignment")
+                      .map((card, index) => (
+                        <div
+                          className="chat-card"
+                          key={`${card.kind}-${index}`}
                         >
-                          {card.status === "stale"
-                            ? de
-                              ? "Veraltet"
-                              : "Stale"
-                            : card.kind}
-                        </Badge>
-                        {card.href ? (
-                          <Link href={card.href}>
-                            <ExternalLink aria-hidden="true" />
-                            {card.label}
-                          </Link>
-                        ) : (
-                          <span>{card.label}</span>
-                        )}
-                        {card.kind === "asset" &&
-                          card.status === "approved" &&
-                          card.href && (
-                            <Image
-                              unoptimized
-                              src={card.href}
-                              width={160}
-                              height={100}
-                              alt={card.label}
-                            />
+                          <Badge
+                            tone={
+                              card.status === "stale"
+                                ? "warning"
+                                : card.kind === "asset"
+                                  ? "blue"
+                                  : "neutral"
+                            }
+                          >
+                            {card.status === "stale"
+                              ? de
+                                ? "Veraltet"
+                                : "Stale"
+                              : card.kind}
+                          </Badge>
+                          {card.href ? (
+                            <Link href={card.href}>
+                              <ExternalLink aria-hidden="true" />
+                              {card.label}
+                            </Link>
+                          ) : (
+                            <span>{card.label}</span>
                           )}
-                      </div>
-                    ))}
+                          {card.kind === "asset" &&
+                            card.status === "approved" &&
+                            card.href && (
+                              <Image
+                                unoptimized
+                                src={card.href}
+                                width={160}
+                                height={100}
+                                alt={card.label}
+                              />
+                            )}
+                        </div>
+                      ))}
                   </div>
                 )}
               </article>

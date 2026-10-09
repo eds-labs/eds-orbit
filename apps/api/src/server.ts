@@ -67,6 +67,17 @@ import {
 import { cancelContentPackage } from "./modules/agents/content-packages.ts";
 import { attachPackageImage } from "./modules/agents/package-image.ts";
 import { cancelPackageSchedule } from "./modules/agents/package-schedule.ts";
+import {
+  agentsEnabled,
+  setAssignmentStatus,
+} from "./modules/agents/assignments.ts";
+import {
+  assignmentStatusInput,
+  listAssignments,
+  upcomingAssignmentPosts,
+  vetoInput,
+} from "./modules/agents/assignment-overview.ts";
+import { vetoPublication } from "./modules/agents/veto.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
   configureSlack,
@@ -227,12 +238,16 @@ import {
 } from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
-// Orbit Telegram bot routes (Orbit Agents), by registered pattern.
-const TELEGRAM_ROUTES = new Set([
+// Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
+const AGENT_ROUTES = new Set([
   "/api/telegram/:projectId/:connectionId",
   "/api/projects/:projectId/telegram",
   "/api/projects/:projectId/telegram/connect",
   "/api/projects/:projectId/telegram/disconnect",
+  "/api/projects/:projectId/assignments",
+  "/api/projects/:projectId/assignments/:id/status",
+  "/api/projects/:projectId/assignment-posts",
+  "/api/projects/:projectId/publications/:id/veto",
 ]);
 // The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
 const UUID_SEGMENT =
@@ -302,11 +317,11 @@ export async function buildServer(
   );
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
-    // Orbit Telegram bot routes do not exist while Orbit Agents is off: the
-    // same 404 before Origin checking, body parsing and authentication. The
+    // Orbit Agents routes do not exist while Orbit Agents is off: the same
+    // 404 before Origin checking, body parsing and authentication. The
     // matched route pattern is checked, not the raw URL, so percent-encoded
     // paths cannot slip past (R62); each handler checks again.
-    if (TELEGRAM_ROUTES.has(req.routeOptions.url ?? "") && !telegramEnabled())
+    if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
       throw new DomainError("NOT_FOUND", 404);
     // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
@@ -866,6 +881,59 @@ export async function buildServer(
     return disconnectTelegram(
       await scopeFor(auth, req, projectId, true, true),
       { fetch: options?.telegramFetch },
+    );
+  });
+  // Orbit Agents for the web: assignments and their upcoming posts (404 while off).
+  app.get("/api/projects/:projectId/assignments", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      listAssignments(tx, scope),
+    );
+  });
+  // Pause and end are an editor's; resuming is the owner's (setAssignmentStatus).
+  app.post("/api/projects/:projectId/assignments/:id/status", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    const input = assignmentStatusInput.parse(req.body);
+    const saved = await scoped(scope.workspaceId, projectId, (tx) =>
+      setAssignmentStatus(
+        tx,
+        scope,
+        z.uuid().parse(id),
+        input.status,
+        input.version,
+      ),
+    );
+    return { id: saved.id, version: saved.version, status: data(saved).status };
+  });
+  app.get("/api/projects/:projectId/assignment-posts", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        upcomingAssignmentPosts(tx, scope),
+      ),
+    };
+  });
+  // Stop in Orbit (spec §10 fallback): the same veto as the bot's Stop button.
+  app.post("/api/projects/:projectId/publications/:id/veto", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    const input = vetoInput.parse(req.body);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      vetoPublication(
+        tx,
+        scope,
+        z.uuid().parse(id),
+        input.version,
+        "orbit",
+        input.reason,
+      ),
     );
   });
   app.get("/api/projects/:projectId/google-drive", async (req) => {

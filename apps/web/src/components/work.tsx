@@ -70,6 +70,7 @@ import {
 import { CreativeRenderer } from "./advanced";
 import { useWorkspace } from "./workspace-context";
 import { ActionRequestInbox } from "./action-request-inbox";
+import { UpcomingAssignmentPosts } from "./assignments";
 export function useCollection(name: string) {
   const { project, revision } = useWorkspace();
   return useResource<{ items: Entity[] }>(
@@ -2125,6 +2126,7 @@ export function ApprovalInbox() {
         }}
       />
       <PausedPublications />
+      <UpcomingAssignmentPosts />
       <AutopilotApprovals />
       <ActionRequestInbox />
       {resolve.error && <Alert kind="error">{resolve.error}</Alert>}

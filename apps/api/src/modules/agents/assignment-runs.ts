@@ -364,6 +364,31 @@ export async function planAssignmentRuns(
 }
 
 /**
+ * Earliest future time at which a run of this assignment becomes due (its
+ * preparation start), or null when it has none pending: not active, paused
+ * project, or every due day already has a run.
+ */
+export async function nextAssignmentRunAt(
+  tx: DbTx,
+  scope: Scope,
+  row: { id: string; data: unknown },
+  timezone: string,
+  now = new Date(),
+) {
+  if (data(row).status !== "active") return null;
+  const known = await plannedDates(tx, scope, row.id, localDate(now, timezone));
+  let next: Date | null = null;
+  for (const due of dueDays(data(row).schedule, timezone, now))
+    if (
+      !known.has(due.date) &&
+      due.createAt > now &&
+      (!next || due.createAt < next)
+    )
+      next = due.createAt;
+  return next;
+}
+
+/**
  * Earliest future time at which a run becomes due, so the sweep wakes up for
  * it without any other write; null when nothing is pending.
  */
@@ -377,17 +402,16 @@ export async function nextAssignmentPlanAt(
     where: { id: scope.projectId },
   });
   if (project.paused) return null;
-  const today = localDate(now, project.timezone);
   let next: Date | null = null;
   for (const row of await activeAssignments(tx, scope)) {
-    const known = await plannedDates(tx, scope, row.id, today);
-    for (const due of dueDays(data(row).schedule, project.timezone, now))
-      if (
-        !known.has(due.date) &&
-        due.createAt > now &&
-        (!next || due.createAt < next)
-      )
-        next = due.createAt;
+    const due = await nextAssignmentRunAt(
+      tx,
+      scope,
+      row,
+      project.timezone,
+      now,
+    );
+    if (due && (!next || due < next)) next = due;
   }
   return next;
 }
