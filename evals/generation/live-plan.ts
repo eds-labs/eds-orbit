@@ -80,11 +80,16 @@ export type LivePlan = {
   runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
 };
 
-function ceilingMicros(env: LiveEnv) {
+/**
+ * The cost ceiling in USD micros from ORBIT_EVAL_MAX_USD: unset means
+ * `maxUsd`, a higher value is clamped to it, an empty or malformed one is
+ * EVAL_MAX_USD_INVALID. Shared by every live eval; each passes its own maximum.
+ */
+export function ceilingMicros(env: LiveEnv, maxUsd = CEILING_USD) {
   const raw = env.ORBIT_EVAL_MAX_USD;
   // Unset means the default; an empty or malformed value is an error.
-  const usd = raw === undefined ? CEILING_USD : Number(raw);
-  const micros = Math.round(Math.min(usd, CEILING_USD) * 1_000_000);
+  const usd = raw === undefined ? maxUsd : Number(raw);
+  const micros = Math.round(Math.min(usd, maxUsd) * 1_000_000);
   if (
     (raw !== undefined && raw.trim() === "") ||
     !Number.isFinite(usd) ||
@@ -95,27 +100,39 @@ function ceilingMicros(env: LiveEnv) {
   return micros;
 }
 
+/**
+ * The eval rate card with its verification date applied to every model.
+ * Refuses a card older than 31 days (EVAL_RATE_CARD_STALE) or dated in the
+ * future (EVAL_RATE_CARD_FUTURE). Shared by every live eval.
+ */
+export function evalRateCard(
+  file: Pick<CandidatesFile, "verifiedAt" | "rateCard">,
+  now = Date.now(),
+): OpenAiRuntimeConfig["rateCard"] {
+  const verified = new Date(file.verifiedAt).valueOf();
+  // A future date would never go stale, so it is rejected as well.
+  if (verified > now) throw new Error("EVAL_RATE_CARD_FUTURE");
+  if (now - verified > RATE_MAX_AGE_MS) throw new Error("EVAL_RATE_CARD_STALE");
+  return Object.fromEntries(
+    Object.entries(file.rateCard).map(([model, rate]) => [
+      model,
+      { ...rate, verifiedAt: file.verifiedAt },
+    ]),
+  );
+}
+
 export function planLiveEval(
   env: LiveEnv,
   fixtures: { datasetVersion: string; cases: EvalCase[] },
   file: CandidatesFile,
   now = Date.now(),
 ): LivePlan {
-  const verified = new Date(file.verifiedAt).valueOf();
-  // A future date would never go stale, so it is rejected as well.
-  if (verified > now) throw new Error("EVAL_RATE_CARD_FUTURE");
-  if (now - verified > RATE_MAX_AGE_MS) throw new Error("EVAL_RATE_CARD_STALE");
+  const rateCard = evalRateCard(file, now);
   const models = [
     ...new Set(file.candidates.map((candidate) => candidate.route.model)),
   ];
   if ([...models, EMBEDDING_MODEL].some((model) => !file.rateCard[model]))
     throw new Error("EVAL_CANDIDATE_NOT_PRICED");
-  const rateCard = Object.fromEntries(
-    Object.entries(file.rateCard).map(([model, rate]) => [
-      model,
-      { ...rate, verifiedAt: file.verifiedAt },
-    ]),
-  );
   const maxCostMicros = ceilingMicros(env);
   let worstCaseMicros = 0;
   for (const item of fixtures.cases) {

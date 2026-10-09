@@ -18,13 +18,17 @@ export const IMAGE_MAX = 50_000;
  * verified official link, one usable and one expired fact, an active index and
  * priced synthetic text, embedding and image models. No real credential.
  */
-export async function createPackageProject() {
+export async function createPackageProject(
+  // One name for the workspace, the project and every user, so an eval can
+  // find and remove the residue of a hard-killed run by it.
+  options: { name?: string } = {},
+) {
   const users: string[] = [];
   const syntheticUser = async () => {
     const row = await authDb.user.create({
       data: {
         id: randomUUID(),
-        name: "Synthetic package user",
+        name: options.name ?? "Synthetic package user",
         email: `${randomUUID()}@example.invalid`,
       },
     });
@@ -34,14 +38,14 @@ export async function createPackageProject() {
   const ownerId = await syntheticUser();
   const workspace = await authDb.workspace.create({
     data: {
-      name: "Content packages",
+      name: options.name ?? "Content packages",
       members: { create: { userId: ownerId, role: "owner" } },
     },
   });
   const project = await authDb.project.create({
     data: {
       workspaceId: workspace.id,
-      name: "Content package project",
+      name: options.name ?? "Content package project",
       timezone: "Europe/Berlin",
     },
   });

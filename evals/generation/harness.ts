@@ -673,11 +673,13 @@ function summarize(
 }
 
 /** Evals write and delete rows; they never run against a remote database. */
-function assertLocalDatabase() {
+export function assertLocalDatabase(
+  env: Record<string, string | undefined> = process.env,
+) {
   for (const key of ["DATABASE_URL", "AUTH_DATABASE_URL"]) {
     let host = "";
     try {
-      host = new URL(process.env[key] ?? "").hostname;
+      host = new URL(env[key] ?? "").hostname;
     } catch {
       // Unparsable or missing counts as not local.
     }
@@ -685,18 +687,21 @@ function assertLocalDatabase() {
   }
 }
 
-/** Removes residue of hard-killed evals: marker-named rows older than STALE_AFTER_MS. */
-async function removeStaleEvals() {
+/**
+ * Removes residue of hard-killed evals: rows named `marker` older than
+ * STALE_AFTER_MS (the workspace cascades to its project, configuration and key).
+ */
+export async function removeStaleEvals(marker = EVAL_MARKER) {
   const before = new Date(Date.now() - STALE_AFTER_MS);
   const stale = await authDb.workspace.findMany({
-    where: { name: EVAL_MARKER, createdAt: { lt: before } },
+    where: { name: marker, createdAt: { lt: before } },
     select: { id: true },
   });
   for (const { id } of stale) await authDb.workspace.delete({ where: { id } });
   // Only marker users that no longer belong to any workspace.
   await authDb.user.deleteMany({
     where: {
-      name: EVAL_MARKER,
+      name: marker,
       email: { endsWith: "@example.invalid" },
       createdAt: { lt: before },
       memberships: { none: {} },
