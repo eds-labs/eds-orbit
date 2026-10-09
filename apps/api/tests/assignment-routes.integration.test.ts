@@ -401,6 +401,52 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     ).toEqual([blocked.id]);
   });
 
+  it("lets only the owner release an assignment draft and lists drafts to every member", async () => {
+    const assignment = await confirmed();
+    let r = await request("viewer", "GET", "assignment-drafts");
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toEqual({ items: [] });
+    // A draft that is not an assignment draft is not found; roles are checked first.
+    const plain = await run((tx) =>
+      create(tx, project.owner, "content", {
+        title: "Plain",
+        type: "social",
+        channel: X,
+        status: "needs_review",
+        body: "Not from an assignment.",
+      }),
+    );
+    for (const who of ["viewer", "editor"] as const) {
+      r = await request(who, "POST", `assignment-drafts/${plain.id}/release`, {
+        version: plain.version,
+      });
+      expect([who, r.statusCode]).toEqual([who, 403]);
+    }
+    r = await request(
+      "owner",
+      "POST",
+      `assignment-drafts/${plain.id}/release`,
+      {
+        version: plain.version,
+      },
+    );
+    expect([r.statusCode, r.json().error.code]).toEqual([404, "NOT_FOUND"]);
+    r = await request(
+      "owner",
+      "POST",
+      `assignment-drafts/${plain.id}/release`,
+      {
+        version: 0,
+      },
+    );
+    expect(r.statusCode).toBe(400);
+    const unchanged = await run((tx) =>
+      entity(tx, project.owner, "content", plain.id),
+    );
+    expect(unchanged.version).toBe(plain.version);
+    expect(data(assignment).status).toBe("active");
+  });
+
   it("answers already_handed_over for a post Postiz already has", async () => {
     const assignment = await confirmed();
     const handed = await assignmentPost(assignment.id, "scheduled_remote", {
@@ -565,6 +611,13 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
           { status: "paused", version: assignment.version },
         ],
         ["owner", "GET", "assignment-posts", undefined],
+        ["owner", "GET", "assignment-drafts", undefined],
+        [
+          "owner",
+          "POST",
+          `assignment-drafts/${post.id}/release`,
+          { version: 1 },
+        ],
         [
           "owner",
           "POST",

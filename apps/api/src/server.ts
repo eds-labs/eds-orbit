@@ -78,10 +78,15 @@ import {
 } from "./modules/agents/assignments.ts";
 import {
   assignmentStatusInput,
+  draftsAwaitingOwner,
   listAssignments,
   upcomingAssignmentPosts,
   vetoInput,
 } from "./modules/agents/assignment-overview.ts";
+import {
+  releaseAssignmentDraft,
+  releaseInput,
+} from "./modules/agents/owner-release.ts";
 import { vetoPublication } from "./modules/agents/veto.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
@@ -254,6 +259,8 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/assignments/autopilot-migration",
   "/api/projects/:projectId/assignment-posts",
   "/api/projects/:projectId/publications/:id/veto",
+  "/api/projects/:projectId/assignment-drafts",
+  "/api/projects/:projectId/assignment-drafts/:id/release",
 ]);
 // The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
 const UUID_SEGMENT =
@@ -970,6 +977,32 @@ export async function buildServer(
       ),
     );
   });
+  // Assignment drafts left for the owner (R70): the list, and the owner's release of one.
+  app.get("/api/projects/:projectId/assignment-drafts", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        draftsAwaitingOwner(tx, scope),
+      ),
+    };
+  });
+  app.post(
+    "/api/projects/:projectId/assignment-drafts/:id/release",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId, id } = req.params as {
+        projectId: string;
+        id: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      const input = releaseInput.parse(req.body);
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        releaseAssignmentDraft(tx, scope, z.uuid().parse(id), input.version),
+      );
+    },
+  );
   app.get("/api/projects/:projectId/google-drive", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return connectionStatus(await scopeFor(auth, req, projectId));

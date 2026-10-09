@@ -269,6 +269,23 @@ async function releasedByVeto(
   return agentReviewAccepted(tx, scope, content);
 }
 
+/**
+ * A mission's own publishing right for one content. An assignment mission's
+ * right covers only the post the owner released (`publishAuthorizedBy`,
+ * owner-release.ts, R70), never another text on the same mission.
+ */
+function missionMayPublish(
+  mission: Record<string, any>,
+  action: "publish_test" | "publish_live",
+  contentId: string,
+) {
+  return (
+    (mission.allowedActions ?? []).includes(action) &&
+    (!mission.assignmentRunId ||
+      mission.publishAuthorizedBy?.contentId === contentId)
+  );
+}
+
 export async function preflight(
   tx: DbTx,
   scope: Scope,
@@ -306,7 +323,7 @@ export async function preflight(
     if (
       options.test &&
       m.allowedActions &&
-      !m.allowedActions.includes("publish_test") &&
+      !missionMayPublish(m, "publish_test", contentId) &&
       !(await vetoReleased())
     )
       blockers.push("MISSION_TEST_WRITE_NOT_AUTHORIZED");
@@ -455,7 +472,7 @@ export async function preflight(
     if (c.missionId) {
       const mission = await entity(tx, scope, "missions", c.missionId);
       if (
-        !(data(mission).allowedActions ?? []).includes("publish_live") &&
+        !missionMayPublish(data(mission), "publish_live", contentId) &&
         !(await vetoReleased())
       )
         blockers.push("MISSION_LIVE_WRITE_NOT_AUTHORIZED");

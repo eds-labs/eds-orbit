@@ -49,10 +49,25 @@ export type UpcomingPost = {
   channel: string;
   channelName: string | null;
   scheduledAt: string;
-  vetoDeadline: string;
+  // Null for a post the owner released: it has no veto window.
+  vetoDeadline: string | null;
   excerpt: string;
   assignmentId: string | null;
   assignmentName: string | null;
+  ownerReleased: boolean;
+};
+/** One row of `GET /assignment-drafts`: a draft that waits for the owner's release. */
+export type AwaitingOwnerDraft = {
+  id: string;
+  version: number;
+  channel: string;
+  channelName: string | null;
+  slotAt: string;
+  excerpt: string;
+  assignmentId: string;
+  assignmentName: string | null;
+  agentApproved: boolean;
+  problems: string[];
 };
 type Role = "owner" | "editor" | "viewer";
 type NextStatus = "paused" | "active" | "ended";
@@ -455,7 +470,14 @@ export function UpcomingPostList({
             )}
           </p>
           <pre className="autopilot-approval-body">{item.excerpt}</pre>
-          {Date.parse(item.vetoDeadline) <= now ? (
+          {item.vetoDeadline === null ? (
+            // Released by the owner: no veto window, Stop works until the handoff.
+            <p className="panel-note">
+              {de
+                ? "Vom Owner freigegeben – kein Veto-Fenster."
+                : "Released by the owner – no veto window."}
+            </p>
+          ) : Date.parse(item.vetoDeadline) <= now ? (
             // Past the deadline but not claimed yet: Stop still works until the handoff.
             <p className="panel-note">
               {de
@@ -493,24 +515,126 @@ export function UpcomingPostList({
 }
 
 /**
+ * Assignment drafts left for the owner (R70): the review left them, no bot
+ * is linked, or agent review authority is off. Only an owner releases one;
+ * the release schedules it at its run slot (or the next free one that day).
+ */
+export function AwaitingOwnerDraftList({
+  items,
+  de,
+  timezone,
+  canRelease,
+  pending,
+  onRelease,
+}: {
+  items: AwaitingOwnerDraft[];
+  de: boolean;
+  timezone: string;
+  canRelease: boolean;
+  pending: boolean;
+  onRelease: (draft: AwaitingOwnerDraft) => void;
+}) {
+  if (!items.length) return null;
+  const locale = de ? "de" : "en";
+  return (
+    <section className="panel autopilot-approvals">
+      <div className="panel-head">
+        <div>
+          <h2>
+            {de ? "Wartet auf deine Freigabe" : "Waiting for your release"}
+          </h2>
+          <p>
+            {de
+              ? "Diese Entwürfe aus Aufträgen gehen erst raus, wenn ein Owner sie freigibt. Die Freigabe plant den Post zum Termin seines Laufs ein oder, wenn der belegt oder vorbei ist, zum nächsten freien Termin desselben Tages."
+              : "These assignment drafts go out only once an owner releases them. Releasing schedules the post at its run's slot or, if that is taken or past, at the next free slot of the same day."}
+          </p>
+        </div>
+      </div>
+      {items.map((item) => (
+        <article key={item.id} className="autopilot-approval">
+          <p className="panel-note">
+            {when(item.slotAt, locale, timezone)} ·{" "}
+            {item.channelName ?? item.channel}
+            {item.assignmentName && ` · ${item.assignmentName}`}
+            {item.problems.map((code) => (
+              <span key={code}>
+                {" "}
+                <Badge tone="warning">{code}</Badge>
+              </span>
+            ))}
+          </p>
+          <pre className="autopilot-approval-body">{item.excerpt}</pre>
+          <p className="panel-note">
+            {item.agentApproved
+              ? de
+                ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
+                : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
+              : de
+                ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
+                : "The review agent left this draft to you."}
+          </p>
+          {canRelease ? (
+            <div className="form-actions">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => onRelease(item)}
+              >
+                {de ? "Freigeben" : "Release"}
+              </Button>
+            </div>
+          ) : (
+            <p className="panel-note">
+              {de
+                ? "Nur ein Owner kann freigeben."
+                : "Only an owner can release it."}
+            </p>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
+
+/**
  * Approvals page fallback (spec §10): upcoming assignment posts with Stop,
- * independent of Telegram delivery. Hidden while Orbit Agents is off or
- * nothing is upcoming.
+ * independent of Telegram delivery, and below them the drafts that wait for
+ * the owner's release (R70). Hidden while Orbit Agents is off or nothing is
+ * upcoming or waiting.
  */
 export function UpcomingAssignmentPosts() {
-  const { locale, project, revision, canEdit, refresh } = useWorkspace();
+  const { locale, project, revision, canEdit, isOwner, refresh } =
+    useWorkspace();
   const de = locale === "de";
   const posts = useResource<{ items: UpcomingPost[] }>(
     collectionPath(project.id, `assignment-posts?revision=${revision}`),
   );
+  const waiting = useResource<{ items: AwaitingOwnerDraft[] }>(
+    collectionPath(project.id, `assignment-drafts?revision=${revision}`),
+  );
   const known = useKnownData(project.id, posts.data, posts.error);
+  const knownDrafts = useKnownData(
+    `${project.id}:drafts`,
+    waiting.data,
+    waiting.error,
+  );
   const [handedOver, setHandedOver] = useState<string[]>([]);
   const mutation = useMutation();
   const items = known?.items ?? [];
-  if (agentsOff(posts.error) || (!items.length && !posts.error)) return null;
+  const drafts = knownDrafts?.items ?? [];
+  const error =
+    (!agentsOff(posts.error) && posts.error) ||
+    (!agentsOff(waiting.error) && waiting.error) ||
+    null;
+  if (
+    (agentsOff(posts.error) && agentsOff(waiting.error)) ||
+    (!items.length && !drafts.length && !error)
+  )
+    return null;
   return (
     <>
-      {posts.error && <Alert kind="error">{posts.error.message}</Alert>}
+      {error && <Alert kind="error">{error.message}</Alert>}
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
       {items.length > 0 && (
         <UpcomingPostList
@@ -539,6 +663,29 @@ export function UpcomingAssignmentPosts() {
           }
         />
       )}
+      <AwaitingOwnerDraftList
+        items={drafts}
+        de={de}
+        timezone={project.timezone}
+        canRelease={isOwner}
+        pending={mutation.pending}
+        onRelease={(item) =>
+          mutation.run(async () => {
+            await refreshOnConflict(
+              () =>
+                post(
+                  collectionPath(
+                    project.id,
+                    `assignment-drafts/${item.id}/release`,
+                  ),
+                  { version: item.version },
+                ),
+              refresh,
+            );
+            refresh();
+          })
+        }
+      />
     </>
   );
 }

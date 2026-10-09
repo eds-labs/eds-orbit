@@ -130,20 +130,29 @@ async function committedBudget(tx: DbTx, scope: Scope, selfId: string | null) {
     .reduce((sum, row) => sum + Number(data(row).monthlyBudgetMicros ?? 0), 0);
 }
 
+/**
+ * Report assignments have no delivery yet: nothing sends a run's findings to
+ * the bot or the chat, so a report would cost money and deliver nothing
+ * (R70, I6). They are refused wherever an assignment is proposed, changed,
+ * confirmed or resumed, until a report delivery exists.
+ */
+export const REPORT_NOT_AVAILABLE = "REPORT_NOT_AVAILABLE";
+
 async function assertWithinMandate(
   tx: DbTx,
   scope: Scope,
   content: Content,
   selfId: string | null,
 ) {
+  if (content.contentType === "report")
+    throw new DomainError(REPORT_NOT_AVAILABLE, 409);
   const policy = await activePolicy(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const mandate = data(policy);
-  // A report publishes nothing, so channel and content type scopes do not apply.
+  // Reports are refused above (R70); a report delivery must exempt them from this channel scope again.
   if (
-    content.contentType !== "report" &&
-    (content.channels.some((channel) => !mandate.channels?.includes(channel)) ||
-      !mandate.contentTypes?.includes(content.contentType))
+    content.channels.some((channel) => !mandate.channels?.includes(channel)) ||
+    !mandate.contentTypes?.includes(content.contentType)
   )
     throw new DomainError("SCOPE_NOT_ALLOWED", 409);
   const committed = await committedBudget(tx, scope, selfId);

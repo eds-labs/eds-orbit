@@ -222,19 +222,12 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
     );
   });
 
-  it("takes a report without channels and ignores the channel scope for it", async () => {
+  it("refuses report assignments until a report delivery exists (R70, I6)", async () => {
     const report = {
       contentType: "report" as const,
       channels: [] as string[],
     };
-    const { assignment, actionRequest } = await propose(report);
-    expect(data(assignment).channels).toEqual([]);
-    await decide(project.owner, actionRequest);
-    expect(data(await assignmentOf(assignment.id)).status).toBe("active");
-    // Budget still applies to a report.
-    await expect(
-      propose({ ...report, monthlyBudgetMicros: 80_000_000 }),
-    ).rejects.toThrow("ASSIGNMENT_BUDGET_EXCEEDS_PROJECT");
+    // The input shape stays valid: no channels for a report, at least one otherwise.
     expect(assignmentInput.safeParse({ ...base, ...report }).success).toBe(
       true,
     );
@@ -244,6 +237,47 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
     expect(assignmentInput.safeParse({ ...base, channels: [] }).success).toBe(
       false,
     );
+    // Proposing one is refused and saves nothing.
+    await expect(propose(report)).rejects.toThrow("REPORT_NOT_AVAILABLE");
+    expect(await run((tx) => list(tx, project.owner, "assignments"))).toEqual(
+      [],
+    );
+    // A social draft cannot be changed into one either.
+    const { assignment } = await propose();
+    await expect(edit(assignment.id, report)).rejects.toThrow(
+      "REPORT_NOT_AVAILABLE",
+    );
+    // A report draft saved before this rule cannot be confirmed.
+    const { actionRequest } = await propose();
+    await run(async (tx) => {
+      const row = await entity(
+        tx,
+        project.owner,
+        "assignments",
+        data(actionRequest).payload.assignmentId,
+      );
+      await update(tx, project.owner, row, { ...data(row), ...report });
+      const request = await entity(
+        tx,
+        project.owner,
+        "action_requests",
+        actionRequest.id,
+      );
+      await update(tx, project.owner, request, {
+        ...data(request),
+        payload: {
+          ...data(request).payload,
+          ...report,
+          assignmentHash: assignmentHash({ ...data(row), ...report }),
+        },
+      });
+    });
+    await expect(decide(project.owner, actionRequest)).rejects.toThrow(
+      "REPORT_NOT_AVAILABLE",
+    );
+    expect(
+      data(await assignmentOf(data(actionRequest).payload.assignmentId)).status,
+    ).toBe("draft");
   });
 
   it("rechecks the policy and budget when the owner decides", async () => {

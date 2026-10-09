@@ -52,7 +52,7 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { data, entity, list } from "../src/shared.ts";
+import { create, data, entity, list } from "../src/shared.ts";
 import {
   createConversation,
   getConversation,
@@ -294,12 +294,42 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
 
   it("returns invalid assignment input as a code with the invalid fields", async () => {
     const { results } = await turn(project.editor, [
-      [call("assignment_propose", proposeArgs({ contentType: "report" }))],
-      [answer("A report has no channels.")],
+      [call("assignment_propose", proposeArgs({ channels: [] }))],
+      [answer("A post needs a channel.")],
     ]);
     expect(results).toEqual([
       { error: "ASSIGNMENT_VALIDATION_FAILED", invalidFields: ["channels"] },
     ]);
+    expect(await run((tx) => list(tx, project.owner, "assignments"))).toEqual(
+      [],
+    );
+  });
+
+  it("does not offer report assignments (R70, I6)", async () => {
+    const { results } = await turn(project.editor, [
+      [
+        call(
+          "assignment_propose",
+          proposeArgs({ contentType: "report", channels: [] }),
+        ),
+      ],
+      [answer("Reports are not available yet.")],
+    ]);
+    // The schema no longer offers it; a model that sends it anyway gets the server's refusal.
+    expect(results).toEqual([{ error: "REPORT_NOT_AVAILABLE" }]);
+    expect(await run((tx) => list(tx, project.owner, "assignments"))).toEqual(
+      [],
+    );
+    // The tool as tool search handed it to the model.
+    const parameters = JSON.stringify(
+      (
+        (replay.inputs[1] as Array<Record<string, any>>).find(
+          (item) => item.type === "tool_search_output",
+        )!.tools as Array<Record<string, any>>
+      ).find((tool) => tool.name === "assignment_propose"),
+    );
+    expect(parameters).toContain('"newsletter"');
+    expect(parameters).not.toContain('"report"');
     expect(await run((tx) => list(tx, project.owner, "assignments"))).toEqual(
       [],
     );
@@ -517,6 +547,162 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
       [answer("No runs today.")],
     ]);
     expect(results).toEqual([{ date: expect.any(String), runs: [] }]);
+  });
+
+  it("reports a run's posts, drops, drafts left for the owner and stops from its scheduling and publications", async () => {
+    const assignmentId = await confirmed();
+    const today = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Berlin",
+    }).format(new Date());
+    const later = (hours: number) =>
+      new Date(Date.now() + hours * 3600000).toISOString();
+    const ids = await run(async (tx) => {
+      const runRow = await create(tx, project.owner, "assignment_runs", {
+        assignmentId,
+        date: today,
+        status: "done",
+        costMicros: 40,
+        steps: [],
+        slots: [],
+      });
+      const draft = (status: string, extra: Record<string, unknown> = {}) =>
+        create(tx, project.owner, "content", {
+          title: "Beta post",
+          type: "social",
+          channel: X,
+          status,
+          body: "Beta access is open for product teams.",
+          assignmentId,
+          assignmentRunId: runRow.id,
+          ...extra,
+        });
+      const post = (contentId: string, extra: Record<string, unknown>) =>
+        create(tx, project.owner, "publications", {
+          contentId,
+          channel: X,
+          status: "intent_created",
+          scheduledAt: later(4),
+          vetoDeadline: later(1),
+          vetoedAt: null,
+          assignmentId,
+          assignmentRunId: runRow.id,
+          remoteId: null,
+          test: true,
+          ...extra,
+        });
+      const scheduledDraft = await draft("reviewed");
+      const scheduled = await post(scheduledDraft.id, {});
+      const stoppedDraft = await draft("reviewed");
+      const stopped = await post(stoppedDraft.id, {
+        status: "canceled",
+        reason: "VETOED",
+        vetoedAt: later(0),
+        vetoSource: "telegram",
+      });
+      const sentDraft = await draft("reviewed");
+      const sent = await post(sentDraft.id, {
+        status: "published_test",
+        handoffAt: later(0),
+        remoteId: "test-remote",
+      });
+      const ownerDraft = await draft("reviewed");
+      const owned = await post(ownerDraft.id, {
+        vetoDeadline: undefined,
+        ownerReleasedAt: later(0),
+        ownerReleasedBy: project.owner.userId,
+        requestedSlotAt: later(3),
+      });
+      const droppedDraft = await draft("reviewed");
+      const waiting = await draft("needs_review", {
+        agentReviewDecision: { deterministicProblems: ["LINK_UNVERIFIED"] },
+      });
+      await tx.entity.update({
+        where: { id: runRow.id },
+        data: {
+          data: {
+            ...data(runRow),
+            scheduling: {
+              at: later(0),
+              publicationIds: [scheduled.id, stopped.id, sent.id],
+              dropped: [
+                {
+                  contentId: droppedDraft.id,
+                  briefKey: null,
+                  channel: X,
+                  requestedAt: later(2),
+                  code: "SLOT_UNAVAILABLE",
+                  at: later(0),
+                },
+              ],
+            },
+          },
+        },
+      });
+      return {
+        scheduled,
+        stopped,
+        sent,
+        owned,
+        droppedDraft,
+        waiting,
+      };
+    });
+    const { results } = await turn(project.viewer, [
+      [call("run_status", { assignmentId })],
+      [answer("Here is today.")],
+    ]);
+    const [report] = results[0].runs;
+    const byContent = new Map(
+      (report.deliverables as Array<Record<string, any>>).map((item) => [
+        item.contentId,
+        item,
+      ]),
+    );
+    expect(report.deliverables).toHaveLength(6);
+    expect(byContent.get(data(ids.scheduled).contentId)).toMatchObject({
+      outcome: "scheduled",
+      publicationId: ids.scheduled.id,
+      publicationStatus: "intent_created",
+      scheduledAt: data(ids.scheduled).scheduledAt,
+      vetoDeadline: data(ids.scheduled).vetoDeadline,
+      releasedBy: "agent",
+      handedOver: false,
+    });
+    expect(byContent.get(data(ids.stopped).contentId)).toMatchObject({
+      outcome: "stopped",
+      reason: "VETOED",
+      handedOver: false,
+    });
+    expect(byContent.get(data(ids.sent).contentId)).toMatchObject({
+      outcome: "published",
+      handedOver: true,
+    });
+    expect(byContent.get(data(ids.owned).contentId)).toMatchObject({
+      outcome: "scheduled",
+      releasedBy: "owner",
+      vetoDeadline: null,
+      requestedAt: data(ids.owned).requestedSlotAt,
+    });
+    expect(byContent.get(ids.droppedDraft.id)).toMatchObject({
+      outcome: "dropped",
+      publicationId: null,
+      reason: "SLOT_UNAVAILABLE",
+    });
+    expect(byContent.get(ids.waiting.id)).toMatchObject({
+      outcome: "awaiting_owner",
+      publicationId: null,
+      reason: "LINK_UNVERIFIED",
+    });
+    expect(report.vetoes).toEqual([
+      {
+        publicationId: ids.stopped.id,
+        contentId: data(ids.stopped).contentId,
+        channel: X,
+        scheduledAt: data(ids.stopped).scheduledAt,
+        vetoedAt: data(ids.stopped).vetoedAt,
+        source: "telegram",
+      },
+    ]);
   });
 
   const foundTools = () =>

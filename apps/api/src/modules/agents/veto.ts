@@ -53,6 +53,12 @@ export const withdrawable = (pub: Record<string, any>) =>
     !pub.handoffAt &&
     !pub.remoteId &&
     !pub.handoffCompletedAt);
+/**
+ * An assignment post: one with a veto window (scheduled by its run), or one
+ * the owner released without a window (owner-release.ts).
+ */
+export const assignmentPost = (pub: Record<string, any>) =>
+  Boolean(pub.vetoDeadline || pub.ownerReleasedAt);
 // Drafts that still wait for a decision keep their slot.
 const PENDING_DRAFT = ["draft", "needs_review", "reviewed"];
 // Same tolerance after the slot as the mission the copywriter creates.
@@ -61,7 +67,7 @@ const SLOT_WINDOW_MS = 2 * 3600000;
 const PREFERENCE_DAYS = 180;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type RunSlot = {
+export type RunSlot = {
   channel: string;
   at: string;
   // The slot the run was given, when the post moved for its veto window.
@@ -70,7 +76,7 @@ type RunSlot = {
   releasedAt?: string;
   releaseReason?: string;
 };
-type Dropped = {
+export type Dropped = {
   contentId: string;
   briefKey: string | null;
   channel: string;
@@ -79,7 +85,7 @@ type Dropped = {
   at: string;
 };
 
-const slotKey = (channel: string, at: string) =>
+export const slotKey = (channel: string, at: string) =>
   `${channel}@${new Date(at).toISOString()}`;
 
 /** Rows of a kind whose JSON field equals a value, oldest first. */
@@ -105,8 +111,9 @@ const rowsWhere = (
  * or the next free half hour after it on the same local day, under the same
  * rules as every other post. Of its own run only the slots still held in
  * this pass count (`held`, keys `channel@at`), never the deliverable's own.
+ * The owner's release (owner-release.ts) uses it with no veto window.
  */
-async function vetoSlot(
+export async function vetoSlot(
   tx: DbTx,
   scope: Scope,
   runId: string,
@@ -144,7 +151,7 @@ async function vetoSlot(
 }
 
 /** Moves the draft and its draft-only mission to `target`, so preflight checks the post at its new slot. */
-async function moveDraft(
+export async function moveDraft(
   tx: DbTx,
   scope: Scope,
   content: Awaited<ReturnType<typeof entity>>,
@@ -485,8 +492,8 @@ export async function vetoPublication(
       projectId: scope.projectId,
     },
   });
-  // Only assignment posts have a veto window.
-  if (!row || !data(row).vetoDeadline) return { result: "not_found" };
+  // Only assignment posts can be stopped here: those with a veto window and those the owner released.
+  if (!row || !assignmentPost(data(row))) return { result: "not_found" };
   const p = data(row);
   if (p.vetoedAt) return { result: "vetoed" };
   // Withdrawn before (assignment paused or ended): it will not go out either.
@@ -505,7 +512,8 @@ export async function vetoPublication(
     source,
     contentId: p.contentId,
     assignmentId: p.assignmentId ?? null,
-    vetoDeadline: p.vetoDeadline,
+    vetoDeadline: p.vetoDeadline ?? null,
+    ownerReleased: Boolean(p.ownerReleasedAt),
     reasonGiven: Boolean(reason?.trim()),
   });
   const rule = reason?.trim().slice(0, 2000);
@@ -533,8 +541,10 @@ export async function vetoPublication(
  * when it is paused, ends or runs out of budget (R20/R23), when its
  * confirmed content changes, or when the owner moves its times (their agent
  * review no longer matches the confirmation, R70): such posts publish
- * nothing more. Handed-over posts stay as they are. `extra` is recorded on
- * each withdrawn publication.
+ * nothing more. Posts the owner released (owner-release.ts) do not rest on
+ * an agent review, so only a pause or end withdraws them: a stopped
+ * assignment publishes nothing more. Handed-over posts stay as they are.
+ * `extra` is recorded on each withdrawn publication.
  */
 export async function withdrawAssignmentPublications(
   tx: DbTx,
@@ -557,9 +567,176 @@ export async function withdrawAssignmentPublications(
     "assignmentId",
     assignmentId,
   ))
-    if (data(row).vetoDeadline && withdrawable(data(row))) {
+    if (
+      (data(row).vetoDeadline ||
+        (data(row).ownerReleasedAt &&
+          (reason === "ASSIGNMENT_PAUSED" || reason === "ASSIGNMENT_ENDED"))) &&
+      withdrawable(data(row))
+    ) {
       await withdrawPublication(tx, scope, row, reason, extra);
       withdrawn++;
     }
   return { withdrawn };
+}
+
+// Publication statuses after which Postiz has the post, or had it.
+const PUBLISHED = ["published", "published_test"];
+const DELIVERABLES = 20;
+type Outcome =
+  | "scheduled"
+  | "handed_over"
+  | "published"
+  | "stopped"
+  | "withdrawn"
+  | "blocked"
+  | "failed"
+  | "dropped"
+  | "awaiting_owner";
+
+function publicationOutcome(p: Record<string, any>): {
+  outcome: Outcome;
+  reason: string | null;
+} {
+  if (p.vetoedAt) return { outcome: "stopped", reason: "VETOED" };
+  if (p.status === "intent_created")
+    return { outcome: "scheduled", reason: null };
+  if (PUBLISHED.includes(p.status))
+    return { outcome: "published", reason: null };
+  if (p.status === "canceled")
+    return { outcome: "withdrawn", reason: p.reason ?? null };
+  if (p.status === "failed")
+    return { outcome: "failed", reason: p.error ?? p.reason ?? null };
+  if (p.status === "blocked_dependency")
+    return {
+      outcome: "blocked",
+      reason: ((p.blockers ?? []) as string[]).join(",") || (p.reason ?? null),
+    };
+  // sending, scheduled_remote, outcome_unknown, reconciliation_required, …
+  return { outcome: "handed_over", reason: null };
+}
+
+/**
+ * What one run delivered, for `run_status` (R70, I5): its posts from its
+ * publications (scheduled with a veto window or released by the owner; with
+ * status, slot, deadline and whether Postiz has them), the deliverables
+ * scheduling dropped (`scheduling.dropped`, with the code), the drafts that
+ * wait for the owner's release, and the stops (`vetoedAt`, source).
+ */
+export async function runDeliverables(
+  tx: DbTx,
+  scope: Scope,
+  run: { id: string; data: unknown },
+) {
+  const r = data(run);
+  const linked = await rowsWhere(
+    tx,
+    scope,
+    PUBLICATIONS,
+    "assignmentRunId",
+    run.id,
+  );
+  const known = new Set(linked.map((row) => row.id));
+  const missing = ((r.scheduling?.publicationIds ?? []) as unknown[]).filter(
+    (id): id is string =>
+      typeof id === "string" && UUID.test(id) && !known.has(id),
+  );
+  const publications = [
+    ...linked,
+    ...(missing.length
+      ? await tx.entity.findMany({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: PUBLICATIONS,
+            id: { in: missing },
+          },
+        })
+      : []),
+  ];
+  const deliverables: Array<Record<string, unknown>> = [];
+  const vetoes: Array<Record<string, unknown>> = [];
+  const covered = new Set<string>();
+  for (const row of publications) {
+    const p = data(row);
+    covered.add(String(p.contentId));
+    const handedOver = Boolean(
+      p.handoffAt || p.remoteId || p.handoffCompletedAt,
+    );
+    const { outcome, reason } = publicationOutcome(p);
+    deliverables.push({
+      contentId: p.contentId,
+      channel: p.channel,
+      outcome,
+      reason,
+      publicationId: row.id,
+      publicationStatus: p.status,
+      scheduledAt: p.scheduledAt ?? null,
+      requestedAt: p.requestedSlotAt ?? null,
+      vetoDeadline: p.vetoDeadline ?? null,
+      releasedBy: p.ownerReleasedAt ? "owner" : "agent",
+      handedOver: handedOver || outcome === "handed_over",
+    });
+    if (p.vetoedAt)
+      vetoes.push({
+        publicationId: row.id,
+        contentId: p.contentId,
+        channel: p.channel,
+        scheduledAt: p.scheduledAt ?? null,
+        vetoedAt: p.vetoedAt,
+        source: p.vetoSource ?? null,
+      });
+  }
+  for (const entry of (r.scheduling?.dropped ?? []) as Dropped[]) {
+    if (covered.has(entry.contentId)) continue;
+    covered.add(entry.contentId);
+    deliverables.push({
+      contentId: entry.contentId,
+      channel: entry.channel,
+      outcome: "dropped",
+      reason: entry.code,
+      publicationId: null,
+      publicationStatus: null,
+      scheduledAt: null,
+      requestedAt: entry.requestedAt,
+      vetoDeadline: null,
+      releasedBy: null,
+      handedOver: false,
+    });
+  }
+  for (const draft of await rowsWhere(
+    tx,
+    scope,
+    "content",
+    "assignmentRunId",
+    run.id,
+  )) {
+    const c = data(draft);
+    if (
+      covered.has(draft.id) ||
+      c.status !== "needs_review" ||
+      c.supersededBy ||
+      c.type !== "social"
+    )
+      continue;
+    deliverables.push({
+      contentId: draft.id,
+      channel: c.channel,
+      outcome: "awaiting_owner",
+      reason:
+        ((c.agentReviewDecision?.deterministicProblems ?? []) as string[]).join(
+          ",",
+        ) || null,
+      publicationId: null,
+      publicationStatus: null,
+      scheduledAt: null,
+      requestedAt: c.scheduledAt ?? null,
+      vetoDeadline: null,
+      releasedBy: null,
+      handedOver: false,
+    });
+  }
+  return {
+    deliverables: deliverables.slice(0, DELIVERABLES),
+    vetoes: vetoes.slice(0, DELIVERABLES),
+  };
 }

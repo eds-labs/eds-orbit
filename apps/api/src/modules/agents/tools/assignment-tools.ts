@@ -4,6 +4,7 @@ import type { AssignmentCard, ChatCard } from "../../chat-tools.ts";
 import { zonedTime } from "../../posting-slots.ts";
 import { data, DomainError, entity, list } from "../../../shared.ts";
 import { runsMatching } from "../assignment-runs.ts";
+import { runDeliverables } from "../veto.ts";
 import { assignmentMonthSpend } from "../specialists/runner.ts";
 import {
   proposeAssignment,
@@ -37,7 +38,8 @@ const schedule = z
   })
   .strict();
 const kind = z.enum(["one_off", "standing"]);
-const contentType = z.enum(["social", "blog", "newsletter", "report"]);
+// No `report` until a report delivery exists (R70, I6): the server refuses it with REPORT_NOT_AVAILABLE.
+const contentType = z.enum(["social", "blog", "newsletter"]);
 
 const proposeParameters = z
   .object({
@@ -47,9 +49,7 @@ const proposeParameters = z
     contentType,
     channels: z
       .array(z.string())
-      .describe(
-        "Policy channel IDs from project_status; [] for a report, which is never published",
-      ),
+      .describe("Policy channel IDs from project_status, at least one"),
     topicFrame: z
       .string()
       .describe("What the posts are about, in the user's words"),
@@ -229,7 +229,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_propose",
     namespace: "assignments",
     description:
-      "Propose a standing or one-off assignment (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that.",
+      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Report assignments are not available yet.",
     parameters: proposeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],
@@ -422,7 +422,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "run_status",
     namespace: "assignments",
     description:
-      "Today's assignment runs: state, steps, cost, deliverables and vetoes. Report runs only from this tool.",
+      "Today's assignment runs: state, steps, cost, deliverables (outcome scheduled, handed_over, published, stopped, withdrawn, blocked, failed, dropped or awaiting_owner, with reason) and vetoes. Report runs only from this tool.",
     parameters: z
       .object({
         assignmentId: z
@@ -455,10 +455,17 @@ export const assignmentTools: readonly OrbitTool[] = [
             id,
             data(await entity(tx, context.scope, "assignments", id)).name,
           );
-        return { date, rows, names };
+        const results = new Map<
+          string,
+          Awaited<ReturnType<typeof runDeliverables>>
+        >();
+        for (const run of rows.slice(0, 20))
+          results.set(run.id, await runDeliverables(tx, context.scope, run));
+        return { date, rows, names, results };
       });
       const { date, names } = found;
-      // Run data is written by assignment-runs.ts: slots, unavailable, steps, costMicros.
+      // Run data is written by assignment-runs.ts (slots, unavailable, steps,
+      // costMicros) and veto.ts / owner-release.ts (scheduling, publications).
       const runs = found.rows.slice(0, 20).map((run) => {
         const d = data(run);
         return {
@@ -477,11 +484,8 @@ export const assignmentTools: readonly OrbitTool[] = [
             role: step.role,
             status: step.status,
           })),
-          // Filled by the review and veto steps (publication, Telegram).
-          deliverables: Array.isArray(d.deliverables)
-            ? d.deliverables.slice(0, 10)
-            : [],
-          vetoes: Array.isArray(d.vetoes) ? d.vetoes.slice(0, 10) : [],
+          // From the run's scheduling and publications (R70): posts, drops, drafts left for the owner, stops.
+          ...found.results.get(run.id)!,
         };
       });
       return { output: { date, runs }, cards: [] };

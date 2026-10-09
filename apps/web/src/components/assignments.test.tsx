@@ -10,8 +10,10 @@ import {
   nextSurface,
   refreshOnConflict,
   UpcomingPostList,
+  AwaitingOwnerDraftList,
   type AssignmentItem,
   type AutopilotMigration,
+  type AwaitingOwnerDraft,
   type UpcomingPost,
 } from "./assignments";
 
@@ -96,6 +98,7 @@ describe("UpcomingPostList", () => {
     excerpt: "Beta access is open for product teams.",
     assignmentId: "assignment",
     assignmentName: "Two posts a day",
+    ownerReleased: false,
   };
   const list = (
     handedOver: string[] = [],
@@ -136,6 +139,102 @@ describe("UpcomingPostList", () => {
     expect(list(["publication"])).toContain(
       "Bereits an Postiz übergeben – nur dort entfernbar",
     );
+  });
+});
+
+describe("UpcomingPostList for a post the owner released", () => {
+  it("shows no veto deadline but keeps Stop", () => {
+    const html = renderToStaticMarkup(
+      <UpcomingPostList
+        items={[
+          {
+            id: "publication",
+            version: 2,
+            status: "intent_created",
+            reason: null,
+            channel: "x-int",
+            channelName: "Synthetic X",
+            scheduledAt: "2026-10-10T15:00:00.000Z",
+            vetoDeadline: null,
+            excerpt: "Beta access is open for product teams.",
+            assignmentId: "assignment",
+            assignmentName: "Two posts a day",
+            ownerReleased: true,
+          },
+        ]}
+        now={Date.parse("2026-10-10T10:00:00.000Z")}
+        de
+        timezone="Europe/Berlin"
+        canStop
+        pending={false}
+        handedOver={[]}
+        onStop={() => {}}
+      />,
+    );
+    expect(html).toContain("Vom Owner freigegeben");
+    expect(html).not.toContain("Frist abgelaufen");
+    expect(html).toContain(">Stop<");
+  });
+});
+
+describe("AwaitingOwnerDraftList", () => {
+  const draft = (
+    changes: Partial<AwaitingOwnerDraft> = {},
+  ): AwaitingOwnerDraft => ({
+    id: "content",
+    version: 4,
+    channel: "x-int",
+    channelName: "Synthetic X",
+    slotAt: "2026-10-10T15:00:00.000Z",
+    excerpt: "Beta access is open for product teams.",
+    assignmentId: "assignment",
+    assignmentName: "Two posts a day",
+    agentApproved: true,
+    problems: [],
+    ...changes,
+  });
+  const render = (
+    items: AwaitingOwnerDraft[],
+    canRelease = true,
+    onRelease: (item: AwaitingOwnerDraft) => void = () => {},
+  ) =>
+    renderToStaticMarkup(
+      <AwaitingOwnerDraftList
+        items={items}
+        de
+        timezone="Europe/Berlin"
+        canRelease={canRelease}
+        pending={false}
+        onRelease={onRelease}
+      />,
+    );
+
+  it("lists drafts left for the owner with their slot and a release button for the owner", () => {
+    const html = render([draft()]);
+    expect(html).toContain("Wartet auf deine Freigabe");
+    expect(html).toContain("Beta access is open for product teams.");
+    expect(html).toContain("Synthetic X");
+    expect(html).toContain("Two posts a day");
+    expect(html).toContain(
+      when("2026-10-10T15:00:00.000Z", "de", "Europe/Berlin"),
+    );
+    expect(html).toContain(">Freigeben<");
+    expect(html).toContain("Vom Review-Agenten geprüft");
+  });
+
+  it("shows what the review left open and offers no button to others", () => {
+    const html = render(
+      [draft({ agentApproved: false, problems: ["LINK_UNVERIFIED"] })],
+      false,
+    );
+    expect(html).toContain("LINK_UNVERIFIED");
+    expect(html).toContain("Der Review-Agent hat diesen Entwurf an dich übergeben");
+    expect(html).not.toContain(">Freigeben<");
+    expect(html).toContain("Nur ein Owner kann freigeben");
+  });
+
+  it("renders nothing without drafts", () => {
+    expect(render([])).toBe("");
   });
 });
 

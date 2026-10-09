@@ -3,10 +3,13 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../shared.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
+import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
+import { agentsEnabled } from "./assignments.ts";
+import { localDate } from "./scheduling.ts";
 import { assignmentMonthSpend } from "./specialists/runner.ts";
 import { assignmentCardOf } from "./tools/assignment-tools.ts";
-import { withdrawable } from "./veto.ts";
+import { assignmentPost, withdrawable } from "./veto.ts";
 
 /**
  * Read models of Orbit Agents for the web (Task 14): the assignments page,
@@ -166,8 +169,9 @@ export async function conversationAssignments(
 
 /**
  * Assignment posts Orbit still holds (the veto allow-list, R56): created,
- * or blocked before any handoff, each with its slot, veto deadline, a text
- * excerpt and the assignment. Earliest slot first.
+ * or blocked before any handoff, each with its slot, veto deadline (null for
+ * a post the owner released, `ownerReleased`), a text excerpt and the
+ * assignment. Earliest slot first.
  */
 export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
   const rows = (
@@ -183,7 +187,7 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
       orderBy: { createdAt: "desc" },
       take: 200,
     })
-  ).filter((row) => data(row).vetoDeadline && withdrawable(data(row)));
+  ).filter((row) => assignmentPost(data(row)) && withdrawable(data(row)));
   const contents = await rowsById(
     tx,
     scope,
@@ -211,7 +215,9 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
         channel: p.channel,
         channelName: names.get(String(p.channel)) ?? null,
         scheduledAt: p.scheduledAt,
-        vetoDeadline: p.vetoDeadline,
+        // Null for a post the owner released: it has no veto window.
+        vetoDeadline: p.vetoDeadline ?? null,
+        ownerReleased: Boolean(p.ownerReleasedAt),
         excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
         assignmentId: p.assignmentId ?? null,
         assignmentName:
@@ -219,4 +225,105 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
       };
     })
     .sort((a, b) => String(a.scheduledAt).localeCompare(String(b.scheduledAt)));
+}
+
+/**
+ * Assignment drafts that wait for the owner's release (R70, I1): social
+ * drafts of a run that is not canceled, left `needs_review` by the review
+ * (R47/R49), without a linked bot or while agent review authority is off,
+ * whose assignment's confirmation still covers them and whose run slot is
+ * today or later (project time). Each comes with its run slot, a text
+ * excerpt, whether the review agent approved it and the problems it found.
+ * Earliest slot first. Empty while Orbit Agents is off.
+ */
+export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
+  if (!agentsEnabled()) return [];
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  const today = localDate(new Date(), project.timezone);
+  const rows = (
+    await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "content",
+        data: { path: ["status"], equals: "needs_review" },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    })
+  ).filter((row) => {
+    const d = data(row);
+    return (
+      typeof d.assignmentRunId === "string" &&
+      d.type === "social" &&
+      !d.supersededBy
+    );
+  });
+  const missions = await rowsById(
+    tx,
+    scope,
+    "missions",
+    rows.map((row) => data(row).missionId),
+  );
+  const runs = await rowsById(
+    tx,
+    scope,
+    "assignment_runs",
+    rows.map((row) => data(row).assignmentRunId),
+  );
+  const assignments = await rowsById(
+    tx,
+    scope,
+    "assignments",
+    rows.map((row) => data(row).assignmentId),
+  );
+  const names = await channelNames(tx, scope);
+  const items = [];
+  for (const row of rows) {
+    const d = data(row);
+    const run = runs.get(String(d.assignmentRunId));
+    const assignment = assignments.get(String(d.assignmentId));
+    const slotAt = String(
+      data(missions.get(String(d.missionId))).plannedSlotAt ??
+        d.scheduledAt ??
+        "",
+    );
+    if (
+      !run ||
+      data(run).status === "canceled" ||
+      !assignment ||
+      !confirmedHash(data(assignment)) ||
+      !withinConfirmation(data(assignment), d) ||
+      !Number.isFinite(Date.parse(slotAt)) ||
+      localDate(new Date(slotAt), project.timezone) < today
+    )
+      continue;
+    const text = String(d.body ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    items.push({
+      id: row.id,
+      version: row.version,
+      channel: d.channel,
+      channelName: names.get(String(d.channel)) ?? null,
+      slotAt,
+      excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
+      assignmentId: d.assignmentId,
+      assignmentName: data(assignment).name ?? null,
+      // The review agent approved the text; only its authority was missing.
+      agentApproved: Boolean(d.agentReview),
+      problems: [
+        ...new Set([
+          ...((d.agentReviewDecision?.deterministicProblems ?? []) as string[]),
+          // The missing owner review is what the release gives.
+          ...((d.review?.problems ?? []) as string[]).filter(
+            (code) => code !== "HUMAN_CONTENT_REVIEW_REQUIRED",
+          ),
+        ]),
+      ],
+    });
+  }
+  return items.sort((a, b) => a.slotAt.localeCompare(b.slotAt));
 }
