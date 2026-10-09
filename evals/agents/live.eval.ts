@@ -35,7 +35,7 @@ import {
   totals,
 } from "./live-plan.ts";
 import { parseReviewSet } from "./review-set.ts";
-import rawSet from "./review-v1.json" with { type: "json" };
+import rawSet from "./review-v2.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 

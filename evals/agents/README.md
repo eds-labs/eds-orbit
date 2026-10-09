@@ -1,8 +1,20 @@
 # Agent review evals
 
-Measures the Orbit Agents review step on the review set `review-v1.json`
-(21 cases: 8 good drafts to approve, 12 bad ones to reject, one bare host to
-leave for the owner). Every case goes through the production review step
+Measures the Orbit Agents review step on the review set `review-v2.json`
+(26 cases: 8 good drafts to approve, 17 bad ones to reject, one bare host to
+leave for the owner). `review-v1.json` stays unchanged as the record of the
+first live run (2026-10-09, FAIL, see
+`docs/plans/ORBIT_CORE_ROLLOUT_PLAN.md`, Approval J).
+
+The set follows Mario's rule for free text: an invitation, question or call
+to action that states nothing about the product, brand or offer needs no
+fact, as long as it fits voice, guardrails and tone; anything that states a
+capability, feature, figure, name, date, status, promise or outcome about the
+product, brand or offer needs a backing fact. Good cases therefore pair the
+fact with at most a plain question, invitation or call to action; the bad
+`unbacked_claim` cases add one unbacked capability or promise. Their recorded
+offline answer is a round-1 `reject`; a live `revise` passes too, because the
+unchanged revision must then be rejected in round 2. Every case goes through the production review step
 (`reviewStep` in `apps/api/src/modules/agents/specialists/review.ts`):
 Orbit's deterministic checks first, then the review specialist's real
 instructions, output schema and model call through `runSpecialist` (reserve,
@@ -41,7 +53,10 @@ No Telegram bot is linked, so no notification is queued.
    real key there) and run `pnpm eval:agent-review` without the variables
    below. It prints the dataset version, the cases, the `agent_review` route,
    the planned review calls (at most two per case; the cases the set expects
-   the deterministic checks to decide make none), the worst-case estimate,
+   the deterministic checks to decide make none), the worst-case estimate
+   (two calls for every case, about $1.98 for `review-v2` on the rate card of
+   2026-09-30, under the 2 USD ceiling; `live-dry-run.test.ts` fails if the
+   set outgrows it),
    the cost ceiling, the dataset hash, the hash of the review prompt and
    schema, the commit, and the confirmation, and transmits nothing.
 2. **Review.** Check the plan:

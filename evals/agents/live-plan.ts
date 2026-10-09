@@ -28,7 +28,7 @@ export const REVIEW_CEILING_USD = 2;
 const CALLS_PER_CASE = 2;
 // Upper bound of one review request (base and review instructions, output
 // schema, assignment, brand, one draft with facts and brief, up to five
-// channel posts of 240 characters). Measured at about 3,300 bytes for this
+// channel posts of 240 characters). Measured at about 3,800 bytes for this
 // set (live-harness.test.ts checks the bound); a planning bound only, because
 // each reservation uses the exact size.
 export const REVIEW_REQUEST_BYTES = 8_000;
