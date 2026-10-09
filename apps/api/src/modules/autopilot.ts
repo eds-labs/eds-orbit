@@ -410,54 +410,80 @@ export async function approveAndSchedule(tx: DbTx, scope: Scope, raw: unknown) {
 // An assignment names at most four channels; the autopilot allowed five.
 const ASSIGNMENT_CHANNELS = 4;
 
+/** Why saved autopilot settings give no proposal; the migration card shows it. */
+export type AutopilotProposalBlocker =
+  | "POSTING_TIME_REQUIRED"
+  | "ACTIVE_POLICY_REQUIRED"
+  | "NO_FREE_PROJECT_BUDGET";
+
 /**
  * The saved weekly autopilot as an Orbit Agents assignment: one social post
- * per channel and day at the earliest of the channels' posting times, about
- * the autopilot's verified facts, its assets as style references (and so an
- * image per run), with the share of the project's monthly budget that
- * confirmed assignments leave free. Null when no autopilot is saved or none of
- * its channels has a posting time any more. Only a proposal: it becomes a
+ * per channel and day at the earliest posting time of the channels it keeps,
+ * about the autopilot's verified facts, its assets as style references (and
+ * so an image per run), with the share of the project's monthly budget that
+ * confirmed assignments leave free. `proposal` is null without saved settings
+ * (`reason` null) or when no useful assignment can be proposed (`reason`
+ * says why); a zero budget is never proposed. Only a proposal: it becomes a
  * draft through proposeAssignment and runs after an owner confirms it.
  */
-export async function autopilotAsAssignment(
+async function autopilotProposal(
   tx: DbTx,
   scope: Scope,
-): Promise<AssignmentInput | null> {
+): Promise<{
+  proposal: AssignmentInput | null;
+  reason: AutopilotProposalBlocker | null;
+}> {
   const row = await autopilotSettings(tx, scope);
-  if (!row) return null;
+  if (!row) return { proposal: null, reason: null };
   const settings = data(row) as Settings;
+  const channels = settings.channels.slice(0, ASSIGNMENT_CHANNELS);
   const connector = (await list(tx, scope, "connectors")).find(
     (item) =>
       data(item).provider === "postiz" &&
       ["read_verified", "write_verified"].includes(data(item).status),
   );
   const times = connector
-    ? settings.channels
+    ? channels
         .map((channel) => postingTimeFor(data(connector), channel))
         .filter((value): value is string => value !== null)
         .sort()
     : [];
-  if (!times.length) return null;
+  if (!times.length) return { proposal: null, reason: "POSTING_TIME_REQUIRED" };
+  if (!(await activePolicy(tx, scope)))
+    return { proposal: null, reason: "ACTIVE_POLICY_REQUIRED" };
+  const budget = await freeAssignmentBudget(tx, scope);
+  if (budget <= 0) return { proposal: null, reason: "NO_FREE_PROJECT_BUDGET" };
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });
   const de = project.language.startsWith("de");
   const facts = settings.factKeys.join(", ");
   const assetIds = settings.assetIds ?? [];
-  return assignmentInput.parse({
-    name: de ? "Autopilot (übernommen)" : "Autopilot (migrated)",
-    kind: "standing",
-    schedule: { rhythm: "daily", weekdays: [], times: [times[0]] },
-    contentType: "social",
-    channels: settings.channels.slice(0, ASSIGNMENT_CHANNELS),
-    topicFrame: (de
-      ? `Ein Social-Post pro Kanal und Tag, der jeweils genau einen dieser verifizierten Fakten erklärt (übernommen aus dem Autopilot): ${facts}.`
-      : `One social post per channel and day, each explaining exactly one of these verified facts (taken over from the autopilot): ${facts}.`
-    ).slice(0, 2000),
-    image: assetIds.length > 0,
-    styleAssetIds: assetIds,
-    monthlyBudgetMicros: await freeAssignmentBudget(tx, scope),
-  });
+  return {
+    proposal: assignmentInput.parse({
+      name: de ? "Autopilot (übernommen)" : "Autopilot (migrated)",
+      kind: "standing",
+      schedule: { rhythm: "daily", weekdays: [], times: [times[0]] },
+      contentType: "social",
+      channels,
+      topicFrame: (de
+        ? `Ein Social-Post pro Kanal und Tag, der jeweils genau einen dieser verifizierten Fakten erklärt (übernommen aus dem Autopilot): ${facts}.`
+        : `One social post per channel and day, each explaining exactly one of these verified facts (taken over from the autopilot): ${facts}.`
+      ).slice(0, 2000),
+      image: assetIds.length > 0,
+      styleAssetIds: assetIds,
+      monthlyBudgetMicros: budget,
+    }),
+    reason: null,
+  };
+}
+
+/** The saved autopilot as an assignment input, or null (see autopilotProposal). */
+export async function autopilotAsAssignment(
+  tx: DbTx,
+  scope: Scope,
+): Promise<AssignmentInput | null> {
+  return (await autopilotProposal(tx, scope)).proposal;
 }
 
 /** The assignment proposed from the autopilot that is not ended yet, if any. */
@@ -476,12 +502,13 @@ async function migratedAssignment(tx: DbTx, scope: Scope) {
  * (until it ends).
  */
 export async function autopilotMigration(tx: DbTx, scope: Scope) {
-  const proposal = await autopilotAsAssignment(tx, scope);
+  const { proposal, reason } = await autopilotProposal(tx, scope);
   const names = await channelNames(tx, scope);
   const row = await migratedAssignment(tx, scope);
   const status = row ? String(data(row).status) : null;
   return {
     proposal,
+    reason,
     channelNames: Object.fromEntries(
       (proposal?.channels ?? [])
         .filter((id) => names.has(id))
@@ -508,12 +535,16 @@ export async function proposeAutopilotAssignment(scope: Scope) {
   if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   return chatScoped(scope, async (tx) => {
+    // One proposal at a time: the project lock scoped() also takes (re-entrant
+    // within this transaction) serializes the check and the create below.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scope.workspaceId + ":" + scope.projectId},0))`;
     if (await migratedAssignment(tx, scope))
       throw new DomainError("AUTOPILOT_ALREADY_PROPOSED", 409);
     const settings = await autopilotSettings(tx, scope);
-    const proposal = await autopilotAsAssignment(tx, scope);
-    if (!settings || !proposal)
-      throw new DomainError("AUTOPILOT_NOT_CONFIGURED", 409);
+    const { proposal, reason } = await autopilotProposal(tx, scope);
+    if (!settings) throw new DomainError("AUTOPILOT_NOT_CONFIGURED", 409);
+    if (!proposal)
+      throw new DomainError(reason ?? "AUTOPILOT_NOT_CONFIGURED", 409);
     const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
     });

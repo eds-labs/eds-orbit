@@ -129,7 +129,12 @@ describe.skipIf(!enabled)("Autopilot migration to assignments", () => {
 
     const before = await run((tx) => autopilotMigration(tx, project.owner));
     const channelNames = { [X]: "Synthetic X", [TELEGRAM]: "Synthetic Telegram" };
-    expect(before).toEqual({ proposal, channelNames, assignment: null });
+    expect(before).toEqual({
+      proposal,
+      reason: null,
+      channelNames,
+      assignment: null,
+    });
 
     const result = await proposeAutopilotAssignment(project.editor);
     const draft = await run((tx) =>
@@ -175,6 +180,7 @@ describe.skipIf(!enabled)("Autopilot migration to assignments", () => {
     expect((await settings())!.version).toBe(saved.version);
     expect(await run((tx) => autopilotMigration(tx, project.owner))).toEqual({
       proposal,
+      reason: null,
       channelNames,
       assignment: {
         id: draft.id,
@@ -208,6 +214,110 @@ describe.skipIf(!enabled)("Autopilot migration to assignments", () => {
     ).toBe(null);
     const second = await proposeAutopilotAssignment(project.editor);
     expect(second.assignment.id).not.toBe(first.assignment.id);
+  });
+
+  it("takes the time only from the channels the assignment keeps", async () => {
+    const extra = ["c3-int", "c4-int", "c5-int"];
+    await run(async (tx) => {
+      const connector = (await list(tx, project.owner, "connectors"))[0]!;
+      await update(tx, project.owner, connector, {
+        ...data(connector),
+        // The fifth channel, which an assignment cannot keep, has the earliest time.
+        postingTimes: {
+          [X]: "17:00",
+          [TELEGRAM]: "12:00",
+          "c3-int": "13:00",
+          "c4-int": "14:00",
+          "c5-int": "06:00",
+        },
+      });
+      await create(tx, project.owner, "autopilot_settings", {
+        enabled: true,
+        channels: [X, TELEGRAM, ...extra],
+        factKeys: ["beta.access"],
+        assetIds: [],
+        planWeekday: 1,
+        planTime: "08:00",
+        approvedBy: project.owner.userId,
+        approvedAt: new Date().toISOString(),
+      });
+    });
+    const proposal = await run((tx) =>
+      autopilotAsAssignment(tx, project.owner),
+    );
+    expect(proposal!.channels).toEqual([X, TELEGRAM, "c3-int", "c4-int"]);
+    expect(proposal!.schedule.times).toEqual(["12:00"]);
+  });
+
+  it("offers no proposal without a free project budget or an active policy, and says why", async () => {
+    await configure();
+    const setPolicy = (changes: Record<string, unknown>) =>
+      run(async (tx) => {
+        const policy = (await list(tx, project.owner, "policies"))[0]!;
+        await update(tx, project.owner, policy, {
+          ...data(policy),
+          ...changes,
+        });
+      });
+    // A confirmed assignment already holds the whole project budget.
+    await run((tx) =>
+      create(tx, project.owner, "assignments", {
+        name: "Holds everything",
+        kind: "standing",
+        schedule: { rhythm: "daily", weekdays: [], times: ["09:00"] },
+        contentType: "social",
+        channels: [X],
+        topicFrame: "A daily post for product teams",
+        image: false,
+        styleAssetIds: [],
+        vetoMinutes: 180,
+        monthlyBudgetMicros: 100_000_000,
+        status: "active",
+        confirmation: { userId: project.owner.userId },
+        actionRequestId: null,
+      }),
+    );
+    const migration = () =>
+      run((tx) => autopilotMigration(tx, project.owner));
+    expect(await run((tx) => autopilotAsAssignment(tx, project.owner))).toBe(
+      null,
+    );
+    expect(await migration()).toMatchObject({
+      proposal: null,
+      reason: "NO_FREE_PROJECT_BUDGET",
+    });
+    await expect(proposeAutopilotAssignment(project.editor)).rejects.toThrow(
+      "NO_FREE_PROJECT_BUDGET",
+    );
+    await setPolicy({ active: false });
+    expect(await migration()).toMatchObject({
+      proposal: null,
+      reason: "ACTIVE_POLICY_REQUIRED",
+    });
+    await expect(proposeAutopilotAssignment(project.editor)).rejects.toThrow(
+      "ACTIVE_POLICY_REQUIRED",
+    );
+    expect(
+      (await assignments()).filter((row) => data(row).status === "draft"),
+    ).toEqual([]);
+  });
+
+  it("proposes once when two people propose at the same time", async () => {
+    await configure();
+    const results = await Promise.allSettled([
+      proposeAutopilotAssignment(project.editor),
+      proposeAutopilotAssignment(project.owner),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const refused = results.find((r) => r.status === "rejected") as
+      | PromiseRejectedResult
+      | undefined;
+    expect(String(refused?.reason?.code ?? refused?.reason)).toContain(
+      "AUTOPILOT_ALREADY_PROPOSED",
+    );
+    expect(
+      (await assignments()).filter((row) => data(row).status === "draft"),
+    ).toHaveLength(1);
   });
 
   it("plans no autopilot missions while ORBIT_AGENTS is on", async () => {

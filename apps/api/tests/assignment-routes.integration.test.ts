@@ -507,6 +507,7 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     let r = await request("viewer", "GET", "assignments/autopilot-migration");
     expect(r.json()).toEqual({
       proposal: null,
+      reason: null,
       channelNames: {},
       assignment: null,
     });

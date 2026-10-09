@@ -102,6 +102,43 @@ function useKnownData<T>(key: string, data: T | null, error: ApiError | null) {
   return next.value;
 }
 
+/**
+ * Which surface a page shows: the assignments (Orbit Agents) only once its
+ * route answered; the weekly autopilot on any error without an answer — a
+ * 404 (flag off) as much as a 5xx, a 429 or a network failure during a
+ * redeploy, so the production autopilot never disappears on an outage;
+ * `pending` before either. A confirmed answer kept by `knownData` through a
+ * later error stays assignments.
+ */
+export type AgentsSurface = "pending" | "autopilot" | "assignments";
+export function agentsSurface(
+  data: unknown,
+  error: ApiError | null,
+): AgentsSurface {
+  if (data !== null && data !== undefined) return "assignments";
+  return error ? "autopilot" : "pending";
+}
+type KnownSurface = { key: string; surface: AgentsSurface };
+/** Keeps the decided surface while the same project reloads; another project starts pending. */
+export function nextSurface(
+  known: KnownSurface,
+  key: string,
+  current: AgentsSurface,
+): KnownSurface {
+  return current === "pending" && known.key === key
+    ? { key, surface: known.surface }
+    : { key, surface: current };
+}
+function useSurface(key: string, data: unknown, error: ApiError | null) {
+  const [known, setKnown] = useState<KnownSurface>({
+    key,
+    surface: "pending",
+  });
+  const next = nextSurface(known, key, agentsSurface(data, error));
+  useEffect(() => setKnown(next), [next.key, next.surface]);
+  return next.surface;
+}
+
 /** Runs a change and reloads after a version conflict, so the next try uses the current version. */
 export async function refreshOnConflict<T>(
   task: () => Promise<T>,
@@ -116,8 +153,8 @@ export async function refreshOnConflict<T>(
 }
 
 /**
- * The project's assignments; `available` stays true once the route answered
- * and turns false on a 404 (Orbit Agents off), so the page hides the tab.
+ * The project's assignments and the settings surface (`agentsSurface`):
+ * `available` only once the route answered, `settled` once it is decided.
  */
 export function useAssignments() {
   const { project, revision } = useWorkspace();
@@ -125,11 +162,13 @@ export function useAssignments() {
     collectionPath(project.id, `assignments?revision=${revision}`),
   );
   const data = useKnownData(project.id, resource.data, resource.error);
+  const surface = useSurface(project.id, data, resource.error);
   return {
     resource,
     data,
-    available:
-      data !== null || (resource.error !== null && !agentsOff(resource.error)),
+    surface,
+    available: surface === "assignments",
+    settled: surface !== "pending",
   };
 }
 
@@ -507,6 +546,12 @@ export function UpcomingAssignmentPosts() {
 /** One answer of `GET /assignments/autopilot-migration`. */
 export type AutopilotMigration = {
   proposal: Omit<AssignmentContent, "id"> | null;
+  // Why saved autopilot settings give no proposal; null without settings.
+  reason:
+    | "POSTING_TIME_REQUIRED"
+    | "ACTIVE_POLICY_REQUIRED"
+    | "NO_FREE_PROJECT_BUDGET"
+    | null;
   channelNames: Record<string, string>;
   assignment: {
     id: string;
@@ -516,8 +561,8 @@ export type AutopilotMigration = {
 };
 
 /**
- * The autopilot migration offer. `available` is true once the route answered
- * (Orbit Agents on) and false on a 404; `settled` says an answer exists at all.
+ * The autopilot migration offer. `available` only once the route answered
+ * (`agentsSurface`); any error without an answer keeps the autopilot.
  */
 export function useAutopilotMigration() {
   const { project, revision } = useWorkspace();
@@ -528,14 +573,33 @@ export function useAutopilotMigration() {
     ),
   );
   const data = useKnownData(project.id, resource.data, resource.error);
+  const surface = useSurface(project.id, data, resource.error);
   return {
     resource,
     data,
-    available:
-      data !== null || (resource.error !== null && !agentsOff(resource.error)),
-    settled: data !== null || resource.error !== null,
+    surface,
+    available: surface === "assignments",
+    settled: surface !== "pending",
   };
 }
+
+const MIGRATION_BLOCKED: Record<
+  NonNullable<AutopilotMigration["reason"]>,
+  [string, string]
+> = {
+  POSTING_TIME_REQUIRED: [
+    "None of the autopilot's channels has a posting time any more. Set posting times for its channels under Connectors → Postiz.",
+    "Keiner der Autopilot-Kanäle hat noch eine Postingzeit. Lege unter Verbindungen → Postiz Postingzeiten für seine Kanäle fest.",
+  ],
+  ACTIVE_POLICY_REQUIRED: [
+    "There is no active policy, so Orbit cannot propose an assignment. Activate one under Policy & budget.",
+    "Es gibt keine aktive Richtlinie, daher kann Orbit keinen Auftrag vorschlagen. Aktiviere eine unter Richtlinie & Budget.",
+  ],
+  NO_FREE_PROJECT_BUDGET: [
+    "Confirmed assignments already hold the project's whole monthly budget. Raise it under Policy & budget or end an assignment.",
+    "Bestätigte Aufträge belegen bereits das ganze Monatsbudget des Projekts. Erhöhe es unter Richtlinie & Budget oder beende einen Auftrag.",
+  ],
+};
 
 /**
  * The migration card (spec D5): the saved autopilot settings as a proposed
@@ -556,8 +620,9 @@ export function AutopilotMigrationView({
   pending: boolean;
   onPropose: () => void;
 }) {
-  const { proposal, assignment } = state;
-  if (assignment ? assignment.status !== "draft" : !proposal) return null;
+  const { proposal, assignment, reason } = state;
+  if (assignment ? assignment.status !== "draft" : !proposal && !reason)
+    return null;
   return (
     <section className="panel autopilot-migration">
       <div className="panel-head">
@@ -581,6 +646,10 @@ export function AutopilotMigrationView({
             : "Proposal created – its confirmation is open under"}{" "}
           <Link href="/approvals">{de ? "Freigaben" : "Approvals"}</Link>.
         </p>
+      ) : !proposal ? (
+        reason && (
+          <Alert kind="warning">{MIGRATION_BLOCKED[reason][de ? 1 : 0]}</Alert>
+        )
       ) : (
         proposal && (
           <>

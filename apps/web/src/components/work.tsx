@@ -2096,13 +2096,13 @@ function AutopilotApprovals() {
   );
 }
 /**
- * Orbit Agents replaces the weekly autopilot: once its route answers, the
- * autopilot approvals give way to the migration card. Nothing shows before
- * the first answer, so the two never swap on screen.
+ * Orbit Agents replaces the weekly autopilot: only once its route answered do
+ * the autopilot approvals give way to the migration card. Without an answer
+ * (loading, flag off, or an outage such as a 5xx during a redeploy) the
+ * autopilot approvals stay.
  */
 function AutopilotOrMigration() {
   const migration = useAutopilotMigration();
-  if (!migration.settled) return null;
   return migration.available ? (
     <AutopilotMigrationCard migration={migration} />
   ) : (

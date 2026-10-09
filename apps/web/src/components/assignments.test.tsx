@@ -4,8 +4,10 @@ import { ApiError, when } from "@/lib/api";
 import {
   AssignmentTable,
   AutopilotMigrationView,
+  agentsSurface,
   knownData,
   nextKnown,
+  nextSurface,
   refreshOnConflict,
   UpcomingPostList,
   type AssignmentItem,
@@ -186,6 +188,45 @@ describe("nextKnown", () => {
   });
 });
 
+describe("agentsSurface", () => {
+  const answer = { items: [] };
+  it("keeps the autopilot on any error without an answer, and swaps only on an answer", () => {
+    expect(agentsSurface(null, new ApiError("REQUEST_FAILED", 500))).toBe(
+      "autopilot",
+    );
+    expect(agentsSurface(null, new ApiError("BAD_GATEWAY", 502))).toBe(
+      "autopilot",
+    );
+    expect(agentsSurface(null, new ApiError("RATE_LIMITED", 429))).toBe(
+      "autopilot",
+    );
+    expect(agentsSurface(null, new ApiError("NETWORK_ERROR", 0))).toBe(
+      "autopilot",
+    );
+    expect(agentsSurface(null, new ApiError("NOT_FOUND", 404))).toBe(
+      "autopilot",
+    );
+    expect(agentsSurface(answer, null)).toBe("assignments");
+    // A confirmed answer kept through a later error stays assignments.
+    expect(agentsSurface(answer, new ApiError("REQUEST_FAILED", 503))).toBe(
+      "assignments",
+    );
+    expect(agentsSurface(null, null)).toBe("pending");
+  });
+
+  it("keeps the decided surface while the same project reloads, not across projects", () => {
+    let known = nextSurface({ key: "A", surface: "pending" }, "A", "autopilot");
+    expect(known.surface).toBe("autopilot");
+    // A refresh: no answer and no error yet.
+    known = nextSurface(known, "A", "pending");
+    expect(known.surface).toBe("autopilot");
+    known = nextSurface(known, "A", "assignments");
+    expect(known.surface).toBe("assignments");
+    known = nextSurface(known, "B", "pending");
+    expect(known.surface).toBe("pending");
+  });
+});
+
 describe("refreshOnConflict", () => {
   it("reloads after a version conflict and still reports it", async () => {
     const refresh = vi.fn();
@@ -227,6 +268,7 @@ describe("AutopilotMigrationView", () => {
         state={{
           proposal,
           channelNames: { "x-int": "Synthetic X" },
+          reason: null,
           assignment: null,
           ...state,
         }}
@@ -257,5 +299,17 @@ describe("AutopilotMigrationView", () => {
       view({ assignment: { id: "a", status: "active", actionRequestId: null } }),
     ).toBe("");
     expect(view({ proposal: null })).toBe("");
+  });
+
+  it("says why no assignment can be proposed", () => {
+    const html = view({ proposal: null, reason: "NO_FREE_PROJECT_BUDGET" });
+    expect(html).toContain("Monatsbudget");
+    expect(html).not.toContain("Als Auftrag vorschlagen");
+    expect(
+      view({ proposal: null, reason: "ACTIVE_POLICY_REQUIRED" }),
+    ).toContain("keine aktive Richtlinie");
+    expect(
+      view({ proposal: null, reason: "POSTING_TIME_REQUIRED" }),
+    ).toContain("Postingzeit");
   });
 });

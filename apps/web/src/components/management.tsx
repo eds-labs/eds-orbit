@@ -1,7 +1,7 @@
 "use client";
 import { AgentRuns } from "./agent-runs";
 import { GoogleDriveSettings } from "./google-drive";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   MatomoImport,
   MatomoSchedule,
@@ -1251,9 +1251,17 @@ export function ProjectSettings() {
     [openAi, setOpenAi] = useState(false),
     [selected, setSelected] = useState<Entity | null>(null),
     [tab, setTab] = useState("project");
-  // Orbit Agents: the tab exists only while its route does (flag on), and
-  // its assignments replace the weekly autopilot, whose tab then goes away.
+  // Orbit Agents: once its route answered, the assignments tab replaces the
+  // weekly autopilot's; any error without an answer keeps the autopilot, and
+  // neither tab shows before that is decided (agentsSurface).
   const assignments = useAssignments();
+  useEffect(() => {
+    if (
+      (tab === "autopilot" && assignments.surface === "assignments") ||
+      (tab === "assignments" && assignments.surface === "autopilot")
+    )
+      setTab("project");
+  }, [tab, assignments.surface]);
   const d = dashboard.data;
   const de = locale === "de";
   return (
@@ -1269,9 +1277,11 @@ export function ProjectSettings() {
       <Tabs
         tabs={[
           { key: "project", label: de ? "Projekt" : "Project" },
-          ...(assignments.available
+          ...(assignments.surface === "assignments"
             ? [{ key: "assignments", label: de ? "Aufträge" : "Assignments" }]
-            : [{ key: "autopilot", label: "Autopilot" }]),
+            : assignments.surface === "autopilot"
+              ? [{ key: "autopilot", label: "Autopilot" }]
+              : []),
           {
             key: "policy",
             label: de ? "Richtlinie & Budget" : "Policy & budget",
@@ -1386,7 +1396,9 @@ export function ProjectSettings() {
         </div>
       )}
       {tab === "project" && <ProjectAdministration />}
-      {tab === "autopilot" && !assignments.available && <AutopilotSettings />}
+      {tab === "autopilot" && assignments.surface === "autopilot" && (
+        <AutopilotSettings />
+      )}
       {tab === "assignments" && assignments.available && (
         <>
           <AutopilotMigrationPanel />
