@@ -33,17 +33,18 @@ import { pauseProject } from "./pause.ts";
  * The owner's private Orbit Telegram bot (Orbit Agents, spec §10).
  *
  * Setup: the owner enters a @BotFather token; Orbit registers the webhook
- * `${APP_ORIGIN}/api/telegram/<connectionId>` with a per-connection secret and
- * shows a one-time link code (10 min). `/start <code>` from a private chat
+ * `${APP_ORIGIN}/api/telegram/<projectId>/<connectionId>` with a per-connection
+ * secret and shows a one-time link code (10 min). `/start <code>` from a private chat
  * binds that chat to the owner who created the code and records `linkedAt`;
  * an agent review counts only if it was made after that time (R50).
  *
  * Storage (`telegram_connections`, deliberately not a generic collection):
  * the token only encrypted with CREDENTIAL_KEY, the webhook secret and the
  * link code only as SHA-256 hashes. A project has at most one connection that
- * is not disabled; connecting again disables the older ones, and
- * `Project.telegramConnectionId` points at the current one so the public
- * webhook can find its project (row-level security hides Entity rows).
+ * is not disabled; connecting again disables the older ones. The webhook path
+ * names the project because row-level security hides Entity rows until the
+ * project is known (R59). A disabled row keeps its secret hash, so a late
+ * update is still authenticated before it is ignored.
  *
  * Webhook: the secret header is compared in constant time; a wrong one is
  * answered 401 and audited. Updates from any chat or user other than the
@@ -78,11 +79,14 @@ export function telegramEnabled() {
 
 /**
  * The project's linked Telegram chat, or null: the newest linked row
- * (createdAt, then id, descending). Connecting again disables older rows,
- * so there is at most one.
+ * (createdAt, then id, descending; connecting again disables older rows, so
+ * there is at most one), and only while the user it is bound to is still an
+ * owner of the project by current membership (R61). A removed or downgraded
+ * owner means no connected bot: agent approvals lose their authority and no
+ * previews go out.
  */
 export async function linkedTelegramConnection(tx: DbTx, scope: Scope) {
-  return tx.entity.findFirst({
+  const row = await tx.entity.findFirst({
     where: {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
@@ -91,6 +95,14 @@ export async function linkedTelegramConnection(tx: DbTx, scope: Scope) {
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   });
+  const linkedUserId = data(row).linkedUserId;
+  if (!row || typeof linkedUserId !== "string" || !linkedUserId) return null;
+  const linkedOwner = await actorScope(
+    scope.workspaceId,
+    scope.projectId,
+    linkedUserId,
+  );
+  return linkedOwner?.role === "owner" ? row : null;
 }
 
 /** Connections that are not disabled, newest first. */
@@ -188,7 +200,7 @@ export async function connectTelegram(
   const connectionId = randomUUID();
   const secret = randomBytes(32).toString("base64url");
   const linkCode = randomBytes(9).toString("base64url");
-  const url = `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/api/telegram/${connectionId}`;
+  const url = `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/api/telegram/${scope.projectId}/${connectionId}`;
   try {
     await createTelegramClient({ token, fetch: options.fetch }).setWebhook(
       url,
@@ -237,10 +249,6 @@ export async function connectTelegram(
           data: value,
         },
       });
-      await tx.project.update({
-        where: { id: scope.projectId },
-        data: { telegramConnectionId: connectionId },
-      });
       await audit(tx, scope, "telegram.connect", connectionId, {
         replaced: previous.length,
         linkCodeExpiresAt: expiresAt,
@@ -274,10 +282,6 @@ export async function disconnectTelegram(
         );
         await audit(tx, scope, "telegram.disconnect", row.id);
       }
-      await tx.project.update({
-        where: { id: scope.projectId },
-        data: { telegramConnectionId: null },
-      });
       return found;
     },
   );
@@ -386,19 +390,6 @@ type Reply =
   | { kind: "answer"; id: string; text: string };
 export type TelegramWebhookResult = { status: 200 | 401; handled: string };
 
-/**
- * The project whose current connection this is. Row-level security hides
- * Entity rows until the project is known, so the project records its current
- * connection id (`Project.telegramConnectionId`, no secret), which the auth
- * role can read. A replaced or disconnected connection resolves to nothing.
- */
-async function locate(connectionId: string) {
-  return authDb.project.findUnique({
-    where: { telegramConnectionId: connectionId },
-    select: { id: true, workspaceId: true },
-  });
-}
-
 const TEXT = {
   linked: "Verbunden. Orbit schickt dir hier Vorschauen mit Stop-Knopf.",
   alreadyLinked: "Bereits verbunden.",
@@ -433,20 +424,33 @@ const command = (text: string | undefined) => {
 /**
  * Handles one webhook call. Every state change and audit commits before any
  * reply is sent; replies go out afterwards and their failures change nothing.
- * Never throws for bad input: unknown connection or wrong secret → 401, all
- * else → 200 so Telegram does not redeliver.
+ * Never throws for bad input: an unknown project, an unknown connection, a
+ * connection of another project or a wrong secret → 401 (the same answer for
+ * each), all else → 200 so Telegram does not redeliver.
  */
 export async function handleTelegramWebhook(
-  input: { connectionId: string; secret: unknown; body: unknown },
+  input: {
+    projectId: string;
+    connectionId: string;
+    secret: unknown;
+    body: unknown;
+  },
   options: { fetch?: FetchLike; log?: (code: string) => void } = {},
 ): Promise<TelegramWebhookResult> {
-  if (!UUID.test(input.connectionId))
-    return { status: 401, handled: "unknown_connection" };
-  const project = await locate(input.connectionId.toLowerCase());
-  if (!project) return { status: 401, handled: "unknown_connection" };
+  const unknown = { status: 401 as const, handled: "unknown_connection" };
+  // Both path segments are checked before any database access.
+  if (!UUID.test(input.projectId) || !UUID.test(input.connectionId))
+    return unknown;
+  const projectId = input.projectId.toLowerCase();
+  const connectionId = input.connectionId.toLowerCase();
+  const project = await authDb.project.findUnique({
+    where: { id: projectId },
+    select: { workspaceId: true },
+  });
+  if (!project) return unknown;
   const system: Scope = {
     workspaceId: project.workspaceId,
-    projectId: project.id,
+    projectId,
     userId: WEBHOOK_ACTOR,
     role: "viewer",
   };
@@ -454,12 +458,15 @@ export async function handleTelegramWebhook(
     system.workspaceId,
     system.projectId,
     async (tx) => {
-      const row = await entity(
-        tx,
-        system,
-        KIND,
-        input.connectionId.toLowerCase(),
-      );
+      const row = await tx.entity.findFirst({
+        where: {
+          id: connectionId,
+          kind: KIND,
+          workspaceId: system.workspaceId,
+          projectId,
+        },
+      });
+      if (!row) return unknown;
       const c = data(row);
       const presented = typeof input.secret === "string" ? input.secret : "";
       if (

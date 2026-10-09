@@ -102,8 +102,6 @@ model Project {
   createdAt        DateTime            @default(now()) @db.Timestamptz(3)
   /// Earliest time the worker must process this project; maintained by triggers and the worker.
   workDueAt        DateTime            @default(now()) @db.Timestamptz(3)
-  /// Current Orbit Telegram bot connection (an Entity id); lets the public webhook find its project.
-  telegramConnectionId String?       @unique @db.Uuid
   workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   members          ProjectMember[]
   entities         Entity[]

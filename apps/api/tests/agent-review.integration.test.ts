@@ -52,7 +52,7 @@ vi.mock("../src/modules/google-drive.ts", async (importOriginal) => {
     await importOriginal<typeof import("../src/modules/google-drive.ts")>();
   return { ...actual, saveDraftDocument: provider.saveDraftDocument };
 });
-import { closeDatabase } from "../../../packages/db/src/index.ts";
+import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 import { data, entity, hash, update } from "../src/shared.ts";
 import {
   setAssignmentStatus,
@@ -61,6 +61,7 @@ import {
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { reviewStep } from "../src/modules/agents/specialists/review.ts";
+import { agentReviewAccepted } from "../src/modules/agents/agent-review.ts";
 import { checkClaims, preflight } from "../src/modules/policy.ts";
 import { reviewContent } from "../src/modules/workflow.ts";
 import {
@@ -552,6 +553,61 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
         body: `${data(row).body} `,
       });
     });
+    expect(await blockers(draft!.id)).toContain(HUMAN);
+  });
+
+  it("loses agent approval when the bot's linked user is no longer an owner", async () => {
+    // The bot is bound to a project member who is owner by project role (R61).
+    const member = project.editor.userId;
+    const role = (value: "owner" | "editor" | null) =>
+      value
+        ? authDb.projectMember.update({
+            where: {
+              projectId_userId: {
+                projectId: project.owner.projectId,
+                userId: member,
+              },
+            },
+            data: { role: value },
+          })
+        : authDb.projectMember.delete({
+            where: {
+              projectId_userId: {
+                projectId: project.owner.projectId,
+                userId: member,
+              },
+            },
+          });
+    await role("owner");
+    const connection = await h.connectTelegram();
+    await h.run(async (tx) => {
+      const row = await entity(
+        tx,
+        project.owner,
+        "telegram_connections",
+        connection.id,
+      );
+      await update(tx, project.owner, row, {
+        ...data(row),
+        linkedUserId: member,
+      });
+    });
+    await h.makeAssignment();
+    const review = await drafted();
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    const accepted = () =>
+      h.run((tx) => agentReviewAccepted(tx, project.owner, draft!));
+    expect(await accepted()).toBe(true);
+    expect(await blockers(draft!.id)).not.toContain(HUMAN);
+
+    await role("editor");
+    expect(await accepted()).toBe(false);
+    expect(await blockers(draft!.id)).toContain(HUMAN);
+
+    await role(null);
+    expect(await accepted()).toBe(false);
     expect(await blockers(draft!.id)).toContain(HUMAN);
   });
 

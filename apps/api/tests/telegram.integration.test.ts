@@ -7,6 +7,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import {
   authDb,
@@ -41,6 +42,10 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
   let owner: Scope;
   let ownerCookie: string;
   let editorCookie: string;
+  // A second owner by project membership, whose role a test can change.
+  let coOwnerId: string;
+  let coOwnerCookie: string;
+  const extraProjects: string[] = [];
   const users: string[] = [];
   const calls: TelegramCall[] = [];
   let previousOrigin: string | undefined;
@@ -88,10 +93,11 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     connectionId: string,
     secret: string | undefined,
     payload: unknown,
+    project = projectId,
   ) =>
     app.inject({
       method: "POST",
-      url: `/api/telegram/${connectionId}`,
+      url: `/api/telegram/${project}/${connectionId}`,
       headers: {
         "content-type": "application/json",
         ...(secret === undefined
@@ -100,12 +106,12 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
       },
       payload: typeof payload === "string" ? payload : JSON.stringify(payload),
     });
-  const message = (text: string, chat = OWNER_CHAT) => ({
+  const message = (text: string, chat = OWNER_CHAT, type = "private") => ({
     update_id: updateId++,
     message: {
       message_id: updateId,
       date: Math.floor(Date.now() / 1000),
-      chat: { id: chat, type: "private" },
+      chat: { id: chat, type },
       from: { id: chat, is_bot: false, first_name: "Synthetic" },
       text,
     },
@@ -125,8 +131,8 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     },
   });
   /** A connected bot whose chat is bound by `/start <code>`. */
-  const linked = async () => {
-    const c = await connect();
+  const linked = async (cookie = ownerCookie) => {
+    const c = await connect(cookie);
     expect(c.response.statusCode).toBe(200);
     const r = await post(
       c.connectionId,
@@ -152,6 +158,29 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
   const paused = async () =>
     (await authDb.project.findUniqueOrThrow({ where: { id: projectId } }))
       .paused;
+  /** Sets the co-owner's current project role; null removes the membership. */
+  const coOwnerRole = async (role: "owner" | "editor" | "viewer" | null) => {
+    await authDb.projectMember.deleteMany({
+      where: { projectId, userId: coOwnerId },
+    });
+    if (role)
+      await authDb.projectMember.create({
+        data: { workspaceId, projectId, userId: coOwnerId, role },
+      });
+  };
+  /** A second project of the same workspace. */
+  const otherProject = async () => {
+    const id = (
+      await authDb.project.create({
+        data: { workspaceId, name: "Synthetic other bot project" },
+      })
+    ).id;
+    extraProjects.push(id);
+    return {
+      scope: { ...owner, projectId: id } as Scope,
+      run: <T>(fn: (tx: DbTx) => Promise<T>) => scoped(workspaceId, id, fn),
+    };
+  };
 
   beforeAll(async () => {
     previousOrigin = process.env.APP_ORIGIN;
@@ -170,6 +199,8 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     };
     const ownerUser = await signUp("Synthetic bot owner");
     const editorUser = await signUp("Synthetic bot editor");
+    const coOwnerUser = await signUp("Synthetic bot co-owner");
+    coOwnerId = coOwnerUser.id;
     workspaceId = (
       await authDb.workspace.create({
         data: {
@@ -178,6 +209,7 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
             create: [
               { userId: ownerUser.id, role: "owner" },
               { userId: editorUser.id, role: "viewer" },
+              { userId: coOwnerUser.id, role: "viewer" },
             ],
           },
         },
@@ -198,6 +230,7 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     };
     ownerCookie = await signIn(ownerUser.email);
     editorCookie = await signIn(editorUser.email);
+    coOwnerCookie = await signIn(coOwnerUser.email);
     owner = {
       workspaceId,
       projectId: "",
@@ -223,7 +256,10 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     owner = { ...owner, projectId };
   });
   afterEach(async () => {
-    await authDb.project.delete({ where: { id: projectId } });
+    vi.useRealTimers();
+    await authDb.project.deleteMany({
+      where: { id: { in: [projectId, ...extraProjects.splice(0)] } },
+    });
   });
   afterAll(async () => {
     process.env.APP_ORIGIN = previousOrigin;
@@ -248,7 +284,7 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     expect(ttl).toBeGreaterThan(9.9 * 60000);
     expect(ttl).toBeLessThanOrEqual(10 * 60000 + 5000);
     expect(sent("setWebhook")[0]!.body.url).toBe(
-      `${ORIGIN}/api/telegram/${c.connectionId}`,
+      `${ORIGIN}/api/telegram/${projectId}/${c.connectionId}`,
     );
 
     // A wrong code links nothing.
@@ -359,9 +395,42 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
       message(`/start ${c.body.linkCode}`),
     );
     expect(missing.statusCode).toBe(401);
-    // An unknown connection gets the same answer and reveals nothing.
-    const unknown = await post(randomUUID(), c.secret, message("/pause"));
-    expect(unknown.statusCode).toBe(401);
+    // An unknown connection, an unknown project, or this connection under
+    // another project all get the same answer and reveal nothing.
+    const other = await otherProject();
+    for (const [connectionId, project] of [
+      [randomUUID(), projectId],
+      [c.connectionId, randomUUID()],
+      [c.connectionId, other.scope.projectId],
+    ]) {
+      const r = await post(connectionId!, c.secret, message("/pause"), project);
+      expect(r.statusCode).toBe(401);
+      expect(r.json()).toEqual({
+        error: { code: "UNAUTHORIZED", message: "UNAUTHORIZED" },
+      });
+    }
+    // Segments that are not UUIDs never reach the database or the handler.
+    for (const url of [
+      `/api/telegram/not-a-project/${c.connectionId}`,
+      `/api/telegram/${projectId}/${c.connectionId}/extra`,
+    ]) {
+      const r = await app.inject({
+        method: "POST",
+        url,
+        headers: {
+          "content-type": "application/json",
+          "x-telegram-bot-api-secret-token": c.secret,
+        },
+        payload: JSON.stringify(message("/pause")),
+      });
+      expect(r.statusCode).toBeGreaterThanOrEqual(400);
+      expect(r.statusCode).toBeLessThan(500);
+    }
+    expect(
+      await other.run((tx) =>
+        tx.auditEvent.count({ where: { projectId: other.scope.projectId } }),
+      ),
+    ).toBe(0);
     expect(calls.length).toBe(before);
     expect(await run((tx) => linkedTelegramConnection(tx, owner))).toBeNull();
     const rejected = await audits("telegram.webhook_rejected");
@@ -549,9 +618,14 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     expect(off.body).not.toContain(TOKEN);
     expect(await run((tx) => linkedTelegramConnection(tx, owner))).toBeNull();
     expect(sent("deleteWebhook")).toHaveLength(1);
-    // A disabled connection acts on nothing.
-    await post(c.connectionId, c.secret, message("/pause"));
-    expect(sent("sendMessage").at(-1)!.body.text).not.toMatch(/pausieren\?/i);
+    // A disabled connection is still authenticated first, then acts on nothing.
+    const afterOff = calls.length;
+    const wrong = await post(c.connectionId, "wrong-secret", message("/pause"));
+    expect(wrong.statusCode).toBe(401);
+    const late = await post(c.connectionId, c.secret, message("/pause"));
+    expect(late.statusCode).toBe(200);
+    expect(calls.length).toBe(afterOff);
+    expect(await audits("telegram.webhook_rejected")).toHaveLength(1);
   });
 
   it("answers 404 on every bot route while Orbit Agents is off", async () => {
@@ -579,9 +653,151 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     }
     const hook = await post(c.connectionId, c.secret, message("/pause"));
     expect(hook.statusCode).toBe(404);
+    // The same 404 before Origin checking, body parsing and authentication.
+    for (const request of [
+      {
+        method: "POST" as const,
+        url: `/api/telegram/${projectId}/${c.connectionId}`,
+        payload: "{not json",
+        headers: { "content-type": "application/json" },
+      },
+      {
+        method: "POST" as const,
+        url: `/api/projects/${projectId}/telegram/connect`,
+        payload: { token: TOKEN },
+      },
+      { method: "GET" as const, url: `/api/projects/${projectId}/telegram` },
+    ]) {
+      const r = await app.inject(request);
+      expect(r.statusCode).toBe(404);
+      expect(r.json().error.code).toBe("NOT_FOUND");
+    }
     expect(calls.length).toBe(before);
     expect(
       await run((tx) => linkedTelegramConnection(tx, owner)),
     ).not.toBeNull();
+  });
+  it("does not link a valid code from a group chat", async () => {
+    const c = await connect();
+    await post(
+      c.connectionId,
+      c.secret,
+      message(`/start ${c.body.linkCode}`, -3003, "group"),
+    );
+    expect(await run((tx) => linkedTelegramConnection(tx, owner))).toBeNull();
+    expect(sent("sendMessage").at(-1)!.body.text).toMatch(/privaten Chat/);
+    // The code stays usable from a private chat within its window.
+    await post(c.connectionId, c.secret, message(`/start ${c.body.linkCode}`));
+    expect(
+      data(await run((tx) => linkedTelegramConnection(tx, owner))).chatId,
+    ).toBe(String(OWNER_CHAT));
+  });
+
+  it("does not link when the code's creator is no longer an owner", async () => {
+    await coOwnerRole("owner");
+    const c = await connect(coOwnerCookie);
+    expect(c.response.statusCode).toBe(200);
+    await coOwnerRole("editor");
+    await post(c.connectionId, c.secret, message(`/start ${c.body.linkCode}`));
+    const [row] = await rows("telegram_connections");
+    expect(data(row).status).toBe("pending");
+    expect(data(row).chatId).toBeNull();
+    expect(sent("sendMessage").at(-1)!.body.text).toMatch(/Keine Berechtigung/);
+    const [rejected] = await audits("telegram.link_rejected");
+    expect(rejected!.metadata).toEqual({ reason: "OWNER_REQUIRED" });
+  });
+
+  it("refuses a Stop token for another project's publication", async () => {
+    const c = await linked();
+    const other = await otherProject();
+    const foreign = await other.run((tx) =>
+      create(tx, other.scope, "publications", {
+        status: "intent_created",
+        contentId: randomUUID(),
+        channel: "synthetic-x",
+        scheduledAt: new Date(Date.now() + 4 * 3600000).toISOString(),
+        vetoDeadline: new Date(Date.now() + 3600000).toISOString(),
+      }),
+    );
+    await post(
+      c.connectionId,
+      c.secret,
+      click(stopCallbackData(foreign.id, foreign.version)),
+    );
+    expect(lastAnswer()).toMatch(/nicht gefunden/);
+    const [row] = await other.run((tx) =>
+      list(tx, other.scope, "publications"),
+    );
+    expect(data(row).status).toBe("intent_created");
+    expect(row!.version).toBe(foreign.version);
+  });
+
+  it("refuses an expired pause confirmation", async () => {
+    const c = await linked();
+    await post(c.connectionId, c.secret, message("/pause"));
+    const button =
+      sent("sendMessage").at(-1)!.body.reply_markup.inline_keyboard[0][0];
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 11 * 60000);
+    await post(c.connectionId, c.secret, click(button.callback_data));
+    vi.useRealTimers();
+    expect(await paused()).toBe(false);
+    expect(lastAnswer()).toMatch(/abgelaufen/);
+  });
+
+  it("counts the bot only while its linked user is still an owner", async () => {
+    await coOwnerRole("owner");
+    const c = await linked(coOwnerCookie);
+    const scopeNow = () => owner;
+    const connection = await run((tx) =>
+      linkedTelegramConnection(tx, scopeNow()),
+    );
+    expect(data(connection).linkedUserId).toBe(coOwnerId);
+    // A confirmation requested while still owner.
+    await post(c.connectionId, c.secret, message("/pause"));
+    const pauseData =
+      sent("sendMessage").at(-1)!.body.reply_markup.inline_keyboard[0][0]
+        .callback_data;
+    const stopOf = async () => {
+      const pub = await publication();
+      return { pub, token: stopCallbackData(pub.id, pub.version) };
+    };
+    const statusOf = async (id: string) =>
+      data(await run((tx) => entity(tx, owner, "publications", id))).status;
+
+    // Downgraded to editor: no connected bot, Stop allowed, pause refused.
+    await coOwnerRole("editor");
+    expect(await run((tx) => linkedTelegramConnection(tx, owner))).toBeNull();
+    const asEditor = await stopOf();
+    await post(c.connectionId, c.secret, click(asEditor.token));
+    expect(lastAnswer()).toMatch(/gestoppt/i);
+    expect(await statusOf(asEditor.pub.id)).toBe("canceled");
+    await post(c.connectionId, c.secret, click(pauseData));
+    expect(lastAnswer()).toMatch(/Nur der Owner/);
+    await post(c.connectionId, c.secret, message("/pause"));
+    expect(sent("sendMessage").at(-1)!.body.text).toMatch(/Nur der Owner/);
+    expect(await paused()).toBe(false);
+
+    // Downgraded to viewer: Stop refused.
+    await coOwnerRole("viewer");
+    const asViewer = await stopOf();
+    await post(c.connectionId, c.secret, click(asViewer.token));
+    expect(lastAnswer()).toMatch(/Keine Berechtigung/);
+    expect(await statusOf(asViewer.pub.id)).toBe("intent_created");
+
+    // Removed from the project: no access at all.
+    await coOwnerRole(null);
+    expect(await run((tx) => linkedTelegramConnection(tx, owner))).toBeNull();
+    const asNobody = await stopOf();
+    await post(c.connectionId, c.secret, click(asNobody.token));
+    expect(lastAnswer()).toMatch(/Keine Berechtigung/);
+    expect(await statusOf(asNobody.pub.id)).toBe("intent_created");
+    expect(await paused()).toBe(false);
+
+    // Owner again: the same connection counts again.
+    await coOwnerRole("owner");
+    expect((await run((tx) => linkedTelegramConnection(tx, owner)))!.id).toBe(
+      c.connectionId,
+    );
   });
 });

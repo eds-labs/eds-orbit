@@ -289,6 +289,17 @@ export async function buildServer(
   );
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
+    // Orbit Telegram bot routes do not exist while Orbit Agents is off: the
+    // same 404 before Origin checking, body parsing and authentication.
+    const path = req.url.split("?")[0]!;
+    if (
+      (/^\/api\/telegram(\/|$)/.test(path) ||
+        /^\/api\/projects\/[^/]+\/telegram(\/(connect|disconnect))?$/.test(
+          path,
+        )) &&
+      !telegramEnabled()
+    )
+      throw new DomainError("NOT_FOUND", 404);
     // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
@@ -296,7 +307,7 @@ export async function buildServer(
       ) &&
       !(
         req.method === "POST" &&
-        /^\/api\/telegram\/[a-f0-9-]{36}$/.test(req.url)
+        /^\/api\/telegram\/[a-f0-9-]{36}\/[a-f0-9-]{36}$/.test(req.url)
       ) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
@@ -381,13 +392,16 @@ export async function buildServer(
   // Orbit Telegram bot webhook (Orbit Agents): public, authenticated only by
   // the per-connection secret header and the bound chat (spec §10).
   app.post(
-    "/api/telegram/:connectionId",
+    "/api/telegram/:projectId/:connectionId",
     { bodyLimit: 262144 },
     async (req, reply) => {
-      if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
-      const { connectionId } = req.params as { connectionId: string };
+      const { projectId, connectionId } = req.params as {
+        projectId: string;
+        connectionId: string;
+      };
       const result = await handleTelegramWebhook(
         {
+          projectId,
           connectionId,
           secret: req.headers["x-telegram-bot-api-secret-token"],
           body: req.body,
@@ -824,7 +838,6 @@ export async function buildServer(
   });
   // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
   app.get("/api/projects/:projectId/telegram", async (req) => {
-    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, true, true);
     return scoped(scope.workspaceId, projectId, (tx) =>
@@ -832,7 +845,6 @@ export async function buildServer(
     );
   });
   app.post("/api/projects/:projectId/telegram/connect", async (req) => {
-    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return connectTelegram(
       await scopeFor(auth, req, projectId, true, true),
@@ -841,7 +853,6 @@ export async function buildServer(
     );
   });
   app.post("/api/projects/:projectId/telegram/disconnect", async (req) => {
-    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return disconnectTelegram(
       await scopeFor(auth, req, projectId, true, true),

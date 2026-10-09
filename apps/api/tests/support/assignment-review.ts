@@ -178,7 +178,7 @@ export function assignmentRun(
       create(tx, project.owner, "telegram_connections", {
         status,
         chatId: "synthetic-chat",
-        userId: project.owner.userId,
+        linkedUserId: project.owner.userId,
         ...(linkedAt ? { linkedAt } : {}),
       }),
     );
