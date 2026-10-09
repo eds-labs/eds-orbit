@@ -418,6 +418,8 @@ const TEXT = {
   linked: "Verbunden. Orbit schickt dir hier Vorschauen mit Stop-Knopf.",
   alreadyLinked: "Bereits verbunden.",
   badCode: "Code ungültig oder abgelaufen. Neuen Code in Orbit erzeugen.",
+  linkHint:
+    "Zum Verbinden den Code aus Orbit senden: /start CODE oder nur den Code.",
   privateOnly: "Bitte im privaten Chat mit dem Bot verbinden.",
   help: "Vorschauen kommen automatisch. Befehl: /pause",
   confirmPause:
@@ -435,6 +437,9 @@ const TEXT = {
   notFound: "Beitrag nicht gefunden.",
   changed: "Beitrag wurde geändert. Bitte in Orbit stoppen.",
 };
+
+// A link code sent on its own: one base64url word (the code is 12 characters).
+const LINK_CODE = /^[A-Za-z0-9_-]{8,64}$/;
 
 /** `/start CODE` or `/start@bot CODE`; `/pause`, `/pause@bot`. */
 const command = (text: string | undefined) => {
@@ -529,10 +534,21 @@ export async function handleTelegramWebhook(
           : "other";
 
       if (c.status === "pending") {
-        const start = command(u.message?.text);
-        if (!u.message || start?.name !== "start" || fromId === undefined)
-          return done("pending_ignored");
-        const presentedCode = start.argument ?? "";
+        if (!u.message || fromId === undefined) return done("pending_ignored");
+        // `/start CODE`, or the code on its own; anything else gets a hint
+        // (Telegram's Start button sends a bare `/start`).
+        const start = command(u.message.text);
+        const text = (u.message.text ?? "").trim();
+        const presentedCode =
+          start?.name === "start"
+            ? start.argument
+            : LINK_CODE.test(text)
+              ? text
+              : null;
+        if (!presentedCode) {
+          replies.push({ kind: "message", text: TEXT.linkHint });
+          return done("link_hint");
+        }
         const valid =
           typeof c.linkCodeHash === "string" &&
           constantEqual(sha256(presentedCode), c.linkCodeHash) &&
