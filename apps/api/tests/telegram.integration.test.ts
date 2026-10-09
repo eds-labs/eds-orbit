@@ -409,23 +409,49 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
         error: { code: "UNAUTHORIZED", message: "UNAUTHORIZED" },
       });
     }
-    // Segments that are not UUIDs never reach the database or the handler.
-    for (const url of [
-      `/api/telegram/not-a-project/${c.connectionId}`,
-      `/api/telegram/${projectId}/${c.connectionId}/extra`,
-    ]) {
-      const r = await app.inject({
-        method: "POST",
+    // Segments that are not UUIDs: without a browser Origin the exemption
+    // does not apply (403); with it the handler refuses them with the same
+    // 401 before any database access.
+    const projectLookup = vi.spyOn(authDb.project, "findUnique");
+    const notUuid = "0123456789abcdef0123456789abcdef----";
+    for (const [url, status] of [
+      [`/api/telegram/not-a-project/${c.connectionId}`, 400],
+      [`/api/telegram/${notUuid}/${c.connectionId}`, 400],
+      [`/api/telegram/${projectId}/${notUuid}`, 401],
+    ] as const) {
+      const request = {
+        method: "POST" as const,
         url,
-        headers: {
-          "content-type": "application/json",
-          "x-telegram-bot-api-secret-token": c.secret,
-        },
         payload: JSON.stringify(message("/pause")),
+      };
+      const headers = {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": c.secret,
+      };
+      const plain = await app.inject({ ...request, headers });
+      expect(plain.statusCode).toBe(403);
+      const withOrigin = await app.inject({
+        ...request,
+        headers: { ...headers, origin: ORIGIN },
       });
-      expect(r.statusCode).toBeGreaterThanOrEqual(400);
-      expect(r.statusCode).toBeLessThan(500);
+      expect(withOrigin.statusCode).toBe(status);
+      expect(withOrigin.json().error.code).toBe(
+        status === 401 ? "UNAUTHORIZED" : "REQUEST_FAILED",
+      );
     }
+    expect(projectLookup).not.toHaveBeenCalled();
+    projectLookup.mockRestore();
+    const extra = await app.inject({
+      method: "POST",
+      url: `/api/telegram/${projectId}/${c.connectionId}/extra`,
+      headers: {
+        "content-type": "application/json",
+        "x-telegram-bot-api-secret-token": c.secret,
+        origin: ORIGIN,
+      },
+      payload: JSON.stringify(message("/pause")),
+    });
+    expect(extra.statusCode).toBe(404);
     expect(
       await other.run((tx) =>
         tx.auditEvent.count({ where: { projectId: other.scope.projectId } }),
@@ -672,7 +698,58 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
       expect(r.statusCode).toBe(404);
       expect(r.json().error.code).toBe("NOT_FOUND");
     }
+    // Percent-encoded or fragment variants reach the same routes after
+    // decoding; they must get the same 404 and change nothing (R62).
+    const encoded = [
+      { method: "GET" as const, url: `/api/projects/${projectId}/%74elegram` },
+      { method: "GET" as const, url: `/api/projects/${projectId}/telegram#x` },
+      {
+        method: "POST" as const,
+        url: `/api/projects/${projectId}/telegram/%63onnect`,
+        payload: { token: TOKEN },
+      },
+      {
+        method: "POST" as const,
+        url: `/api/projects/${projectId}/telegram/%64isconnect`,
+      },
+      {
+        method: "POST" as const,
+        url: `/api/%74elegram/${projectId}/${c.connectionId}`,
+        payload: JSON.stringify(message("/pause")),
+        secret: true,
+      },
+      {
+        method: "POST" as const,
+        url: `/api/telegram/${projectId}/${c.connectionId}`.replace(
+          "telegram",
+          "telegr%61m",
+        ),
+        payload: JSON.stringify(message("/pause")),
+        secret: true,
+      },
+    ];
+    for (const { secret, ...request } of encoded) {
+      const r = await app.inject({
+        ...request,
+        headers: {
+          origin: ORIGIN,
+          cookie: ownerCookie,
+          ...(secret
+            ? {
+                "content-type": "application/json",
+                "x-telegram-bot-api-secret-token": c.secret,
+              }
+            : {}),
+        },
+      });
+      expect(r.statusCode, request.url).toBe(404);
+      expect(r.json().error.code).toBe("NOT_FOUND");
+    }
     expect(calls.length).toBe(before);
+    const [row] = await rows("telegram_connections");
+    expect(data(row).status).toBe("linked");
+    expect(await rows("telegram_connections")).toHaveLength(1);
+    expect(await paused()).toBe(false);
     expect(
       await run((tx) => linkedTelegramConnection(tx, owner)),
     ).not.toBeNull();

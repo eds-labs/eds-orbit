@@ -227,6 +227,19 @@ import {
 } from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
+// Orbit Telegram bot routes (Orbit Agents), by registered pattern.
+const TELEGRAM_ROUTES = new Set([
+  "/api/telegram/:projectId/:connectionId",
+  "/api/projects/:projectId/telegram",
+  "/api/projects/:projectId/telegram/connect",
+  "/api/projects/:projectId/telegram/disconnect",
+]);
+// The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
+const UUID_SEGMENT =
+  "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const TELEGRAM_WEBHOOK_PATH = new RegExp(
+  `^/api/telegram/${UUID_SEGMENT}/${UUID_SEGMENT}$`,
+);
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
   options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
@@ -290,25 +303,17 @@ export async function buildServer(
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
     // Orbit Telegram bot routes do not exist while Orbit Agents is off: the
-    // same 404 before Origin checking, body parsing and authentication.
-    const path = req.url.split("?")[0]!;
-    if (
-      (/^\/api\/telegram(\/|$)/.test(path) ||
-        /^\/api\/projects\/[^/]+\/telegram(\/(connect|disconnect))?$/.test(
-          path,
-        )) &&
-      !telegramEnabled()
-    )
+    // same 404 before Origin checking, body parsing and authentication. The
+    // matched route pattern is checked, not the raw URL, so percent-encoded
+    // paths cannot slip past (R62); each handler checks again.
+    if (TELEGRAM_ROUTES.has(req.routeOptions.url ?? "") && !telegramEnabled())
       throw new DomainError("NOT_FOUND", 404);
     // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
         req.url,
       ) &&
-      !(
-        req.method === "POST" &&
-        /^\/api\/telegram\/[a-f0-9-]{36}\/[a-f0-9-]{36}$/.test(req.url)
-      ) &&
+      !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )
@@ -395,6 +400,7 @@ export async function buildServer(
     "/api/telegram/:projectId/:connectionId",
     { bodyLimit: 262144 },
     async (req, reply) => {
+      if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
       const { projectId, connectionId } = req.params as {
         projectId: string;
         connectionId: string;
@@ -838,6 +844,7 @@ export async function buildServer(
   });
   // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
   app.get("/api/projects/:projectId/telegram", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, true, true);
     return scoped(scope.workspaceId, projectId, (tx) =>
@@ -845,6 +852,7 @@ export async function buildServer(
     );
   });
   app.post("/api/projects/:projectId/telegram/connect", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return connectTelegram(
       await scopeFor(auth, req, projectId, true, true),
@@ -853,6 +861,7 @@ export async function buildServer(
     );
   });
   app.post("/api/projects/:projectId/telegram/disconnect", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return disconnectTelegram(
       await scopeFor(auth, req, projectId, true, true),
