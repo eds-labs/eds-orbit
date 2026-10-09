@@ -185,7 +185,15 @@ import {
   createMatomoClient,
   importAdsCsv,
   ConnectorError,
+  type FetchLike,
 } from "../../../packages/connectors/src/index.ts";
+import {
+  connectTelegram,
+  disconnectTelegram,
+  handleTelegramWebhook,
+  telegramEnabled,
+  telegramStatus,
+} from "./modules/telegram.ts";
 import { renderProjectAsset } from "./modules/render-asset.ts";
 const factSchema = z
   .object({
@@ -221,7 +229,7 @@ import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
-  options?: { logStream?: NodeJS.WritableStream },
+  options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
 ) {
   const config = loadConfig(),
     auth = makeAuth();
@@ -281,9 +289,14 @@ export async function buildServer(
   );
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
+    // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
         req.url,
+      ) &&
+      !(
+        req.method === "POST" &&
+        /^\/api\/telegram\/[a-f0-9-]{36}$/.test(req.url)
       ) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
@@ -363,6 +376,32 @@ export async function buildServer(
         }
         throw error;
       }
+    },
+  );
+  // Orbit Telegram bot webhook (Orbit Agents): public, authenticated only by
+  // the per-connection secret header and the bound chat (spec §10).
+  app.post(
+    "/api/telegram/:connectionId",
+    { bodyLimit: 262144 },
+    async (req, reply) => {
+      if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { connectionId } = req.params as { connectionId: string };
+      const result = await handleTelegramWebhook(
+        {
+          connectionId,
+          secret: req.headers["x-telegram-bot-api-secret-token"],
+          body: req.body,
+        },
+        {
+          fetch: options?.telegramFetch,
+          log: (code) => req.log.warn({ code }, "telegram reply failed"),
+        },
+      );
+      if (result.status === 401)
+        return reply.code(401).send({
+          error: { code: "UNAUTHORIZED", message: "UNAUTHORIZED" },
+        });
+      return reply.code(200).send({ ok: true });
     },
   );
   // Probes log at warn level only so they do not flood info logs.
@@ -698,6 +737,7 @@ export async function buildServer(
                 "evidence",
                 "drive_connection",
                 "drive_oauth_state",
+                "telegram_connections",
               ],
             },
           },
@@ -780,6 +820,32 @@ export async function buildServer(
     const scope = await scopeFor(auth, req, projectId, true, true);
     return scoped(scope.workspaceId, projectId, async (tx) =>
       jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
+    );
+  });
+  // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
+  app.get("/api/projects/:projectId/telegram", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      telegramStatus(tx, scope),
+    );
+  });
+  app.post("/api/projects/:projectId/telegram/connect", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    return connectTelegram(
+      await scopeFor(auth, req, projectId, true, true),
+      req.body,
+      { fetch: options?.telegramFetch },
+    );
+  });
+  app.post("/api/projects/:projectId/telegram/disconnect", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    return disconnectTelegram(
+      await scopeFor(auth, req, projectId, true, true),
+      { fetch: options?.telegramFetch },
     );
   });
   app.get("/api/projects/:projectId/google-drive", async (req) => {
