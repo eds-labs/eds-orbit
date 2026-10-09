@@ -246,7 +246,7 @@ export type VetoWindow = {
 
 /**
  * Whether a veto window stands in for the package approval (assisted mode)
- * and the draft-only mission's test publishing right (R52): the content's
+ * and the draft-only mission's test or live publishing right (R52, R53): the content's
  * agent review is accepted (spec §6), it belongs to the window's run, nothing
  * was stopped and, at handoff, the deadline has passed. At intent the
  * deadline is only checked to be valid; claimPublication enforces it (R4).
@@ -454,7 +454,10 @@ export async function preflight(
     );
     if (c.missionId) {
       const mission = await entity(tx, scope, "missions", c.missionId);
-      if (!(data(mission).allowedActions ?? []).includes("publish_live"))
+      if (
+        !(data(mission).allowedActions ?? []).includes("publish_live") &&
+        !(await vetoReleased())
+      )
         blockers.push("MISSION_LIVE_WRITE_NOT_AUTHORIZED");
     }
     if (!connector) blockers.push("PUBLISHER_WRITE_VERIFICATION_REQUIRED");

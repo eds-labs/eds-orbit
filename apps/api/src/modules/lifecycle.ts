@@ -17,6 +17,7 @@ import {
 import { analyze, enqueue } from "./workflow.ts";
 import { advanceContentPackages } from "./agents/content-packages.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
+import { scheduleUnscheduledRuns } from "./agents/veto.ts";
 import {
   nextAssignmentPlanAt,
   planAssignmentRuns,
@@ -200,8 +201,11 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
   if (project.paused) return { queued: 0 };
   await releaseMissedSlots(tx, scope, at);
   // Assignment runs replace the weekly autopilot: both fill the same slots.
-  if (agentsEnabled()) await planAssignmentRuns(tx, scope, at);
-  else await planAutopilot(tx, scope, at);
+  if (agentsEnabled()) {
+    await planAssignmentRuns(tx, scope, at);
+    // Runs whose approved posts could not be scheduled after their review (R54).
+    await scheduleUnscheduledRuns(tx, scope);
+  } else await planAutopilot(tx, scope, at);
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
   // An owner-approved single live draft is the mission's only attempt; its

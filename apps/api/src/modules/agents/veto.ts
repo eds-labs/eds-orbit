@@ -38,14 +38,14 @@ import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 const RUNS = "assignment_runs";
 const PUBLICATIONS = "publications";
 // The publication is out of Orbit's hands from the claim on.
-const HANDED_OVER = [
-  "sending",
-  "published",
-  "published_test",
-  "outcome_unknown",
-  "failed",
-];
 const INACTIVE = ["canceled", "failed", "blocked_dependency"];
+
+/** A publication Orbit still holds: not handed over, nothing sent to Postiz (R56 allow-list). */
+const withdrawable = (pub: Record<string, any>) =>
+  pub.status === "intent_created" ||
+  (pub.status === "blocked_dependency" &&
+    !pub.remoteId &&
+    !pub.handoffCompletedAt);
 // Drafts that still wait for a decision keep their slot.
 const PENDING_DRAFT = ["draft", "needs_review", "reviewed"];
 // Same tolerance after the slot as the mission the copywriter creates.
@@ -173,23 +173,29 @@ async function moveDraft(
  * means: reviewed, and the agent review is accepted (spec §6); drafts left
  * for the owner or rejected are not scheduled. The run's slots record the
  * publication, the move or the release, and the run keeps the result in
- * `scheduling`. Calling it again creates nothing new and returns the run's
- * publications that are still active.
+ * `scheduling` and the success marker `scheduledAt` (R54), which is written
+ * with the rest or not at all. Calling it again creates nothing new and
+ * returns the run's publications that are still active.
  */
-export async function scheduleApproved(
-  tx: DbTx,
-  scope: Scope,
-  runId: string,
-  now = new Date(),
-) {
+export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
   if (!agentsEnabled()) return [];
+  // One booking at a time per project: two runs, or the sweep and a task
+  // completion, never take the same slot (same lock as scoped()).
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scope.workspaceId + ":" + scope.projectId},0))`;
   await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${runId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
   const run = await entity(tx, scope, RUNS, runId);
   const r = data(run);
   const assignmentRow = await entity(tx, scope, "assignments", r.assignmentId);
   const assignment = data(assignmentRow);
   // Blog and newsletter drafts were saved to Drive by the review; they are never published.
-  if (assignment.contentType !== "social") return [];
+  if (assignment.contentType !== "social") {
+    if (!r.scheduledAt)
+      await update(tx, scope, run, {
+        ...r,
+        scheduledAt: new Date().toISOString(),
+      });
+    return [];
+  }
   const vetoMs = Number(assignment.vetoMinutes ?? 180) * 60000;
   const existing = await rowsWhere(
     tx,
@@ -236,6 +242,8 @@ export async function scheduleApproved(
     let failure: string | null = null;
     let publication: Awaited<ReturnType<typeof entity>> | null = null;
     let target: Date | null = null;
+    // Read per draft: a long pass must not leave a late draft with a deadline already gone.
+    const now = new Date();
     try {
       target = await vetoSlot(
         tx,
@@ -323,6 +331,7 @@ export async function scheduleApproved(
     });
     scheduled.push(publication);
   }
+  const now = new Date();
   // A slot without a publication and without a draft still waiting for a decision is free again.
   const waiting = new Set(
     drafts
@@ -352,14 +361,85 @@ export async function scheduleApproved(
     dropped,
   };
   if (
+    !r.scheduledAt ||
     JSON.stringify(slots) !== JSON.stringify(r.slots ?? []) ||
     JSON.stringify(scheduling) !== JSON.stringify(r.scheduling ?? null)
   ) {
     // publishIntent does not touch the run; read it again all the same.
     const current = await entity(tx, scope, RUNS, runId);
-    await update(tx, scope, current, { ...data(current), slots, scheduling });
+    await update(tx, scope, current, {
+      ...data(current),
+      slots,
+      scheduling,
+      scheduledAt: r.scheduledAt ?? now.toISOString(),
+    });
   }
   return scheduled;
+}
+
+/** A run that ended with its review done and has not been scheduled yet. */
+function awaitsScheduling(run: Record<string, any>) {
+  return (
+    ["done", "partial"].includes(run.status) &&
+    !run.scheduledAt &&
+    ((run.steps ?? []) as Array<Record<string, any>>).some(
+      (step) => step.role === "review" && step.status === "done",
+    )
+  );
+}
+
+/**
+ * Schedules a run whose review just finished. Called in its own transaction
+ * after the review task's result is saved (R54), so a failure here never
+ * undoes the task; the sweep retries runs without the marker.
+ */
+export async function scheduleFinishedRun(
+  tx: DbTx,
+  scope: Scope,
+  runId: string,
+) {
+  if (!agentsEnabled()) return [];
+  const run = await entity(tx, scope, RUNS, runId);
+  return awaitsScheduling(data(run)) ? scheduleApproved(tx, scope, runId) : [];
+}
+
+/**
+ * Sweep retry (R54): schedules the recent runs that ended with their review
+ * done but have no `scheduledAt` marker, e.g. because scheduling failed
+ * after the review task was saved. A run that fails again is logged and left
+ * for the next sweep; the others go on.
+ */
+export async function scheduleUnscheduledRuns(tx: DbTx, scope: Scope) {
+  if (!agentsEnabled()) return { scheduled: 0 };
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  // Runs of the last days only: older slots are gone anyway.
+  const since = localDate(
+    new Date(Date.now() - 2 * 86400000),
+    project.timezone,
+  );
+  const runs = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: RUNS,
+      data: { path: ["date"], gte: since },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  let scheduled = 0;
+  for (const run of runs) {
+    if (!awaitsScheduling(data(run))) continue;
+    try {
+      await scheduleApproved(tx, scope, run.id);
+      scheduled++;
+    } catch (error) {
+      if (!(error instanceof Error)) throw error;
+      console.error("Orbit assignment scheduling retry failed", error.message);
+    }
+  }
+  return { scheduled };
 }
 
 /**
@@ -393,9 +473,12 @@ export async function vetoPublication(
   if (!row || !data(row).vetoDeadline) return { result: "not_found" };
   const p = data(row);
   if (p.vetoedAt) return { result: "vetoed" };
-  if (HANDED_OVER.includes(p.status)) return { result: "already_handed_over" };
   // Withdrawn before (assignment paused or ended): it will not go out either.
-  if (p.status === "canceled") return { result: "vetoed" };
+  if (p.status === "canceled" && !p.remoteId && !p.handoffCompletedAt)
+    return { result: "vetoed" };
+  // Only a post Orbit still holds can be stopped (R56); every other status
+  // (sending, scheduled_remote, reconciliation_required, ...) is with Postiz.
+  if (!withdrawable(p)) return { result: "already_handed_over" };
   if (row.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   await withdrawPublication(tx, scope, row, "VETOED", {
     vetoedAt: new Date().toISOString(),
@@ -448,7 +531,7 @@ export async function withdrawAssignmentPublications(
     "assignmentId",
     assignmentId,
   ))
-    if (data(row).vetoDeadline && data(row).status === "intent_created") {
+    if (data(row).vetoDeadline && withdrawable(data(row))) {
       await withdrawPublication(tx, scope, row, reason);
       withdrawn++;
     }

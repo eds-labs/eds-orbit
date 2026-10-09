@@ -15,7 +15,56 @@ const provider = vi.hoisted(() => ({
   embed: vi.fn(),
   requests: [] as any[],
   replies: [] as Array<(request: any) => Reply>,
+  // The next slot lookup fails like an unexpected outage when set (R54).
+  failSlots: false,
+  // Live preconditions outside this task: an evaluated live index and a Postiz client.
+  liveIndex: false,
+  createPost: vi.fn(),
 }));
+vi.mock("../src/modules/agents/scheduling.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../src/modules/agents/scheduling.ts")
+    >();
+  return {
+    ...actual,
+    slotContext: async (...args: Parameters<typeof actual.slotContext>) => {
+      if (provider.failSlots) {
+        provider.failSlots = false;
+        throw new Error("synthetic scheduling outage");
+      }
+      return actual.slotContext(...args);
+    },
+  };
+});
+vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../packages/knowledge/src/index.ts")
+    >();
+  return {
+    ...actual,
+    validateActiveIndexEvaluation: async (
+      ...args: Parameters<typeof actual.validateActiveIndexEvaluation>
+    ) =>
+      provider.liveIndex
+        ? { valid: true, reasons: [] }
+        : actual.validateActiveIndexEvaluation(...args),
+  };
+});
+vi.mock("../../../packages/connectors/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../packages/connectors/src/index.ts")
+    >();
+  return {
+    ...actual,
+    createPostizClient: (...args: any[]) =>
+      provider.liveIndex
+        ? { createPost: provider.createPost, uploadMedia: vi.fn() }
+        : (actual.createPostizClient as any)(...args),
+  };
+});
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
@@ -45,7 +94,16 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   };
 });
 import { closeDatabase } from "../../../packages/db/src/index.ts";
-import { create, data, DomainError, entity, update } from "../src/shared.ts";
+import {
+  create,
+  data,
+  DomainError,
+  encrypt,
+  entity,
+  list,
+  update,
+} from "../src/shared.ts";
+import { sweepProject } from "../src/modules/lifecycle.ts";
 import { setAssignmentStatus } from "../src/modules/agents/assignments.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
@@ -72,6 +130,7 @@ import {
   embedded,
   generated,
   message,
+  tomorrowMorning,
 } from "./support/assignment-review.ts";
 
 const enabled = Boolean(
@@ -164,6 +223,9 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     process.env.ORBIT_AGENTS = "true";
     provider.requests = [];
     provider.replies = [];
+    provider.failSlots = false;
+    provider.liveIndex = false;
+    provider.createPost.mockReset();
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
       const contract = JSON.parse(params.goal);
@@ -258,6 +320,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
       publicationIds: [pub!.id],
       dropped: [],
     });
+    expect(run!.scheduledAt).toEqual(expect.any(String));
     // The automatic approval is audited with version, review task and deadline.
     const audits = await h.run((tx) =>
       tx.auditEvent.findMany({
@@ -528,6 +591,64 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     ).toEqual({ result: "already_handed_over" });
     expect((await publications())[0]).toEqual(published);
     expect(await h.rows("preferences")).toEqual([]);
+
+    // Postiz holds the post (R56): every status but the withdrawable ones answers honestly.
+    const other = pubs[1]!;
+    const forge = (changes: Record<string, unknown>) =>
+      h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "publications", other.id);
+        const { remoteId, handoffCompletedAt, ...rest } = data(row);
+        void remoteId;
+        void handoffCompletedAt;
+        return update(tx, project.owner, row, { ...rest, ...changes });
+      });
+    for (const status of [
+      "scheduled_remote",
+      "reconciliation_required",
+      "cancellation_required",
+      "sending",
+      "outcome_unknown",
+    ]) {
+      const forged = await forge({
+        status,
+        remoteId: "remote-synthetic",
+        handoffCompletedAt: new Date().toISOString(),
+      });
+      expect(
+        await h.run((tx) =>
+          vetoPublication(tx, project.owner, other.id, forged.version, "orbit"),
+        ),
+      ).toEqual({ result: "already_handed_over" });
+      expect((await publications())[1]!.version).toBe(forged.version);
+      expect((await publications())[1]!.status).toBe(status);
+    }
+    // Blocked after a handoff to Postiz: still with Postiz.
+    const blockedRemote = await forge({
+      status: "blocked_dependency",
+      remoteId: "remote-synthetic",
+    });
+    expect(
+      await h.run((tx) =>
+        vetoPublication(
+          tx,
+          project.owner,
+          other.id,
+          blockedRemote.version,
+          "orbit",
+        ),
+      ),
+    ).toEqual({ result: "already_handed_over" });
+    // Blocked before anything was sent: Orbit still holds it and stops it.
+    const blocked = await forge({ status: "blocked_dependency" });
+    expect(
+      await h.run((tx) =>
+        vetoPublication(tx, project.owner, other.id, blocked.version, "orbit"),
+      ),
+    ).toEqual({ result: "vetoed" });
+    expect((await publications())[1]).toMatchObject({
+      status: "canceled",
+      reason: "VETOED",
+    });
   });
 
   it("does not hand over before the veto deadline", async () => {
@@ -703,6 +824,154 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         )
       ).blockers,
     ).toEqual(expect.arrayContaining(held));
+  });
+
+  it("hands a live post to Postiz only after its deadline and without a stop (R53)", async () => {
+    const saved = {
+      EXECUTION_MODE: process.env.EXECUTION_MODE,
+      ENABLE_EXTERNAL_WRITES: process.env.ENABLE_EXTERNAL_WRITES,
+      PUBLISHER_INSTANCE_ID: process.env.PUBLISHER_INSTANCE_ID,
+    };
+    try {
+      process.env.EXECUTION_MODE = "live";
+      process.env.ENABLE_EXTERNAL_WRITES = "true";
+      process.env.PUBLISHER_INSTANCE_ID = "synthetic-publisher";
+      provider.liveIndex = true;
+      provider.createPost.mockResolvedValue({
+        remotePosts: [{ postId: "remote-synthetic-1" }],
+      });
+      await h.setPolicy({ maxPerDay: 3 });
+      await h.run(async (tx) => {
+        const row = (await list(tx, project.owner, "connectors"))[0]!;
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "write_verified",
+          baseUrl: "https://postiz.example.invalid",
+          // A synthetic token, sealed with the test environment's key like the fixture's OpenAI key.
+          encryptedCredential: encrypt(
+            "synthetic-token",
+            process.env.CREDENTIAL_KEY!,
+          ),
+          writeVerifiedIntegrationIds: [X],
+          writeVerifiedInstanceId: "synthetic-publisher",
+        });
+      });
+      await h.connectTelegram();
+      await h.makeAssignment({
+        schedule: {
+          rhythm: "daily",
+          weekdays: [],
+          times: ["10:00", "13:00", "17:00"],
+          leadMinutes: 360,
+        },
+      });
+      const { review } = await drafted();
+      await reviewed(review.id);
+      const pubs = await publications();
+      expect(pubs).toHaveLength(3);
+      expect(pubs.every((pub) => pub.test === false)).toBe(true);
+      const [sent, early, stopped] = pubs;
+      const dispatch = (id: string) => dispatchPublication(project.owner, id);
+      vi.useFakeTimers({ toFake: ["Date"] });
+
+      // Inside the window and before the slot nothing goes out.
+      vi.setSystemTime(at(sent!.vetoDeadline, -1));
+      expect(await code(dispatch(sent!.id))).toBe("NOT_DUE");
+      expect(provider.createPost).not.toHaveBeenCalled();
+
+      // A due post whose deadline lies ahead is blocked at handoff.
+      vi.setSystemTime(at(early!.scheduledAt, 1));
+      await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "publications", early!.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          vetoDeadline: at(early!.scheduledAt, 10).toISOString(),
+        });
+      });
+      await dispatch(early!.id);
+      expect((await publications())[1]).toMatchObject({
+        status: "blocked_dependency",
+        blockers: ["VETO_WINDOW_OPEN"],
+      });
+      expect(provider.createPost).not.toHaveBeenCalled();
+
+      // A stopped post stays home after its slot.
+      vi.setSystemTime(at(stopped!.vetoDeadline, -30));
+      expect(
+        await h.run((tx) =>
+          vetoPublication(
+            tx,
+            project.owner,
+            stopped!.id,
+            stopped!.version,
+            "telegram",
+          ),
+        ),
+      ).toEqual({ result: "vetoed" });
+      vi.setSystemTime(at(stopped!.scheduledAt, 1));
+      await dispatch(stopped!.id);
+      expect((await publications())[2]).toMatchObject({ status: "canceled" });
+      expect(provider.createPost).not.toHaveBeenCalled();
+
+      // After the deadline without a stop the post goes to Postiz.
+      vi.setSystemTime(at(sent!.scheduledAt, 1));
+      await dispatch(sent!.id);
+      expect(provider.createPost).toHaveBeenCalledTimes(1);
+      expect(provider.createPost.mock.calls[0]![0].posts[0]).toMatchObject({
+        integration: { id: X },
+      });
+      const handed = (await publications())[0]!;
+      expect(handed).toMatchObject({
+        status: "scheduled_remote",
+        remoteId: "remote-synthetic-1",
+      });
+      // From now on a stop changes nothing (C1).
+      expect(
+        await h.run((tx) =>
+          vetoPublication(tx, project.owner, sent!.id, handed.version, "orbit"),
+        ),
+      ).toEqual({ result: "already_handed_over" });
+      expect((await publications())[0]).toEqual(handed);
+      // The assignment's mission stays draft-only.
+      const mission = await h.run(async (tx) =>
+        entity(
+          tx,
+          project.owner,
+          "missions",
+          data(await entity(tx, project.owner, "content", sent!.contentId))
+            .missionId,
+        ),
+      );
+      expect(data(mission).allowedActions).toEqual(["draft"]);
+    } finally {
+      for (const [key, value] of Object.entries(saved))
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+    }
+  });
+
+  it("schedules on the next sweep when scheduling failed after the review (R54)", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    const { review, runId } = await drafted();
+    provider.failSlots = true;
+    // The review's result is saved even though its scheduling fails.
+    await reviewed(review.id);
+    expect(await h.rows("publications")).toEqual([]);
+    const runOf = async () =>
+      (await h.rows("assignment_runs")).find((row) => row.id === runId)!;
+    expect(["done", "partial"]).toContain((await runOf()).status);
+    expect((await runOf()).scheduledAt).toBeUndefined();
+
+    await h.run((tx) => sweepProject(tx, h.worker(), tomorrowMorning()));
+    expect(await h.rows("publications")).toHaveLength(2);
+    expect(await previews()).toHaveLength(2);
+    const marked = await runOf();
+    expect(marked.scheduledAt).toEqual(expect.any(String));
+    // A further sweep leaves the scheduled run alone.
+    await h.run((tx) => sweepProject(tx, h.worker(), tomorrowMorning()));
+    expect((await runOf()).version).toBe(marked.version);
+    expect(await h.rows("publications")).toHaveLength(2);
   });
 
   it("withdraws scheduled posts when the assignment is paused (R20)", async () => {

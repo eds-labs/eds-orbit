@@ -38,6 +38,7 @@ import {
   type WorkStep,
 } from "../assignment-runs.ts";
 import { agentsEnabled, setAssignmentStatus } from "../assignments.ts";
+import { scheduleFinishedRun } from "../veto.ts";
 import type {
   AgentTask,
   AgentTaskData,
@@ -768,4 +769,15 @@ export async function runAgentTask(scope: Scope, taskId: string) {
       await exhaustAssignment(tx, scope, d.assignmentId);
     await startReadySteps(tx, scope, d.runId);
   });
+  // The review's result is saved; scheduling the approved posts is a step of
+  // its own (R54): a failure leaves the run without its marker for the sweep.
+  if (claimed.role === "review")
+    try {
+      await inScope((tx) => scheduleFinishedRun(tx, scope, claimed.runId));
+    } catch (error) {
+      console.error(
+        "Orbit assignment scheduling failed",
+        telemetryErrorCode(error),
+      );
+    }
 }

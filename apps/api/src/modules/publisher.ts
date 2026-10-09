@@ -106,9 +106,21 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
       scope.projectId,
       async (tx) => {
         const pub = await entity(tx, scope, "publications", pubId);
+        const v = data(pub);
         const checked = await preflight(tx, scope, p.contentId, {
           test: false,
           ignoreApproval: true,
+          // An assignment post keeps its veto window up to the send (R53).
+          ...(v.vetoDeadline && v.assignmentRunId
+            ? {
+                veto: {
+                  deadline: v.vetoDeadline,
+                  vetoedAt: v.vetoedAt ?? null,
+                  assignmentRunId: v.assignmentRunId,
+                  handoff: true,
+                },
+              }
+            : {}),
         });
         if (
           data(pub).status !== "sending" ||

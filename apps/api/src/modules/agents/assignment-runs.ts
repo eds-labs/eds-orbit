@@ -6,7 +6,6 @@ import { zonedTime } from "../posting-slots.ts";
 import { enqueue } from "../workflow.ts";
 import { agentsEnabled } from "./assignments.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
-import { scheduleApproved } from "./veto.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
 
 /**
@@ -508,22 +507,9 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     JSON.stringify(steps) === JSON.stringify(d.steps)
   )
     return row;
-  const saved = await update(tx, scope, row, {
-    ...d,
-    steps,
-    status,
-    costMicros,
-  });
-  // The run ends here once; with its review done, the approved posts get their veto window (spec §9).
-  if (
-    (status === "done" || status === "partial") &&
-    steps.some((step) => step.role === "review" && step.status === "done") &&
-    !d.scheduling
-  ) {
-    await scheduleApproved(tx, scope, runId);
-    return entity(tx, scope, RUNS, runId);
-  }
-  return saved;
+  // A run that ends with its review done is scheduled afterwards in its own
+  // transaction (veto.ts scheduleFinishedRun, R54).
+  return update(tx, scope, row, { ...d, steps, status, costMicros });
 }
 
 /**
