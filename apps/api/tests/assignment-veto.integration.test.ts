@@ -187,9 +187,22 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
       String(a.scheduledAt).localeCompare(String(b.scheduledAt)),
     );
   const previews = async () =>
-    (await h.rows("jobs")).filter(
-      (job) => job.topic === "telegram_notification",
+    (await h.rows("jobs")).filter((job) =>
+      String(job.idempotencyKey).startsWith("notify:preview:"),
     );
+  // Outbox events of the preview jobs (notices of the review are other jobs).
+  const previewEvents = async () => {
+    const ids = (await previews()).map((job) => job.id);
+    return h.run((tx) =>
+      tx.outbox.count({
+        where: {
+          projectId: project.owner.projectId,
+          topic: "telegram_notification",
+          entityId: { in: ids },
+        },
+      }),
+    );
+  };
   /** Plans a run with one brief per slot and writes the drafts; returns the review task and slots. */
   const drafted = async () => {
     const planned = await h.planWithBriefs((slots) =>
@@ -296,16 +309,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         status: "queued",
       }),
     ]);
-    expect(
-      await h.run((tx) =>
-        tx.outbox.count({
-          where: {
-            projectId: project.owner.projectId,
-            topic: "telegram_notification",
-          },
-        }),
-      ),
-    ).toBe(1);
+    expect(await previewEvents()).toBe(1);
     // The run's slot now counts as the publication; the rejected one is free again.
     const [run] = await h.rows("assignment_runs");
     expect(run!.slots).toEqual([
@@ -1005,15 +1009,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     expect(await h.rows("publications")).toEqual([]);
     const runOf = async () =>
       (await h.rows("assignment_runs")).find((row) => row.id === runId)!;
-    const telegramEvents = () =>
-      h.run((tx) =>
-        tx.outbox.count({
-          where: {
-            projectId: project.owner.projectId,
-            topic: "telegram_notification",
-          },
-        }),
-      );
+    const telegramEvents = previewEvents;
     // Another duty of the same sweep: a ready mission past its end expires.
     const stale = () =>
       h.run((tx) =>

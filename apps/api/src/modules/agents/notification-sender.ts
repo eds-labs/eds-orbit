@@ -1,0 +1,552 @@
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import {
+  ConnectorError,
+  type FetchLike,
+  type TelegramButton,
+} from "../../../../../packages/connectors/src/index.ts";
+import { audit, data, entity, exception, list, update } from "../../shared.ts";
+import { finalPostText } from "../channel-rules.ts";
+import { exportAssetContent } from "../content-export.ts";
+import { zonedTime } from "../posting-slots.ts";
+import {
+  linkedTelegramConnection,
+  stopCallbackData,
+  telegramSender,
+} from "../telegram.ts";
+import { agentsEnabled } from "./assignments.ts";
+import { NOTIFY_KINDS, type NotifyKind } from "./notifications.ts";
+import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
+
+/**
+ * Renders and sends one queued `telegram_notification` job to the owner's
+ * bot (Orbit Agents, spec §10). The message is built when the job runs, from
+ * the state then: a preview of a post that was stopped, handed over or whose
+ * veto deadline has passed is skipped as stale, and a project without a bound
+ * owner gets nothing and nothing is retried (R61, R63). The job's idempotency
+ * key `notify:<kind>:<ref>` says what to send.
+ *
+ * Delivery is tried once and retried three times with growing waits, but only
+ * for network trouble and temporary Telegram errors. A delivery that still
+ * fails is recorded on the job, audited and opened as the exception
+ * `TELEGRAM_DELIVERY_FAILED` (kind and reference, never the token or the chat
+ * id). It changes nothing about publishing: no publication, veto deadline or
+ * review is touched, and the deadline applies whether or not the message got
+ * through. The outcome (`sent`, `skipped`, `failed`) is kept on the job as
+ * `notification`, which also makes a second call for the same job a no-op.
+ */
+const BACKOFF_MS = [1000, 3000, 9000];
+// Telegram's own limits: 1024 characters under a photo, 4096 in a message.
+const CAPTION_MAX = 1024;
+const TEXT_MAX = 4000;
+const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+const FACT_WINDOW_MS = 7 * 86400000;
+const FACTS_SHOWN = 5;
+const TRANSIENT_CODES = new Set([
+  "NETWORK_ERROR",
+  "REQUEST_TIMEOUT",
+  "DNS_TIMEOUT",
+  "INVALID_PROVIDER_RESPONSE",
+]);
+
+export type NotificationOptions = {
+  fetch?: FetchLike;
+  sleep?: (ms: number) => Promise<void>;
+};
+type Message = {
+  text: string;
+  // Shown under the photo when the text is too long for a caption.
+  header: string;
+  buttons: TelegramButton[];
+  asset?: Record<string, any> | null;
+};
+type Built = Message | { skip: string };
+
+const orbitUrl = () =>
+  `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/approvals`;
+const openButton = (): TelegramButton => ({
+  text: "In Orbit öffnen",
+  url: orbitUrl(),
+});
+const clip = (text: string, max: number) =>
+  text.length > max ? text.slice(0, max - 1) + "…" : text;
+const maybe = async <T>(work: () => Promise<T>) => {
+  try {
+    return await work();
+  } catch {
+    return null;
+  }
+};
+
+const when = (iso: unknown, timezone: string) => {
+  const at = new Date(String(iso));
+  if (!Number.isFinite(at.valueOf())) return "unbekannt";
+  const text = new Intl.DateTimeFormat("de-DE", {
+    timeZone: timezone,
+    weekday: "short",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at);
+  return `${text} (${timezone})`;
+};
+const clock = (iso: unknown, timezone: string) =>
+  new Intl.DateTimeFormat("de-DE", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(new Date(String(iso)));
+const shortDate = (at: Date, timezone: string) =>
+  new Intl.DateTimeFormat("de-DE", {
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+  }).format(at);
+const usd = (micros: bigint | null | undefined) =>
+  (Number(micros ?? 0n) / 1_000_000).toLocaleString("de-DE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+/** The channel's name from the Postiz connector; the id when it is not known. */
+async function channelName(tx: DbTx, scope: Scope, channel: unknown) {
+  const id = String(channel ?? "");
+  for (const row of await list(tx, scope, "connectors")) {
+    const found = (
+      (data(row).channels ?? []) as Array<Record<string, any>>
+    ).find((item) => item.id === id);
+    if (found?.name) return String(found.name);
+  }
+  return id || "unbekannt";
+}
+
+function parseKey(key: unknown): { kind: NotifyKind; ref: string } | null {
+  const match = /^notify:([a-z_]+):(.+)$/s.exec(String(key ?? ""));
+  const kind = match?.[1] as NotifyKind | undefined;
+  return kind && NOTIFY_KINDS.includes(kind) ? { kind, ref: match![2]! } : null;
+}
+
+async function preview(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const pubRow = await maybe(() => entity(tx, scope, "publications", ref));
+  const p = data(pubRow);
+  // Stopped, handed over, blocked or past its deadline: there is nothing left to stop.
+  if (
+    !pubRow ||
+    p.status !== "intent_created" ||
+    p.vetoedAt ||
+    !(Date.parse(p.vetoDeadline) > Date.now())
+  )
+    return { skip: "STALE" };
+  const contentRow = await maybe(() =>
+    entity(tx, scope, "content", p.contentId),
+  );
+  if (!contentRow) return { skip: "STALE" };
+  const c = data(contentRow);
+  const asset = c.assetId
+    ? data(await maybe(() => entity(tx, scope, "assets", c.assetId)))
+    : null;
+  const header = [
+    "Neuer Beitrag",
+    `Kanal: ${await channelName(tx, scope, p.channel)}`,
+    `Zeit: ${when(p.scheduledAt, timezone)}`,
+    `Stop möglich bis ${clock(p.vetoDeadline, timezone)}`,
+  ].join("\n");
+  const body = finalPostText(String(c.body ?? ""), c.targetUrl);
+  return {
+    header,
+    text: clip(`${header}\n\n${body}`, TEXT_MAX),
+    asset: asset && Object.keys(asset).length ? asset : null,
+    buttons: [
+      {
+        text: "Stop",
+        callbackData: stopCallbackData(pubRow.id, pubRow.version),
+      },
+      openButton(),
+    ],
+  };
+}
+
+const plain = (text: string, buttons: TelegramButton[] = []): Message => ({
+  text,
+  header: text,
+  buttons,
+});
+
+async function rejected(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
+  const contentRow = await maybe(() =>
+    entity(tx, scope, "content", ref.split(":")[0]!),
+  );
+  if (!contentRow) return { skip: "STALE" };
+  const c = data(contentRow);
+  const reasons = ((c.agentReviewDecision?.reasons ?? []) as unknown[])
+    .map(String)
+    .filter(Boolean);
+  const problems = (
+    (c.agentReviewDecision?.deterministicProblems ?? []) as unknown[]
+  ).map(String);
+  return plain(
+    [
+      "Entwurf abgelehnt",
+      `Kanal: ${await channelName(tx, scope, c.channel)}`,
+      `Grund: ${clip([...reasons, ...problems].join("; ") || "nicht angegeben", 300)}`,
+      "Es geht nichts raus.",
+    ].join("\n"),
+  );
+}
+
+async function needsOwner(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
+  const contentRow = await maybe(() =>
+    entity(tx, scope, "content", ref.split(":")[0]!),
+  );
+  if (!contentRow) return { skip: "STALE" };
+  const c = data(contentRow);
+  const why = [
+    ...((c.agentReviewDecision?.deterministicProblems ?? []) as unknown[]),
+    c.agentReviewDecision?.revisionError,
+  ]
+    .filter(Boolean)
+    .map(String);
+  return plain(
+    [
+      "Entwurf wartet auf dich",
+      `Kanal: ${await channelName(tx, scope, c.channel)}`,
+      `Orbit konnte ihn nicht selbst freigeben${why.length ? ` (${clip(why.join(", "), 200)})` : ""}.`,
+      "Bitte in Orbit prüfen. Bis dahin geht nichts raus.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+async function dropped(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const contentRow = await maybe(() => entity(tx, scope, "content", ref));
+  const runRow = contentRow
+    ? await maybe(() =>
+        entity(tx, scope, "assignment_runs", data(contentRow).assignmentRunId),
+      )
+    : null;
+  const entry = (
+    (data(runRow).scheduling?.dropped ?? []) as Array<Record<string, any>>
+  ).find((item) => item.contentId === ref);
+  if (!entry) return { skip: "STALE" };
+  const reason =
+    entry.code === SLOT_UNAVAILABLE
+      ? "Kein freier Slot an dem Tag"
+      : entry.code;
+  return plain(
+    [
+      "Beitrag entfällt",
+      `Kanal: ${await channelName(tx, scope, entry.channel)}`,
+      `Geplant: ${when(entry.requestedAt, timezone)}`,
+      `Grund: ${clip(String(reason), 200)}`,
+    ].join("\n"),
+  );
+}
+
+async function budgetPaused(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const row = await maybe(() =>
+    entity(tx, scope, "assignments", ref.split(":")[0]!),
+  );
+  if (!row) return { skip: "STALE" };
+  return plain(
+    [
+      "Budget aufgebraucht",
+      `Auftrag „${clip(String(data(row).name ?? ""), 120)}“ ist pausiert.`,
+      "Fortsetzen in Orbit.",
+    ].join("\n"),
+  );
+}
+
+async function postizError(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const pubRow = await maybe(() => entity(tx, scope, "publications", ref));
+  if (!pubRow) return { skip: "STALE" };
+  const p = data(pubRow);
+  return plain(
+    [
+      "Postiz-Fehler",
+      `Kanal: ${await channelName(tx, scope, p.channel)}`,
+      `Zeit: ${when(p.scheduledAt, timezone)}`,
+      p.status === "outcome_unknown"
+        ? "Ergebnis unklar. Bitte in Postiz prüfen, bevor etwas erneut gesendet wird."
+        : "Der Beitrag wurde nicht veröffentlicht.",
+    ].join("\n"),
+  );
+}
+
+/** The report of the local day named by `ref` (`<projectId>:<YYYY-MM-DD>`). */
+async function dailyReport(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const date = ref.slice(-10);
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!parts) return { skip: "STALE" };
+  const [year, month, day] = parts.slice(1).map(Number) as [
+    number,
+    number,
+    number,
+  ];
+  const start = zonedTime(year, month, day, 0, 0, timezone);
+  const end = zonedTime(year, month, day + 1, 0, 0, timezone);
+  const monthStart = zonedTime(year, month, 1, 0, 0, timezone);
+  const within = (value: unknown) => {
+    const at = Date.parse(String(value ?? ""));
+    return at >= start.valueOf() && at < end.valueOf();
+  };
+  const pubs = (await list(tx, scope, "publications")).map(data);
+  const published = pubs.filter(
+    (p) =>
+      ["published", "scheduled_remote"].includes(p.status) &&
+      within(p.completedAt ?? p.handoffCompletedAt),
+  ).length;
+  const stopped = pubs.filter((p) => within(p.vetoedAt)).length;
+  const rejectedCount = await tx.auditEvent.count({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      action: "content.agent_rejected",
+      createdAt: { gte: start, lt: end },
+    },
+  });
+  const spent = (from: Date, state: "settled" | "unknown") =>
+    tx.budgetReservation.aggregate({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        state,
+        createdAt: { gte: from, lt: end },
+      },
+      _sum: { settledMicros: true, amountMicros: true },
+    });
+  const today = await spent(start, "settled");
+  const thisMonth = await spent(monthStart, "settled");
+  const unknown = await spent(monthStart, "unknown");
+  const now = new Date();
+  const expiring = (await list(tx, scope, "facts"))
+    .map(data)
+    .filter(
+      (f) =>
+        f.status === "verified" &&
+        Date.parse(f.validUntil) > now.valueOf() &&
+        Date.parse(f.validUntil) <= now.valueOf() + FACT_WINDOW_MS,
+    )
+    .sort((a, b) => Date.parse(a.validUntil) - Date.parse(b.validUntil));
+  const keys = [...new Map(expiring.map((f) => [f.key, f])).values()];
+  const lines = [
+    `Tagesbericht ${String(day).padStart(2, "0")}.${String(month).padStart(2, "0")}.${year}`,
+    `Veröffentlicht: ${published}`,
+    `Gestoppt: ${stopped}`,
+    `Abgelehnt: ${rejectedCount}`,
+    `Kosten heute: ${usd(today._sum.settledMicros)} USD`,
+    `Kosten Monat: ${usd(thisMonth._sum.settledMicros)} USD`,
+    ...(unknown._sum.amountMicros
+      ? [`Davon Ausgang unklar: ${usd(unknown._sum.amountMicros)} USD`]
+      : []),
+    keys.length
+      ? "Fakten, die in 7 Tagen ablaufen:"
+      : "Keine Fakten laufen in den nächsten 7 Tagen ab.",
+    ...keys
+      .slice(0, FACTS_SHOWN)
+      .map(
+        (f) =>
+          `- ${clip(String(f.key), 80)} (bis ${shortDate(new Date(f.validUntil), timezone)})`,
+      ),
+    ...(keys.length > FACTS_SHOWN
+      ? [`- und ${keys.length - FACTS_SHOWN} weitere`]
+      : []),
+  ];
+  return plain(lines.join("\n"), [openButton()]);
+}
+
+function projectPaused(): Built {
+  return plain(
+    "Projekt pausiert. Es geht nichts mehr raus. Fortsetzen nur in Orbit.",
+  );
+}
+
+async function render(
+  tx: DbTx,
+  scope: Scope,
+  kind: NotifyKind,
+  ref: string,
+): Promise<Built> {
+  const { timezone } = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+    select: { timezone: true },
+  });
+  switch (kind) {
+    case "preview":
+      return preview(tx, scope, ref, timezone);
+    case "rejected":
+      return rejected(tx, scope, ref);
+    case "needs_owner":
+      return needsOwner(tx, scope, ref);
+    case "dropped":
+      return dropped(tx, scope, ref, timezone);
+    case "budget_paused":
+      return budgetPaused(tx, scope, ref);
+    case "postiz_error":
+      return postizError(tx, scope, ref, timezone);
+    case "project_paused":
+      return projectPaused();
+    case "daily_report":
+      return dailyReport(tx, scope, ref, timezone);
+  }
+}
+
+/** Network trouble and temporary Telegram answers are tried again; a refusal that will not change is not. */
+function transient(error: unknown) {
+  if (!(error instanceof ConnectorError)) return false;
+  if (error.status !== undefined)
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  return TRANSIENT_CODES.has(error.code);
+}
+
+async function deliver(
+  steps: Array<() => Promise<unknown>>,
+  sleep: (ms: number) => Promise<void>,
+) {
+  for (const step of steps)
+    for (let attempt = 0; ; attempt++)
+      try {
+        await step();
+        break;
+      } catch (error) {
+        if (attempt >= BACKOFF_MS.length || !transient(error)) throw error;
+        await sleep(BACKOFF_MS[attempt]!);
+      }
+}
+
+const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
+
+async function record(
+  scope: Scope,
+  jobId: string,
+  notification: Record<string, unknown>,
+  inTx?: (tx: DbTx) => Promise<void>,
+) {
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const job = await entity(tx, scope, "jobs", jobId);
+    await update(tx, scope, job, {
+      ...data(job),
+      notification: { ...notification, at: new Date().toISOString() },
+    });
+    await inTx?.(tx);
+  });
+}
+
+/**
+ * Sends the notification of a `telegram_notification` job. Never throws for a
+ * delivery problem: it is recorded (see the file comment). Database errors
+ * propagate so that the worker retries the job; an outcome already recorded
+ * makes the call a no-op, so a retry never sends twice.
+ */
+export async function sendNotification(
+  scope: Scope,
+  jobId: string,
+  options: NotificationOptions = {},
+) {
+  const sleep = options.sleep ?? wait;
+  const prepared = await scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => {
+      const job = await entity(tx, scope, "jobs", jobId);
+      const d = data(job);
+      if (d.notification) return null;
+      const skip = async (reason: string) => {
+        await update(tx, scope, job, {
+          ...d,
+          notification: {
+            outcome: "skipped",
+            reason,
+            at: new Date().toISOString(),
+          },
+        });
+        return null;
+      };
+      const key = parseKey(d.idempotencyKey);
+      if (!key) return skip("UNKNOWN_KIND");
+      if (!agentsEnabled()) return skip("DISABLED");
+      // Only a bot bound to a current owner (R61); anything else is not retried.
+      const connection = await linkedTelegramConnection(tx, scope);
+      if (!connection) return skip("NO_BOT");
+      const sender = telegramSender(connection, { fetch: options.fetch });
+      if (!sender) return skip("NO_BOT");
+      const built = await render(tx, scope, key.kind, key.ref);
+      if ("skip" in built) return skip(built.skip);
+      return { ...key, sender, message: built };
+    },
+  );
+  if (!prepared) return;
+  const { kind, ref, sender, message } = prepared;
+  // The image is read outside the transaction (it may live in Drive); without it the text goes alone.
+  const image = message.asset
+    ? await maybe(() => exportAssetContent(scope, message.asset!))
+    : null;
+  const photo =
+    image && image.bytes.byteLength <= PHOTO_MAX_BYTES ? image.bytes : null;
+  const steps: Array<() => Promise<unknown>> = [];
+  if (photo && message.text.length <= CAPTION_MAX)
+    steps.push(() =>
+      sender.client.sendPhoto(
+        sender.chatId,
+        photo,
+        message.text,
+        message.buttons,
+      ),
+    );
+  else if (photo) {
+    steps.push(() =>
+      sender.client.sendPhoto(sender.chatId, photo, message.header),
+    );
+    steps.push(() =>
+      sender.client.sendMessage(sender.chatId, message.text, message.buttons),
+    );
+  } else
+    steps.push(() =>
+      sender.client.sendMessage(sender.chatId, message.text, message.buttons),
+    );
+  try {
+    await deliver(steps, sleep);
+  } catch (error) {
+    const code = error instanceof ConnectorError ? error.code : "UNEXPECTED";
+    const status =
+      error instanceof ConnectorError ? (error.status ?? null) : null;
+    await record(scope, jobId, { outcome: "failed", code }, async (tx) => {
+      await exception(tx, scope, "TELEGRAM_DELIVERY_FAILED", `${kind}:${ref}`);
+      await audit(tx, scope, "telegram.delivery_failed", jobId, {
+        kind,
+        ref,
+        code,
+        status,
+      });
+    });
+    return;
+  }
+  await record(scope, jobId, { outcome: "sent" });
+}

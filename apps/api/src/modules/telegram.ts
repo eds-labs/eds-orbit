@@ -105,6 +105,30 @@ export async function linkedTelegramConnection(tx: DbTx, scope: Scope) {
   return linkedOwner?.role === "owner" ? row : null;
 }
 
+/**
+ * A client for the bot of a linked connection and the chat it is bound to,
+ * for the notification sender (Task 13). The decrypted token stays inside
+ * the client; it is never returned or logged. Null when the credential is
+ * gone or unusable.
+ */
+export function telegramSender(
+  row: Connection,
+  options: { fetch?: FetchLike } = {},
+) {
+  const token = tokenOf(row);
+  const chatId = data(row).chatId;
+  if (!token || (typeof chatId !== "string" && typeof chatId !== "number"))
+    return null;
+  try {
+    return {
+      chatId,
+      client: createTelegramClient({ token, fetch: options.fetch }),
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Connections that are not disabled, newest first. */
 async function activeConnections(tx: DbTx, scope: Scope) {
   return (
@@ -680,7 +704,8 @@ export async function handleTelegramWebhook(
           answer(TEXT.ownerOnly);
           return done("pause_forbidden");
         }
-        await pauseProject(tx, actor, true);
+        // The bot confirms the pause itself; no second notice.
+        await pauseProject(tx, actor, true, { notify: false });
         await audit(tx, actor, "telegram.pause", row.id, {
           nonce: pause.nonce,
         });

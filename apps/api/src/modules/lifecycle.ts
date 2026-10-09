@@ -17,6 +17,7 @@ import {
 import { analyze, enqueue } from "./workflow.ts";
 import { advanceContentPackages } from "./agents/content-packages.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
+import { nextDailyReportAt, planDailyReport } from "./agents/notifications.ts";
 import { scheduleUnscheduledRuns } from "./agents/veto.ts";
 import {
   nextAssignmentPlanAt,
@@ -205,6 +206,8 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
     await planAssignmentRuns(tx, scope, at);
     // Runs whose approved posts could not be scheduled after their review (R54).
     await scheduleUnscheduledRuns(tx, scope);
+    // The bot's daily report, once per local day (a paused project sends none).
+    await planDailyReport(tx, scope, at);
   } else await planAutopilot(tx, scope, at);
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
@@ -318,8 +321,9 @@ export async function nextSweepAt(tx: DbTx, scope: Scope, at = new Date()) {
   }
   for (const e of await list(tx, scope, "experiments"))
     if (data(e).status === "running") consider(data(e).endAt);
-  if (agentsEnabled())
+  if (agentsEnabled()) {
     consider((await nextAssignmentPlanAt(tx, scope, at))?.valueOf());
-  else consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
+    consider((await nextDailyReportAt(tx, scope, at))?.valueOf());
+  } else consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
   return Number.isFinite(next) ? new Date(next) : null;
 }

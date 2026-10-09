@@ -38,6 +38,7 @@ import {
   type WorkStep,
 } from "../assignment-runs.ts";
 import { agentsEnabled, setAssignmentStatus } from "../assignments.ts";
+import { notify } from "../notifications.ts";
 import { scheduleFinishedRun } from "../veto.ts";
 import type {
   AgentTask,
@@ -614,8 +615,15 @@ export async function runSpecialist(
 async function exhaustAssignment(tx: DbTx, scope: Scope, assignmentId: string) {
   const row = await entity(tx, scope, "assignments", assignmentId);
   if (data(row).status !== "active") return;
-  await setAssignmentStatus(tx, scope, assignmentId, "budget_exhausted");
+  const saved = await setAssignmentStatus(
+    tx,
+    scope,
+    assignmentId,
+    "budget_exhausted",
+  );
   await exception(tx, scope, ASSIGNMENT_BUDGET_EXHAUSTED, assignmentId);
+  // The version names this exhaustion; a later one after a resume is a new event.
+  await notify(tx, scope, "budget_paused", `${assignmentId}:${saved.version}`);
 }
 
 /**

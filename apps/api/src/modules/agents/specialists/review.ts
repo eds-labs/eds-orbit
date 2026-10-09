@@ -24,6 +24,7 @@ import {
 } from "../agent-review.ts";
 import { recentChannelPosts } from "../channel-posts.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
+import { notify } from "../notifications.ts";
 import { ASSIGNMENT_BUDGET_EXHAUSTED, runSpecialist } from "./runner.ts";
 import {
   DEFAULT_SPECIALIST_LIMITS,
@@ -457,6 +458,9 @@ async function reject(
     reasons: decision.reasons,
     revisedTo: decision.revisedTo ?? null,
   });
+  // A draft replaced by its revision is not news; the revision continues.
+  if (!decision.revisedTo)
+    await notify(tx, scope, "rejected", `${contentId}:${decision.taskId}`);
 }
 
 /** Leaves a draft unjudged for the owner (once): `needs_review`, no agent review. */
@@ -486,6 +490,7 @@ async function leaveForOwner(
     deterministicProblems: decision.deterministicProblems,
     revisionError: decision.revisionError ?? null,
   });
+  await notify(tx, scope, "needs_owner", `${contentId}:${decision.taskId}`);
 }
 
 /**

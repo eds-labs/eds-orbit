@@ -21,6 +21,7 @@ import {
   withdrawPublication,
   type WithdrawReason,
 } from "./package-schedule.ts";
+import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 
 /**
@@ -303,6 +304,7 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
         requestedAt: planned.toISOString(),
         code: failure ?? SLOT_UNAVAILABLE,
       });
+      await notify(tx, scope, "dropped", draft.id);
       continue;
     }
     const p = data(publication);
