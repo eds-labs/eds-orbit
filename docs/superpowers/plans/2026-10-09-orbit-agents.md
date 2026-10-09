@@ -16,7 +16,7 @@
 - No new production dependency; Telegram uses `fetch`. Web search uses the Responses API hosted tool `{ type: "web_search" }`.
 - Docs and code comments English; UI strings German and English like the existing components.
 - Every paid model or image call: reserve → mark transmitted → settle; `outcome_unknown` on crash; never retried after transmission (existing `budget.ts`).
-- Run key for budget attribution: `assignment:<assignmentId>:<YYYY-MM>`; reservation key per call: `agent:<taskId>:<n>`.
+- Run key for budget attribution: `assignment-run:<runId>` (Ruling R24; it replaced the planned `assignment:<assignmentId>:<YYYY-MM>`, because the policy's per-run ceiling must not cap a whole month). The assignment's month spend is the sum of its runs' reservations in the month, checked against `monthlyBudgetMicros` before each reservation. Reservation key per model call: `agent:<taskId>:<n>`; executor steps use `agent:<taskId>:copy:<briefKey>` and `image:agent:<taskId>:image` (R37).
 - Budget defaults: project 50 USD/month for uLiquid (editable on the policy), assignment monthly budget required at confirmation; exhausted assignment → status `budget_exhausted`.
 - Specialist limits per task (defaults): 4 model calls, 6 tool calls, 3 web searches, 120 s, cost ceiling from the work plan.
 - Veto window default 180 minutes; preparation lead default 360 minutes before the first slot of the day; weekly runs the day before.
