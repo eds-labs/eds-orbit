@@ -113,6 +113,7 @@ Verified (2026-10-09): the pinned `openai` 7.25.0 types document `images.edit` f
 
 - Setup: Mario creates a bot with @BotFather and enters its token in Settings → Connections → Telegram; it is stored encrypted with `CREDENTIAL_KEY` and never shown again. Orbit shows a one-time link code (10 min); `/start <code>` binds the Telegram chat to Mario's owner account and project.
 - Orbit registers a webhook `POST /api/telegram/<connectionId>` with Telegram's `secret_token`; every update is checked against the secret and the bound chat ID; other chats are ignored and audited.
+  Note (ruling R59, as built): the webhook path is `POST /api/telegram/<projectId>/<connectionId>`; the project id is not secret, the secret token stays the authentication.
 - Messages: preview per post (channel, slot, text, image, buttons Stop / Open in Orbit), notices (rejected, budget paused, Postiz error, project paused), daily report (published, stopped, rejected, cost today and this month, hints such as facts that expire soon). `/pause` pauses the project after an inline confirmation; resuming only in Orbit.
 - Callback data carries a signed short token bound to the publication and version; repeated clicks are idempotent.
 - Fallback: the approvals page lists upcoming assignment posts with Stop; the veto deadline applies regardless of Telegram delivery. A delivery failure is shown in Orbit and retried with backoff; it never extends publishing rights.
