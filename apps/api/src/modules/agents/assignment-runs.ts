@@ -6,6 +6,7 @@ import { zonedTime } from "../posting-slots.ts";
 import { enqueue } from "../workflow.ts";
 import { agentsEnabled } from "./assignments.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
+import { scheduleApproved } from "./veto.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
 
 /**
@@ -45,7 +46,7 @@ const TASKS = "agent_tasks";
 // Weekly runs start a day ahead, daily ones up to three days (the longest lead) plus a day.
 const LOOKAHEAD_DAYS = 9;
 // A taken time moves forward in steps of this size within the same local day.
-const SLOT_STEP_MS = 30 * 60000;
+export const SLOT_STEP_MS = 30 * 60000;
 const TERMINAL_RUN: RunStatus[] = ["done", "partial", "failed", "canceled"];
 // Share of a run's cost ceiling per step; several copywriters each get their own share.
 const WEIGHT: Record<StepRole, number> = {
@@ -507,14 +508,29 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     JSON.stringify(steps) === JSON.stringify(d.steps)
   )
     return row;
-  return update(tx, scope, row, { ...d, steps, status, costMicros });
+  const saved = await update(tx, scope, row, {
+    ...d,
+    steps,
+    status,
+    costMicros,
+  });
+  // The run ends here once; with its review done, the approved posts get their veto window (spec §9).
+  if (
+    (status === "done" || status === "partial") &&
+    steps.some((step) => step.role === "review" && step.status === "done") &&
+    !d.scheduling
+  ) {
+    await scheduleApproved(tx, scope, runId);
+    return entity(tx, scope, RUNS, runId);
+  }
+  return saved;
 }
 
 /**
  * Cancels the runs of an assignment that is paused or ended: every run that
  * is not over becomes `canceled` with its open steps and `agent_tasks`, so no
  * new step starts and its slots are free again. Settled work and its cost
- * stay. Withdrawing publications already scheduled is the veto path's job.
+ * stay. Scheduled publications are withdrawn by `withdrawAssignmentPublications` (veto.ts).
  */
 export async function cancelAssignmentRuns(
   tx: DbTx,

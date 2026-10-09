@@ -231,11 +231,55 @@ export function withinClaimRepeatWindow(a: number, b: number) {
   return Math.abs(a - b) < CLAIM_REPEAT_WINDOW_DAYS * 86_400_000;
 }
 
+/**
+ * The veto window of a publication an assignment run scheduled (spec §9,
+ * R52): its deadline, a recorded stop and the run it belongs to. At intent
+ * (`handoff: false`) the window has not started yet; at handoff it must have
+ * passed.
+ */
+export type VetoWindow = {
+  deadline: string;
+  vetoedAt: string | null;
+  assignmentRunId: string;
+  handoff: boolean;
+};
+
+/**
+ * Whether a veto window stands in for the package approval (assisted mode)
+ * and the draft-only mission's test publishing right (R52): the content's
+ * agent review is accepted (spec §6), it belongs to the window's run, nothing
+ * was stopped and, at handoff, the deadline has passed. At intent the
+ * deadline is only checked to be valid; claimPublication enforces it (R4).
+ */
+async function releasedByVeto(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+  veto: VetoWindow | undefined,
+) {
+  if (!veto || veto.vetoedAt) return false;
+  const deadline = Date.parse(veto.deadline);
+  if (!Number.isFinite(deadline)) return false;
+  if (veto.handoff && deadline > Date.now()) return false;
+  if (
+    typeof content.assignmentRunId !== "string" ||
+    content.assignmentRunId !== veto.assignmentRunId
+  )
+    return false;
+  return agentReviewAccepted(tx, scope, content);
+}
+
 export async function preflight(
   tx: DbTx,
   scope: Scope,
   contentId: string,
-  options: { test: boolean; at?: Date; ignoreApproval?: boolean } = {
+  options: {
+    test: boolean;
+    at?: Date;
+    ignoreApproval?: boolean;
+    // Only for a publication scheduled by an assignment run (R52).
+    veto?: VetoWindow;
+  } = {
     test: true,
   },
 ) {
@@ -243,6 +287,9 @@ export async function preflight(
     pkg = await packageFor(tx, scope, contentId),
     c = data(pkg.content);
   const blockers: string[] = [];
+  let released: boolean | undefined;
+  const vetoReleased = async () =>
+    (released ??= await releasedByVeto(tx, scope, c, options.veto));
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });
@@ -259,7 +306,8 @@ export async function preflight(
     if (
       options.test &&
       m.allowedActions &&
-      !m.allowedActions.includes("publish_test")
+      !m.allowedActions.includes("publish_test") &&
+      !(await vetoReleased())
     )
       blockers.push("MISSION_TEST_WRITE_NOT_AUTHORIZED");
   }
@@ -371,7 +419,8 @@ export async function preflight(
           data(x).status === "approved" &&
           new Date(data(x).expiresAt) > at,
       );
-      if (!approval) blockers.push("APPROVAL_REQUIRED");
+      if (!approval && !(await vetoReleased()))
+        blockers.push("APPROVAL_REQUIRED");
     }
   }
   const claims = await checkClaims(tx, scope, contentId, at);

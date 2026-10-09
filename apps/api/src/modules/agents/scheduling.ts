@@ -103,8 +103,8 @@ export async function slotContext(tx: DbTx, scope: Scope, now = new Date()) {
     .filter((run) => HELD_RUN.includes(run.status))
     .flatMap((run) =>
       ((run.slots ?? []) as Array<Record<string, any>>)
-        // A slot with a publication is counted as that publication.
-        .filter((slot) => !slot.publicationId)
+        // A slot with a publication is counted as that publication; a released one is free.
+        .filter((slot) => !slot.publicationId && !slot.releasedAt)
         .map((slot) => ({
           id: run.id as string,
           channel: String(slot.channel),

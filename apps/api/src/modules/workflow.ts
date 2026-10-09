@@ -18,7 +18,12 @@ import {
   audit,
   exception,
 } from "../shared.ts";
-import { preflight, checkClaims, activePolicy } from "./policy.ts";
+import {
+  preflight,
+  checkClaims,
+  activePolicy,
+  type VetoWindow,
+} from "./policy.ts";
 import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
@@ -402,10 +407,22 @@ function localDay(at: Date, timezone: string) {
     timeZone: timezone,
   }).format(at);
 }
+/**
+ * Creates the publication of one exact post and its publisher job at the
+ * slot. With `vetoDeadline` (assignment posts, spec §9) the publication
+ * carries a veto window: it belongs to the content's assignment run, the
+ * deadline lies between now and the slot, and claimPublication hands it over
+ * only after the deadline without a stop (R4).
+ */
 export async function publishIntent(
   tx: DbTx,
   scope: Scope,
-  input: { contentId: string; version: number; scheduledAt?: string },
+  input: {
+    contentId: string;
+    version: number;
+    scheduledAt?: string;
+    vetoDeadline?: string;
+  },
 ) {
   const c = await entity(tx, scope, "content", input.contentId);
   if (c.version !== input.version)
@@ -416,14 +433,34 @@ export async function publishIntent(
     throw new DomainError("INVALID_SCHEDULE");
   if (input.scheduledAt && data(c).scheduledAt !== input.scheduledAt)
     throw new DomainError("SAVE_SCHEDULE_BEFORE_APPROVAL", 409);
+  let veto: VetoWindow | undefined;
+  if (input.vetoDeadline !== undefined) {
+    const deadline = Date.parse(input.vetoDeadline);
+    if (typeof data(c).assignmentRunId !== "string")
+      throw new DomainError("VETO_WINDOW_NOT_ALLOWED", 409);
+    if (
+      !Number.isFinite(deadline) ||
+      deadline < Date.now() - 1000 ||
+      deadline > at.valueOf()
+    )
+      throw new DomainError("INVALID_VETO_DEADLINE", 409);
+    veto = {
+      deadline: new Date(deadline).toISOString(),
+      vetoedAt: null,
+      assignmentRunId: data(c).assignmentRunId,
+      handoff: false,
+    };
+  }
   const test = process.env.EXECUTION_MODE !== "live";
-  const p = await preflight(tx, scope, c.id, { test, at });
+  const p = await preflight(tx, scope, c.id, { test, at, veto });
   if (!p.allowed) throw new DomainError(p.blockers.join(","), 409);
   const key = hash({
     contentId: c.id,
     version: c.version,
     packageHash: p.packageHash,
     test,
+    // Publications without a veto window keep their existing keys.
+    ...(veto ? { vetoDeadline: veto.deadline } : {}),
   });
   const all = await list(tx, scope, "publications"),
     old = all.find((x) => data(x).idempotencyKey === key);
@@ -463,6 +500,14 @@ export async function publishIntent(
     scheduledAt: at.toISOString(),
     test,
     remoteId: null,
+    ...(veto
+      ? {
+          vetoDeadline: veto.deadline,
+          vetoedAt: null,
+          assignmentId: data(c).assignmentId,
+          assignmentRunId: veto.assignmentRunId,
+        }
+      : {}),
   });
   await enqueue(tx, scope, "publishing", pub.id, "publish:" + pub.id, at);
   await audit(tx, scope, "publish.intent", pub.id, {
@@ -470,6 +515,29 @@ export async function publishIntent(
     packageHash: p.packageHash,
   });
   return pub;
+}
+/**
+ * The veto window at handoff (R4): a publication with a window goes out only
+ * after its deadline and without a stop; content whose only review is the
+ * agent's never goes out without a window. Owner-reviewed publications
+ * without a window are unaffected.
+ */
+async function vetoWindowBlocker(
+  tx: DbTx,
+  scope: Scope,
+  pub: Record<string, any>,
+) {
+  if (pub.vetoedAt) return "VETOED";
+  if (pub.vetoDeadline !== undefined && pub.vetoDeadline !== null) {
+    const deadline = Date.parse(String(pub.vetoDeadline));
+    return Number.isFinite(deadline) && deadline <= Date.now()
+      ? null
+      : "VETO_WINDOW_OPEN";
+  }
+  const c = data(await entity(tx, scope, "content", pub.contentId));
+  const agentReviewedOnly =
+    c.agentReview != null && c.humanReviewedBodyHash !== hash(c.body);
+  return agentReviewedOnly ? "VETO_DEADLINE_REQUIRED" : null;
 }
 export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
   const pub = await entity(tx, scope, "publications", pubId),
@@ -486,7 +554,29 @@ export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
   )
     return { send: false, pub };
   if (new Date(v.scheduledAt) > new Date()) throw new DomainError("NOT_DUE");
-  const p = await preflight(tx, scope, v.contentId, { test: v.test });
+  const vetoBlocker = await vetoWindowBlocker(tx, scope, v);
+  if (vetoBlocker) {
+    const blocked = await update(tx, scope, pub, {
+      ...v,
+      status: "blocked_dependency",
+      blockers: [vetoBlocker],
+    });
+    await exception(tx, scope, "PUBLISH_PREFLIGHT_BLOCKED", pub.id);
+    return { send: false, pub: blocked };
+  }
+  const p = await preflight(tx, scope, v.contentId, {
+    test: v.test,
+    ...(v.vetoDeadline && v.assignmentRunId
+      ? {
+          veto: {
+            deadline: v.vetoDeadline,
+            vetoedAt: v.vetoedAt ?? null,
+            assignmentRunId: v.assignmentRunId,
+            handoff: true,
+          },
+        }
+      : {}),
+  });
   if (!p.allowed || p.packageHash !== v.packageHash) {
     const blocked = await update(tx, scope, pub, {
       ...v,

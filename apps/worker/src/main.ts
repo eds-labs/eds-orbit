@@ -438,10 +438,13 @@ async function processProject(p: DueProject, claimed: Date) {
           },
         });
       }
+      // Events of a topic without a queue here (e.g. `telegram_notification`
+      // until its sender exists) wait in the outbox and never fill a batch.
       const events = await tx.outbox.findMany({
         where: {
           workspaceId: p.workspaceId,
           projectId: p.id,
+          topic: { in: [...classes] },
           dispatchedAt: null,
           availableAt: { lte: new Date() },
         },
@@ -452,6 +455,7 @@ async function processProject(p: DueProject, claimed: Date) {
         where: {
           workspaceId: p.workspaceId,
           projectId: p.id,
+          topic: { in: [...classes] },
           dispatchedAt: null,
           availableAt: { gt: new Date() },
         },

@@ -19,6 +19,7 @@ import {
 } from "../action-requests.ts";
 import { activePolicy } from "../policy.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
+import { withdrawAssignmentPublications } from "./veto.ts";
 
 /**
  * Assignments (Orbit Agents): what Orbit pursues for the owner. An assignment
@@ -382,8 +383,17 @@ export async function setAssignmentStatus(
   if (status === "ended" && d.actionRequestId)
     await cancelActionRequest(tx, scope, d.actionRequestId);
   const saved = await update(tx, scope, row, { ...d, status });
-  // A stopped assignment must not keep producing: its open runs stop and release their slots.
-  if (status !== "active") await cancelAssignmentRuns(tx, scope, id);
+  // A stopped assignment must not keep producing: its open runs stop and release their slots,
+  // and its scheduled posts that are not handed over yet are withdrawn (R20/R23).
+  if (status !== "active") {
+    await cancelAssignmentRuns(tx, scope, id);
+    await withdrawAssignmentPublications(
+      tx,
+      scope,
+      id,
+      status === "ended" ? "ASSIGNMENT_ENDED" : "ASSIGNMENT_PAUSED",
+    );
+  }
   await audit(tx, scope, "assignment.status_changed", id, {
     from: d.status,
     to: status,

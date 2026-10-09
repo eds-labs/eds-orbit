@@ -246,15 +246,28 @@ export async function revalidateSchedule(
   }
 }
 
-/** Takes a publication back before the handoff; its job and the mission's publish right go with it. */
-async function withdrawPublication(
+export type WithdrawReason =
+  | "CANCELED"
+  | "RESCHEDULED"
+  // Assignment posts (Orbit Agents): a stop in the veto window, a paused or ended assignment.
+  | "VETOED"
+  | "ASSIGNMENT_PAUSED"
+  | "ASSIGNMENT_ENDED";
+
+/**
+ * Takes a publication back before the handoff; its publisher job goes with
+ * it. `extra` is recorded on the publication with the withdrawal.
+ */
+export async function withdrawPublication(
   tx: DbTx,
   scope: Scope,
   publication: Awaited<ReturnType<typeof entity>>,
-  reason: "CANCELED" | "RESCHEDULED",
+  reason: WithdrawReason,
+  extra: Record<string, unknown> = {},
 ) {
   await update(tx, scope, publication, {
     ...data(publication),
+    ...extra,
     status: "canceled",
     reason,
     canceledBy: scope.userId,
