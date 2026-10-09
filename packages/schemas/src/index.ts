@@ -33,8 +33,7 @@ export const collections = [
   "matomo_schedules",
   "postiz_queue_watch",
   "assignments",
-  "assignment_runs",
-  "agent_tasks",
+  // Assignment runs and agent tasks are internal: read through run_status and the agent runs page.
   "channel_posts",
   "channel_post_sync",
 ] as const;

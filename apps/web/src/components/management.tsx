@@ -1384,7 +1384,7 @@ export function ProjectSettings() {
       {tab === "project" && <ProjectAdministration />}
       {tab === "autopilot" && <AutopilotSettings />}
       {tab === "assignments" && assignments.available && (
-        <Assignments resource={assignments.resource} />
+        <Assignments resource={assignments.resource} data={assignments.data} />
       )}
       {tab === "policy" && (
         <section className="panel">

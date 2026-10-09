@@ -104,6 +104,7 @@ export function ActionRequestInbox() {
             assignment={item.summary.assignment}
             status="draft"
             request={{ ...item, status: "pending" }}
+            expiresAt={item.expiresAt}
             de={de}
             canDecide
             pending={Boolean(pending)}

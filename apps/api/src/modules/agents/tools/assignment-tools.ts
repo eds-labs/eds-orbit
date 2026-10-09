@@ -4,6 +4,7 @@ import type { AssignmentCard, ChatCard } from "../../chat-tools.ts";
 import { zonedTime } from "../../posting-slots.ts";
 import { data, DomainError, entity, list } from "../../../shared.ts";
 import { runsMatching } from "../assignment-runs.ts";
+import { assignmentMonthSpend } from "../specialists/runner.ts";
 import {
   proposeAssignment,
   setAssignmentStatus,
@@ -270,14 +271,23 @@ export const assignmentTools: readonly OrbitTool[] = [
         const assignments = (
           await list(tx, context.scope, "assignments")
         ).slice(0, 20);
-        // Runs of this month and the not yet past ones, never the whole history.
-        const month = await runsMatching(tx, context.scope, {
-          monthPrefix: today.slice(0, 7),
-        });
+        // The not yet past runs, never the whole history.
         const upcoming = await runsMatching(tx, context.scope, {
           dateFrom: today,
         });
-        return { timezone: project.timezone, assignments, month, upcoming };
+        // One month cost everywhere (R66): counted like the budget check.
+        const monthCost = new Map<string, number>();
+        for (const row of assignments)
+          monthCost.set(
+            row.id,
+            await assignmentMonthSpend(tx, context.scope, row.id, now),
+          );
+        return {
+          timezone: project.timezone,
+          assignments,
+          upcoming,
+          monthCost,
+        };
       });
       return {
         output: {
@@ -304,10 +314,7 @@ export const assignmentTools: readonly OrbitTool[] = [
                         .filter((run) => run.assignmentId === row.id),
                     )
                   : null,
-              monthCostMicros: listed.month
-                .map((run) => data(run))
-                .filter((run) => run.assignmentId === row.id)
-                .reduce((sum, run) => sum + Number(run.costMicros ?? 0), 0),
+              monthCostMicros: listed.monthCost.get(row.id) ?? 0,
               monthlyBudgetMicros: d.monthlyBudgetMicros,
               pendingActionRequestId:
                 d.status === "draft" ? (d.actionRequestId ?? null) : null,

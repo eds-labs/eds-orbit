@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { when } from "@/lib/api";
+import { ApiError, when } from "@/lib/api";
 import {
   AssignmentTable,
+  knownData,
+  refreshOnConflict,
   UpcomingPostList,
   type AssignmentItem,
   type UpcomingPost,
@@ -52,6 +54,8 @@ describe("AssignmentTable", () => {
     expect(html).toContain("$1.25 von $30.00");
     expect(html).toContain("Synthetic X");
     expect(html).toContain("10:00, 17:00");
+    // The time shown is when the run starts preparing, not the post slot.
+    expect(html).toContain("Nächste Vorbereitung");
   });
 
   it("offers pause and end to editors and resume only to the owner", () => {
@@ -88,10 +92,15 @@ describe("UpcomingPostList", () => {
     assignmentId: "assignment",
     assignmentName: "Two posts a day",
   };
-  const list = (handedOver: string[] = [], canStop = true) =>
+  const list = (
+    handedOver: string[] = [],
+    canStop = true,
+    now = Date.parse("2026-10-10T10:00:00.000Z"),
+  ) =>
     renderToStaticMarkup(
       <UpcomingPostList
         items={[post]}
+        now={now}
         de
         timezone="Europe/Berlin"
         canStop={canStop}
@@ -112,9 +121,49 @@ describe("UpcomingPostList", () => {
     expect(list([], false)).not.toContain(">Stop<");
   });
 
+  it("says the deadline has passed for a post not handed over yet", () => {
+    const html = list([], true, Date.parse("2026-10-10T12:30:00.000Z"));
+    expect(html).toContain("Frist abgelaufen");
+    expect(html).not.toContain("Stop möglich bis");
+  });
+
   it("says where a handed-over post can still be removed", () => {
     expect(list(["publication"])).toContain(
       "Bereits an Postiz übergeben – nur dort entfernbar",
     );
+  });
+});
+
+describe("knownData", () => {
+  it("keeps the last answer while reloading and forgets it on a 404", () => {
+    const first = { items: [1] };
+    expect(knownData(null, first, null)).toBe(first);
+    // Reloading: no data and no error yet.
+    expect(knownData(first, null, null)).toBe(first);
+    const next = { items: [2] };
+    expect(knownData(first, next, null)).toBe(next);
+    expect(knownData(first, null, new ApiError("NOT_FOUND", 404))).toBeNull();
+    expect(knownData(first, null, new ApiError("REQUEST_FAILED", 500))).toBe(
+      first,
+    );
+  });
+});
+
+describe("refreshOnConflict", () => {
+  it("reloads after a version conflict and still reports it", async () => {
+    const refresh = vi.fn();
+    await expect(
+      refreshOnConflict(async () => {
+        throw new ApiError("VERSION_CONFLICT", 409);
+      }, refresh),
+    ).rejects.toThrow("VERSION CONFLICT");
+    expect(refresh).toHaveBeenCalledOnce();
+    await expect(
+      refreshOnConflict(async () => {
+        throw new ApiError("OWNER_REQUIRED", 403);
+      }, refresh),
+    ).rejects.toThrow();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(await refreshOnConflict(async () => 7, refresh)).toBe(7);
   });
 });

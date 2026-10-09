@@ -26,6 +26,7 @@ import {
   setAssignmentStatus,
 } from "../src/modules/agents/assignments.ts";
 import { channelSlots } from "../src/modules/agents/scheduling.ts";
+import { runBudgetKey } from "../src/modules/agents/specialists/runner.ts";
 import { assignmentTools } from "../src/modules/agents/tools/assignment-tools.ts";
 import {
   createPackageProject,
@@ -919,19 +920,42 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
     it("lists the next planned slot and the cost of this month's runs only", async () => {
       const mine = await makeAssignment();
       await plan(MORNING);
+      // Cost as the budget check counts it (R66): reservations under the runs' budget keys.
       await run(async (tx) => {
         const row = (await list(tx, project.owner, "assignment_runs"))[0]!;
-        await update(tx, project.owner, row, {
-          ...data(row),
-          costMicros: 4200,
-        });
-        await create(tx, project.owner, "assignment_runs", {
+        const old = await create(tx, project.owner, "assignment_runs", {
           assignmentId: mine.id,
           date: "2026-09-30",
           status: "done",
           costMicros: 999,
           slots: [],
           steps: [],
+        });
+        const reservation = (createdAt: Date, settled: bigint) =>
+          tx.budgetReservation.create({
+            data: {
+              workspaceId: project.owner.workspaceId,
+              projectId: project.owner.projectId,
+              key: `synthetic:${row.id}:${createdAt.toISOString()}`,
+              amountMicros: settled * 2n,
+              settledMicros: settled,
+              category: "model",
+              state: "settled",
+              createdAt,
+            },
+          });
+        const now = await reservation(new Date("2026-10-08T07:00:00Z"), 4200n);
+        const september = await reservation(
+          new Date("2026-09-30T07:00:00Z"),
+          999n,
+        );
+        await create(tx, project.owner, "budget_runs", {
+          runKey: runBudgetKey(row.id),
+          reservationIds: [now.id],
+        });
+        await create(tx, project.owner, "budget_runs", {
+          runKey: runBudgetKey(old.id),
+          reservationIds: [september.id],
         });
       });
       vi.useFakeTimers({ toFake: ["Date"] });

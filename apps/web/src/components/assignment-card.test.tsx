@@ -29,6 +29,7 @@ const assignment = (image: boolean): AssignmentContent => ({
 const render = (image: boolean, canDecide = true) =>
   renderToStaticMarkup(
     <AssignmentCard
+      expiresAt="2026-10-16T12:00:00.000Z"
       assignment={assignment(image)}
       status="draft"
       request={{
@@ -65,6 +66,9 @@ describe("AssignmentCard", () => {
     ])
       expect(html).toContain(text);
     expect(html).toContain("Nein");
+    // The request's expiry, as in every other owner decision.
+    expect(html).toContain("gültig bis");
+    expect(html).toMatch(/datetime="2026-10-16T12:00:00.000Z"/i);
   });
 
   it("requires the consent checkbox for image assignments", () => {

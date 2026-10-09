@@ -458,6 +458,7 @@ export function OrbitChat() {
         }}
         status={live?.status ?? shown.status ?? "draft"}
         request={own}
+        expiresAt={own?.expiresAt}
         de={de}
         canDecide={isOwner}
         pending={pending}

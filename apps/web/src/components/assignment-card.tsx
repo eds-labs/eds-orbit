@@ -116,6 +116,7 @@ export function AssignmentCard({
   onConfirm,
   onReject,
   superseded = false,
+  expiresAt,
 }: {
   assignment: AssignmentContent;
   // Live status of the assignment (R16); the content is what the card showed.
@@ -128,6 +129,8 @@ export function AssignmentCard({
   onReject: (request: AssignmentRequest) => void;
   // A later change replaced this content; its own card asks for the decision.
   superseded?: boolean;
+  // Expiry of the open request.
+  expiresAt?: string;
 }) {
   const [consent, setConsent] = useState(false);
   const open = request?.status === "pending";
@@ -220,6 +223,14 @@ export function AssignmentCard({
               />
               <span>{IMAGE_RIGHTS_CONSENT[de ? 1 : 0]}</span>
             </label>
+          )}
+          {expiresAt && (
+            <p className="chat-package-note">
+              {de ? "Bestätigung gültig bis" : "Confirmation valid until"}{" "}
+              <time dateTime={expiresAt}>
+                {new Date(expiresAt).toLocaleString(de ? "de-DE" : "en-GB")}
+              </time>
+            </p>
           )}
           <p className="chat-package-note">
             {de

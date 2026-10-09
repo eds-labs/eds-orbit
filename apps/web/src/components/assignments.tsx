@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   ApiError,
@@ -61,19 +61,57 @@ type NextStatus = "paused" | "active" | "ended";
 const agentsOff = (error: ApiError | null) => error?.status === 404;
 
 /**
- * The project's assignments; `available` is false while Orbit Agents is off
- * (the route answers 404), so the page hides the tab.
+ * The last answer of an Orbit Agents route: kept while the route reloads
+ * (no data, no error yet), replaced by a new answer and forgotten only on a
+ * 404 (Orbit Agents switched off), so tabs and sections do not flicker.
+ */
+export function knownData<T>(
+  known: T | null,
+  data: T | null,
+  error: ApiError | null,
+): T | null {
+  if (agentsOff(error)) return null;
+  return data ?? known;
+}
+function useKnownData<T>(key: string, data: T | null, error: ApiError | null) {
+  const [known, setKnown] = useState<{ key: string; value: T | null }>({
+    key,
+    value: null,
+  });
+  // Another project starts from nothing.
+  const value = knownData(known.key === key ? known.value : null, data, error);
+  useEffect(() => setKnown({ key, value }), [key, value]);
+  return value;
+}
+
+/** Runs a change and reloads after a version conflict, so the next try uses the current version. */
+export async function refreshOnConflict<T>(
+  task: () => Promise<T>,
+  refresh: () => void,
+) {
+  try {
+    return await task();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 409) refresh();
+    throw error;
+  }
+}
+
+/**
+ * The project's assignments; `available` stays true once the route answered
+ * and turns false on a 404 (Orbit Agents off), so the page hides the tab.
  */
 export function useAssignments() {
   const { project, revision } = useWorkspace();
   const resource = useResource<AssignmentList>(
     collectionPath(project.id, `assignments?revision=${revision}`),
   );
+  const data = useKnownData(project.id, resource.data, resource.error);
   return {
     resource,
+    data,
     available:
-      resource.data !== null ||
-      (resource.error !== null && !agentsOff(resource.error)),
+      data !== null || (resource.error !== null && !agentsOff(resource.error)),
   };
 }
 
@@ -106,7 +144,7 @@ export function AssignmentTable({
           <tr>
             <th>{de ? "Auftrag" : "Assignment"}</th>
             <th>Status</th>
-            <th>{de ? "Nächster Lauf" : "Next run"}</th>
+            <th>{de ? "Nächste Vorbereitung" : "Next preparation"}</th>
             <th>{de ? "Kosten diesen Monat" : "Cost this month"}</th>
             <th>
               <span className="sr-only">{de ? "Aktionen" : "Actions"}</span>
@@ -234,14 +272,17 @@ export function AssignmentTable({
 /** Settings tab "Aufträge": the list and its status actions; changes go through the chat. */
 export function Assignments({
   resource,
+  data,
 }: {
   resource: ReturnType<typeof useAssignments>["resource"];
+  // The last answer, kept while the list reloads.
+  data: AssignmentList | null;
 }) {
   const { locale, project, isOwner, canEdit, refresh } = useWorkspace();
   const de = locale === "de";
   const mutation = useMutation(refresh);
   const role: Role = isOwner ? "owner" : canEdit ? "editor" : "viewer";
-  const items = resource.data?.items ?? [];
+  const items = data?.items ?? [];
   return (
     <section className="panel">
       <div className="panel-head">
@@ -257,7 +298,7 @@ export function Assignments({
           <Link href="/chat">{de ? "Im Chat ändern" : "Change in chat"}</Link>
         </Button>
       </div>
-      {resource.data?.paused && (
+      {data?.paused && (
         <Alert kind="warning">
           {de
             ? "Das Projekt ist pausiert: Kein Auftrag läuft, bis du es unter Betrieb fortsetzt."
@@ -268,20 +309,24 @@ export function Assignments({
       {resource.error && !agentsOff(resource.error) && (
         <Alert kind="error">{resource.error.message}</Alert>
       )}
-      {resource.loading ? (
+      {!data && resource.loading ? (
         <Loading />
       ) : items.length ? (
         <AssignmentTable
           items={items}
           de={de}
-          timezone={resource.data?.timezone ?? project.timezone}
+          timezone={data?.timezone ?? project.timezone}
           role={role}
           pending={mutation.pending}
           onStatus={(item, status) =>
             mutation.run(() =>
-              post(
-                collectionPath(project.id, `assignments/${item.id}/status`),
-                { status, version: item.version },
+              refreshOnConflict(
+                () =>
+                  post(
+                    collectionPath(project.id, `assignments/${item.id}/status`),
+                    { status, version: item.version },
+                  ),
+                refresh,
               ),
             )
           }
@@ -311,6 +356,7 @@ export function UpcomingPostList({
   pending,
   handedOver,
   onStop,
+  now = Date.now(),
 }: {
   items: UpcomingPost[];
   de: boolean;
@@ -319,6 +365,8 @@ export function UpcomingPostList({
   pending: boolean;
   handedOver: string[];
   onStop: (post: UpcomingPost) => void;
+  // Render time in ms; a test passes a fixed one.
+  now?: number;
 }) {
   const locale = de ? "de" : "en";
   return (
@@ -350,12 +398,21 @@ export function UpcomingPostList({
             )}
           </p>
           <pre className="autopilot-approval-body">{item.excerpt}</pre>
-          <p className="panel-note">
-            {de ? "Stop möglich bis" : "Stop possible until"}{" "}
-            <time dateTime={item.vetoDeadline}>
-              {when(item.vetoDeadline, locale, timezone)}
-            </time>
-          </p>
+          {Date.parse(item.vetoDeadline) <= now ? (
+            // Past the deadline but not claimed yet: Stop still works until the handoff.
+            <p className="panel-note">
+              {de
+                ? "Frist abgelaufen – die Übergabe an Postiz steht bevor."
+                : "Deadline passed – the handoff to Postiz is imminent."}
+            </p>
+          ) : (
+            <p className="panel-note">
+              {de ? "Stop möglich bis" : "Stop possible until"}{" "}
+              <time dateTime={item.vetoDeadline}>
+                {when(item.vetoDeadline, locale, timezone)}
+              </time>
+            </p>
+          )}
           {handedOver.includes(item.id) ? (
             <Alert kind="warning">{HANDED_OVER[de ? 1 : 0]}</Alert>
           ) : (
@@ -389,9 +446,10 @@ export function UpcomingAssignmentPosts() {
   const posts = useResource<{ items: UpcomingPost[] }>(
     collectionPath(project.id, `assignment-posts?revision=${revision}`),
   );
+  const known = useKnownData(project.id, posts.data, posts.error);
   const [handedOver, setHandedOver] = useState<string[]>([]);
   const mutation = useMutation();
-  const items = posts.data?.items ?? [];
+  const items = known?.items ?? [];
   if (agentsOff(posts.error) || (!items.length && !posts.error)) return null;
   return (
     <>
@@ -407,11 +465,16 @@ export function UpcomingAssignmentPosts() {
           handedOver={handedOver}
           onStop={(item) =>
             mutation.run(async () => {
-              const { result } = await post<{
-                result: "vetoed" | "already_handed_over" | "not_found";
-              }>(collectionPath(project.id, `publications/${item.id}/veto`), {
-                version: item.version,
-              });
+              const { result } = await refreshOnConflict(
+                () =>
+                  post<{
+                    result: "vetoed" | "already_handed_over" | "not_found";
+                  }>(
+                    collectionPath(project.id, `publications/${item.id}/veto`),
+                    { version: item.version },
+                  ),
+                refresh,
+              );
               if (result === "already_handed_over")
                 setHandedOver((ids) => [...ids, item.id]);
               else refresh();

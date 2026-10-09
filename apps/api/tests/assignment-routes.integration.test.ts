@@ -21,7 +21,10 @@ import { chatScoped, createConversation } from "../src/modules/chat.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { proposeAssignment } from "../src/modules/agents/assignments.ts";
 import { runBudgetKey } from "../src/modules/agents/specialists/runner.ts";
-import { assignmentCardOf } from "../src/modules/agents/tools/assignment-tools.ts";
+import {
+  assignmentCardOf,
+  assignmentTools,
+} from "../src/modules/agents/tools/assignment-tools.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 
 const enabled = Boolean(
@@ -175,6 +178,67 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     });
     await app?.close();
     await closeDatabase();
+  });
+
+  it("reports one month cost in the chat tool and the list while a call is held", async () => {
+    const active = await confirmed();
+    await run(async (tx) => {
+      // The run's own cost field lags behind: only the settled call is in it.
+      const runRow = await create(tx, project.owner, "assignment_runs", {
+        assignmentId: active.id,
+        date: new Date().toISOString().slice(0, 10),
+        status: "running",
+        costMicros: 1_250_000,
+      });
+      const reservation = (state: string, amount: bigint, settled?: bigint) =>
+        tx.budgetReservation.create({
+          data: {
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            key: `synthetic:${randomUUID()}`,
+            amountMicros: amount,
+            ...(settled === undefined ? {} : { settledMicros: settled }),
+            category: "model",
+            state,
+          },
+        });
+      const settled = await reservation("settled", 2_000_000n, 1_250_000n);
+      const held = await reservation("reserved", 700_000n);
+      await create(tx, project.owner, "budget_runs", {
+        runKey: runBudgetKey(runRow.id),
+        reservationIds: [settled.id, held.id],
+      });
+    });
+    const listed = (await request("viewer", "GET", "assignments")).json()
+      .items as Array<Record<string, any>>;
+    const tool = assignmentTools.find((t) => t.name === "assignment_list")!;
+    const output = (
+      await tool.execute(
+        {
+          scope: project.viewer,
+          runId: "run",
+          conversationId: "conversation",
+          callIndex: 1,
+        },
+        {},
+      )
+    ).output as { assignments: Array<Record<string, any>> };
+    const fromList = listed.find((item) => item.id === active.id)!;
+    const fromTool = output.assignments.find((item) => item.id === active.id)!;
+    expect(fromList.monthCostMicros).toBe(1_950_000);
+    expect(fromTool.monthCostMicros).toBe(fromList.monthCostMicros);
+  });
+
+  it("keeps runs and agent tasks out of the generic collection read", async () => {
+    await confirmed();
+    for (const flag of ["true", undefined]) {
+      if (flag) process.env.ORBIT_AGENTS = flag;
+      else delete process.env.ORBIT_AGENTS;
+      for (const kind of ["assignment_runs", "agent_tasks"]) {
+        const r = await request("owner", "GET", kind);
+        expect([flag, kind, r.statusCode]).toEqual([flag, kind, 400]);
+      }
+    }
   });
 
   it("lists assignments with next run, month cost and the open confirmation", async () => {
