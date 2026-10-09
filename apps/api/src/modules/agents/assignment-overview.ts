@@ -33,7 +33,7 @@ const EXCERPT = 280;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Postiz channel names of the project by channel ID, as the owner knows them. */
-async function channelNames(tx: DbTx, scope: Scope) {
+export async function channelNames(tx: DbTx, scope: Scope) {
   const names = new Map<string, string>();
   for (const row of await list(tx, scope, "connectors"))
     if (data(row).provider === "postiz")

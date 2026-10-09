@@ -3,10 +3,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ApiError, when } from "@/lib/api";
 import {
   AssignmentTable,
+  AutopilotMigrationView,
   knownData,
+  nextKnown,
   refreshOnConflict,
   UpcomingPostList,
   type AssignmentItem,
+  type AutopilotMigration,
   type UpcomingPost,
 } from "./assignments";
 
@@ -149,6 +152,40 @@ describe("knownData", () => {
   });
 });
 
+describe("nextKnown", () => {
+  it("shows nothing of the previous project after a project switch", () => {
+    const a = { items: ["project A"] };
+    const b = { items: ["project B"] };
+    // Project A answered and is kept.
+    let known = nextKnown({ key: "A", value: null }, "A", a, null);
+    expect(known.value).toBe(a);
+    // The render that switches to B still holds A's answer (the reload starts after it).
+    known = nextKnown(known, "B", a, null);
+    expect(known.value).toBeNull();
+    // A later render before the reload cleared it must not bring A back.
+    known = nextKnown(known, "B", a, null);
+    expect(known.value).toBeNull();
+    // B is loading, then answers.
+    known = nextKnown(known, "B", null, null);
+    expect(known.value).toBeNull();
+    known = nextKnown(known, "B", b, null);
+    expect(known.value).toBe(b);
+    // B reloads (refresh) and keeps its own answer meanwhile.
+    known = nextKnown(known, "B", null, null);
+    expect(known.value).toBe(b);
+  });
+
+  it("ignores the previous project's error on the switch render", () => {
+    const a = { items: ["project A"] };
+    let known = nextKnown({ key: "A", value: a }, "A", a, null);
+    known = nextKnown(known, "B", null, new ApiError("NOT_FOUND", 404));
+    expect(known.value).toBeNull();
+    const b = { items: ["project B"] };
+    known = nextKnown(known, "B", b, null);
+    expect(known.value).toBe(b);
+  });
+});
+
 describe("refreshOnConflict", () => {
   it("reloads after a version conflict and still reports it", async () => {
     const refresh = vi.fn();
@@ -165,5 +202,60 @@ describe("refreshOnConflict", () => {
     ).rejects.toThrow();
     expect(refresh).toHaveBeenCalledOnce();
     expect(await refreshOnConflict(async () => 7, refresh)).toBe(7);
+  });
+});
+
+describe("AutopilotMigrationView", () => {
+  const proposal: NonNullable<AutopilotMigration["proposal"]> = {
+    name: "Autopilot (übernommen)",
+    kind: "standing",
+    contentType: "social",
+    channels: ["x-int", "tg-int"],
+    schedule: { rhythm: "daily", weekdays: [], times: ["10:00"] },
+    topicFrame: "Ein Social-Post pro Kanal und Tag: beta.access",
+    image: true,
+    styleAssetIds: ["asset"],
+    vetoMinutes: 180,
+    monthlyBudgetMicros: 50_000_000,
+  };
+  const view = (
+    state: Partial<AutopilotMigration>,
+    canPropose = true,
+  ) =>
+    renderToStaticMarkup(
+      <AutopilotMigrationView
+        state={{
+          proposal,
+          channelNames: { "x-int": "Synthetic X" },
+          assignment: null,
+          ...state,
+        }}
+        de
+        canPropose={canPropose}
+        pending={false}
+        onPropose={() => {}}
+      />,
+    );
+
+  it("offers the saved autopilot as an assignment to editors", () => {
+    const html = view({});
+    expect(html).toContain("Autopilot als Auftrag übernehmen");
+    expect(html).toContain("Synthetic X, tg-int");
+    expect(html).toContain("Täglich um 10:00");
+    expect(html).toContain("$50.00");
+    expect(html).toContain("Als Auftrag vorschlagen");
+    expect(view({}, false)).not.toContain("Als Auftrag vorschlagen");
+  });
+
+  it("points to the open confirmation and disappears once confirmed", () => {
+    const draft = view({
+      assignment: { id: "a", status: "draft", actionRequestId: "r" },
+    });
+    expect(draft).toContain("Bestätigung ist offen");
+    expect(draft).not.toContain("Als Auftrag vorschlagen");
+    expect(
+      view({ assignment: { id: "a", status: "active", actionRequestId: null } }),
+    ).toBe("");
+    expect(view({ proposal: null })).toBe("");
   });
 });

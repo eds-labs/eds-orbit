@@ -70,7 +70,11 @@ import {
 import { CreativeRenderer } from "./advanced";
 import { useWorkspace } from "./workspace-context";
 import { ActionRequestInbox } from "./action-request-inbox";
-import { UpcomingAssignmentPosts } from "./assignments";
+import {
+  AutopilotMigrationCard,
+  UpcomingAssignmentPosts,
+  useAutopilotMigration,
+} from "./assignments";
 export function useCollection(name: string) {
   const { project, revision } = useWorkspace();
   return useResource<{ items: Entity[] }>(
@@ -2091,6 +2095,20 @@ function AutopilotApprovals() {
     </section>
   );
 }
+/**
+ * Orbit Agents replaces the weekly autopilot: once its route answers, the
+ * autopilot approvals give way to the migration card. Nothing shows before
+ * the first answer, so the two never swap on screen.
+ */
+function AutopilotOrMigration() {
+  const migration = useAutopilotMigration();
+  if (!migration.settled) return null;
+  return migration.available ? (
+    <AutopilotMigrationCard migration={migration} />
+  ) : (
+    <AutopilotApprovals />
+  );
+}
 export function ApprovalInbox() {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const de = locale === "de";
@@ -2127,7 +2145,7 @@ export function ApprovalInbox() {
       />
       <PausedPublications />
       <UpcomingAssignmentPosts />
-      <AutopilotApprovals />
+      <AutopilotOrMigration />
       <ActionRequestInbox />
       {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
       {openExceptions(exceptions.data?.items ?? []).map((e) => (

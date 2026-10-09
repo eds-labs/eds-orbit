@@ -101,6 +101,7 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
   if (rhythm === "once" && !date)
     issue(["schedule", "date"], "A one-off assignment needs a date");
 });
+export type AssignmentInput = z.output<typeof assignmentInput>;
 
 // Normalized as stored (JSON drops undefined), so a hash is the same before and after saving.
 const contentOf = (source: Record<string, any>) =>
@@ -116,6 +117,17 @@ const withoutTimes = (source: Record<string, any>) => {
   const content = contentOf(source);
   return { ...content, schedule: { ...content.schedule, times: [] } };
 };
+
+/** Monthly budget the confirmed assignments hold, without `selfId`; drafts claim theirs when confirmed. */
+async function committedBudget(tx: DbTx, scope: Scope, selfId: string | null) {
+  return (await list(tx, scope, KIND))
+    .filter(
+      (row) =>
+        row.id !== selfId &&
+        ["active", "paused", "budget_exhausted"].includes(data(row).status),
+    )
+    .reduce((sum, row) => sum + Number(data(row).monthlyBudgetMicros ?? 0), 0);
+}
 
 async function assertWithinMandate(
   tx: DbTx,
@@ -133,16 +145,7 @@ async function assertWithinMandate(
       !mandate.contentTypes?.includes(content.contentType))
   )
     throw new DomainError("SCOPE_NOT_ALLOWED", 409);
-  // Only confirmed assignments hold budget; drafts claim it when they are confirmed.
-  const others = (await list(tx, scope, KIND)).filter(
-    (row) =>
-      row.id !== selfId &&
-      ["active", "paused", "budget_exhausted"].includes(data(row).status),
-  );
-  const committed = others.reduce(
-    (sum, row) => sum + Number(data(row).monthlyBudgetMicros ?? 0),
-    0,
-  );
+  const committed = await committedBudget(tx, scope, selfId);
   if (
     committed + content.monthlyBudgetMicros >
     Number(mandate.monthlyBudgetMicros)
@@ -183,26 +186,57 @@ export async function proposeAssignment(
   requireEditor(scope);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const content = assignmentInput.parse(raw);
-  return chatScoped(scope, async (tx) => {
-    await conversation(tx, scope, conversationId);
-    await assertWithinMandate(tx, scope, content, null);
-    const row = await create(tx, scope, KIND, {
-      ...content,
-      conversationId,
-      status: "draft",
-      confirmation: null,
-      actionRequestId: null,
-    });
-    const actionRequest = await confirmationRequest(tx, scope, row.id, content);
-    const assignment = await update(tx, scope, row, {
-      ...data(row),
-      actionRequestId: actionRequest.id,
-    });
-    await audit(tx, scope, "assignment.proposed", row.id, {
-      assignmentHash: assignmentHash(content),
-    });
-    return { assignment, actionRequest };
+  return chatScoped(scope, (tx) =>
+    proposeAssignmentInTx(tx, scope, conversationId, content),
+  );
+}
+
+/**
+ * proposeAssignment inside an open chat transaction (`chatScoped`). `origin`
+ * records where a proposal came from, for example the autopilot settings; it
+ * is not part of the confirmed content and never changes the hash.
+ */
+export async function proposeAssignmentInTx(
+  tx: DbTx,
+  scope: Scope,
+  conversationId: string,
+  raw: unknown,
+  origin: Record<string, unknown> | null = null,
+) {
+  requireEditor(scope);
+  if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
+  const content = assignmentInput.parse(raw);
+  await conversation(tx, scope, conversationId);
+  await assertWithinMandate(tx, scope, content, null);
+  const row = await create(tx, scope, KIND, {
+    ...content,
+    conversationId,
+    ...(origin ? { origin } : {}),
+    status: "draft",
+    confirmation: null,
+    actionRequestId: null,
   });
+  const actionRequest = await confirmationRequest(tx, scope, row.id, content);
+  const assignment = await update(tx, scope, row, {
+    ...data(row),
+    actionRequestId: actionRequest.id,
+  });
+  await audit(tx, scope, "assignment.proposed", row.id, {
+    assignmentHash: assignmentHash(content),
+    ...(origin ? { origin: origin.kind } : {}),
+  });
+  return { assignment, actionRequest };
+}
+
+/** Free share of the project's monthly budget: the policy budget minus what confirmed assignments hold. */
+export async function freeAssignmentBudget(tx: DbTx, scope: Scope) {
+  const policy = await activePolicy(tx, scope);
+  if (!policy) return 0;
+  return Math.max(
+    0,
+    Number(data(policy).monthlyBudgetMicros ?? 0) -
+      (await committedBudget(tx, scope, null)),
+  );
 }
 
 /** Decision check for `assignment.confirm`: the request still describes this draft. */

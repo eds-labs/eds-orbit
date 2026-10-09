@@ -20,6 +20,7 @@ import { create, data, entity } from "../src/shared.ts";
 import { chatScoped, createConversation } from "../src/modules/chat.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { proposeAssignment } from "../src/modules/agents/assignments.ts";
+import { configureAutopilot } from "../src/modules/autopilot.ts";
 import { runBudgetKey } from "../src/modules/agents/specialists/runner.ts";
 import {
   assignmentCardOf,
@@ -502,6 +503,53 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     expect(r.json()).toEqual({ status: "none", linkedAt: null });
   });
 
+  it("offers the saved autopilot as a draft assignment and proposes it once", async () => {
+    let r = await request("viewer", "GET", "assignments/autopilot-migration");
+    expect(r.json()).toEqual({
+      proposal: null,
+      channelNames: {},
+      assignment: null,
+    });
+    await run((tx) =>
+      configureAutopilot(tx, project.owner, {
+        enabled: true,
+        channels: [X],
+        factKeys: ["beta.access"],
+        assetIds: [],
+        planWeekday: 1,
+        planTime: "08:00",
+      }),
+    );
+    r = await request("viewer", "GET", "assignments/autopilot-migration");
+    expect(r.statusCode).toBe(200);
+    expect(r.json().proposal).toMatchObject({
+      channels: [X],
+      schedule: { rhythm: "daily", times: ["17:00"] },
+    });
+    expect(
+      (await request("viewer", "POST", "assignments/autopilot-migration", {}))
+        .statusCode,
+    ).toBe(403);
+    r = await request("editor", "POST", "assignments/autopilot-migration", {});
+    expect(r.statusCode).toBe(200);
+    const { assignmentId, actionRequestId } = r.json();
+    const draft = await run((tx) =>
+      entity(tx, project.owner, "assignments", assignmentId),
+    );
+    expect(data(draft)).toMatchObject({ status: "draft", actionRequestId });
+    r = await request("owner", "GET", "assignments/autopilot-migration");
+    expect(r.json().assignment).toEqual({
+      id: assignmentId,
+      status: "draft",
+      actionRequestId,
+    });
+    r = await request("owner", "POST", "assignments/autopilot-migration", {});
+    expect([r.statusCode, r.json().error.code]).toEqual([
+      409,
+      "AUTOPILOT_ALREADY_PROPOSED",
+    ]);
+  });
+
   it("answers 404 on every Orbit Agents route while the flag is off", async () => {
     const assignment = await confirmed();
     const post = await assignmentPost(assignment.id);
@@ -523,6 +571,8 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
           { version: post.version },
         ],
         ["owner", "GET", "telegram", undefined],
+        ["owner", "GET", "assignments/autopilot-migration", undefined],
+        ["owner", "POST", "assignments/autopilot-migration", {}],
         // Before authentication and role checks, too.
         ["viewer", "POST", `publications/${post.id}/veto`, { version: 1 }],
       ];

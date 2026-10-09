@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
-import { approveAndSchedule, configureAutopilot } from "./modules/autopilot.ts";
+import {
+  approveAndSchedule,
+  autopilotMigration,
+  configureAutopilot,
+  proposeAutopilotAssignment,
+} from "./modules/autopilot.ts";
 import { resumePausedPublications } from "./modules/paused-posts.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
 import {
@@ -246,6 +251,7 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/telegram/disconnect",
   "/api/projects/:projectId/assignments",
   "/api/projects/:projectId/assignments/:id/status",
+  "/api/projects/:projectId/assignments/autopilot-migration",
   "/api/projects/:projectId/assignment-posts",
   "/api/projects/:projectId/publications/:id/veto",
 ]);
@@ -909,6 +915,34 @@ export async function buildServer(
     );
     return { id: saved.id, version: saved.version, status: data(saved).status };
   });
+  // The saved weekly autopilot as a draft assignment (spec D5, migration card).
+  app.get(
+    "/api/projects/:projectId/assignments/autopilot-migration",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId);
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        autopilotMigration(tx, scope),
+      );
+    },
+  );
+  // Proposes it through the normal proposal path; an owner confirms it like any other.
+  app.post(
+    "/api/projects/:projectId/assignments/autopilot-migration",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      const { assignment, actionRequest, conversationId } =
+        await proposeAutopilotAssignment(scope);
+      return {
+        assignmentId: assignment.id,
+        actionRequestId: actionRequest.id,
+        conversationId,
+      };
+    },
+  );
   app.get("/api/projects/:projectId/assignment-posts", async (req) => {
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };

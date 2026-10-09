@@ -143,7 +143,8 @@ export function assignmentCardOf(row: {
   };
 }
 
-const confirmationCard = (
+/** The chat card an owner confirms a proposed assignment with. */
+export const confirmationCard = (
   row: Parameters<typeof assignmentCardOf>[0],
 ): ChatCard => ({
   kind: "assignment",

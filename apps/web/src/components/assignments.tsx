@@ -73,15 +73,33 @@ export function knownData<T>(
   if (agentsOff(error)) return null;
   return data ?? known;
 }
-function useKnownData<T>(key: string, data: T | null, error: ApiError | null) {
-  const [known, setKnown] = useState<{ key: string; value: T | null }>({
+/**
+ * The kept answer of one project. `stale` is the previous project's answer
+ * that the resource still holds after a switch, until its reload clears it.
+ */
+export type Known<T> = { key: string; value: T | null; stale?: T | null };
+/** The kept answer for `key` after this render. */
+export function nextKnown<T>(
+  known: Known<T>,
+  key: string,
+  data: T | null,
+  error: ApiError | null,
+): Known<T> {
+  // Another project starts from nothing: in the switch render the resource
+  // still holds the previous project's answer and error.
+  if (known.key !== key) return { key, value: null, stale: data };
+  const fresh = data !== null && data === known.stale ? null : data;
+  return {
     key,
-    value: null,
-  });
-  // Another project starts from nothing.
-  const value = knownData(known.key === key ? known.value : null, data, error);
-  useEffect(() => setKnown({ key, value }), [key, value]);
-  return value;
+    value: knownData(known.value, fresh, error),
+    stale: fresh === null ? (known.stale ?? null) : null,
+  };
+}
+function useKnownData<T>(key: string, data: T | null, error: ApiError | null) {
+  const [known, setKnown] = useState<Known<T>>({ key, value: null });
+  const next = nextKnown(known, key, data, error);
+  useEffect(() => setKnown(next), [next.key, next.value, next.stale]);
+  return next.value;
 }
 
 /** Runs a change and reloads after a version conflict, so the next try uses the current version. */
@@ -484,4 +502,161 @@ export function UpcomingAssignmentPosts() {
       )}
     </>
   );
+}
+
+/** One answer of `GET /assignments/autopilot-migration`. */
+export type AutopilotMigration = {
+  proposal: Omit<AssignmentContent, "id"> | null;
+  channelNames: Record<string, string>;
+  assignment: {
+    id: string;
+    status: string;
+    actionRequestId: string | null;
+  } | null;
+};
+
+/**
+ * The autopilot migration offer. `available` is true once the route answered
+ * (Orbit Agents on) and false on a 404; `settled` says an answer exists at all.
+ */
+export function useAutopilotMigration() {
+  const { project, revision } = useWorkspace();
+  const resource = useResource<AutopilotMigration>(
+    collectionPath(
+      project.id,
+      `assignments/autopilot-migration?revision=${revision}`,
+    ),
+  );
+  const data = useKnownData(project.id, resource.data, resource.error);
+  return {
+    resource,
+    data,
+    available:
+      data !== null || (resource.error !== null && !agentsOff(resource.error)),
+    settled: data !== null || resource.error !== null,
+  };
+}
+
+/**
+ * The migration card (spec D5): the saved autopilot settings as a proposed
+ * assignment. Proposing creates a draft with an owner confirmation; nothing
+ * runs before that. Hidden when there is nothing to offer or the proposed
+ * assignment was confirmed.
+ */
+export function AutopilotMigrationView({
+  state,
+  de,
+  canPropose,
+  pending,
+  onPropose,
+}: {
+  state: AutopilotMigration;
+  de: boolean;
+  canPropose: boolean;
+  pending: boolean;
+  onPropose: () => void;
+}) {
+  const { proposal, assignment } = state;
+  if (assignment ? assignment.status !== "draft" : !proposal) return null;
+  return (
+    <section className="panel autopilot-migration">
+      <div className="panel-head">
+        <div>
+          <h2>
+            {de
+              ? "Autopilot als Auftrag übernehmen"
+              : "Take over the autopilot as an assignment"}
+          </h2>
+          <p>
+            {de
+              ? "Aufträge ersetzen den wöchentlichen Autopilot. Orbit schlägt deine gespeicherten Autopilot-Einstellungen als Auftrag vor; er läuft erst, wenn ein Owner ihn bestätigt. Die Autopilot-Einstellungen bleiben unverändert."
+              : "Assignments replace the weekly autopilot. Orbit proposes your saved autopilot settings as an assignment; it runs only after an owner confirms it. The autopilot settings stay unchanged."}
+          </p>
+        </div>
+      </div>
+      {assignment ? (
+        <p className="panel-note">
+          {de
+            ? "Vorschlag erstellt – die Bestätigung ist offen unter"
+            : "Proposal created – its confirmation is open under"}{" "}
+          <Link href="/approvals">{de ? "Freigaben" : "Approvals"}</Link>.
+        </p>
+      ) : (
+        proposal && (
+          <>
+            <dl className="detail-grid">
+              <dt>{de ? "Kanäle" : "Channels"}</dt>
+              <dd>
+                {channelText(
+                  {
+                    channels: proposal.channels,
+                    channelNames: state.channelNames,
+                  },
+                  de,
+                )}
+              </dd>
+              <dt>{de ? "Rhythmus" : "Schedule"}</dt>
+              <dd>{scheduleText(proposal.schedule, de)}</dd>
+              <dt>{de ? "Themenrahmen" : "Topic frame"}</dt>
+              <dd>{proposal.topicFrame}</dd>
+              <dt>{de ? "Bild" : "Image"}</dt>
+              <dd>
+                {proposal.image
+                  ? de
+                    ? "Ja, im Stil der Autopilot-Bilder"
+                    : "Yes, in the style of the autopilot images"
+                  : de
+                    ? "Nein"
+                    : "No"}
+              </dd>
+              <dt>{de ? "Budget pro Monat" : "Monthly budget"}</dt>
+              <dd>{usd(proposal.monthlyBudgetMicros)}</dd>
+            </dl>
+            {canPropose && (
+              <div className="form-actions">
+                <Button disabled={pending} onClick={onPropose}>
+                  {de ? "Als Auftrag vorschlagen" : "Propose as an assignment"}
+                </Button>
+              </div>
+            )}
+          </>
+        )
+      )}
+    </section>
+  );
+}
+
+/** The migration card for a loaded offer; proposing reloads the page data. */
+export function AutopilotMigrationCard({
+  migration,
+}: {
+  migration: ReturnType<typeof useAutopilotMigration>;
+}) {
+  const { locale, project, canEdit, refresh } = useWorkspace();
+  const mutation = useMutation(refresh);
+  if (!migration.data) return null;
+  return (
+    <>
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      <AutopilotMigrationView
+        state={migration.data}
+        de={locale === "de"}
+        canPropose={canEdit}
+        pending={mutation.pending}
+        onPropose={() =>
+          mutation.run(() =>
+            post(
+              collectionPath(project.id, "assignments/autopilot-migration"),
+              {},
+            ),
+          )
+        }
+      />
+    </>
+  );
+}
+
+/** The migration card with its own data, for the assignments tab. */
+export function AutopilotMigrationPanel() {
+  return <AutopilotMigrationCard migration={useAutopilotMigration()} />;
 }
