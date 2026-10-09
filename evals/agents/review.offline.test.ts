@@ -45,7 +45,10 @@ import { closeDatabase } from "../../packages/db/src/index.ts";
 import { create, data, entity, update } from "../../apps/api/src/shared.ts";
 import { runAgentTask } from "../../apps/api/src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../../apps/api/src/modules/agents/specialists/index.ts";
-import { reviewStep } from "../../apps/api/src/modules/agents/specialists/review.ts";
+import {
+  REVIEW_INSTRUCTIONS,
+  reviewStep,
+} from "../../apps/api/src/modules/agents/specialists/review.ts";
 import {
   createPackageProject,
   TELEGRAM,
@@ -57,8 +60,13 @@ import {
   generated,
   message,
 } from "../../apps/api/tests/support/assignment-review.ts";
-import { CATEGORIES, parseReviewSet, type ReviewCase } from "./review-set.ts";
-import raw from "./review-v1.json" with { type: "json" };
+import {
+  CATEGORIES,
+  isBareHost,
+  parseReviewSet,
+  type ReviewCase,
+} from "./review-set.ts";
+import raw from "./review-v2.json" with { type: "json" };
 
 const dataset = parseReviewSet(raw);
 const good = dataset.cases.filter((c) => c.label === "good");
@@ -68,10 +76,13 @@ const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
 
-describe("Review eval set v1", () => {
-  it("holds at least 8 good and 12 bad cases over every failure kind", () => {
-    expect(good.length).toBeGreaterThanOrEqual(8);
-    expect(bad.length).toBeGreaterThanOrEqual(12);
+describe("Review eval set v2", () => {
+  it("holds 8 good and 17 bad cases over every failure kind, and the bare host", () => {
+    expect(dataset.datasetVersion).toBe("agents-review-v2");
+    expect(good.length).toBe(8);
+    expect(bad.filter((c) => !isBareHost(c)).length).toBe(17);
+    expect(bad.filter(isBareHost).length).toBe(1);
+    expect(bad.filter((c) => c.category === "unbacked_claim").length).toBe(5);
     expect(new Set(dataset.cases.map((c) => c.id)).size).toBe(
       dataset.cases.length,
     );
@@ -84,10 +95,33 @@ describe("Review eval set v1", () => {
     // A blocker case records a wrong approve, so the set proves the model cannot clear it.
     for (const c of bad.filter((c) => c.expected.deterministic.length))
       expect(c.recorded.verdict).toBe("approve");
+    // An unbacked claim is the model's to catch; its recorded round-1 answer is reject.
+    for (const c of bad.filter((c) => c.category === "unbacked_claim")) {
+      expect(c.expected).toEqual({
+        verdict: "reject",
+        deterministic: [],
+        modelSees: true,
+      });
+      expect(c.recorded.verdict).toBe("reject");
+    }
+  });
+
+  // The prompt's examples must not be the set's own sentences, or the set would test recall.
+  it("quotes no sentence of a case body in the review prompt", () => {
+    const sentences = dataset.cases.flatMap((c) =>
+      c.body
+        .split(/(?<=[.?!])\s+/)
+        .map((sentence) => sentence.trim())
+        .filter((sentence) => sentence && sentence !== "Learn more."),
+    );
+    expect(sentences.length).toBeGreaterThan(0);
+    expect(
+      sentences.filter((sentence) => REVIEW_INSTRUCTIONS.includes(sentence)),
+    ).toEqual([]);
   });
 });
 
-describe.skipIf(!enabled)("Review eval v1 (offline replay)", () => {
+describe.skipIf(!enabled)("Review eval v2 (offline replay)", () => {
   let project: Awaited<ReturnType<typeof createPackageProject>>;
   let h: ReturnType<typeof assignmentRun>;
   let template: Record<string, any>;
@@ -209,7 +243,7 @@ describe.skipIf(!enabled)("Review eval v1 (offline replay)", () => {
     };
   }
 
-  it("approves every good case of review-v1", async () => {
+  it("approves every good case of review-v2", async () => {
     const failures: string[] = [];
     for (const c of good) {
       const outcome = await review(c);
@@ -227,7 +261,7 @@ describe.skipIf(!enabled)("Review eval v1 (offline replay)", () => {
   }, 120_000);
 
   // A bad case is never approved: rejected, or left for the owner where the set expects that.
-  it("rejects every bad case of review-v1", async () => {
+  it("rejects every bad case of review-v2", async () => {
     const failures: string[] = [];
     for (const c of bad) {
       const outcome = await review(c);

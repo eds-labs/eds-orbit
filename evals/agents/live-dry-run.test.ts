@@ -17,7 +17,7 @@ import {
 } from "./live-plan.ts";
 import { isBareHost, parseReviewSet } from "./review-set.ts";
 import { reviewPromptHash } from "./code-version.ts";
-import rawSet from "./review-v1.json" with { type: "json" };
+import rawSet from "./review-v2.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
@@ -36,17 +36,18 @@ const plan = (env: Record<string, string | undefined> = {}, at = now) =>
 describe("Live review eval planning (dry run)", () => {
   it("plans at most two review calls per case under a 2 USD ceiling and prints it without secrets", () => {
     const p = plan({ ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY });
-    expect(p.datasetVersion).toBe("agents-review-v1");
-    expect(p.caseCount).toBe(21);
-    expect([p.good, p.bad, p.bareHost]).toEqual([8, 12, 1]);
-    expect(p.calls).toBe(42);
+    expect(p.datasetVersion).toBe("agents-review-v2");
+    expect(p.caseCount).toBe(26);
+    expect([p.good, p.bad, p.bareHost]).toEqual([8, 17, 1]);
+    expect(p.calls).toBe(52);
+    expect(p.expectedModelCalls).toBe(20);
     expect(p.expectedModelCalls).toBe(
       set.cases.filter((c) => c.expected.modelSees).length,
     );
     expect(p.route).toEqual({ model: "gpt-6.1-sol", maxOutputTokens: 1800 });
     expect(p.maxCostMicros).toBe(2_000_000);
     expect(p.perCallMicros).toBeGreaterThan(0);
-    expect(p.worstCaseMicros).toBe(p.perCallMicros * 42);
+    expect(p.worstCaseMicros).toBe(p.perCallMicros * 52);
     // A full run with every round-2 call fits under the ceiling.
     expect(p.worstCaseMicros).toBeLessThanOrEqual(p.maxCostMicros);
     expect(p.promptHash).toMatch(/^[0-9a-f]{64}$/);
@@ -55,7 +56,7 @@ describe("Live review eval planning (dry run)", () => {
       expect(rate.verifiedAt).toBe(rates.verifiedAt);
     const text = renderPlan(p);
     expect(text).toContain("nothing is transmitted");
-    expect(text).toContain("42 review calls at most");
+    expect(text).toContain("52 review calls at most");
     expect(text).toContain("round 2");
     expect(text).toContain("verify in Orbit Settings");
     expect(text).toContain("cost ceiling: $2.0000");

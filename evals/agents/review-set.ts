@@ -1,6 +1,7 @@
 /**
- * The review eval set (`review-v1.json`): its schema, shared by the offline
- * replay and the live runner. Pure: no database, no provider.
+ * The review eval set (`review-v2.json`; `review-v1.json` stays as the
+ * record of the first live run): its schema, shared by the offline replay
+ * and the live runner. Pure: no database, no provider.
  */
 import { z } from "zod";
 
@@ -11,6 +12,7 @@ export const CATEGORIES = [
   "disallowed_link",
   "off_brand_tone",
   "repeated_post",
+  "unbacked_claim",
 ] as const;
 
 export const reviewCase = z
@@ -40,7 +42,7 @@ export type ReviewCase = z.infer<typeof reviewCase>;
 
 const reviewSet = z
   .object({
-    datasetVersion: z.literal("agents-review-v1"),
+    datasetVersion: z.literal("agents-review-v2"),
     description: z.string().min(1),
     cases: z.array(reviewCase).min(20),
   })

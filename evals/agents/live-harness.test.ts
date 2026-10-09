@@ -85,7 +85,7 @@ import {
 } from "./live-plan.ts";
 import { parseReviewSet, type ReviewCase } from "./review-set.ts";
 import { reviewPromptHash } from "./code-version.ts";
-import rawSet from "./review-v1.json" with { type: "json" };
+import rawSet from "./review-v2.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
 
@@ -142,7 +142,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     );
     expect(report.stoppedReason).toBeNull();
     expect(report.cleanupError).toBeNull();
-    expect(report.results).toHaveLength(21);
+    expect(report.results).toHaveLength(26);
     const outcome = evaluatePassRule(set.cases, report.results, null);
     expect(outcome.rules).toEqual({
       noBadApproved: true,
@@ -181,25 +181,29 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
 
   it("runs the production revision with an unchanged body and lets round 2 decide", async () => {
     const cases = [
-      "good-day-one",
+      "good-reply",
       "bad-profit-revenue",
       "bad-advice-savings",
       "bad-repeat-paraphrase",
+      "bad-unbacked-day-one",
     ].map(byId);
     const report = await run(cases, {
-      "good-day-one": { 1: "revise", 2: "approve" },
+      "good-reply": { 1: "revise", 2: "approve" },
       // The worst case: the copywriter ignores the instruction and round 2 approves.
       "bad-profit-revenue": { 1: "revise", 2: "approve" },
       "bad-advice-savings": { 1: "revise", 2: "revise" },
       "bad-repeat-paraphrase": { 1: "revise", 2: "reject" },
+      // A live revise of an unbacked claim: the unchanged revision is rejected in round 2.
+      "bad-unbacked-day-one": { 1: "revise", 2: "reject" },
     });
     expect(report.stoppedReason).toBeNull();
     const result = Object.fromEntries(report.results.map((r) => [r.caseId, r]));
-    expect(result["good-day-one"]!.verdict).toBe("approve");
+    expect(result["good-reply"]!.verdict).toBe("approve");
     expect(result["bad-profit-revenue"]!.verdict).toBe("approve");
     // Round 2 has no further revision: anything but approve rejects.
     expect(result["bad-advice-savings"]!.verdict).toBe("reject");
     expect(result["bad-repeat-paraphrase"]!.verdict).toBe("reject");
+    expect(result["bad-unbacked-day-one"]!.verdict).toBe("reject");
     for (const r of report.results) {
       expect(r.revised).toBe(true);
       expect(r.reviewCalls).toBe(2);
@@ -208,7 +212,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       expect(r.deterministicProblems).toEqual([]);
       expect(r.asPlanned).toBe(true);
     }
-    expect(replay.calls).toBe(8);
+    expect(replay.calls).toBe(10);
     // Round 2 judged exactly the original texts.
     expect(replay.seen[2].sort()).toEqual(cases.map((c) => c.body).sort());
     const outcome = evaluatePassRule(cases, report.results, null);
@@ -218,11 +222,11 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
   }, 120_000);
 
   it("stops at the ceiling before a reservation it cannot afford", async () => {
-    const cases = ["good-day-one", "good-join-now"].map(byId);
+    const cases = ["good-join-now", "good-invite"].map(byId);
     // Less than one review reservation: the first call is refused, nothing is sent.
     const report = await run(
       cases,
-      { "good-day-one": { 1: "approve" } },
+      { "good-join-now": { 1: "approve" } },
       1_000,
     );
     expect(replay.calls).toBe(0);
