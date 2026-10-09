@@ -15,8 +15,8 @@ const provider = vi.hoisted(() => ({
   embed: vi.fn(),
   requests: [] as any[],
   replies: [] as Array<(request: any) => Reply>,
-  // The next slot lookup fails like an unexpected outage when set (R54).
-  failSlots: false,
+  // A slot lookup fails after `after` good ones, in JavaScript or in the database (R54, R58).
+  slotFailure: null as null | { after: number; kind: "js" | "sql" },
   // Live preconditions outside this task: an evaluated live index and a Postiz client.
   liveIndex: false,
   createPost: vi.fn(),
@@ -29,8 +29,12 @@ vi.mock("../src/modules/agents/scheduling.ts", async (importOriginal) => {
   return {
     ...actual,
     slotContext: async (...args: Parameters<typeof actual.slotContext>) => {
-      if (provider.failSlots) {
-        provider.failSlots = false;
+      const failure = provider.slotFailure;
+      if (failure && failure.after > 0) failure.after--;
+      else if (failure) {
+        provider.slotFailure = null;
+        // A real Postgres error: it aborts the surrounding transaction.
+        if (failure.kind === "sql") await args[0].$queryRaw`SELECT 1/0`;
         throw new Error("synthetic scheduling outage");
       }
       return actual.slotContext(...args);
@@ -223,7 +227,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     process.env.ORBIT_AGENTS = "true";
     provider.requests = [];
     provider.replies = [];
-    provider.failSlots = false;
+    provider.slotFailure = null;
     provider.liveIndex = false;
     provider.createPost.mockReset();
     provider.embed.mockReset().mockResolvedValue(embedded());
@@ -597,9 +601,10 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     const forge = (changes: Record<string, unknown>) =>
       h.run(async (tx) => {
         const row = await entity(tx, project.owner, "publications", other.id);
-        const { remoteId, handoffCompletedAt, ...rest } = data(row);
+        const { remoteId, handoffCompletedAt, handoffAt, ...rest } = data(row);
         void remoteId;
         void handoffCompletedAt;
+        void handoffAt;
         return update(tx, project.owner, row, { ...rest, ...changes });
       });
     for (const status of [
@@ -638,6 +643,23 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         ),
       ),
     ).toEqual({ result: "already_handed_over" });
+    // Blocked while in flight (e.g. its content changed during the send): it was claimed for Postiz.
+    const blockedInFlight = await forge({
+      status: "blocked_dependency",
+      handoffAt: new Date().toISOString(),
+    });
+    expect(
+      await h.run((tx) =>
+        vetoPublication(
+          tx,
+          project.owner,
+          other.id,
+          blockedInFlight.version,
+          "orbit",
+        ),
+      ),
+    ).toEqual({ result: "already_handed_over" });
+    expect((await publications())[1]!.version).toBe(blockedInFlight.version);
     // Blocked before anything was sent: Orbit still holds it and stops it.
     const blocked = await forge({ status: "blocked_dependency" });
     expect(
@@ -954,7 +976,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     await h.connectTelegram();
     await h.makeAssignment();
     const { review, runId } = await drafted();
-    provider.failSlots = true;
+    provider.slotFailure = { after: 0, kind: "js" };
     // The review's result is saved even though its scheduling fails.
     await reviewed(review.id);
     expect(await h.rows("publications")).toEqual([]);
@@ -972,6 +994,71 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
     await h.run((tx) => sweepProject(tx, h.worker(), tomorrowMorning()));
     expect((await runOf()).version).toBe(marked.version);
     expect(await h.rows("publications")).toHaveLength(2);
+  });
+
+  it("isolates each run's scheduling in the sweep (R58)", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    const { review, runId } = await drafted();
+    provider.slotFailure = { after: 0, kind: "js" };
+    await reviewed(review.id);
+    expect(await h.rows("publications")).toEqual([]);
+    const runOf = async () =>
+      (await h.rows("assignment_runs")).find((row) => row.id === runId)!;
+    const telegramEvents = () =>
+      h.run((tx) =>
+        tx.outbox.count({
+          where: {
+            projectId: project.owner.projectId,
+            topic: "telegram_notification",
+          },
+        }),
+      );
+    // Another duty of the same sweep: a ready mission past its end expires.
+    const stale = () =>
+      h.run((tx) =>
+        create(tx, project.owner, "missions", {
+          title: "Synthetic stale mission",
+          status: "ready",
+          startAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+          endAt: new Date(Date.now() - 3600000).toISOString(),
+        }),
+      );
+    const statusOf = async (id: string) =>
+      data(await h.run((tx) => entity(tx, project.owner, "missions", id)))
+        .status;
+
+    for (const kind of ["sql", "js"] as const) {
+      const mission = await stale();
+      // Scheduling breaks on the run's second draft, after the first was booked.
+      provider.slotFailure = { after: 1, kind };
+      await h.run((tx) => sweepProject(tx, h.worker(), tomorrowMorning()));
+      expect(provider.slotFailure).toBeNull();
+      // Nothing of the first draft is left behind.
+      expect(await h.rows("publications")).toEqual([]);
+      expect(await previews()).toEqual([]);
+      expect(await telegramEvents()).toBe(0);
+      expect(
+        (await h.rows("jobs")).filter((job) => job.topic === "publishing"),
+      ).toEqual([]);
+      const run = await runOf();
+      expect(run.scheduledAt).toBeUndefined();
+      expect(run.slots.every((slot: any) => !slot.publicationId)).toBe(true);
+      // The rest of the sweep went on.
+      expect(await statusOf(mission.id)).toBe("expired");
+    }
+
+    // A later sweep schedules both drafts.
+    await h.run((tx) => sweepProject(tx, h.worker(), tomorrowMorning()));
+    const pubs = await publications();
+    expect(pubs).toHaveLength(2);
+    expect(await previews()).toHaveLength(2);
+    expect(await telegramEvents()).toBe(2);
+    const run = await runOf();
+    expect(run.scheduledAt).toEqual(expect.any(String));
+    expect(run.slots.map((slot: any) => slot.publicationId)).toEqual(
+      pubs.map((pub) => pub.id),
+    );
   });
 
   it("withdraws scheduled posts when the assignment is paused (R20)", async () => {

@@ -12,6 +12,7 @@ import {
   update,
 } from "../../shared.ts";
 import { activePolicy } from "../policy.ts";
+import { errorCode } from "../telemetry.ts";
 import { enqueue, publishIntent } from "../workflow.ts";
 import { agentReviewAccepted } from "./agent-review.ts";
 import { SLOT_STEP_MS, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
@@ -40,10 +41,15 @@ const PUBLICATIONS = "publications";
 // The publication is out of Orbit's hands from the claim on.
 const INACTIVE = ["canceled", "failed", "blocked_dependency"];
 
-/** A publication Orbit still holds: not handed over, nothing sent to Postiz (R56 allow-list). */
+/**
+ * A publication Orbit still holds (R56 allow-list): not claimed for Postiz.
+ * A blocked one counts only if it was never claimed (`handoffAt`), since a
+ * changed content can block a post in the middle of its send.
+ */
 const withdrawable = (pub: Record<string, any>) =>
   pub.status === "intent_created" ||
   (pub.status === "blocked_dependency" &&
+    !pub.handoffAt &&
     !pub.remoteId &&
     !pub.handoffCompletedAt);
 // Drafts that still wait for a decision keep their slot.
@@ -406,8 +412,8 @@ export async function scheduleFinishedRun(
 /**
  * Sweep retry (R54): schedules the recent runs that ended with their review
  * done but have no `scheduledAt` marker, e.g. because scheduling failed
- * after the review task was saved. A run that fails again is logged and left
- * for the next sweep; the others go on.
+ * after the review task was saved. A run that fails again is rolled back to
+ * its savepoint, logged and left for the next sweep; the others go on.
  */
 export async function scheduleUnscheduledRuns(tx: DbTx, scope: Scope) {
   if (!agentsEnabled()) return { scheduled: 0 };
@@ -431,12 +437,20 @@ export async function scheduleUnscheduledRuns(tx: DbTx, scope: Scope) {
   let scheduled = 0;
   for (const run of runs) {
     if (!awaitsScheduling(data(run))) continue;
+    // Each run in its own savepoint (R58): a failure, also a database error
+    // that would abort the sweep's transaction, undoes only this run's
+    // bookings and leaves the rest of the sweep intact.
+    await tx.$executeRaw`SAVEPOINT schedule_run`;
     try {
       await scheduleApproved(tx, scope, run.id);
+      await tx.$executeRaw`RELEASE SAVEPOINT schedule_run`;
       scheduled++;
     } catch (error) {
-      if (!(error instanceof Error)) throw error;
-      console.error("Orbit assignment scheduling retry failed", error.message);
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT schedule_run`;
+      console.error(
+        "Orbit assignment scheduling retry failed",
+        errorCode(error),
+      );
     }
   }
   return { scheduled };
