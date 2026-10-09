@@ -37,7 +37,10 @@ import {
  * draft the run's copywriters wrote first goes through Orbit's deterministic
  * checks (preflight at its slot, the confirmation's content type and
  * channel, links in the text); a draft with any problem is rejected and the
- * model never sees it, so it cannot clear one. The review model then judges
+ * model never sees it, so it cannot clear one. A draft whose only problems
+ * come from the project (paused, no or expired policy) or from a bare host
+ * that may be a link is left unjudged for the owner instead (R47/R49). The
+ * review model then judges
  * the clean drafts in one bounded turn: `approve` records an `agentReview`
  * and moves the draft on like an owner review does; `revise` lets the
  * copywriter revise it once in this same task and the revision gets exactly
@@ -61,6 +64,23 @@ const DECIDED_BY_REVIEW = new Set([
   "REVIEW_REQUIRED",
   // Assignment missions are draft-only; the publishing permission is checked at handoff.
   "MISSION_TEST_WRITE_NOT_AUTHORIZED",
+]);
+// Problems that are no fault of the draft, or that the check cannot be sure
+// of: alone they leave the draft for the owner (`needs_review`), never reject it.
+const LEFT_FOR_OWNER = new Set([
+  "PROJECT_PAUSED",
+  "POLICY_EXPIRED",
+  "POLICY_REQUIRED",
+  // A bare host such as `site.example`, which may also be a name (R49).
+  "LINK_UNVERIFIED",
+]);
+// Revision failures of the provider or the project, not of the draft (R49).
+const TRANSIENT_REVISION_FAILURES = new Set([
+  "MODEL_OUTCOME_OR_COST_UNKNOWN",
+  "MODEL_REQUEST_NOT_ACCEPTED",
+  "PROJECT_PAUSED",
+  "POLICY_REQUIRED",
+  "POLICY_EXPIRED",
 ]);
 const MAX_DRAFTS = 16;
 const HISTORY_DAYS = 14;
@@ -88,7 +108,13 @@ export const reviewOutput = z
   })
   .strict();
 type ReviewOutput = z.infer<typeof reviewOutput>;
-type Verdict = "approve" | "revise" | "reject";
+type ModelVerdict = "approve" | "revise" | "reject";
+// `needs_owner`: left unjudged for the owner's review.
+type Verdict = ModelVerdict | "needs_owner";
+
+/** The verdict for deterministic problems: reject, unless all of them leave the draft for the owner. */
+const verdictFor = (problems: string[]): Verdict =>
+  problems.every((code) => LEFT_FOR_OWNER.has(code)) ? "needs_owner" : "reject";
 
 /** One draft's decision in a review task, stored on the content as `agentReviewDecision`. */
 export type ReviewDecision = {
@@ -97,7 +123,7 @@ export type ReviewDecision = {
   // What happens to the draft.
   verdict: Verdict;
   // The model's answer; null when the deterministic checks decided.
-  modelVerdict: Verdict | null;
+  modelVerdict: ModelVerdict | null;
   reasons: string[];
   revisionInstructions: string | null;
   deterministicProblems: string[];
@@ -372,7 +398,7 @@ async function decideRound(
       const decision: ReviewDecision = {
         taskId: task.id,
         round,
-        verdict: "reject",
+        verdict: verdictFor(problems),
         modelVerdict: null,
         reasons: [],
         revisionInstructions: null,
@@ -433,11 +459,41 @@ async function reject(
   });
 }
 
+/** Leaves a draft unjudged for the owner (once): `needs_review`, no agent review. */
+async function leaveForOwner(
+  tx: DbTx,
+  scope: Scope,
+  contentId: string,
+  decision: ReviewDecision,
+) {
+  const row = await entity(tx, scope, "content", contentId);
+  const v = data(row);
+  if (
+    v.status === "needs_review" &&
+    v.agentReviewDecision?.taskId === decision.taskId &&
+    v.agentReviewDecision?.verdict === "needs_owner"
+  )
+    return;
+  const { agentReview: _agentReview, ...rest } = v;
+  await update(tx, scope, row, {
+    ...rest,
+    status: "needs_review",
+    agentReviewDecision: decision,
+  });
+  await audit(tx, scope, "content.agent_review_left_for_owner", contentId, {
+    taskId: decision.taskId,
+    round: decision.round,
+    deterministicProblems: decision.deterministicProblems,
+    revisionError: decision.revisionError ?? null,
+  });
+}
+
 /**
  * Records the agent review and moves the draft on as an owner review does
  * (`reviewed` when the checks pass, else `needs_review`). The deterministic
  * checks run again first: a problem that appeared since the model's answer
- * rejects the draft. Returns the final verdict.
+ * rejects the draft, or leaves it for the owner like the first check would.
+ * Returns the final verdict.
  */
 async function approve(
   tx: DbTx,
@@ -457,12 +513,14 @@ async function approve(
   if (problems.length) {
     const changed = {
       ...decision,
-      verdict: "reject" as const,
+      verdict: verdictFor(problems),
       deterministicProblems: problems,
       checkedAt: new Date().toISOString(),
     };
-    await reject(tx, scope, contentId, changed);
-    return "reject";
+    if (changed.verdict === "needs_owner")
+      await leaveForOwner(tx, scope, contentId, changed);
+    else await reject(tx, scope, contentId, changed);
+    return changed.verdict;
   }
   const assignmentRow = await entity(
     tx,
@@ -490,7 +548,8 @@ async function approve(
     ...data(reviewed),
     status: result.valid ? "reviewed" : "needs_review",
     review: result,
-    reviewedBy: scope.userId,
+    // The approval is the review task's, never the worker's user.
+    reviewedBy: `agent:${task.id}`,
   });
   await audit(tx, scope, "content.agent_approved", contentId, {
     taskId: task.id,
@@ -504,17 +563,31 @@ async function approve(
   return "approve";
 }
 
-/** One revision of a draft (round 1 `revise`); the replaced draft is rejected. Returns the revision's id. */
+/**
+ * One revision of a draft (round 1 `revise`); the replaced draft is
+ * rejected. A revision that fails for the draft (content, budget) rejects it
+ * too; one that fails for the provider or the project leaves the original
+ * for the owner (R49). A re-run returns what the first run recorded.
+ */
 async function revise(
   scope: Scope,
   task: AgentTask,
   contentId: string,
   decision: ReviewDecision,
-) {
+): Promise<{
+  revisedTo: string | null;
+  error: string | null;
+  verdict: Verdict;
+}> {
   if (decision.revisedTo || decision.revisionError)
-    return { revisedTo: decision.revisedTo ?? null, error: null };
+    return {
+      revisedTo: decision.revisedTo ?? null,
+      error: decision.revisionError ?? null,
+      verdict: "revise",
+    };
   let revisedTo: string | null = null;
   let error: string | null = null;
+  let transient = false;
   try {
     const revised = await reviseAssignmentDraft(scope, task, {
       contentId,
@@ -524,6 +597,19 @@ async function revise(
   } catch (failure) {
     const code = errorCode(failure);
     error = code === "UNEXPECTED" ? "AGENT_FAILED" : code;
+    transient =
+      !(failure instanceof DomainError) ||
+      TRANSIENT_REVISION_FAILURES.has(code);
+  }
+  if (transient) {
+    const left: ReviewDecision = {
+      ...decision,
+      verdict: "needs_owner",
+      revisedTo: null,
+      revisionError: error,
+    };
+    await inScope(scope, (tx) => leaveForOwner(tx, scope, contentId, left));
+    return { revisedTo: null, error, verdict: "needs_owner" };
   }
   await inScope(scope, (tx) =>
     reject(
@@ -536,7 +622,7 @@ async function revise(
         : {},
     ),
   );
-  return { revisedTo, error };
+  return { revisedTo, error, verdict: "revise" };
 }
 
 /** Saves an approved blog or newsletter draft to Drive; a failure is reported, never published around. */
@@ -577,6 +663,10 @@ async function settleRound(
       verdict = await inScope(scope, (tx) =>
         approve(tx, scope, task, contentId, decision),
       );
+    else if (verdict === "needs_owner")
+      await inScope(scope, (tx) =>
+        leaveForOwner(tx, scope, contentId, decision),
+      );
     else await inScope(scope, (tx) => reject(tx, scope, contentId, decision));
     const final = await inScope(scope, async (tx) =>
       storedDecision(await entity(tx, scope, "content", contentId), task),
@@ -604,11 +694,16 @@ export const reviewStep: StepHandler = async (scope, task) => {
   const second: string[] = [];
   for (const { contentId, decision } of first) {
     if (decision.verdict !== "revise") continue;
-    const { revisedTo, error } = await revise(scope, task, contentId, decision);
+    const { revisedTo, error, verdict } = await revise(
+      scope,
+      task,
+      contentId,
+      decision,
+    );
     outcomes.push({
       contentId,
       round: 1,
-      verdict: "revise",
+      verdict,
       reasons: decision.reasons,
       deterministicProblems: [],
       revisedTo,

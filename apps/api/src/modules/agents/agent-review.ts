@@ -24,23 +24,47 @@ export type AgentReview = {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Written links in a text: with a scheme, or starting with `www.`.
 const WRITTEN_LINK = /\bhttps?:\/\/[^\s<>"')\]]+|\bwww\.[^\s<>"')\]]+/giu;
+// Host-shaped words (`label.label.tld`, TLD of 2-24 letters), optionally with a path.
+const BARE_HOST =
+  /\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,24}\b(?:\/[^\s<>"')\]]*)?/giu;
 
-/** `LINK_NOT_ALLOWED` when the text itself names a link outside the policy's allowed origins. */
-export function bodyLinkProblems(body: unknown, allowedOrigins: string[]) {
-  for (const match of String(body ?? "").matchAll(WRITTEN_LINK)) {
-    const written = match[0].replace(/[.,;:!?]+$/u, "");
-    let origin: string | null;
-    try {
-      origin = new URL(
-        /^https?:\/\//i.test(written) ? written : `https://${written}`,
-      ).origin;
-    } catch {
-      origin = null;
-    }
-    if (!origin || !allowedOrigins.includes(origin))
-      return ["LINK_NOT_ALLOWED"];
+const originOf = (written: string) => {
+  try {
+    return new URL(
+      /^https?:\/\//i.test(written) ? written : `https://${written}`,
+    ).origin;
+  } catch {
+    return null;
   }
-  return [];
+};
+const trimmed = (written: string) => written.replace(/[.,;:!?]+$/u, "");
+
+/**
+ * Links written in a text outside the policy's allowed origins:
+ * `LINK_NOT_ALLOWED` for an explicit link (scheme or `www.`), which blocks;
+ * `LINK_UNVERIFIED` for a bare host such as `site.example/page`, which may
+ * also be a name like "Node.js" and is therefore left to the owner (R49).
+ */
+export function bodyLinkProblems(body: unknown, allowedOrigins: string[]) {
+  const problems: string[] = [];
+  let rest = String(body ?? "");
+  for (const match of rest.matchAll(WRITTEN_LINK)) {
+    const origin = originOf(trimmed(match[0]));
+    if (!origin || !allowedOrigins.includes(origin)) {
+      problems.push("LINK_NOT_ALLOWED");
+      break;
+    }
+  }
+  // Explicit links are judged above; only the remaining text is searched for hosts.
+  rest = rest.replace(WRITTEN_LINK, " ");
+  for (const match of rest.matchAll(BARE_HOST)) {
+    const origin = originOf(trimmed(match[0]));
+    if (!origin || !allowedOrigins.includes(origin)) {
+      problems.push("LINK_UNVERIFIED");
+      break;
+    }
+  }
+  return problems;
 }
 
 /** The assignment's confirmation covers this content type and channel. */
@@ -72,7 +96,8 @@ export function confirmedHash(assignment: Record<string, any>) {
  * of the content's own run; the assignment is active, its confirmation still
  * covers its content and is the one the review was made under; the
  * confirmation covers the content's type and channel; the text names no link
- * outside the policy; a Telegram chat is linked to the project. The veto
+ * outside the policy; a Telegram chat was linked to the project before the
+ * review was made. The veto
  * deadline belongs to the publication and is checked at handoff (R4).
  */
 export async function agentReviewAccepted(
@@ -81,7 +106,8 @@ export async function agentReviewAccepted(
   content: Record<string, any>,
 ) {
   const review = content.agentReview as Partial<AgentReview> | undefined;
-  if (!agentsEnabled() || !review || typeof review !== "object") return false;
+  // Content without an agent review (the owner path) never loads the configuration.
+  if (!review || typeof review !== "object" || !agentsEnabled()) return false;
   if (review.bodyHash !== hash(content.body)) return false;
   if (
     !Array.isArray(review.deterministicProblems) ||
@@ -123,5 +149,15 @@ export async function agentReviewAccepted(
     bodyLinkProblems(content.body, data(policy).allowedOrigins ?? []).length
   )
     return false;
-  return (await linkedTelegramConnection(tx, scope)) !== null;
+  // The chat must have been linked before the review was made (R50).
+  const connection = await linkedTelegramConnection(tx, scope);
+  const linkedAt = Date.parse(
+    connection ? (data(connection).linkedAt ?? "") : "",
+  );
+  const checkedAt = Date.parse(String(review.checkedAt ?? ""));
+  return (
+    Number.isFinite(linkedAt) &&
+    Number.isFinite(checkedAt) &&
+    checkedAt >= linkedAt
+  );
 }

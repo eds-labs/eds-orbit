@@ -168,12 +168,18 @@ export function assignmentRun(
     return { runId: runRow!.id as string, slots, briefs };
   };
   /** Binds a (synthetic) Telegram chat to the project, as the bot's `/start <code>` does. */
-  const connectTelegram = (status = "linked") =>
+  const connectTelegram = (
+    status = "linked",
+    linkedAt: string | null = status === "linked"
+      ? new Date().toISOString()
+      : null,
+  ) =>
     run((tx) =>
       create(tx, project.owner, "telegram_connections", {
         status,
         chatId: "synthetic-chat",
         userId: project.owner.userId,
+        ...(linkedAt ? { linkedAt } : {}),
       }),
     );
   return {

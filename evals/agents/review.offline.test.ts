@@ -83,7 +83,8 @@ const reviewCase = z
       .strict(),
     expected: z
       .object({
-        verdict: z.enum(["approve", "reject"]),
+        // `owner`: never approved, left unjudged for the owner (needs_review).
+        verdict: z.enum(["approve", "reject", "owner"]),
         deterministic: z.array(z.string()),
         modelSees: z.boolean(),
       })
@@ -118,7 +119,7 @@ describe("Review eval set v1", () => {
         0,
       );
     for (const c of good) expect(c.expected.verdict).toBe("approve");
-    for (const c of bad) expect(c.expected.verdict).toBe("reject");
+    for (const c of bad) expect(c.expected.verdict).not.toBe("approve");
     // A blocker case records a wrong approve, so the set proves the model cannot clear it.
     for (const c of bad.filter((c) => c.expected.deterministic.length))
       expect(c.recorded.verdict).toBe("approve");
@@ -261,15 +262,17 @@ describe.skipIf(!enabled)("Review eval v1 (offline replay)", () => {
     expect(failures).toEqual([]);
   }, 120_000);
 
+  // A bad case is never approved: rejected, or left for the owner where the set expects that.
   it("rejects every bad case of review-v1", async () => {
     const failures: string[] = [];
     for (const c of bad) {
       const outcome = await review(c);
       const problems = (outcome.content.agentReviewDecision
         ?.deterministicProblems ?? []) as string[];
+      const owner = c.expected.verdict === "owner";
       if (
-        outcome.verdict !== "reject" ||
-        outcome.content.status !== "rejected" ||
+        outcome.verdict !== (owner ? "needs_owner" : "reject") ||
+        outcome.content.status !== (owner ? "needs_review" : "rejected") ||
         outcome.content.agentReview ||
         outcome.modelSaw !== c.expected.modelSees ||
         c.expected.deterministic.some((code) => !problems.includes(code))

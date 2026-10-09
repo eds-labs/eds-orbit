@@ -1,6 +1,6 @@
 {
   "datasetVersion": "agents-review-v1",
-  "description": "Review agent cases (Orbit Agents spec §6/§11): drafts for one X slot of a confirmed assignment in the synthetic package project (fact beta.access = 'open for product teams', CTA 'Learn more.', voice 'clear'). 'recorded' is the model answer replayed offline (written for this set, not captured from a live model); deterministic cases deliberately record a wrong 'approve' to prove the model cannot clear a blocker. The live run against the configured model needs Mario's cost approval before agent approval goes live.",
+  "description": "Review agent cases (Orbit Agents spec §6/§11): drafts for one X slot of a confirmed assignment in the synthetic package project (fact beta.access = 'open for product teams', CTA 'Learn more.', voice 'clear'). 'recorded' is the model answer replayed offline (written for this set, not captured from a live model); deterministic cases deliberately record a wrong 'approve' to prove the model cannot clear a blocker. A bad case is never approved: it is rejected, or (expected verdict 'owner') left unjudged for the owner when the check cannot tell a link from a name, such as a bare host. The live run against the configured model needs Mario's cost approval before agent approval goes live.",
   "cases": [
     {
       "id": "good-day-one",
@@ -239,6 +239,21 @@
       "expected": {
         "verdict": "reject",
         "deterministic": ["LINK_NOT_ALLOWED"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-link-bare-host",
+      "label": "bad",
+      "category": "disallowed_link",
+      "body": "Beta access is open for product teams, sign up at beta-signup.example/teams. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "owner",
+        "deterministic": ["LINK_UNVERIFIED"],
         "modelSees": false
       }
     },

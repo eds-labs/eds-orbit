@@ -9,12 +9,14 @@ import {
 } from "vitest";
 
 // Every model call is a recorded reply; nothing here reaches a provider.
-type Reply = { output: unknown[] };
+type Reply = { output: unknown[]; costMicros?: number };
 const provider = vi.hoisted(() => ({
   generate: vi.fn(),
   embed: vi.fn(),
   saveDraftDocument: vi.fn(),
   requests: [] as any[],
+  // A revision fails like a provider outage when set.
+  failRevision: false,
   replies: [] as Array<(request: any) => Reply>,
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
@@ -28,8 +30,9 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
       provider.requests.push(structuredClone(request));
       const next = provider.replies.shift();
       if (!next) throw new Error("NO_RECORDED_REPLY");
+      const reply = next(request);
       return {
-        output: next(request).output,
+        output: reply.output,
         usage: {
           model: request.route.model,
           inputTokens: 100,
@@ -37,7 +40,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
           cacheWriteTokens: 0,
           outputTokens: 20,
           reasoningTokens: 0,
-          costMicros: 7,
+          costMicros: reply.costMicros ?? 7,
         },
         responseId: `resp_${provider.requests.length}`,
       };
@@ -167,13 +170,20 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     process.env.ORBIT_AGENTS = "true";
     provider.requests = [];
     provider.replies = [];
+    provider.failRevision = false;
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
       const contract = JSON.parse(params.goal);
       const topic = String(contract.brief?.topic ?? "");
+      if (contract.revision && provider.failRevision)
+        throw new Error("synthetic provider outage");
       if (contract.revision)
         return generated(
           `Beta access is open for product teams, ready on day one (${topic}). Learn more.`,
+        );
+      if (topic.includes("BARELINK"))
+        return generated(
+          `Beta access is open, sign up at beta-signup.example/teams (${topic}). Learn more.`,
         );
       if (topic.includes("PROMISE"))
         return generated(
@@ -224,6 +234,8 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     );
     for (const draft of drafts) {
       expect(draft.status).toBe("reviewed");
+      // The approval is the review task's, never the worker's user.
+      expect(draft.reviewedBy).toBe(`agent:${review.id}`);
       expect(draft.agentReview).toEqual({
         taskId: review.id,
         assignmentId: assignment.id,
@@ -509,6 +521,29 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     });
     expect(await blockers(draft!.id)).not.toContain(HUMAN);
 
+    // A chat linked without a recorded time, or linked after the review, does not count (R50).
+    const [connection] = await h.rows("telegram_connections");
+    const setLinkedAt = (linkedAt: string | undefined) =>
+      h.run(async (tx) => {
+        const row = await entity(
+          tx,
+          project.owner,
+          "telegram_connections",
+          connection!.id,
+        );
+        const { linkedAt: _old, ...rest } = data(row);
+        await update(tx, project.owner, row, {
+          ...rest,
+          ...(linkedAt ? { linkedAt } : {}),
+        });
+      });
+    await setLinkedAt(undefined);
+    expect(await blockers(draft!.id)).toContain(HUMAN);
+    await setLinkedAt(new Date(Date.now() + 60_000).toISOString());
+    expect(await blockers(draft!.id)).toContain(HUMAN);
+    await setLinkedAt(connection!.linkedAt);
+    expect(await blockers(draft!.id)).not.toContain(HUMAN);
+
     // A changed text is no longer the reviewed one.
     await h.run(async (tx) => {
       const row = await entity(tx, project.owner, "content", draft!.id);
@@ -531,6 +566,10 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     // The approval is recorded, but the post waits for the owner.
     expect(draft!.agentReview.bodyHash).toBe(hash(draft!.body));
     expect(draft!.status).toBe("needs_review");
+    expect(await blockers(draft!.id)).toContain(HUMAN);
+
+    // Linking the bot later does not turn the earlier review into an approval (R50).
+    await h.connectTelegram();
     expect(await blockers(draft!.id)).toContain(HUMAN);
 
     // The owner review works exactly as before.
@@ -568,5 +607,140 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     // Once per approved text.
     await reviewAgain(review.id);
     expect(provider.saveDraftDocument).toHaveBeenCalledTimes(1);
+  });
+  it("leaves a draft for the owner when the project is paused", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    const review = await drafted();
+    await h.run((tx) =>
+      tx.project.update({
+        where: { id: project.owner.projectId },
+        data: { paused: true },
+      }),
+    );
+    await runAgentTask(h.worker(), review.id);
+    expect((await h.task("review")).status).toBe("done");
+    // A project state is no fault of the draft: it waits for the owner, unjudged.
+    expect(provider.requests).toHaveLength(0);
+    for (const draft of await contents()) {
+      expect(draft.status).toBe("needs_review");
+      expect(draft.agentReview).toBeUndefined();
+      expect(draft.agentReviewDecision).toMatchObject({
+        verdict: "needs_owner",
+        modelVerdict: null,
+        deterministicProblems: ["PROJECT_PAUSED"],
+      });
+    }
+    expect((await h.task("review")).output.decisions).toEqual([
+      expect.objectContaining({ verdict: "needs_owner" }),
+      expect.objectContaining({ verdict: "needs_owner" }),
+    ]);
+    const audits = await h.run((tx) =>
+      tx.auditEvent.findMany({
+        where: {
+          projectId: project.owner.projectId,
+          action: "content.agent_review_left_for_owner",
+        },
+      }),
+    );
+    expect(audits).toHaveLength(2);
+  });
+
+  it("leaves a draft with an unverified bare link for the owner", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    let first = true;
+    const review = await drafted(() => {
+      const topic = first ? { topic: "BARELINK teams" } : {};
+      first = false;
+      return topic;
+    });
+    const linked = (await h.rows("content")).find((d) =>
+      /beta-signup\.example/.test(d.body),
+    )!;
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+    expect(shown(provider.requests[0]).map((d) => d.contentId)).not.toContain(
+      linked.id,
+    );
+    const after = (await h.rows("content")).find((d) => d.id === linked.id)!;
+    expect(after.status).toBe("needs_review");
+    expect(after.agentReview).toBeUndefined();
+    expect(after.agentReviewDecision.deterministicProblems).toEqual([
+      "LINK_UNVERIFIED",
+    ]);
+  });
+
+  it("leaves the original for the owner when a revision fails for a provider reason", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00"],
+        leadMinutes: 360,
+      },
+    });
+    const review = await drafted();
+    provider.failRevision = true;
+    provider.replies.push(
+      answer(() => ({
+        verdict: "revise",
+        reasons: ["Too generic."],
+        revisionInstructions: "Lead with day one.",
+      })),
+    );
+    await runAgentTask(h.worker(), review.id);
+    expect((await h.task("review")).status).toBe("done");
+    const all = await h.rows("content");
+    expect(all).toHaveLength(1);
+    expect(all[0]!.status).toBe("needs_review");
+    expect(all[0]!.supersededBy).toBeUndefined();
+    expect(all[0]!.agentReview).toBeUndefined();
+    expect(all[0]!.agentReviewDecision).toMatchObject({
+      verdict: "needs_owner",
+      modelVerdict: "revise",
+      revisionError: "MODEL_OUTCOME_OR_COST_UNKNOWN",
+    });
+  });
+
+  it("raises a used-up month again when the review runs again", async () => {
+    await h.connectTelegram();
+    const assignment = await h.makeAssignment({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00"],
+        leadMinutes: 360,
+      },
+    });
+    const review = await drafted();
+    // The first review answer uses up the assignment's month.
+    provider.replies.push((request) => ({
+      ...answer(() => ({
+        verdict: "revise",
+        reasons: ["Too generic."],
+        revisionInstructions: "Lead with day one.",
+      }))(request),
+      costMicros: 30_000_000,
+    }));
+    await runAgentTask(h.worker(), review.id);
+    const failed = await h.task("review");
+    expect(failed.status).toBe("failed");
+    expect(failed.errorCode).toBe("ASSIGNMENT_BUDGET_EXHAUSTED");
+    expect(
+      (await h.rows("assignments")).find((a) => a.id === assignment.id)!.status,
+    ).toBe("budget_exhausted");
+    const [original] = await h.rows("content");
+    expect(original!.status).toBe("rejected");
+    expect(original!.agentReviewDecision.revisionError).toBe(
+      "ASSIGNMENT_BUDGET_EXHAUSTED",
+    );
+    // Running it again neither revises nor forgets the used-up month.
+    await expect(reviewAgain(review.id)).rejects.toMatchObject({
+      code: "ASSIGNMENT_BUDGET_EXHAUSTED",
+    });
+    expect(provider.generate).toHaveBeenCalledTimes(1);
+    expect(provider.requests).toHaveLength(1);
   });
 });
