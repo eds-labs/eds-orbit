@@ -185,7 +185,7 @@
 
 - Create: `apps/api/src/modules/agents/specialists/copywriter.ts`, `apps/api/src/modules/agents/specialists/visual.ts`
 - Modify: `apps/api/src/modules/generation.ts` (contract field `brief` for missions with `assignmentRunId`), `apps/api/src/modules/image-generation.ts` (internal entry for assignment images without the owner check; consent from the assignment confirmation; style references per Task 1)
-- Test: `apps/api/tests/assignment-copy-visual.integration.test.ts`
+- Test: `apps/api/tests/assignment-copywriter-visual.integration.test.ts`
 
 **Interfaces:**
 

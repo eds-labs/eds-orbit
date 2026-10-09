@@ -93,7 +93,9 @@ export function TelegramPanel({
           <Alert>
             {de ? "Sende deinem Bot in Telegram" : "Send your bot in Telegram"}{" "}
             <code>/start {link.linkCode}</code>{" "}
-            {de ? "– gültig bis" : "– valid until"}{" "}
+            {de
+              ? "(oder nur den Code) – gültig bis"
+              : "(or just the code) – valid until"}{" "}
             <time dateTime={link.expiresAt}>
               {when(link.expiresAt, locale, timezone)}
             </time>

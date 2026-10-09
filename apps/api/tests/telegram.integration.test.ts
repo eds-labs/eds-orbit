@@ -380,6 +380,29 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     ).toBe(true);
   });
 
+  it("links with the code sent on its own", async () => {
+    const c = await connect();
+    await post(c.connectionId, c.secret, message(c.body.linkCode));
+    const row = await run((tx) => linkedTelegramConnection(tx, owner));
+    expect(row).not.toBeNull();
+    expect(data(row).chatId).toBe(String(OWNER_CHAT));
+    expect(sent("sendMessage").at(-1)!.body.text).toMatch(/Verbunden/);
+  });
+
+  it("explains how to link when /start or other text comes without a code", async () => {
+    const c = await connect();
+    // Telegram's own Start button sends a bare /start.
+    await post(c.connectionId, c.secret, message("/start"));
+    expect(sent("sendMessage").at(-1)!.body.text).toMatch(/Code aus Orbit/);
+    await post(c.connectionId, c.secret, message("Hallo Bot, wie geht das?"));
+    expect(sent("sendMessage").at(-1)!.body.text).toMatch(/Code aus Orbit/);
+    expect(await run((tx) => linkedTelegramConnection(tx, owner))).toBeNull();
+    // A hint is no rejected code: nothing is audited for it.
+    expect(
+      await audits("telegram.link_rejected").then((events) => events.length),
+    ).toBe(0);
+  });
+
   it("ignores updates with a wrong secret", async () => {
     const c = await connect();
     const before = calls.length;
