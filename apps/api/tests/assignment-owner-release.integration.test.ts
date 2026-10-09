@@ -59,7 +59,10 @@ import {
   draftsAwaitingOwner,
   upcomingAssignmentPosts,
 } from "../src/modules/agents/assignment-overview.ts";
-import { vetoPublication } from "../src/modules/agents/veto.ts";
+import {
+  vetoPublication,
+  withdrawAssignmentPublications,
+} from "../src/modules/agents/veto.ts";
 import { setAssignmentStatus } from "../src/modules/agents/assignments.ts";
 import { preflight } from "../src/modules/policy.ts";
 import { dispatchPublication } from "../src/modules/publisher.ts";
@@ -499,6 +502,148 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
       status: "canceled",
       reason: "ASSIGNMENT_PAUSED",
     });
+  });
+
+  /** What an editor's later publish of the released draft's text is refused with. */
+  const republishBlockers = async (draftId: string) => {
+    const content = await h.run(async (tx) =>
+      entity(tx, project.owner, "content", draftId),
+    );
+    return (
+      (await code(
+        h.run((tx) =>
+          publishIntent(tx, project.owner, {
+            contentId: content.id,
+            version: content.version,
+          }),
+        ),
+      )) ?? ""
+    ).split(",");
+  };
+  const expectRevoked = async (missionId: string) => {
+    const revoked = await mission(missionId);
+    expect(revoked.allowedActions).toEqual(["draft"]);
+    expect(revoked.publishAuthorizedBy).toBeUndefined();
+  };
+
+  it("revokes the mission's publish right when Orbit's Stop withdraws the released post (N2)", async () => {
+    const { drafts } = await leftForOwner();
+    const [first, second] = drafts;
+    await release(project.owner, first!);
+    await release(project.owner, second!);
+    const [item] = (await publications()).filter(
+      (p) => p.contentId === first!.id,
+    );
+    expect(await mission(first!.missionId)).toMatchObject({
+      allowedActions: ["draft", "publish_test"],
+      publishAuthorizedBy: { contentId: first!.id },
+    });
+    await h.run((tx) =>
+      vetoPublication(tx, project.editor, item!.id, item!.version, "orbit"),
+    );
+    expect((await publications()).find((p) => p.id === item!.id)).toMatchObject(
+      { status: "canceled", reason: "VETOED" },
+    );
+    await expectRevoked(first!.missionId);
+    // A later publish of the draft needs a new decision: the mission refuses it.
+    expect(await republishBlockers(first!.id)).toContain(
+      "MISSION_TEST_WRITE_NOT_AUTHORIZED",
+    );
+    // The other released post is not touched.
+    expect(await mission(second!.missionId)).toMatchObject({
+      allowedActions: ["draft", "publish_test"],
+      publishAuthorizedBy: { contentId: second!.id },
+    });
+  });
+
+  it("revokes the publish right of every withdrawn released post when the assignment is paused (N2)", async () => {
+    const { assignment, drafts } = await leftForOwner();
+    await release(project.owner, drafts[0]!);
+    await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "paused"),
+    );
+    expect((await publications())[0]).toMatchObject({
+      status: "canceled",
+      reason: "ASSIGNMENT_PAUSED",
+    });
+    await expectRevoked(drafts[0]!.missionId);
+    expect(await republishBlockers(drafts[0]!.id)).toContain(
+      "MISSION_TEST_WRITE_NOT_AUTHORIZED",
+    );
+    // The draft that was never released has no right to lose.
+    expect((await mission(drafts[1]!.missionId)).allowedActions).toEqual([
+      "draft",
+    ]);
+  });
+
+  it("revokes the publish right when the assignment ends (N2)", async () => {
+    const { assignment, drafts } = await leftForOwner();
+    await release(project.owner, drafts[0]!);
+    await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "ended"),
+    );
+    expect((await publications())[0]).toMatchObject({
+      status: "canceled",
+      reason: "ASSIGNMENT_ENDED",
+    });
+    await expectRevoked(drafts[0]!.missionId);
+  });
+
+  it("keeps the right of a released post that a content change does not withdraw (N2)", async () => {
+    const { drafts } = await leftForOwner();
+    await release(project.owner, drafts[0]!);
+    const before = await mission(drafts[0]!.missionId);
+    // Changed or retimed assignments do not withdraw released posts (veto.ts).
+    await h.run((tx) =>
+      withdrawAssignmentPublications(
+        tx,
+        project.owner,
+        drafts[0]!.assignmentId,
+        "ASSIGNMENT_CHANGED",
+      ),
+    );
+    expect((await publications())[0]!.status).toBe("intent_created");
+    expect(await mission(drafts[0]!.missionId)).toEqual(before);
+  });
+
+  it("leaves a veto-window post's mission alone when it is withdrawn (N2)", async () => {
+    const { assignment, drafts } = await leftForOwner();
+    const [first] = drafts;
+    // A window post is not owner-released: its mission carries no release marker.
+    const windowPost = await h.run((tx) =>
+      create(tx, project.owner, "publications", {
+        contentId: first!.id,
+        channel: X,
+        status: "intent_created",
+        scheduledAt: first!.scheduledAt,
+        test: true,
+        assignmentId: assignment.id,
+        assignmentRunId: first!.assignmentRunId,
+        vetoDeadline: new Date(Date.now() + 3600000).toISOString(),
+      }),
+    );
+    // Some other release marker on the mission must survive the window post's withdrawal.
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "missions", first!.missionId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        allowedActions: ["draft", "publish_test"],
+        publishAuthorizedBy: { contentId: first!.id, releasedBy: "someone" },
+      });
+    });
+    const before = await mission(first!.missionId);
+    await h.run((tx) =>
+      withdrawAssignmentPublications(
+        tx,
+        project.owner,
+        assignment.id,
+        "ASSIGNMENT_CHANGED",
+      ),
+    );
+    expect(
+      (await publications()).find((p) => p.id === windowPost.id)!.status,
+    ).toBe("canceled");
+    expect(await mission(first!.missionId)).toEqual(before);
   });
 
   it("answers 404 while Orbit Agents is off", async () => {

@@ -135,7 +135,7 @@ const reservationPrefixes = (scope: Scope, taskId: string) => [
 ];
 
 /** The budget reservations of one task, oldest first. */
-function taskReservations(tx: DbTx, scope: Scope, taskId: string) {
+export function taskReservations(tx: DbTx, scope: Scope, taskId: string) {
   return tx.budgetReservation.findMany({
     where: {
       workspaceId: scope.workspaceId,

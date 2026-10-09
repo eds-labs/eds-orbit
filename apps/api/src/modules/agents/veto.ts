@@ -508,6 +508,7 @@ export async function vetoPublication(
     vetoedBy: scope.userId,
     vetoSource: source,
   });
+  await revokeReleasedRight(tx, scope, row);
   await audit(tx, scope, "publication.vetoed", row.id, {
     source,
     contentId: p.contentId,
@@ -534,6 +535,45 @@ export async function vetoPublication(
       assignmentId: p.assignmentId ?? null,
     });
   return { result: "vetoed" };
+}
+
+/**
+ * Takes back the publish right the owner's release gave the post's
+ * draft-only mission, as the package cancel path does (package-schedule.ts):
+ * once the released post is withdrawn, an editor's later publish of the same
+ * text needs a new decision. Only a post the owner released is touched, never
+ * one with a veto window or a package post, and only a right that was given
+ * for this very content.
+ */
+async function revokeReleasedRight(
+  tx: DbTx,
+  scope: Scope,
+  publication: Awaited<ReturnType<typeof entity>>,
+) {
+  const p = data(publication);
+  if (!p.ownerReleasedAt || p.vetoDeadline || !p.assignmentRunId) return;
+  const content = data(await entity(tx, scope, "content", p.contentId));
+  if (typeof content.missionId !== "string") return;
+  const mission = await entity(tx, scope, "missions", content.missionId);
+  const m = data(mission);
+  // Assignment missions only; the right must point to this post's content.
+  if (
+    m.assignmentRunId !== p.assignmentRunId ||
+    m.publishAuthorizedBy?.contentId !== p.contentId
+  )
+    return;
+  const { publishAuthorizedBy: _released, ...rest } = m;
+  await update(tx, scope, mission, {
+    ...rest,
+    allowedActions: ((m.allowedActions ?? []) as string[]).filter(
+      (action) => !action.startsWith("publish_"),
+    ),
+  });
+  await audit(tx, scope, "mission.publish_revoked", mission.id, {
+    publicationId: publication.id,
+    contentId: p.contentId,
+    ownerRelease: true,
+  });
 }
 
 /**
@@ -574,6 +614,7 @@ export async function withdrawAssignmentPublications(
       withdrawable(data(row))
     ) {
       await withdrawPublication(tx, scope, row, reason, extra);
+      await revokeReleasedRight(tx, scope, row);
       withdrawn++;
     }
   return { withdrawn };

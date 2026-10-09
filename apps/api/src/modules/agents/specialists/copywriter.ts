@@ -28,6 +28,7 @@ import {
   ASSIGNMENT_BUDGET_EXHAUSTED,
   runBudgetKey,
   taskBudgetLeft,
+  taskReservations,
 } from "./runner.ts";
 import type { AgentTask, StepHandler } from "./types.ts";
 import { attachRunImage } from "./visual.ts";
@@ -245,9 +246,33 @@ function briefFailure(error: unknown, monthBound: boolean) {
   return code === "UNEXPECTED" ? "AGENT_FAILED" : code;
 }
 
+const PAUSED = "PROJECT_PAUSED";
+
+/**
+ * Whether the runner will requeue this task for the resume (I7b): it threw
+ * `PROJECT_PAUSED` (no draft written, every failed brief refused by the pause)
+ * and none of its calls was paid.
+ */
+async function requeuedByPause(
+  scope: Scope,
+  task: AgentTask,
+  contentIds: string[],
+  failed: Array<{ code: string }>,
+) {
+  if (contentIds.length || !failed.every((entry) => entry.code === PAUSED))
+    return false;
+  return scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => !(await taskReservations(tx, scope, task.id)).length,
+  );
+}
+
 export const copywriterStep: StepHandler = async (scope, task) => {
   const contentIds: string[] = [];
   const failed: Array<{ briefKey: string; code: string }> = [];
+  // Missions the project pause refused: failed or left ready once the task is known (N1).
+  const pausedMissions: string[] = [];
   let exhausted = false;
   for (const brief of taskBriefs(task)) {
     const key = briefKey(brief);
@@ -279,10 +304,20 @@ export const copywriterStep: StepHandler = async (scope, task) => {
     } catch (error) {
       const code = briefFailure(error, monthBound);
       failed.push({ briefKey: key, code });
-      if (missionId) await failMission(scope, missionId, code);
+      if (missionId && code === PAUSED) pausedMissions.push(missionId);
+      else if (missionId) await failMission(scope, missionId, code);
       if (code === ASSIGNMENT_BUDGET_EXHAUSTED) exhausted = true;
     }
   }
+  // The pause refused every brief before anything was paid: the runner puts the
+  // task back in the queue for the resume (I7b), so its missions stay ready for
+  // it. In any other case no task will draft them, so they close (R41/I2b).
+  if (
+    pausedMissions.length &&
+    !(await requeuedByPause(scope, task, contentIds, failed))
+  )
+    for (const missionId of pausedMissions)
+      await failMission(scope, missionId, PAUSED);
   if (!contentIds.length && failed.length)
     // Nothing written: the task fails; a used-up month pauses the assignment (R25).
     throw new DomainError(

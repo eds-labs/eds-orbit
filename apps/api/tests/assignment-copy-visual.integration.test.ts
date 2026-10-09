@@ -431,6 +431,98 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     expect(jobs).toEqual([]);
   });
 
+  const setPaused = (paused: boolean) =>
+    run((tx) =>
+      tx.project.update({
+        where: { id: project.owner.projectId },
+        data: { paused },
+      }),
+    );
+  const copyReservations = (taskId: string) =>
+    run((tx) =>
+      tx.budgetReservation.findMany({
+        where: {
+          projectId: project.owner.projectId,
+          key: { contains: `:agent:${taskId}:copy:` },
+        },
+      }),
+    );
+
+  it("leaves the briefs drafting when the pause stops the copywriter, so the requeued task writes them (N1)", async () => {
+    await makeAssignment({ image: false });
+    const { runId, briefs } = await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot)),
+    );
+    const xBriefs = briefs.filter((b) => b.channel === X);
+    const copy = await task(`copywriter:${X}`);
+    const missionsOfX = async () =>
+      (await rows("missions")).filter(
+        (m) => m.assignmentRunId === runId && m.channels[0] === X,
+      );
+
+    await setPaused(true);
+    await runAgentTask(worker(), copy.id);
+    // Stopped before anything paid went out: queued for the resume, nothing failed.
+    expect(provider.generate).not.toHaveBeenCalled();
+    expect(await task(`copywriter:${X}`)).toMatchObject({
+      status: "queued",
+      errorCode: "PROJECT_PAUSED",
+      costMicros: 0,
+    });
+    expect(await copyReservations(copy.id)).toEqual([]);
+    const paused = await missionsOfX();
+    expect(paused).toHaveLength(2);
+    expect(paused.map((m) => m.status)).toEqual(["ready", "ready"]);
+    expect(paused.some((m) => m.failureCode)).toBe(false);
+
+    await setPaused(false);
+    await runAgentTask(worker(), copy.id);
+    const done = await task(`copywriter:${X}`);
+    expect(done.status).toBe("done");
+    expect(done.output.failed).toEqual([]);
+    expect(done.output.contentIds).toHaveLength(xBriefs.length);
+    // The same missions were drafted: nothing was created or paid twice.
+    const resumed = await missionsOfX();
+    expect(resumed.map((m) => m.id).sort()).toEqual(
+      paused.map((m) => m.id).sort(),
+    );
+    expect(resumed.map((m) => m.status)).toEqual(["completed", "completed"]);
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    // A draft and its retrieval per brief, as without a pause.
+    expect(await copyReservations(copy.id)).toHaveLength(4);
+    const drafts = (await rows("content")).filter((c) =>
+      done.output.contentIds.includes(c.id),
+    );
+    expect(drafts).toHaveLength(2);
+    expect(drafts.every((d) => d.status === "draft")).toBe(true);
+    expect(await rows("publications")).toEqual([]);
+  });
+
+  it("still fails the missions of a copywriter the pause stopped after a paid call (N1)", async () => {
+    await makeAssignment({ image: false });
+    const { runId } = await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot)),
+    );
+    const copy = await task(`copywriter:${X}`);
+    // The pause lands while the first brief is drafted: that call is paid.
+    provider.generate.mockImplementationOnce(async (params: any) => {
+      await setPaused(true);
+      return generated(`${BODY} (${JSON.parse(params.goal).brief.topic})`);
+    });
+    await runAgentTask(worker(), copy.id);
+    // Paid work went out, so the task is not requeued (I7a) ...
+    expect((await task(`copywriter:${X}`)).status).toBe("failed");
+    expect((await copyReservations(copy.id)).length).toBeGreaterThan(0);
+    // ... and nothing may stay waiting for a draft (R41/I2b).
+    const missions = (await rows("missions")).filter(
+      (m) => m.assignmentRunId === runId && m.channels[0] === X,
+    );
+    expect(missions).toHaveLength(2);
+    expect(missions.map((m) => m.status)).toEqual(["failed", "failed"]);
+    // The brief the pause refused is among them.
+    expect(missions.map((m) => m.failureCode)).toContain("PROJECT_PAUSED");
+  });
+
   it("lets no other entry draft an assignment mission", async () => {
     await makeAssignment({ image: false });
     const { runId } = await planWithBriefs((slots) =>
