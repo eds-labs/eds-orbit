@@ -388,6 +388,17 @@ describe("Review eval pass rule", () => {
     ).toBe(true);
   });
 
+  it("does not count a revised case as planned unless round 2 reached the model", () => {
+    const seen = set.cases.find((c) => c.expected.modelSees)!;
+    const ran = {
+      modelCalled: true,
+      deterministicProblems: seen.expected.deterministic,
+      revised: true,
+    };
+    expect(caseAsPlanned(seen, { ...ran, reviewCalls: 1 })).toBe(false);
+    expect(caseAsPlanned(seen, { ...ran, reviewCalls: 2 })).toBe(true);
+  });
+
   it("fails a model-called case without a known positive cost", () => {
     for (const costMicros of [0, null]) {
       const outcome = evaluatePassRule(

@@ -128,7 +128,11 @@ async function prepare(project: Project, maxCostMicros: number) {
   // cases can call the model with the key, even if a worker picked them up.
   await h.run(async (tx) => {
     for (const row of await list(tx, project.owner, "agent_tasks"))
-      if (!["done", "failed", "canceled"].includes(data(row).status))
+      if (
+        !["done", "failed", "canceled", "outcome_unknown"].includes(
+          data(row).status,
+        )
+      )
         await update(tx, project.owner, row, {
           ...data(row),
           status: "canceled",
@@ -281,9 +285,10 @@ async function runCase(
         })
       : [];
     // Review reservations only; the stubbed revision draft reserves under the draft route.
-    const reservations = (
-      await taskReservations(tx, owner, setup.task.id)
-    ).filter((row) => row.taskClass === "agent_review");
+    const allReservations = await taskReservations(tx, owner, setup.task.id);
+    const reservations = allReservations.filter(
+      (row) => row.taskClass === "agent_review",
+    );
     const original = data(await entity(tx, owner, "content", setup.contentId));
     // A revision that failed (it is a stub, so this is not the planned path) is an error.
     const revisionError = original.agentReviewDecision?.revisionError;
@@ -333,6 +338,9 @@ async function runCase(
       asPlanned: caseAsPlanned(c, {
         modelCalled,
         deterministicProblems: problems,
+        revised: Boolean(first?.revisedTo),
+        reviewCalls: reservations.filter((row) => row.state !== "released")
+          .length,
       }),
       deterministicProblems: problems,
       errorCode: failure,
@@ -352,7 +360,8 @@ async function runCase(
     };
     return {
       result,
-      unknown: reservations.some((row) => row.state === "unknown"),
+      // Any unknown outcome stops the run, the revision draft's included.
+      unknown: allReservations.some((row) => row.state === "unknown"),
     };
   });
 }

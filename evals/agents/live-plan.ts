@@ -207,14 +207,17 @@ export function casePasses(c: Pick<CaseResult, "label" | "verdict">): boolean {
 
 /**
  * Whether a case ran as the set plans it: the model saw it exactly when the
- * set expects that, and every expected deterministic code was recorded.
+ * set expects that, a revised case was judged by the model again in round 2,
+ * and every expected deterministic code was recorded.
  */
 export function caseAsPlanned(
   c: Pick<ReviewCase, "expected">,
-  r: Pick<CaseResult, "modelCalled" | "deterministicProblems">,
+  r: Pick<CaseResult, "modelCalled" | "deterministicProblems"> &
+    Partial<Pick<CaseResult, "revised" | "reviewCalls">>,
 ): boolean {
   return (
     r.modelCalled === c.expected.modelSees &&
+    (!r.revised || r.reviewCalls === 2) &&
     c.expected.deterministic.every((code) =>
       r.deterministicProblems.includes(code),
     )
