@@ -362,10 +362,12 @@ export async function saveDraftToDrive(scope: Scope, contentId: string) {
   if (v.type !== "blog" && v.type !== "newsletter")
     throw new DomainError("DRAFT_NOT_EXPORTABLE", 409);
   const bodyHash = hash(v.body);
-  if (
-    v.humanReviewedBodyHash !== bodyHash &&
-    v.agentReviewedBodyHash !== bodyHash
-  )
+  // An agent review counts here without the publishing conditions: a draft on Drive is never published.
+  const agentApproved =
+    v.agentReview?.bodyHash === bodyHash &&
+    Array.isArray(v.agentReview?.deterministicProblems) &&
+    v.agentReview.deterministicProblems.length === 0;
+  if (v.humanReviewedBodyHash !== bodyHash && !agentApproved)
     throw new DomainError("CONTENT_APPROVAL_REQUIRED", 409);
   if (v.driveDraft?.bodyHash === bodyHash) return content;
   // Text only: the attached image is neither loaded nor read.

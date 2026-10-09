@@ -88,7 +88,7 @@ async function runImage(tx: DbTx, scope: Scope, runId: string) {
  * does not have it yet: social drafts on a channel with known media support
  * whose text fits the media limit (Telegram sends it as a caption of at most
  * 1,024 characters), blog and newsletter drafts always. A draft that is
- * scheduled, archived or replaced is left alone. Idempotent.
+ * scheduled, archived, rejected or replaced is left alone. Idempotent.
  */
 export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
   const attached: string[] = [];
@@ -109,7 +109,8 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
     data(image).assetStatus === "approved";
   for (const draft of drafts) {
     const v = data(draft);
-    if (v.status === "archived" || v.supersededBy) continue;
+    // An archived, rejected or replaced draft stays as it is.
+    if (["archived", "rejected"].includes(v.status) || v.supersededBy) continue;
     if (v.assetId === image.id) {
       attached.push(draft.id);
       continue;

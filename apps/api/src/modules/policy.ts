@@ -10,6 +10,7 @@ import {
   resolveChannelRules,
 } from "./channel-rules.ts";
 import { channelPostsNear } from "./agents/channel-posts.ts";
+import { agentReviewAccepted } from "./agents/agent-review.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,
@@ -91,6 +92,12 @@ export async function checkClaims(
   const content = await entity(tx, scope, "content", contentId),
     v = data(content),
     problems: string[] = [];
+  // The owner's review of exactly this text, or an agent review that stands in for it (spec §6).
+  let reviewed: boolean | undefined;
+  const contentReviewed = async () =>
+    (reviewed ??=
+      v.humanReviewedBodyHash === hash(v.body) ||
+      (await agentReviewAccepted(tx, scope, v)));
   const evidence = await entity(tx, scope, "evidence", v.evidenceId);
   const validation = await validateEvidence(tx, scope, evidence.id, at);
   if ((validation as any).valid === false || (validation as any).ok === false)
@@ -127,7 +134,7 @@ export async function checkClaims(
       if (!v.body.includes(claim.text)) problems.push("CLAIM_NOT_IN_CONTENT");
       if (
         !["Learn more.", "Mehr erfahren."].includes(claim.text) &&
-        v.humanReviewedBodyHash !== hash(v.body)
+        !(await contentReviewed())
       )
         problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
       continue;
@@ -193,7 +200,7 @@ export async function checkClaims(
           break;
         }
   }
-  if (!covered && v.humanReviewedBodyHash !== hash(v.body))
+  if (!covered && !(await contentReviewed()))
     problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
   if (
     v.type === "social" &&

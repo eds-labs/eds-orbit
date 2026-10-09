@@ -324,12 +324,16 @@ function failureStatus(code: string) {
 /**
  * One bounded turn of a model specialist. Returns the parsed output or
  * throws a DomainError with the task's error code; any paid call it started
- * is settled (or recorded unknown) before it throws.
+ * is settled (or recorded unknown) before it throws. A handler that runs
+ * several turns in one task names each turn with its own `callKey`, so its
+ * calls reserve under `agent:<taskId>:<callKey>:<n>` and a turn is never
+ * sent twice (`RESERVATION_ALREADY_USED`).
  */
-async function runSpecialist(
+export async function runSpecialist(
   scope: Scope,
   task: AgentTask,
   specialist: Specialist,
+  options: { callKey?: string } = {},
 ) {
   const routeVersion = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     openAiConfigurationVersion(tx, scope),
@@ -415,7 +419,7 @@ async function runSpecialist(
           const reservation = await reserve(
             tx,
             scope,
-            `agent:${task.id}:${modelCalls}`,
+            `agent:${task.id}:${options.callKey ? `${options.callKey}:` : ""}${modelCalls}`,
             "agent_text",
             estimate,
             approved,

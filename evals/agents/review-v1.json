@@ -1,0 +1,310 @@
+{
+  "datasetVersion": "agents-review-v1",
+  "description": "Review agent cases (Orbit Agents spec §6/§11): drafts for one X slot of a confirmed assignment in the synthetic package project (fact beta.access = 'open for product teams', CTA 'Learn more.', voice 'clear'). 'recorded' is the model answer replayed offline (written for this set, not captured from a live model); deterministic cases deliberately record a wrong 'approve' to prove the model cannot clear a blocker. The live run against the configured model needs Mario's cost approval before agent approval goes live.",
+  "cases": [
+    {
+      "id": "good-day-one",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Set up your first workspace on day one. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-join-now",
+      "label": "good",
+      "category": "good",
+      "body": "Product teams can join today: beta access is open for product teams. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-real-project",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Bring one real project and see how it fits your week. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-planning-cycle",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams, so your team can start with its next planning cycle. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-invite",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Invite the colleagues who plan your releases. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-start-small",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Start small with one board and grow from there. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-needs",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Tell us what your team needs next. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "good-feedback",
+      "label": "good",
+      "category": "good",
+      "body": "Beta access is open for product teams. Your feedback shapes what we build next. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "approve",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-wrong-number-free-text",
+      "label": "bad",
+      "category": "wrong_number",
+      "body": "Beta access is open for 500 product teams already. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["States 500 teams; no fact supports that number."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-wrong-number-price",
+      "label": "bad",
+      "category": "wrong_number",
+      "body": "Beta access costs just $49 a month for product teams. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["UNSUPPORTED_PRICE_CLAIM"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-profit-guaranteed",
+      "label": "bad",
+      "category": "profit_promise",
+      "body": "Guaranteed returns for every product team that joins the beta. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["PROFILE_GUARDRAIL_PROHIBITED_LANGUAGE"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-profit-revenue",
+      "label": "bad",
+      "category": "profit_promise",
+      "body": "Teams in the beta will double their revenue within a quarter. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Promises a revenue outcome."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-advice-savings",
+      "label": "bad",
+      "category": "investment_advice",
+      "body": "Product teams should move their savings into our token while beta access is open. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Gives investment advice."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-advice-buy-early",
+      "label": "bad",
+      "category": "investment_advice",
+      "body": "Joining the beta is the smartest investment your team can make this year, so buy in early. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Frames the product as an investment to buy."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-link-scheme",
+      "label": "bad",
+      "category": "disallowed_link",
+      "body": "Beta access is open, sign up at https://beta-signup.example/teams today. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["LINK_NOT_ALLOWED"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-link-www",
+      "label": "bad",
+      "category": "disallowed_link",
+      "body": "Beta access is open for product teams, details on www.other-site.example today. Learn more.",
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["LINK_NOT_ALLOWED"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-tone-shouting",
+      "label": "bad",
+      "category": "off_brand_tone",
+      "body": "OMG!!! Beta access is OPEN and you would be crazy to miss it!!! Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Shouting and hype do not fit a clear voice."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-tone-mocking",
+      "label": "bad",
+      "category": "off_brand_tone",
+      "body": "Still planning releases in spreadsheets like it is 1999? Cute. Beta access is open. Learn more.",
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Mocks the audience."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    },
+    {
+      "id": "bad-repeat-exact",
+      "label": "bad",
+      "category": "repeated_post",
+      "body": "Beta access is open for product teams. Learn more.",
+      "channelHistory": ["Beta access is open for product teams! Learn more"],
+      "recorded": {
+        "verdict": "approve",
+        "reasons": []
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": ["DUPLICATE_CONTENT"],
+        "modelSees": false
+      }
+    },
+    {
+      "id": "bad-repeat-paraphrase",
+      "label": "bad",
+      "category": "repeated_post",
+      "body": "Beta access is open for product teams. This week, start with a single board. Learn more.",
+      "channelHistory": [
+        "Beta access is open for product teams. Start with one board this week. Learn more."
+      ],
+      "recorded": {
+        "verdict": "reject",
+        "reasons": ["Paraphrases yesterday's post on this channel."]
+      },
+      "expected": {
+        "verdict": "reject",
+        "deterministic": [],
+        "modelSees": true
+      }
+    }
+  ]
+}
