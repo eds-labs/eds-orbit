@@ -1,7 +1,7 @@
 "use client";
 import { AgentRuns } from "./agent-runs";
 import { GoogleDriveSettings } from "./google-drive";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   MatomoImport,
   MatomoSchedule,
@@ -9,6 +9,12 @@ import {
   WorkspacePause,
 } from "./operator-tools";
 import { SlackConfiguration, SlackDigest } from "./slack-connection";
+import {
+  Assignments,
+  AutopilotMigrationPanel,
+  useAssignments,
+} from "./assignments";
+import { TelegramConnection } from "./telegram-connection";
 import {
   ExperimentControls,
   MemoryLifecycleControls,
@@ -917,6 +923,7 @@ export function Connectors() {
               </section>
             );
           })}
+          <TelegramConnection />
           <section className="connector">
             <div className="connector-mark">
               <FileText />
@@ -1244,6 +1251,17 @@ export function ProjectSettings() {
     [openAi, setOpenAi] = useState(false),
     [selected, setSelected] = useState<Entity | null>(null),
     [tab, setTab] = useState("project");
+  // Orbit Agents: once its route answered, the assignments tab replaces the
+  // weekly autopilot's; any error without an answer keeps the autopilot, and
+  // neither tab shows before that is decided (agentsSurface).
+  const assignments = useAssignments();
+  useEffect(() => {
+    if (
+      (tab === "autopilot" && assignments.surface === "assignments") ||
+      (tab === "assignments" && assignments.surface === "autopilot")
+    )
+      setTab("project");
+  }, [tab, assignments.surface]);
   const d = dashboard.data;
   const de = locale === "de";
   return (
@@ -1259,7 +1277,11 @@ export function ProjectSettings() {
       <Tabs
         tabs={[
           { key: "project", label: de ? "Projekt" : "Project" },
-          { key: "autopilot", label: "Autopilot" },
+          ...(assignments.surface === "assignments"
+            ? [{ key: "assignments", label: de ? "Aufträge" : "Assignments" }]
+            : assignments.surface === "autopilot"
+              ? [{ key: "autopilot", label: "Autopilot" }]
+              : []),
           {
             key: "policy",
             label: de ? "Richtlinie & Budget" : "Policy & budget",
@@ -1374,7 +1396,18 @@ export function ProjectSettings() {
         </div>
       )}
       {tab === "project" && <ProjectAdministration />}
-      {tab === "autopilot" && <AutopilotSettings />}
+      {tab === "autopilot" && assignments.surface === "autopilot" && (
+        <AutopilotSettings />
+      )}
+      {tab === "assignments" && assignments.available && (
+        <>
+          <AutopilotMigrationPanel />
+          <Assignments
+            resource={assignments.resource}
+            data={assignments.data}
+          />
+        </>
+      )}
       {tab === "policy" && (
         <section className="panel">
           <div className="panel-head">
@@ -1730,6 +1763,10 @@ const taskClasses = [
   { id: "chat_operator", label: "Chat operator", defaultTokens: 3000 },
   { id: "draft_social", label: "Social drafts", defaultTokens: 1800 },
   { id: "draft_blog", label: "Blog drafts", defaultTokens: 1800 },
+  { id: "agent_strategy", label: "Agent strategy", defaultTokens: 1800 },
+  { id: "agent_research", label: "Agent research", defaultTokens: 1800 },
+  { id: "agent_analytics", label: "Agent analytics", defaultTokens: 1800 },
+  { id: "agent_review", label: "Agent review", defaultTokens: 1800 },
 ] as const;
 type TaskClass = (typeof taskClasses)[number]["id"];
 const reasoningEffortValues = [

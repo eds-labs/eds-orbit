@@ -187,6 +187,15 @@ export async function exception(
 export function publicEntity(row: any) {
   if (row.kind === "drive_connection" || row.kind === "drive_oauth_state")
     return { ...row, data: { connected: row.kind === "drive_connection" } };
+  // Bot credential, webhook secret and link code never leave the server.
+  if (row.kind === "telegram_connections")
+    return {
+      ...row,
+      data: {
+        status: data(row).status,
+        linkedAt: data(row).linkedAt ?? null,
+      },
+    };
   if (row.kind === "connectors") {
     const { encryptedCredential, ...safe } = data(row);
     return { ...row, data: safe };

@@ -16,7 +16,12 @@ import {
   resolveRoute,
   estimateCost,
 } from "../../../../packages/ai/src/index.ts";
-import { activePolicy, withinClaimRepeatWindow } from "./policy.ts";
+import {
+  activePolicy,
+  CLAIM_REPEAT_WINDOW_DAYS,
+  withinClaimRepeatWindow,
+} from "./policy.ts";
+import { externalChannelPosts } from "./agents/channel-posts.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
 import { errorCode, finishRun, recordSpan, startRun } from "./telemetry.ts";
 import {
@@ -38,6 +43,7 @@ import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
 import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
+import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
 import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
@@ -81,8 +87,15 @@ type GenerationContract = {
   revision?: { instruction: string; previousBody: string };
   // Present only for an autopilot day: the channel's posts around its slot.
   recentChannelPosts?: { title: string; claims: string[] }[];
-  // Present only for a package mission: its drafts for the other channels.
+  // Present only for a package or assignment run mission: its drafts for the other channels.
   packageDrafts?: { channel: string; title: string; body: string }[];
+  // Present only for an assignment run mission: the strategy brief of its slot.
+  brief?: {
+    topic: string;
+    angle: string;
+    cta: string;
+    notARepeatBecause: string;
+  };
 };
 /** The draft a revision changes; it must still be the version the user asked to revise. */
 async function revisionContext(
@@ -103,7 +116,7 @@ async function revisionContext(
  * Each autopilot day is its own mission, so the batch's previous drafts never
  * reach it; without this a later day repeated an earlier post word for word.
  */
-async function recentChannelPosts(
+export async function recentChannelPosts(
   tx: DbTx,
   scope: Scope,
   missionId: string,
@@ -112,7 +125,7 @@ async function recentChannelPosts(
 ) {
   const at = (row: Awaited<ReturnType<typeof list>>[number]) =>
     Date.parse(String(data(row).scheduledAt ?? "")) || row.createdAt.valueOf();
-  return (await list(tx, scope, "content"))
+  const own = (await list(tx, scope, "content"))
     .filter(
       (row) =>
         data(row).channel === channel &&
@@ -120,27 +133,39 @@ async function recentChannelPosts(
         data(row).status !== "archived" &&
         withinClaimRepeatWindow(at(row), slot),
     )
-    .sort((a, b) => Math.abs(at(a) - slot) - Math.abs(at(b) - slot))
-    .slice(0, MAX_BATCH_DRAFTS)
     .map((row) => ({
+      at: at(row),
       title: String(data(row).title ?? ""),
       claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
     }));
+  // Posts made outside Orbit count as well (channel history from Postiz).
+  const external = await externalChannelPosts(
+    tx,
+    scope,
+    channel,
+    slot,
+    CLAIM_REPEAT_WINDOW_DAYS,
+  );
+  return [...own, ...external]
+    .sort((a, b) => Math.abs(a.at - slot) - Math.abs(b.at - slot))
+    .slice(0, MAX_BATCH_DRAFTS)
+    .map(({ title, claims }) => ({ title, claims }));
 }
 
 /**
  * A package's channels are separate missions, so each would otherwise write
  * without the others and the X and Telegram posts came out word for word.
+ * The missions of one assignment run share `assignmentRunId` the same way.
  */
 async function packageDrafts(
   tx: DbTx,
   scope: Scope,
-  packageId: string,
+  group: { field: "packageId" | "assignmentRunId"; id: string },
   missionId: string,
 ) {
   const siblings = new Set(
     (await list(tx, scope, "missions"))
-      .filter((m) => data(m).packageId === packageId && m.id !== missionId)
+      .filter((m) => data(m)[group.field] === group.id && m.id !== missionId)
       .map((m) => m.id),
   );
   return (await list(tx, scope, "content"))
@@ -201,6 +226,8 @@ async function generateMissionDraft(
     async (tx) => {
       const mission = await entity(tx, scope, "missions", missionId),
         m = data(mission);
+      // Only the assignment's copywriter task drafts its missions (R37).
+      assertMissionDraftOwner(m, jobId);
       const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       });
@@ -406,17 +433,31 @@ async function generateMissionDraft(
             }
           : null,
         // A revision rewrites its own previous draft (revision.previousBody).
-        ...(typeof m.packageId === "string" && !m.revisionOf
+        ...((typeof m.packageId === "string" ||
+          typeof m.assignmentRunId === "string") &&
+        !m.revisionOf
           ? {
               packageDrafts: await packageDrafts(
                 tx,
                 scope,
-                m.packageId,
+                typeof m.packageId === "string"
+                  ? { field: "packageId", id: m.packageId }
+                  : { field: "assignmentRunId", id: m.assignmentRunId },
                 missionId,
               ),
             }
           : {}),
-        ...(m.autopilot === true
+        ...(m.assignmentRunId && m.brief
+          ? {
+              brief: {
+                topic: String(m.brief.topic),
+                angle: String(m.brief.angle),
+                cta: String(m.brief.cta),
+                notARepeatBecause: String(m.brief.notARepeatBecause),
+              },
+            }
+          : {}),
+        ...(m.autopilot === true || m.assignmentRunId
           ? {
               recentChannelPosts: await recentChannelPosts(
                 tx,
@@ -443,7 +484,7 @@ async function generateMissionDraft(
         modelRoute.maxOutputTokens,
         ai,
       );
-      if (m.chatProposalId || m.packageId) {
+      if (m.chatProposalId || m.packageId || m.assignmentRunId) {
         const query = await tx.budgetReservation.findFirst({
           where: {
             projectId: scope.projectId,
@@ -709,6 +750,14 @@ async function generateMissionDraft(
         : {}),
       ...(m.assetIds?.length
         ? { assetId: m.assetIds[(m.completedRuns ?? 0) % m.assetIds.length] }
+        : {}),
+      // An assignment run's draft stays linked to its run and brief (review, image, history).
+      ...(m.assignmentRunId
+        ? {
+            assignmentId: m.assignmentId,
+            assignmentRunId: m.assignmentRunId,
+            briefKey: m.briefKey,
+          }
         : {}),
       evidenceId: prepared.evidence.id,
       risk: "routine",

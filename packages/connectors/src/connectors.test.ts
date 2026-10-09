@@ -235,6 +235,46 @@ describe("Postiz documented contract", () => {
       }),
     ).toEqual({ found: false, state: "outcome_unknown" });
   });
+  it("parses post text and ignores media", async () => {
+    const fetch = vi.fn(async (..._args: unknown[]) =>
+      json({
+        posts: [
+          {
+            id: "p1",
+            state: "PUBLISHED",
+            publishDate: "2026-10-01T09:00:00.000Z",
+            integration: { id: "channel-one", providerIdentifier: "x" },
+            content: "<p>Hello &amp; welcome</p>",
+            image: '[{"id":"m1","path":"https://cdn.example/a.png"}]',
+          },
+          {
+            id: "p2",
+            state: "PUBLISHED",
+            publishDate: "2026-10-02T09:00:00.000Z",
+            integration: { id: "channel-one" },
+          },
+        ],
+      }),
+    );
+    const client = createPostizClient({ ...options, fetch });
+    const posts = await client.listPosts({
+      startDate: "2026-09-01T00:00:00.000Z",
+      endDate: "2026-10-01T00:00:00.000Z",
+    });
+    expect(posts[0]).toMatchObject({
+      id: "p1",
+      content: "<p>Hello &amp; welcome</p>",
+    });
+    expect(posts[0]).not.toHaveProperty("image");
+    expect(posts[1]!.content).toBeUndefined();
+    // A 60-day range stays refused: the channel history reads it in windows.
+    await expect(
+      client.listPosts({
+        startDate: "2026-08-02T00:00:00.000Z",
+        endDate: "2026-10-01T00:00:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "INVALID_DATE_RANGE" });
+  });
   it("requires group-wide delete acknowledgement", async () => {
     const fetch = vi.fn(async () => json({ id: "post-one" }));
     const client = createPostizClient({ ...options, fetch });

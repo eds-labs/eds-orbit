@@ -3124,6 +3124,28 @@ body:has(dialog[open]) {
   color: var(--muted-foreground);
   margin: 8px 0;
 }
+.assignment-card + .assignment-card,
+.chat-message .assignment-card {
+  margin-top: 12px;
+}
+.assignment-consent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 8px 0;
+}
+.assignment-consent input {
+  margin-top: 3px;
+}
+.telegram-token {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+  max-width: 420px;
+}
+.telegram-token small {
+  color: var(--muted-foreground);
+}
 .chat-compose {
   border-top: 1px solid var(--border);
   padding: 16px;

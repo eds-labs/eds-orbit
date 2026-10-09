@@ -5,11 +5,30 @@ export const rateSchema = z.object({
   outputMicrosPerMillion: z.number().nonnegative(),
   cachedInputMicrosPerMillion: z.number().nonnegative().optional(),
   cacheWriteMicrosPerMillion: z.number().nonnegative().optional(),
+  // Fee of one hosted `web_search` call with this model, on top of the search content tokens that are billed as input.
+  webSearchMicrosPerCall: z.number().nonnegative().optional(),
+  // Input tokens a reservation allows for the content one hosted `web_search` call adds, priced at the input rate.
+  webSearchInputTokensPerCall: z.number().int().nonnegative().optional(),
   verifiedAt: z.iso.datetime(),
 });
 export type Rate = z.infer<typeof rateSchema>;
 export const rateCardSchema = z.record(z.string(), rateSchema);
 export type CostRuntime = { rateCard: Record<string, Rate> };
+
+/**
+ * Fee per hosted web search call when the rate card has none: USD 10 per 1,000
+ * calls, the OpenAI list price of the `web_search` tool when this was written.
+ * Set `webSearchMicrosPerCall` on the model's rate to override it.
+ */
+export const DEFAULT_WEB_SEARCH_MICROS_PER_CALL = 10_000;
+
+/**
+ * Search content one hosted web search call adds to the input, as reserved
+ * before the call when the rate card has no `webSearchInputTokensPerCall`:
+ * a generous allowance for the result pages the provider bills as input
+ * tokens. The settled cost uses the reported usage, never this allowance.
+ */
+export const DEFAULT_WEB_SEARCH_INPUT_TOKENS_PER_CALL = 8_000;
 
 export type NormalizedUsage = {
   inputTokens: number;
@@ -56,7 +75,9 @@ export function rateStatus(model: string, rateCard: Record<string, Rate> | undef
   return rateCard?.[model] ? "current" : "missing";
 }
 
-function currentRate(model: string, runtime: CostRuntime): Required<Omit<Rate, "verifiedAt">> {
+function currentRate(model: string, runtime: CostRuntime): Required<
+  Omit<Rate, "verifiedAt" | "webSearchMicrosPerCall" | "webSearchInputTokensPerCall">
+> {
   if (!Object.keys(runtime.rateCard ?? {}).length)
     throw new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED");
   if (rateStatus(model, runtime.rateCard) !== "current")
@@ -102,4 +123,21 @@ export function estimateCost(model: string, inputTokens: number, outputTokens: n
 /** Embedding usage: no caching, input only. */
 export function embeddingUsage(totalTokens: number): NormalizedUsage {
   return { inputTokens: totalTokens, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: 0, detailsKnown: true };
+}
+
+/** Fee of `calls` hosted web search calls with `model`, rounded up; the search content tokens are part of the usage. */
+export function webSearchFee(model: string, calls: number, runtime: CostRuntime) {
+  if (!Number.isInteger(calls) || calls < 0) throw new Error("WEB_SEARCH_COUNT_INVALID");
+  if (calls === 0) return 0;
+  const perCall = runtime.rateCard?.[model]?.webSearchMicrosPerCall ?? DEFAULT_WEB_SEARCH_MICROS_PER_CALL;
+  return Math.ceil(calls * perCall);
+}
+
+/** Input tokens to reserve for the search content of `calls` hosted web search calls with `model`. */
+export function webSearchInputTokens(model: string, calls: number, runtime: CostRuntime) {
+  if (!Number.isInteger(calls) || calls < 0) throw new Error("WEB_SEARCH_COUNT_INVALID");
+  if (calls === 0) return 0;
+  const perCall =
+    runtime.rateCard?.[model]?.webSearchInputTokensPerCall ?? DEFAULT_WEB_SEARCH_INPUT_TOKENS_PER_CALL;
+  return calls * perCall;
 }

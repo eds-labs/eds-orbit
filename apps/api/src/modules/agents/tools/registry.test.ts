@@ -11,6 +11,7 @@ import {
   supportsToolSearch,
   TOOL_SEARCH,
   type OrbitTool,
+  type ToolFeature,
 } from "./registry.ts";
 
 const tool = (overrides: Partial<OrbitTool> = {}): OrbitTool => ({
@@ -309,12 +310,52 @@ describe("proposal tool", () => {
       "recent_content",
       "schedule_options",
       "propose_schedule",
+      "assignment_propose",
+      "assignment_list",
+      "assignment_change",
+      "run_status",
+      "channel_history",
     ]);
+  });
+  it("offers assignment tools only with the agents feature", () => {
+    const names = (
+      role: "viewer" | "editor" | "owner",
+      features: ToolFeature[],
+    ) => availableTools(chatTools, role, features).map((tool) => tool.name);
+    const assignmentTools = [
+      "assignment_propose",
+      "assignment_list",
+      "assignment_change",
+      "run_status",
+    ];
+    for (const name of assignmentTools) {
+      expect(names("owner", [])).not.toContain(name);
+      expect(names("owner", ["content_packages"])).not.toContain(name);
+    }
+    expect(names("owner", ["agents"])).toEqual(
+      expect.arrayContaining(assignmentTools),
+    );
+    expect(names("editor", ["agents"])).toEqual(
+      expect.arrayContaining(assignmentTools),
+    );
+    // Viewers read only: no proposal or change tool.
+    expect(
+      names("viewer", ["agents"]).filter((n) => assignmentTools.includes(n)),
+    ).toEqual(["assignment_list", "run_status"]);
+    const defined = (name: string) =>
+      chatTools.find((tool) => tool.name === name)!;
+    expect(defined("assignment_propose").risk).toBe("P_proposal");
+    expect(defined("assignment_change").risk).toBe("P_proposal");
+    expect(defined("assignment_list").risk).toBe("R0_read");
+    expect(defined("run_status").risk).toBe("R0_read");
+    // Deferred, so the always-loaded tool set stays small.
+    for (const name of assignmentTools)
+      expect(defined(name).deferLoading).toBe(true);
   });
   it("offers the package tools only with their feature, and the request only to editors and owners", () => {
     const names = (
       role: "viewer" | "editor" | "owner",
-      features: "content_packages"[],
+      features: ToolFeature[],
     ) => availableTools(chatTools, role, features).map((tool) => tool.name);
     expect(names("owner", [])).not.toContain("request_content_package");
     expect(names("owner", [])).not.toContain("package_status");

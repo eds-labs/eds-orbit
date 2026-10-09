@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
-import { approveAndSchedule, configureAutopilot } from "./modules/autopilot.ts";
+import {
+  approveAndSchedule,
+  autopilotMigration,
+  configureAutopilot,
+  proposeAutopilotAssignment,
+} from "./modules/autopilot.ts";
 import { resumePausedPublications } from "./modules/paused-posts.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
 import {
@@ -67,6 +72,22 @@ import {
 import { cancelContentPackage } from "./modules/agents/content-packages.ts";
 import { attachPackageImage } from "./modules/agents/package-image.ts";
 import { cancelPackageSchedule } from "./modules/agents/package-schedule.ts";
+import {
+  agentsEnabled,
+  setAssignmentStatus,
+} from "./modules/agents/assignments.ts";
+import {
+  assignmentStatusInput,
+  draftsAwaitingOwner,
+  listAssignments,
+  upcomingAssignmentPosts,
+  vetoInput,
+} from "./modules/agents/assignment-overview.ts";
+import {
+  releaseAssignmentDraft,
+  releaseInput,
+} from "./modules/agents/owner-release.ts";
+import { vetoPublication } from "./modules/agents/veto.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
   configureSlack,
@@ -88,7 +109,7 @@ import {
   brandAssetUploadInput,
   normalizeBrandAsset,
 } from "./modules/assets.ts";
-import { exportAssetContent } from "./modules/content-export.ts";
+import { exportContentBundle } from "./modules/content-export.ts";
 import {
   MAX_BATCH_DRAFTS,
   resumeLiveDraftBatch,
@@ -138,7 +159,6 @@ import {
   setSourceRights,
   revokeDocument,
   extractDocument,
-  validateEvidence,
   KnowledgeError,
 } from "../../../packages/knowledge/src/index.ts";
 import {
@@ -185,9 +205,16 @@ import {
   normalizePostizBaseUrl,
   createMatomoClient,
   importAdsCsv,
-  exportBlogArticle,
   ConnectorError,
+  type FetchLike,
 } from "../../../packages/connectors/src/index.ts";
+import {
+  connectTelegram,
+  disconnectTelegram,
+  handleTelegramWebhook,
+  telegramEnabled,
+  telegramStatus,
+} from "./modules/telegram.ts";
 import { renderProjectAsset } from "./modules/render-asset.ts";
 const factSchema = z
   .object({
@@ -221,9 +248,29 @@ import {
 } from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 const object = z.record(z.string(), z.unknown());
+// Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
+const AGENT_ROUTES = new Set([
+  "/api/telegram/:projectId/:connectionId",
+  "/api/projects/:projectId/telegram",
+  "/api/projects/:projectId/telegram/connect",
+  "/api/projects/:projectId/telegram/disconnect",
+  "/api/projects/:projectId/assignments",
+  "/api/projects/:projectId/assignments/:id/status",
+  "/api/projects/:projectId/assignments/autopilot-migration",
+  "/api/projects/:projectId/assignment-posts",
+  "/api/projects/:projectId/publications/:id/veto",
+  "/api/projects/:projectId/assignment-drafts",
+  "/api/projects/:projectId/assignment-drafts/:id/release",
+]);
+// The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
+const UUID_SEGMENT =
+  "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const TELEGRAM_WEBHOOK_PATH = new RegExp(
+  `^/api/telegram/${UUID_SEGMENT}/${UUID_SEGMENT}$`,
+);
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
-  options?: { logStream?: NodeJS.WritableStream },
+  options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
 ) {
   const config = loadConfig(),
     auth = makeAuth();
@@ -283,10 +330,18 @@ export async function buildServer(
   );
   app.addHook("onRequest", async (req, reply) => {
     reply.header("Cache-Control", "no-store");
+    // Orbit Agents routes do not exist while Orbit Agents is off: the same
+    // 404 before Origin checking, body parsing and authentication. The
+    // matched route pattern is checked, not the raw URL, so percent-encoded
+    // paths cannot slip past (R62); each handler checks again.
+    if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
+      throw new DomainError("NOT_FOUND", 404);
+    // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
         req.url,
       ) &&
+      !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )
@@ -365,6 +420,36 @@ export async function buildServer(
         }
         throw error;
       }
+    },
+  );
+  // Orbit Telegram bot webhook (Orbit Agents): public, authenticated only by
+  // the per-connection secret header and the bound chat (spec §10).
+  app.post(
+    "/api/telegram/:projectId/:connectionId",
+    { bodyLimit: 262144 },
+    async (req, reply) => {
+      if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId, connectionId } = req.params as {
+        projectId: string;
+        connectionId: string;
+      };
+      const result = await handleTelegramWebhook(
+        {
+          projectId,
+          connectionId,
+          secret: req.headers["x-telegram-bot-api-secret-token"],
+          body: req.body,
+        },
+        {
+          fetch: options?.telegramFetch,
+          log: (code) => req.log.warn({ code }, "telegram reply failed"),
+        },
+      );
+      if (result.status === 401)
+        return reply.code(401).send({
+          error: { code: "UNAUTHORIZED", message: "UNAUTHORIZED" },
+        });
+      return reply.code(200).send({ ok: true });
     },
   );
   // Probes log at warn level only so they do not flood info logs.
@@ -700,6 +785,7 @@ export async function buildServer(
                 "evidence",
                 "drive_connection",
                 "drive_oauth_state",
+                "telegram_connections",
               ],
             },
           },
@@ -710,67 +796,7 @@ export async function buildServer(
   app.get("/api/projects/:projectId/content/:id/export", async (req, reply) => {
     const { projectId, id } = req.params as any,
       scope = await scopeFor(auth, req, projectId);
-    const loaded = await scoped(scope.workspaceId, projectId, async (tx) => {
-      const c = await entity(tx, scope, "content", id);
-      const evidence = await entity(tx, scope, "evidence", data(c).evidenceId);
-      if (
-        data(evidence).purpose !== "public" ||
-        !(await validateEvidence(tx, scope, evidence.id, new Date())).valid
-      )
-        throw new DomainError("EVIDENCE_INVALIDATED");
-      const asset = data(c).assetId
-        ? await entity(tx, scope, "assets", data(c).assetId)
-        : null;
-      return { c, evidence, asset };
-    });
-    const { c, evidence, asset } = loaded,
-      v = data(c),
-      a = asset ? data(asset) : null;
-    const assetContent = await exportAssetContent(scope, a);
-    const article = exportBlogArticle({
-      title: v.title,
-      slug:
-        (v.slug ??
-          v.title
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, "-")
-            .replace(/^-|-$/g, "")
-            .slice(0, 100)) ||
-        "article",
-      language: v.language,
-      bodyMarkdown: v.body,
-      description: v.description ?? v.title,
-      updatedAt: c.updatedAt.toISOString(),
-      sourceUrls: (data(evidence).items ?? [])
-        .filter((i: any) => i.publicUse && i.canonicalUrl)
-        .map((i: any) => i.canonicalUrl),
-      assets: assetContent
-        ? [
-            {
-              filename: "creative.png",
-              mime: "image/png",
-              bytes: assetContent.bytes,
-              alt: a!.title ?? v.title,
-            },
-          ]
-        : [],
-    });
-    const bundle = {
-      ...article,
-      contentType: v.type,
-      deliveryStatus: "draft_export",
-      metadata: {
-        outline: v.outline ?? [],
-        internalLinks: v.internalLinks ?? [],
-        altTexts: v.altTexts ?? [],
-        ...(v.type === "newsletter"
-          ? {
-              newsletter: v.newsletter ?? null,
-              sendCapability: "not_configured",
-            }
-          : {}),
-      },
-    };
+    const bundle = await exportContentBundle(scope, id);
     return reply
       .header("Content-Type", "application/json")
       .header(
@@ -844,6 +870,139 @@ export async function buildServer(
       jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
     );
   });
+  // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
+  app.get("/api/projects/:projectId/telegram", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      telegramStatus(tx, scope),
+    );
+  });
+  app.post("/api/projects/:projectId/telegram/connect", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    return connectTelegram(
+      await scopeFor(auth, req, projectId, true, true),
+      req.body,
+      { fetch: options?.telegramFetch },
+    );
+  });
+  app.post("/api/projects/:projectId/telegram/disconnect", async (req) => {
+    if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    return disconnectTelegram(
+      await scopeFor(auth, req, projectId, true, true),
+      { fetch: options?.telegramFetch },
+    );
+  });
+  // Orbit Agents for the web: assignments and their upcoming posts (404 while off).
+  app.get("/api/projects/:projectId/assignments", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      listAssignments(tx, scope),
+    );
+  });
+  // Pause and end are an editor's; resuming is the owner's (setAssignmentStatus).
+  app.post("/api/projects/:projectId/assignments/:id/status", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    const input = assignmentStatusInput.parse(req.body);
+    const saved = await scoped(scope.workspaceId, projectId, (tx) =>
+      setAssignmentStatus(
+        tx,
+        scope,
+        z.uuid().parse(id),
+        input.status,
+        input.version,
+      ),
+    );
+    return { id: saved.id, version: saved.version, status: data(saved).status };
+  });
+  // The saved weekly autopilot as a draft assignment (spec D5, migration card).
+  app.get(
+    "/api/projects/:projectId/assignments/autopilot-migration",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId);
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        autopilotMigration(tx, scope),
+      );
+    },
+  );
+  // Proposes it through the normal proposal path; an owner confirms it like any other.
+  app.post(
+    "/api/projects/:projectId/assignments/autopilot-migration",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, true);
+      const { assignment, actionRequest, conversationId } =
+        await proposeAutopilotAssignment(scope);
+      return {
+        assignmentId: assignment.id,
+        actionRequestId: actionRequest.id,
+        conversationId,
+      };
+    },
+  );
+  app.get("/api/projects/:projectId/assignment-posts", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        upcomingAssignmentPosts(tx, scope),
+      ),
+    };
+  });
+  // Stop in Orbit (spec §10 fallback): the same veto as the bot's Stop button.
+  app.post("/api/projects/:projectId/publications/:id/veto", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId, id } = req.params as { projectId: string; id: string };
+    const scope = await scopeFor(auth, req, projectId, true);
+    const input = vetoInput.parse(req.body);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      vetoPublication(
+        tx,
+        scope,
+        z.uuid().parse(id),
+        input.version,
+        "orbit",
+        input.reason,
+      ),
+    );
+  });
+  // Assignment drafts left for the owner (R70): the list, and the owner's release of one.
+  app.get("/api/projects/:projectId/assignment-drafts", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        draftsAwaitingOwner(tx, scope),
+      ),
+    };
+  });
+  app.post(
+    "/api/projects/:projectId/assignment-drafts/:id/release",
+    async (req) => {
+      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+      const { projectId, id } = req.params as {
+        projectId: string;
+        id: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      const input = releaseInput.parse(req.body);
+      return scoped(scope.workspaceId, projectId, (tx) =>
+        releaseAssignmentDraft(tx, scope, z.uuid().parse(id), input.version),
+      );
+    },
+  );
   app.get("/api/projects/:projectId/google-drive", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return connectionStatus(await scopeFor(auth, req, projectId));

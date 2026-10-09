@@ -24,6 +24,16 @@ import { assertMissionAssets } from "./asset-tools.ts";
 import { assignedPostizChannels, postingTimeFor } from "./postiz-assignment.ts";
 import { POSTING_TIME, zonedTime } from "./posting-slots.ts";
 import { publishIntent, reviewContent } from "./workflow.ts";
+import {
+  agentsEnabled,
+  assignmentInput,
+  freeAssignmentBudget,
+  proposeAssignmentInTx,
+  type AssignmentInput,
+} from "./agents/assignments.ts";
+import { channelNames } from "./agents/assignment-overview.ts";
+import { confirmationCard } from "./agents/tools/assignment-tools.ts";
+import { chatScoped } from "./chat.ts";
 
 /**
  * Weekly autopilot: at the configured weekday and time Orbit plans one post
@@ -32,6 +42,12 @@ import { publishIntent, reviewContent } from "./workflow.ts";
  * mission with a fixed slot, so all drafts exist ahead of time. The worker
  * publishes a draft on its own only when automatic review passes; drafts with
  * free marketing copy wait for the owner's one-click approval.
+ *
+ * With ORBIT_AGENTS on, standing assignments replace it (spec D5): the sweep
+ * plans assignment runs instead (lifecycle.ts), and the saved settings are
+ * offered once as a draft assignment (autopilotAsAssignment) that an owner
+ * confirms like any other. The settings stay untouched, so switching the flag
+ * off again brings the autopilot back as it was.
  */
 export const autopilotInput = z
   .object({
@@ -388,5 +404,188 @@ export async function approveAndSchedule(tx: DbTx, scope: Scope, raw: unknown) {
   return publishIntent(tx, scope, {
     contentId: reviewed.id,
     version: reviewed.version,
+  });
+}
+
+// An assignment names at most four channels; the autopilot allowed five.
+const ASSIGNMENT_CHANNELS = 4;
+
+/** Why saved autopilot settings give no proposal; the migration card shows it. */
+export type AutopilotProposalBlocker =
+  | "POSTING_TIME_REQUIRED"
+  | "ACTIVE_POLICY_REQUIRED"
+  | "NO_FREE_PROJECT_BUDGET";
+
+/**
+ * The saved weekly autopilot as an Orbit Agents assignment: one social post
+ * per channel and day at the earliest posting time of the channels it keeps,
+ * about the autopilot's verified facts, its assets as style references (and
+ * so an image per run), with the share of the project's monthly budget that
+ * confirmed assignments leave free. `proposal` is null without saved settings
+ * (`reason` null) or when no useful assignment can be proposed (`reason`
+ * says why); a zero budget is never proposed. Only a proposal: it becomes a
+ * draft through proposeAssignment and runs after an owner confirms it.
+ */
+async function autopilotProposal(
+  tx: DbTx,
+  scope: Scope,
+): Promise<{
+  proposal: AssignmentInput | null;
+  reason: AutopilotProposalBlocker | null;
+}> {
+  const row = await autopilotSettings(tx, scope);
+  if (!row) return { proposal: null, reason: null };
+  const settings = data(row) as Settings;
+  const channels = settings.channels.slice(0, ASSIGNMENT_CHANNELS);
+  const connector = (await list(tx, scope, "connectors")).find(
+    (item) =>
+      data(item).provider === "postiz" &&
+      ["read_verified", "write_verified"].includes(data(item).status),
+  );
+  const times = connector
+    ? channels
+        .map((channel) => postingTimeFor(data(connector), channel))
+        .filter((value): value is string => value !== null)
+        .sort()
+    : [];
+  if (!times.length) return { proposal: null, reason: "POSTING_TIME_REQUIRED" };
+  if (!(await activePolicy(tx, scope)))
+    return { proposal: null, reason: "ACTIVE_POLICY_REQUIRED" };
+  const budget = await freeAssignmentBudget(tx, scope);
+  if (budget <= 0) return { proposal: null, reason: "NO_FREE_PROJECT_BUDGET" };
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  const de = project.language.startsWith("de");
+  const facts = settings.factKeys.join(", ");
+  const assetIds = settings.assetIds ?? [];
+  return {
+    proposal: assignmentInput.parse({
+      name: de ? "Autopilot (übernommen)" : "Autopilot (migrated)",
+      kind: "standing",
+      schedule: { rhythm: "daily", weekdays: [], times: [times[0]] },
+      contentType: "social",
+      channels,
+      topicFrame: (de
+        ? `Ein Social-Post pro Kanal und Tag, der jeweils genau einen dieser verifizierten Fakten erklärt (übernommen aus dem Autopilot): ${facts}.`
+        : `One social post per channel and day, each explaining exactly one of these verified facts (taken over from the autopilot): ${facts}.`
+      ).slice(0, 2000),
+      image: assetIds.length > 0,
+      styleAssetIds: assetIds,
+      monthlyBudgetMicros: budget,
+    }),
+    reason: null,
+  };
+}
+
+/** The saved autopilot as an assignment input, or null (see autopilotProposal). */
+export async function autopilotAsAssignment(
+  tx: DbTx,
+  scope: Scope,
+): Promise<AssignmentInput | null> {
+  return (await autopilotProposal(tx, scope)).proposal;
+}
+
+/** The assignment proposed from the autopilot that is not ended yet, if any. */
+async function migratedAssignment(tx: DbTx, scope: Scope) {
+  return (
+    (await list(tx, scope, "assignments")).find(
+      (row) =>
+        data(row).origin?.kind === "autopilot" && data(row).status !== "ended",
+    ) ?? null
+  );
+}
+
+/**
+ * What the migration card shows: the proposal from the saved settings with
+ * the names of its channels, and the assignment already proposed from them
+ * (until it ends).
+ */
+export async function autopilotMigration(tx: DbTx, scope: Scope) {
+  const { proposal, reason } = await autopilotProposal(tx, scope);
+  const names = await channelNames(tx, scope);
+  const row = await migratedAssignment(tx, scope);
+  const status = row ? String(data(row).status) : null;
+  return {
+    proposal,
+    reason,
+    channelNames: Object.fromEntries(
+      (proposal?.channels ?? [])
+        .filter((id) => names.has(id))
+        .map((id) => [id, names.get(id)!]),
+    ),
+    assignment: row
+      ? {
+          id: row.id,
+          status,
+          actionRequestId:
+            status === "draft" ? (data(row).actionRequestId ?? null) : null,
+        }
+      : null,
+  };
+}
+
+/**
+ * Proposes the saved autopilot as a draft assignment through the normal
+ * proposal path, in a new conversation of the proposing person that carries
+ * the confirmation card. Nothing becomes active before an owner confirms it;
+ * the autopilot settings are left unchanged.
+ */
+export async function proposeAutopilotAssignment(scope: Scope) {
+  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
+  return chatScoped(scope, async (tx) => {
+    // One proposal at a time: the project lock scoped() also takes (re-entrant
+    // within this transaction) serializes the check and the create below.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${scope.workspaceId + ":" + scope.projectId},0))`;
+    if (await migratedAssignment(tx, scope))
+      throw new DomainError("AUTOPILOT_ALREADY_PROPOSED", 409);
+    const settings = await autopilotSettings(tx, scope);
+    const { proposal, reason } = await autopilotProposal(tx, scope);
+    if (!settings) throw new DomainError("AUTOPILOT_NOT_CONFIGURED", 409);
+    if (!proposal)
+      throw new DomainError(reason ?? "AUTOPILOT_NOT_CONFIGURED", 409);
+    const project = await tx.project.findUniqueOrThrow({
+      where: { id: scope.projectId },
+    });
+    const de = project.language.startsWith("de");
+    const owner = {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      userId: scope.userId,
+    };
+    const thread = await tx.chatConversation.create({
+      data: {
+        ...owner,
+        title: de ? "Autopilot als Auftrag" : "Autopilot as an assignment",
+      },
+    });
+    const { assignment, actionRequest } = await proposeAssignmentInTx(
+      tx,
+      scope,
+      thread.id,
+      proposal,
+      {
+        kind: "autopilot",
+        autopilotSettingsId: settings.id,
+        autopilotSettingsVersion: settings.version,
+      },
+    );
+    await tx.chatMessage.create({
+      data: {
+        ...owner,
+        conversationId: thread.id,
+        sequence: 1,
+        role: "assistant",
+        text: de
+          ? "Vorschlag aus deinen Autopilot-Einstellungen: Dieser Auftrag ersetzt den wöchentlichen Autopilot. Er läuft erst, wenn ein Owner ihn bestätigt."
+          : "A proposal from your autopilot settings: this assignment replaces the weekly autopilot. It runs only after an owner confirms it.",
+        cards: [confirmationCard(assignment)],
+      },
+    });
+    await audit(tx, scope, "autopilot.migration_proposed", settings.id, {
+      assignmentId: assignment.id,
+    });
+    return { assignment, actionRequest, conversationId: thread.id };
   });
 }

@@ -41,11 +41,13 @@ export const actionDecision = z
     version: z.number().int().positive(),
     packageHash: z.string().regex(/^[a-f0-9]{64}$/),
     decision: z.enum(["approve", "reject"]),
+    // Only read by `assignment.confirm`: consent that the assignment may use generated images.
+    imageRightsConsent: z.boolean().optional(),
   })
   .strict();
 
 type ActionDefinition<P> = {
-  riskClass: "C1" | "C2" | "W2";
+  riskClass: "C1" | "C2" | "W2" | "W0_internal";
   approvalMode: "approval_required";
   deciderRole: "owner" | "editor";
   ttlMs: number;
@@ -123,10 +125,28 @@ const contentSchedule: ActionDefinition<Record<string, unknown>> = {
     await schedule.executeSchedule(tx, scope, request);
   },
 };
+// An internal change without public effect: the owner confirms an assignment's exact content.
+const assignmentConfirm: ActionDefinition<Record<string, unknown>> = {
+  riskClass: "W0_internal",
+  approvalMode: "approval_required",
+  deciderRole: "owner",
+  ttlMs: 7 * 24 * 3600000,
+  payload: z.record(z.string(), z.unknown()),
+  costCeilingMicros: () => 0,
+  async revalidate(tx, scope, payload) {
+    const assignments = await import("./agents/assignments.ts");
+    await assignments.revalidateAssignmentConfirm(tx, scope, payload);
+  },
+  async onApproved(tx, scope, request) {
+    const assignments = await import("./agents/assignments.ts");
+    await assignments.executeAssignmentConfirm(tx, scope, request);
+  },
+};
 const actionTypes = {
   "image.generate": imageGenerate,
   "content_package.start": contentPackageStart,
   "content.schedule": contentSchedule,
+  "assignment.confirm": assignmentConfirm,
 } as const;
 export type ActionType = keyof typeof actionTypes;
 
@@ -200,6 +220,9 @@ export async function decideActionRequest(
       decision: input.decision,
       decidedAt: new Date().toISOString(),
       channel: "web",
+      ...(input.imageRightsConsent === undefined
+        ? {}
+        : { imageRightsConsent: input.imageRightsConsent }),
     },
   });
   await audit(
@@ -339,6 +362,30 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
         executionMode: d.payload?.executionMode,
         assetId: d.payload?.assetId,
         packageGoal: pkg ? data(pkg).goal : null,
+        // The exact assignment the owner confirms, with its channels by name.
+        ...(d.actionType === "assignment.confirm"
+          ? {
+              assignment: {
+                id: d.payload.assignmentId,
+                name: d.payload.name,
+                kind: d.payload.kind,
+                schedule: d.payload.schedule,
+                contentType: d.payload.contentType,
+                channels: d.payload.channels,
+                channelNames: Object.fromEntries(
+                  ((d.payload.channels ?? []) as string[])
+                    .filter((id) => channels.has(id))
+                    .map((id) => [id, channels.get(id)!.name]),
+                ),
+                topicFrame: d.payload.topicFrame,
+                ...(d.payload.tone ? { tone: d.payload.tone } : {}),
+                image: d.payload.image,
+                styleAssetIds: d.payload.styleAssetIds,
+                vetoMinutes: d.payload.vetoMinutes,
+                monthlyBudgetMicros: d.payload.monthlyBudgetMicros,
+              },
+            }
+          : {}),
       },
     });
   }

@@ -2,9 +2,25 @@ import { z } from "zod";
 import { modelRoutes as defaultTierRoutes } from "../../config/src/index.ts";
 import type { OpenAiRuntimeConfig } from "./index.ts";
 
-export const taskClasses = ["chat_operator", "draft_social", "draft_blog"] as const;
+export const taskClasses = [
+  "chat_operator",
+  "draft_social",
+  "draft_blog",
+  // Orbit Agents specialists; copy keeps the draft routes, visual the image route.
+  "agent_strategy",
+  "agent_research",
+  "agent_analytics",
+  "agent_review",
+] as const;
 export type TaskClass = (typeof taskClasses)[number];
-export const reasoningEfforts = ["none", "low", "medium", "high", "xhigh", "max"] as const;
+export const reasoningEfforts = [
+  "none",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+] as const;
 export const modelRouteSchema = z
   .object({
     model: z.string().trim().min(1).max(120),
@@ -18,18 +34,30 @@ export const taskRoutesSchema = z
     chat_operator: modelRouteSchema.optional(),
     draft_social: modelRouteSchema.optional(),
     draft_blog: modelRouteSchema.optional(),
+    agent_strategy: modelRouteSchema.optional(),
+    agent_research: modelRouteSchema.optional(),
+    agent_analytics: modelRouteSchema.optional(),
+    agent_review: modelRouteSchema.optional(),
   })
   .strict();
 export const defaultOutputTokens: Record<TaskClass, number> = {
   chat_operator: 3000,
   draft_social: 1800,
   draft_blog: 1800,
+  agent_strategy: 1800,
+  agent_research: 1800,
+  agent_analytics: 1800,
+  agent_review: 1800,
 };
 // Tier used when no explicit task route is configured.
 export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   chat_operator: "standard",
   draft_social: "standard",
   draft_blog: "quality",
+  agent_strategy: "standard",
+  agent_research: "standard",
+  agent_analytics: "standard",
+  agent_review: "quality",
 };
 
 // Blog drafts use the blog route; every other content type uses the social route.
@@ -39,7 +67,10 @@ export function draftTaskClass(contentType: string): TaskClass {
 
 export function resolveRoute(
   taskClass: TaskClass,
-  runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "modelRoutes" | "taskRoutes">,
+  runtime: Pick<
+    OpenAiRuntimeConfig,
+    "verifiedModels" | "modelRoutes" | "taskRoutes"
+  >,
 ): ModelRoute {
   const route: ModelRoute = runtime.taskRoutes?.[taskClass] ?? {
     model: (runtime.modelRoutes ?? defaultTierRoutes)[legacyTier[taskClass]],

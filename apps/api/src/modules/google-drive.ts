@@ -761,6 +761,66 @@ export async function saveGeneratedAsset(
     });
   });
 }
+/**
+ * Saves an approved blog or newsletter draft as a private file under
+ * `Orbit_Drafts/<category>` next to the generated assets. A file of the same
+ * content and body hash is found again (`appProperties`) instead of uploaded
+ * twice. Never publishes anything.
+ */
+export async function saveDraftDocument(
+  scope: Scope,
+  draft: {
+    contentId: string;
+    bodyHash: string;
+    category: "Blog" | "Newsletter";
+    filename: string;
+    mime: "text/markdown";
+    bytes: Buffer;
+  },
+) {
+  const conf = await storage(scope),
+    token = await accessToken(scope);
+  let parent = conf.rootFolderId;
+  const marketing = (await children(token, parent)).files.find(
+    (f) => f.name === "04_Website_und_Marketing" && f.mimeType === folderMime,
+  );
+  if (marketing) parent = marketing.id;
+  const drafts = await ensureFolder(token, parent, "Orbit_Drafts");
+  const target = await ensureFolder(token, drafts, draft.category);
+  const lookup = new URL("https://www.googleapis.com/drive/v3/files");
+  lookup.searchParams.set(
+    "q",
+    `'${escapeQuery(target)}' in parents and appProperties has { key='orbitContentId' and value='${escapeQuery(draft.contentId)}' } and appProperties has { key='orbitBodyHash' and value='${escapeQuery(draft.bodyHash)}' } and trashed = false`,
+  );
+  lookup.searchParams.set("fields", `files(${fileFields})`);
+  const prior = (
+    await googleJson<{ files: DriveFile[] }>(lookup.toString(), token)
+  ).files[0];
+  const boundary = `orbit${randomBytes(12).toString("hex")}`;
+  const body = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ name: draft.filename, parents: [target], appProperties: { orbitContentId: draft.contentId, orbitBodyHash: draft.bodyHash } })}\r\n--${boundary}\r\nContent-Type: ${draft.mime}; charset=UTF-8\r\n\r\n`,
+    ),
+    draft.bytes,
+    Buffer.from(`\r\n--${boundary}--`),
+  ]);
+  const uploaded =
+    prior ??
+    (await googleJson<DriveFile>(
+      `https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=${encodeURIComponent(fileFields)}`,
+      token,
+      {
+        method: "POST",
+        headers: { "Content-Type": `multipart/related; boundary=${boundary}` },
+        body,
+      },
+    ));
+  return {
+    id: uploaded.id,
+    folderId: target,
+    webViewLink: `https://drive.google.com/file/d/${uploaded.id}/view`,
+  };
+}
 export async function uploadUserRaster(scope: Scope, raw: unknown) {
   const input = brandAssetUploadInput
     .extend({ folderId: id.optional() })

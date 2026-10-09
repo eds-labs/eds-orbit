@@ -13,13 +13,44 @@ import { currentMarketingProfile } from "./marketing-profile.ts";
 import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
 import { retrieveHybrid } from "./retrieval.ts";
 
+/**
+ * Payload of an `assignment` card: the draft as the owner must confirm it,
+ * with the pending `assignment.confirm` request to decide. Carried by value
+ * and never through `resourceId`, which marks asset cards stale on read.
+ */
+export type AssignmentCard = {
+  id: string;
+  version: number;
+  name: string;
+  status: string;
+  kind: string;
+  contentType: string;
+  channels: string[];
+  schedule: {
+    rhythm: string;
+    weekdays: number[];
+    times: string[];
+    date?: string;
+    leadMinutes: number;
+  };
+  topicFrame: string;
+  tone?: string;
+  image: boolean;
+  styleAssetIds: string[];
+  vetoMinutes: number;
+  monthlyBudgetMicros: number;
+  // Null once the draft has no open confirmation request.
+  actionRequestId: string | null;
+};
+
 export type ChatCard = {
-  kind: "source" | "asset" | "link" | "status";
+  kind: "source" | "asset" | "link" | "status" | "assignment";
   label: string;
   href?: string;
   status?: string;
   resourceId?: string;
   version?: number;
+  assignment?: AssignmentCard;
 };
 
 const query = z

@@ -37,6 +37,8 @@ const remoteSchema = z.object({
   releaseURL: z.string().nullable().optional(),
   releaseId: z.string().nullable().optional(),
   createdAt: z.string().optional(),
+  // Post text as Postiz stores it, possibly HTML; the list carries no media.
+  content: z.string().max(100_000).nullable().optional(),
 });
 const analyticsSchema = z
   .array(

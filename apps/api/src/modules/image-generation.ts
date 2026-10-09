@@ -3,8 +3,10 @@ import { z } from "zod";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import {
   generateImage,
+  generateImageWithReferences,
   imageGenerationConfigurationSchema,
   imagePriceConfigured,
+  type ImageReference,
 } from "../../../../packages/ai/src/index.ts";
 import {
   marketingProfile,
@@ -104,6 +106,40 @@ type ImageOptions = {
   /** Budget run shared with other calls; defaults to this image request alone. */
   runKey?: string;
 };
+type ImageInput = Omit<z.infer<typeof imageGenerationInput>, "requestId"> & {
+  requestId: string;
+};
+/** What differs for an assignment image (internal entry, no owner request). */
+type AssignmentImage = {
+  references: ImageReference[];
+  styleDescription: string | null;
+  // The owner whose confirmation covers the image; hashed as the provider's `user`.
+  userId: string;
+  // Rights and run fields stored on the asset.
+  assetFields: Record<string, unknown>;
+  withReferences: typeof generateImageWithReferences;
+};
+
+/**
+ * Fixed constraints of every assignment image (spec §8): the logo and any
+ * text are composed afterwards by the raster template, never drawn by the model.
+ */
+export function assignmentImagePrompt(
+  prompt: string,
+  styleDescription: string | null,
+  references: number,
+) {
+  return [
+    prompt,
+    "No text, no letters, no logos and no identifiable persons in the image.",
+    ...(references
+      ? [
+          `Match the visual style of the ${references} attached reference image(s): palette, light, composition and texture; never copy their content, text or logos.`,
+        ]
+      : []),
+    ...(styleDescription ? [`Visual style: ${styleDescription}`] : []),
+  ].join("\n");
+}
 
 export async function generateProjectImage(
   scope: Scope,
@@ -125,12 +161,84 @@ export async function generateProjectImage(
   );
 }
 
+/**
+ * Internal entry for the visual step of an assignment run (Orbit Agents):
+ * no owner request, because the owner's assignment confirmation with its
+ * image rights consent covers the image. `options.authorize` must check that
+ * consent and the task budget in the reservation transaction. The asset is
+ * stored approved for use with the given rights fields; with references the
+ * image model receives them through `images.edit`.
+ */
+export async function generateAssignmentImage(
+  scope: Scope,
+  input: {
+    requestId: string;
+    name: string;
+    prompt: string;
+    validUses: z.infer<typeof imageGenerationInput>["validUses"];
+    references: ImageReference[];
+    styleDescription: string | null;
+    userId: string;
+    assetFields: Record<string, unknown>;
+  },
+  options: {
+    authorize: (tx: DbTx) => Promise<void>;
+    runKey: string;
+  },
+  providers: {
+    generate?: Provider;
+    withReferences?: typeof generateImageWithReferences;
+  } = {},
+) {
+  const parsed = {
+    requestId: input.requestId,
+    name: input.name.slice(0, 160),
+    prompt: assignmentImagePrompt(
+      input.prompt,
+      input.styleDescription,
+      input.references.length,
+    ),
+    size: "1024x1024" as const,
+    quality: "medium" as const,
+    background: "opaque" as const,
+    validUses: input.validUses,
+    confirmPromptMayBeSentToOpenAI: true as const,
+    // Reserved at the configured per-image ceiling; not a user confirmation.
+    confirmMaximumCostMicros: 0,
+    channel: "Social" as const,
+  };
+  const agentRunId = await startRun(scope, {
+    kind: "image",
+    agentName: "orbit_image",
+    taskClass: "image_generation",
+    subjectType: "asset_request",
+    subjectId: input.requestId,
+  });
+  return tracedRun(scope, agentRunId, () =>
+    generateProjectImageTraced(
+      scope,
+      parsed,
+      providers.generate ?? generateImage,
+      agentRunId,
+      { authorize: options.authorize, runKey: options.runKey },
+      {
+        references: input.references,
+        styleDescription: input.styleDescription,
+        userId: input.userId,
+        assetFields: input.assetFields,
+        withReferences: providers.withReferences ?? generateImageWithReferences,
+      },
+    ),
+  );
+}
+
 async function generateProjectImageTraced(
   scope: Scope,
-  input: z.infer<typeof imageGenerationInput>,
+  input: ImageInput,
   provider: Provider,
   agentRunId: string | null,
   options: ImageOptions,
+  assignment?: AssignmentImage,
 ) {
   const prepared = await scoped(
     scope.workspaceId,
@@ -145,7 +253,10 @@ async function generateProjectImageTraced(
       if (!profileRow) throw new DomainError("MARKETING_PROFILE_REQUIRED", 409);
       const profileData = marketingProfile.parse(profileRow.data);
       const { runtime, imageConfig } = await currentImageTerms(tx, scope);
-      if (input.confirmMaximumCostMicros !== imageConfig.maxCostMicrosPerImage)
+      if (
+        !assignment &&
+        input.confirmMaximumCostMicros !== imageConfig.maxCostMicrosPerImage
+      )
         throw new DomainError("IMAGE_COST_CONFIRMATION_STALE", 409);
       const currentPolicy = await activePolicy(tx, scope);
       if (!currentPolicy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
@@ -196,13 +307,15 @@ async function generateProjectImageTraced(
 
   const driveEnabled =
     input.saveToDrive !== false && (await connectionStatus(scope)).enabled;
+  const withReferences = Boolean(assignment?.references.length);
+  const spanName = withReferences ? "images.edit" : "images.generate";
   // Image cost is never known: the span keeps costMicros null, the reservation stays unknown.
   let callStartedAt = new Date();
   let providerReturned = false;
   let spanRecorded = false;
   try {
     callStartedAt = new Date();
-    const generated = await provider({
+    const request = {
       prompt: prepared.providerPrompt,
       size: input.size,
       quality: input.quality,
@@ -210,9 +323,15 @@ async function generateProjectImageTraced(
       reservationId: prepared.reservationId,
       runtime: prepared.runtime,
       user: createHash("sha256")
-        .update(`${scope.workspaceId}:${scope.userId}`)
+        .update(`${scope.workspaceId}:${assignment?.userId ?? scope.userId}`)
         .digest("hex"),
-    });
+    };
+    const generated = withReferences
+      ? await assignment!.withReferences({
+          ...request,
+          references: assignment!.references,
+        })
+      : await provider(request);
     providerReturned = true;
     const normalized = await normalizeGeneratedPng(generated.bytes);
     const asset = await scoped(
@@ -261,6 +380,13 @@ async function generateProjectImageTraced(
           generationId: input.requestId,
           createdBy: scope.userId,
           driveSyncStatus: driveEnabled ? "PENDING" : "LOCAL_ONLY",
+          ...(assignment
+            ? {
+                referenceCount: assignment.references.length,
+                styleDescriptionUsed: Boolean(assignment.styleDescription),
+                ...assignment.assetFields,
+              }
+            : {}),
         });
         await audit(tx, scope, "asset.generate_openai", asset.id, {
           model: generated.model,
@@ -274,7 +400,7 @@ async function generateProjectImageTraced(
     spanRecorded = true;
     await recordSpan(scope, agentRunId, {
       type: "image",
-      name: "images.generate",
+      name: spanName,
       model: generated.model,
       status: "succeeded",
       startedAt: callStartedAt,
@@ -314,7 +440,7 @@ async function generateProjectImageTraced(
     if (!spanRecorded)
       await recordSpan(scope, agentRunId, {
         type: "image",
-        name: "images.generate",
+        name: spanName,
         model: prepared.imageConfig.model,
         // A provider that returned was billed; a provider that threw has an unknown outcome.
         status: providerReturned ? "succeeded" : "unknown",

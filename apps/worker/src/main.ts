@@ -63,11 +63,16 @@ import { generateMissionLive } from "../../api/src/modules/generation.ts";
 import { runChatJob } from "../../api/src/modules/chat-runner.ts";
 import { stopChatRunForPause } from "../../api/src/modules/chat.ts";
 import { runImageJob } from "../../api/src/modules/image-requests.ts";
+import { registerAgentSpecialists } from "../../api/src/modules/agents/specialists/index.ts";
+import { runAgentTask } from "../../api/src/modules/agents/specialists/runner.ts";
+import { sendNotification } from "../../api/src/modules/agents/notification-sender.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
   reconcilePublication,
 } from "../../api/src/modules/publisher.ts";
+// Model specialists of the `agent` queue.
+registerAgentSpecialists();
 const config = loadConfig(),
   url = new URL(config.REDIS_URL);
 const connection = new Redis(config.REDIS_URL, {
@@ -96,6 +101,10 @@ const classes = [
   "reconciliation",
   "slack_notification",
   "image",
+  // Specialist tasks of assignment runs (Orbit Agents).
+  "agent",
+  // Previews, notices and the daily report for the owner's Telegram bot (Orbit Agents).
+  "telegram_notification",
 ] as const;
 const queues = new Map(
   classes.map((c) => [
@@ -165,7 +174,8 @@ const workers = classes.map(
           const project = await tx.project.findUniqueOrThrow({
             where: { id: projectId },
           });
-          if (project.paused) {
+          // A message to the owner's own bot publishes nothing; a pause notice must still reach him.
+          if (project.paused && topic !== "telegram_notification") {
             await update(tx, scope, job, {
               ...d,
               status: "blocked_dependency",
@@ -179,7 +189,13 @@ const workers = classes.map(
             ...d,
             status: "running",
             attempts: d.attempts + 1,
-            leaseUntil: new Date(Date.now() + 120000).toISOString(),
+            // A specialist task may run its full 120 s wall time, a notification with its retries nearly as long; the lease outlasts both.
+            leaseUntil: new Date(
+              Date.now() +
+                (topic === "agent" || topic === "telegram_notification"
+                  ? 180000
+                  : 120000),
+            ).toISOString(),
             worker: config.PUBLISHER_INSTANCE_ID,
           });
         });
@@ -301,6 +317,12 @@ const workers = classes.map(
               data(claimed).resourceId,
               jobId,
             );
+          } else if (topic === "telegram_notification") {
+            // Records its own outcome on the job; a failed delivery is an exception, never a retry loop.
+            await sendNotification(scope, jobId);
+          } else if (topic === "agent") {
+            // Records its own outcome on the task; never retried after a paid call.
+            await runAgentTask(scope, data(claimed).resourceId);
           } else if (topic === "analytics") {
             await scoped(workspaceId, projectId, (tx) =>
               evaluateExperiment(tx, scope, data(claimed).resourceId),
@@ -426,10 +448,12 @@ async function processProject(p: DueProject, claimed: Date) {
           },
         });
       }
+      // Events of a topic without a queue here wait in the outbox and never fill a batch.
       const events = await tx.outbox.findMany({
         where: {
           workspaceId: p.workspaceId,
           projectId: p.id,
+          topic: { in: [...classes] },
           dispatchedAt: null,
           availableAt: { lte: new Date() },
         },
@@ -440,6 +464,7 @@ async function processProject(p: DueProject, claimed: Date) {
         where: {
           workspaceId: p.workspaceId,
           projectId: p.id,
+          topic: { in: [...classes] },
           dispatchedAt: null,
           availableAt: { gt: new Date() },
         },

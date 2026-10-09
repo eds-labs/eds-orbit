@@ -1,6 +1,8 @@
 import { z } from "zod";
 export const id = z.uuid();
 export const role = z.enum(["owner", "editor", "viewer"]);
+// Generic entity routes read only these kinds. `telegram_connections` (the
+// Orbit Telegram bot credential) is deliberately not one of them.
 export const collections = [
   "sources",
   "facts",
@@ -30,6 +32,10 @@ export const collections = [
   "autopilot_settings",
   "matomo_schedules",
   "postiz_queue_watch",
+  "assignments",
+  // Assignment runs and agent tasks are internal: read through run_status and the agent runs page.
+  "channel_posts",
+  "channel_post_sync",
 ] as const;
 export const collection = z.enum(collections);
 export const source = z

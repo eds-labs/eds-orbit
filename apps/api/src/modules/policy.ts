@@ -4,7 +4,13 @@ import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { invalidateContent } from "./content-invalidation.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "./marketing-profile.ts";
-import { channelLimitExceeded, resolveChannelRules } from "./channel-rules.ts";
+import {
+  channelLimitExceeded,
+  finalPostText,
+  resolveChannelRules,
+} from "./channel-rules.ts";
+import { channelPostsNear } from "./agents/channel-posts.ts";
+import { agentReviewAccepted } from "./agents/agent-review.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,
@@ -86,6 +92,12 @@ export async function checkClaims(
   const content = await entity(tx, scope, "content", contentId),
     v = data(content),
     problems: string[] = [];
+  // The owner's review of exactly this text, or an agent review that stands in for it (spec §6).
+  let reviewed: boolean | undefined;
+  const contentReviewed = async () =>
+    (reviewed ??=
+      v.humanReviewedBodyHash === hash(v.body) ||
+      (await agentReviewAccepted(tx, scope, v)));
   const evidence = await entity(tx, scope, "evidence", v.evidenceId);
   const validation = await validateEvidence(tx, scope, evidence.id, at);
   if ((validation as any).valid === false || (validation as any).ok === false)
@@ -122,7 +134,7 @@ export async function checkClaims(
       if (!v.body.includes(claim.text)) problems.push("CLAIM_NOT_IN_CONTENT");
       if (
         !["Learn more.", "Mehr erfahren."].includes(claim.text) &&
-        v.humanReviewedBodyHash !== hash(v.body)
+        !(await contentReviewed())
       )
         problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
       continue;
@@ -188,7 +200,7 @@ export async function checkClaims(
           break;
         }
   }
-  if (!covered && v.humanReviewedBodyHash !== hash(v.body))
+  if (!covered && !(await contentReviewed()))
     problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
   if (
     v.type === "social" &&
@@ -206,6 +218,10 @@ export async function checkClaims(
 export const CLAIM_REPEAT_WINDOW_DAYS = 7;
 
 /** A post's planned time, or its creation time when it has no slot. */
+/** Drafts and posts count as equal when they differ only in case, spacing or punctuation. */
+const duplicateKey = (v: string) =>
+  v.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+
 export function postTime(content: Record<string, any>, createdAt: Date) {
   const planned = Date.parse(content.scheduledAt ?? "");
   return Number.isFinite(planned) ? planned : createdAt.valueOf();
@@ -215,11 +231,72 @@ export function withinClaimRepeatWindow(a: number, b: number) {
   return Math.abs(a - b) < CLAIM_REPEAT_WINDOW_DAYS * 86_400_000;
 }
 
+/**
+ * The veto window of a publication an assignment run scheduled (spec §9,
+ * R52): its deadline, a recorded stop and the run it belongs to. At intent
+ * (`handoff: false`) the window has not started yet; at handoff it must have
+ * passed.
+ */
+export type VetoWindow = {
+  deadline: string;
+  vetoedAt: string | null;
+  assignmentRunId: string;
+  handoff: boolean;
+};
+
+/**
+ * Whether a veto window stands in for the package approval (assisted mode)
+ * and the draft-only mission's test or live publishing right (R52, R53): the content's
+ * agent review is accepted (spec §6), it belongs to the window's run, nothing
+ * was stopped and, at handoff, the deadline has passed. At intent the
+ * deadline is only checked to be valid; claimPublication enforces it (R4).
+ */
+async function releasedByVeto(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+  veto: VetoWindow | undefined,
+) {
+  if (!veto || veto.vetoedAt) return false;
+  const deadline = Date.parse(veto.deadline);
+  if (!Number.isFinite(deadline)) return false;
+  if (veto.handoff && deadline > Date.now()) return false;
+  if (
+    typeof content.assignmentRunId !== "string" ||
+    content.assignmentRunId !== veto.assignmentRunId
+  )
+    return false;
+  return agentReviewAccepted(tx, scope, content);
+}
+
+/**
+ * A mission's own publishing right for one content. An assignment mission's
+ * right covers only the post the owner released (`publishAuthorizedBy`,
+ * owner-release.ts, R70), never another text on the same mission.
+ */
+function missionMayPublish(
+  mission: Record<string, any>,
+  action: "publish_test" | "publish_live",
+  contentId: string,
+) {
+  return (
+    (mission.allowedActions ?? []).includes(action) &&
+    (!mission.assignmentRunId ||
+      mission.publishAuthorizedBy?.contentId === contentId)
+  );
+}
+
 export async function preflight(
   tx: DbTx,
   scope: Scope,
   contentId: string,
-  options: { test: boolean; at?: Date; ignoreApproval?: boolean } = {
+  options: {
+    test: boolean;
+    at?: Date;
+    ignoreApproval?: boolean;
+    // Only for a publication scheduled by an assignment run (R52).
+    veto?: VetoWindow;
+  } = {
     test: true,
   },
 ) {
@@ -227,6 +304,9 @@ export async function preflight(
     pkg = await packageFor(tx, scope, contentId),
     c = data(pkg.content);
   const blockers: string[] = [];
+  let released: boolean | undefined;
+  const vetoReleased = async () =>
+    (released ??= await releasedByVeto(tx, scope, c, options.veto));
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });
@@ -243,7 +323,8 @@ export async function preflight(
     if (
       options.test &&
       m.allowedActions &&
-      !m.allowedActions.includes("publish_test")
+      !missionMayPublish(m, "publish_test", contentId) &&
+      !(await vetoReleased())
     )
       blockers.push("MISSION_TEST_WRITE_NOT_AUTHORIZED");
   }
@@ -257,9 +338,7 @@ export async function preflight(
         !["reviewed", "draft"].includes(d.status)
       )
         continue;
-      const normalized = (v: string) =>
-        v.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
-      const exact = normalized(d.body ?? "") === normalized(c.body ?? "");
+      const exact = duplicateKey(d.body ?? "") === duplicateKey(c.body ?? "");
       const ownClaims = (c.claims ?? [])
           .filter((v: any) => v.kind !== "style")
           .map((v: any) => v.factId ?? v.chunkId),
@@ -281,6 +360,39 @@ export async function preflight(
         break;
       }
     }
+  if (c.type === "social" && !blockers.includes("DUPLICATE_CONTENT")) {
+    // Posts Postiz already published on the channel, also those Orbit did not make.
+    const ownTexts = new Set(
+      [c.body, finalPostText(c.body ?? "", c.targetUrl)].map(duplicateKey),
+    );
+    const same = (
+      await channelPostsNear(
+        tx,
+        scope,
+        c.channel,
+        postTime(c, pkg.content.createdAt),
+        CLAIM_REPEAT_WINDOW_DAYS,
+      )
+    ).filter((post) => post.text && ownTexts.has(duplicateKey(post.text)));
+    // Only a post with the same text needs the content's own publications (its own remote copy).
+    const own = same.length
+      ? new Set(
+          (
+            await tx.entity.findMany({
+              where: {
+                workspaceId: scope.workspaceId,
+                projectId: scope.projectId,
+                kind: "publications",
+                data: { path: ["contentId"], equals: contentId },
+              },
+              select: { data: true },
+            })
+          ).map((row) => data(row).remoteId),
+        )
+      : new Set();
+    if (same.some((post) => !own.has(post.remoteId)))
+      blockers.push("DUPLICATE_CONTENT");
+  }
 
   if ((await calendarConflicts(tx, scope, c.channel, at)).length)
     blockers.push("MANUAL_CALENDAR_BLOCK");
@@ -329,7 +441,8 @@ export async function preflight(
           data(x).status === "approved" &&
           new Date(data(x).expiresAt) > at,
       );
-      if (!approval) blockers.push("APPROVAL_REQUIRED");
+      if (!approval && !(await vetoReleased()))
+        blockers.push("APPROVAL_REQUIRED");
     }
   }
   const claims = await checkClaims(tx, scope, contentId, at);
@@ -363,7 +476,10 @@ export async function preflight(
     );
     if (c.missionId) {
       const mission = await entity(tx, scope, "missions", c.missionId);
-      if (!(data(mission).allowedActions ?? []).includes("publish_live"))
+      if (
+        !missionMayPublish(data(mission), "publish_live", contentId) &&
+        !(await vetoReleased())
+      )
         blockers.push("MISSION_LIVE_WRITE_NOT_AUTHORIZED");
     }
     if (!connector) blockers.push("PUBLISHER_WRITE_VERIFICATION_REQUIRED");

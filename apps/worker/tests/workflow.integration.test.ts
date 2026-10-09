@@ -15,6 +15,7 @@ import {
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../../api/src/shared.ts";
 import { enqueue } from "../../api/src/modules/workflow.ts";
+import { assignmentHash } from "../../api/src/modules/agents/assignments.ts";
 import {
   createConversation,
   getRun,
@@ -268,6 +269,8 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         ),
       ).status,
     ).toBe("published_test");
+    // Later tests start their own worker with their own environment.
+    await stop();
   }, 40000);
   it("runs a chat job only with the requesting user's current project access", async () => {
     const former = await auth.user.create({
@@ -367,6 +370,113 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
         ),
       ).toBe(0);
     } finally {
+      await stop();
+    }
+  }, 40000);
+  it("runs a specialist task in the agent queue with the registered analytics specialist and records its failure on the task", async () => {
+    const { assignment, task, job } = await run(async (tx) => {
+      const content = {
+        name: "Synthetic agent assignment",
+        contentType: "report",
+        channels: [],
+        topicFrame: "Weekly figures",
+        // Long past: the sweep plans nothing for it.
+        schedule: {
+          rhythm: "once",
+          weekdays: [],
+          times: ["10:00"],
+          date: "2026-01-01",
+          leadMinutes: 60,
+        },
+        monthlyBudgetMicros: 1000,
+      };
+      // Confirmed: the runner runs only the confirmed content of an active assignment.
+      const assignment = await create(tx, scope, "assignments", {
+        ...content,
+        status: "active",
+        confirmation: {
+          userId: "owner",
+          at: "2026-10-01T00:00:00.000Z",
+          assignmentHash: assignmentHash(content),
+        },
+      });
+      const taskRow = await create(tx, scope, "agent_tasks", {
+        runId: "00000000-0000-4000-8000-000000000000",
+        stepKey: "analytics",
+        role: "analytics",
+        assignmentId: assignment.id,
+        assignmentVersion: 1,
+        ceilingMicros: 1000,
+        input: null,
+        output: null,
+        status: "queued",
+        errorCode: null,
+        costMicros: 0,
+      });
+      const runRow = await create(tx, scope, "assignment_runs", {
+        assignmentId: assignment.id,
+        assignmentVersion: 1,
+        date: "2026-10-20",
+        status: "running",
+        slots: [],
+        unavailable: [],
+        steps: [
+          {
+            key: "analytics",
+            role: "analytics",
+            dependsOn: [],
+            optionalDependsOn: [],
+            taskId: taskRow.id,
+            status: "queued",
+            ceilingMicros: 1000,
+          },
+        ],
+        costMicros: 0,
+      });
+      const task = await update(tx, scope, taskRow, {
+        ...data(taskRow),
+        runId: runRow.id,
+      });
+      const job = await enqueue(
+        tx,
+        scope,
+        "agent",
+        task.id,
+        `agent:${task.id}`,
+      );
+      return { assignment, task, job };
+    });
+    // The runner refuses every task while Orbit Agents is off.
+    process.env.ORBIT_AGENTS = "true";
+    start();
+    try {
+      // The worker registered the analytics specialist: it stops before any paid call (no verified model in this project), the job completes.
+      const finished = await waitFor(() =>
+        run(async (tx) => {
+          const row = await tx.entity.findUniqueOrThrow({
+            where: { id: job.id },
+          });
+          return data(row).status === "succeeded" ? row : false;
+        }),
+      );
+      expect(data(finished).attempts).toBe(1);
+      const after = await run((tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: task.id } }),
+      );
+      expect(data(after)).toMatchObject({
+        status: "failed",
+        errorCode: "MODEL_CAPABILITY_NOT_VERIFIED",
+        input: { assignment: { id: assignment.id } },
+      });
+      expect(
+        await run((tx) =>
+          tx.budgetReservation.count({
+            where: { key: { startsWith: `${scope.projectId}:agent:` } },
+          }),
+        ),
+      ).toBe(0);
+    } finally {
+      delete process.env.ORBIT_AGENTS;
       await stop();
     }
   }, 40000);

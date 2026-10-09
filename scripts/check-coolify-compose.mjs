@@ -34,6 +34,9 @@ for (const key of [
   "AUTH_DATABASE_URL",
   "ORBIT_CONTENT_PACKAGES",
   "ORBIT_TOOL_SEARCH",
+  "ORBIT_AGENTS",
+  "ORBIT_IMAGE_REFERENCES",
+  "ORBIT_AGENT_REVIEW_AUTHORITY",
 ])
   delete composeEnvironment[key];
 
@@ -108,7 +111,13 @@ for (const name of ["api", "worker"]) {
 // Feature flags reach the API and the worker (Orbit Chat runs in the worker),
 // default off, and follow the value set in Coolify.
 for (const name of ["api", "worker"])
-  for (const flag of ["ORBIT_CONTENT_PACKAGES", "ORBIT_TOOL_SEARCH"])
+  for (const flag of [
+    "ORBIT_CONTENT_PACKAGES",
+    "ORBIT_TOOL_SEARCH",
+    "ORBIT_AGENTS",
+    "ORBIT_IMAGE_REFERENCES",
+    "ORBIT_AGENT_REVIEW_AUTHORITY",
+  ])
     assert.equal(
       services[name].environment[flag],
       "false",
@@ -125,12 +134,21 @@ const flagged = JSON.parse(
         ...composeEnvironment,
         ORBIT_CONTENT_PACKAGES: "true",
         ORBIT_TOOL_SEARCH: "true",
+        ORBIT_AGENTS: "true",
+        ORBIT_IMAGE_REFERENCES: "true",
+        ORBIT_AGENT_REVIEW_AUTHORITY: "true",
       },
     },
   ),
 ).services;
 for (const name of ["api", "worker"])
-  for (const flag of ["ORBIT_CONTENT_PACKAGES", "ORBIT_TOOL_SEARCH"])
+  for (const flag of [
+    "ORBIT_CONTENT_PACKAGES",
+    "ORBIT_TOOL_SEARCH",
+    "ORBIT_AGENTS",
+    "ORBIT_IMAGE_REFERENCES",
+    "ORBIT_AGENT_REVIEW_AUTHORITY",
+  ])
     assert.equal(
       flagged[name].environment[flag],
       "true",

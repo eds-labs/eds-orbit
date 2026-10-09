@@ -18,6 +18,7 @@ import {
 import { preflight } from "./policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
+import { notify, reportBlockedPost } from "./agents/notifications.ts";
 import { claimPublication, finishPublication, enqueue } from "./workflow.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   const credentials = await scoped(
@@ -106,9 +107,21 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
       scope.projectId,
       async (tx) => {
         const pub = await entity(tx, scope, "publications", pubId);
+        const v = data(pub);
         const checked = await preflight(tx, scope, p.contentId, {
           test: false,
           ignoreApproval: true,
+          // An assignment post keeps its veto window up to the send (R53).
+          ...(v.vetoDeadline && v.assignmentRunId
+            ? {
+                veto: {
+                  deadline: v.vetoDeadline,
+                  vetoedAt: v.vetoedAt ?? null,
+                  assignmentRunId: v.assignmentRunId,
+                  handoff: true,
+                },
+              }
+            : {}),
         });
         if (
           data(pub).status !== "sending" ||
@@ -121,6 +134,15 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
             status: "blocked_dependency",
             reason: "HANDOFF_DEPENDENCY_CHANGED",
           });
+          await reportBlockedPost(
+            tx,
+            scope,
+            pubId,
+            v,
+            checked.blockers.length
+              ? checked.blockers
+              : ["HANDOFF_DEPENDENCY_CHANGED"],
+          );
           return false;
         }
         return true;
@@ -167,14 +189,18 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
     });
   } catch (error) {
     const outcome = error instanceof ConnectorError ? error.outcome : "unknown";
-    return scoped(scope.workspaceId, scope.projectId, (tx) =>
-      finishPublication(tx, scope, pubId, p.fence, {
+    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const done = await finishPublication(tx, scope, pubId, p.fence, {
         status:
           outcome === "not_sent" || outcome === "rejected"
             ? "failed"
             : "outcome_unknown",
-      }),
-    );
+      });
+      // Tell the owner's bot in the same transaction (Orbit Agents).
+      if (["failed", "outcome_unknown"].includes(data(done).status))
+        await notify(tx, scope, "postiz_error", pubId);
+      return done;
+    });
   }
 }
 export async function reconcilePublication(scope: Scope, pubId: string) {
@@ -239,6 +265,9 @@ export async function reconcilePublication(scope: Scope, pubId: string) {
       await exception(tx, scope, "REMOTE_CANCELLATION_REQUIRED", pubId);
     if (status === "outcome_unknown")
       await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pubId);
+    // Postiz reports an error, or the post cannot be found: the owner's bot hears of it.
+    if (["failed", "outcome_unknown"].includes(status))
+      await notify(tx, scope, "postiz_error", pubId);
     const attempts = (data(pub).reconcileAttempts ?? 0) + 1;
     if (status === "scheduled_remote" && attempts < 8)
       await enqueue(

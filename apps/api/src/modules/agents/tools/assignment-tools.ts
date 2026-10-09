@@ -1,0 +1,494 @@
+import { z } from "zod";
+import { chatScoped } from "../../chat.ts";
+import type { AssignmentCard, ChatCard } from "../../chat-tools.ts";
+import { zonedTime } from "../../posting-slots.ts";
+import { data, DomainError, entity, list } from "../../../shared.ts";
+import { runsMatching } from "../assignment-runs.ts";
+import { runDeliverables } from "../veto.ts";
+import { assignmentMonthSpend } from "../specialists/runner.ts";
+import {
+  proposeAssignment,
+  setAssignmentStatus,
+  updateAssignment,
+} from "../assignments.ts";
+import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
+
+/**
+ * Orbit Core's tools for assignments. Every server ruling (OWNER_REQUIRED,
+ * VERSION_CONFLICT, ASSIGNMENT_BUDGET_EXCEEDS_PROJECT, ...) reaches the model
+ * as `{ error: code }`; invalid input as ASSIGNMENT_VALIDATION_FAILED with the
+ * invalid fields (chat-runner). The server validates everything again.
+ */
+
+// Model-facing shapes only: strict mode has no defaults or length limits, so
+// optional fields are nullable and `assignmentInput` stays authoritative.
+const schedule = z
+  .object({
+    rhythm: z.enum(["daily", "weekly", "once"]),
+    weekdays: z
+      .array(z.number().int())
+      .describe("Weekly only: 0 = Sunday to 6; otherwise []"),
+    times: z.array(z.string()).describe("Local HH:MM in the project timezone"),
+    date: z.string().nullable().describe("One-off only: local YYYY-MM-DD"),
+    leadMinutes: z
+      .number()
+      .int()
+      .nullable()
+      .describe("Preparation lead before the slot; 360 when null"),
+  })
+  .strict();
+const kind = z.enum(["one_off", "standing"]);
+// No `report` until a report delivery exists (R70, I6): the server refuses it with REPORT_NOT_AVAILABLE.
+const contentType = z.enum(["social", "blog", "newsletter"]);
+
+const proposeParameters = z
+  .object({
+    name: z.string(),
+    kind,
+    schedule,
+    contentType,
+    channels: z
+      .array(z.string())
+      .describe("Policy channel IDs from project_status, at least one"),
+    topicFrame: z
+      .string()
+      .describe("What the posts are about, in the user's words"),
+    tone: z.string().nullable(),
+    image: z
+      .boolean()
+      .describe(
+        "Whether each run gets an image; the owner must accept image rights",
+      ),
+    styleAssetIds: z
+      .array(z.string())
+      .describe("Approved asset IDs the images should look like; [] if none"),
+    vetoMinutes: z
+      .number()
+      .int()
+      .nullable()
+      .describe(
+        "Minutes the owner can stop a post before its slot; 180 when null",
+      ),
+    monthlyBudgetMicros: z
+      .number()
+      .int()
+      .describe("USD millionths per month, within the project's model budget"),
+  })
+  .strict();
+
+const changeParameters = z
+  .object({
+    assignmentId: z.string(),
+    version: z
+      .number()
+      .int()
+      .nullable()
+      .describe("From assignment_list or its card; required for action change"),
+    action: z.enum(["pause", "resume", "end", "change"]),
+    changes: z
+      .object({
+        name: z.string().nullable(),
+        kind: kind.nullable(),
+        schedule: schedule
+          .nullable()
+          .describe("The whole schedule, also the parts that stay the same"),
+        contentType: contentType.nullable(),
+        channels: z.array(z.string()).nullable(),
+        topicFrame: z.string().nullable(),
+        tone: z.string().nullable(),
+        image: z.boolean().nullable(),
+        styleAssetIds: z.array(z.string()).nullable(),
+        vetoMinutes: z.number().int().nullable(),
+        monthlyBudgetMicros: z.number().int().nullable(),
+      })
+      .strict()
+      .nullable()
+      .describe("Only for action change; leave unchanged fields null"),
+  })
+  .strict();
+
+const label = (text: string, name: unknown) =>
+  `${text}: ${String(name ?? "").slice(0, 120)}`;
+
+/** The card Task 14 renders: the draft as shown to the owner and the request to decide. */
+export function assignmentCardOf(row: {
+  id: string;
+  version: number;
+  data: unknown;
+}): AssignmentCard {
+  const d = data(row);
+  const { rhythm, weekdays, times, date, leadMinutes } = d.schedule;
+  return {
+    id: row.id,
+    version: row.version,
+    name: d.name,
+    status: d.status,
+    kind: d.kind,
+    contentType: d.contentType,
+    channels: d.channels,
+    schedule: {
+      rhythm,
+      weekdays,
+      times,
+      ...(date ? { date } : {}),
+      leadMinutes,
+    },
+    topicFrame: d.topicFrame,
+    ...(d.tone ? { tone: d.tone } : {}),
+    image: d.image,
+    styleAssetIds: d.styleAssetIds,
+    vetoMinutes: d.vetoMinutes,
+    monthlyBudgetMicros: d.monthlyBudgetMicros,
+    actionRequestId: d.status === "draft" ? (d.actionRequestId ?? null) : null,
+  };
+}
+
+/** The chat card an owner confirms a proposed assignment with. */
+export const confirmationCard = (
+  row: Parameters<typeof assignmentCardOf>[0],
+): ChatCard => ({
+  kind: "assignment",
+  label: label("Assignment awaiting confirmation", data(row).name),
+  status: "confirmation_required",
+  assignment: assignmentCardOf(row),
+});
+
+/** Local calendar date as YYYY-MM-DD. */
+const localKey = (at: Date, timezone: string) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+function localDay(at: Date, timezone: string) {
+  const [y, m, d] = localKey(at, timezone).split("-").map(Number);
+  return { y: y!, m: m!, d: d! };
+}
+const dayKey = (day: Date) => day.toISOString().slice(0, 10);
+
+/**
+ * Next slot of an active assignment as local "YYYY-MM-DD HH:MM": the earliest
+ * slot its planned runs hold, else the next time of its schedule (a run is
+ * only planned shortly before it is due).
+ */
+function nextSlotLocal(
+  schedule: Record<string, any>,
+  timezone: string,
+  now: Date,
+  runs: Array<Record<string, any>> = [],
+) {
+  const planned = runs
+    .filter((run) => ["planned", "running"].includes(run.status))
+    .flatMap((run) => (run.slots ?? []) as Array<{ at: string }>)
+    .map((slot) => new Date(slot.at))
+    .filter((at) => at > now)
+    .sort((a, b) => a.valueOf() - b.valueOf())[0];
+  if (planned) return localSlot(planned, timezone);
+  const today = localDay(now, timezone);
+  const days =
+    schedule.rhythm === "once"
+      ? [new Date(`${schedule.date}T00:00:00Z`)]
+      : Array.from(
+          { length: 8 },
+          (_, offset) =>
+            new Date(Date.UTC(today.y, today.m - 1, today.d + offset)),
+        );
+  for (const day of days) {
+    if (
+      schedule.rhythm === "weekly" &&
+      !schedule.weekdays.includes(day.getUTCDay())
+    )
+      continue;
+    for (const time of schedule.times as string[]) {
+      const [hh, mm] = time.split(":").map(Number);
+      const at = zonedTime(
+        day.getUTCFullYear(),
+        day.getUTCMonth() + 1,
+        day.getUTCDate(),
+        hh!,
+        mm!,
+        timezone,
+      );
+      if (at > now) return `${dayKey(day)} ${time}`;
+    }
+  }
+  return null;
+}
+
+const localSlot = (at: Date, timezone: string) =>
+  `${localKey(at, timezone)} ${new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at)}`;
+
+export const assignmentTools: readonly OrbitTool[] = [
+  defineTool({
+    name: "assignment_propose",
+    namespace: "assignments",
+    description:
+      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Report assignments are not available yet.",
+    parameters: proposeParameters,
+    risk: "P_proposal",
+    roles: ["editor", "owner"],
+    feature: "agents",
+    deferLoading: true,
+    async execute(context, args) {
+      const { assignment, actionRequest } = await proposeAssignment(
+        context.scope,
+        context.conversationId,
+        dropNullFields(args),
+      );
+      return {
+        output: {
+          assignmentId: assignment.id,
+          version: assignment.version,
+          status: "awaiting_confirmation",
+          actionRequestId: actionRequest.id,
+        },
+        cards: [confirmationCard(assignment)],
+      };
+    },
+  }),
+  defineTool({
+    name: "assignment_list",
+    namespace: "assignments",
+    description:
+      "Assignments with status, next slot and this month's cost. Report assignments only from this tool.",
+    parameters: z.object({}).strict(),
+    risk: "R0_read",
+    roles: ["viewer", "editor", "owner"],
+    feature: "agents",
+    deferLoading: true,
+    async execute(context) {
+      const now = new Date();
+      const listed = await chatScoped(context.scope, async (tx) => {
+        const project = await tx.project.findUniqueOrThrow({
+          where: { id: context.scope.projectId },
+        });
+        const today = localKey(now, project.timezone);
+        const assignments = (
+          await list(tx, context.scope, "assignments")
+        ).slice(0, 20);
+        // The not yet past runs, never the whole history.
+        const upcoming = await runsMatching(tx, context.scope, {
+          dateFrom: today,
+        });
+        // One month cost everywhere (R66): counted like the budget check.
+        const monthCost = new Map<string, number>();
+        for (const row of assignments)
+          monthCost.set(
+            row.id,
+            await assignmentMonthSpend(tx, context.scope, row.id, now),
+          );
+        return {
+          timezone: project.timezone,
+          assignments,
+          upcoming,
+          monthCost,
+        };
+      });
+      return {
+        output: {
+          timezone: listed.timezone,
+          assignments: listed.assignments.map((row) => {
+            const d = data(row);
+            return {
+              id: row.id,
+              name: d.name,
+              status: d.status,
+              version: row.version,
+              kind: d.kind,
+              contentType: d.contentType,
+              channels: d.channels,
+              times: d.schedule.times,
+              nextSlotLocal:
+                d.status === "active"
+                  ? nextSlotLocal(
+                      d.schedule,
+                      listed.timezone,
+                      now,
+                      listed.upcoming
+                        .map((run) => data(run))
+                        .filter((run) => run.assignmentId === row.id),
+                    )
+                  : null,
+              monthCostMicros: listed.monthCost.get(row.id) ?? 0,
+              monthlyBudgetMicros: d.monthlyBudgetMicros,
+              pendingActionRequestId:
+                d.status === "draft" ? (d.actionRequestId ?? null) : null,
+            };
+          }),
+        },
+        cards: [],
+      };
+    },
+  }),
+  defineTool({
+    name: "assignment_change",
+    namespace: "assignments",
+    description:
+      "Pause, resume (owner) or end an assignment, or change it. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
+    parameters: changeParameters,
+    risk: "P_proposal",
+    roles: ["editor", "owner"],
+    feature: "agents",
+    deferLoading: true,
+    async execute(context, args) {
+      const input = changeParameters.parse(args);
+      const patch = dropNullFields(input.changes ?? {}) as Record<
+        string,
+        unknown
+      >;
+      if (input.action === "change") {
+        if (input.version === null)
+          throw new DomainError("ASSIGNMENT_VERSION_REQUIRED", 400);
+        if (!Object.keys(patch).length)
+          throw new DomainError("ASSIGNMENT_CHANGE_EMPTY", 400);
+      }
+      const { before, after } = await chatScoped(context.scope, async (tx) => {
+        const row = await entity(
+          tx,
+          context.scope,
+          "assignments",
+          input.assignmentId,
+        );
+        // Ending is not idempotent here: the model learns it was already over.
+        if (input.action === "end" && data(row).status === "ended")
+          throw new DomainError("ASSIGNMENT_ENDED", 409);
+        return {
+          before: row,
+          after:
+            input.action === "change"
+              ? await updateAssignment(
+                  tx,
+                  context.scope,
+                  row.id,
+                  input.version!,
+                  patch,
+                )
+              : await setAssignmentStatus(
+                  tx,
+                  context.scope,
+                  row.id,
+                  input.action === "pause"
+                    ? "paused"
+                    : input.action === "end"
+                      ? "ended"
+                      : "active",
+                ),
+        };
+      });
+      const d = data(after);
+      const confirmationRequired = d.status === "draft";
+      const name = d.name;
+      const cards: ChatCard[] = [];
+      if (after.version !== before.version)
+        cards.push(
+          confirmationRequired
+            ? confirmationCard(after)
+            : {
+                kind: "status",
+                label: label(
+                  input.action === "pause"
+                    ? "Assignment paused"
+                    : input.action === "resume"
+                      ? "Assignment resumed"
+                      : input.action === "end"
+                        ? "Assignment ended"
+                        : "Assignment times updated",
+                  name,
+                ),
+                status: d.status,
+              },
+        );
+      return {
+        output: {
+          assignmentId: after.id,
+          version: after.version,
+          status: confirmationRequired ? "awaiting_confirmation" : d.status,
+          confirmationRequired,
+          actionRequestId: confirmationRequired
+            ? (d.actionRequestId ?? null)
+            : null,
+        },
+        cards,
+      };
+    },
+  }),
+  defineTool({
+    name: "run_status",
+    namespace: "assignments",
+    description:
+      "Today's assignment runs: state, steps, cost, deliverables (outcome scheduled, handed_over, published, stopped, withdrawn, blocked, failed, dropped or awaiting_owner, with reason) and vetoes. Report runs only from this tool.",
+    parameters: z
+      .object({
+        assignmentId: z
+          .string()
+          .nullable()
+          .describe("All assignments when null"),
+      })
+      .strict(),
+    risk: "R0_read",
+    roles: ["viewer", "editor", "owner"],
+    feature: "agents",
+    deferLoading: true,
+    async execute(context, args) {
+      const { assignmentId } = z
+        .object({ assignmentId: z.string().nullable() })
+        .strict()
+        .parse(args);
+      const found = await chatScoped(context.scope, async (tx) => {
+        const project = await tx.project.findUniqueOrThrow({
+          where: { id: context.scope.projectId },
+        });
+        const date = localKey(new Date(), project.timezone);
+        const rows = await runsMatching(tx, context.scope, {
+          date,
+          ...(assignmentId === null ? {} : { assignmentId }),
+        });
+        const names = new Map<string, unknown>();
+        for (const id of new Set(rows.map((run) => data(run).assignmentId)))
+          names.set(
+            id,
+            data(await entity(tx, context.scope, "assignments", id)).name,
+          );
+        const results = new Map<
+          string,
+          Awaited<ReturnType<typeof runDeliverables>>
+        >();
+        for (const run of rows.slice(0, 20))
+          results.set(run.id, await runDeliverables(tx, context.scope, run));
+        return { date, rows, names, results };
+      });
+      const { date, names } = found;
+      // Run data is written by assignment-runs.ts (slots, unavailable, steps,
+      // costMicros) and veto.ts / owner-release.ts (scheduling, publications).
+      const runs = found.rows.slice(0, 20).map((run) => {
+        const d = data(run);
+        return {
+          id: run.id,
+          assignmentId: d.assignmentId,
+          assignmentName: names.get(d.assignmentId) ?? null,
+          date: d.date,
+          status: d.status,
+          costMicros: Number(d.costMicros ?? 0),
+          slots: Array.isArray(d.slots) ? d.slots.slice(0, 20) : [],
+          unavailable: Array.isArray(d.unavailable)
+            ? d.unavailable.slice(0, 20)
+            : [],
+          steps: (Array.isArray(d.steps) ? d.steps : []).map((step: any) => ({
+            key: step.key,
+            role: step.role,
+            status: step.status,
+          })),
+          // From the run's scheduling and publications (R70): posts, drops, drafts left for the owner, stops.
+          ...found.results.get(run.id)!,
+        };
+      });
+      return { output: { date, runs }, cards: [] };
+    },
+  }),
+];
