@@ -19,6 +19,7 @@
     "format": "prettier --write apps packages evals infra/*.yml",
     "test": "vitest run",
     "eval:generation": "vitest run --config evals/generation/vitest.eval.config.ts",
+    "eval:agent-review": "vitest run --config evals/agents/vitest.eval.config.ts",
     "test:coolify-compose": "node scripts/check-coolify-compose.mjs",
     "test:unit": "vitest run --exclude '**/*.integration.test.ts'",
     "test:integration": "vitest run integration",

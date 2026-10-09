@@ -41,7 +41,6 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
     };
   }),
 }));
-import { z } from "zod";
 import { closeDatabase } from "../../packages/db/src/index.ts";
 import { create, data, entity, update } from "../../apps/api/src/shared.ts";
 import { runAgentTask } from "../../apps/api/src/modules/agents/specialists/runner.ts";
@@ -58,48 +57,10 @@ import {
   generated,
   message,
 } from "../../apps/api/tests/support/assignment-review.ts";
+import { CATEGORIES, parseReviewSet, type ReviewCase } from "./review-set.ts";
 import raw from "./review-v1.json" with { type: "json" };
 
-const CATEGORIES = [
-  "wrong_number",
-  "profit_promise",
-  "investment_advice",
-  "disallowed_link",
-  "off_brand_tone",
-  "repeated_post",
-] as const;
-const reviewCase = z
-  .object({
-    id: z.string().min(1),
-    label: z.enum(["good", "bad"]),
-    category: z.enum(["good", ...CATEGORIES]),
-    body: z.string().min(1).max(280),
-    channelHistory: z.array(z.string().min(1)).optional(),
-    recorded: z
-      .object({
-        verdict: z.enum(["approve", "revise", "reject"]),
-        reasons: z.array(z.string()),
-      })
-      .strict(),
-    expected: z
-      .object({
-        // `owner`: never approved, left unjudged for the owner (needs_review).
-        verdict: z.enum(["approve", "reject", "owner"]),
-        deterministic: z.array(z.string()),
-        modelSees: z.boolean(),
-      })
-      .strict(),
-  })
-  .strict();
-const dataset = z
-  .object({
-    datasetVersion: z.literal("agents-review-v1"),
-    description: z.string().min(1),
-    cases: z.array(reviewCase).min(20),
-  })
-  .strict()
-  .parse(raw);
-type ReviewCase = z.infer<typeof reviewCase>;
+const dataset = parseReviewSet(raw);
 const good = dataset.cases.filter((c) => c.label === "good");
 const bad = dataset.cases.filter((c) => c.label === "bad");
 

@@ -1,0 +1,5 @@
+{
+  "description": "The agent_review route of the live review eval. It mirrors the effective production route: no agent_review task route is saved, so the quality tier applies (gpt-6.1-sol since the owner save of 2026-10-02, route version 8) with the default ceiling of 1,800 output tokens and no reasoning effort. If an agent_review route has been saved in production since, copy it here before the dry run; the confirmation changes with it. Prices come from evals/generation/candidates-v1.json.",
+  "taskClass": "agent_review",
+  "route": { "model": "gpt-6.1-sol", "maxOutputTokens": 1800 }
+}
