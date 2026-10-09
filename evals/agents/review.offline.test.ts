@@ -133,6 +133,8 @@ describe.skipIf(!enabled)("Review eval v1 (offline replay)", () => {
 
   beforeAll(async () => {
     process.env.ORBIT_AGENTS = "true";
+    // The replay measures what the review would approve with its authority on.
+    process.env.ORBIT_AGENT_REVIEW_AUTHORITY = "true";
     replay.embed.mockResolvedValue(embedded());
     replay.generate.mockResolvedValue(
       generated("Beta access is open for product teams today. Learn more."),
@@ -165,6 +167,7 @@ describe.skipIf(!enabled)("Review eval v1 (offline replay)", () => {
   }, 60_000);
   afterAll(async () => {
     delete process.env.ORBIT_AGENTS;
+    delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
     await project?.cleanup();
     await closeDatabase();
   });

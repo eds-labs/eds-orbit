@@ -13,6 +13,7 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import { create, data, encrypt, list, update } from "../src/shared.ts";
+import { estimateCost } from "../../../packages/ai/src/index.ts";
 import { planAssignmentRuns } from "../src/modules/agents/assignment-runs.ts";
 import { assignmentHash } from "../src/modules/agents/assignments.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
@@ -558,6 +559,44 @@ describe.skipIf(!enabled)("Analytics and research specialists", () => {
     // Findings stay on the task output.
     expect(await count("facts")).toBe(facts);
     expect(await count("sources")).toBe(sources);
+  });
+
+  it("reserves the search content of every search it may still run (I8)", async () => {
+    const research = await task("research");
+    mocked.replies.push(() => ({
+      output: [
+        message({
+          findings: [],
+        }),
+      ],
+    }));
+    await runAgentTask(worker(), research.id);
+    expect(await task("research")).toMatchObject({ status: "done" });
+    const [request] = mocked.requests;
+    const bytes = Buffer.byteLength(
+      JSON.stringify({
+        input: request.input,
+        instructions: request.instructions,
+        tools: request.tools,
+        outputSchema: request.outputSchema,
+      }),
+    );
+    const rate = {
+      inputMicrosPerMillion: 1000,
+      outputMicrosPerMillion: 1000,
+      verifiedAt: new Date().toISOString(),
+    };
+    // Three searches left: their fee plus 8,000 input tokens each at the model's input price.
+    const expected =
+      estimateCost(
+        request.route.model,
+        bytes + 3 * 8_000,
+        request.route.maxOutputTokens,
+        { rateCard: { [request.route.model]: rate } },
+      ) +
+      3 * FEE;
+    const [reservation] = await reservations(research.id);
+    expect(Number(reservation!.amountMicros)).toBe(expected);
   });
 
   it("collects the sources over all turns of the task", async () => {

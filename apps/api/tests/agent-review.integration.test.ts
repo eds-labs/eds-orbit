@@ -169,6 +169,8 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
 
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
+    // Agent approval counts only behind its own gate (R70); these tests turn it on explicitly.
+    process.env.ORBIT_AGENT_REVIEW_AUTHORITY = "true";
     provider.requests = [];
     provider.replies = [];
     provider.failRevision = false;
@@ -211,6 +213,7 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
   });
   afterEach(async () => {
     delete process.env.ORBIT_AGENTS;
+    delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
@@ -554,6 +557,32 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
       });
     });
     expect(await blockers(draft!.id)).toContain(HUMAN);
+  });
+
+  it("accepts an agent review only while ORBIT_AGENT_REVIEW_AUTHORITY is on (R70)", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment();
+    const review = await drafted();
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+    const [draft] = await contents();
+    // A fully valid review: accepted with the gate on.
+    expect(await blockers(draft!.id)).not.toContain(HUMAN);
+    expect(
+      await h.run((tx) => agentReviewAccepted(tx, project.owner, draft!)),
+    ).toBe(true);
+
+    // Off by default and when set to false: the post waits for the owner.
+    for (const value of [undefined, "false"]) {
+      if (value === undefined) delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
+      else process.env.ORBIT_AGENT_REVIEW_AUTHORITY = value;
+      expect(await blockers(draft!.id)).toContain(HUMAN);
+      expect(
+        await h.run((tx) => agentReviewAccepted(tx, project.owner, draft!)),
+      ).toBe(false);
+    }
+    process.env.ORBIT_AGENT_REVIEW_AUTHORITY = "true";
+    expect(await blockers(draft!.id)).not.toContain(HUMAN);
   });
 
   it("loses agent approval when the bot's linked user is no longer an owner", async () => {

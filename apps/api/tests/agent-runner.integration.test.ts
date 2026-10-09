@@ -15,9 +15,20 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import { policy as policySchema } from "../../../packages/schemas/src/index.ts";
-import { create, data, entity, list, update } from "../src/shared.ts";
+import {
+  create,
+  data,
+  DomainError,
+  entity,
+  list,
+  update,
+} from "../src/shared.ts";
 import { planAssignmentRuns } from "../src/modules/agents/assignment-runs.ts";
-import { assignmentHash } from "../src/modules/agents/assignments.ts";
+import {
+  assignmentHash,
+  updateAssignment,
+} from "../src/modules/agents/assignments.ts";
+import { pauseProject } from "../src/modules/pause.ts";
 import { markTransmitted, reserve } from "../src/modules/budget.ts";
 import { defineTool } from "../src/modules/agents/tools/registry.ts";
 import {
@@ -183,6 +194,44 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       }),
     );
   let assignmentId = "";
+  /** Changes the assignment's content as if the owner had confirmed the change. */
+  const confirmChange = (changes: Record<string, unknown>) =>
+    run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignmentId);
+      const next = { ...data(row), ...changes };
+      await update(tx, project.owner, row, {
+        ...next,
+        confirmation: {
+          ...data(row).confirmation,
+          assignmentHash: assignmentHash(next),
+        },
+      });
+    });
+  const setPaused = (paused: boolean) =>
+    run((tx) =>
+      tx.project.update({
+        where: { id: project.owner.projectId },
+        data: { paused },
+      }),
+    );
+  const jobOf = async (taskId: string) =>
+    (await run((tx) => list(tx, project.owner, "jobs"))).find(
+      (row) => data(row).idempotencyKey === `agent:${taskId}`,
+    )!;
+  /** Marks a job as the worker leaves it: blocked by the pause, or finished. */
+  const setJob = async (taskId: string, changes: Record<string, unknown>) => {
+    const { id } = await jobOf(taskId);
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "jobs", id);
+      await update(tx, project.owner, row, { ...data(row), ...changes });
+    });
+  };
+  const outboxOf = (jobId: string) =>
+    run((tx) =>
+      tx.outbox.count({
+        where: { projectId: project.owner.projectId, entityId: jobId },
+      }),
+    );
 
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
@@ -515,13 +564,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
 
   it("stops the run when the assignment budget is exhausted", async () => {
     // Prior spend of this assignment this month leaves less than one call.
-    await run(async (tx) => {
-      const row = await entity(tx, project.owner, "assignments", assignmentId);
-      await update(tx, project.owner, row, {
-        ...data(row),
-        monthlyBudgetMicros: 1,
-      });
-    });
+    await confirmChange({ monthlyBudgetMicros: 1 });
     const research = await task("research");
     const analytics = await task("analytics");
     await runAgentTask(worker(), research.id);
@@ -570,13 +613,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
         (t) => t.runId === runId && t.stepKey === "research",
       )!;
     // The first run spends 1000; the budget leaves less than one more call.
-    await run(async (tx) => {
-      const row = await entity(tx, project.owner, "assignments", assignmentId);
-      await update(tx, project.owner, row, {
-        ...data(row),
-        monthlyBudgetMicros: 1003,
-      });
-    });
+    await confirmChange({ monthlyBudgetMicros: 1003 });
     mocked.replies.push(() => ({
       output: [message('{"text":"first"}')],
       costMicros: 1000,
@@ -659,5 +696,267 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       ]),
     ).toEqual([["settled", 7]]);
     expect((await runRow()).costMicros).toBe(7);
+  });
+
+  it("refuses a task of an assignment that is not active and cancels its runs (I3a)", async () => {
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignmentId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        status: "draft",
+        confirmation: null,
+      });
+    });
+    const research = await task("research");
+    await runAgentTask(worker(), research.id);
+    expect(mocked.requests).toHaveLength(0);
+    // Refused, not failed: nothing was spent.
+    expect(await task("research")).toMatchObject({
+      status: "canceled",
+      errorCode: "ASSIGNMENT_NOT_ACTIVE",
+      costMicros: 0,
+    });
+    expect(await reservations(research.id)).toEqual([]);
+    expect(await runRow()).toMatchObject({ status: "canceled" });
+    expect(await task("analytics")).toMatchObject({ status: "canceled" });
+  });
+
+  it("refuses a task whose assignment content is not the confirmed one (I3a)", async () => {
+    // Active, but the content no longer matches its confirmation.
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignmentId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        topicFrame: "An unconfirmed topic for somebody else",
+      });
+    });
+    await runAgentTask(worker(), (await task("research")).id);
+    expect(mocked.requests).toHaveLength(0);
+    expect(await task("research")).toMatchObject({
+      status: "canceled",
+      errorCode: "ASSIGNMENT_NOT_CONFIRMED",
+    });
+  });
+
+  it("cancels the open runs when the content of an active assignment changes (I3a)", async () => {
+    await run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignmentId);
+      await updateAssignment(tx, project.owner, row.id, row.version, {
+        topicFrame: "Longer stories about the beta for agencies",
+      });
+    });
+    expect(await runRow()).toMatchObject({ status: "canceled" });
+    expect((await tasks()).map((t) => t.status)).toEqual([
+      "canceled",
+      "canceled",
+    ]);
+    await runAgentTask(worker(), (await task("research")).id);
+    expect(mocked.requests).toHaveLength(0);
+  });
+
+  it("makes no further paid call once the project is paused during a turn (I7a)", async () => {
+    const research = await task("research");
+    mocked.replies.push(async () => {
+      await setPaused(true);
+      return { output: [lookupCall("beta")] };
+    });
+    mocked.replies.push(() => ({ output: [message('{"text":"late"}')] }));
+    await runAgentTask(worker(), research.id);
+    expect(mocked.requests).toHaveLength(1);
+    // A paid call already went out, so the task is not repeated.
+    expect(await task("research")).toMatchObject({
+      status: "failed",
+      errorCode: "PROJECT_PAUSED",
+      costMicros: 7,
+    });
+    expect((await reservations(research.id)).map((r) => r.state)).toEqual([
+      "settled",
+    ]);
+  });
+
+  it("keeps a task stopped by the pause before its first call queued for the resume (I7a)", async () => {
+    await setPaused(true);
+    const research = await task("research");
+    await runAgentTask(worker(), research.id);
+    expect(mocked.requests).toHaveLength(0);
+    expect(await task("research")).toMatchObject({
+      status: "queued",
+      errorCode: "PROJECT_PAUSED",
+      costMicros: 0,
+    });
+    expect(await reservations(research.id)).toEqual([]);
+    expect(await runRow()).toMatchObject({ status: "running" });
+  });
+
+  it("requeues the agent tasks the pause held back when the project resumes (I7b)", async () => {
+    const research = await task("research");
+    const analytics = await task("analytics");
+    await run((tx) => pauseProject(tx, project.owner, true));
+    // The worker blocked research's job; analytics was stopped before its first call.
+    await setJob(research.id, {
+      status: "blocked_dependency",
+      error: "PROJECT_PAUSED",
+    });
+    await runAgentTask(worker(), analytics.id);
+    await setJob(analytics.id, { status: "succeeded" });
+    const blockedJob = await jobOf(research.id);
+    expect(await outboxOf(blockedJob.id)).toBe(1);
+
+    const resumed = await run((tx) => pauseProject(tx, project.owner, false));
+    expect(data(await jobOf(research.id))).toMatchObject({
+      status: "queued",
+      error: null,
+    });
+    expect(await outboxOf(blockedJob.id)).toBe(2);
+    const resumeJobs = (await agentJobs()).filter(
+      (job) => job.resourceId === analytics.id && job.status === "queued",
+    );
+    expect(resumeJobs).toEqual([
+      expect.objectContaining({
+        idempotencyKey: `agent:${analytics.id}:resume:${resumed.generation}`,
+      }),
+    ]);
+    const jobCount = (await agentJobs()).length;
+
+    // A second resume (or a repeated call) requeues nothing again.
+    await run((tx) => pauseProject(tx, project.owner, false));
+    expect(await outboxOf(blockedJob.id)).toBe(2);
+    expect(await agentJobs()).toHaveLength(jobCount);
+
+    // The requeued tasks run as usual.
+    mocked.replies.push(() => ({ output: [message('{"text":"after"}')] }));
+    await runAgentTask(worker(), research.id);
+    expect(await task("research")).toMatchObject({ status: "done" });
+  });
+
+  it("requeues a task the pause stopped when the project resumed meanwhile (I7b)", async () => {
+    const research = await task("research");
+    // The task's own job is running; the resume commits while the task stops on the pause.
+    await setJob(research.id, { status: "running" });
+    registerStepHandler("research", async () => {
+      await setPaused(false);
+      throw new DomainError("PROJECT_PAUSED", 409);
+    });
+    try {
+      await runAgentTask(worker(), research.id);
+    } finally {
+      registerSpecialist(echo("research"));
+    }
+    const { generation } = await run((tx) =>
+      tx.project.findUniqueOrThrow({ where: { id: project.owner.projectId } }),
+    );
+    expect(await task("research")).toMatchObject({ status: "queued" });
+    expect(
+      (await agentJobs()).filter(
+        (job) =>
+          job.resourceId === research.id &&
+          job.idempotencyKey === `agent:${research.id}:resume:${generation}`,
+      ),
+    ).toEqual([expect.objectContaining({ status: "queued" })]);
+  });
+
+  it("cancels a held-back run whose slots passed during the pause (I7b)", async () => {
+    const research = await task("research");
+    await run((tx) => pauseProject(tx, project.owner, true));
+    await setJob(research.id, {
+      status: "blocked_dependency",
+      error: "PROJECT_PAUSED",
+    });
+    // The pause lasted past the run's slot.
+    await run(async (tx) => {
+      const row = (await list(tx, project.owner, "assignment_runs"))[0]!;
+      await update(tx, project.owner, row, {
+        ...data(row),
+        slots: (data(row).slots as Array<Record<string, unknown>>).map(
+          (slot) => ({ ...slot, at: "2026-01-05T09:00:00.000Z" }),
+        ),
+      });
+    });
+    await run((tx) => pauseProject(tx, project.owner, false));
+    const after = await runRow();
+    expect(after).toMatchObject({
+      status: "canceled",
+      errorCode: "SLOT_UNAVAILABLE",
+    });
+    expect(after.slots).toEqual([
+      expect.objectContaining({
+        releasedAt: expect.any(String),
+        releaseReason: "SLOT_UNAVAILABLE",
+      }),
+    ]);
+    expect((await tasks()).map((t) => t.status)).toEqual([
+      "canceled",
+      "canceled",
+    ]);
+    expect(data(await jobOf(research.id)).status).toBe("blocked_dependency");
+  });
+
+  it("ends a one-off assignment once its run is over (M2)", async () => {
+    const content = {
+      name: "Launch post",
+      kind: "one_off",
+      schedule: {
+        rhythm: "once",
+        weekdays: [],
+        times: ["15:00"],
+        date: "2026-10-20",
+        leadMinutes: 720,
+      },
+      contentType: "social",
+      channels: [X],
+      topicFrame: "The launch of the public beta",
+      image: false,
+      styleAssetIds: [],
+      vetoMinutes: 180,
+      monthlyBudgetMicros: 5_000_000,
+      status: "active",
+      actionRequestId: null,
+    };
+    const once = await run((tx) =>
+      create(tx, project.owner, "assignments", {
+        ...content,
+        confirmation: {
+          userId: "owner",
+          at: "2026-10-01T00:00:00.000Z",
+          assignmentHash: assignmentHash(content),
+        },
+      }),
+    );
+    await run((tx) => planAssignmentRuns(tx, project.owner, MORNING));
+    const ofOnce = async () =>
+      (await tasks()).filter((t) => t.assignmentId === once.id);
+    // Analytics and research answer nothing usable; no strategy is registered here.
+    for (const role of ["analytics", "research"]) {
+      mocked.replies.push(() => ({ output: [message('{"wrong":1}')] }));
+      await runAgentTask(
+        worker(),
+        (await ofOnce()).find((t) => t.stepKey === role)!.id,
+      );
+    }
+    const assignmentOf = async () =>
+      data(
+        await run((tx) => entity(tx, project.owner, "assignments", once.id)),
+      );
+    expect((await assignmentOf()).status).toBe("active");
+    await runAgentTask(
+      worker(),
+      (await ofOnce()).find((t) => t.stepKey === "strategy")!.id,
+    );
+    const runs = (
+      await run((tx) => list(tx, project.owner, "assignment_runs"))
+    ).filter((row) => data(row).assignmentId === once.id);
+    expect(data(runs[0]!).status).toBe("failed");
+    expect(await assignmentOf()).toMatchObject({
+      status: "ended",
+      completedAt: expect.any(String),
+    });
+    // The standing assignment is untouched.
+    expect(
+      data(
+        await run((tx) =>
+          entity(tx, project.owner, "assignments", assignmentId),
+        ),
+      ).status,
+    ).toBe("active");
   });
 });

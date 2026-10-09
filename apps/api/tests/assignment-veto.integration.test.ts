@@ -108,7 +108,12 @@ import {
   update,
 } from "../src/shared.ts";
 import { sweepProject } from "../src/modules/lifecycle.ts";
-import { setAssignmentStatus } from "../src/modules/agents/assignments.ts";
+import {
+  freeAssignmentBudget,
+  setAssignmentStatus,
+  updateAssignment,
+} from "../src/modules/agents/assignments.ts";
+import { agentReviewAccepted } from "../src/modules/agents/agent-review.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import {
@@ -238,6 +243,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
 
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
+    process.env.ORBIT_AGENT_REVIEW_AUTHORITY = "true";
     provider.requests = [];
     provider.replies = [];
     provider.slotFailure = null;
@@ -263,6 +269,7 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
   afterEach(async () => {
     vi.useRealTimers();
     delete process.env.ORBIT_AGENTS;
+    delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
@@ -1104,5 +1111,131 @@ describe.skipIf(!enabled)("Scheduling with the veto window", () => {
         reason: "ASSIGNMENT_ENDED",
       }),
     ]);
+  });
+
+  it("withdraws scheduled posts when the confirmed content changes (R70)", async () => {
+    const { assignment } = await scheduled();
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignment.id);
+      await updateAssignment(tx, project.editor, row.id, row.version, {
+        topicFrame: "Longer stories about the beta for agencies",
+      });
+    });
+    const [after] = await h.rows("assignments");
+    expect(after).toMatchObject({ status: "draft", confirmation: null });
+    expect(await publications()).toEqual([
+      expect.objectContaining({
+        status: "canceled",
+        reason: "ASSIGNMENT_CHANGED",
+      }),
+      expect.objectContaining({
+        status: "canceled",
+        reason: "ASSIGNMENT_CHANGED",
+      }),
+    ]);
+    expect(
+      (await h.rows("jobs")).filter(
+        (job) => job.topic === "publishing" && job.status !== "canceled",
+      ),
+    ).toEqual([]);
+  });
+
+  it("withdraws scheduled posts with one notice when the owner moves the times (R70)", async () => {
+    const { assignment, pubs } = await scheduled();
+    expect(pubs).toHaveLength(2);
+    const saved = await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignment.id);
+      return updateAssignment(tx, project.owner, row.id, row.version, {
+        schedule: { ...data(row).schedule, times: ["11:00", "18:00"] },
+      });
+    });
+    // Still confirmed and active: the new times apply from the next run (R22).
+    expect(data(saved).status).toBe("active");
+    expect(data(saved).schedule.times).toEqual(["11:00", "18:00"]);
+    // The posts of the old times would fail at handoff: they are withdrawn now.
+    expect(await publications()).toEqual([
+      expect.objectContaining({
+        status: "canceled",
+        reason: "ASSIGNMENT_RETIMED",
+      }),
+      expect.objectContaining({
+        status: "canceled",
+        reason: "ASSIGNMENT_RETIMED",
+      }),
+    ]);
+    const notices = (await h.rows("jobs")).filter((job) =>
+      String(job.idempotencyKey).startsWith("notify:retimed:"),
+    );
+    expect(notices).toEqual([
+      expect.objectContaining({
+        topic: "telegram_notification",
+        idempotencyKey: `notify:retimed:${assignment.id}:${saved.version}`,
+      }),
+    ]);
+    // Moving the times again with nothing scheduled sends no further notice.
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignment.id);
+      await updateAssignment(tx, project.owner, row.id, row.version, {
+        schedule: { ...data(row).schedule, times: ["12:00"] },
+      });
+    });
+    expect(
+      (await h.rows("jobs")).filter((job) =>
+        String(job.idempotencyKey).startsWith("notify:retimed:"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("ends a one-off assignment after its run and still publishes its approved posts (M2)", async () => {
+    await h.connectTelegram();
+    const date = tomorrowMorning().toISOString().slice(0, 10);
+    const assignment = await h.makeAssignment({
+      kind: "one_off",
+      schedule: {
+        rhythm: "once",
+        weekdays: [],
+        times: ["10:00", "17:00"],
+        date,
+        leadMinutes: 360,
+      },
+    });
+    const free = await h.run((tx) => freeAssignmentBudget(tx, project.owner));
+    const { review } = await drafted();
+    await reviewed(review.id);
+
+    const [ended] = await h.rows("assignments");
+    expect(ended).toMatchObject({
+      id: assignment.id,
+      status: "ended",
+      completedAt: expect.any(String),
+    });
+    // Its monthly share is free again.
+    expect(await h.run((tx) => freeAssignmentBudget(tx, project.owner))).toBe(
+      free + 30_000_000,
+    );
+    // The run's approved posts keep their agent approval and their window.
+    const pubs = await publications();
+    expect(pubs).toHaveLength(2);
+    expect(pubs.map((pub) => pub.status)).toEqual([
+      "intent_created",
+      "intent_created",
+    ]);
+    for (const draft of await contents())
+      expect(
+        await h.run((tx) => agentReviewAccepted(tx, project.owner, draft)),
+      ).toBe(true);
+
+    // Ending it explicitly afterwards still withdraws what is not handed over.
+    await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "ended"),
+    );
+    expect((await publications()).map((pub) => pub.reason)).toEqual([
+      "ASSIGNMENT_ENDED",
+      "ASSIGNMENT_ENDED",
+    ]);
+    for (const draft of await contents())
+      expect(
+        await h.run((tx) => agentReviewAccepted(tx, project.owner, draft)),
+      ).toBe(false);
   });
 });

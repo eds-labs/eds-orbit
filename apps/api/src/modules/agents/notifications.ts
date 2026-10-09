@@ -28,6 +28,8 @@ export const NOTIFY_KINDS = [
   // A deliverable dropped because no slot was free (spec §9).
   "dropped",
   "budget_paused",
+  // Scheduled posts withdrawn because the owner moved the assignment's times (R70).
+  "retimed",
   "postiz_error",
   "project_paused",
   "daily_report",

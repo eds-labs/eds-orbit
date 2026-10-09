@@ -36,6 +36,7 @@ for (const key of [
   "ORBIT_TOOL_SEARCH",
   "ORBIT_AGENTS",
   "ORBIT_IMAGE_REFERENCES",
+  "ORBIT_AGENT_REVIEW_AUTHORITY",
 ])
   delete composeEnvironment[key];
 
@@ -115,6 +116,7 @@ for (const name of ["api", "worker"])
     "ORBIT_TOOL_SEARCH",
     "ORBIT_AGENTS",
     "ORBIT_IMAGE_REFERENCES",
+    "ORBIT_AGENT_REVIEW_AUTHORITY",
   ])
     assert.equal(
       services[name].environment[flag],
@@ -134,6 +136,7 @@ const flagged = JSON.parse(
         ORBIT_TOOL_SEARCH: "true",
         ORBIT_AGENTS: "true",
         ORBIT_IMAGE_REFERENCES: "true",
+        ORBIT_AGENT_REVIEW_AUTHORITY: "true",
       },
     },
   ),
@@ -144,6 +147,7 @@ for (const name of ["api", "worker"])
     "ORBIT_TOOL_SEARCH",
     "ORBIT_AGENTS",
     "ORBIT_IMAGE_REFERENCES",
+    "ORBIT_AGENT_REVIEW_AUTHORITY",
   ])
     assert.equal(
       flagged[name].environment[flag],

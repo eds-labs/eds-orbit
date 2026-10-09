@@ -12,7 +12,7 @@ import {
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
-import { create, data, list, update } from "../src/shared.ts";
+import { create, data, encrypt, list, update } from "../src/shared.ts";
 import {
   planAssignmentRuns,
   startReadySteps,
@@ -31,7 +31,22 @@ type Reply = { output: unknown[]; costMicros?: number };
 const mocked = vi.hoisted(() => ({
   requests: [] as any[],
   replies: [] as Array<(request: any) => Promise<Reply> | Reply>,
+  // Postiz as the channel history sync reads it (C1).
+  listPosts: null as null | ((range: any) => Promise<unknown[]>),
 }));
+vi.mock("../../../packages/connectors/src/index.ts", async (original) => {
+  const actual =
+    await original<
+      typeof import("../../../packages/connectors/src/index.ts")
+    >();
+  return {
+    ...actual,
+    createPostizClient: (...args: any[]) =>
+      mocked.listPosts
+        ? { listPosts: mocked.listPosts }
+        : (actual.createPostizClient as any)(...args),
+  };
+});
 vi.mock("../../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../../packages/ai/src/index.ts")>()),
   respond: vi.fn(async (request: any) => {
@@ -191,6 +206,7 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
     process.env.ORBIT_AGENTS = "true";
     mocked.requests = [];
     mocked.replies = [];
+    mocked.listPosts = null;
     project = await createPackageProject();
     await setPolicy({
       startAt: "2026-01-01T00:00:00.000Z",
@@ -217,6 +233,117 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
     ]);
     expect(strategySpecialist.hostedTools).toEqual([]);
     expect(strategySpecialist.limits.maxWebSearches).toBe(0);
+  });
+
+  it("syncs the channel history before the strategy, at most once an hour (C1)", async () => {
+    const [first, second] = await slots();
+    // A connected Postiz with a post another tool published yesterday.
+    await run(async (tx) => {
+      const row = (await list(tx, project.owner, "connectors")).find(
+        (c) => data(c).provider === "postiz",
+      )!;
+      await update(tx, project.owner, row, {
+        ...data(row),
+        baseUrl: "https://postiz.example/public/v1",
+        encryptedCredential: encrypt(
+          "synthetic-postiz-token",
+          process.env.CREDENTIAL_KEY!,
+        ),
+      });
+    });
+    const yesterday = new Date(Date.now() - DAY).toISOString();
+    const listPosts = vi.fn(async (range: any) =>
+      yesterday >= range.startDate && yesterday <= range.endDate
+        ? [
+            {
+              id: "chatgpt-1",
+              state: "PUBLISHED",
+              publishDate: yesterday,
+              integration: { id: X },
+              content: "<p>Our ChatGPT job posted this.</p>",
+            },
+          ]
+        : [],
+    );
+    mocked.listPosts = listPosts;
+    mocked.replies.push(() => ({
+      output: [message({ briefs: [brief(first!), brief(second!)] })],
+    }));
+    await runAgentTask(worker(), (await strategyTask()).id);
+    expect(await task("strategy")).toMatchObject({ status: "done" });
+    // One sync: three Postiz reads (two history windows and the days ahead).
+    expect(listPosts).toHaveBeenCalledTimes(3);
+    const input = JSON.parse(mocked.requests[0].input[0].content);
+    expect(input.channelHistory.channels).toEqual([
+      {
+        channelId: X,
+        posts: [
+          expect.objectContaining({
+            source: "external",
+            status: "published",
+            text: "Our ChatGPT job posted this.",
+          }),
+        ],
+      },
+    ]);
+
+    // The next day's run, within the same hour of real time: its strategy reads
+    // the stored history without a new sync.
+    const firstRunId = (await task("strategy")).runId;
+    await run((tx) =>
+      planAssignmentRuns(tx, project.owner, new Date(MORNING.valueOf() + DAY)),
+    );
+    const nextRun = (await tasks()).find((t) => t.runId !== firstRunId)!.runId;
+    for (const role of ["analytics", "research"])
+      await run(async (tx) => {
+        const row = (await list(tx, project.owner, "agent_tasks")).find(
+          (r) => data(r).runId === nextRun && data(r).stepKey === role,
+        )!;
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "failed",
+        });
+        await startReadySteps(tx, project.owner, nextRun);
+      });
+    const nextStrategy = (await tasks()).find(
+      (t) => t.runId === nextRun && t.stepKey === "strategy",
+    )!;
+    const nextSlots = data(
+      (await run((tx) => list(tx, project.owner, "assignment_runs"))).find(
+        (row) => row.id === nextRun,
+      )!,
+    ).slots as Array<{ channel: string; at: string }>;
+    mocked.replies.push(() => ({
+      output: [message({ briefs: nextSlots.map((slot) => brief(slot)) })],
+    }));
+    await runAgentTask(worker(), nextStrategy.id);
+    expect((await tasks()).find((t) => t.id === nextStrategy.id)!.status).toBe(
+      "done",
+    );
+    expect(listPosts).toHaveBeenCalledTimes(3);
+    expect(
+      JSON.parse(mocked.requests[1].input[0].content).channelHistory.channels,
+    ).toHaveLength(1);
+  });
+
+  it("runs the strategy without fresh history when the sync fails (C1)", async () => {
+    const [first, second] = await slots();
+    // The connector has no credential: the sync fails, the strategy goes on.
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocked.replies.push(() => ({
+      output: [message({ briefs: [brief(first!), brief(second!)] })],
+    }));
+    try {
+      await runAgentTask(worker(), (await strategyTask()).id);
+      expect(await task("strategy")).toMatchObject({ status: "done" });
+      // Logged by code only.
+      expect(error).toHaveBeenCalledWith(
+        "Orbit channel history sync failed",
+        "POSTIZ_NOT_CONNECTED",
+      );
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("writes one brief per slot with existing fact keys", async () => {

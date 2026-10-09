@@ -533,14 +533,102 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     return row;
   // A run that ends with its review done is scheduled afterwards in its own
   // transaction (veto.ts scheduleFinishedRun, R54).
-  return update(tx, scope, row, { ...d, steps, status, costMicros });
+  const saved = await update(tx, scope, row, {
+    ...d,
+    steps,
+    status,
+    costMicros,
+  });
+  if (TERMINAL_RUN.includes(status))
+    await completeOneOff(tx, scope, d.assignmentId, runId);
+  return saved;
 }
 
 /**
- * Cancels the runs of an assignment that is paused or ended: every run that
- * is not over becomes `canceled` with its open steps and `agent_tasks`, so no
- * new step starts and its slots are free again. Settled work and its cost
- * stay. Scheduled publications are withdrawn by `withdrawAssignmentPublications` (veto.ts).
+ * Ends a one-off assignment whose single run is over (M2), so it no longer
+ * holds its monthly budget share. It ends as `completed` (`completedAt`):
+ * unlike an end by a person, its runs and scheduled posts stay, and its
+ * confirmation still covers the posts of that run (agent-review.ts
+ * `confirmedHash`). A standing assignment is left alone, and nothing ends
+ * while Orbit Agents is off.
+ */
+async function completeOneOff(
+  tx: DbTx,
+  scope: Scope,
+  assignmentId: string,
+  runId: string,
+) {
+  // With Orbit Agents off, runs end AGENTS_DISABLED; that must not end the assignment.
+  if (!agentsEnabled()) return;
+  const row = await entity(tx, scope, "assignments", assignmentId);
+  const a = data(row);
+  if (a.status !== "active" || a.schedule?.rhythm !== "once") return;
+  await update(tx, scope, row, {
+    ...a,
+    status: "ended",
+    completedAt: new Date().toISOString(),
+  });
+  await audit(tx, scope, "assignment.completed", row.id, { runId });
+}
+
+/**
+ * Cancels one run that is not over: its open steps and `agent_tasks` become
+ * `canceled`, so no new step starts and its slots no longer hold. With a
+ * `code` (e.g. `SLOT_UNAVAILABLE`) the run records it and releases its slots
+ * with that reason. Settled work and its cost stay. Returns whether it
+ * canceled anything.
+ */
+async function cancelRun(
+  tx: DbTx,
+  scope: Scope,
+  runId: string,
+  code: string | null = null,
+) {
+  await lockRun(tx, scope, runId);
+  const row = await entity(tx, scope, RUNS, runId);
+  const d = data(row);
+  if (TERMINAL_RUN.includes(d.status)) return false;
+  const tasks = await filtered(tx, scope, TASKS, [
+    { path: ["runId"], equals: row.id },
+  ]);
+  for (const task of tasks)
+    if (["queued", "running"].includes(data(task).status))
+      await update(tx, scope, task, {
+        ...data(task),
+        status: "canceled",
+        ...(code ? { errorCode: code } : {}),
+      });
+  const now = new Date().toISOString();
+  await update(tx, scope, row, {
+    ...d,
+    status: "canceled",
+    steps: (d.steps as WorkStep[]).map((step) =>
+      SETTLED.includes(step.status) ? step : { ...step, status: "canceled" },
+    ),
+    ...(code
+      ? {
+          errorCode: code,
+          slots: ((d.slots ?? []) as Array<Record<string, any>>).map((slot) =>
+            slot.publicationId || slot.releasedAt
+              ? slot
+              : { ...slot, releasedAt: now, releaseReason: code },
+          ),
+        }
+      : {}),
+  });
+  await audit(tx, scope, "assignment.run_canceled", row.id, {
+    assignmentId: d.assignmentId,
+    ...(code ? { code } : {}),
+  });
+  return true;
+}
+
+/**
+ * Cancels the runs of an assignment that is paused, ended or changed: every
+ * run that is not over becomes `canceled` with its open steps and
+ * `agent_tasks`, so no new step starts and its slots are free again. Settled
+ * work and its cost stay. Scheduled publications are withdrawn by
+ * `withdrawAssignmentPublications` (veto.ts).
  */
 export async function cancelAssignmentRuns(
   tx: DbTx,
@@ -551,28 +639,133 @@ export async function cancelAssignmentRuns(
     (run) => !TERMINAL_RUN.includes(data(run).status),
   );
   let canceled = 0;
-  for (const found of open) {
-    await lockRun(tx, scope, found.id);
-    const row = await entity(tx, scope, RUNS, found.id);
-    const d = data(row);
-    if (TERMINAL_RUN.includes(d.status)) continue;
-    const tasks = await filtered(tx, scope, TASKS, [
-      { path: ["runId"], equals: row.id },
-    ]);
-    for (const task of tasks)
-      if (["queued", "running"].includes(data(task).status))
-        await update(tx, scope, task, { ...data(task), status: "canceled" });
-    await update(tx, scope, row, {
-      ...d,
-      status: "canceled",
-      steps: (d.steps as WorkStep[]).map((step) =>
-        SETTLED.includes(step.status) ? step : { ...step, status: "canceled" },
-      ),
-    });
-    await audit(tx, scope, "assignment.run_canceled", row.id, {
-      assignmentId,
-    });
-    canceled++;
-  }
+  for (const found of open)
+    if (await cancelRun(tx, scope, found.id)) canceled++;
   return { canceled };
+}
+
+const PENDING_JOB = ["queued", "running", "retry_scheduled"];
+
+/**
+ * Puts an agent task held back by a project pause back on the `agent`
+ * queue, once: nothing happens while a job of the task is still pending. A
+ * job the worker blocked with `PROJECT_PAUSED` is queued again; otherwise a
+ * new job `agent:<taskId>:resume:<generation>` is created (the project's
+ * generation changes with every pause and resume). `runAgentTask` itself
+ * never repeats a paid call, so a requeued task that had sent one ends
+ * failed or `outcome_unknown` instead of running again.
+ */
+export async function requeueAgentTask(
+  tx: DbTx,
+  scope: Scope,
+  taskId: string,
+  generation: number,
+  options: { fromCurrentJob?: boolean } = {},
+) {
+  const jobs = await filtered(tx, scope, "jobs", [
+    { path: ["topic"], equals: "agent" },
+    { path: ["resourceId"], equals: taskId },
+  ]);
+  // Called from the task's own job, its running job is the caller and ends right after.
+  const pending = options.fromCurrentJob
+    ? PENDING_JOB.filter((status) => status !== "running")
+    : PENDING_JOB;
+  if (jobs.some((job) => pending.includes(data(job).status))) return false;
+  const blocked = jobs.find(
+    (job) =>
+      data(job).status === "blocked_dependency" &&
+      data(job).error === "PROJECT_PAUSED",
+  );
+  if (blocked) {
+    await update(tx, scope, blocked, {
+      ...data(blocked),
+      status: "queued",
+      error: null,
+      leaseUntil: null,
+    });
+    await tx.outbox.create({
+      data: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        topic: "agent",
+        entityId: blocked.id,
+        payload: { jobId: blocked.id },
+      },
+    });
+    return true;
+  }
+  await enqueue(
+    tx,
+    scope,
+    "agent",
+    taskId,
+    `agent:${taskId}:resume:${generation}`,
+  );
+  return true;
+}
+
+/**
+ * On resume (pauseProject with `paused: false`, I7b): the worker blocked
+ * agent jobs while the project was paused and a specialist stopped by the
+ * pause before its first paid call went back to `queued`. For every open
+ * run: when all of its slots have passed, the run is canceled with
+ * `SLOT_UNAVAILABLE` and its slots are released; otherwise its queued tasks
+ * (and running tasks whose job the pause blocked) are requeued. Idempotent.
+ */
+export async function resumeAgentTasks(
+  tx: DbTx,
+  scope: Scope,
+  generation: number,
+  now = new Date(),
+) {
+  if (!agentsEnabled()) return { requeued: 0, canceled: 0 };
+  const runs = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: RUNS,
+      OR: (["planned", "running"] as RunStatus[]).map((status) => ({
+        data: { path: ["status"], equals: status },
+      })),
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  let requeued = 0;
+  let canceled = 0;
+  for (const run of runs) {
+    const slots = (data(run).slots ?? []) as Array<{ at: string }>;
+    if (
+      slots.length &&
+      slots.every((slot) => Date.parse(slot.at) <= now.valueOf())
+    ) {
+      if (await cancelRun(tx, scope, run.id, SLOT_UNAVAILABLE)) {
+        canceled++;
+        // A one-off whose only slot passed has nothing left to do.
+        await completeOneOff(tx, scope, data(run).assignmentId, run.id);
+      }
+      continue;
+    }
+    for (const task of await filtered(tx, scope, TASKS, [
+      { path: ["runId"], equals: run.id },
+    ])) {
+      const status = data(task).status;
+      if (status === "running") {
+        // Only a running task whose job the pause blocked; a live worker may hold the others.
+        const jobs = await filtered(tx, scope, "jobs", [
+          { path: ["topic"], equals: "agent" },
+          { path: ["resourceId"], equals: task.id },
+        ]);
+        if (
+          !jobs.some(
+            (job) =>
+              data(job).status === "blocked_dependency" &&
+              data(job).error === "PROJECT_PAUSED",
+          )
+        )
+          continue;
+      } else if (status !== "queued") continue;
+      if (await requeueAgentTask(tx, scope, task.id, generation)) requeued++;
+    }
+  }
+  return { requeued, canceled };
 }

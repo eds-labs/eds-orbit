@@ -530,14 +530,24 @@ export async function vetoPublication(
 
 /**
  * Withdraws an assignment's scheduled posts that are not handed over yet,
- * when it is paused, ends or runs out of budget (R20/R23): a stopped
- * assignment publishes nothing more. Handed-over posts stay as they are.
+ * when it is paused, ends or runs out of budget (R20/R23), when its
+ * confirmed content changes, or when the owner moves its times (their agent
+ * review no longer matches the confirmation, R70): such posts publish
+ * nothing more. Handed-over posts stay as they are. `extra` is recorded on
+ * each withdrawn publication.
  */
 export async function withdrawAssignmentPublications(
   tx: DbTx,
   scope: Scope,
   assignmentId: string,
-  reason: Extract<WithdrawReason, "ASSIGNMENT_PAUSED" | "ASSIGNMENT_ENDED">,
+  reason: Extract<
+    WithdrawReason,
+    | "ASSIGNMENT_PAUSED"
+    | "ASSIGNMENT_ENDED"
+    | "ASSIGNMENT_CHANGED"
+    | "ASSIGNMENT_RETIMED"
+  >,
+  extra: Record<string, unknown> = {},
 ) {
   let withdrawn = 0;
   for (const row of await rowsWhere(
@@ -548,7 +558,7 @@ export async function withdrawAssignmentPublications(
     assignmentId,
   ))
     if (data(row).vetoDeadline && withdrawable(data(row))) {
-      await withdrawPublication(tx, scope, row, reason);
+      await withdrawPublication(tx, scope, row, reason, extra);
       withdrawn++;
     }
   return { withdrawn };

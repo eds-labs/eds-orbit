@@ -79,6 +79,7 @@ import {
 } from "../src/modules/draft-batch.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
+import { imageRightsSource } from "../src/modules/agents/specialists/visual.ts";
 import {
   briefKey,
   copywriterStep,
@@ -723,13 +724,20 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     });
     await planWithBriefs((slots) => slots.map((slot) => brief(slot)));
     provider.generateImage.mockClear();
-    await runAgentTask(worker(), (await task("visual")).id);
+    const visual = (await task("visual")).id;
+    await runAgentTask(worker(), visual);
+    // The runner refuses the unconfirmed content before the visual step (R70).
     expect(await task("visual")).toMatchObject({
-      status: "failed",
-      errorCode: "ASSET_RIGHTS_REQUIRED",
+      status: "canceled",
+      errorCode: "ASSIGNMENT_NOT_CONFIRMED",
     });
     expect(provider.generateImage).not.toHaveBeenCalled();
     expect(await rows("assets")).toEqual([]);
+    // The visual step's own rights check refuses it as well.
+    const row = await run((tx) =>
+      entity(tx, project.owner, "assignments", changed.id),
+    );
+    expect(() => imageRightsSource(row)).toThrow("ASSET_RIGHTS_REQUIRED");
   });
 
   it("refuses an image without consent with ASSET_RIGHTS_REQUIRED", async () => {

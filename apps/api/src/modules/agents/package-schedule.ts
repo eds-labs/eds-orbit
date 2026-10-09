@@ -249,10 +249,13 @@ export async function revalidateSchedule(
 export type WithdrawReason =
   | "CANCELED"
   | "RESCHEDULED"
-  // Assignment posts (Orbit Agents): a stop in the veto window, a paused or ended assignment.
+  // Assignment posts (Orbit Agents): a stop in the veto window, a paused or ended assignment,
+  // a change of its confirmed content, or new times set by the owner (R70).
   | "VETOED"
   | "ASSIGNMENT_PAUSED"
-  | "ASSIGNMENT_ENDED";
+  | "ASSIGNMENT_ENDED"
+  | "ASSIGNMENT_CHANGED"
+  | "ASSIGNMENT_RETIMED";
 
 /**
  * Takes a publication back before the handoff; its publisher job goes with

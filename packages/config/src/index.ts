@@ -42,6 +42,9 @@ export const configSchema = z.object({
   // Assignment images: "true" sends style references through images.edit (verified from types only);
   // off by default, images then follow the stored style description.
   ORBIT_IMAGE_REFERENCES: z.enum(["false", "true"]).default("false"),
+  // The review agent's approval stands in for the owner's only when "true"; set after the review
+  // eval passed (Approval J). While "false", assignment posts wait for the owner.
+  ORBIT_AGENT_REVIEW_AUTHORITY: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

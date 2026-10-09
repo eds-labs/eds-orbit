@@ -36,6 +36,12 @@ export type Specialist = {
   outputSchema: z.ZodObject;
   limits: SpecialistLimits;
   /**
+   * Best-effort work before `prepareInput`, outside any transaction (the
+   * strategy refreshes the channel history from Postiz). It must not throw:
+   * a failure is logged by code and the task goes on with what is stored.
+   */
+  refresh?: (scope: Scope) => Promise<void>;
+  /**
    * Adds stored context (read-only) to the task input before the model sees
    * it. `input` is what the model gets; `context` (default: `input`) is
    * what `finalize` gets, for data the model need not see. The stored task

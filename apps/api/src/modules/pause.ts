@@ -8,12 +8,15 @@ import {
   audit,
   DomainError,
 } from "../shared.ts";
+import { resumeAgentTasks } from "./agents/assignment-runs.ts";
 import { notify } from "./agents/notifications.ts";
 import { stopChatRunForPause } from "./chat.ts";
 /**
  * Pauses or resumes the project. A pause tells the owner's Telegram bot
  * (Orbit Agents) in the same transaction, unless `notify` is false because
- * the bot itself asked for the pause and confirms it.
+ * the bot itself asked for the pause and confirms it. A resume puts the
+ * assignment tasks the pause held back on the queue again, or cancels their
+ * runs when the slots passed meanwhile (Orbit Agents, `resumeAgentTasks`).
  */
 export async function pauseProject(
   tx: DbTx,
@@ -64,6 +67,7 @@ export async function pauseProject(
         d as { resourceId: string; actorId: string },
       );
   }
+  if (!paused) await resumeAgentTasks(tx, scope, result.generation);
   await audit(tx, scope, "project.pause", scope.projectId, { paused });
   // Each pause is its own event: the generation changes with every toggle.
   if (paused && options.notify !== false)

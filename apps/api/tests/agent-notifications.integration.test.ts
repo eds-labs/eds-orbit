@@ -81,6 +81,10 @@ import { loadConfig } from "../../../packages/config/src/index.ts";
 import { create, data, encrypt, entity, list, update } from "../src/shared.ts";
 import { sweepProject, nextSweepAt } from "../src/modules/lifecycle.ts";
 import { planAssignmentRuns } from "../src/modules/agents/assignment-runs.ts";
+import {
+  assignmentHash,
+  updateAssignment,
+} from "../src/modules/agents/assignments.ts";
 import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { pauseProject } from "../src/modules/pause.ts";
@@ -264,6 +268,7 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
 
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
+    process.env.ORBIT_AGENT_REVIEW_AUTHORITY = "true";
     calls.length = 0;
     sleeps.length = 0;
     failWith = null;
@@ -291,6 +296,7 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
   afterEach(async () => {
     vi.useRealTimers();
     delete process.env.ORBIT_AGENTS;
+    delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
@@ -715,11 +721,16 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
         new Date(tomorrowMorning().valueOf() + 24 * 60 * MINUTE),
       ),
     );
+    // The owner lowered the budget and confirmed it.
     await h.run(async (tx) => {
       const row = await entity(tx, project.owner, "assignments", assignment.id);
+      const next = { ...data(row), monthlyBudgetMicros: 1 };
       await update(tx, project.owner, row, {
-        ...data(row),
-        monthlyBudgetMicros: 1,
+        ...next,
+        confirmation: {
+          ...data(row).confirmation,
+          assignmentHash: assignmentHash(next),
+        },
       });
     });
     const nextRun = (await h.rows("assignment_runs")).find(
@@ -752,6 +763,28 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     expect(texts[1]).toContain("Zwei Posts am Tag");
     expect(texts[1]).toContain("Budget");
     expect(texts[2]).toContain("pausiert");
+  });
+
+  it("reports posts withdrawn because the owner moved the times (R70)", async () => {
+    await linkBot();
+    const assignment = await h.makeAssignment({ name: "Zwei Posts am Tag" });
+    const planned = await reviewedRun();
+    await planned.run();
+    expect(await jobsOf("preview")).toHaveLength(2);
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "assignments", assignment.id);
+      await updateAssignment(tx, project.owner, row.id, row.version, {
+        schedule: { ...data(row).schedule, times: ["11:00", "18:00"] },
+      });
+    });
+    const [notice] = await jobsOf("retimed");
+    expect(notice).toBeTruthy();
+    await send(notice!.id);
+    const [text] = sent().map(textOf);
+    expect(text).toContain("Zeiten geändert");
+    expect(text).toContain("Zwei Posts am Tag");
+    expect(text).toContain("2 geplante Beiträge zurückgezogen");
+    expect(text).toContain("11:00, 18:00");
   });
 
   it("reports the project pause even though the project is paused", async () => {

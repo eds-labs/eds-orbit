@@ -8,6 +8,7 @@ import {
   resolveRoute,
   respond,
   webSearchFee,
+  webSearchInputTokens,
 } from "../../../../../../packages/ai/src/index.ts";
 import {
   data,
@@ -33,11 +34,17 @@ import { legacyResponsesRuntime } from "../runtime/legacy-responses.ts";
 import type { BudgetedModel, ToolHost } from "../runtime/port.ts";
 import { findTool, responsesTool } from "../tools/registry.ts";
 import {
+  cancelAssignmentRuns,
+  requeueAgentTask,
   startReadySteps,
   type StepRole,
   type WorkStep,
 } from "../assignment-runs.ts";
-import { agentsEnabled, setAssignmentStatus } from "../assignments.ts";
+import {
+  agentsEnabled,
+  assignmentHash,
+  setAssignmentStatus,
+} from "../assignments.ts";
 import { notify } from "../notifications.ts";
 import { scheduleFinishedRun } from "../veto.ts";
 import type {
@@ -396,6 +403,11 @@ export async function runSpecialist(
             data(await entity(tx, scope, TASKS, task.id)).status !== "running"
           )
             throw new DomainError("AGENT_CANCELED");
+          // A paused project gets no new paid call (as generation and image generation).
+          const project = await tx.project.findUniqueOrThrow({
+            where: { id: scope.projectId },
+          });
+          if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
           const active = await activePolicy(tx, scope);
           if (!active) throw new DomainError("POLICY_REQUIRED");
           const approved = policySchema.parse(
@@ -411,10 +423,17 @@ export async function runSpecialist(
           if ((runtime.routeVersion ?? null) !== routeVersion)
             throw new DomainError("AGENT_ROUTE_CHANGED", 409);
           const route = resolveRoute(specialist.taskClass, runtime);
+          const searches = searchTool ? searchesLeft : 0;
           const estimate =
-            estimateCost(route.model, bytes, route.maxOutputTokens, runtime) +
+            // The search results come back as input tokens: an allowance per search is reserved with the request.
+            estimateCost(
+              route.model,
+              bytes + webSearchInputTokens(route.model, searches, runtime),
+              route.maxOutputTokens,
+              runtime,
+            ) +
             // Every search this call may still run, at the per-search fee.
-            webSearchFee(route.model, searchTool ? searchesLeft : 0, runtime);
+            webSearchFee(route.model, searches, runtime);
           const now = new Date();
           // Task ceiling, then the assignment's month; project refusals from `reserve` fail the task (R25).
           await assertTaskBudget(tx, scope, task, estimate, now);
@@ -543,6 +562,8 @@ export async function runSpecialist(
   };
 
   try {
+    // Best-effort work outside any transaction (the strategy's channel history sync, C1).
+    if (specialist.refresh) await specialist.refresh(scope);
     const prepared = specialist.prepareInput
       ? await scoped(scope.workspaceId, scope.projectId, (tx) =>
           specialist.prepareInput!(tx, scope, task.input),
@@ -609,6 +630,14 @@ export async function runSpecialist(
     );
     throw new DomainError(code);
   }
+}
+
+/** Why a task of this assignment must not run, or null: not active, or its content is not the confirmed one. */
+function assignmentRefusal(assignment: Record<string, any>) {
+  if (assignment.status !== "active") return "ASSIGNMENT_NOT_ACTIVE";
+  if (assignment.confirmation?.assignmentHash !== assignmentHash(assignment))
+    return "ASSIGNMENT_NOT_CONFIRMED";
+  return null;
 }
 
 /** Marks the assignment `budget_exhausted` (its runs stop, R20) and opens the exception. */
@@ -702,6 +731,21 @@ export async function runAgentTask(scope: Scope, taskId: string) {
       await update(tx, scope, row, { ...d, status: "canceled" });
       return null;
     }
+    // Only an active assignment whose confirmation covers its current content
+    // runs (R70): a changed, paused or ended one is refused at no cost, and
+    // its open runs stop with it. The input below is therefore the confirmed content.
+    const refusal = assignmentRefusal(
+      data(await entity(tx, scope, "assignments", d.assignmentId)),
+    );
+    if (refusal) {
+      await update(tx, scope, row, {
+        ...d,
+        status: "canceled",
+        errorCode: refusal,
+      });
+      await cancelAssignmentRuns(tx, scope, d.assignmentId);
+      return null;
+    }
     const input = await taskInput(tx, scope, d, run);
     const saved = await update(tx, scope, row, {
       ...d,
@@ -751,12 +795,30 @@ export async function runAgentTask(scope: Scope, taskId: string) {
       await taskReservations(tx, scope, taskId),
       failure !== null && isRejectedRequest(failure.error),
     );
-    const costMicros = settledCost(await taskReservations(tx, scope, taskId));
+    const reservations = await taskReservations(tx, scope, taskId);
+    const costMicros = settledCost(reservations);
     const unknown = open.unknown || failure?.code === "AGENT_OUTCOME_UNKNOWN";
     if (d.status !== "running")
       // Canceled meanwhile: the status stays, the cost is still counted.
       await update(tx, scope, row, { ...d, costMicros });
-    else if (!failure)
+    else if (failure?.code === "PROJECT_PAUSED" && !reservations.length) {
+      // Stopped by a pause before anything paid went out: it waits for the resume (I7b).
+      await update(tx, scope, row, {
+        ...d,
+        status: "queued",
+        output: null,
+        errorCode: "PROJECT_PAUSED",
+        costMicros,
+      });
+      const project = await tx.project.findUniqueOrThrow({
+        where: { id: scope.projectId },
+      });
+      // Resumed while this task was still stopping: requeue it now (same key as the resume).
+      if (!project.paused)
+        await requeueAgentTask(tx, scope, taskId, project.generation, {
+          fromCurrentJob: true,
+        });
+    } else if (!failure)
       await update(tx, scope, row, {
         ...d,
         status: "done",

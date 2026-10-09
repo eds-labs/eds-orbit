@@ -15,6 +15,7 @@ import {
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../../api/src/shared.ts";
 import { enqueue } from "../../api/src/modules/workflow.ts";
+import { assignmentHash } from "../../api/src/modules/agents/assignments.ts";
 import {
   createConversation,
   getRun,
@@ -374,7 +375,7 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
   }, 40000);
   it("runs a specialist task in the agent queue with the registered analytics specialist and records its failure on the task", async () => {
     const { assignment, task, job } = await run(async (tx) => {
-      const assignment = await create(tx, scope, "assignments", {
+      const content = {
         name: "Synthetic agent assignment",
         contentType: "report",
         channels: [],
@@ -388,7 +389,16 @@ describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
           leadMinutes: 60,
         },
         monthlyBudgetMicros: 1000,
+      };
+      // Confirmed: the runner runs only the confirmed content of an active assignment.
+      const assignment = await create(tx, scope, "assignments", {
+        ...content,
         status: "active",
+        confirmation: {
+          userId: "owner",
+          at: "2026-10-01T00:00:00.000Z",
+          assignmentHash: assignmentHash(content),
+        },
       });
       const taskRow = await create(tx, scope, "agent_tasks", {
         runId: "00000000-0000-4000-8000-000000000000",

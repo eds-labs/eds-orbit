@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCost, DEFAULT_WEB_SEARCH_MICROS_PER_CALL, estimateCost, normalizeResponsesUsage, rateStatus, webSearchFee } from "./cost.ts";
+import { computeCost, DEFAULT_WEB_SEARCH_INPUT_TOKENS_PER_CALL, DEFAULT_WEB_SEARCH_MICROS_PER_CALL, estimateCost, normalizeResponsesUsage, rateStatus, webSearchFee, webSearchInputTokens } from "./cost.ts";
 
 const verifiedAt = new Date().toISOString();
 const runtime = (rate: Record<string, unknown>) => ({
@@ -119,5 +119,16 @@ describe("webSearchFee", () => {
     expect(webSearchFee("m", 3, runtime({ ...base, webSearchMicrosPerCall: 2_500 }))).toBe(7_500);
     expect(webSearchFee("other", 1, runtime(base))).toBe(10_000);
     expect(() => webSearchFee("m", -1, runtime(base))).toThrow("WEB_SEARCH_COUNT_INVALID");
+  });
+});
+
+describe("webSearchInputTokens", () => {
+  it("allows the configured search content per search and the documented default otherwise", () => {
+    expect(webSearchInputTokens("m", 0, runtime(base))).toBe(0);
+    expect(DEFAULT_WEB_SEARCH_INPUT_TOKENS_PER_CALL).toBe(8_000);
+    expect(webSearchInputTokens("m", 3, runtime(base))).toBe(24_000);
+    expect(webSearchInputTokens("m", 2, runtime({ ...base, webSearchInputTokensPerCall: 20_000 }))).toBe(40_000);
+    expect(webSearchInputTokens("other", 1, runtime(base))).toBe(8_000);
+    expect(() => webSearchInputTokens("m", -1, runtime(base))).toThrow("WEB_SEARCH_COUNT_INVALID");
   });
 });

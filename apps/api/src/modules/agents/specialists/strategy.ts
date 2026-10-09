@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { agentKnowledgeSearch } from "../tools/agent-tools.ts";
 import { channelTools } from "../tools/channel-tools.ts";
-import { recentChannelPosts } from "../channel-posts.ts";
+import { recentChannelPosts, syncChannelPosts } from "../channel-posts.ts";
 import { listUsableFacts } from "../content-packages.ts";
 import { data } from "../../../shared.ts";
+import { errorCode } from "../../telemetry.ts";
 import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
 
 // The history and fact base are embedded in the task input; the runner fails a call whose context is larger than its limit.
@@ -78,6 +79,19 @@ function offeredFacts(
     size += key.length + value.length;
   }
   return offered;
+}
+
+/**
+ * Refreshes the channel history from Postiz before the strategy reads it
+ * (spec D10, §7; R29). The sync throttles itself to once an hour per
+ * project; a failure leaves the stored history and is logged by code only.
+ */
+async function syncHistory(scope: Parameters<typeof syncChannelPosts>[0]) {
+  try {
+    await syncChannelPosts(scope);
+  } catch (error) {
+    console.error("Orbit channel history sync failed", errorCode(error));
+  }
 }
 
 /** The task input plus the channel history of the last 14 days (Orbit and external posts, published and queued) and the usable Verified Facts. */
@@ -190,6 +204,7 @@ export const strategySpecialist: Specialist = {
   hostedTools: [],
   outputSchema: strategyOutput,
   limits: { ...DEFAULT_SPECIALIST_LIMITS, maxWebSearches: 0 },
+  refresh: syncHistory,
   prepareInput: withContext,
   finalize: checkBriefs,
 };

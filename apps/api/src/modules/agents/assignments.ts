@@ -19,6 +19,7 @@ import {
 } from "../action-requests.ts";
 import { activePolicy } from "../policy.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
+import { notify } from "./notifications.ts";
 import { withdrawAssignmentPublications } from "./veto.ts";
 
 /**
@@ -320,7 +321,11 @@ export async function executeAssignmentConfirm(
 
 /**
  * Changes an assignment. A content change returns it to draft with a new
- * owner request; moving the times of a confirmed assignment does not.
+ * owner request, cancels its open runs and withdraws its scheduled posts
+ * that are not handed over (nothing unconfirmed runs or goes out, R70).
+ * Moving the times of a confirmed assignment needs no new confirmation; its
+ * posts already scheduled were reviewed under the old confirmation and are
+ * withdrawn with one notice, and the new times apply from the next run (R22).
  */
 export async function updateAssignment(
   tx: DbTx,
@@ -359,7 +364,19 @@ export async function updateAssignment(
       confirmation: { ...d.confirmation, assignmentHash: assignmentHash(next) },
     });
     await audit(tx, scope, "assignment.times_changed", id);
+    const { withdrawn } = await withdrawAssignmentPublications(
+      tx,
+      scope,
+      id,
+      "ASSIGNMENT_RETIMED",
+      { retimedVersion: saved.version },
+    );
+    if (withdrawn) await notify(tx, scope, "retimed", `${id}:${saved.version}`);
     return saved;
+  }
+  if (d.status !== "draft") {
+    await cancelAssignmentRuns(tx, scope, id);
+    await withdrawAssignmentPublications(tx, scope, id, "ASSIGNMENT_CHANGED");
   }
   if (d.actionRequestId)
     await cancelActionRequest(tx, scope, d.actionRequestId);
@@ -379,7 +396,8 @@ export async function updateAssignment(
 
 /**
  * Pause, resume or end. Resuming needs a confirmation that still covers the
- * content. `budget_exhausted` is set by the specialist runner (never by a
+ * content. A one-off assignment ends by itself once its run is over
+ * (`completedAt`, assignment-runs.ts). `budget_exhausted` is set by the specialist runner (never by a
  * person) when the assignment's budget is used up; it stops like a pause and
  * is resumed the same way. `version`, when given, is the assignment version
  * the person saw (the web page); a change made since then is a conflict.
@@ -394,10 +412,17 @@ export async function setAssignmentStatus(
   requireEditor(scope);
   const row = await entity(tx, scope, KIND, id);
   const d = data(row);
-  if (d.status === status) return row;
+  // A one-off that ended by completing its run (M2) can still be ended by a
+  // person, which withdraws its posts that are not handed over yet.
+  const endCompleted =
+    status === "ended" &&
+    d.status === "ended" &&
+    typeof d.completedAt === "string";
+  if (d.status === status && !endCompleted) return row;
   if (version !== undefined && row.version !== version)
     throw new DomainError("VERSION_CONFLICT", 409);
-  if (d.status === "ended") throw new DomainError("ASSIGNMENT_ENDED", 409);
+  if (d.status === "ended" && !endCompleted)
+    throw new DomainError("ASSIGNMENT_ENDED", 409);
   if (status === "active") {
     if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
     if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
@@ -420,7 +445,11 @@ export async function setAssignmentStatus(
   // An open confirmation request dies with the assignment.
   if (status === "ended" && d.actionRequestId)
     await cancelActionRequest(tx, scope, d.actionRequestId);
-  const saved = await update(tx, scope, row, { ...d, status });
+  const saved = await update(tx, scope, row, {
+    ...d,
+    status,
+    ...(endCompleted ? { completedAt: null } : {}),
+  });
   // A stopped assignment must not keep producing: its open runs stop and release their slots,
   // and its scheduled posts that are not handed over yet are withdrawn (R20/R23).
   if (status !== "active") {

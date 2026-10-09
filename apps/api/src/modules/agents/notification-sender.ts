@@ -288,6 +288,43 @@ async function budgetPaused(
   );
 }
 
+/** Posts withdrawn because the owner moved the times; `ref` is `<assignmentId>:<version>`. */
+async function retimed(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
+  const [assignmentId, version] = ref.split(":");
+  const row = await maybe(() =>
+    entity(tx, scope, "assignments", assignmentId!),
+  );
+  if (!row) return { skip: "STALE" };
+  const withdrawn = await tx.entity.count({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "publications",
+      AND: [
+        { data: { path: ["assignmentId"], equals: assignmentId! } },
+        { data: { path: ["reason"], equals: "ASSIGNMENT_RETIMED" } },
+        { data: { path: ["retimedVersion"], equals: Number(version) } },
+      ],
+    },
+  });
+  if (!withdrawn) return { skip: "STALE" };
+  const times = ((data(row).schedule?.times ?? []) as unknown[])
+    .map(String)
+    .join(", ");
+  return plain(
+    [
+      "Zeiten geändert",
+      `Auftrag „${clip(String(data(row).name ?? ""), 120)}“: ${
+        withdrawn === 1
+          ? "1 geplanter Beitrag zurückgezogen"
+          : `${withdrawn} geplante Beiträge zurückgezogen`
+      }.`,
+      `Die neuen Zeiten (${times}) gelten ab dem nächsten Lauf.`,
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
 async function postizError(
   tx: DbTx,
   scope: Scope,
@@ -433,6 +470,8 @@ async function render(
       return dropped(tx, scope, ref, timezone);
     case "budget_paused":
       return budgetPaused(tx, scope, ref);
+    case "retimed":
+      return retimed(tx, scope, ref);
     case "postiz_error":
       return postizError(tx, scope, ref, timezone);
     case "project_paused":

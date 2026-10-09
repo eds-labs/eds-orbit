@@ -1,3 +1,4 @@
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { data, hash } from "../../shared.ts";
@@ -67,6 +68,16 @@ export function bodyLinkProblems(body: unknown, allowedOrigins: string[]) {
   return problems;
 }
 
+/**
+ * Whether the review agent may approve in place of the owner at all
+ * (`ORBIT_AGENT_REVIEW_AUTHORITY`, default off, R70). It is turned on only
+ * after the review eval set passed (spec §6, Approval J); while it is off,
+ * assignment posts wait for the owner even with a linked bot.
+ */
+export function agentReviewAuthority() {
+  return loadConfig().ORBIT_AGENT_REVIEW_AUTHORITY === "true";
+}
+
 /** The assignment's confirmation covers this content type and channel. */
 export function withinConfirmation(
   assignment: Record<string, any>,
@@ -78,10 +89,19 @@ export function withinConfirmation(
   );
 }
 
-/** The confirmation hash of an active assignment whose confirmation still covers its current content, else null. */
+/**
+ * The confirmation hash of an active assignment whose confirmation still
+ * covers its current content, else null. A one-off assignment that ended
+ * because its run was over (`completedAt`, M2) keeps its confirmation for
+ * the posts of that run; one the owner ended does not.
+ */
 export function confirmedHash(assignment: Record<string, any>) {
   const confirmed = assignment.confirmation?.assignmentHash;
-  return assignment.status === "active" &&
+  const standing =
+    assignment.status === "active" ||
+    (assignment.status === "ended" &&
+      typeof assignment.completedAt === "string");
+  return standing &&
     typeof confirmed === "string" &&
     confirmed === assignmentHash(assignment)
     ? confirmed
@@ -91,7 +111,8 @@ export function confirmedHash(assignment: Record<string, any>) {
 /**
  * Whether a recorded agent review stands in for the owner's content review
  * (spec §6, R4, R43). All of these must hold, otherwise the owner review is
- * still required: Orbit Agents is on; the review covers exactly the current
+ * still required: Orbit Agents is on; agent review authority is on
+ * (`ORBIT_AGENT_REVIEW_AUTHORITY`, R70); the review covers exactly the current
  * text and recorded no deterministic problem; it was made by the review task
  * of the content's own run; the assignment is active, its confirmation still
  * covers its content and is the one the review was made under; the
@@ -107,7 +128,13 @@ export async function agentReviewAccepted(
 ) {
   const review = content.agentReview as Partial<AgentReview> | undefined;
   // Content without an agent review (the owner path) never loads the configuration.
-  if (!review || typeof review !== "object" || !agentsEnabled()) return false;
+  if (
+    !review ||
+    typeof review !== "object" ||
+    !agentsEnabled() ||
+    !agentReviewAuthority()
+  )
+    return false;
   if (review.bodyHash !== hash(content.body)) return false;
   if (
     !Array.isArray(review.deterministicProblems) ||
