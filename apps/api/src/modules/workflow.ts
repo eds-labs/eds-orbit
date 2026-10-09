@@ -1,5 +1,6 @@
 import { finishMissionRun } from "./planning.ts";
 import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
+import { reportBlockedPost } from "./agents/notifications.ts";
 import { randomUUID } from "node:crypto";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
@@ -562,6 +563,7 @@ export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
       blockers: [vetoBlocker],
     });
     await exception(tx, scope, "PUBLISH_PREFLIGHT_BLOCKED", pub.id);
+    await reportBlockedPost(tx, scope, pub.id, v, [vetoBlocker]);
     return { send: false, pub: blocked };
   }
   const p = await preflight(tx, scope, v.contentId, {
@@ -578,12 +580,15 @@ export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
       : {}),
   });
   if (!p.allowed || p.packageHash !== v.packageHash) {
+    const blockers = p.blockers.length ? p.blockers : ["PACKAGE_CHANGED"];
     const blocked = await update(tx, scope, pub, {
       ...v,
       status: "blocked_dependency",
-      blockers: p.blockers.length ? p.blockers : ["PACKAGE_CHANGED"],
+      blockers,
     });
     await exception(tx, scope, "PUBLISH_PREFLIGHT_BLOCKED", pub.id);
+    // The owner was promised this post (preview or release): he hears that it stopped (I4).
+    await reportBlockedPost(tx, scope, pub.id, v, blockers);
     return { send: false, pub: blocked };
   }
   const claimed = await update(tx, scope, pub, {

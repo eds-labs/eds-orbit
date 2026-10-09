@@ -80,7 +80,10 @@ import { ConnectorError } from "../../../packages/connectors/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import { create, data, encrypt, entity, list, update } from "../src/shared.ts";
 import { sweepProject, nextSweepAt } from "../src/modules/lifecycle.ts";
-import { planAssignmentRuns } from "../src/modules/agents/assignment-runs.ts";
+import {
+  planAssignmentRuns,
+  startReadySteps,
+} from "../src/modules/agents/assignment-runs.ts";
 import {
   assignmentHash,
   updateAssignment,
@@ -89,6 +92,7 @@ import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { pauseProject } from "../src/modules/pause.ts";
 import { dispatchPublication } from "../src/modules/publisher.ts";
+import { claimPublication } from "../src/modules/workflow.ts";
 import { stopCallbackData } from "../src/modules/telegram.ts";
 import {
   nextDailyReportAt,
@@ -762,6 +766,8 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     expect(texts[0]).toContain("Zu werblich.");
     expect(texts[1]).toContain("Zwei Posts am Tag");
     expect(texts[1]).toContain("Budget");
+    // The approved post of the first run was scheduled and is withdrawn with the pause (M6).
+    expect(texts[1]).toContain("1 geplanter Beitrag zurückgezogen");
     expect(texts[2]).toContain("pausiert");
   });
 
@@ -857,6 +863,36 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
             metadata,
           },
         });
+      // Stopped deliverables (I4): planning drops, run problems, scheduling drops, blocked posts.
+      for (const [action, metadata, at] of [
+        ["assignment.run_planned", { unavailable: 1 }, now],
+        ["assignment.run_planned", { unavailable: 0 }, now],
+        [
+          "assignment.run_problems",
+          { failedSteps: 2, droppedDeliverables: 1 },
+          now,
+        ],
+        ["assignment.deliverable_dropped", {}, now],
+        ["publication.claim_blocked", { blockers: ["MISSION_EXPIRED"] }, now],
+        // Two days ago: not today's.
+        [
+          "assignment.run_problems",
+          { failedSteps: 5, droppedDeliverables: 5 },
+          now - 2 * day,
+        ],
+        ["publication.claim_blocked", {}, now - 2 * day],
+      ] as const)
+        await tx.auditEvent.create({
+          data: {
+            workspaceId: owner.workspaceId,
+            projectId: owner.projectId,
+            actorId: "worker",
+            action,
+            resourceId: "synthetic",
+            metadata,
+            createdAt: new Date(at),
+          },
+        });
       // Cost: 1.50 settled today, 0.25 on an earlier day of this month if there is one.
       await tx.budgetReservation.create({
         data: {
@@ -908,19 +944,20 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     expect(text).toContain("Veröffentlicht: 3");
     expect(text).toContain("Gestoppt: 1");
     expect(text).toContain("Abgelehnt: 2");
+    expect(text).toContain("Fehlgeschlagene Schritte: 2");
+    expect(text).toContain("Entfallene Beiträge: 3");
+    expect(text).toContain("Blockierte Beiträge: 1");
     expect(text).toContain("Kosten heute: 1,50 USD");
+    // The month is the budget month (UTC, M4); the report time 20:00 Berlin falls on the same UTC date.
+    const [year, month] = today.split("-").map(Number);
     const earlierSameMonth =
-      new Intl.DateTimeFormat("en-CA", {
-        timeZone: "Europe/Berlin",
-      })
-        .format(new Date(now - 36 * 60 * MINUTE))
-        .slice(0, 7) === today.slice(0, 7);
+      now - 36 * 60 * MINUTE >= Date.UTC(year!, month! - 1, 1);
     const earlierToday =
       new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(
         new Date(now - 36 * 60 * MINUTE),
       ) === today;
     expect(text).toContain(
-      `Kosten Monat: ${earlierSameMonth ? "1,75" : "1,50"} USD`,
+      `Kosten Monat (UTC): ${earlierSameMonth ? "1,75" : "1,50"} USD`,
     );
     expect(earlierToday).toBe(false);
     expect(text).toContain("pricing.promo");
@@ -1085,6 +1122,211 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
           if (value === undefined) delete process.env[key];
           else process.env[key] = value;
       }
+    });
+  });
+  describe("notices for stopped deliverables (I4)", () => {
+    const audits = (action: string) =>
+      h.run((tx) =>
+        tx.auditEvent.findMany({
+          where: { projectId: project.owner.projectId, action },
+        }),
+      );
+
+    it("reports the slots that are not free at planning, once per run", async () => {
+      await linkBot();
+      // One post a day: the run's 17:00 slot has no room.
+      await h.setPolicy({ maxPerDay: 1 });
+      await h.makeAssignment({ name: "Zwei Posts am Tag" });
+      await h.run((tx) =>
+        planAssignmentRuns(tx, project.owner, tomorrowMorning()),
+      );
+      await h.run((tx) =>
+        planAssignmentRuns(tx, project.owner, tomorrowMorning()),
+      );
+      const [runRow] = await h.rows("assignment_runs");
+      expect(runRow!.unavailable).toHaveLength(1);
+      const jobs = await jobsOf("slots_unavailable");
+      expect(jobs.map((job) => job.idempotencyKey)).toEqual([
+        `notify:slots_unavailable:${runRow!.id}`,
+      ]);
+      await send(jobs[0]!.id);
+      const text = textOf(sent()[0]!);
+      expect(text).toContain("Kein freier Slot");
+      expect(text).toContain("Zwei Posts am Tag");
+      expect(text).toContain("Synthetic X");
+      expect(text).toContain("17:00");
+    });
+
+    it("reports failed steps and dropped briefs in one notice when the run ends", async () => {
+      await linkBot();
+      await h.makeAssignment({ name: "Zwei Posts am Tag" });
+      // The strategy briefed the first slot with a fact that is not usable and left the second uncovered.
+      const planned = await h.planWithBriefs((slots) => [
+        h.brief(slots[0]!, { factKeys: ["no.such.fact"] }),
+      ]);
+      const strategy = await h.task("strategy");
+      await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "agent_tasks", strategy.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          output: {
+            ...data(row).output,
+            dropped: [
+              {
+                channel: X,
+                slotAt: planned.slots[1]!.at,
+                code: "AGENT_UNKNOWN_FACT",
+              },
+            ],
+            uncovered: [{ channel: X, slotAt: planned.slots[1]!.at }],
+          },
+        });
+      });
+      await runAgentTask(h.worker(), (await h.task(`copywriter:${X}`)).id);
+      expect(await h.task(`copywriter:${X}`)).toMatchObject({
+        status: "failed",
+        errorCode: "FACT_NOT_USABLE",
+      });
+      const [ended] = await h.rows("assignment_runs");
+      expect(ended!.status).toBe("partial");
+      const jobs = await jobsOf("run_problem");
+      expect(jobs.map((job) => job.idempotencyKey)).toEqual([
+        `notify:run_problem:${planned.runId}`,
+      ]);
+      // Counted for the daily report: analytics, research and the copywriter failed; one slot was not covered.
+      expect(
+        (await audits("assignment.run_problems")).map((a) => a.metadata),
+      ).toEqual([
+        expect.objectContaining({
+          runId: planned.runId,
+          failedSteps: 3,
+          droppedDeliverables: 1,
+        }),
+      ]);
+      // The run is over: going through it again adds nothing.
+      await h.run((tx) => startReadySteps(tx, project.owner, planned.runId));
+      expect(await jobsOf("run_problem")).toHaveLength(1);
+
+      await send(jobs[0]!.id);
+      const text = textOf(sent()[0]!);
+      expect(text).toContain("Zwei Posts am Tag");
+      expect(text).toContain("Fakten fehlen");
+      expect(text).toContain("FACT_NOT_USABLE");
+      expect(text).toContain("AGENT_UNKNOWN_FACT");
+      expect(text).toContain("Synthetic X");
+      expect(text).toContain("Übersprungen: review");
+    });
+
+    it("sends no run notice for a run without problems or with Orbit Agents off", async () => {
+      await linkBot();
+      await h.makeAssignment();
+      const planned = await h.planWithBriefs((slots) =>
+        slots.map((slot) => h.brief(slot)),
+      );
+      // A clean run: every step done, one wave after the other.
+      for (let wave = 0; wave < 4; wave++)
+        await h.run(async (tx) => {
+          for (const row of await list(tx, project.owner, "agent_tasks"))
+            await update(tx, project.owner, row, {
+              ...data(row),
+              status: "done",
+              errorCode: null,
+            });
+          await startReadySteps(tx, project.owner, planned.runId);
+        });
+      expect((await h.rows("assignment_runs"))[0]!.status).toBe("done");
+      expect(await jobsOf("run_problem")).toEqual([]);
+      expect(await audits("assignment.run_problems")).toEqual([]);
+    });
+
+    it("reports a post blocked at the claim after its preview, but not a stopped one", async () => {
+      await linkBot();
+      await h.makeAssignment();
+      const planned = await reviewedRun();
+      await planned.run();
+      const pubs = (await h.rows("publications")).sort((a, b) =>
+        String(a.scheduledAt).localeCompare(String(b.scheduledAt)),
+      );
+      expect(pubs).toHaveLength(2);
+      // The owner stops the second post; the policy no longer covers the channel of the first.
+      await h.run(async (tx) => {
+        const row = await entity(
+          tx,
+          project.owner,
+          "publications",
+          pubs[1]!.id,
+        );
+        await update(tx, project.owner, row, {
+          ...data(row),
+          vetoedAt: new Date().toISOString(),
+        });
+      });
+      await h.setPolicy({ channels: ["other-int"] });
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.parse(pubs[1]!.scheduledAt) + MINUTE);
+      for (const pub of [...pubs, ...pubs])
+        await h.run((tx) => claimPublication(tx, project.owner, pub.id));
+      vi.useRealTimers();
+      expect((await h.rows("publications")).map((pub) => pub.status)).toEqual([
+        "blocked_dependency",
+        "blocked_dependency",
+      ]);
+      const jobs = await jobsOf("blocked");
+      expect(jobs.map((job) => job.idempotencyKey)).toEqual([
+        `notify:blocked:${pubs[0]!.id}`,
+      ]);
+      expect(await audits("publication.claim_blocked")).toHaveLength(1);
+      await send(jobs[0]!.id);
+      const text = textOf(sent()[0]!);
+      expect(text).toContain("blockiert");
+      expect(text).toContain("Synthetic X");
+      expect(text).toContain("SCOPE_NOT_ALLOWED");
+    });
+
+    it("reports a draft the agent approved that waits for the owner while agent authority is off (R71)", async () => {
+      process.env.ORBIT_AGENT_REVIEW_AUTHORITY = "false";
+      await linkBot();
+      await h.makeAssignment();
+      const planned = await reviewedRun();
+      await planned.run();
+      expect(await jobsOf("preview")).toEqual([]);
+      const drafts = (await h.rows("content")).filter(
+        (row) => row.assignmentRunId === planned.runId,
+      );
+      expect(drafts.map((row) => row.status)).toEqual([
+        "needs_review",
+        "needs_review",
+      ]);
+      const waiting = await jobsOf("needs_owner");
+      expect(waiting.map((job) => job.idempotencyKey).sort()).toEqual(
+        drafts
+          .map((row) => `notify:needs_owner:${row.id}:${planned.review.id}`)
+          .sort(),
+      );
+      // A second pass over the same review adds no second notice.
+      await runAgentTask(h.worker(), planned.review.id);
+      expect(await jobsOf("needs_owner")).toHaveLength(2);
+
+      await send(waiting[0]!.id);
+      const text = textOf(sent()[0]!);
+      expect(text).toContain("wartet auf deine Freigabe");
+      expect(text).toContain("geprüft");
+      expect(markup(sent()[0]!)[0]!.url).toContain("/approvals");
+      // Released (or otherwise decided) before the message went out: nothing to say.
+      const other = waiting[1]!;
+      const contentId = String(other.idempotencyKey).split(":")[2]!;
+      await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", contentId);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "reviewed",
+        });
+      });
+      await send(other.id);
+      expect(sent()).toHaveLength(1);
+      expect(
+        (await h.rows("jobs")).find((job) => job.id === other.id)!.notification,
+      ).toMatchObject({ outcome: "skipped", reason: "STALE" });
     });
   });
 });

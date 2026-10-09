@@ -7,6 +7,7 @@ import {
 import { create, data, list } from "../src/shared.ts";
 import {
   channelHistory,
+  channelPostsNear,
   externalChannelPosts,
   htmlToText,
   syncChannelPosts,
@@ -458,6 +459,59 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
     expect(
       await blockers((await draft(TELEGRAM, "Ancient news about beta.")).id),
     ).not.toContain("DUPLICATE_CONTENT");
+  });
+
+  it("loads only the channel's posts within the window for the duplicate check (M5)", async () => {
+    await reset();
+    const stored = (
+      remoteId: string,
+      channel: string,
+      text: string,
+      publishedAt: string,
+    ) =>
+      run((tx) =>
+        create(tx, project.owner, "channel_posts", {
+          channel,
+          remoteId,
+          publishedAt,
+          state: "PUBLISHED",
+          text,
+          source: "external",
+          syncedAt: now.toISOString(),
+        }),
+      );
+    await stored("near-x", X, "Same words.", hoursAgo(24));
+    await stored("edge-x", X, "Same words.", hoursAgo(24 * 7 + 1));
+    await stored("far-x", X, "Same words.", hoursAgo(24 * 30));
+    await stored("ahead-x", X, "Same words.", hoursAhead(24 * 30));
+    await stored("near-tg", TELEGRAM, "Same words.", hoursAgo(24));
+    // Records the rows every entity query returns.
+    const loaded: Array<Record<string, any>> = [];
+    const spied = (tx: DbTx) =>
+      new Proxy(tx, {
+        get(target, prop) {
+          const value = Reflect.get(target, prop);
+          if (prop !== "entity")
+            return typeof value === "function" ? value.bind(target) : value;
+          return new Proxy(value, {
+            get(delegate, method) {
+              const fn = Reflect.get(delegate, method);
+              if (method !== "findMany") return fn.bind(delegate);
+              return async (args: unknown) => {
+                const rows = await fn.call(delegate, args);
+                loaded.push(...rows.map((row: { data: unknown }) => data(row)));
+                return rows;
+              };
+            },
+          });
+        },
+      });
+    const near = await run((tx) =>
+      channelPostsNear(spied(tx), project.owner, X, now.valueOf(), 7),
+    );
+    expect(near.map((post) => post.remoteId)).toEqual(["near-x"]);
+    // Nothing of another channel or outside the window is even loaded.
+    expect(loaded.map((post) => post.remoteId)).toEqual(["near-x"]);
   });
 
   it("gives the copywriter the external posts around a slot", async () => {

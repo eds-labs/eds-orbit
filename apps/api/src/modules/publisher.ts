@@ -18,7 +18,7 @@ import {
 import { preflight } from "./policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
-import { notify } from "./agents/notifications.ts";
+import { notify, reportBlockedPost } from "./agents/notifications.ts";
 import { claimPublication, finishPublication, enqueue } from "./workflow.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   const credentials = await scoped(
@@ -134,6 +134,15 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
             status: "blocked_dependency",
             reason: "HANDOFF_DEPENDENCY_CHANGED",
           });
+          await reportBlockedPost(
+            tx,
+            scope,
+            pubId,
+            v,
+            checked.blockers.length
+              ? checked.blockers
+              : ["HANDOFF_DEPENDENCY_CHANGED"],
+          );
           return false;
         }
         return true;

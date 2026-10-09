@@ -565,6 +565,11 @@ async function approve(
     deterministicProblems: [],
     accepted: result.valid,
   });
+  // The agent approved, but its approval does not stand in for the owner's
+  // (authority off, no bot, R70/R71): the post waits for the owner's release.
+  // Same key as `leaveForOwner`, so one notice per draft and review task.
+  if (!result.valid && v.type === "social")
+    await notify(tx, scope, "needs_owner", `${contentId}:${task.id}`);
   return "approve";
 }
 

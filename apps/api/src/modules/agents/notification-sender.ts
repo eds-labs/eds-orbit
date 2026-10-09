@@ -16,8 +16,13 @@ import {
   telegramSender,
 } from "../telegram.ts";
 import { agentsEnabled } from "./assignments.ts";
-import { NOTIFY_KINDS, type NotifyKind } from "./notifications.ts";
-import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
+import {
+  dailyReportTime,
+  NOTIFY_KINDS,
+  type NotifyKind,
+} from "./notifications.ts";
+import { runProblems, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
+import { budgetMonthStart } from "../budget.ts";
 import { localDate } from "./scheduling.ts";
 
 /**
@@ -217,12 +222,37 @@ async function rejected(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
   );
 }
 
-async function needsOwner(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
+async function needsOwner(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const [contentId, taskId] = ref.split(":");
   const contentRow = await maybe(() =>
-    entity(tx, scope, "content", ref.split(":")[0]!),
+    entity(tx, scope, "content", contentId!),
   );
   if (!contentRow) return { skip: "STALE" };
   const c = data(contentRow);
+  // The agent approved it, but only the owner's release counts (R71).
+  if (c.agentReview?.taskId === taskId) {
+    // Released, replaced or otherwise decided meanwhile: nothing left to ask.
+    if (c.status !== "needs_review" || c.supersededBy) return { skip: "STALE" };
+    const mission = c.missionId
+      ? data(await maybe(() => entity(tx, scope, "missions", c.missionId)))
+      : {};
+    return plain(
+      [
+        "Entwurf wartet auf deine Freigabe",
+        `Kanal: ${await channelName(tx, scope, c.channel)}`,
+        ...(mission.plannedSlotAt
+          ? [`Geplant: ${when(mission.plannedSlotAt, timezone)}`]
+          : []),
+        "Orbit hat ihn geprüft. Er geht erst raus, wenn du ihn in Orbit freigibst.",
+      ].join("\n"),
+      [openButton()],
+    );
+  }
   const why = [
     ...((c.agentReviewDecision?.deterministicProblems ?? []) as unknown[]),
     c.agentReviewDecision?.revisionError,
@@ -270,21 +300,156 @@ async function dropped(
   );
 }
 
+const withdrawnText = (count: number) =>
+  count === 0
+    ? "Keine geplanten Beiträge zurückgezogen"
+    : count === 1
+      ? "1 geplanter Beitrag zurückgezogen"
+      : `${count} geplante Beiträge zurückgezogen`;
+
+/** `ref` is `<assignmentId>:<version>`; the version names this exhaustion. */
 async function budgetPaused(
   tx: DbTx,
   scope: Scope,
   ref: string,
 ): Promise<Built> {
+  const [assignmentId, version] = ref.split(":");
   const row = await maybe(() =>
-    entity(tx, scope, "assignments", ref.split(":")[0]!),
+    entity(tx, scope, "assignments", assignmentId!),
   );
   if (!row) return { skip: "STALE" };
+  // The scheduled posts the pause withdrew (R20/R23, M6).
+  const withdrawn = await tx.entity.count({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "publications",
+      AND: [
+        { data: { path: ["assignmentId"], equals: assignmentId! } },
+        { data: { path: ["reason"], equals: "ASSIGNMENT_PAUSED" } },
+        { data: { path: ["budgetPausedVersion"], equals: Number(version) } },
+      ],
+    },
+  });
   return plain(
     [
       "Budget aufgebraucht",
       `Auftrag „${clip(String(data(row).name ?? ""), 120)}“ ist pausiert.`,
+      `${withdrawnText(withdrawn)}.`,
       "Fortsetzen in Orbit.",
     ].join("\n"),
+  );
+}
+
+/** The name of an assignment for a notice; empty when it is gone. */
+async function assignmentName(tx: DbTx, scope: Scope, id: unknown) {
+  const row = await maybe(() => entity(tx, scope, "assignments", String(id)));
+  return clip(String(data(row).name ?? ""), 120);
+}
+
+// Codes that mean a Verified Fact was missing or not usable (spec §11 "missing facts").
+const FACT_CODES = [
+  "FACT_NOT_USABLE",
+  "AGENT_UNKNOWN_FACT",
+  "AGENT_FACTS_REQUIRED",
+  "NO_BRIEF",
+];
+const reasonText = (code: string) =>
+  code === SLOT_UNAVAILABLE
+    ? "kein freier Slot an dem Tag"
+    : FACT_CODES.includes(code)
+      ? `Fakten fehlen (${code})`
+      : code;
+
+/** Deliverables of a new run that got no slot (`ref` is the run id). */
+async function slotsUnavailable(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const r = data(await maybe(() => entity(tx, scope, "assignment_runs", ref)));
+  const entries = (r.unavailable ?? []) as Array<Record<string, any>>;
+  if (!entries.length) return { skip: "STALE" };
+  const lines = [];
+  for (const entry of entries.slice(0, 10))
+    lines.push(
+      `- ${await channelName(tx, scope, entry.channel)}, ${when(entry.requestedAt, timezone)}`,
+    );
+  return plain(
+    [
+      "Kein freier Slot",
+      `Auftrag „${await assignmentName(tx, scope, r.assignmentId)}“: ${
+        entries.length === 1
+          ? "1 Beitrag entfällt"
+          : `${entries.length} Beiträge entfallen`
+      } (Tageslimit, Abstand oder Sperrzeit).`,
+      ...lines,
+      ...(entries.length > 10 ? [`- und ${entries.length - 10} weitere`] : []),
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** One run that ended with failed steps or dropped briefs (`ref` is the run id). */
+async function runProblem(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const runRow = await maybe(() => entity(tx, scope, "assignment_runs", ref));
+  if (!runRow) return { skip: "STALE" };
+  const problems = await runProblems(tx, scope, runRow);
+  if (!problems.failed.length && !problems.dropped.length)
+    return { skip: "STALE" };
+  const r = data(runRow);
+  const lines = [
+    "Lauf mit Problemen",
+    `Auftrag „${await assignmentName(tx, scope, r.assignmentId)}“, Lauf für den ${String(
+      r.date ?? "",
+    )
+      .split("-")
+      .reverse()
+      .join(".")}`,
+  ];
+  if (problems.failed.length) {
+    lines.push("Fehlgeschlagen:");
+    for (const step of problems.failed.slice(0, 10))
+      lines.push(`- ${step.stepKey}: ${reasonText(step.code)}`);
+  }
+  if (problems.dropped.length) {
+    lines.push("Entfällt:");
+    for (const entry of problems.dropped.slice(0, 10))
+      lines.push(
+        `- ${await channelName(tx, scope, entry.channel)}, ${when(entry.slotAt, timezone)}: ${reasonText(entry.code)}`,
+      );
+  }
+  if (problems.skipped.length)
+    lines.push(`Übersprungen: ${problems.skipped.join(", ")}`);
+  return plain(clip(lines.join("\n"), TEXT_MAX), [openButton()]);
+}
+
+/** A post the owner expected that was blocked at claim or handoff (`ref` is the publication id). */
+async function blocked(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const pubRow = await maybe(() => entity(tx, scope, "publications", ref));
+  const p = data(pubRow);
+  if (!pubRow || p.status !== "blocked_dependency") return { skip: "STALE" };
+  const why = ((p.blockers ?? []) as unknown[]).map(String);
+  return plain(
+    [
+      "Beitrag blockiert",
+      `Kanal: ${await channelName(tx, scope, p.channel)}`,
+      `Zeit: ${when(p.scheduledAt, timezone)}`,
+      `Grund: ${clip(why.join(", ") || String(p.reason ?? "unbekannt"), 300)}`,
+      "Er geht nicht raus. Bitte in Orbit prüfen.",
+    ].join("\n"),
+    [openButton()],
   );
 }
 
@@ -366,7 +531,8 @@ async function dailyReport(
   ];
   const start = zonedTime(year, month, day, 0, 0, timezone);
   const end = zonedTime(year, month, day + 1, 0, 0, timezone);
-  const monthStart = zonedTime(year, month, 1, 0, 0, timezone);
+  // The budget month (UTC) at the report time, as the assignment and project budgets count it (M4).
+  const monthStart = budgetMonthStart(dailyReportTime(date, timezone));
   const within = (value: unknown) => {
     const at = Date.parse(String(value ?? ""));
     return at >= start.valueOf() && at < end.valueOf();
@@ -393,6 +559,42 @@ async function dailyReport(
     (event) =>
       (event.metadata as Record<string, unknown> | null)?.revisedTo == null,
   ).length;
+  // Deliverables that stopped today (I4), from the audits written with their notices.
+  const events = await tx.auditEvent.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      action: {
+        in: [
+          "assignment.run_planned",
+          "assignment.run_problems",
+          "assignment.deliverable_dropped",
+          "publication.claim_blocked",
+        ],
+      },
+      createdAt: { gte: start, lt: end },
+    },
+    select: { action: true, metadata: true },
+  });
+  const sum = (action: string, field: string) =>
+    events
+      .filter((event) => event.action === action)
+      .reduce(
+        (total, event) =>
+          total +
+          (Number(
+            (event.metadata as Record<string, unknown> | null)?.[field],
+          ) || 0),
+        0,
+      );
+  const count = (action: string) =>
+    events.filter((event) => event.action === action).length;
+  const failedSteps = sum("assignment.run_problems", "failedSteps");
+  const droppedDeliverables =
+    sum("assignment.run_planned", "unavailable") +
+    sum("assignment.run_problems", "droppedDeliverables") +
+    count("assignment.deliverable_dropped");
+  const blockedPosts = count("publication.claim_blocked");
   const spent = (from: Date, state: "settled" | "unknown") =>
     tx.budgetReservation.aggregate({
       where: {
@@ -422,8 +624,11 @@ async function dailyReport(
     `Veröffentlicht: ${published}`,
     `Gestoppt: ${stopped}`,
     `Abgelehnt: ${rejectedCount}`,
+    `Fehlgeschlagene Schritte: ${failedSteps}`,
+    `Entfallene Beiträge: ${droppedDeliverables}`,
+    `Blockierte Beiträge: ${blockedPosts}`,
     `Kosten heute: ${usd(today._sum.settledMicros)} USD`,
-    `Kosten Monat: ${usd(thisMonth._sum.settledMicros)} USD`,
+    `Kosten Monat (UTC): ${usd(thisMonth._sum.settledMicros)} USD`,
     ...(unknown._sum.amountMicros
       ? [`Davon Ausgang unklar: ${usd(unknown._sum.amountMicros)} USD`]
       : []),
@@ -465,9 +670,15 @@ async function render(
     case "rejected":
       return rejected(tx, scope, ref);
     case "needs_owner":
-      return needsOwner(tx, scope, ref);
+      return needsOwner(tx, scope, ref, timezone);
     case "dropped":
       return dropped(tx, scope, ref, timezone);
+    case "slots_unavailable":
+      return slotsUnavailable(tx, scope, ref, timezone);
+    case "run_problem":
+      return runProblem(tx, scope, ref, timezone);
+    case "blocked":
+      return blocked(tx, scope, ref, timezone);
     case "budget_paused":
       return budgetPaused(tx, scope, ref);
     case "retimed":

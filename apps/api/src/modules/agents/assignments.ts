@@ -468,6 +468,10 @@ export async function setAssignmentStatus(
       scope,
       id,
       status === "ended" ? "ASSIGNMENT_ENDED" : "ASSIGNMENT_PAUSED",
+      // The budget notice counts the posts this exhaustion withdrew (M6).
+      status === "budget_exhausted"
+        ? { budgetPausedVersion: saved.version }
+        : {},
     );
   }
   await audit(tx, scope, "assignment.status_changed", id, {

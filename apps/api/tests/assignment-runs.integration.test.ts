@@ -404,13 +404,23 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
     for (const at of slots.values()) expect(localTime(at)).toBe("10:00");
   });
 
-  it("gives a report no slots and an analytics-only plan", async () => {
+  it("plans no run for a report assignment, which nothing could deliver yet (R71)", async () => {
+    // A report confirmed before reports were refused (B, I6) must not keep paying for runs.
     await makeAssignment({ contentType: "report", channels: [] });
-    await plan(MORNING);
-    const [report] = await runs();
-    expect(report).toMatchObject({ slots: [], unavailable: [] });
-    expect(report.steps.map((step: any) => step.key)).toEqual(["analytics"]);
-    expect((await tasks()).map((task) => task.role)).toEqual(["analytics"]);
+    expect(await plan(MORNING)).toEqual({ created: 0 });
+    expect(await plan(NEXT_MORNING)).toEqual({ created: 0 });
+    expect(await runs()).toEqual([]);
+    expect(await tasks()).toEqual([]);
+    // Nothing is due for it, so the sweep does not wake up for it either.
+    expect(
+      await run((tx) => nextAssignmentPlanAt(tx, project.owner, MORNING)),
+    ).toBeNull();
+    // And it sends no notice.
+    expect(
+      (await run((tx) => list(tx, project.owner, "jobs"))).filter(
+        (job) => data(job).topic === "telegram_notification",
+      ),
+    ).toEqual([]);
   });
 
   it("does not plan paused, budget-exhausted, draft or ended assignments", async () => {
@@ -663,14 +673,27 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
     });
 
     it("fails a run in which no step finished", async () => {
-      await makeAssignment({ contentType: "report", channels: [] });
+      await makeAssignment({ contentType: "blog", channels: [X] });
       await plan(MORNING);
       const [created] = await runs();
+      // Research is optional for the strategy: the strategy starts, then fails too.
       await finish(
         (await tasks()).map((t) => t.id),
         { status: "outcome_unknown" },
       );
-      expect((await advance(created.id)).status).toBe("failed");
+      await advance(created.id);
+      await finish(
+        (await tasks()).filter((t) => t.status === "queued").map((t) => t.id),
+        { status: "failed" },
+      );
+      const ended = await advance(created.id);
+      expect(ended.status).toBe("failed");
+      expect(statuses(ended.steps)).toEqual({
+        research: "failed",
+        strategy: "failed",
+        copywriter: "skipped",
+        review: "skipped",
+      });
     });
   });
 
@@ -735,20 +758,26 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
     });
 
     it("cancels the open runs of an ended assignment but keeps finished ones", async () => {
-      const assignment = await makeAssignment({
-        contentType: "report",
-        channels: [],
-      });
+      const assignment = await makeAssignment();
       await plan(MORNING);
-      const [report] = await runs();
-      await run(async (tx) => {
-        const row = (await list(tx, project.owner, "agent_tasks"))[0]!;
-        await update(tx, project.owner, row, {
-          ...data(row),
-          status: "done",
+      const [first] = await runs();
+      // Every step of the first run finishes, one after the other.
+      for (let open = true; open;) {
+        const queued = (await tasks()).filter((t) => t.status === "queued");
+        open = queued.length > 0;
+        await run(async (tx) => {
+          for (const task of queued) {
+            const row = (await list(tx, project.owner, "agent_tasks")).find(
+              (found) => found.id === task.id,
+            )!;
+            await update(tx, project.owner, row, {
+              ...data(row),
+              status: "done",
+            });
+          }
+          await startReadySteps(tx, project.owner, first.id);
         });
-        await startReadySteps(tx, project.owner, report.id);
-      });
+      }
       expect((await runs())[0].status).toBe("done");
       await plan(NEXT_MORNING);
       expect(await runs()).toHaveLength(2);

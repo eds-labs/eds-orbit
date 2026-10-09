@@ -256,7 +256,13 @@ async function storedPosts(tx: DbTx, scope: Scope, sinceMs: number) {
     .filter((post) => Date.parse(post.publishedAt) >= sinceMs);
 }
 
-/** The channel's stored posts (published or queued) within `windowDays` of a moment; used by the duplicate check. */
+/**
+ * The channel's stored posts (published or queued) within `windowDays` of a
+ * moment; used by the duplicate check of every social preflight. The query
+ * is narrowed to the channel and the window in the database (`publishedAt`
+ * is always stored as an ISO string, so it orders as text); the exact window
+ * is checked again on the loaded rows.
+ */
 export async function channelPostsNear(
   tx: DbTx,
   scope: Scope,
@@ -264,11 +270,38 @@ export async function channelPostsNear(
   at: number,
   windowDays: number,
 ) {
-  return (await storedPosts(tx, scope, at - windowDays * DAY)).filter(
-    (post) =>
-      post.channel === channel &&
-      Math.abs(Date.parse(post.publishedAt) - at) < windowDays * DAY,
-  );
+  const window = windowDays * DAY;
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "channel_posts",
+      AND: [
+        { data: { path: ["channel"], equals: channel } },
+        {
+          data: {
+            path: ["publishedAt"],
+            gte: new Date(at - window).toISOString(),
+          },
+        },
+        {
+          data: {
+            path: ["publishedAt"],
+            lte: new Date(at + window).toISOString(),
+          },
+        },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+  });
+  return rows
+    .map((row) => data(row) as ChannelPost)
+    .filter(
+      (post) =>
+        post.channel === channel &&
+        Date.parse(post.publishedAt) >= at - window &&
+        Math.abs(Date.parse(post.publishedAt) - at) < window,
+    );
 }
 
 /**

@@ -1,5 +1,6 @@
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { audit } from "../../shared.ts";
 import { enqueue } from "../workflow.ts";
 import { zonedTime } from "../posting-slots.ts";
 import { agentsEnabled } from "./assignments.ts";
@@ -23,10 +24,17 @@ export const NOTIFY_KINDS = [
   "preview",
   // A draft the agent review rejected and did not replace.
   "rejected",
-  // A draft the review left for the owner to judge.
+  // A draft the review left for the owner to judge, or one the agent approved
+  // whose approval does not stand in for the owner's (authority off, R71).
   "needs_owner",
   // A deliverable dropped because no slot was free (spec §9).
   "dropped",
+  // Deliverables of a new run dropped at planning: no free slot that day (spec §9, I4).
+  "slots_unavailable",
+  // One notice per run that ended with failed steps or dropped briefs (I4).
+  "run_problem",
+  // A post the owner was told about (preview, or his own release, R71) blocked at claim or handoff (I4).
+  "blocked",
   "budget_paused",
   // Scheduled posts withdrawn because the owner moved the assignment's times (R70).
   "retimed",
@@ -76,7 +84,8 @@ export async function notify(
   );
 }
 
-function reportTime(date: string, timezone: string) {
+/** The project's local report time of a local date (`YYYY-MM-DD`). */
+export function dailyReportTime(date: string, timezone: string) {
   const [hour, minute] = DAILY_REPORT_TIME.split(":").map(Number);
   const [year, month, day] = date.split("-").map(Number);
   return zonedTime(year!, month!, day!, hour!, minute!, timezone);
@@ -94,7 +103,7 @@ export async function planDailyReport(tx: DbTx, scope: Scope, at = new Date()) {
     where: { id: scope.projectId },
   });
   const date = localDate(at, project.timezone);
-  if (at < reportTime(date, project.timezone)) return null;
+  if (at < dailyReportTime(date, project.timezone)) return null;
   return notify(tx, scope, "daily_report", `${scope.projectId}:${date}`);
 }
 
@@ -109,12 +118,42 @@ export async function nextDailyReportAt(
     where: { id: scope.projectId },
   });
   const date = localDate(at, project.timezone);
-  const today = reportTime(date, project.timezone);
+  const today = dailyReportTime(date, project.timezone);
   if (today > at) return today;
   // The next calendar day, counted on the date, never in hours (DST).
   const [year, month, day] = date.split("-").map(Number);
   const next = new Date(Date.UTC(year!, month! - 1, day! + 1))
     .toISOString()
     .slice(0, 10);
-  return reportTime(next, project.timezone);
+  return dailyReportTime(next, project.timezone);
+}
+
+// Blockers that need no notice: the owner stopped the post or paused the project himself.
+const OWNER_CAUSED = ["VETOED", "PROJECT_PAUSED"];
+
+/**
+ * Reports a post that was blocked at claim or handoff although the owner was
+ * told it would go out: it has a veto window (a preview was sent) or the
+ * owner released it himself (R71). Audited as `publication.claim_blocked`
+ * for the daily report, and one notice per publication (it is blocked once).
+ * A stop or a project pause is the owner's own doing and is not reported.
+ * Call it in the transaction that blocks the post; a no-op with Orbit Agents off.
+ */
+export async function reportBlockedPost(
+  tx: DbTx,
+  scope: Scope,
+  pubId: string,
+  pub: Record<string, any>,
+  blockers: string[],
+) {
+  if (!agentsEnabled()) return;
+  if (!pub.vetoDeadline && !pub.ownerReleasedAt) return;
+  if (pub.vetoedAt || blockers.some((code) => OWNER_CAUSED.includes(code)))
+    return;
+  await audit(tx, scope, "publication.claim_blocked", pubId, {
+    blockers,
+    assignmentId: pub.assignmentId ?? null,
+    assignmentRunId: pub.assignmentRunId ?? null,
+  });
+  await notify(tx, scope, "blocked", pubId);
 }

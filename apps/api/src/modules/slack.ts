@@ -28,6 +28,7 @@ import {
 } from "../shared.ts";
 import { preflight, approve } from "./policy.ts";
 import { enqueue } from "./workflow.ts";
+import { notify } from "./agents/notifications.ts";
 
 const slackId = z.string().regex(/^[A-Z][A-Z0-9]{2,39}$/);
 // The optional Slack digest embeds a short approval preview; longer drafts use web review.
@@ -526,10 +527,18 @@ export async function handleSlackInteraction(input: SlackInbound) {
         packageHash: a.packageHash,
       });
     } else if (a.type === "pause") {
-      await tx.project.update({
+      const pausedProject = await tx.project.update({
         where: { id: scope.projectId },
         data: { paused: true, generation: { increment: 1 } },
       });
+      // The owner's Telegram bot hears of every pause (Orbit Agents, M3), with
+      // the same key as pauseProject; a no-op with Orbit Agents off or no bot.
+      await notify(
+        tx,
+        actorScope,
+        "project_paused",
+        `${scope.projectId}:${pausedProject.generation}`,
+      );
       for (const pub of await list(tx, actorScope, "publications")) {
         const p = data(pub);
         if (p.status === "intent_created")

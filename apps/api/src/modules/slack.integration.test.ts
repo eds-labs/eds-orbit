@@ -230,6 +230,68 @@ describe.skipIf(!enabled)(
         ).status,
       ).toBe("outcome_unknown");
     });
+    it("tells the owner's Telegram bot about a pause through Slack, only with Orbit Agents on (M3)", async () => {
+      vi.stubEnv("EXECUTION_MODE", "live");
+      vi.stubEnv("ENABLE_EXTERNAL_WRITES", "true");
+      const notices = () =>
+        run(async (tx) =>
+          (await list(tx, scope, "jobs"))
+            .map((job) => data(job))
+            .filter((job) => job.topic === "telegram_notification")
+            .map((job) => job.idempotencyKey),
+        );
+      const pauseThroughSlack = async (ts: string) => {
+        await run((tx) =>
+          tx.project.update({
+            where: { id: scope.projectId },
+            data: { paused: false },
+          }),
+        );
+        // A new open exception makes a new digest with its own pause button.
+        await run((tx) =>
+          create(tx, scope, "exceptions", {
+            status: "open",
+            code: "BUDGET_EXCEEDED",
+            resourceIds: [`synthetic-${ts}`],
+          }),
+        );
+        const message = await queued();
+        await dispatchSlackDigest(scope, message.id, {
+          fetch: async () =>
+            new Response(JSON.stringify({ ok: true, channel: "C1234", ts })),
+        });
+        const action = (
+          await run((tx) => list(tx, scope, "slack_actions"))
+        ).find(
+          (x) => data(x).type === "pause" && data(x).status === "pending",
+        )!;
+        expect(await handleSlackInteraction(signed(action.id))).toMatchObject({
+          accepted: true,
+          action: "pause",
+        });
+        return authDb.project.findUniqueOrThrow({
+          where: { id: scope.projectId },
+        });
+      };
+      await run((tx) =>
+        create(tx, scope, "telegram_connections", {
+          status: "linked",
+          chatId: "synthetic-chat",
+          linkedUserId: userId,
+          linkedAt: new Date().toISOString(),
+        }),
+      );
+      // Orbit Agents off: the Slack pause stays as it was, no notice.
+      vi.stubEnv("ORBIT_AGENTS", "false");
+      await pauseThroughSlack("1789640000.000010");
+      expect(await notices()).toEqual([]);
+      vi.stubEnv("ORBIT_AGENTS", "true");
+      const paused = await pauseThroughSlack("1789640000.000011");
+      expect(paused.paused).toBe(true);
+      expect(await notices()).toEqual([
+        `notify:project_paused:${scope.projectId}:${paused.generation}`,
+      ]);
+    });
     it("rejects a consumed or expired resource reference even with a fresh valid signature", async () => {
       vi.stubEnv("EXECUTION_MODE", "live");
       vi.stubEnv("ENABLE_EXTERNAL_WRITES", "true");

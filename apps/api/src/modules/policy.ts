@@ -365,27 +365,32 @@ export async function preflight(
     const ownTexts = new Set(
       [c.body, finalPostText(c.body ?? "", c.targetUrl)].map(duplicateKey),
     );
-    const own = new Set(
-      (await list(tx, scope, "publications"))
-        .filter((row) => data(row).contentId === contentId)
-        .map((row) => data(row).remoteId),
-    );
-    if (
-      (
-        await channelPostsNear(
-          tx,
-          scope,
-          c.channel,
-          postTime(c, pkg.content.createdAt),
-          CLAIM_REPEAT_WINDOW_DAYS,
-        )
-      ).some(
-        (post) =>
-          post.text &&
-          !own.has(post.remoteId) &&
-          ownTexts.has(duplicateKey(post.text)),
+    const same = (
+      await channelPostsNear(
+        tx,
+        scope,
+        c.channel,
+        postTime(c, pkg.content.createdAt),
+        CLAIM_REPEAT_WINDOW_DAYS,
       )
-    )
+    ).filter((post) => post.text && ownTexts.has(duplicateKey(post.text)));
+    // Only a post with the same text needs the content's own publications (its own remote copy).
+    const own = same.length
+      ? new Set(
+          (
+            await tx.entity.findMany({
+              where: {
+                workspaceId: scope.workspaceId,
+                projectId: scope.projectId,
+                kind: "publications",
+                data: { path: ["contentId"], equals: contentId },
+              },
+              select: { data: true },
+            })
+          ).map((row) => data(row).remoteId),
+        )
+      : new Set();
+    if (same.some((post) => !own.has(post.remoteId)))
       blockers.push("DUPLICATE_CONTENT");
   }
 

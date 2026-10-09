@@ -4,6 +4,13 @@ import type {
   PolicyInput,
 } from "../../../../packages/schemas/src/index.ts";
 import { DomainError, create, update, data } from "../shared.ts";
+/**
+ * Start of the budget month that contains `at`: the first of the month at
+ * 00:00 UTC. Project, assignment and reported month totals all count from it.
+ */
+export function budgetMonthStart(at: Date) {
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1));
+}
 export async function reserve(
   tx: DbTx,
   scope: Scope,
@@ -36,7 +43,7 @@ export async function reserve(
     where: { key: qualified, projectId: scope.projectId },
   });
   if (existing) throw new DomainError("RESERVATION_ALREADY_USED", 409);
-  const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const month = budgetMonthStart(now);
   const day = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
   );

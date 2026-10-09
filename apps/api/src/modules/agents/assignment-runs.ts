@@ -5,6 +5,7 @@ import { activePolicy } from "../policy.ts";
 import { zonedTime } from "../posting-slots.ts";
 import { enqueue } from "../workflow.ts";
 import { agentsEnabled } from "./assignments.ts";
+import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
 
@@ -322,6 +323,11 @@ export async function planAssignmentRuns(
   let created = 0;
   for (const row of assignments) {
     const d = data(row);
+    // Nothing delivers a report yet (R71): a report confirmed before reports
+    // were refused plans no paid run and sends no notice.
+    if (d.contentType === "report") continue;
+    // Posts need a policy for their rules; without one nothing can be planned.
+    if (!policy) continue;
     const known = await plannedDates(tx, scope, row.id, today);
     for (const due of dueDays(d.schedule, project.timezone, now)) {
       if (
@@ -330,12 +336,7 @@ export async function planAssignmentRuns(
         due.slots[due.slots.length - 1]! <= now
       )
         continue;
-      const report = d.contentType === "report";
-      // Posts need a policy for their rules; without one nothing can be planned.
-      if (!report && !policy) continue;
-      const allocation = report
-        ? { slots: [], unavailable: [] }
-        : await allocateSlots(tx, scope, due, d.channels, now);
+      const allocation = await allocateSlots(tx, scope, due, d.channels, now);
       const key = `assignment:${row.id}:${due.date}`;
       const saved = await create(tx, scope, RUNS, {
         assignmentId: row.id,
@@ -356,6 +357,9 @@ export async function planAssignmentRuns(
         slots: allocation.slots.length,
         unavailable: allocation.unavailable.length,
       });
+      // A deliverable without a slot is dropped with a notice (spec §9); one per run.
+      if (allocation.unavailable.length)
+        await notify(tx, scope, "slots_unavailable", saved.id);
       await startReadySteps(tx, scope, saved.id);
       created++;
     }
@@ -375,7 +379,9 @@ export async function nextAssignmentRunAt(
   timezone: string,
   now = new Date(),
 ) {
-  if (data(row).status !== "active") return null;
+  // A report plans no run (R71).
+  if (data(row).status !== "active" || data(row).contentType === "report")
+    return null;
   const known = await plannedDates(tx, scope, row.id, localDate(now, timezone));
   let next: Date | null = null;
   for (const due of dueDays(data(row).schedule, timezone, now))
@@ -539,9 +545,123 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     status,
     costMicros,
   });
-  if (TERMINAL_RUN.includes(status))
+  if (TERMINAL_RUN.includes(status)) {
     await completeOneOff(tx, scope, d.assignmentId, runId);
+    await reportRunProblems(tx, scope, saved);
+  }
   return saved;
+}
+
+// Codes with a notice of their own (budget pause, project pause) or none at all (flag off).
+const REPORTED_ELSEWHERE = [
+  "ASSIGNMENT_BUDGET_EXHAUSTED",
+  "PROJECT_PAUSED",
+  "AGENTS_DISABLED",
+];
+
+export type RunProblems = {
+  // Steps whose task ended failed or outcome_unknown, with the task's code.
+  failed: Array<{ stepKey: string; role: StepRole; code: string }>;
+  // Slots the strategy left without a brief and briefs a copywriter could not write.
+  dropped: Array<{ channel: string; slotAt: string; code: string }>;
+  // Steps that never ran because a step they need failed.
+  skipped: string[];
+};
+
+/** `<channel>@<ISO slot>` (copywriter.ts `briefKey`) back into its parts. */
+function splitBriefKey(key: string) {
+  const at = key.lastIndexOf("@");
+  return at < 0
+    ? { channel: key, slotAt: "" }
+    : { channel: key.slice(0, at), slotAt: key.slice(at + 1) };
+}
+
+/**
+ * What went wrong in a run, read from its steps and their tasks (I4): failed
+ * or `outcome_unknown` tasks (with their code), the slots the strategy left
+ * uncovered (with the code of the brief it dropped for that slot, else
+ * `NO_BRIEF`), briefs a copywriter could not write (e.g. `FACT_NOT_USABLE`,
+ * spec §11 "missing facts") and skipped steps. Budget exhaustion and the
+ * project pause are left out: they have notices of their own.
+ */
+export async function runProblems(
+  tx: DbTx,
+  scope: Scope,
+  run: { id: string; data: unknown },
+): Promise<RunProblems> {
+  const tasks = new Map(
+    (
+      await filtered(tx, scope, TASKS, [{ path: ["runId"], equals: run.id }])
+    ).map((task) => [task.id, data(task)]),
+  );
+  const problems: RunProblems = { failed: [], dropped: [], skipped: [] };
+  for (const step of (data(run).steps ?? []) as WorkStep[]) {
+    if (step.status === "skipped") problems.skipped.push(step.key);
+    const task = step.taskId ? tasks.get(step.taskId) : undefined;
+    if (!task) continue;
+    if (["failed", "outcome_unknown"].includes(task.status)) {
+      const code = String(
+        task.errorCode ??
+          (task.status === "outcome_unknown"
+            ? "AGENT_OUTCOME_UNKNOWN"
+            : "AGENT_FAILED"),
+      );
+      if (!REPORTED_ELSEWHERE.includes(code))
+        problems.failed.push({ stepKey: step.key, role: step.role, code });
+      continue;
+    }
+    if (task.status !== "done") continue;
+    const output = (task.output ?? {}) as Record<string, any>;
+    if (step.role === "strategy")
+      for (const slot of (output.uncovered ?? []) as Array<
+        Record<string, any>
+      >) {
+        const reason = (
+          (output.dropped ?? []) as Array<Record<string, any>>
+        ).find(
+          (entry) =>
+            entry.channel === slot.channel &&
+            Date.parse(entry.slotAt) === Date.parse(slot.slotAt),
+        );
+        problems.dropped.push({
+          channel: String(slot.channel),
+          slotAt: String(slot.slotAt),
+          code: String(reason?.code ?? "NO_BRIEF"),
+        });
+      }
+    if (step.role === "copywriter")
+      for (const entry of (output.failed ?? []) as Array<Record<string, any>>)
+        if (!REPORTED_ELSEWHERE.includes(String(entry.code)))
+          problems.dropped.push({
+            ...splitBriefKey(String(entry.briefKey)),
+            code: String(entry.code),
+          });
+  }
+  return problems;
+}
+
+/**
+ * Reports a run that ended with problems: one `run_problem` notice per run
+ * (key `notify:run_problem:<runId>`, the run ends once) and the audit
+ * `assignment.run_problems` with the counts the daily report adds up. Runs
+ * in the transaction that ends the run. A no-op with Orbit Agents off.
+ */
+async function reportRunProblems(
+  tx: DbTx,
+  scope: Scope,
+  run: { id: string; data: unknown },
+) {
+  if (!agentsEnabled()) return;
+  const problems = await runProblems(tx, scope, run);
+  if (!problems.failed.length && !problems.dropped.length) return;
+  await audit(tx, scope, "assignment.run_problems", run.id, {
+    runId: run.id,
+    assignmentId: data(run).assignmentId,
+    failedSteps: problems.failed.length,
+    droppedDeliverables: problems.dropped.length,
+    skippedSteps: problems.skipped.length,
+  });
+  await notify(tx, scope, "run_problem", run.id);
 }
 
 /**

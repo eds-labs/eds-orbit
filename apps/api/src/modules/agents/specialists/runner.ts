@@ -18,7 +18,12 @@ import {
   update,
 } from "../../../shared.ts";
 import { activePolicy } from "../../policy.ts";
-import { markTransmitted, reserve, settle } from "../../budget.ts";
+import {
+  budgetMonthStart,
+  markTransmitted,
+  reserve,
+  settle,
+} from "../../budget.ts";
 import {
   errorCode as telemetryErrorCode,
   finishRun,
@@ -175,9 +180,7 @@ export async function assignmentMonthSpend(
   assignmentId: string,
   now: Date,
 ) {
-  const monthStart = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
-  );
+  const monthStart = budgetMonthStart(now);
   const previousMonth = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
   );
