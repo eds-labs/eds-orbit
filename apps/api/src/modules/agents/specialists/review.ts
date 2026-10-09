@@ -134,7 +134,8 @@ export type ReviewDecision = {
   revisionError?: string | null;
 };
 
-const INSTRUCTIONS = [
+// Exported for the review eval, which binds its hash into the run confirmation.
+export const REVIEW_INSTRUCTIONS = [
   "You are the review specialist. You decide for every draft in drafts whether it may be published for the brand.",
   "Every draft has already passed Orbit's deterministic checks (verified facts, claims ledger, links, channel limits, duplicates, policy); you judge what those checks cannot.",
   "approve only when all of these hold: the text fits brand.voice, brand.guardrails and assignment.tone; every figure, name, date, status or capability it states is backed by its facts (key and value); it promises no profit, return, price movement or outcome and gives no investment, financial or legal advice; it names no link, handle or contact other than its own link field; it is not a repeat or close paraphrase of recentChannelPosts on its channel; it follows its brief and reads as one finished post.",
@@ -146,7 +147,7 @@ const INSTRUCTIONS = [
 const reviewSpecialist = (input: unknown): Specialist => ({
   role: "review",
   taskClass: "agent_review",
-  instructions: INSTRUCTIONS,
+  instructions: REVIEW_INSTRUCTIONS,
   tools: [],
   hostedTools: [],
   outputSchema: reviewOutput,

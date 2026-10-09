@@ -2,8 +2,9 @@
  * Manual, budget-capped live review eval (rollout Approval J). Not part of
  * `pnpm test`; run it through `pnpm eval:agent-review` (see README.md).
  * Without a key and a confirmation it only prints the plan and transmits
- * nothing. Only the review call is real: the copywriter draft that shapes the
- * cases (`generate`, `embed`) and any revision are stubs that send nothing.
+ * nothing. Only the review calls are real: the copywriter draft that shapes
+ * the cases and every revision (`generate`, `embed`) are stubs that send
+ * nothing; a revision keeps the body unchanged and round 2 decides the case.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -13,16 +14,8 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../packages/ai/src/index.ts")>()),
   ...(await import("./stubs.ts")).draftStubs(),
 }));
-vi.mock(
-  "../../apps/api/src/modules/agents/specialists/copywriter.ts",
-  async (original) => ({
-    ...(await original<
-      typeof import("../../apps/api/src/modules/agents/specialists/copywriter.ts")
-    >()),
-    reviseAssignmentDraft: await (await import("./stubs.ts")).revisionStub(),
-  }),
-);
 
+import { respond } from "../../packages/ai/src/index.ts";
 import { closeDatabase } from "../../packages/db/src/index.ts";
 import {
   assertLiveAllowed,
@@ -31,6 +24,7 @@ import {
   parseCandidatesFile,
   redactSecret,
 } from "../generation/live-plan.ts";
+import { codeVersion, reviewPromptHash } from "./code-version.ts";
 import { runReviewEval } from "./live-harness.ts";
 import {
   evaluatePassRule,
@@ -61,8 +55,13 @@ describe("Live agent review eval", () => {
         set,
         parseRouteFile(rawRoute),
         parseCandidatesFile(rawRates),
+        reviewPromptHash(),
       );
+      const code = codeVersion();
       console.log(renderPlan(plan));
+      console.log(
+        `  code: commit ${code.commit ?? "unknown"}${code.dirty ? ", tracked files changed" : code.dirty === null ? ", state unknown" : ""}; run on the deployed commit, and re-run after any change to the review prompt, schema or runner, or to the agent_review route or quality tier`,
+      );
       if (!isLiveRequested(env)) {
         console.log(
           "\nDry run only. To run live, review the plan above, then run:\n" +
@@ -73,11 +72,14 @@ describe("Live agent review eval", () => {
         return;
       }
       const apiKey = assertLiveAllowed(env, plan.confirmation);
+      // The review call must be the real one.
+      if (vi.isMockFunction(respond)) throw new Error("EVAL_RESPOND_STUBBED");
       // The run must use only the key it was given.
       delete process.env.OPENAI_API_KEY;
       const startedAt = new Date();
       let report;
       try {
+        // Errors after the first review call are returned in the report, not thrown.
         report = await runReviewEval({
           cases: set.cases,
           route: plan.route,
@@ -86,10 +88,9 @@ describe("Live agent review eval", () => {
           datasetVersion: set.datasetVersion,
         });
       } catch (error) {
+        await closeDatabase().catch(() => undefined);
         // Never let the key reach the test output.
         throw redactSecret(error, apiKey);
-      } finally {
-        await closeDatabase();
       }
       const outcome = evaluatePassRule(
         set.cases,
@@ -100,7 +101,10 @@ describe("Live agent review eval", () => {
       const stamp = evidenceStamp(startedAt);
       await mkdir(evidenceDir, { recursive: true });
       const base = `${evidenceDir}agent-review-eval-${stamp}`;
-      const markdown = renderReport(report, outcome);
+      const markdown = renderReport(report, outcome, {
+        ...code,
+        promptHash: plan.promptHash,
+      });
       await writeFile(
         base + ".json",
         JSON.stringify(
@@ -110,6 +114,9 @@ describe("Live agent review eval", () => {
             rules: outcome.rules,
             totals: totals(report.results),
             confirmation: plan.confirmation,
+            commit: code.commit,
+            dirty: code.dirty,
+            promptHash: plan.promptHash,
             maxCostMicros: plan.maxCostMicros,
             worstCaseMicros: plan.worstCaseMicros,
           },
@@ -120,6 +127,11 @@ describe("Live agent review eval", () => {
       await writeFile(base + ".md", markdown);
       console.log("\n" + markdown);
       console.log(`Report written to ${base}.json and ${base}.md`);
+      await closeDatabase();
+      if (report.cleanupError)
+        console.error(
+          `\n!!! CLEANUP FAILED: ${report.cleanupError} !!! Remove the workspace "Synthetic agent review eval" (it holds the encrypted key); the next run removes it after 12 hours.`,
+        );
       // Checked only after the report is on disk.
       expect(report.datasetHash).toBe(plan.hash);
       if (report.stoppedReason)
@@ -134,6 +146,8 @@ describe("Live agent review eval", () => {
             ? "EVAL_STOPPED_EARLY:" + report.stoppedReason
             : "EVAL_REVIEW_FAILED",
         );
+      if (report.cleanupError)
+        throw new Error("EVAL_CLEANUP_FAILED:" + report.cleanupError);
     },
     30 * 60_000,
   );

@@ -21,8 +21,11 @@ import {
 } from "../generation/live-plan.ts";
 import { isBareHost, type ReviewCase, type ReviewSet } from "./review-set.ts";
 
-// Hard ceiling of this eval; ORBIT_EVAL_MAX_USD can only lower it.
-export const REVIEW_CEILING_USD = 1;
+// Hard ceiling of this eval; ORBIT_EVAL_MAX_USD can only lower it. It covers
+// the worst case of two review calls (round 1 and round 2) for every case.
+export const REVIEW_CEILING_USD = 2;
+// Review calls per case at most: round 1 and, after a `revise`, round 2.
+const CALLS_PER_CASE = 2;
 // Upper bound of one review request (base and review instructions, output
 // schema, assignment, brand, one draft with facts and brief, up to five
 // channel posts of 240 characters). Measured at about 3,300 bytes for this
@@ -49,7 +52,7 @@ export type ReviewPlan = {
   good: number;
   bad: number;
   bareHost: number;
-  // At most one review call per case: the eval never runs a revision.
+  // At most two review calls per case: round 1 and, after a `revise`, round 2.
   calls: number;
   // Cases the set expects the model to see (the others are decided by the deterministic checks).
   expectedModelCalls: number;
@@ -60,8 +63,10 @@ export type ReviewPlan = {
   maxCostMicros: number;
   // Hash of the cases, the route and the ceiling (also in the report).
   hash: string;
+  // Hash of the review instructions and output schema the run sends (code-version.ts).
+  promptHash: string;
   // Value for ORBIT_EVAL_CONFIRM: binds the hash, the complete rate card with
-  // its verification date, the route and the ceiling.
+  // its verification date, the route, the prompt hash and the ceiling.
   confirmation: string;
   runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
 };
@@ -81,8 +86,11 @@ export function planReviewEval(
   set: ReviewSet,
   routeFile: RouteFile,
   rates: Pick<CandidatesFile, "verifiedAt" | "rateCard">,
+  promptHash: string,
   now = Date.now(),
 ): ReviewPlan {
+  if (!/^[0-9a-f]{64}$/.test(promptHash))
+    throw new Error("EVAL_PROMPT_HASH_INVALID");
   const rateCard = evalRateCard(rates, now);
   const { route } = routeFile;
   // Prices are never invented: an unpriced route is refused.
@@ -101,13 +109,14 @@ export function planReviewEval(
     good: set.cases.filter((c) => c.label === "good").length,
     bad: set.cases.filter((c) => c.label === "bad" && !isBareHost(c)).length,
     bareHost: set.cases.filter(isBareHost).length,
-    calls: set.cases.length,
+    calls: set.cases.length * CALLS_PER_CASE,
     expectedModelCalls: set.cases.filter((c) => c.expected.modelSees).length,
     route,
     perCallMicros,
-    worstCaseMicros: perCallMicros * set.cases.length,
+    worstCaseMicros: perCallMicros * set.cases.length * CALLS_PER_CASE,
     maxCostMicros,
     hash,
+    promptHash,
     confirmation: createHash("sha256")
       .update(
         JSON.stringify(
@@ -116,6 +125,7 @@ export function planReviewEval(
             rateCard,
             verifiedAt: rates.verifiedAt,
             route,
+            promptHash,
             maxCostMicros,
           }),
         ),
@@ -134,8 +144,9 @@ export function renderPlan(plan: ReviewPlan): string {
     `  dataset version: ${plan.datasetVersion}`,
     `  cases: ${plan.caseCount} (${plan.good} good, ${plan.bad} bad, ${plan.bareHost} bare host)`,
     `  route (agent_review): ${route.model}, reasoning ${route.reasoningEffort ?? "default"}, max output ${route.maxOutputTokens}`,
-    `  ${plan.calls} planned review calls at most (one per case); ${plan.expectedModelCalls} expected, the other ${plan.calls - plan.expectedModelCalls} cases are expected to be decided by the deterministic checks without a call`,
-    "  the production review can call the model up to 3 times per draft (review, copywriter revision, second review); this eval never runs the revision, so a round-1 `revise` is recorded as such and costs no further call",
+    "  verify in Orbit Settings that this equals production's agent_review route (or the quality tier if none is saved); a later route or tier change invalidates a PASS",
+    `  ${plan.calls} review calls at most (two per case: round 1, and round 2 after a \`revise\`); ${plan.expectedModelCalls} cases are expected to reach the model, the other ${plan.caseCount - plan.expectedModelCalls} to be decided by the deterministic checks without a call`,
+    "  a round-1 `revise` runs the production revision with a worst-case copywriter stub (the revised draft keeps the body unchanged; nothing is sent for it) and the round-2 review decides the case",
     `  worst-case estimate: ${usd(plan.worstCaseMicros)} (${plan.worstCaseMicros} micros; ${plan.calls} calls at ${plan.perCallMicros} micros, each at its full output limit)`,
     `  cost ceiling: ${usd(plan.maxCostMicros)} (${plan.maxCostMicros} micros; the run stops when a reservation is refused)`,
     ...(plan.worstCaseMicros > plan.maxCostMicros
@@ -144,18 +155,19 @@ export function renderPlan(plan: ReviewPlan): string {
         ]
       : []),
     `  dataset hash: ${plan.hash}`,
+    `  review prompt and schema hash: ${plan.promptHash}`,
     `  confirmation (ORBIT_EVAL_CONFIRM): ${plan.confirmation}`,
   ].join("\n");
 }
 
 /**
- * What became of one case: `approve`, `revise` and `reject` are the model's
- * verdicts as the review applied them; `owner` is left unjudged for the
- * owner; `blocked` is rejected by Orbit's deterministic checks (the model
- * never cleared it); `error` is a review that ended without a verdict.
+ * What became of one case, after round 2 when round 1 asked for a revision:
+ * `approve` and `reject` are the model's verdicts as the review applied them
+ * (a round-2 `revise` rejects); `owner` is left unjudged for the owner;
+ * `blocked` is rejected by Orbit's deterministic checks (the model never
+ * cleared it); `error` is a review that ended without a verdict.
  */
-export type VerdictClass =
-  "approve" | "revise" | "reject" | "owner" | "blocked" | "error";
+export type VerdictClass = "approve" | "reject" | "owner" | "blocked" | "error";
 
 export type CaseResult = {
   caseId: string;
@@ -166,9 +178,14 @@ export type CaseResult = {
   verdict: VerdictClass;
   // Whether this case passes the rule (see `casePasses`).
   pass: boolean;
-  // Whether a review call was transmitted for the case.
+  // Whether a review call was transmitted for the case, and how many.
   modelCalled: boolean;
-  // Codes only, never the model's text.
+  reviewCalls: number;
+  // Whether round 1 asked for a revision and round 2 judged it.
+  revised: boolean;
+  // Whether the case ran as the set plans it (see `caseAsPlanned`).
+  asPlanned: boolean;
+  // Codes only, never the model's text: both rounds.
   deterministicProblems: string[];
   errorCode: string | null;
   costMicros: number | null;
@@ -188,6 +205,22 @@ export function casePasses(c: Pick<CaseResult, "label" | "verdict">): boolean {
   return c.verdict !== "approve" && c.verdict !== "error";
 }
 
+/**
+ * Whether a case ran as the set plans it: the model saw it exactly when the
+ * set expects that, and every expected deterministic code was recorded.
+ */
+export function caseAsPlanned(
+  c: Pick<ReviewCase, "expected">,
+  r: Pick<CaseResult, "modelCalled" | "deterministicProblems">,
+): boolean {
+  return (
+    r.modelCalled === c.expected.modelSees &&
+    c.expected.deterministic.every((code) =>
+      r.deterministicProblems.includes(code),
+    )
+  );
+}
+
 export type PassRule = {
   // No bad case (other than the bare host) is approved.
   noBadApproved: boolean;
@@ -197,15 +230,29 @@ export type PassRule = {
   goodApprovedOrOwner: boolean;
   // Every case of the set got a verdict: no early stop, no review error.
   complete: boolean;
+  // Every case ran as planned (`caseAsPlanned`).
+  asPlanned: boolean;
+  // Every case with a review call has a known cost above zero.
+  costsKnown: boolean;
 };
 
 export function evaluatePassRule(
   cases: Array<Pick<ReviewCase, "id" | "label" | "expected">>,
-  results: Array<Pick<CaseResult, "caseId" | "verdict">>,
+  results: Array<
+    Pick<
+      CaseResult,
+      | "caseId"
+      | "verdict"
+      | "modelCalled"
+      | "deterministicProblems"
+      | "costMicros"
+    >
+  >,
   stoppedReason: string | null,
 ): { rules: PassRule; pass: boolean } {
-  const verdictOf = (id: string) =>
-    results.find((result) => result.caseId === id)?.verdict;
+  const resultOf = (id: string) =>
+    results.find((result) => result.caseId === id);
+  const verdictOf = (id: string) => resultOf(id)?.verdict;
   const bare = cases.filter(isBareHost);
   const rules: PassRule = {
     noBadApproved: cases
@@ -222,6 +269,13 @@ export function evaluatePassRule(
         const verdict = verdictOf(c.id);
         return verdict !== undefined && verdict !== "error";
       }),
+    asPlanned: cases.every((c) => {
+      const result = resultOf(c.id);
+      return result !== undefined && caseAsPlanned(c, result);
+    }),
+    costsKnown: results.every(
+      (r) => !r.modelCalled || (r.costMicros !== null && r.costMicros > 0),
+    ),
   };
   return { rules, pass: Object.values(rules).every(Boolean) };
 }
@@ -235,12 +289,17 @@ export type ReviewReport = {
   route: ModelRoute;
   // Why the eval stopped before all cases; null when complete.
   stoppedReason: string | null;
+  // Error code of a failed cleanup; the report is still written.
+  cleanupError: string | null;
   results: CaseResult[];
 };
 
 export type ReviewTotals = {
   cases: number;
+  // Cases with a review call, and review calls in all.
   modelCalls: number;
+  reviewCalls: number;
+  revised: number;
   verdicts: Record<VerdictClass, number>;
   costMicros: number;
   // False when a case with a call has no known cost.
@@ -257,7 +316,6 @@ export function totals(results: CaseResult[]): ReviewTotals {
     results.reduce((n, r) => n + (pick(r) ?? 0), 0);
   const verdicts = {
     approve: 0,
-    revise: 0,
     reject: 0,
     owner: 0,
     blocked: 0,
@@ -267,6 +325,8 @@ export function totals(results: CaseResult[]): ReviewTotals {
   return {
     cases: results.length,
     modelCalls: results.filter((r) => r.modelCalled).length,
+    reviewCalls: sum((r) => r.reviewCalls),
+    revised: results.filter((r) => r.revised).length,
     verdicts,
     costMicros: sum((r) => r.costMicros),
     costComplete: results.every((r) => !r.modelCalled || r.costMicros !== null),
@@ -284,6 +344,7 @@ const cell = (value: unknown) => String(value).replace(/[|\n]/g, " ");
 export function renderReport(
   report: ReviewReport,
   outcome: { rules: PassRule; pass: boolean },
+  code?: { commit: string | null; dirty: boolean | null; promptHash: string },
 ): string {
   const t = totals(report.results);
   const table = (header: string[], rows: unknown[][]) =>
@@ -303,6 +364,15 @@ export function renderReport(
     `- Route (agent_review): ${report.route.model}, reasoning ${report.route.reasoningEffort ?? "default"}, max output ${report.route.maxOutputTokens}`,
     `- Started: ${report.startedAt}`,
     `- Stopped early: ${report.stoppedReason ?? "no"}`,
+    ...(report.cleanupError
+      ? [`- Cleanup failed: ${report.cleanupError}`]
+      : []),
+    ...(code
+      ? [
+          `- Commit: ${code.commit ?? "unknown"}${code.dirty ? " (tracked files changed)" : code.dirty === null ? " (state unknown)" : ""}`,
+          `- Review prompt and schema hash: \`${code.promptHash}\``,
+        ]
+      : []),
     "",
     "## Pass rule",
     "",
@@ -316,6 +386,11 @@ export function renderReport(
           yes(outcome.rules.goodApprovedOrOwner),
         ],
         ["Every case decided (no stop, no error)", yes(outcome.rules.complete)],
+        [
+          "Every case as planned (model seen, deterministic codes)",
+          yes(outcome.rules.asPlanned),
+        ],
+        ["Every review call has a known cost", yes(outcome.rules.costsKnown)],
       ],
     ),
     "",
@@ -324,9 +399,10 @@ export function renderReport(
     table(
       [
         "Cases",
+        "Cases seen by the model",
         "Review calls",
+        "Revised",
         "Approve",
-        "Revise",
         "Reject",
         "Owner",
         "Blocked",
@@ -342,8 +418,9 @@ export function renderReport(
         [
           t.cases,
           t.modelCalls,
+          t.reviewCalls,
+          t.revised,
           t.verdicts.approve,
-          t.verdicts.revise,
           t.verdicts.reject,
           t.verdicts.owner,
           t.verdicts.blocked,
@@ -367,7 +444,9 @@ export function renderReport(
         "Expected",
         "Verdict",
         "Pass",
-        "Model called",
+        "As planned",
+        "Review calls",
+        "Revised",
         "Deterministic problems or error",
         "Cost (micros)",
         "Input",
@@ -381,7 +460,9 @@ export function renderReport(
         r.expected,
         r.verdict,
         r.pass ? "yes" : "NO",
-        r.modelCalled ? "yes" : "no",
+        r.asPlanned ? "yes" : "NO",
+        r.reviewCalls,
+        r.revised ? "yes" : "no",
         r.errorCode ?? (r.deterministicProblems.join(", ") || "–"),
         r.costMicros ?? "–",
         r.inputTokens ?? "–",

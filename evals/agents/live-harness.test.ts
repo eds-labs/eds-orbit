@@ -2,10 +2,12 @@ import { afterAll, describe, expect, it, vi } from "vitest";
 
 // Offline: the live harness end to end with replayed review answers; no provider is called.
 const replay = vi.hoisted(() => ({
-  // Recorded verdict per case id (the draft title is the case id).
-  verdicts: new Map<string, string>(),
+  // Recorded verdict per draft body and review round.
+  verdicts: new Map<string, { 1: string; 2?: string }>(),
   calls: 0,
   maxBytes: 0,
+  // Bodies the model saw, per round.
+  seen: { 1: [] as string[], 2: [] as string[] },
 }));
 vi.mock("../../packages/ai/src/index.ts", async (original) => ({
   ...(await original<typeof import("../../packages/ai/src/index.ts")>()),
@@ -24,10 +26,12 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
         }),
       ),
     );
-    const drafts = JSON.parse(request.input[0].content).drafts as Array<{
-      contentId: string;
-      title: string;
-    }>;
+    const input = JSON.parse(request.input[0].content) as {
+      round: 1 | 2;
+      drafts: Array<{ contentId: string; body: string }>;
+    };
+    const drafts = input.drafts;
+    for (const draft of drafts) replay.seen[input.round].push(draft.body);
     return {
       output: [
         {
@@ -38,7 +42,11 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
               type: "output_text",
               text: JSON.stringify({
                 decisions: drafts.map((draft) => {
-                  const verdict = replay.verdicts.get(draft.title)!;
+                  const recorded = replay.verdicts.get(draft.body)!;
+                  const verdict =
+                    input.round === 2
+                      ? (recorded[2] ?? recorded[1])
+                      : recorded[1];
                   return {
                     contentId: draft.contentId,
                     verdict,
@@ -65,16 +73,6 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
     };
   }),
 }));
-vi.mock(
-  "../../apps/api/src/modules/agents/specialists/copywriter.ts",
-  async (original) => ({
-    ...(await original<
-      typeof import("../../apps/api/src/modules/agents/specialists/copywriter.ts")
-    >()),
-    reviseAssignmentDraft: await (await import("./stubs.ts")).revisionStub(),
-  }),
-);
-
 import { authDb, closeDatabase } from "../../packages/db/src/index.ts";
 import { parseCandidatesFile } from "../generation/live-plan.ts";
 import { REVIEW_EVAL_MARKER, runReviewEval } from "./live-harness.ts";
@@ -86,6 +84,7 @@ import {
   renderReport,
 } from "./live-plan.ts";
 import { parseReviewSet, type ReviewCase } from "./review-set.ts";
+import { reviewPromptHash } from "./code-version.ts";
 import rawSet from "./review-v1.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
 import rawRates from "../generation/candidates-v1.json" with { type: "json" };
@@ -100,6 +99,7 @@ const plan = planReviewEval(
   set,
   parseRouteFile(rawRoute),
   rates,
+  reviewPromptHash(),
   new Date(rates.verifiedAt).valueOf() + 3600_000,
 );
 const runtime = {
@@ -115,11 +115,14 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
 
   async function run(
     cases: ReviewCase[],
-    verdicts: Record<string, string>,
+    verdicts: Record<string, { 1: string; 2?: string }>,
     maxCostMicros = plan.maxCostMicros,
   ) {
-    replay.verdicts = new Map(Object.entries(verdicts));
+    replay.verdicts = new Map(
+      Object.entries(verdicts).map(([id, v]) => [byId(id).body, v]),
+    );
     replay.calls = 0;
+    replay.seen = { 1: [], 2: [] };
     return runReviewEval({
       cases,
       route: plan.route,
@@ -129,80 +132,99 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     });
   }
 
-  it("classifies every verdict, records metrics only and deletes the project", async () => {
-    const cases = [
-      "good-day-one",
-      "good-feedback",
-      "bad-wrong-number-free-text",
-      "bad-profit-revenue",
-      "bad-wrong-number-price",
-      "bad-link-bare-host",
-      "bad-repeat-exact",
-      "bad-repeat-paraphrase",
-    ].map(byId);
-    const report = await run(cases, {
-      "good-day-one": "approve",
-      // A wrong approve of a bad case the deterministic checks do not catch.
-      "bad-wrong-number-free-text": "approve",
-      "bad-profit-revenue": "revise",
-      "good-feedback": "reject",
-      "bad-repeat-paraphrase": "reject",
-    });
-    expect(report.stoppedReason).toBeNull();
-    const verdict = Object.fromEntries(
-      report.results.map((r) => [r.caseId, r.verdict]),
+  it("runs the whole set as planned with the recorded answers, metrics only, and deletes the project", async () => {
+    replay.maxBytes = 0;
+    const report = await run(
+      set.cases,
+      Object.fromEntries(
+        set.cases.map((c) => [c.id, { 1: c.recorded.verdict }]),
+      ),
     );
-    expect(verdict).toEqual({
-      "good-day-one": "approve",
-      "good-feedback": "reject",
-      "bad-wrong-number-free-text": "approve",
-      "bad-profit-revenue": "revise",
-      "bad-wrong-number-price": "blocked",
-      "bad-link-bare-host": "owner",
-      "bad-repeat-exact": "blocked",
-      "bad-repeat-paraphrase": "reject",
+    expect(report.stoppedReason).toBeNull();
+    expect(report.cleanupError).toBeNull();
+    expect(report.results).toHaveLength(21);
+    const outcome = evaluatePassRule(set.cases, report.results, null);
+    expect(outcome.rules).toEqual({
+      noBadApproved: true,
+      bareHostNotApproved: true,
+      goodApprovedOrOwner: true,
+      complete: true,
+      asPlanned: true,
+      costsKnown: true,
     });
-    // One review call per case the model sees; never a revision or a second round.
-    expect(replay.calls).toBe(5);
-    expect(replay.maxBytes).toBeGreaterThan(0);
-    expect(replay.maxBytes).toBeLessThan(REVIEW_REQUEST_BYTES);
+    expect(outcome.pass).toBe(true);
     for (const r of report.results) {
-      expect(r.modelCalled).toBe(byId(r.caseId).expected.modelSees);
+      expect(r.asPlanned).toBe(true);
+      expect(r.reviewCalls).toBe(r.modelCalled ? 1 : 0);
       expect(r.costMicros).toBe(r.modelCalled ? 3000 : null);
       expect(r.settledMicros).toBe(r.modelCalled ? 3000 : null);
-      expect(r.outputTokens).toBe(r.modelCalled ? 100 : null);
+      expect(r.revised).toBe(false);
     }
-    expect(
-      report.results.find((r) => r.caseId === "bad-link-bare-host")!
-        .deterministicProblems,
-    ).toContain("LINK_UNVERIFIED");
-    const outcome = evaluatePassRule(
-      cases,
-      report.results,
-      report.stoppedReason,
+    expect(replay.calls).toBe(
+      set.cases.filter((c) => c.expected.modelSees).length,
     );
-    expect(outcome.rules.noBadApproved).toBe(false);
-    expect(outcome.rules.goodApprovedOrOwner).toBe(false);
-    expect(outcome.rules.bareHostNotApproved).toBe(true);
-    expect(outcome.pass).toBe(false);
-    // Metrics only: the model's reasons and the draft bodies never reach the report.
+    // Every review request of the set stays below the planning bound.
+    expect(replay.maxBytes).toBeGreaterThan(0);
+    expect(replay.maxBytes).toBeLessThan(REVIEW_REQUEST_BYTES);
+    // Metrics only: the model's reasons, the draft bodies and the key never reach the report.
     const written = JSON.stringify(report) + renderReport(report, outcome);
     expect(written).not.toContain("Synthetic reason");
-    expect(written).not.toContain("Synthetic instruction");
     expect(written).not.toContain(runtime.apiKey);
-    for (const c of cases) expect(written).not.toContain(c.body);
+    for (const c of set.cases) expect(written).not.toContain(c.body);
     expect(
       await authDb.workspace.findUnique({ where: { id: report.workspaceId } }),
     ).toBeNull();
     expect(
       await authDb.user.count({ where: { name: REVIEW_EVAL_MARKER } }),
     ).toBe(0);
+  }, 300_000);
+
+  it("runs the production revision with an unchanged body and lets round 2 decide", async () => {
+    const cases = [
+      "good-day-one",
+      "bad-profit-revenue",
+      "bad-advice-savings",
+      "bad-repeat-paraphrase",
+    ].map(byId);
+    const report = await run(cases, {
+      "good-day-one": { 1: "revise", 2: "approve" },
+      // The worst case: the copywriter ignores the instruction and round 2 approves.
+      "bad-profit-revenue": { 1: "revise", 2: "approve" },
+      "bad-advice-savings": { 1: "revise", 2: "revise" },
+      "bad-repeat-paraphrase": { 1: "revise", 2: "reject" },
+    });
+    expect(report.stoppedReason).toBeNull();
+    const result = Object.fromEntries(report.results.map((r) => [r.caseId, r]));
+    expect(result["good-day-one"]!.verdict).toBe("approve");
+    expect(result["bad-profit-revenue"]!.verdict).toBe("approve");
+    // Round 2 has no further revision: anything but approve rejects.
+    expect(result["bad-advice-savings"]!.verdict).toBe("reject");
+    expect(result["bad-repeat-paraphrase"]!.verdict).toBe("reject");
+    for (const r of report.results) {
+      expect(r.revised).toBe(true);
+      expect(r.reviewCalls).toBe(2);
+      expect(r.costMicros).toBe(6000);
+      // The unchanged revision does not trip a duplicate check: the old draft is rejected.
+      expect(r.deterministicProblems).toEqual([]);
+      expect(r.asPlanned).toBe(true);
+    }
+    expect(replay.calls).toBe(8);
+    // Round 2 judged exactly the original texts.
+    expect(replay.seen[2].sort()).toEqual(cases.map((c) => c.body).sort());
+    const outcome = evaluatePassRule(cases, report.results, null);
+    expect(outcome.rules.noBadApproved).toBe(false);
+    expect(outcome.rules.goodApprovedOrOwner).toBe(true);
+    expect(outcome.pass).toBe(false);
   }, 120_000);
 
   it("stops at the ceiling before a reservation it cannot afford", async () => {
     const cases = ["good-day-one", "good-join-now"].map(byId);
     // Less than one review reservation: the first call is refused, nothing is sent.
-    const report = await run(cases, { "good-day-one": "approve" }, 1_000);
+    const report = await run(
+      cases,
+      { "good-day-one": { 1: "approve" } },
+      1_000,
+    );
     expect(replay.calls).toBe(0);
     expect(report.results).toHaveLength(1);
     expect(report.results[0]!.verdict).toBe("error");

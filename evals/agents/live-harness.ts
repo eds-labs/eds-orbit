@@ -3,13 +3,14 @@
  * production review step (`reviewStep`): Orbit's deterministic checks, then
  * the review specialist's real instructions, output schema and model call
  * through `runSpecialist` (reserve, markTransmitted, settle under the
- * `agent_review` route). It must run inside Vitest: the caller stubs
- * `generate` and `embed` (the copywriter draft that gives the cases their
- * shape costs nothing) and `reviseAssignmentDraft` (a round-1 `revise` is
- * recorded, never followed by a revision and a second review). The harness
- * refuses to run without those stubs and never mocks anything itself.
- * Only synthetic data is used, in a project created and deleted per run,
- * and only against a local database.
+ * `agent_review` route). A round-1 `revise` runs the production revision
+ * (`reviseAssignmentDraft`) and the round-2 review decides the case. It must
+ * run inside Vitest: the caller stubs `generate` and `embed` (stubs.ts), so
+ * the copywriter draft that gives the cases their shape and every revision
+ * send nothing; the revision is the worst case and keeps the body unchanged.
+ * The harness refuses to run without those stubs and never mocks anything
+ * itself. Only synthetic data is used, in a project created and deleted per
+ * run, and only against a local database.
  */
 import { vi } from "vitest";
 import { scoped } from "../../packages/db/src/index.ts";
@@ -21,7 +22,13 @@ import {
   type OpenAiRuntimeConfig,
 } from "../../packages/ai/src/index.ts";
 import type { Scope } from "../../packages/schemas/src/index.ts";
-import { create, data, entity, update } from "../../apps/api/src/shared.ts";
+import {
+  create,
+  data,
+  entity,
+  list,
+  update,
+} from "../../apps/api/src/shared.ts";
 import { errorCode } from "../../apps/api/src/modules/telemetry.ts";
 import {
   runtimeOpenAiConfiguration,
@@ -33,7 +40,6 @@ import {
 } from "../../apps/api/src/modules/agents/specialists/runner.ts";
 import { registerAgentSpecialists } from "../../apps/api/src/modules/agents/specialists/index.ts";
 import { reviewStep } from "../../apps/api/src/modules/agents/specialists/review.ts";
-import { reviseAssignmentDraft } from "../../apps/api/src/modules/agents/specialists/copywriter.ts";
 import {
   createPackageProject,
   TELEGRAM,
@@ -46,6 +52,7 @@ import {
 } from "../generation/harness.ts";
 import { isBareHost, type ReviewCase } from "./review-set.ts";
 import {
+  caseAsPlanned,
   casePasses,
   reviewDatasetHash,
   type CaseResult,
@@ -77,13 +84,9 @@ const DAY_MS = 86_400_000;
 type Project = Awaited<ReturnType<typeof createPackageProject>>;
 type Harness = ReturnType<typeof assignmentRun>;
 
-/** The eval transmits only review calls: the draft, its embedding and any revision must be stubs. */
+/** The eval transmits only review calls: drafts, revisions and embeddings must be stubs. */
 function assertStubs() {
-  if (
-    !vi.isMockFunction(generate) ||
-    !vi.isMockFunction(embed) ||
-    !vi.isMockFunction(reviseAssignmentDraft)
-  )
+  if (!vi.isMockFunction(generate) || !vi.isMockFunction(embed))
     throw new Error("EVAL_STUBS_REQUIRED");
 }
 
@@ -121,6 +124,16 @@ async function prepare(project: Project, maxCostMicros: number) {
   const [template] = await h.rows("content");
   if (!template) throw new Error("EVAL_TEMPLATE_MISSING");
   await archive(h, project.owner, template.id);
+  // The run's own next steps (its review) are canceled, so nothing but the
+  // cases can call the model with the key, even if a worker picked them up.
+  await h.run(async (tx) => {
+    for (const row of await list(tx, project.owner, "agent_tasks"))
+      if (!["done", "failed", "canceled"].includes(data(row).status))
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "canceled",
+        });
+  });
   return { h, template };
 }
 
@@ -226,27 +239,32 @@ async function runCase(
     });
     return { contentId: content.id, task, posts };
   });
+  type Decision = {
+    contentId: string;
+    verdict: string;
+    deterministicProblems: string[];
+    revisedTo?: string | null;
+  };
   let failure: string | null = null;
-  let decision:
-    { verdict: string; deterministicProblems: string[] } | undefined;
+  let first: Decision | undefined;
+  let final: Decision | undefined;
   try {
     const output = (await reviewStep(h.worker(), {
       id: setup.task.id,
       ...(data(setup.task) as any),
-    })) as {
-      decisions: Array<{
-        contentId: string;
-        verdict: string;
-        deterministicProblems: string[];
-      }>;
-    };
-    decision = output.decisions.find((d) => d.contentId === setup.contentId);
-    if (!decision) failure = "EVAL_DECISION_MISSING";
+    })) as { decisions: Decision[] };
+    first = output.decisions.find((d) => d.contentId === setup.contentId);
+    // A revised draft is decided by its round-2 review.
+    final = first?.revisedTo
+      ? output.decisions.find((d) => d.contentId === first!.revisedTo)
+      : first;
+    if (!final) failure = "EVAL_DECISION_MISSING";
   } catch (error) {
     failure = errorCode(error);
   }
   return h.run(async (tx) => {
-    const run = await tx.agentRun.findFirst({
+    // Every review call of the task: one agent run per round.
+    const runs = await tx.agentRun.findMany({
       where: {
         projectId: owner.projectId,
         kind: "agent",
@@ -254,29 +272,52 @@ async function runCase(
         subjectId: setup.task.id,
       },
     });
-    const spans = run
+    const spans = runs.length
       ? await tx.agentSpan.findMany({
-          where: { runId: run.id, type: "model_call" },
+          where: {
+            runId: { in: runs.map((run) => run.id) },
+            type: "model_call",
+          },
         })
       : [];
-    const reservations = await taskReservations(tx, owner, setup.task.id);
-    // Cleanup of the case: its draft leaves the run, its history the channel.
-    const row = await entity(tx, owner, "content", setup.contentId);
-    await update(tx, owner, row, { ...data(row), status: "archived" });
+    // Review reservations only; the stubbed revision draft reserves under the draft route.
+    const reservations = (
+      await taskReservations(tx, owner, setup.task.id)
+    ).filter((row) => row.taskClass === "agent_review");
+    const original = data(await entity(tx, owner, "content", setup.contentId));
+    // A revision that failed (it is a stub, so this is not the planned path) is an error.
+    const revisionError = original.agentReviewDecision?.revisionError;
+    if (!failure && revisionError) failure = String(revisionError);
+    if (!failure && first?.verdict === "revise" && !first.revisedTo)
+      failure = "EVAL_REVISION_MISSING";
+    // Cleanup of the case: its drafts leave the run, its history the channel.
+    for (const id of [setup.contentId, first?.revisedTo]) {
+      if (!id) continue;
+      const row = await entity(tx, owner, "content", id);
+      await update(tx, owner, row, { ...data(row), status: "archived" });
+    }
     for (const post of setup.posts)
       await tx.entity.delete({ where: { id: post.id } });
-    const problems = decision?.deterministicProblems ?? [];
+    const problems = [
+      ...new Set([
+        ...(first?.deterministicProblems ?? []),
+        ...(final && final !== first ? final.deterministicProblems : []),
+      ]),
+    ];
     const verdict: VerdictClass = failure
       ? "error"
-      : decision!.verdict === "needs_owner"
+      : final!.verdict === "needs_owner"
         ? "owner"
-        : decision!.verdict === "reject" && problems.length
+        : final!.verdict === "reject" && final!.deterministicProblems.length
           ? "blocked"
-          : (decision!.verdict as VerdictClass);
+          : final!.verdict === "approve"
+            ? "approve"
+            : "reject";
     const known = spans.filter((span) => span.costMicros !== null);
     const sum = (pick: (span: (typeof spans)[number]) => number | null) =>
       spans.length ? spans.reduce((n, span) => n + (pick(span) ?? 0), 0) : null;
     const settled = reservations.filter((row) => row.state === "settled");
+    const modelCalled = reservations.some((row) => row.state !== "released");
     const result: CaseResult = {
       caseId: c.id,
       label: c.label,
@@ -285,7 +326,14 @@ async function runCase(
       bareHost: isBareHost(c),
       verdict,
       pass: casePasses({ label: c.label, verdict }),
-      modelCalled: reservations.some((row) => row.state !== "released"),
+      modelCalled,
+      reviewCalls: reservations.filter((row) => row.state !== "released")
+        .length,
+      revised: Boolean(first?.revisedTo),
+      asPlanned: caseAsPlanned(c, {
+        modelCalled,
+        deterministicProblems: problems,
+      }),
       deterministicProblems: problems,
       errorCode: failure,
       costMicros:
@@ -379,8 +427,8 @@ export async function runReviewEval(options: {
   } catch (error) {
     setupError = error;
   }
-  // Cleanup always runs; the first error wins. The workspace cascades to the
-  // project, its encrypted key and every row of the run.
+  // Cleanup always runs. The workspace cascades to the project, its
+  // encrypted key and every row of the run.
   let cleanupError: unknown = null;
   try {
     await project?.cleanup();
@@ -389,8 +437,9 @@ export async function runReviewEval(options: {
   }
   if (agents === undefined) delete process.env.ORBIT_AGENTS;
   else process.env.ORBIT_AGENTS = agents;
+  // Setup fails before any review call; a failed cleanup after paid calls is
+  // reported with the results instead, so the evidence is still written.
   if (setupError) throw setupError;
-  if (cleanupError) throw cleanupError;
   return {
     datasetVersion: options.datasetVersion,
     datasetHash: reviewDatasetHash(cases, route, maxCostMicros),
@@ -398,6 +447,7 @@ export async function runReviewEval(options: {
     workspaceId: project!.owner.workspaceId,
     route,
     stoppedReason,
+    cleanupError: cleanupError ? errorCode(cleanupError) : null,
     results,
   };
 }
