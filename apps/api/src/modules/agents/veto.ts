@@ -507,7 +507,7 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
 }
 
 /** A run that ended with its review done and has not been scheduled yet. */
-function awaitsScheduling(run: Record<string, any>) {
+export function awaitsScheduling(run: Record<string, any>) {
   return (
     ["done", "partial"].includes(run.status) &&
     !run.scheduledAt &&

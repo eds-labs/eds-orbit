@@ -6,6 +6,8 @@ import {
   pausedPosts,
 } from "./autopilot-approvals";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
+import { approvalItems } from "./draft-cleanup";
+import { DraftCleanup } from "./draft-cleanup-panel";
 import {
   AdaptationDialog,
   BriefProposalDialog,
@@ -2116,16 +2118,7 @@ export function ApprovalInbox() {
     exceptions = useCollection("exceptions");
   const resolve = useMutation(refresh);
   const [selected, setSelected] = useState<Entity | null>(null);
-  const items = (content.data?.items || []).filter((e) =>
-    [
-      "review",
-      "needs_review",
-      "reviewed",
-      "draft",
-      "blocked",
-      "pending_approval",
-    ].includes(String(e.data.status)),
-  );
+  const items = approvalItems(content.data?.items || []);
   return (
     <>
       <PageHead
@@ -2136,6 +2129,7 @@ export function ApprovalInbox() {
             : "The decisions that need your attention."
         }
       />
+      <DraftCleanup />
       <ResourceError
         error={content.error || exceptions.error}
         retry={() => {

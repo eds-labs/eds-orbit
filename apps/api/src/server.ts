@@ -9,6 +9,10 @@ import {
 import { resumePausedPublications } from "./modules/paused-posts.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
 import {
+  archiveOldDrafts,
+  restoreDraftCleanup,
+} from "./modules/draft-cleanup.ts";
+import {
   proposeBrief,
   briefProposalInput,
   importCommunityQuestions,
@@ -1517,11 +1521,22 @@ export async function buildServer(
       "knowledge-import-commit",
       "knowledge-import-retry",
     ].includes(action);
+    // These check the owner role themselves, so editors and viewers alike
+    // get OWNER_REQUIRED instead of the generic FORBIDDEN. Skipping the
+    // generic write gate is safe for them only: they are not in `owner`
+    // above, are dispatched solely inside the scoped transaction below, and
+    // archiveOldDrafts/restoreDraftCleanup refuse every non-owner as their
+    // first statement, before reading or writing anything. Scope still
+    // requires a project membership (NOT_FOUND otherwise).
+    const ownerChecked = [
+      "archive-old-drafts",
+      "restore-draft-cleanup",
+    ].includes(action);
     const scope = await scopeFor(
       auth,
       req,
       projectId,
-      action !== "retrieve" && action !== "preflight",
+      action !== "retrieve" && action !== "preflight" && !ownerChecked,
       owner,
     );
     const input = object.parse(req.body);
@@ -2102,6 +2117,10 @@ export async function buildServer(
       if (action === "resume-paused-publications")
         return resumePausedPublications(tx, scope);
       if (action === "archive-mission") return archiveMission(tx, scope, input);
+      if (action === "archive-old-drafts")
+        return archiveOldDrafts(tx, scope, input);
+      if (action === "restore-draft-cleanup")
+        return restoreDraftCleanup(tx, scope, input);
       if (action === "run-mission")
         return planMission(tx, scope, schemas.id.parse(input.missionId));
       if (action === "start-approved-live-draft-once") {

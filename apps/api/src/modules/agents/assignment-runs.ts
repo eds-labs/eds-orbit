@@ -48,7 +48,12 @@ const TASKS = "agent_tasks";
 const LOOKAHEAD_DAYS = 9;
 // A taken time moves forward in steps of this size within the same local day.
 export const SLOT_STEP_MS = 30 * 60000;
-const TERMINAL_RUN: RunStatus[] = ["done", "partial", "failed", "canceled"];
+export const TERMINAL_RUN: RunStatus[] = [
+  "done",
+  "partial",
+  "failed",
+  "canceled",
+];
 // Share of a run's cost ceiling per step; several copywriters each get their own share.
 const WEIGHT: Record<StepRole, number> = {
   analytics: 10,
