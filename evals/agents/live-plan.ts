@@ -19,7 +19,12 @@ import {
   type CandidatesFile,
   type LiveEnv,
 } from "../generation/live-plan.ts";
-import { isBareHost, type ReviewCase, type ReviewSet } from "./review-set.ts";
+import {
+  isBareHost,
+  type ReviewBrief,
+  type ReviewCase,
+  type ReviewSet,
+} from "./review-set.ts";
 
 // Hard ceiling of this eval; ORBIT_EVAL_MAX_USD can only lower it. It covers
 // the worst case of two review calls (round 1 and round 2) for every case.
@@ -96,9 +101,10 @@ export function reviewDatasetHash(
   cases: ReviewCase[],
   route: ModelRoute,
   maxCostMicros: number,
+  brief: ReviewBrief,
 ) {
   return createHash("sha256")
-    .update(JSON.stringify(canonical({ cases, route, maxCostMicros })))
+    .update(JSON.stringify(canonical({ cases, route, maxCostMicros, brief })))
     .digest("hex");
 }
 
@@ -131,7 +137,7 @@ export function planReviewEval(
     route.maxOutputTokens,
     { rateCard },
   );
-  const hash = reviewDatasetHash(cases, route, maxCostMicros);
+  const hash = reviewDatasetHash(cases, route, maxCostMicros, set.brief);
   return {
     mode,
     cases,

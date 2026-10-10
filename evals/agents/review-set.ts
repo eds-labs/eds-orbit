@@ -40,10 +40,25 @@ export const reviewCase = z
   .strict();
 export type ReviewCase = z.infer<typeof reviewCase>;
 
+/**
+ * The strategy brief every case's draft answers. It must match the drafts:
+ * the review checks that a draft follows its brief, so a brief the drafts
+ * do not follow makes every case fail for that reason alone.
+ */
+export const reviewBrief = z
+  .object({
+    angle: z.string().min(1),
+    cta: z.string().min(1),
+    notARepeatBecause: z.string().min(1),
+  })
+  .strict();
+export type ReviewBrief = z.infer<typeof reviewBrief>;
+
 const reviewSet = z
   .object({
     datasetVersion: z.literal("agents-review-v2"),
     description: z.string().min(1),
+    brief: reviewBrief,
     cases: z.array(reviewCase).min(20),
   })
   .strict()

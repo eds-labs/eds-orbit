@@ -91,7 +91,7 @@ describe("Live review eval planning (dry run)", () => {
   it("binds the dataset, the complete rate card, its date, the route, the prompt and the ceiling into the confirmation", () => {
     const base = plan();
     expect(base.hash).toBe(
-      reviewDatasetHash(set.cases, routeFile.route, 2_000_000),
+      reviewDatasetHash(set.cases, routeFile.route, 2_000_000, set.brief),
     );
     // A changed review prompt or output schema invalidates the approval.
     const prompted = planReviewEval(
@@ -145,6 +145,18 @@ describe("Live review eval planning (dry run)", () => {
     expect(
       planReviewEval({}, edited, routeFile, rates, PROMPT_HASH, now).hash,
     ).not.toBe(base.hash);
+    // The brief the drafts answer is part of what is measured.
+    const rebriefed = structuredClone(set);
+    rebriefed.brief.cta = "Join the beta.";
+    const b = planReviewEval({}, rebriefed, routeFile, rates, PROMPT_HASH, now);
+    expect(b.hash).not.toBe(base.hash);
+    expect(b.confirmation).not.toBe(base.confirmation);
+  });
+
+  it("uses a brief the good drafts follow", () => {
+    expect(set.brief.cta).toBe("Learn more.");
+    for (const c of set.cases.filter((c) => c.label === "good"))
+      expect(c.body.trim().endsWith(set.brief.cta)).toBe(true);
   });
 
   it("refuses a stale or future rate card and an unpriced route", () => {
@@ -178,7 +190,9 @@ describe("Live review eval diagnostic mode (dry run)", () => {
     expect(p.worstCaseMicros).toBe(p.perCallMicros * 16);
     expect(p.maxCostMicros).toBe(500_000);
     expect(DIAGNOSTIC_CEILING_USD).toBe(0.5);
-    expect(p.hash).toBe(reviewDatasetHash(p.cases, routeFile.route, 500_000));
+    expect(p.hash).toBe(
+      reviewDatasetHash(p.cases, routeFile.route, 500_000, set.brief),
+    );
     const text = renderPlan(p);
     expect(text).toContain("DIAGNOSTIC");
     expect(text).toContain("not a gate result");

@@ -153,7 +153,9 @@ describe.skipIf(!enabled)("Review eval v2 (offline replay)", () => {
         leadMinutes: 360,
       },
     });
-    await h.planWithBriefs((slots) => slots.map((slot) => h.brief(slot)));
+    await h.planWithBriefs((slots) =>
+      slots.map((slot) => h.brief(slot, dataset.brief)),
+    );
     await runAgentTask(h.worker(), (await h.task(`copywriter:${X}`)).id);
     const [draft] = await h.rows("content");
     template = draft!;
