@@ -35,7 +35,14 @@ export async function archiveMission(tx: DbTx, scope: Scope, raw: unknown) {
     return markMissionArchived(tx, scope, row);
   }
   if (m.status !== "archived") return row;
-  const { statusBeforeArchive, archivedAt, archivedBy, ...rest } = m;
+  const {
+    statusBeforeArchive,
+    archivedAt,
+    archivedBy,
+    archiveReason: _reason,
+    cleanupId: _cleanupId,
+    ...rest
+  } = m;
   const restored = await update(tx, scope, row, {
     ...rest,
     status: statusBeforeArchive ?? "completed",
@@ -44,11 +51,15 @@ export async function archiveMission(tx: DbTx, scope: Scope, raw: unknown) {
   return restored;
 }
 
-/** Archives one mission row; callers check role and running jobs first. */
+/**
+ * Archives one mission row; callers check role and running jobs first. A
+ * draft cleanup passes its `cleanupId` and reason in `extra`.
+ */
 export async function markMissionArchived(
   tx: DbTx,
   scope: Scope,
   row: Awaited<ReturnType<typeof entity>>,
+  extra: { archiveReason?: string; cleanupId?: string } = {},
 ) {
   const m = data(row);
   const archived = await update(tx, scope, row, {
@@ -57,7 +68,8 @@ export async function markMissionArchived(
     statusBeforeArchive: m.status,
     archivedAt: new Date().toISOString(),
     archivedBy: scope.userId,
+    ...extra,
   });
-  await audit(tx, scope, "mission.archived", row.id, {});
+  await audit(tx, scope, "mission.archived", row.id, extra);
   return archived;
 }

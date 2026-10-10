@@ -1,6 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import * as schemas from "../../../packages/schemas/src/index.ts";
+import {
+  draftCleanupInput,
+  draftCleanupRestoreInput,
+} from "./modules/draft-cleanup.ts";
 const entity = {
   type: "object",
   required: ["id", "kind", "version", "data"],
@@ -82,4 +86,7 @@ export const contractSchemas = {
   content: z.toJSONSchema(schemas.content),
   policy: z.toJSONSchema(schemas.policy),
   metric: z.toJSONSchema(schemas.metric),
+  // Inputs of the owner actions archive-old-drafts and restore-draft-cleanup.
+  draftCleanupInput: z.toJSONSchema(draftCleanupInput, { io: "input" }),
+  draftCleanupRestoreInput: z.toJSONSchema(draftCleanupRestoreInput),
 };

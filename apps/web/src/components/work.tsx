@@ -7,6 +7,12 @@ import {
 } from "./autopilot-approvals";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import {
+  approvalItems,
+  cleanupConfirmText,
+  cleanupDoneText,
+  type DraftCleanupSummary,
+} from "./draft-cleanup";
+import {
   AdaptationDialog,
   BriefProposalDialog,
   CommunityQuestions,
@@ -2109,6 +2115,115 @@ function AutopilotOrMigration() {
     <AutopilotApprovals />
   );
 }
+/**
+ * The owner's clean start: archives every old draft and the ready missions
+ * left without work after a preview of the counts. Archiving is reversible;
+ * "Rückgängig" restores this cleanup while the page stays open.
+ */
+function DraftCleanup() {
+  const { locale, project, refresh } = useWorkspace();
+  const de = locale === "de";
+  const mutation = useMutation(refresh);
+  const [preview, setPreview] = useState<DraftCleanupSummary | null>(null),
+    [done, setDone] = useState<DraftCleanupSummary | null>(null),
+    [restored, setRestored] = useState(false);
+  const run = (input: Record<string, unknown>) =>
+    action<DraftCleanupSummary>(project.id, "archive-old-drafts", input);
+  return (
+    <>
+      <div className="form-actions">
+        <Button
+          variant="outline"
+          disabled={mutation.pending}
+          onClick={() =>
+            mutation
+              .run(() => run({ preview: true }))
+              .then((result) => {
+                if (!result) return;
+                setRestored(false);
+                setPreview(result);
+              })
+          }
+        >
+          {de ? "Alte Entwürfe archivieren" : "Archive old drafts"}
+        </Button>
+      </div>
+      {mutation.error && !preview && (
+        <Alert kind="error">{mutation.error}</Alert>
+      )}
+      {done?.cleanupId && (
+        <Alert kind="success">
+          <p>{cleanupDoneText(done, locale)}</p>
+          <div className="form-actions">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={mutation.pending}
+              onClick={() =>
+                mutation
+                  .run(() =>
+                    action(project.id, "restore-draft-cleanup", {
+                      cleanupId: done.cleanupId,
+                    }),
+                  )
+                  .then((result) => {
+                    if (!result) return;
+                    setDone(null);
+                    setRestored(true);
+                  })
+              }
+            >
+              {de ? "Rückgängig" : "Undo"}
+            </Button>
+          </div>
+        </Alert>
+      )}
+      {restored && (
+        <Alert kind="success">
+          {de ? "Archivierung rückgängig gemacht." : "Archiving undone."}
+        </Alert>
+      )}
+      {preview && (
+        <Modal
+          title={de ? "Alte Entwürfe archivieren" : "Archive old drafts"}
+          onClose={() => setPreview(null)}
+        >
+          {preview.content.total || preview.missions.total ? (
+            <p>{cleanupConfirmText(preview, locale)}</p>
+          ) : (
+            <p>
+              {de
+                ? "Es gibt keine alten Entwürfe zum Archivieren."
+                : "There are no old drafts to archive."}
+            </p>
+          )}
+          {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+          <div className="form-actions">
+            <Button variant="outline" onClick={() => setPreview(null)}>
+              {de ? "Abbrechen" : "Cancel"}
+            </Button>
+            {Boolean(preview.content.total || preview.missions.total) && (
+              <Button
+                disabled={mutation.pending}
+                onClick={() =>
+                  mutation
+                    .run(() => run({ preview: false, confirm: true }))
+                    .then((result) => {
+                      if (!result) return;
+                      setPreview(null);
+                      setDone(result);
+                    })
+                }
+              >
+                {de ? "Archivieren" : "Archive"}
+              </Button>
+            )}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
 export function ApprovalInbox() {
   const { t, locale, project, isOwner, refresh } = useWorkspace();
   const de = locale === "de";
@@ -2116,16 +2231,7 @@ export function ApprovalInbox() {
     exceptions = useCollection("exceptions");
   const resolve = useMutation(refresh);
   const [selected, setSelected] = useState<Entity | null>(null);
-  const items = (content.data?.items || []).filter((e) =>
-    [
-      "review",
-      "needs_review",
-      "reviewed",
-      "draft",
-      "blocked",
-      "pending_approval",
-    ].includes(String(e.data.status)),
-  );
+  const items = approvalItems(content.data?.items || []);
   return (
     <>
       <PageHead
@@ -2136,6 +2242,7 @@ export function ApprovalInbox() {
             : "The decisions that need your attention."
         }
       />
+      {isOwner && <DraftCleanup />}
       <ResourceError
         error={content.error || exceptions.error}
         retry={() => {
