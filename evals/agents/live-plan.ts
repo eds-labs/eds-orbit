@@ -24,6 +24,8 @@ import { isBareHost, type ReviewCase, type ReviewSet } from "./review-set.ts";
 // Hard ceiling of this eval; ORBIT_EVAL_MAX_USD can only lower it. It covers
 // the worst case of two review calls (round 1 and round 2) for every case.
 export const REVIEW_CEILING_USD = 2;
+// Hard ceiling of the diagnostic mode (ORBIT_EVAL_DIAGNOSE=good).
+export const DIAGNOSTIC_CEILING_USD = 0.5;
 // Review calls per case at most: round 1 and, after a `revise`, round 2.
 const CALLS_PER_CASE = 2;
 // Upper bound of one review request (base and review instructions, output
@@ -46,7 +48,25 @@ export function parseRouteFile(raw: unknown): RouteFile {
   return routeFileSchema.parse(raw);
 }
 
+/**
+ * The diagnostic subset from ORBIT_EVAL_DIAGNOSE: unset means a normal run,
+ * `good` runs only the good cases; any other value (blank included) is
+ * EVAL_DIAGNOSE_INVALID.
+ */
+export function diagnoseMode(env: LiveEnv): "good" | null {
+  const raw = env.ORBIT_EVAL_DIAGNOSE;
+  if (raw === undefined) return null;
+  if (raw === "good") return "good";
+  throw new Error("EVAL_DIAGNOSE_INVALID");
+}
+
+// `diagnose-good`: only the good cases, to read the model's reasons; never a gate result.
+export type ReviewMode = "normal" | "diagnose-good";
+
 export type ReviewPlan = {
+  mode: ReviewMode;
+  // The cases the run reviews: the whole set, or the good ones in diagnostic mode.
+  cases: ReviewCase[];
   datasetVersion: string;
   caseCount: number;
   good: number;
@@ -66,7 +86,8 @@ export type ReviewPlan = {
   // Hash of the review instructions and output schema the run sends (code-version.ts).
   promptHash: string;
   // Value for ORBIT_EVAL_CONFIRM: binds the hash, the complete rate card with
-  // its verification date, the route, the prompt hash and the ceiling.
+  // its verification date, the route, the prompt hash and the ceiling; in
+  // diagnostic mode also the mode and the case ids.
   confirmation: string;
   runtime: Pick<OpenAiRuntimeConfig, "verifiedModels" | "rateCard">;
 };
@@ -95,25 +116,35 @@ export function planReviewEval(
   const { route } = routeFile;
   // Prices are never invented: an unpriced route is refused.
   if (!rateCard[route.model]) throw new Error("EVAL_ROUTE_NOT_PRICED");
-  const maxCostMicros = ceilingMicros(env, REVIEW_CEILING_USD);
+  const diagnose = diagnoseMode(env);
+  const mode: ReviewMode = diagnose ? "diagnose-good" : "normal";
+  const cases = diagnose
+    ? set.cases.filter((c) => c.label === "good")
+    : set.cases;
+  const maxCostMicros = ceilingMicros(
+    env,
+    diagnose ? DIAGNOSTIC_CEILING_USD : REVIEW_CEILING_USD,
+  );
   const perCallMicros = estimateCost(
     route.model,
     REVIEW_REQUEST_BYTES,
     route.maxOutputTokens,
     { rateCard },
   );
-  const hash = reviewDatasetHash(set.cases, route, maxCostMicros);
+  const hash = reviewDatasetHash(cases, route, maxCostMicros);
   return {
+    mode,
+    cases,
     datasetVersion: set.datasetVersion,
-    caseCount: set.cases.length,
-    good: set.cases.filter((c) => c.label === "good").length,
-    bad: set.cases.filter((c) => c.label === "bad" && !isBareHost(c)).length,
-    bareHost: set.cases.filter(isBareHost).length,
-    calls: set.cases.length * CALLS_PER_CASE,
-    expectedModelCalls: set.cases.filter((c) => c.expected.modelSees).length,
+    caseCount: cases.length,
+    good: cases.filter((c) => c.label === "good").length,
+    bad: cases.filter((c) => c.label === "bad" && !isBareHost(c)).length,
+    bareHost: cases.filter(isBareHost).length,
+    calls: cases.length * CALLS_PER_CASE,
+    expectedModelCalls: cases.filter((c) => c.expected.modelSees).length,
     route,
     perCallMicros,
-    worstCaseMicros: perCallMicros * set.cases.length * CALLS_PER_CASE,
+    worstCaseMicros: perCallMicros * cases.length * CALLS_PER_CASE,
     maxCostMicros,
     hash,
     promptHash,
@@ -127,6 +158,10 @@ export function planReviewEval(
             route,
             promptHash,
             maxCostMicros,
+            // The normal confirmation keeps its earlier shape; a diagnostic
+            // one also binds the mode and the case subset, so neither can
+            // start the other run.
+            ...(diagnose ? { mode, caseIds: cases.map((c) => c.id) } : {}),
           }),
         ),
       )
@@ -139,8 +174,15 @@ const usd = (micros: number) => "$" + (micros / 1_000_000).toFixed(4);
 
 export function renderPlan(plan: ReviewPlan): string {
   const { route } = plan;
+  const diagnostic = plan.mode === "diagnose-good";
   return [
     "Agent review eval plan (dry run; nothing is transmitted)",
+    ...(diagnostic
+      ? [
+          "  mode: DIAGNOSTIC (ORBIT_EVAL_DIAGNOSE=good) — not a gate result; it never counts as PASS for Approval J and writes no docs/evidence file",
+          `  diagnostic cases: ${plan.caseCount} good cases only (${plan.cases.map((c) => c.id).join(", ")}); the model's reasons and revision instructions of both rounds go only to .runtime/agent-review-diagnosis-<stamp>.json and .md`,
+        ]
+      : []),
     `  dataset version: ${plan.datasetVersion}`,
     `  cases: ${plan.caseCount} (${plan.good} good, ${plan.bad} bad, ${plan.bareHost} bare host)`,
     `  route (agent_review): ${route.model}, reasoning ${route.reasoningEffort ?? "default"}, max output ${route.maxOutputTokens}`,
@@ -158,6 +200,18 @@ export function renderPlan(plan: ReviewPlan): string {
     `  review prompt and schema hash: ${plan.promptHash}`,
     `  confirmation (ORBIT_EVAL_CONFIRM): ${plan.confirmation}`,
   ].join("\n");
+}
+
+/**
+ * The gate result of a run: a diagnostic run is never PASS or FAIL, only
+ * `DIAGNOSTIC`, so it can never stand in for Approval J.
+ */
+export function gateResult(
+  plan: Pick<ReviewPlan, "mode">,
+  outcome: { pass: boolean },
+): "PASS" | "FAIL" | "DIAGNOSTIC" {
+  if (plan.mode !== "normal") return "DIAGNOSTIC";
+  return outcome.pass ? "PASS" : "FAIL";
 }
 
 /**

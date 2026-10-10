@@ -33,7 +33,11 @@ and deleted per run, and only against a local database
 - `live-harness.test.ts` runs the live harness end to end with replayed
   answers: the whole set as planned, round 2 after a `revise` (with the
   unchanged revision), the ceiling stop, metrics-only output, the cleanup,
-  and that every review request of the set stays below the planning bound.
+  the diagnostic reasons file under `.runtime/`, and that every review
+  request of the set stays below the planning bound.
+- `diagnosis.test.ts` tests the diagnostic reasons file (banner, content,
+  refusal to write the key); `eval-key.test.ts` the keychain lookup with a
+  mocked `execFile`.
 
 ## Live run (manual, budget-capped, rollout Approval J)
 
@@ -90,11 +94,30 @@ No Telegram bot is linked, so no notification is queued.
    `EVAL_KEY_REQUIRED`. A key or a confirmation alone never falls back to a
    silent dry run: the missing half is an error.
 
-| Variable                    | Meaning                                                                                                                                             |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ORBIT_EVAL_OPENAI_API_KEY` | Key for this run only. Stored like the production configuration (encrypted) in the synthetic project and deleted with it. Never printed or written. |
-| `ORBIT_EVAL_CONFIRM`        | Confirmation value from the dry run (not the dataset hash).                                                                                         |
-| `ORBIT_EVAL_MAX_USD`        | Lowers the cost ceiling in USD. Default and maximum: 2; a higher value is clamped to 2.                                                             |
+   **Key from the macOS keychain.** Instead of putting the key on the
+   command line, store it once in the login keychain:
+
+   ```sh
+   security add-generic-password -s orbit-eval-openai -a "$USER" -U -w
+   ```
+
+   Keep `-w` as the last option: without a value macOS prompts for the key
+   hidden, so it never enters the shell history. Then run with
+   `ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-openai` in place of
+   `ORBIT_EVAL_OPENAI_API_KEY`. The key variable wins when both are set. The
+   keychain is read only for a run whose confirmation matches, with
+   `security find-generic-password -s <service> -w` through `execFile` (no
+   shell); the key is never printed or logged. A service alone, without a
+   confirmation, leaves the run a dry run. No key in either place (or an
+   unknown item) is `EVAL_KEY_REQUIRED`.
+
+| Variable                      | Meaning                                                                                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ORBIT_EVAL_OPENAI_API_KEY`   | Key for this run only. Stored like the production configuration (encrypted) in the synthetic project and deleted with it. Never printed or written. |
+| `ORBIT_EVAL_KEYCHAIN_SERVICE` | macOS keychain service holding the key, read only when `ORBIT_EVAL_OPENAI_API_KEY` is unset and the confirmation matches.                           |
+| `ORBIT_EVAL_CONFIRM`          | Confirmation value from the dry run (not the dataset hash).                                                                                         |
+| `ORBIT_EVAL_MAX_USD`          | Lowers the cost ceiling in USD. Default and maximum: 2 (0.5 in diagnostic mode); a higher value is clamped.                                         |
+| `ORBIT_EVAL_DIAGNOSE`         | `good` runs the diagnostic mode (below). Any other value is `EVAL_DIAGNOSE_INVALID`.                                                                |
 
 Safeguards:
 
@@ -124,6 +147,41 @@ Safeguards:
 - Residue of a hard-killed run (the workspace and users named
   `Synthetic agent review eval`) is removed by the next run once it is older
   than 12 hours, including the project's encrypted copy of the key.
+
+## Diagnostic mode
+
+`ORBIT_EVAL_DIAGNOSE=good` runs only the set's good cases through the same
+production review step, to read why the model rejected them (run 2 on
+2026-10-10 rejected 5 of 8 good cases). It is a diagnosis, never a gate:
+
+- **Plan.** The dry run (`ORBIT_EVAL_DIAGNOSE=good pnpm eval:agent-review`)
+  states the mode, the good case ids and count, at most two review calls per
+  case, the worst case and the ceiling.
+- **Confirmation.** The diagnostic confirmation also binds the mode and the
+  case ids, so a normal confirmation never starts a diagnostic run and a
+  diagnostic one never starts a normal run (`EVAL_CONFIRMATION_MISMATCH`).
+  The normal confirmation is unchanged.
+- **Ceiling.** Default and maximum 0.5 USD; `ORBIT_EVAL_MAX_USD` can only
+  lower it. The worst-case estimate (every call at its full output limit,
+  with the 8,000-byte planning bound) is above 0.5 USD, so the plan notes a
+  possible early stop; run 2 spent about $0.05 on the good cases.
+- **Reasons file.** For each case and round the run reads the decision the
+  review step stores on the draft it judged (`content.agentReviewDecision`,
+  written by `recordDecision` in `decideRound`; round 1 on the original
+  draft, round 2 on the revision): verdict, model verdict, `reasons`,
+  `revisionInstructions`, deterministic codes, and the synthetic draft body.
+  They are written only to
+  `.runtime/agent-review-diagnosis-<UTC timestamp>.json` and `.md`
+  (gitignored, owner-only); stdout gets a one-line pointer to the file. The
+  file never contains the key (`EVAL_DIAGNOSIS_SECRET` refuses to write it).
+- **No gate result.** The run prints `DIAGNOSTIC — not a gate result`,
+  writes no `docs/evidence` file, and its result is `DIAGNOSTIC`, never PASS
+  or FAIL: it can never count for Approval J. It still exits non-zero after
+  an early stop or a failed cleanup.
+
+```sh
+ORBIT_EVAL_DIAGNOSE=good ORBIT_EVAL_KEYCHAIN_SERVICE=orbit-eval-openai ORBIT_EVAL_CONFIRM=<diagnostic confirmation> pnpm eval:agent-review
+```
 
 ## Verdict classes and pass rule
 

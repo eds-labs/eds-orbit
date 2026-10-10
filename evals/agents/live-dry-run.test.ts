@@ -8,7 +8,10 @@ import {
 import {
   caseAsPlanned,
   casePasses,
+  DIAGNOSTIC_CEILING_USD,
+  diagnoseMode,
   evaluatePassRule,
+  gateResult,
   parseRouteFile,
   planReviewEval,
   renderPlan,
@@ -158,6 +161,136 @@ describe("Live review eval planning (dry run)", () => {
     expect(() =>
       parseRouteFile({ ...rawRoute, taskClass: "draft_social" }),
     ).toThrow();
+  });
+});
+
+describe("Live review eval diagnostic mode (dry run)", () => {
+  const diagnose = { ORBIT_EVAL_DIAGNOSE: "good" };
+  const goodIds = set.cases.filter((c) => c.label === "good").map((c) => c.id);
+
+  it("plans only the good cases, at most two calls each, under a 0.5 USD ceiling, and says so", () => {
+    const p = plan(diagnose);
+    expect(p.mode).toBe("diagnose-good");
+    expect(p.cases.map((c) => c.id)).toEqual(goodIds);
+    expect(p.caseCount).toBe(8);
+    expect([p.good, p.bad, p.bareHost]).toEqual([8, 0, 0]);
+    expect(p.calls).toBe(16);
+    expect(p.worstCaseMicros).toBe(p.perCallMicros * 16);
+    expect(p.maxCostMicros).toBe(500_000);
+    expect(DIAGNOSTIC_CEILING_USD).toBe(0.5);
+    expect(p.hash).toBe(reviewDatasetHash(p.cases, routeFile.route, 500_000));
+    const text = renderPlan(p);
+    expect(text).toContain("DIAGNOSTIC");
+    expect(text).toContain("not a gate result");
+    expect(text).toContain("cases: 8 (8 good, 0 bad, 0 bare host)");
+    expect(text).toContain("16 review calls at most (two per case");
+    expect(text).toContain("worst-case estimate: ");
+    expect(text).toContain("cost ceiling: $0.5000");
+    for (const id of goodIds) expect(text).toContain(id);
+    expect(text).toContain(p.confirmation);
+    // The normal plan says nothing about a diagnostic run.
+    expect(plan().mode).toBe("normal");
+    expect(plan().cases).toEqual(set.cases);
+    expect(renderPlan(plan())).not.toContain("DIAGNOSTIC");
+  });
+
+  it("binds the mode and the case subset into a confirmation of its own", () => {
+    const normal = plan();
+    const diag = plan(diagnose);
+    expect(diag.confirmation).toMatch(/^[0-9a-f]{64}$/);
+    expect(diag.confirmation).not.toBe(normal.confirmation);
+    expect(diag.hash).not.toBe(normal.hash);
+    // Even at the same ceiling the two modes never share a confirmation.
+    const sameCeiling = plan({ ORBIT_EVAL_MAX_USD: "0.5" });
+    expect(sameCeiling.maxCostMicros).toBe(diag.maxCostMicros);
+    expect(sameCeiling.confirmation).not.toBe(diag.confirmation);
+    // Stable across copies.
+    expect(
+      planReviewEval(
+        diagnose,
+        structuredClone(set),
+        structuredClone(routeFile),
+        structuredClone(rates),
+        PROMPT_HASH,
+        now,
+      ).confirmation,
+    ).toBe(diag.confirmation);
+    // A changed good case changes the subset and the confirmation.
+    const edited = structuredClone(set);
+    edited.cases.find((c) => c.label === "good")!.body += " Today.";
+    expect(
+      planReviewEval(diagnose, edited, routeFile, rates, PROMPT_HASH, now)
+        .confirmation,
+    ).not.toBe(diag.confirmation);
+    // A changed bad case does not touch the diagnostic subset.
+    const badEdited = structuredClone(set);
+    badEdited.cases.find((c) => c.label === "bad")!.body += " Today.";
+    expect(
+      planReviewEval(diagnose, badEdited, routeFile, rates, PROMPT_HASH, now)
+        .confirmation,
+    ).toBe(diag.confirmation);
+  });
+
+  it("refuses a normal confirmation in diagnostic mode, and the reverse", () => {
+    const key = { ORBIT_EVAL_OPENAI_API_KEY: SYNTHETIC_KEY };
+    const normal = plan();
+    const diag = plan(diagnose);
+    expect(() =>
+      assertLiveAllowed(
+        { ...key, ...diagnose, ORBIT_EVAL_CONFIRM: normal.confirmation },
+        diag.confirmation,
+      ),
+    ).toThrow("EVAL_CONFIRMATION_MISMATCH");
+    expect(() =>
+      assertLiveAllowed(
+        { ...key, ORBIT_EVAL_CONFIRM: diag.confirmation },
+        normal.confirmation,
+      ),
+    ).toThrow("EVAL_CONFIRMATION_MISMATCH");
+    expect(
+      assertLiveAllowed(
+        { ...key, ...diagnose, ORBIT_EVAL_CONFIRM: diag.confirmation },
+        diag.confirmation,
+      ),
+    ).toBe(SYNTHETIC_KEY);
+  });
+
+  it("clamps the ceiling to 0.5 USD and lets it only be lowered", () => {
+    for (const raw of ["0.5", "2", "5", "50"])
+      expect(plan({ ...diagnose, ORBIT_EVAL_MAX_USD: raw }).maxCostMicros).toBe(
+        500_000,
+      );
+    expect(plan({ ...diagnose, ORBIT_EVAL_MAX_USD: "0.2" }).maxCostMicros).toBe(
+      200_000,
+    );
+    expect(() => plan({ ...diagnose, ORBIT_EVAL_MAX_USD: "" })).toThrow(
+      "EVAL_MAX_USD_INVALID",
+    );
+    // The normal ceiling stays 2 USD.
+    expect(plan({ ORBIT_EVAL_MAX_USD: "5" }).maxCostMicros).toBe(2_000_000);
+  });
+
+  it("accepts only the good subset and refuses any other value", () => {
+    expect(diagnoseMode({})).toBeNull();
+    expect(diagnoseMode(diagnose)).toBe("good");
+    for (const bad of ["", " ", "bad", "GOOD", "all", "true", "1"]) {
+      expect(() => diagnoseMode({ ORBIT_EVAL_DIAGNOSE: bad })).toThrow(
+        "EVAL_DIAGNOSE_INVALID",
+      );
+      expect(() => plan({ ORBIT_EVAL_DIAGNOSE: bad })).toThrow(
+        "EVAL_DIAGNOSE_INVALID",
+      );
+    }
+  });
+
+  it("never counts a diagnostic run as PASS", () => {
+    const all = { rules: {} as never, pass: true };
+    expect(gateResult(plan(), all)).toBe("PASS");
+    expect(gateResult(plan(), { ...all, pass: false })).toBe("FAIL");
+    expect(gateResult(plan(diagnose), all)).toBe("DIAGNOSTIC");
+    expect(gateResult(plan(diagnose), { ...all, pass: false })).toBe(
+      "DIAGNOSTIC",
+    );
   });
 });
 
