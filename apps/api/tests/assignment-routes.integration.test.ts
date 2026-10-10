@@ -16,7 +16,8 @@ import {
 } from "../../../packages/db/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
 import { buildServer } from "../src/server.ts";
-import { create, data, entity } from "../src/shared.ts";
+import { create, data, entity, update } from "../src/shared.ts";
+import { buildWorkPlan } from "../src/modules/agents/assignment-runs.ts";
 import { chatScoped, createConversation } from "../src/modules/chat.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { proposeAssignment } from "../src/modules/agents/assignments.ts";
@@ -401,6 +402,97 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
     ).toEqual([blocked.id]);
   });
 
+  it("shows what the agents work on, what comes next and the health", async () => {
+    const active = await confirmed();
+    const slotAt = new Date(Date.now() + 5 * 3600000).toISOString();
+    // A run that failed an hour ago, and the open run of today.
+    await run((tx) =>
+      create(tx, project.owner, "assignment_runs", {
+        assignmentId: active.id,
+        date: "2026-01-01",
+        status: "failed",
+        steps: [],
+        costMicros: 0,
+      }),
+    );
+    const open = await run(async (tx) => {
+      const row = await create(tx, project.owner, "assignment_runs", {
+        assignmentId: active.id,
+        date: new Date().toISOString().slice(0, 10),
+        status: "running",
+        slots: [{ channel: X, at: slotAt }],
+        steps: buildWorkPlan(data(active)),
+        ceilingMicros: 1_000_000,
+        costMicros: 1200,
+        plannedAt: new Date().toISOString(),
+      });
+      const task = await create(tx, project.owner, "agent_tasks", {
+        runId: row.id,
+        stepKey: "research",
+        role: "research",
+        status: "running",
+        errorCode: null,
+        costMicros: 0,
+      });
+      // The stored run lags behind its task: research is still "queued" there.
+      return update(tx, project.owner, row, {
+        ...data(row),
+        steps: data(row).steps.map((step: Record<string, unknown>) =>
+          step.key === "analytics"
+            ? { ...step, status: "done" }
+            : step.key === "research"
+              ? { ...step, status: "queued", taskId: task.id }
+              : step,
+        ),
+      });
+    });
+    await assignmentPost(active.id);
+
+    const r = await request("viewer", "GET", "agent-activity");
+    expect(r.statusCode).toBe(200);
+    const body = r.json();
+    expect(body.runs.map((x: any) => x.id)).toEqual([open.id]);
+    const shown = body.runs[0];
+    expect(shown).toMatchObject({
+      assignmentName: "Daily product post",
+      status: "running",
+      firstSlotAt: slotAt,
+      costMicros: 1200,
+      delivery: "publish",
+    });
+    const step = (key: string) =>
+      shown.steps.find((s: Record<string, unknown>) => s.key === key);
+    expect(step("analytics").status).toBe("done");
+    expect(step("research").status).toBe("running");
+    expect(step("strategy")).toMatchObject({
+      status: "pending",
+      optionalDependsOn: ["analytics", "research"],
+    });
+    expect(step(`copywriter:${X}`)).toMatchObject({
+      role: "copywriter",
+      channel: X,
+      channelName: "Synthetic X",
+    });
+    expect(body.health.state).toBe("problem");
+    expect(body.health.issues).toContainEqual({
+      code: "RUN_FAILED",
+      severity: "problem",
+      count: 1,
+    });
+    expect(body.activeAssignments).toBe(1);
+    const kinds = body.next.map((item: Record<string, unknown>) => item.kind);
+    expect(kinds).toContain("post");
+    expect(kinds).toContain("run_start");
+    expect(
+      body.next.find((item: Record<string, unknown>) => item.kind === "post"),
+    ).toMatchObject({
+      assignmentName: "Daily product post",
+      channelName: "Synthetic X",
+    });
+    // Times only: no draft text reaches the overview.
+    expect(JSON.stringify(body)).not.toContain("Beta access");
+  });
+
   it("lets only the owner release an assignment draft and lists drafts to every member", async () => {
     const assignment = await confirmed();
     let r = await request("viewer", "GET", "assignment-drafts");
@@ -612,6 +704,7 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
         ],
         ["owner", "GET", "assignment-posts", undefined],
         ["owner", "GET", "assignment-drafts", undefined],
+        ["viewer", "GET", "agent-activity", undefined],
         [
           "owner",
           "POST",

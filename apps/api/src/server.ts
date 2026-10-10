@@ -251,6 +251,7 @@ import {
   retryKnowledgeImport,
 } from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
+import { agentActivity } from "./modules/agents/agent-activity.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
 const AGENT_ROUTES = new Set([
@@ -262,6 +263,7 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/assignments/:id/status",
   "/api/projects/:projectId/assignments/autopilot-migration",
   "/api/projects/:projectId/assignment-posts",
+  "/api/projects/:projectId/agent-activity",
   "/api/projects/:projectId/publications/:id/veto",
   "/api/projects/:projectId/assignment-drafts",
   "/api/projects/:projectId/assignment-drafts/:id/release",
@@ -963,6 +965,15 @@ export async function buildServer(
         upcomingAssignmentPosts(tx, scope),
       ),
     };
+  });
+  // What the agents work on, what comes next and whether anything needs attention (overview).
+  app.get("/api/projects/:projectId/agent-activity", async (req) => {
+    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      agentActivity(tx, scope),
+    );
   });
   // Stop in Orbit (spec §10 fallback): the same veto as the bot's Stop button.
   app.post("/api/projects/:projectId/publications/:id/veto", async (req) => {
