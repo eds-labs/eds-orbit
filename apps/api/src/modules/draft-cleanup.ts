@@ -5,10 +5,14 @@ import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, list, update } from "../shared.ts";
 import { TERMINAL_RUN } from "./agents/assignment-runs.ts";
 import { awaitsScheduling } from "./agents/veto.ts";
-import { DRAFT_STATUSES } from "./draft-statuses.ts";
+import {
+  DRAFT_STATUSES,
+  KEEP_REASONS,
+  MISSION_KEEP_REASONS,
+} from "./draft-statuses.ts";
 import { markMissionArchived } from "./mission-archive.ts";
 
-export { DRAFT_STATUSES };
+export { DRAFT_STATUSES, KEEP_REASONS, MISSION_KEEP_REASONS };
 // A publication in any other status (intent_created, scheduled_remote,
 // sending, outcome_unknown, blocked_dependency, ...) may still go out.
 const FINAL_PUBLICATION = ["published", "published_test", "canceled", "failed"];
@@ -22,6 +26,17 @@ const ACTIVE_JOB = [
   "retry_scheduled",
   "blocked_dependency",
 ];
+// Content that is done; any other row (e.g. `approved` without a publication
+// yet) keeps its mission unless this run archives it.
+const SETTLED_CONTENT = [
+  "archived",
+  "exported",
+  "published",
+  "published_test",
+  "rejected",
+  "canceled",
+  "failed",
+];
 const REASON = "OWNER_CLEANUP";
 const ARCHIVE_FIELDS = [
   "statusBeforeArchive",
@@ -31,13 +46,8 @@ const ARCHIVE_FIELDS = [
   "cleanupId",
 ] as const;
 
-export const KEEP_REASONS = [
-  "HAS_OPEN_PUBLICATION",
-  "HAS_OPEN_POSTIZ_DRAFT",
-  "PENDING_DECISION",
-  "ACTIVE_ASSIGNMENT_RUN",
-] as const;
 type KeepReason = (typeof KEEP_REASONS)[number];
+type MissionKeepReason = (typeof MISSION_KEEP_REASONS)[number];
 type MissionKind = "autopilot" | "package" | "other";
 type Row = Awaited<ReturnType<typeof list>>[number];
 
@@ -150,20 +160,35 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
     const id = String(data(row).missionId);
     if (missionById.has(id)) own.set(id, [...(own.get(id) ?? []), row]);
   }
-  // A ready mission goes once it has content and none of it must stay: a
-  // draft without a reason is archived now, any other row is settled.
-  const missionArchive = missions.filter((m) => {
+  const archiving = new Set(archive.map((row) => row.id));
+  // A ready mission goes only when it has content of its own, no reference
+  // keeps any of it, and every row is archived by this run or settled.
+  const missionKeepReason = (m: Row): MissionKeepReason | null => {
     const v = data(m);
     const rows = own.get(m.id) ?? [];
-    return (
-      v.status === "ready" &&
-      v.batch?.status !== "running" &&
-      !busy.has(m.id) &&
-      !activeRuns.has(String(v.assignmentRunId)) &&
-      rows.length > 0 &&
-      rows.every((row) => keepReason(row) === null)
-    );
-  });
+    if (activeRuns.has(String(v.assignmentRunId))) return "ACTIVE_RUN";
+    if (v.batch?.status === "running") return "BATCH_RUNNING";
+    if (busy.has(m.id)) return "ACTIVE_JOB";
+    if (!rows.length) return "NO_CONTENT";
+    if (rows.some((row) => keepReason(row) !== null)) return "KEPT_CONTENT";
+    if (
+      !rows.every(
+        (row) =>
+          archiving.has(row.id) ||
+          SETTLED_CONTENT.includes(String(data(row).status)),
+      )
+    )
+      return "UNSETTLED_CONTENT";
+    return null;
+  };
+  const missionArchive: Row[] = [];
+  const missionsKept: MissionKeepReason[] = [];
+  for (const m of missions) {
+    if (data(m).status !== "ready") continue;
+    const reason = missionKeepReason(m);
+    if (reason) missionsKept.push(reason);
+    else missionArchive.push(m);
+  }
   const contentKind = (row: Row) =>
     missionKind(missionById.get(String(data(row).missionId)));
   const kinds = ["autopilot", "package", "other"] as const;
@@ -187,6 +212,11 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
           kinds,
           missionArchive.map((m) => missionKind(data(m))),
         ),
+        // Ready missions that stay, by their first reason.
+        kept: {
+          total: missionsKept.length,
+          byReason: tally(MISSION_KEEP_REASONS, missionsKept),
+        },
       },
       kept: {
         total: kept.length,

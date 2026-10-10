@@ -2,10 +2,16 @@ import { isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api";
-import { DRAFT_STATUSES } from "../../../api/src/modules/draft-statuses";
+import {
+  DRAFT_STATUSES,
+  KEEP_REASONS as API_KEEP_REASONS,
+  MISSION_KEEP_REASONS as API_MISSION_KEEP_REASONS,
+} from "../../../api/src/modules/draft-statuses";
 import {
   APPROVAL_STATUSES,
   approvalItems,
+  KEEP_REASONS,
+  MISSION_KEEP_REASONS,
   cleanupConfirmText,
   cleanupRestoredText,
   cleanupStorageKey,
@@ -30,7 +36,10 @@ const summary = (
   preview: true,
   cleanupId: null,
   content: { total: 48, alreadyInPostiz: 2 },
-  missions: { total: 6 },
+  missions: {
+    total: 6,
+    kept: { total: 3, byReason: { ACTIVE_JOB: 2, UNSETTLED_CONTENT: 1 } },
+  },
   kept: {
     total: 4,
     byReason: {
@@ -78,6 +87,8 @@ const click = (tree: ReactNode, label: string) => {
 describe("approvals filter", () => {
   it("uses the same statuses as the API cleanup", () => {
     expect(APPROVAL_STATUSES).toEqual([...DRAFT_STATUSES]);
+    expect(KEEP_REASONS).toEqual(API_KEEP_REASONS);
+    expect(MISSION_KEEP_REASONS).toEqual(API_MISSION_KEEP_REASONS);
   });
 
   it("leaves archived drafts out of the approvals list", () => {
@@ -153,6 +164,9 @@ describe("DraftCleanup", () => {
     );
     expect(dialog).toContain(
       "Behalten werden: 3 mit offener Veröffentlichung, 1 aus einem laufenden Auftrag.",
+    );
+    expect(dialog).toContain(
+      "3 Missionen bleiben (2 mit offenem Job, 1 mit nicht abgeschlossenen Inhalten).",
     );
     // The dialog's button runs the confirmation.
     const confirmed = vi.fn();
@@ -251,7 +265,10 @@ describe("DraftCleanup", () => {
       cleanupConfirmText(
         summary({
           content: { total: 1, alreadyInPostiz: 1 },
-          missions: { total: 0 },
+          missions: {
+            total: 0,
+            kept: { total: 1, byReason: { NO_CONTENT: 1 } },
+          },
           kept: { total: 1, byReason: { PENDING_DECISION: 1 } },
         }),
         "de",
@@ -260,12 +277,13 @@ describe("DraftCleanup", () => {
       "1 Entwurf wird archiviert (wiederherstellbar).",
       "Davon 1 bereits als Entwurf in Postiz (dort bleibt er unverändert).",
       "Behalten wird: 1 mit offener Entscheidung.",
+      "1 Mission bleibt (1 ohne eigene Inhalte).",
     ]);
     expect(
       cleanupConfirmText(
         summary({
           content: { total: 2 },
-          missions: { total: 1 },
+          missions: { total: 1, kept: { total: 0, byReason: {} } },
           kept: { total: 0, byReason: {} },
         }),
         "de",

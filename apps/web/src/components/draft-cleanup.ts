@@ -27,13 +27,29 @@ export const KEEP_REASONS = [
   "ACTIVE_ASSIGNMENT_RUN",
 ] as const;
 export type KeepReason = (typeof KEEP_REASONS)[number];
+/** Why a ready mission stays, in the API's order. */
+export const MISSION_KEEP_REASONS = [
+  "ACTIVE_RUN",
+  "BATCH_RUNNING",
+  "ACTIVE_JOB",
+  "NO_CONTENT",
+  "KEPT_CONTENT",
+  "UNSETTLED_CONTENT",
+] as const;
+export type MissionKeepReason = (typeof MISSION_KEEP_REASONS)[number];
 
 /** The counts `archive-old-drafts` answers with, for a preview and a run. */
 export type DraftCleanupSummary = {
   preview: boolean;
   cleanupId: string | null;
   content: { total: number; alreadyInPostiz?: number };
-  missions: { total: number };
+  missions: {
+    total: number;
+    kept?: {
+      total: number;
+      byReason?: Partial<Record<MissionKeepReason, number>>;
+    };
+  };
   kept: { total: number; byReason?: Partial<Record<KeepReason, number>> };
 };
 /** A cleanup of this browser session that can still be undone. */
@@ -93,6 +109,28 @@ const reasonText: Record<KeepReason, { de: string; en: string }> = {
   },
 };
 
+const missionReasonText: Record<MissionKeepReason, { de: string; en: string }> =
+  {
+    ACTIVE_RUN: { de: "mit laufendem Auftrag", en: "with an active run" },
+    BATCH_RUNNING: {
+      de: "mit laufender Entwurfsserie",
+      en: "with a running draft batch",
+    },
+    ACTIVE_JOB: { de: "mit offenem Job", en: "with an open job" },
+    NO_CONTENT: {
+      de: "ohne eigene Inhalte",
+      en: "without content of their own",
+    },
+    KEPT_CONTENT: {
+      de: "mit behaltenen Inhalten",
+      en: "with content that is kept",
+    },
+    UNSETTLED_CONTENT: {
+      de: "mit nicht abgeschlossenen Inhalten",
+      en: "with unfinished content",
+    },
+  };
+
 /** The dialog sentences: what is archived, what is already in Postiz, what stays. */
 export function cleanupConfirmText(s: DraftCleanupSummary, locale: Locale) {
   const de = locale === "de";
@@ -116,6 +154,18 @@ export function cleanupConfirmText(s: DraftCleanupSummary, locale: Locale) {
       de
         ? `Behalten ${s.kept.total === 1 ? "wird" : "werden"}: ${kept.join(", ")}.`
         : `Kept: ${kept.join(", ")}.`,
+    );
+  const staying = s.missions.kept;
+  const why = MISSION_KEEP_REASONS.filter(
+    (r) => (staying?.byReason?.[r] ?? 0) > 0,
+  ).map(
+    (r) => `${staying!.byReason![r]} ${missionReasonText[r][de ? "de" : "en"]}`,
+  );
+  if (staying?.total)
+    lines.push(
+      de
+        ? `${missions(staying.total, de)} ${staying.total === 1 ? "bleibt" : "bleiben"}${why.length ? ` (${why.join(", ")})` : ""}.`
+        : `${missions(staying.total, de)} ${staying.total === 1 ? "stays" : "stay"}${why.length ? ` (${why.join(", ")})` : ""}.`,
     );
   return lines;
 }

@@ -104,6 +104,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         batch: await mission({ batch: { status: "running" } }),
         keeps: await mission({}),
         openByReference: await mission({}),
+        unsettled: await mission({}),
         awaiting: await mission({ assignmentRunId: runs.awaiting.id }),
         activeRun: await mission({ assignmentRunId: runs.active.id }),
         completed: await mission({ status: "completed" }),
@@ -134,6 +135,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         batch: await draft("draft", of(missions.batch)),
         settled: await draft("draft", of(missions.settled)),
         openByReference: await draft("draft", of(missions.openByReference)),
+        unsettled: await draft("draft", of(missions.unsettled)),
       };
       const kept = {
         intent: await draft("reviewed", of(missions.keeps)),
@@ -156,6 +158,8 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         settledPost: await draft("published", of(missions.settled)),
         // Not a draft, but a post that may still go out keeps its mission.
         openPost: await draft("approved", of(missions.openByReference)),
+        // Approved, no publication yet: neither settled nor referenced.
+        unsettledPost: await draft("approved", of(missions.unsettled)),
       };
       const publication = (contentId: string, status: string) =>
         add("publications", { contentId, status, channel: "x" });
@@ -191,21 +195,33 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
 
   const expectedSummary = {
     content: {
-      total: 16,
+      total: 17,
       byStatus: {
         review: 1,
         needs_review: 5,
         reviewed: 3,
-        draft: 5,
+        draft: 6,
         blocked: 1,
         pending_approval: 1,
       },
-      byMissionKind: { autopilot: 1, package: 1, other: 14 },
+      byMissionKind: { autopilot: 1, package: 1, other: 15 },
       alreadyInPostiz: 1,
     },
     missions: {
       total: 4,
       byMissionKind: { autopilot: 1, package: 1, other: 2 },
+      // Ready missions that stay, by their first reason.
+      kept: {
+        total: 9,
+        byReason: {
+          ACTIVE_RUN: 2,
+          BATCH_RUNNING: 1,
+          ACTIVE_JOB: 2,
+          NO_CONTENT: 1,
+          KEPT_CONTENT: 2,
+          UNSETTLED_CONTENT: 1,
+        },
+      },
     },
     kept: {
       total: 8,
@@ -392,8 +408,10 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         cleanupId: result.cleanupId,
       });
     // No content of its own, a queued or blocked job, a running batch, kept
-    // content (also a post that is not a draft), a run that is still active
-    // or about to be scheduled, or another status keep a mission.
+    // content (also a post that is not a draft), content that is neither
+    // archived now nor settled (an approved post without publication), a run
+    // that is still active or about to be scheduled, or another status keep
+    // a mission.
     for (const key of [
       "empty",
       "busy",
@@ -401,6 +419,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
       "batch",
       "keeps",
       "openByReference",
+      "unsettled",
       "awaiting",
       "activeRun",
       "completed",
@@ -432,7 +451,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     const changed = Object.entries(await versions()).filter(
       ([key, version]) => before[key] !== version,
     );
-    expect(changed).toHaveLength(16 + 4);
+    expect(changed).toHaveLength(17 + 4);
     const audits = await run((tx) =>
       tx.auditEvent.findMany({
         where: { projectId: owner.projectId, action: "drafts.cleaned_up" },
@@ -441,7 +460,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     expect(audits).toHaveLength(1);
     expect(audits[0]!.metadata).toMatchObject({
       cleanupId: result.cleanupId,
-      content: { total: 16, alreadyInPostiz: 1 },
+      content: { total: 17, alreadyInPostiz: 1 },
       missions: { total: 4 },
       kept: { total: 8 },
     });
@@ -494,7 +513,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({
       cleanupId,
-      restored: { content: 16, missions: 4 },
+      restored: { content: 17, missions: 4 },
     });
     const after = await run((tx) =>
       tx.entity.findMany({
@@ -514,7 +533,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     }
     expect(
       after.filter((row) => row.version === original.get(row.id)?.version! + 2),
-    ).toHaveLength(20);
+    ).toHaveLength(21);
     const again = await restore(cleanupId!);
     expect(again.restored).toEqual({ content: 0, missions: 0 });
     // An unknown cleanup restores nothing either.
@@ -563,7 +582,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         )
         .map((item) => item.id)
         .sort();
-    expect(await approvals()).toHaveLength(16 + 8);
+    expect(await approvals()).toHaveLength(17 + 8);
     await cleanup({ confirm: true, expected });
     expect(await approvals()).toEqual(
       Object.values(seeded.kept)
