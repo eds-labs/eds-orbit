@@ -42,8 +42,8 @@ import { attachRunImage } from "./visual.ts";
  * through Orbit's generation (claims ledger, fact placeholders, channel
  * rules), with the brief in the generation contract. Paid calls are
  * attributed to the task (R37): job `agent:<taskId>:copy:<briefKey>`, budget
- * run `assignment-run:<runId>`; each mission's cost ceiling is what the task
- * and the assignment's month have left. A failed brief does not stop the
+ * run `assignment-run:<runId>`; each mission's cost ceiling is what the run's
+ * pool (R75) and the assignment's month have left. A failed brief does not stop the
  * others. Re-running a task reuses its missions and drafts (R26).
  */
 const SLOT_WINDOW_MS = 2 * 3600000;
@@ -87,7 +87,12 @@ function missionOfJob(tx: DbTx, scope: Scope, jobId: string) {
   });
 }
 
-/** Cost ceiling of one mission: what the task and the assignment's month have left. */
+/**
+ * Cost ceiling of one mission: what the step may still take from its run's
+ * pool (R75) and what the assignment's month has left. The generation checks
+ * the pool again at its reservation (`generation.ts`), since other steps of
+ * the run reserve meanwhile.
+ */
 async function missionCeiling(tx: DbTx, scope: Scope, task: AgentTask) {
   const left = await taskBudgetLeft(tx, scope, task);
   if (left.monthMicros <= 0) throw new DomainError(ASSIGNMENT_BUDGET_EXHAUSTED);

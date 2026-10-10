@@ -1026,18 +1026,30 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
       packages.channels[0]!.slots.find((slot) => slot.at === slots[1]!.at)!
         .free,
     ).toBe(false);
-    // Another assignment with the same times gets no slot that day.
+    // Another assignment with the same times gets no slot that day, so no run (R75).
     const other = await h.makeAssignment({ name: "Second assignment" });
     await h.run((tx) =>
       planAssignmentRuns(tx, project.owner, tomorrowMorning()),
     );
-    const otherRun = (await h.rows("assignment_runs")).find(
-      (run) => run.assignmentId === other.id,
-    )!;
-    expect(otherRun.slots).toEqual([]);
-    expect(otherRun.unavailable.map((entry: any) => entry.requestedAt)).toEqual(
-      slots.map((slot) => slot.at),
+    expect(
+      (await h.rows("assignment_runs")).some(
+        (run) => run.assignmentId === other.id,
+      ),
+    ).toBe(false);
+    const skip = await h.run((tx) =>
+      tx.auditEvent.findFirst({
+        where: {
+          projectId: project.owner.projectId,
+          action: "assignment.day_skipped",
+          resourceId: { startsWith: `${other.id}:` },
+        },
+      }),
     );
+    expect(
+      ((skip!.metadata as any).entries as any[]).map(
+        (entry) => entry.requestedAt,
+      ),
+    ).toEqual(slots.map((slot) => slot.at));
   });
 
   it("cancels booked drafts when the assignment ends or its content changes (I3)", async () => {

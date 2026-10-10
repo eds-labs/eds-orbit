@@ -54,7 +54,8 @@ export const TERMINAL_RUN: RunStatus[] = [
   "failed",
   "canceled",
 ];
-// Share of a run's cost ceiling per step; several copywriters each get their own share.
+// Planned share of a run's cost ceiling per step; several copywriters each get
+// their own share. Only a guide since R75: every step spends from the run's pool.
 const WEIGHT: Record<StepRole, number> = {
   analytics: 10,
   research: 20,
@@ -64,6 +65,63 @@ const WEIGHT: Record<StepRole, number> = {
   review: 15,
 };
 
+/**
+ * Part of a run's ceiling the optional steps (analytics, research) can never
+ * hold (R75): it stays for the steps that make the deliverables (strategy,
+ * copywriters, visual, review).
+ */
+export const REQUIRED_RESERVE_SHARE = 0.4;
+
+/**
+ * Whether a step only feeds other steps as an optional input (analytics and
+ * research for the strategy): no deliverable waits for it.
+ */
+export function isOptionalStep(steps: WorkStep[], key: string) {
+  const users = steps.filter((step) => step.dependsOn.includes(key));
+  return (
+    users.length > 0 &&
+    users.every((step) => (step.optionalDependsOn ?? []).includes(key))
+  );
+}
+
+/** The cost ceiling of a run; runs planned before R75 add up their steps' shares. */
+export function runCeilingMicros(run: Record<string, any>) {
+  if (Number.isSafeInteger(run.ceilingMicros)) return Number(run.ceilingMicros);
+  return ((run.steps ?? []) as WorkStep[]).reduce(
+    (sum, step) => sum + Number(step.ceilingMicros ?? 0),
+    0,
+  );
+}
+
+/**
+ * What a step may still reserve from its run (R75): the run's ceiling less
+ * everything the run's steps hold (`runHeld`, settled at their actual cost,
+ * open at their reserved amount). An optional step also leaves
+ * `REQUIRED_RESERVE_SHARE` of the ceiling to the required steps.
+ */
+export function stepPoolMicros(
+  run: Record<string, any>,
+  stepKey: string,
+  runHeld: number,
+) {
+  const steps = (run.steps ?? []) as WorkStep[];
+  const ceiling = runCeilingMicros(run);
+  const reserved =
+    isOptionalStep(steps, stepKey) &&
+    steps.some((step) => !isOptionalStep(steps, step.key))
+      ? Math.ceil(ceiling * REQUIRED_RESERVE_SHARE)
+      : 0;
+  return ceiling - reserved - runHeld;
+}
+
+/** The cost ceiling of one run of an assignment: its monthly budget spread over the runs of its rhythm. */
+export function runCeilingOf(assignment: Record<string, any>) {
+  return Math.floor(
+    Number(assignment.monthlyBudgetMicros ?? 0) /
+      runsPerMonth(assignment.schedule ?? {}),
+  );
+}
+
 /** Runs a month at most, to spread the monthly budget over the runs of a rhythm. */
 function runsPerMonth(schedule: Record<string, any>) {
   if (schedule.rhythm === "daily") return 30;
@@ -72,7 +130,11 @@ function runsPerMonth(schedule: Record<string, any>) {
   return 1;
 }
 
-/** The specialist steps of one run of an assignment, with cost ceilings that add up to the run's budget share. */
+/**
+ * The specialist steps of one run of an assignment, with planned shares of
+ * the run's ceiling that add up to it. The shares are a guide only: every
+ * step spends from the run's pool (R75, `stepPoolMicros`).
+ */
 export function buildWorkPlan(assignment: Record<string, any>): WorkStep[] {
   const step = (
     key: string,
@@ -123,10 +185,7 @@ export function buildWorkPlan(assignment: Record<string, any>): WorkStep[] {
       ),
     ];
   }
-  const runCeiling = Math.floor(
-    Number(assignment.monthlyBudgetMicros ?? 0) /
-      runsPerMonth(assignment.schedule ?? {}),
-  );
+  const runCeiling = runCeilingOf(assignment);
   const total = steps.reduce((sum, s) => sum + WEIGHT[s.role], 0);
   for (const s of steps)
     s.ceilingMicros = Math.floor((runCeiling * WEIGHT[s.role]) / total);
@@ -308,9 +367,47 @@ async function allocateSlots(
   return { slots, unavailable };
 }
 
+export const DAY_SKIPPED = "assignment.day_skipped";
+
+/**
+ * Records a due day of an assignment whose every slot is unavailable (passed,
+ * too close or taken): the audit `assignment.day_skipped` (resource
+ * `<assignmentId>:<date>`, counted by the daily report) and one
+ * `slots_unavailable` notice with the same reference. No run is created, so
+ * the sweep looks at the day again; the audit keeps it to one record.
+ */
+async function skipDay(
+  tx: DbTx,
+  scope: Scope,
+  assignmentId: string,
+  date: string,
+  unavailable: Array<Record<string, unknown>>,
+) {
+  const ref = `${assignmentId}:${date}`;
+  const seen = await tx.auditEvent.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      action: DAY_SKIPPED,
+      resourceId: ref,
+    },
+    select: { id: true },
+  });
+  if (seen) return;
+  await audit(tx, scope, DAY_SKIPPED, ref, {
+    assignmentId,
+    date,
+    unavailable: unavailable.length,
+    entries: unavailable,
+  });
+  if (unavailable.length) await notify(tx, scope, "slots_unavailable", ref);
+}
+
 /**
  * Creates the runs that are due: one per active assignment and local date,
- * with their slots and work plan, and starts the first steps. Idempotent.
+ * with their slots and work plan, and starts the first steps. A day without
+ * any reachable slot gets no run, only its drop notice (`skipDay`).
+ * Idempotent.
  */
 export async function planAssignmentRuns(
   tx: DbTx,
@@ -357,6 +454,12 @@ export async function planAssignmentRuns(
       )
         continue;
       const allocation = await allocateSlots(tx, scope, due, d.channels, now);
+      // No slot of the day can be reached any more: no run (nothing could be
+      // delivered), only the drop notice (R75).
+      if (!allocation.slots.length) {
+        await skipDay(tx, scope, row.id, due.date, allocation.unavailable);
+        continue;
+      }
       const key = `assignment:${row.id}:${due.date}`;
       const saved = await create(tx, scope, RUNS, {
         assignmentId: row.id,
@@ -367,6 +470,7 @@ export async function planAssignmentRuns(
         date: due.date,
         status: "planned",
         ...allocation,
+        ceilingMicros: runCeilingOf(d),
         steps: buildWorkPlan(d),
         costMicros: 0,
         plannedAt: now.toISOString(),

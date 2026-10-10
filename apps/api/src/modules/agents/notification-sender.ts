@@ -21,7 +21,11 @@ import {
   NOTIFY_KINDS,
   type NotifyKind,
 } from "./notifications.ts";
-import { runProblems, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
+import {
+  DAY_SKIPPED,
+  runProblems,
+  SLOT_UNAVAILABLE,
+} from "./assignment-runs.ts";
 import { budgetMonthStart } from "../budget.ts";
 import { localDate } from "./scheduling.ts";
 
@@ -406,15 +410,33 @@ const reasonText = (code: string) =>
       ? `Fakten fehlen (${code})`
       : code;
 
-/** Deliverables of a new run that got no slot (`ref` is the run id). */
+/**
+ * Deliverables that got no slot: of a new run (`ref` is the run id) or of a
+ * day that got no run because none of its slots was free (`ref` is
+ * `<assignmentId>:<date>`, read from the `assignment.day_skipped` audit, R75).
+ */
 async function slotsUnavailable(
   tx: DbTx,
   scope: Scope,
   ref: string,
   timezone: string,
 ): Promise<Built> {
-  const r = data(await maybe(() => entity(tx, scope, "assignment_runs", ref)));
-  const entries = (r.unavailable ?? []) as Array<Record<string, any>>;
+  const r = ref.includes(":")
+    ? (((
+        await tx.auditEvent.findFirst({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            action: DAY_SKIPPED,
+            resourceId: ref,
+          },
+          select: { metadata: true },
+        })
+      )?.metadata ?? {}) as Record<string, any>)
+    : data(await maybe(() => entity(tx, scope, "assignment_runs", ref)));
+  const entries = (
+    ref.includes(":") ? (r.entries ?? []) : (r.unavailable ?? [])
+  ) as Array<Record<string, any>>;
   if (!entries.length) return { skip: "STALE" };
   const lines = [];
   for (const entry of entries.slice(0, 10))
@@ -681,6 +703,7 @@ async function dailyReport(
       action: {
         in: [
           "assignment.run_planned",
+          DAY_SKIPPED,
           "assignment.run_problems",
           "assignment.deliverable_dropped",
           "publication.claim_blocked",
@@ -707,6 +730,7 @@ async function dailyReport(
   const failedSteps = sum("assignment.run_problems", "failedSteps");
   const droppedDeliverables =
     sum("assignment.run_planned", "unavailable") +
+    sum(DAY_SKIPPED, "unavailable") +
     sum("assignment.run_problems", "droppedDeliverables") +
     count("assignment.deliverable_dropped");
   const blockedPosts = count("publication.claim_blocked");

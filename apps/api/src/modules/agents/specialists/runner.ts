@@ -42,6 +42,7 @@ import {
   cancelAssignmentRuns,
   requeueAgentTask,
   startReadySteps,
+  stepPoolMicros,
   type StepRole,
   type WorkStep,
 } from "../assignment-runs.ts";
@@ -222,24 +223,67 @@ export async function assignmentMonthSpend(
 }
 
 /**
- * What a task may still spend: its share of the run budget from the work plan
- * and what is left of its assignment's month. Locks the assignment, so
- * parallel tasks of one assignment check its month one after the other; call
- * it in the transaction that reserves.
+ * What the run's steps hold under its budget run key (`assignment-run:<runId>`):
+ * model calls, images, drafts and knowledge searches of all its tasks, counted
+ * like `reserve` does (settled at the settled amount, open at the reserved one).
+ */
+export async function runSpend(tx: DbTx, scope: Scope, runId: string) {
+  const budgetRun = await tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "budget_runs",
+      data: { path: ["runKey"], equals: runBudgetKey(runId) },
+    },
+  });
+  const ids = budgetRun
+    ? ((data(budgetRun).reservationIds ?? []) as string[])
+    : [];
+  if (!ids.length) return 0;
+  return held(
+    await tx.budgetReservation.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        id: { in: ids },
+      },
+    }),
+  );
+}
+
+/** The fields of a task the budget checks need. */
+export type BudgetedTask = {
+  id: string;
+  assignmentId: string;
+  runId: string;
+  stepKey: string;
+};
+
+/**
+ * What a task may still spend (R75): what is left of its run's pool for its
+ * step (`stepPoolMicros`: the run ceiling less everything the run's tasks
+ * hold, and for an optional step less the reserve of the required ones) and
+ * what is left of its assignment's month. Locks the assignment first, so the
+ * tasks of one assignment check and reserve one after the other; call it in
+ * the transaction that reserves.
  */
 export async function taskBudgetLeft(
   tx: DbTx,
   scope: Scope,
-  task: { id: string; assignmentId: string; ceilingMicros: number },
+  task: BudgetedTask,
   now = new Date(),
 ) {
-  const spent = held(await taskReservations(tx, scope, task.id));
   await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${task.assignmentId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
   const assignment = data(
     await entity(tx, scope, "assignments", task.assignmentId),
   );
+  const run = data(await entity(tx, scope, RUNS, task.runId));
   return {
-    taskMicros: task.ceilingMicros - spent,
+    taskMicros: stepPoolMicros(
+      run,
+      task.stepKey,
+      await runSpend(tx, scope, task.runId),
+    ),
     monthMicros:
       Number(assignment.monthlyBudgetMicros ?? 0) -
       (await assignmentMonthSpend(tx, scope, task.assignmentId, now)),
@@ -247,14 +291,15 @@ export async function taskBudgetLeft(
 }
 
 /**
- * Refuses a paid call of `estimate` that would exceed the task's ceiling
- * (`AGENT_LIMIT`) or the assignment's month (`ASSIGNMENT_BUDGET_EXHAUSTED`,
- * which exhausts the assignment when the task fails with it, R25).
+ * Refuses a paid call of `estimate` that would exceed what the task's step
+ * may still take from its run (`AGENT_LIMIT`) or the assignment's month
+ * (`ASSIGNMENT_BUDGET_EXHAUSTED`, which exhausts the assignment when the task
+ * fails with it, R25).
  */
 export async function assertTaskBudget(
   tx: DbTx,
   scope: Scope,
-  task: { id: string; assignmentId: string; ceilingMicros: number },
+  task: BudgetedTask,
   estimate: number,
   now = new Date(),
 ) {
@@ -438,7 +483,7 @@ export async function runSpecialist(
             // Every search this call may still run, at the per-search fee.
             webSearchFee(route.model, searches, runtime);
           const now = new Date();
-          // Task ceiling, then the assignment's month; project refusals from `reserve` fail the task (R25).
+          // The run pool of the step (R75), then the assignment's month; project refusals from `reserve` fail the task (R25).
           await assertTaskBudget(tx, scope, task, estimate, now);
           const reservation = await reserve(
             tx,

@@ -222,6 +222,17 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
     run((tx) => list(tx, project.owner, "agent_tasks")).then((rows) =>
       rows.map((row): Record<string, any> => ({ id: row.id, ...data(row) })),
     );
+  /** The `assignment.day_skipped` record of an assignment's day, if any. */
+  const skipped = (assignmentId: string, date: string) =>
+    run((tx) =>
+      tx.auditEvent.findFirst({
+        where: {
+          projectId: project.owner.projectId,
+          action: "assignment.day_skipped",
+          resourceId: `${assignmentId}:${date}`,
+        },
+      }),
+    ).then((row) => row?.metadata ?? null);
   const localTime = (iso: string) =>
     new Intl.DateTimeFormat("en-GB", {
       timeZone: "Europe/Berlin",
@@ -315,7 +326,8 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
     const first = await makeAssignment({ name: "First" });
     const second = await makeAssignment({ name: "Second" });
     const third = await makeAssignment({ name: "Third" });
-    expect(await plan(MORNING)).toEqual({ created: 3 });
+    // The third assignment's only slot is taken: its day gets no run (R75).
+    expect(await plan(MORNING)).toEqual({ created: 2 });
     const byAssignment = new Map(
       (await runs()).map((r: any) => [r.assignmentId, r]),
     );
@@ -328,10 +340,13 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
       slots: [{ channel: X, at: "2026-10-20T10:00:00.000Z" }],
       unavailable: [],
     });
-    // The daily quota of two is used up: no slot, and the run says so.
-    expect(byAssignment.get(third.id)).toMatchObject({
-      slots: [],
-      unavailable: [
+    // The daily quota of two is used up: no slot, so no run, and the skip says why.
+    expect(byAssignment.has(third.id)).toBe(false);
+    expect(await skipped(third.id, "2026-10-20")).toEqual({
+      assignmentId: third.id,
+      date: "2026-10-20",
+      unavailable: 1,
+      entries: [
         {
           channel: X,
           requestedAt: "2026-10-20T08:00:00.000Z",
@@ -362,12 +377,107 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
         scheduledAt: "2026-10-20T08:00:00.000Z",
       }),
     );
-    await makeAssignment();
-    await plan(MORNING);
-    expect((await runs())[0]).toMatchObject({
-      slots: [],
-      unavailable: [{ code: "SLOT_UNAVAILABLE" }],
+    const assignment = await makeAssignment();
+    // The day's only slot is taken: no run is planned or started (R75).
+    expect(await plan(MORNING)).toEqual({ created: 0 });
+    expect(await plan(MORNING)).toEqual({ created: 0 });
+    expect(await runs()).toEqual([]);
+    expect(await tasks()).toEqual([]);
+    expect(await skipped(assignment.id, "2026-10-20")).toMatchObject({
+      unavailable: 1,
+      entries: [{ channel: X, code: "SLOT_UNAVAILABLE" }],
     });
+    // Recorded once, however often the sweep looks at the day.
+    expect(
+      await run((tx) =>
+        tx.auditEvent.count({
+          where: {
+            projectId: project.owner.projectId,
+            action: "assignment.day_skipped",
+          },
+        }),
+      ),
+    ).toBe(1);
+    // The next day is planned as usual.
+    expect(await plan(NEXT_MORNING)).toEqual({ created: 1 });
+  });
+
+  it("plans no run for a day whose every slot is unavailable and a run with the reachable ones otherwise", async () => {
+    await setPolicy({ maxPerDay: 2 });
+    const assignment = await makeAssignment({
+      channels: [X, TELEGRAM],
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00", "17:00"],
+        leadMinutes: 360,
+      },
+    });
+    // Two other posts fill both channels' quota of the day.
+    for (const channel of [X, TELEGRAM])
+      for (const at of ["2026-10-20T11:00:00.000Z", "2026-10-20T16:00:00.000Z"])
+        await run((tx) =>
+          create(tx, project.owner, "publications", {
+            contentId: "00000000-0000-4000-8000-000000000020",
+            channel,
+            status: "intent_created",
+            scheduledAt: at,
+          }),
+        );
+    // 16:50 local: ten o'clock has passed and five o'clock has no room.
+    expect(await plan(new Date("2026-10-20T14:50:00Z"))).toEqual({
+      created: 0,
+    });
+    expect(await runs()).toEqual([]);
+    expect(await tasks()).toEqual([]);
+    expect(await skipped(assignment.id, "2026-10-20")).toMatchObject({
+      unavailable: 4,
+    });
+    // The next morning both slots of both channels are free: one run with all four.
+    expect(await plan(NEXT_MORNING)).toEqual({ created: 1 });
+    const [next] = await runs();
+    expect(next).toMatchObject({ date: "2026-10-21", unavailable: [] });
+    expect(next!.slots.map((slot: any) => localTime(slot.at))).toEqual([
+      "10:00",
+      "10:00",
+      "17:00",
+      "17:00",
+    ]);
+    expect((await tasks()).map((task) => task.stepKey).sort()).toEqual([
+      "analytics",
+      "research",
+    ]);
+  });
+
+  it("does not let an earlier failed run of the assignment block the next day", async () => {
+    const assignment = await makeAssignment({
+      channels: [X, TELEGRAM],
+      image: true,
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00", "17:00"],
+        leadMinutes: 360,
+      },
+    });
+    // A run of the previous day that failed in every step (as on 2026-10-10).
+    await run((tx) =>
+      create(tx, project.owner, "assignment_runs", {
+        assignmentId: assignment.id,
+        assignmentVersion: 1,
+        idempotencyKey: `assignment:${assignment.id}:2026-10-20`,
+        date: "2026-10-20",
+        status: "failed",
+        slots: [],
+        unavailable: [],
+        steps: [],
+        costMicros: 0,
+      }),
+    );
+    expect(await plan(NEXT_MORNING)).toEqual({ created: 1 });
+    const next = (await runs()).find((r: any) => r.date === "2026-10-21")!;
+    expect(next).toMatchObject({ status: "running" });
+    expect(next.slots).toHaveLength(4);
   });
 
   it("drops a time that has already passed instead of moving it", async () => {
