@@ -867,6 +867,8 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
       for (const [action, metadata, at] of [
         ["assignment.run_planned", { unavailable: 1 }, now],
         ["assignment.run_planned", { unavailable: 0 }, now],
+        // A day without a run because none of its slots was free (R75).
+        ["assignment.day_skipped", { unavailable: 2 }, now],
         [
           "assignment.run_problems",
           { failedSteps: 2, droppedDeliverables: 1 },
@@ -945,7 +947,7 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     expect(text).toContain("Gestoppt: 1");
     expect(text).toContain("Abgelehnt: 2");
     expect(text).toContain("Fehlgeschlagene Schritte: 2");
-    expect(text).toContain("Entfallene Beiträge: 3");
+    expect(text).toContain("Entfallene Beiträge: 5");
     expect(text).toContain("Blockierte Beiträge: 1");
     expect(text).toContain("Kosten heute: 1,50 USD");
     // The month is the budget month (UTC, M4); the report time 20:00 Berlin falls on the same UTC date.
@@ -1154,6 +1156,33 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
       expect(text).toContain("Kein freier Slot");
       expect(text).toContain("Zwei Posts am Tag");
       expect(text).toContain("Synthetic X");
+      expect(text).toContain("17:00");
+    });
+
+    it("reports a day that gets no run because none of its slots is free, once (R75)", async () => {
+      await linkBot();
+      // No post a day: neither slot has room.
+      await h.setPolicy({ maxPerDay: 0 });
+      const assignment = await h.makeAssignment({ name: "Zwei Posts am Tag" });
+      for (let pass = 0; pass < 2; pass++)
+        expect(
+          await h.run((tx) =>
+            planAssignmentRuns(tx, project.owner, tomorrowMorning()),
+          ),
+        ).toEqual({ created: 0 });
+      expect(await h.rows("assignment_runs")).toEqual([]);
+      const jobs = await jobsOf("slots_unavailable");
+      expect(jobs).toHaveLength(1);
+      expect(jobs[0]!.idempotencyKey).toMatch(
+        new RegExp(
+          `^notify:slots_unavailable:${assignment.id}:\\d{4}-\\d{2}-\\d{2}$`,
+        ),
+      );
+      await send(jobs[0]!.id);
+      const text = textOf(sent()[0]!);
+      expect(text).toContain("Kein freier Slot");
+      expect(text).toContain("Zwei Posts am Tag");
+      expect(text).toContain("2 Beiträge entfallen");
       expect(text).toContain("17:00");
     });
 

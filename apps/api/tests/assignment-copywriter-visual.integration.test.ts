@@ -77,7 +77,12 @@ import {
   resumeLiveDraftBatch,
   startApprovedLiveDraftBatch,
 } from "../src/modules/draft-batch.ts";
-import { runAgentTask } from "../src/modules/agents/specialists/runner.ts";
+import {
+  runAgentTask,
+  runBudgetKey,
+} from "../src/modules/agents/specialists/runner.ts";
+import { reserve } from "../src/modules/budget.ts";
+import { policy as policySchema } from "../../../packages/schemas/src/index.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { imageRightsSource } from "../src/modules/agents/specialists/visual.ts";
 import {
@@ -636,6 +641,95 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
         ),
       ).status,
     ).toBe("budget_exhausted");
+  });
+
+  it("refuses a draft that no longer fits the run's pool, whatever its mission ceiling (R75)", async () => {
+    await makeAssignment({ image: false });
+    const { runId, briefs } = await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot)),
+    );
+    await runAgentTask(worker(), (await task(`copywriter:${X}`)).id);
+    // A Telegram mission prepared while the pool was still large.
+    const template = (await rows("missions")).find(
+      (m) => m.assignmentRunId === runId,
+    )!;
+    const telegramTask = await task(`copywriter:${TELEGRAM}`);
+    const [first] = briefs.filter((b) => b.channel === TELEGRAM);
+    const key = briefKey(first as any);
+    await run(async (tx) => {
+      const {
+        id: _id,
+        version: _version,
+        completedRuns: _runs,
+        lastContentId: _last,
+        ...rest
+      } = template;
+      await create(tx, project.owner, "missions", {
+        ...rest,
+        status: "ready",
+        channels: [TELEGRAM],
+        plannedSlotAt: first!.slotAt,
+        briefKey: key,
+        agentTaskId: telegramTask.id,
+        agentJobId: `agent:${telegramTask.id}:copy:${key}`,
+        chatCostCeilingMicros: 900_000,
+        costCeilingBound: "task",
+      });
+      // Meanwhile another step of the run took what was left of its pool.
+      const active = (await list(tx, project.owner, "policies")).find(
+        (row) => data(row).active === true,
+      )!;
+      const run = data(
+        await entity(tx, project.owner, "assignment_runs", runId),
+      );
+      const held = await tx.budgetReservation.findMany({
+        where: {
+          projectId: project.owner.projectId,
+          id: {
+            in: (
+              await tx.entity.findMany({
+                where: {
+                  projectId: project.owner.projectId,
+                  kind: "budget_runs",
+                  data: { path: ["runKey"], equals: runBudgetKey(runId) },
+                },
+              })
+            ).flatMap((row) => data(row).reservationIds as string[]),
+          },
+        },
+      });
+      const spent = held.reduce(
+        (sum, row) =>
+          sum +
+          Number(
+            row.state === "settled" ? row.settledMicros : row.amountMicros,
+          ),
+        0,
+      );
+      await reserve(
+        tx,
+        project.owner,
+        `agent:synthetic-visual-${runId}:0`,
+        "image_generation",
+        Number(run.ceilingMicros) - spent,
+        policySchema.parse(
+          Object.fromEntries(
+            Object.entries(data(active)).filter(
+              ([k]) => !["active", "activatedAt", "activatedBy"].includes(k),
+            ),
+          ),
+        ),
+        new Date(),
+        runBudgetKey(runId),
+      );
+    });
+    provider.generate.mockClear();
+    await runAgentTask(worker(), telegramTask.id);
+    expect(await task(`copywriter:${TELEGRAM}`)).toMatchObject({
+      status: "failed",
+      errorCode: "AGENT_LIMIT",
+    });
+    expect(provider.generate).not.toHaveBeenCalled();
   });
 
   it("revises a draft through the same mission path with the review's instruction", async () => {

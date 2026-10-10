@@ -44,6 +44,7 @@ import { campaignGenerationContext } from "./marketing-profile.ts";
 import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
 import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
+import { assertTaskBudget } from "./agents/specialists/runner.ts";
 import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
@@ -503,6 +504,24 @@ async function generateMissionDraft(
           queryCost + cost > m.chatCostCeilingMicros
         )
           throw new DomainError("CHAT_PROPOSAL_COST_EXCEEDED", 409);
+      }
+      // A draft of an assignment run also fits what is left of the run's pool
+      // and the assignment's month now (R75): other steps reserve meanwhile.
+      if (typeof m.agentTaskId === "string" && m.assignmentRunId) {
+        const task = data(
+          await entity(tx, scope, "agent_tasks", m.agentTaskId),
+        );
+        await assertTaskBudget(
+          tx,
+          scope,
+          {
+            id: m.agentTaskId,
+            assignmentId: String(task.assignmentId),
+            runId: String(task.runId),
+            stepKey: String(task.stepKey),
+          },
+          cost,
+        );
       }
       if (
         m.batch &&

@@ -132,7 +132,18 @@ async function prepare(
   await archive(h, project.owner, template.id);
   // The run's own next steps (its review) are canceled, so nothing but the
   // cases can call the model with the key, even if a worker picked them up.
+  // Every case reserves from the run's pool (R75): its ceiling is the eval's.
   await h.run(async (tx) => {
+    const run = await entity(
+      tx,
+      project.owner,
+      "assignment_runs",
+      String(template.assignmentRunId),
+    );
+    await update(tx, project.owner, run, {
+      ...data(run),
+      ceilingMicros: maxCostMicros,
+    });
     for (const row of await list(tx, project.owner, "agent_tasks"))
       if (
         !["done", "failed", "canceled", "outcome_unknown"].includes(
@@ -240,7 +251,8 @@ async function runCase(
       role: "review",
       assignmentId: template.assignmentId,
       assignmentVersion: 1,
-      // What is left of the ceiling: a larger reservation is refused (AGENT_LIMIT).
+      // What is left of the ceiling (informational): the run's pool refuses a
+      // larger reservation (AGENT_LIMIT, R75).
       ceilingMicros,
       input: {
         inputs: {
