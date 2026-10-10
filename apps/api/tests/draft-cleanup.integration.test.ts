@@ -68,51 +68,94 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     run(async (tx) => {
       const add = (kind: string, value: Record<string, unknown>) =>
         create(tx, owner, kind, value);
+      const reviewDone = [{ key: "review", role: "review", status: "done" }];
+      const runs = {
+        active: await add("assignment_runs", { status: "running" }),
+        done: await add("assignment_runs", { status: "done" }),
+        partial: await add("assignment_runs", {
+          status: "partial",
+          steps: [{ key: "review", role: "review", status: "failed" }],
+        }),
+        failed: await add("assignment_runs", {
+          status: "failed",
+          steps: reviewDone,
+        }),
+        scheduled: await add("assignment_runs", {
+          status: "done",
+          steps: reviewDone,
+          scheduledAt: new Date().toISOString(),
+        }),
+        // Review done, not scheduled yet: the sweep still schedules it.
+        awaiting: await add("assignment_runs", {
+          status: "done",
+          steps: reviewDone,
+        }),
+      };
       const mission = (value: Record<string, unknown>) =>
         add("missions", { title: "Mission", status: "ready", ...value });
       const missions = {
         autopilot: await mission({ autopilot: true }),
         package: await mission({ packageId: randomUUID() }),
         other: await mission({}),
+        settled: await mission({}),
         empty: await mission({}),
         busy: await mission({}),
+        blockedJob: await mission({}),
+        batch: await mission({ batch: { status: "running" } }),
         keeps: await mission({}),
+        openByReference: await mission({}),
+        awaiting: await mission({ assignmentRunId: runs.awaiting.id }),
+        activeRun: await mission({ assignmentRunId: runs.active.id }),
         completed: await mission({ status: "completed" }),
-      };
-      const runs = {
-        active: await add("assignment_runs", { status: "running" }),
-        done: await add("assignment_runs", { status: "done" }),
       };
       const draft = (status: string, extra: Record<string, unknown> = {}) =>
         add("content", { title: "Draft", status, body: "Text", ...extra });
+      const of = (m: { id: string }) => ({ missionId: m.id });
       const archived = {
-        autopilot: await draft("needs_review", {
-          missionId: missions.autopilot.id,
-        }),
-        package: await draft("reviewed", { missionId: missions.package.id }),
+        autopilot: await draft("needs_review", of(missions.autopilot)),
+        package: await draft("reviewed", of(missions.package)),
         loose: await draft("draft"),
-        blocked: await draft("blocked", { missionId: missions.other.id }),
-        review: await draft("review", { missionId: missions.other.id }),
-        busy: await draft("pending_approval", { missionId: missions.busy.id }),
+        blocked: await draft("blocked", of(missions.other)),
+        review: await draft("review", of(missions.other)),
+        busy: await draft("pending_approval", of(missions.busy)),
         finalPublications: await draft("reviewed"),
         acceptedPostiz: await draft("reviewed"),
         doneRun: await draft("needs_review", { assignmentRunId: runs.done.id }),
+        partialRun: await draft("needs_review", {
+          assignmentRunId: runs.partial.id,
+        }),
+        failedRun: await draft("needs_review", {
+          assignmentRunId: runs.failed.id,
+        }),
+        scheduledRun: await draft("needs_review", {
+          assignmentRunId: runs.scheduled.id,
+        }),
+        blockedJob: await draft("draft", of(missions.blockedJob)),
+        batch: await draft("draft", of(missions.batch)),
+        settled: await draft("draft", of(missions.settled)),
+        openByReference: await draft("draft", of(missions.openByReference)),
       };
       const kept = {
-        intent: await draft("reviewed", { missionId: missions.keeps.id }),
+        intent: await draft("reviewed", of(missions.keeps)),
         paused: await draft("needs_review"),
         remote: await draft("reviewed"),
         sending: await draft("reviewed"),
         unknown: await draft("reviewed"),
+        decision: await draft("reviewed"),
         activeRun: await draft("needs_review", {
           assignmentRunId: runs.active.id,
         }),
+        awaitingRun: await draft("needs_review", {
+          ...of(missions.awaiting),
+          assignmentRunId: runs.awaiting.id,
+        }),
       };
       const untouched = {
-        published: await draft("published", {
-          missionId: missions.completed.id,
-        }),
+        published: await draft("published", of(missions.completed)),
         approved: await draft("approved"),
+        settledPost: await draft("published", of(missions.settled)),
+        // Not a draft, but a post that may still go out keeps its mission.
+        openPost: await draft("approved", of(missions.openByReference)),
       };
       const publication = (contentId: string, status: string) =>
         add("publications", { contentId, status, channel: "x" });
@@ -121,49 +164,63 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
       await publication(kept.remote.id, "scheduled_remote");
       for (const status of ["published", "canceled", "failed"])
         await publication(archived.finalPublications.id, status);
+      await publication(untouched.settledPost.id, "published");
+      await publication(untouched.openPost.id, "intent_created");
       const postiz = (contentId: string, status: string) =>
         add("postiz_drafts", { contentId, status });
       await postiz(kept.sending.id, "sending");
       await postiz(kept.unknown.id, "outcome_unknown");
       await postiz(archived.acceptedPostiz.id, "accepted");
-      await add("jobs", {
-        topic: "generation",
-        resourceId: missions.busy.id,
-        status: "queued",
-      });
-      await add("missions", {
-        title: "Run mission",
-        status: "ready",
-        assignmentRunId: runs.active.id,
-      });
+      const request = (contentId: string, status: string) =>
+        add("action_requests", {
+          actionType: "content.schedule",
+          status,
+          payload: { contentId },
+          expiresAt: new Date(Date.now() + 86400000).toISOString(),
+        });
+      await request(kept.decision.id, "pending");
+      await request(archived.finalPublications.id, "consumed");
+      await request(archived.loose.id, "rejected");
+      const job = (resourceId: string, status: string) =>
+        add("jobs", { topic: "generation", resourceId, status });
+      await job(missions.busy.id, "queued");
+      await job(missions.blockedJob.id, "blocked_dependency");
+      await job(missions.other.id, "succeeded");
       return { missions, archived, kept, untouched };
     });
 
   const expectedSummary = {
     content: {
-      total: 9,
+      total: 16,
       byStatus: {
         review: 1,
-        needs_review: 2,
+        needs_review: 5,
         reviewed: 3,
-        draft: 1,
+        draft: 5,
         blocked: 1,
         pending_approval: 1,
       },
-      byMissionKind: { autopilot: 1, package: 1, other: 7 },
+      byMissionKind: { autopilot: 1, package: 1, other: 14 },
+      alreadyInPostiz: 1,
     },
     missions: {
       total: 4,
       byMissionKind: { autopilot: 1, package: 1, other: 2 },
     },
     kept: {
-      total: 6,
+      total: 8,
       byReason: {
         HAS_OPEN_PUBLICATION: 3,
         HAS_OPEN_POSTIZ_DRAFT: 2,
-        ACTIVE_ASSIGNMENT_RUN: 1,
+        PENDING_DECISION: 1,
+        ACTIVE_ASSIGNMENT_RUN: 2,
       },
     },
+  };
+  const expected = {
+    content: expectedSummary.content.total,
+    missions: expectedSummary.missions.total,
+    kept: expectedSummary.kept.total,
   };
 
   beforeAll(async () => {
@@ -266,19 +323,38 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
           where: {
             projectId: owner.projectId,
             kind: {
-              in: ["publications", "postiz_drafts", "jobs", "assignment_runs"],
+              in: [
+                "publications",
+                "postiz_drafts",
+                "jobs",
+                "assignment_runs",
+                "action_requests",
+              ],
             },
           },
           orderBy: { id: "asc" },
         }),
       )
     ).map((row) => [row.id, row.version, row.data]);
-    // The real run needs the explicit confirmation.
+    // The real run needs the explicit confirmation and the counts shown.
     await expect(cleanup({ preview: false })).rejects.toThrow(
       "CLEANUP_CONFIRMATION_REQUIRED",
     );
+    await expect(cleanup({ confirm: true })).rejects.toThrow(
+      "CLEANUP_CONFIRMATION_REQUIRED",
+    );
     await expect(cleanup({ preview: true, extra: 1 })).rejects.toThrow();
-    const result = await cleanup({ confirm: true });
+    // Counts that no longer match a fresh plan change nothing.
+    for (const stale of [
+      { ...expected, content: expected.content - 1 },
+      { ...expected, missions: expected.missions + 1 },
+      { ...expected, kept: 0 },
+    ])
+      await expect(cleanup({ confirm: true, expected: stale })).rejects.toThrow(
+        "CLEANUP_CHANGED",
+      );
+    expect(await versions()).toEqual(before);
+    const result = await cleanup({ confirm: true, expected });
     expect(result).toMatchObject({ preview: false, ...expectedSummary });
     expect(result.cleanupId).toMatch(/^[\da-f-]{36}$/);
     const content = new Map(
@@ -307,22 +383,31 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     const missions = new Map(
       (await run((tx) => list(tx, owner, "missions"))).map((m) => [m.id, m]),
     );
-    const { autopilot, package: pkg, other, empty } = seeded.missions;
-    for (const m of [autopilot, pkg, other, empty])
+    const { autopilot, package: pkg, other, settled } = seeded.missions;
+    for (const m of [autopilot, pkg, other, settled])
       expect(data(missions.get(m.id))).toMatchObject({
         status: "archived",
         statusBeforeArchive: "ready",
         archiveReason: "OWNER_CLEANUP",
         cleanupId: result.cleanupId,
       });
-    // A queued job, kept content, another status or an active run keep a mission.
-    const { busy, keeps, completed } = seeded.missions;
-    for (const m of [busy, keeps, completed])
-      expect(missions.get(m.id)!.version).toBe(m.version);
-    const runMission = [...missions.values()].find(
-      (m) => data(m).title === "Run mission",
-    )!;
-    expect(data(runMission).status).toBe("ready");
+    // No content of its own, a queued or blocked job, a running batch, kept
+    // content (also a post that is not a draft), a run that is still active
+    // or about to be scheduled, or another status keep a mission.
+    for (const key of [
+      "empty",
+      "busy",
+      "blockedJob",
+      "batch",
+      "keeps",
+      "openByReference",
+      "awaiting",
+      "activeRun",
+      "completed",
+    ] as const) {
+      const m = seeded.missions[key];
+      expect([key, missions.get(m.id)!.version]).toEqual([key, m.version]);
+    }
     // Publications, Postiz drafts, jobs and runs are untouched.
     const othersAfter = (
       await run((tx) =>
@@ -330,7 +415,13 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
           where: {
             projectId: owner.projectId,
             kind: {
-              in: ["publications", "postiz_drafts", "jobs", "assignment_runs"],
+              in: [
+                "publications",
+                "postiz_drafts",
+                "jobs",
+                "assignment_runs",
+                "action_requests",
+              ],
             },
           },
           orderBy: { id: "asc" },
@@ -341,7 +432,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     const changed = Object.entries(await versions()).filter(
       ([key, version]) => before[key] !== version,
     );
-    expect(changed).toHaveLength(9 + 4);
+    expect(changed).toHaveLength(16 + 4);
     const audits = await run((tx) =>
       tx.auditEvent.findMany({
         where: { projectId: owner.projectId, action: "drafts.cleaned_up" },
@@ -350,21 +441,24 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     expect(audits).toHaveLength(1);
     expect(audits[0]!.metadata).toMatchObject({
       cleanupId: result.cleanupId,
-      content: { total: 9 },
+      content: { total: 16, alreadyInPostiz: 1 },
       missions: { total: 4 },
-      kept: { total: 6 },
+      kept: { total: 8 },
     });
     // A second run finds nothing left and changes nothing.
-    const settled = await versions();
-    const second = await cleanup({ confirm: true });
+    const afterFirst = await versions();
+    const second = await cleanup({
+      confirm: true,
+      expected: { content: 0, missions: 0, kept: 8 },
+    });
     expect(second).toMatchObject({
       preview: false,
       cleanupId: null,
       content: { total: 0 },
       missions: { total: 0 },
-      kept: { total: 6 },
+      kept: { total: 8 },
     });
-    expect(await versions()).toEqual(settled);
+    expect(await versions()).toEqual(afterFirst);
   });
 
   it("restores exactly the rows of one cleanup to their previous status, once", async () => {
@@ -381,7 +475,11 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         )
       ).map((row) => [row.id, row]),
     );
-    const { cleanupId } = await cleanup({ preview: false, confirm: true });
+    const { cleanupId } = await cleanup({
+      preview: false,
+      confirm: true,
+      expected,
+    });
     // A mission archived by hand is not part of the cleanup.
     const own = await run((tx) =>
       create(tx, owner, "missions", {
@@ -396,7 +494,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     expect(r.statusCode).toBe(200);
     expect(r.json()).toEqual({
       cleanupId,
-      restored: { content: 9, missions: 4 },
+      restored: { content: 16, missions: 4 },
     });
     const after = await run((tx) =>
       tx.entity.findMany({
@@ -416,7 +514,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     }
     expect(
       after.filter((row) => row.version === original.get(row.id)?.version! + 2),
-    ).toHaveLength(13);
+    ).toHaveLength(20);
     const again = await restore(cleanupId!);
     expect(again.restored).toEqual({ content: 0, missions: 0 });
     // An unknown cleanup restores nothing either.
@@ -432,7 +530,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
     for (const who of ["editor", "viewer"] as const)
       for (const [path, payload] of [
         ["actions/archive-old-drafts", { preview: true }],
-        ["actions/archive-old-drafts", { confirm: true }],
+        ["actions/archive-old-drafts", { confirm: true, expected }],
         ["actions/restore-draft-cleanup", { cleanupId: randomUUID() }],
       ] as const) {
         const r = await request(who, path, payload);
@@ -444,7 +542,7 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         ]);
       }
     await expect(
-      cleanup({ confirm: true }, { ...owner, role: "editor" }),
+      cleanup({ confirm: true, expected }, { ...owner, role: "editor" }),
     ).rejects.toThrow("OWNER_REQUIRED");
     expect(await versions()).toEqual(before);
   });
@@ -465,8 +563,8 @@ describe.skipIf(!enabled)("archiving old drafts in one step", () => {
         )
         .map((item) => item.id)
         .sort();
-    expect(await approvals()).toHaveLength(15);
-    await cleanup({ confirm: true });
+    expect(await approvals()).toHaveLength(16 + 8);
+    await cleanup({ confirm: true, expected });
     expect(await approvals()).toEqual(
       Object.values(seeded.kept)
         .map((row) => row.id)

@@ -1522,7 +1522,12 @@ export async function buildServer(
       "knowledge-import-retry",
     ].includes(action);
     // These check the owner role themselves, so editors and viewers alike
-    // get OWNER_REQUIRED instead of the generic FORBIDDEN.
+    // get OWNER_REQUIRED instead of the generic FORBIDDEN. Skipping the
+    // generic write gate is safe for them only: they are not in `owner`
+    // above, are dispatched solely inside the scoped transaction below, and
+    // archiveOldDrafts/restoreDraftCleanup refuse every non-owner as their
+    // first statement, before reading or writing anything. Scope still
+    // requires a project membership (NOT_FOUND otherwise).
     const ownerChecked = [
       "archive-old-drafts",
       "restore-draft-cleanup",

@@ -3,32 +3,24 @@ import { z } from "zod";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, list, update } from "../shared.ts";
+import { TERMINAL_RUN } from "./agents/assignment-runs.ts";
+import { awaitsScheduling } from "./agents/veto.ts";
+import { DRAFT_STATUSES } from "./draft-statuses.ts";
 import { markMissionArchived } from "./mission-archive.ts";
 
-/** The content statuses the approvals page lists; these are the old drafts. */
-export const DRAFT_STATUSES = [
-  "review",
-  "needs_review",
-  "reviewed",
-  "draft",
-  "blocked",
-  "pending_approval",
-] as const;
+export { DRAFT_STATUSES };
 // A publication in any other status (intent_created, scheduled_remote,
 // sending, outcome_unknown, blocked_dependency, ...) may still go out.
 const FINAL_PUBLICATION = ["published", "published_test", "canceled", "failed"];
 const OPEN_POSTIZ_DRAFT = ["sending", "outcome_unknown"];
-const ENDED_RUN = ["done", "canceled"];
-const ACTIVE_JOB = ["queued", "running", "retry_scheduled"];
-// A mission is done with its content once every row is in one of these.
-const SETTLED_CONTENT = [
-  "archived",
-  "exported",
-  "published",
-  "published_test",
-  "rejected",
-  "canceled",
-  "failed",
+// An approved request may still be executed; a pending one decided.
+const OPEN_REQUEST = ["pending", "approved"];
+// Jobs that may still run for a mission; a blocked one can be retried.
+const ACTIVE_JOB = [
+  "queued",
+  "running",
+  "retry_scheduled",
+  "blocked_dependency",
 ];
 const REASON = "OWNER_CLEANUP";
 const ARCHIVE_FIELDS = [
@@ -42,16 +34,23 @@ const ARCHIVE_FIELDS = [
 export const KEEP_REASONS = [
   "HAS_OPEN_PUBLICATION",
   "HAS_OPEN_POSTIZ_DRAFT",
+  "PENDING_DECISION",
   "ACTIVE_ASSIGNMENT_RUN",
 ] as const;
 type KeepReason = (typeof KEEP_REASONS)[number];
 type MissionKind = "autopilot" | "package" | "other";
 type Row = Awaited<ReturnType<typeof list>>[number];
 
+const count = z.number().int().min(0);
 export const draftCleanupInput = z
   .object({
     preview: z.boolean().default(false),
     confirm: z.literal(true).optional(),
+    // The counts the owner confirmed; a fresh plan must match them.
+    expected: z
+      .object({ content: count, missions: count, kept: count })
+      .strict()
+      .optional(),
   })
   .strict();
 export const draftCleanupRestoreInput = z
@@ -71,7 +70,7 @@ const tally = <K extends string>(keys: readonly K[], values: K[]) =>
   ) as Record<K, number>;
 
 /** Works out what one cleanup archives and keeps; it changes nothing. */
-async function plan(tx: DbTx, scope: Scope) {
+async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
   // One query at a time: the interactive transaction runs them in order anyway.
   const read: Row[][] = [];
   for (const kind of [
@@ -79,63 +78,90 @@ async function plan(tx: DbTx, scope: Scope) {
     "missions",
     "publications",
     "postiz_drafts",
+    "action_requests",
     "assignment_runs",
     "jobs",
   ])
     read.push(await list(tx, scope, kind));
-  const [content, missions, publications, postizDrafts, runs, jobs] = read;
-  const contentIds = (rows: Row[], open: (status: string) => boolean) =>
+  const [content, missions, publications, postizDrafts, requests, runs, jobs] =
+    read as [Row[], Row[], Row[], Row[], Row[], Row[], Row[]];
+  const contentIds = (rows: Row[], open: (v: Record<string, any>) => boolean) =>
     new Set(
       rows
-        .filter((row) => open(String(data(row).status)))
+        .filter((row) => open(data(row)))
         .map((row) => String(data(row).contentId)),
     );
   const openPublication = contentIds(
-    publications!,
-    (status) => !FINAL_PUBLICATION.includes(status),
+    publications,
+    (v) => !FINAL_PUBLICATION.includes(v.status),
   );
-  const openPostizDraft = contentIds(postizDrafts!, (status) =>
-    OPEN_POSTIZ_DRAFT.includes(status),
+  const openPostizDraft = contentIds(postizDrafts, (v) =>
+    OPEN_POSTIZ_DRAFT.includes(v.status),
   );
+  const inPostiz = contentIds(postizDrafts, (v) => v.status === "accepted");
+  const pendingDecision = new Set(
+    requests
+      .filter((row) => {
+        const v = data(row);
+        return (
+          OPEN_REQUEST.includes(v.status) &&
+          !(Date.parse(v.expiresAt) <= at) &&
+          typeof v.payload?.contentId === "string"
+        );
+      })
+      .map((row) => String(data(row).payload.contentId)),
+  );
+  // Runs still working, and finished runs the sweep is about to schedule.
   const activeRuns = new Set(
-    runs!
-      .filter((run) => !ENDED_RUN.includes(String(data(run).status)))
+    runs
+      .filter(
+        (run) =>
+          !TERMINAL_RUN.includes(data(run).status) ||
+          awaitsScheduling(data(run)),
+      )
       .map((run) => run.id),
   );
+  // Why a row must stay, by what references it; asked of any content row.
   const keepReason = (row: Row): KeepReason | null => {
     if (openPublication.has(row.id)) return "HAS_OPEN_PUBLICATION";
     if (openPostizDraft.has(row.id)) return "HAS_OPEN_POSTIZ_DRAFT";
+    if (pendingDecision.has(row.id)) return "PENDING_DECISION";
     if (activeRuns.has(String(data(row).assignmentRunId)))
       return "ACTIVE_ASSIGNMENT_RUN";
     return null;
   };
-  const missionById = new Map(missions!.map((m) => [m.id, data(m)]));
-  const drafts = content!.filter((row) =>
-    (DRAFT_STATUSES as readonly string[]).includes(String(data(row).status)),
-  );
+  const missionById = new Map(missions.map((m) => [m.id, data(m)]));
   const archive: Row[] = [];
   const kept: { row: Row; reason: KeepReason }[] = [];
-  for (const row of drafts) {
+  for (const row of content) {
+    if (!(DRAFT_STATUSES as readonly string[]).includes(data(row).status))
+      continue;
     const reason = keepReason(row);
     if (reason) kept.push({ row, reason });
     else archive.push(row);
   }
-  const archiving = new Set(archive.map((row) => row.id));
   const busy = new Set(
-    jobs!
-      .filter((job) => ACTIVE_JOB.includes(String(data(job).status)))
+    jobs
+      .filter((job) => ACTIVE_JOB.includes(data(job).status))
       .map((job) => String(data(job).resourceId)),
   );
-  // Missions whose content would all be archived or settled afterwards.
-  const missionArchive = missions!.filter((m) => {
+  const own = new Map<string, Row[]>();
+  for (const row of content) {
+    const id = String(data(row).missionId);
+    if (missionById.has(id)) own.set(id, [...(own.get(id) ?? []), row]);
+  }
+  // A ready mission goes once it has content and none of it must stay: a
+  // draft without a reason is archived now, any other row is settled.
+  const missionArchive = missions.filter((m) => {
     const v = data(m);
-    if (v.status !== "ready" || busy.has(m.id)) return false;
-    if (activeRuns.has(String(v.assignmentRunId))) return false;
-    return content!.every(
-      (row) =>
-        data(row).missionId !== m.id ||
-        archiving.has(row.id) ||
-        SETTLED_CONTENT.includes(String(data(row).status)),
+    const rows = own.get(m.id) ?? [];
+    return (
+      v.status === "ready" &&
+      v.batch?.status !== "running" &&
+      !busy.has(m.id) &&
+      !activeRuns.has(String(v.assignmentRunId)) &&
+      rows.length > 0 &&
+      rows.every((row) => keepReason(row) === null)
     );
   });
   const contentKind = (row: Row) =>
@@ -152,6 +178,8 @@ async function plan(tx: DbTx, scope: Scope) {
           archive.map((row) => data(row).status),
         ),
         byMissionKind: tally(kinds, archive.map(contentKind)),
+        // Already handed to Postiz as a draft; it stays there unchanged.
+        alreadyInPostiz: archive.filter((row) => inPostiz.has(row.id)).length,
       },
       missions: {
         total: missionArchive.length,
@@ -175,28 +203,33 @@ async function plan(tx: DbTx, scope: Scope) {
  * The owner's clean start: archives every old draft the approvals page lists
  * and the ready missions left without work, in one transaction. Archiving is
  * reversible (`restoreDraftCleanup`) and deletes nothing; publications,
- * Postiz drafts, jobs, costs and audits stay untouched. Drafts tied to a
- * publication that may still go out, a Postiz draft whose outcome is open or
- * an active assignment run are kept. `preview` only counts.
+ * Postiz drafts, action requests, jobs, costs and audits stay untouched.
+ * Drafts tied to a publication that may still go out, a Postiz draft whose
+ * outcome is open, an open decision or an active assignment run are kept.
+ * `preview` only counts; the real run needs `confirm` and the counts the
+ * owner saw, and refuses with CLEANUP_CHANGED when a fresh plan differs.
  */
 export async function archiveOldDrafts(tx: DbTx, scope: Scope, raw: unknown) {
   if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
   const input = draftCleanupInput.parse(raw);
   const planned = await plan(tx, scope);
-  if (input.preview)
-    return {
-      preview: true,
-      cleanupId: null as string | null,
-      ...planned.summary,
-    };
-  if (input.confirm !== true)
+  const answer = (cleanupId: string | null) => ({
+    preview: input.preview,
+    cleanupId,
+    ...planned.summary,
+  });
+  if (input.preview) return answer(null);
+  if (input.confirm !== true || !input.expected)
     throw new DomainError("CLEANUP_CONFIRMATION_REQUIRED", 409);
+  const { summary } = planned;
+  if (
+    input.expected.content !== summary.content.total ||
+    input.expected.missions !== summary.missions.total ||
+    input.expected.kept !== summary.kept.total
+  )
+    throw new DomainError("CLEANUP_CHANGED", 409);
   if (!planned.archive.length && !planned.missionArchive.length)
-    return {
-      preview: false,
-      cleanupId: null as string | null,
-      ...planned.summary,
-    };
+    return answer(null);
   const cleanupId = randomUUID();
   const archivedAt = new Date().toISOString();
   for (const row of planned.archive) {
@@ -218,9 +251,9 @@ export async function archiveOldDrafts(tx: DbTx, scope: Scope, raw: unknown) {
     });
   await audit(tx, scope, "drafts.cleaned_up", cleanupId, {
     cleanupId,
-    ...planned.summary,
+    ...summary,
   });
-  return { preview: false, cleanupId, ...planned.summary };
+  return answer(cleanupId);
 }
 
 const withoutArchive = (value: Record<string, any>) =>
