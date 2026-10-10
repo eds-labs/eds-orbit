@@ -14,6 +14,7 @@ import {
   assignmentStatusLabels,
   channelText,
   contentTypeLabels,
+  deliveryText,
   scheduleText,
   statusTone,
   type AssignmentContent,
@@ -24,7 +25,14 @@ import { useWorkspace } from "./workspace-context";
 /** One row of `GET /assignments`. */
 export type AssignmentItem = Pick<
   AssignmentContent,
-  "id" | "name" | "kind" | "contentType" | "channels" | "channelNames" | "image"
+  | "id"
+  | "name"
+  | "kind"
+  | "contentType"
+  | "channels"
+  | "channelNames"
+  | "image"
+  | "delivery"
 > & {
   version: number;
   status: string;
@@ -55,6 +63,9 @@ export type UpcomingPost = {
   assignmentId: string | null;
   assignmentName: string | null;
   ownerReleased: boolean;
+  // "postiz_draft": a draft handoff of an assignment with that delivery (R73);
+  // `id`, `version` and `status` are the handoff's then. Absent means "publish".
+  delivery?: "publish" | "postiz_draft";
 };
 /** One row of `GET /assignment-drafts`: a draft that waits for the owner's release. */
 export type AwaitingOwnerDraft = {
@@ -68,6 +79,8 @@ export type AwaitingOwnerDraft = {
   assignmentName: string | null;
   agentApproved: boolean;
   problems: string[];
+  // What the release does: schedule the post or book a Postiz draft (R73).
+  delivery?: "publish" | "postiz_draft";
 };
 type Role = "owner" | "editor" | "viewer";
 type NextStatus = "paused" | "active" | "ended";
@@ -246,6 +259,10 @@ export function AssignmentTable({
                     · {channelText(item, de)} ·{" "}
                     {scheduleText(item.schedule, de)}
                   </small>
+                  <small>
+                    {de ? "Zustellung" : "Delivery"}:{" "}
+                    {deliveryText(item.delivery, de)}
+                  </small>
                 </td>
                 <td>
                   <Badge tone={statusTone(item.status)}>
@@ -419,6 +436,21 @@ const HANDED_OVER: [string, string] = [
   "Bereits an Postiz übergeben – nur dort entfernbar",
 ];
 
+/** What a Postiz draft delivery (R73) says per handoff status; it has no Stop. */
+function draftNote(status: string, de: boolean) {
+  if (status === "accepted")
+    return de
+      ? "Als Entwurf in Postiz angelegt. Orbit veröffentlicht ihn nicht – du veröffentlichst selbst. Zurückziehen nur in Postiz."
+      : "Created as a draft in Postiz. Orbit does not publish it – you publish it yourself. Withdraw it in Postiz only.";
+  if (status === "outcome_unknown")
+    return de
+      ? "Ergebnis der Übergabe unklar – bitte in Postiz prüfen. Orbit sendet ihn nicht erneut."
+      : "Handoff outcome unclear – please check in Postiz. Orbit will not send it again.";
+  return de
+    ? "Wird als Entwurf an Postiz übergeben. Orbit veröffentlicht ihn nicht – du veröffentlichst selbst in Postiz."
+    : "Being handed to Postiz as a draft. Orbit does not publish it – you publish it yourself in Postiz.";
+}
+
 /** Upcoming assignment posts with their veto deadline and Stop. */
 export function UpcomingPostList({
   items,
@@ -448,68 +480,85 @@ export function UpcomingPostList({
           <h2>{de ? "Anstehende Posts" : "Upcoming posts"}</h2>
           <p>
             {de
-              ? "Posts aus Aufträgen gehen nach Ablauf des Veto-Fensters automatisch raus. Bis zur Übergabe an Postiz kannst du jeden hier oder im Telegram-Bot stoppen."
-              : "Assignment posts go out automatically after their veto window. Until the handoff to Postiz you can stop each one here or in the Telegram bot."}
+              ? "Posts aus Aufträgen gehen nach Ablauf des Veto-Fensters automatisch raus. Bis zur Übergabe an Postiz kannst du jeden hier oder im Telegram-Bot stoppen. Aufträge mit Zustellung als Entwurf legen nur Entwürfe in Postiz an; die veröffentlichst du selbst."
+              : "Assignment posts go out automatically after their veto window. Until the handoff to Postiz you can stop each one here or in the Telegram bot. Assignments delivering drafts only create drafts in Postiz, which you publish yourself."}
           </p>
         </div>
       </div>
-      {items.map((item) => (
-        <article key={item.id} className="autopilot-approval">
-          <p className="panel-note">
-            {when(item.scheduledAt, locale, timezone)} ·{" "}
-            {item.channelName ?? item.channel}
-            {item.assignmentName && ` · ${item.assignmentName}`}
-            {item.status === "blocked_dependency" && (
-              <>
-                {" "}
-                <Badge tone="warning">
-                  {de ? "Blockiert" : "Blocked"}
-                  {item.reason ? `: ${item.reason}` : ""}
-                </Badge>
-              </>
+      {items.map((item) =>
+        item.delivery === "postiz_draft" ? (
+          <article key={item.id} className="autopilot-approval">
+            <p className="panel-note">
+              {when(item.scheduledAt, locale, timezone)} ·{" "}
+              {item.channelName ?? item.channel}
+              {item.assignmentName && ` · ${item.assignmentName}`}{" "}
+              <Badge
+                tone={item.status === "outcome_unknown" ? "warning" : "blue"}
+              >
+                {de ? "Entwurf in Postiz" : "Draft in Postiz"}
+              </Badge>
+            </p>
+            <pre className="autopilot-approval-body">{item.excerpt}</pre>
+            <p className="panel-note">{draftNote(item.status, de)}</p>
+          </article>
+        ) : (
+          <article key={item.id} className="autopilot-approval">
+            <p className="panel-note">
+              {when(item.scheduledAt, locale, timezone)} ·{" "}
+              {item.channelName ?? item.channel}
+              {item.assignmentName && ` · ${item.assignmentName}`}
+              {item.status === "blocked_dependency" && (
+                <>
+                  {" "}
+                  <Badge tone="warning">
+                    {de ? "Blockiert" : "Blocked"}
+                    {item.reason ? `: ${item.reason}` : ""}
+                  </Badge>
+                </>
+              )}
+            </p>
+            <pre className="autopilot-approval-body">{item.excerpt}</pre>
+            {item.vetoDeadline === null ? (
+              // Released by the owner: no veto window, Stop works until the handoff.
+              <p className="panel-note">
+                {de
+                  ? "Vom Owner freigegeben – kein Veto-Fenster."
+                  : "Released by the owner – no veto window."}
+              </p>
+            ) : Date.parse(item.vetoDeadline) <= now ? (
+              // Past the deadline but not claimed yet: Stop still works until the handoff.
+              <p className="panel-note">
+                {de
+                  ? "Frist abgelaufen – die Übergabe an Postiz steht bevor."
+                  : "Deadline passed – the handoff to Postiz is imminent."}
+              </p>
+            ) : (
+              <p className="panel-note">
+                {de ? "Stop möglich bis" : "Stop possible until"}{" "}
+                <time dateTime={item.vetoDeadline}>
+                  {when(item.vetoDeadline, locale, timezone)}
+                </time>
+              </p>
             )}
-          </p>
-          <pre className="autopilot-approval-body">{item.excerpt}</pre>
-          {item.vetoDeadline === null ? (
-            // Released by the owner: no veto window, Stop works until the handoff.
-            <p className="panel-note">
-              {de
-                ? "Vom Owner freigegeben – kein Veto-Fenster."
-                : "Released by the owner – no veto window."}
-            </p>
-          ) : Date.parse(item.vetoDeadline) <= now ? (
-            // Past the deadline but not claimed yet: Stop still works until the handoff.
-            <p className="panel-note">
-              {de
-                ? "Frist abgelaufen – die Übergabe an Postiz steht bevor."
-                : "Deadline passed – the handoff to Postiz is imminent."}
-            </p>
-          ) : (
-            <p className="panel-note">
-              {de ? "Stop möglich bis" : "Stop possible until"}{" "}
-              <time dateTime={item.vetoDeadline}>
-                {when(item.vetoDeadline, locale, timezone)}
-              </time>
-            </p>
-          )}
-          {handedOver.includes(item.id) ? (
-            <Alert kind="warning">{HANDED_OVER[de ? 1 : 0]}</Alert>
-          ) : (
-            canStop && (
-              <div className="form-actions">
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  disabled={pending}
-                  onClick={() => onStop(item)}
-                >
-                  Stop
-                </Button>
-              </div>
-            )
-          )}
-        </article>
-      ))}
+            {handedOver.includes(item.id) ? (
+              <Alert kind="warning">{HANDED_OVER[de ? 1 : 0]}</Alert>
+            ) : (
+              canStop && (
+                <div className="form-actions">
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    disabled={pending}
+                    onClick={() => onStop(item)}
+                  >
+                    Stop
+                  </Button>
+                </div>
+              )
+            )}
+          </article>
+        ),
+      )}
     </section>
   );
 }
@@ -564,6 +613,13 @@ export function AwaitingOwnerDraftList({
             ))}
           </p>
           <pre className="autopilot-approval-body">{item.excerpt}</pre>
+          {item.delivery === "postiz_draft" && (
+            <p className="panel-note">
+              {de
+                ? "Zustellung als Entwurf: Die Freigabe legt ihn nur als Entwurf in Postiz an, zu seinem Termin. Veröffentlichen machst du selbst in Postiz."
+                : "Draft delivery: releasing only creates it as a draft in Postiz, dated at its slot. You publish it yourself in Postiz."}
+            </p>
+          )}
           <p className="panel-note">
             {item.agentApproved
               ? de

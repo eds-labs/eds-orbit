@@ -65,6 +65,8 @@ const DECIDED_BY_REVIEW = new Set([
   "REVIEW_REQUIRED",
   // Assignment missions are draft-only; the publishing permission is checked at handoff.
   "MISSION_TEST_WRITE_NOT_AUTHORIZED",
+  // Draft delivery (R73) only bars publishing; the draft itself is reviewed as any other.
+  "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
 ]);
 // Problems that are no fault of the draft, or that the check cannot be sure
 // of: alone they leave the draft for the owner (`needs_review`), never reject it.

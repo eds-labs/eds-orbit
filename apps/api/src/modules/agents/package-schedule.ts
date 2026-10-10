@@ -255,7 +255,9 @@ export type WithdrawReason =
   | "ASSIGNMENT_PAUSED"
   | "ASSIGNMENT_ENDED"
   | "ASSIGNMENT_CHANGED"
-  | "ASSIGNMENT_RETIMED";
+  | "ASSIGNMENT_RETIMED"
+  // A confirmed switch of the assignment's delivery to Postiz drafts (R73).
+  | "ASSIGNMENT_DELIVERY_CHANGED";
 
 /**
  * Takes a publication back before the handoff; its publisher job goes with

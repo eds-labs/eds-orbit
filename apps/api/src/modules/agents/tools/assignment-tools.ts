@@ -7,6 +7,7 @@ import { runsMatching } from "../assignment-runs.ts";
 import { runDeliverables } from "../veto.ts";
 import { assignmentMonthSpend } from "../specialists/runner.ts";
 import {
+  deliveryOf,
   proposeAssignment,
   setAssignmentStatus,
   updateAssignment,
@@ -40,6 +41,13 @@ const schedule = z
 const kind = z.enum(["one_off", "standing"]);
 // No `report` until a report delivery exists (R70, I6): the server refuses it with REPORT_NOT_AVAILABLE.
 const contentType = z.enum(["social", "blog", "newsletter"]);
+// R73: how approved posts leave Orbit; the server refuses postiz_draft while drafts are off.
+const delivery = z
+  .enum(["publish", "postiz_draft"])
+  .nullable()
+  .describe(
+    "publish (default when null): posts go out after the veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off)",
+  );
 
 const proposeParameters = z
   .object({
@@ -73,6 +81,7 @@ const proposeParameters = z
       .number()
       .int()
       .describe("USD millionths per month, within the project's model budget"),
+    delivery,
   })
   .strict();
 
@@ -100,6 +109,7 @@ const changeParameters = z
         styleAssetIds: z.array(z.string()).nullable(),
         vetoMinutes: z.number().int().nullable(),
         monthlyBudgetMicros: z.number().int().nullable(),
+        delivery,
       })
       .strict()
       .nullable()
@@ -139,6 +149,7 @@ export function assignmentCardOf(row: {
     styleAssetIds: d.styleAssetIds,
     vetoMinutes: d.vetoMinutes,
     monthlyBudgetMicros: d.monthlyBudgetMicros,
+    delivery: deliveryOf(d),
     actionRequestId: d.status === "draft" ? (d.actionRequestId ?? null) : null,
   };
 }
@@ -229,7 +240,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_propose",
     namespace: "assignments",
     description:
-      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Report assignments are not available yet.",
+      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself. Report assignments are not available yet.",
     parameters: proposeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],
@@ -317,6 +328,7 @@ export const assignmentTools: readonly OrbitTool[] = [
                   : null,
               monthCostMicros: listed.monthCost.get(row.id) ?? 0,
               monthlyBudgetMicros: d.monthlyBudgetMicros,
+              delivery: deliveryOf(d),
               pendingActionRequestId:
                 d.status === "draft" ? (d.actionRequestId ?? null) : null,
             };
@@ -330,7 +342,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_change",
     namespace: "assignments",
     description:
-      "Pause, resume (owner) or end an assignment, or change it. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
+      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft). Moving times is the owner's; any other change returns it to draft for a new confirmation.",
     parameters: changeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],
@@ -422,7 +434,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "run_status",
     namespace: "assignments",
     description:
-      "Today's assignment runs: state, steps, cost, deliverables (outcome scheduled, handed_over, published, stopped, withdrawn, blocked, failed, dropped or awaiting_owner, with reason) and vetoes. Report runs only from this tool.",
+      "Today's assignment runs: state, steps, cost, deliverables (outcome scheduled, handed_over, published, stopped, withdrawn, blocked, failed, dropped, awaiting_owner, or for Postiz draft delivery postiz_draft_pending, postiz_draft, postiz_draft_unknown; with reason) and vetoes. Report runs only from this tool.",
     parameters: z
       .object({
         assignmentId: z

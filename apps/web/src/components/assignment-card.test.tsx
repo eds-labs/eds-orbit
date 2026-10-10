@@ -84,6 +84,32 @@ describe("AssignmentCard", () => {
     expect(confirmButton(plain)).not.toContain("disabled");
   });
 
+  it("shows the delivery the owner confirms", () => {
+    expect(render(false)).toContain("Veröffentlichen nach dem Veto-Fenster");
+    const html = renderToStaticMarkup(
+      <AssignmentCard
+        assignment={{ ...assignment(false), delivery: "postiz_draft" }}
+        status="draft"
+        request={{
+          id: "request",
+          version: 1,
+          packageHash: "a".repeat(64),
+          status: "pending",
+        }}
+        de
+        canDecide
+        pending={false}
+        onConfirm={() => {}}
+        onReject={() => {}}
+      />,
+    );
+    expect(html).toContain("Zustellung");
+    expect(html).toContain("Als Entwurf in Postiz (du veröffentlichst selbst)");
+    expect(html).toContain("Entfällt – Orbit veröffentlicht nichts");
+    expect(html).toContain("Veröffentlichen machst du selbst in Postiz");
+    expect(html).not.toContain("wenn du sie nicht stoppst");
+  });
+
   it("lets only a person who may decide confirm", () => {
     const html = render(true, false);
     expect(confirmButton(html)).toBeUndefined();

@@ -66,6 +66,10 @@ import { runImageJob } from "../../api/src/modules/image-requests.ts";
 import { registerAgentSpecialists } from "../../api/src/modules/agents/specialists/index.ts";
 import { runAgentTask } from "../../api/src/modules/agents/specialists/runner.ts";
 import { sendNotification } from "../../api/src/modules/agents/notification-sender.ts";
+import {
+  deliverPostizDraft,
+  markPostizDraftOutcomeUnknown,
+} from "../../api/src/modules/agents/draft-delivery.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
@@ -105,6 +109,8 @@ const classes = [
   "agent",
   // Previews, notices and the daily report for the owner's Telegram bot (Orbit Agents).
   "telegram_notification",
+  // Approved assignment posts sent to Postiz as drafts only (delivery "Postiz draft", R73).
+  "postiz_draft",
 ] as const;
 const queues = new Map(
   classes.map((c) => [
@@ -320,6 +326,9 @@ const workers = classes.map(
           } else if (topic === "telegram_notification") {
             // Records its own outcome on the job; a failed delivery is an exception, never a retry loop.
             await sendNotification(scope, jobId);
+          } else if (topic === "postiz_draft") {
+            // Records its own outcome on the handoff; an unclear send is never repeated.
+            await deliverPostizDraft(scope, data(claimed).resourceId);
           } else if (topic === "agent") {
             // Records its own outcome on the task; never retried after a paid call.
             await runAgentTask(scope, data(claimed).resourceId);
@@ -413,6 +422,9 @@ async function processProject(p: DueProject, claimed: Date) {
         }
         if (d.topic === "slack_notification")
           await markSlackOutcomeUnknown(tx, scope, d.resourceId);
+        // A draft send that may have reached Postiz is never repeated (R73).
+        if (d.topic === "postiz_draft")
+          await markPostizDraftOutcomeUnknown(tx, scope, d.resourceId);
         if (d.topic === "publishing") {
           const pub = await entity(tx, scope, "publications", d.resourceId);
           if (data(pub).status === "sending") {

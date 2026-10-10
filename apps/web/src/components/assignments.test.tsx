@@ -177,6 +177,63 @@ describe("UpcomingPostList for a post the owner released", () => {
   });
 });
 
+describe("UpcomingPostList for a Postiz draft delivery", () => {
+  const draft = (status: string): UpcomingPost => ({
+    id: "handoff",
+    version: 1,
+    status,
+    reason: null,
+    channel: "x-int",
+    channelName: "Synthetic X",
+    scheduledAt: "2026-10-10T15:00:00.000Z",
+    vetoDeadline: null,
+    excerpt: "Beta access is open for product teams.",
+    assignmentId: "assignment",
+    assignmentName: "Two posts a day",
+    ownerReleased: false,
+    delivery: "postiz_draft",
+  });
+  const list = (status: string) =>
+    renderToStaticMarkup(
+      <UpcomingPostList
+        items={[draft(status)]}
+        now={Date.parse("2026-10-10T10:00:00.000Z")}
+        de
+        timezone="Europe/Berlin"
+        canStop
+        pending={false}
+        handedOver={[]}
+        onStop={() => {}}
+      />,
+    );
+
+  it("lists it as a draft in Postiz without Stop and says where to withdraw it", () => {
+    const html = list("accepted");
+    expect(html).toContain("Entwurf in Postiz");
+    expect(html).toContain("Beta access is open for product teams.");
+    expect(html).toContain("Zurückziehen nur in Postiz");
+    expect(html).not.toContain(">Stop<");
+    expect(html).not.toContain("Stop möglich bis");
+  });
+
+  it("says a booked draft is on its way and an unclear one needs a check", () => {
+    expect(list("queued")).toContain("Wird als Entwurf an Postiz übergeben");
+    expect(list("queued")).not.toContain(">Stop<");
+    expect(list("outcome_unknown")).toContain("bitte in Postiz prüfen");
+  });
+});
+
+describe("AssignmentTable delivery", () => {
+  it("shows how the posts are delivered", () => {
+    expect(render([item()])).toContain(
+      "Zustellung: Veröffentlichen nach dem Veto-Fenster",
+    );
+    expect(render([item({ delivery: "postiz_draft" })])).toContain(
+      "Zustellung: Als Entwurf in Postiz (du veröffentlichst selbst)",
+    );
+  });
+});
+
 describe("AwaitingOwnerDraftList", () => {
   const draft = (
     changes: Partial<AwaitingOwnerDraft> = {},
@@ -228,7 +285,9 @@ describe("AwaitingOwnerDraftList", () => {
       false,
     );
     expect(html).toContain("LINK_UNVERIFIED");
-    expect(html).toContain("Der Review-Agent hat diesen Entwurf an dich übergeben");
+    expect(html).toContain(
+      "Der Review-Agent hat diesen Entwurf an dich übergeben",
+    );
     expect(html).not.toContain(">Freigeben<");
     expect(html).toContain("Nur ein Owner kann freigeben");
   });
@@ -358,10 +417,7 @@ describe("AutopilotMigrationView", () => {
     vetoMinutes: 180,
     monthlyBudgetMicros: 50_000_000,
   };
-  const view = (
-    state: Partial<AutopilotMigration>,
-    canPropose = true,
-  ) =>
+  const view = (state: Partial<AutopilotMigration>, canPropose = true) =>
     renderToStaticMarkup(
       <AutopilotMigrationView
         state={{
@@ -395,7 +451,9 @@ describe("AutopilotMigrationView", () => {
     expect(draft).toContain("Bestätigung ist offen");
     expect(draft).not.toContain("Als Auftrag vorschlagen");
     expect(
-      view({ assignment: { id: "a", status: "active", actionRequestId: null } }),
+      view({
+        assignment: { id: "a", status: "active", actionRequestId: null },
+      }),
     ).toBe("");
     expect(view({ proposal: null })).toBe("");
   });
@@ -407,8 +465,8 @@ describe("AutopilotMigrationView", () => {
     expect(
       view({ proposal: null, reason: "ACTIVE_POLICY_REQUIRED" }),
     ).toContain("keine aktive Richtlinie");
-    expect(
-      view({ proposal: null, reason: "POSTING_TIME_REQUIRED" }),
-    ).toContain("Postingzeit");
+    expect(view({ proposal: null, reason: "POSTING_TIME_REQUIRED" })).toContain(
+      "Postingzeit",
+    );
   });
 });

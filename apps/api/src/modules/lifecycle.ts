@@ -19,6 +19,7 @@ import { advanceContentPackages } from "./agents/content-packages.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { nextDailyReportAt, planDailyReport } from "./agents/notifications.ts";
 import { scheduleUnscheduledRuns } from "./agents/veto.ts";
+import { requeuePostizDrafts } from "./agents/draft-delivery.ts";
 import {
   nextAssignmentPlanAt,
   planAssignmentRuns,
@@ -206,6 +207,8 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
     await planAssignmentRuns(tx, scope, at);
     // Runs whose approved posts could not be scheduled after their review (R54).
     await scheduleUnscheduledRuns(tx, scope);
+    // Booked Postiz drafts whose send a pause or a failed job held back (R73).
+    await requeuePostizDrafts(tx, scope);
     // The bot's daily report, once per local day (a paused project sends none).
     await planDailyReport(tx, scope, at);
   } else await planAutopilot(tx, scope, at);

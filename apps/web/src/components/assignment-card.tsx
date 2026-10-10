@@ -27,6 +27,8 @@ export type AssignmentContent = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
+  // How approved posts leave Orbit (R73); absent means "publish".
+  delivery?: "publish" | "postiz_draft";
   actionRequestId?: string | null;
 };
 /** The `assignment.confirm` action request the card decides. */
@@ -49,6 +51,25 @@ export const assignmentStatusLabels: Record<string, [string, string]> = {
   budget_exhausted: ["Budget used up", "Budget aufgebraucht"],
   ended: ["Ended", "Beendet"],
 };
+/** The delivery an owner confirms: published after the veto window, or only a draft in Postiz (R73). */
+export const deliveryLabels: Record<
+  "publish" | "postiz_draft",
+  [string, string]
+> = {
+  publish: [
+    "Published after the veto window",
+    "Veröffentlichen nach dem Veto-Fenster",
+  ],
+  postiz_draft: [
+    "As a draft in Postiz (you publish it yourself)",
+    "Als Entwurf in Postiz (du veröffentlichst selbst)",
+  ],
+};
+export const deliveryText = (
+  delivery: AssignmentContent["delivery"],
+  de: boolean,
+) => deliveryLabels[delivery ?? "publish"][de ? 1 : 0];
+
 export const contentTypeLabels: Record<string, [string, string]> = {
   social: ["Social post", "Social-Post"],
   blog: ["Blog article", "Blogartikel"],
@@ -135,6 +156,7 @@ export function AssignmentCard({
   const [consent, setConsent] = useState(false);
   const open = request?.status === "pending";
   const lead = assignment.schedule.leadMinutes;
+  const drafts = assignment.delivery === "postiz_draft";
   return (
     <section
       className="chat-proposal assignment-card"
@@ -197,11 +219,19 @@ export function AssignmentCard({
           </dd>
         </div>
         <div>
+          <dt>{de ? "Zustellung" : "Delivery"}</dt>
+          <dd>{deliveryText(assignment.delivery, de)}</dd>
+        </div>
+        <div>
           <dt>{de ? "Veto-Fenster" : "Veto window"}</dt>
           <dd>
-            {de
-              ? `${assignment.vetoMinutes} Minuten vor dem Termin`
-              : `${assignment.vetoMinutes} minutes before the slot`}
+            {drafts
+              ? de
+                ? "Entfällt – Orbit veröffentlicht nichts"
+                : "None – Orbit publishes nothing"
+              : de
+                ? `${assignment.vetoMinutes} Minuten vor dem Termin`
+                : `${assignment.vetoMinutes} minutes before the slot`}
           </dd>
         </div>
         <div>
@@ -233,9 +263,13 @@ export function AssignmentCard({
             </p>
           )}
           <p className="chat-package-note">
-            {de
-              ? "Mit der Bestätigung arbeitet Orbit diesen Auftrag im Budget selbstständig ab. Posts gehen nach dem Veto-Fenster raus, wenn du sie nicht stoppst."
-              : "Once confirmed, Orbit runs this assignment on its own within the budget. Posts go out after the veto window unless you stop them."}
+            {drafts
+              ? de
+                ? "Mit der Bestätigung arbeitet Orbit diesen Auftrag im Budget selbstständig ab. Freigegebene Posts legt Orbit nur als Entwürfe in Postiz an, zu ihrem Termin. Veröffentlichen machst du selbst in Postiz."
+                : "Once confirmed, Orbit runs this assignment on its own within the budget. Approved posts are only created as drafts in Postiz, dated at their slot. You publish them yourself in Postiz."
+              : de
+                ? "Mit der Bestätigung arbeitet Orbit diesen Auftrag im Budget selbstständig ab. Posts gehen nach dem Veto-Fenster raus, wenn du sie nicht stoppst."
+                : "Once confirmed, Orbit runs this assignment on its own within the budget. Posts go out after the veto window unless you stop them."}
           </p>
           <div className="chat-links">
             <Button

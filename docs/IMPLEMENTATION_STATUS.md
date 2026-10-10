@@ -1,5 +1,9 @@
 # Implementation status
 
+## Assignment delivery as Postiz drafts (2026-10-10, local)
+
+Branch `claude/assignment-postiz-drafts`, ruling R73, not pushed or deployed. Assignments gain the confirmed field `delivery` (`publish` default, `postiz_draft`). With `postiz_draft` Orbit never publishes: approved drafts (accepted agent review or the owner's release) are booked as `postiz_drafts` handoffs at their slot (the slot stays held) and sent by the new worker queue `postiz_draft` through the shared draft handoff of `postiz-draft.ts` (type `draft`, `outcome_unknown` never resent, existing resolve action); no publication, veto window, preview or publish right; preflight blocks publications of such content. Gated by `ENABLE_POSTIZ_DRAFTS` (`POSTIZ_DRAFTS_DISABLED` at proposal and confirmation, dropped deliverable with a notice at run time). Telegram notice `postiz_draft` per created draft, daily report line "Entwürfe an Postiz", "Anstehende Posts" shows "Entwurf in Postiz" without Stop, the card and the assignments page show the delivery, and `assignment_propose`/`assignment_change` set it. No route, schema migration or new dependency. Approval K now uses draft delivery. Details: [OPERATIONS.md](OPERATIONS.md#orbit-agents), ADR 0008 addendum 2026-10-10, [API contract](API_CONTRACT.md).
+
 ## Orbit Agents (2026-10-09, local, flag off)
 
 Built on branch `claude/orbit-agents-spec` from the [Orbit Agents design](superpowers/specs/2026-10-09-orbit-agents-design.md) and its [plan](superpowers/plans/2026-10-09-orbit-agents.md), tasks 1–15; not pushed, merged or deployed. Everything is behind `ORBIT_AGENTS` (default `false`); with the flag off the existing chat, packages and weekly autopilot behave as before. Requirement mapping: [traceability](REQUIREMENTS_TRACEABILITY.md#orbit-agents-acceptance-2026-10-09). Operations: [OPERATIONS.md](OPERATIONS.md#orbit-agents). Rollout and approvals H–K: [rollout plan](plans/ORBIT_CORE_ROLLOUT_PLAN.md), Phase 7.

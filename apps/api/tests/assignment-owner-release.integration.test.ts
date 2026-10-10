@@ -477,7 +477,7 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
         vetoPublication(
           tx,
           project.editor,
-          publicationId,
+          publicationId!,
           item!.version,
           "orbit",
         ),
