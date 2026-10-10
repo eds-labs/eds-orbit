@@ -51,6 +51,7 @@ import {
   removeStaleEvals,
 } from "../generation/harness.ts";
 import { isBareHost, type ReviewCase } from "./review-set.ts";
+import type { CaseDiagnosis, RoundDiagnosis } from "./diagnosis.ts";
 import {
   caseAsPlanned,
   casePasses,
@@ -199,7 +200,12 @@ async function runCase(
   template: Record<string, any>,
   c: ReviewCase,
   ceilingMicros: number,
-): Promise<{ result: CaseResult; unknown: boolean }> {
+  diagnose: boolean,
+): Promise<{
+  result: CaseResult;
+  unknown: boolean;
+  diagnosis: CaseDiagnosis | null;
+}> {
   const { id: _id, version: _version, ...shape } = template;
   const setup = await h.run(async (tx) => {
     const content = await create(tx, owner, "content", {
@@ -290,6 +296,28 @@ async function runCase(
       (row) => row.taskClass === "agent_review",
     );
     const original = data(await entity(tx, owner, "content", setup.contentId));
+    // Diagnostic mode only: each round's decision as the review step stored
+    // it on the draft it judged (round 1 on the original, round 2 on the revision).
+    const rounds: RoundDiagnosis[] = [];
+    if (diagnose)
+      for (const id of [setup.contentId, first?.revisedTo]) {
+        if (!id) continue;
+        const v =
+          id === setup.contentId
+            ? original
+            : data(await entity(tx, owner, "content", id));
+        const stored = v.agentReviewDecision;
+        if (stored?.taskId !== setup.task.id) continue;
+        rounds.push({
+          round: stored.round,
+          verdict: stored.verdict,
+          modelVerdict: stored.modelVerdict ?? null,
+          reasons: [...(stored.reasons ?? [])],
+          revisionInstructions: stored.revisionInstructions ?? null,
+          deterministicProblems: [...(stored.deterministicProblems ?? [])],
+          body: String(v.body),
+        });
+      }
     // A revision that failed (it is a stub, so this is not the planned path) is an error.
     const revisionError = original.agentReviewDecision?.revisionError;
     if (!failure && revisionError) failure = String(revisionError);
@@ -362,6 +390,16 @@ async function runCase(
       result,
       // Any unknown outcome stops the run, the revision draft's included.
       unknown: allReservations.some((row) => row.state === "unknown"),
+      diagnosis: diagnose
+        ? {
+            caseId: c.id,
+            label: c.label,
+            category: c.category,
+            verdict,
+            errorCode: failure,
+            rounds,
+          }
+        : null,
     };
   });
 }
@@ -382,6 +420,9 @@ export async function runReviewEval(options: {
   maxCostMicros: number;
   runtime: OpenAiRuntimeConfig;
   datasetVersion: string;
+  // Diagnostic mode: receives each case's stored reasons, revision
+  // instructions and draft bodies. They never enter the metrics report.
+  diagnose?: (entry: CaseDiagnosis) => void;
 }): Promise<ReviewReport> {
   assertLocalDatabase();
   assertStubs();
@@ -418,14 +459,16 @@ export async function runReviewEval(options: {
           stoppedReason = "BUDGET_EXCEEDED";
           break;
         }
-        const { result, unknown } = await runCase(
+        const { result, unknown, diagnosis } = await runCase(
           h,
           project.owner,
           template,
           c,
           remaining,
+          Boolean(options.diagnose),
         );
         results.push(result);
+        if (diagnosis) options.diagnose?.(diagnosis);
         stoppedReason = stopReason(result, unknown);
         if (stoppedReason) break;
       }

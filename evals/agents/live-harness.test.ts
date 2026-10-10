@@ -73,6 +73,11 @@ vi.mock("../../packages/ai/src/index.ts", async (original) => ({
     };
   }),
 }));
+import { existsSync } from "node:fs";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { authDb, closeDatabase } from "../../packages/db/src/index.ts";
 import { parseCandidatesFile } from "../generation/live-plan.ts";
 import { REVIEW_EVAL_MARKER, runReviewEval } from "./live-harness.ts";
@@ -84,6 +89,11 @@ import {
   renderReport,
 } from "./live-plan.ts";
 import { parseReviewSet, type ReviewCase } from "./review-set.ts";
+import {
+  DIAGNOSIS_DIR,
+  writeDiagnosis,
+  type CaseDiagnosis,
+} from "./diagnosis.ts";
 import { reviewPromptHash } from "./code-version.ts";
 import rawSet from "./review-v2.json" with { type: "json" };
 import rawRoute from "./review-route-v1.json" with { type: "json" };
@@ -117,6 +127,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     cases: ReviewCase[],
     verdicts: Record<string, { 1: string; 2?: string }>,
     maxCostMicros = plan.maxCostMicros,
+    diagnose?: (entry: CaseDiagnosis) => void,
   ) {
     replay.verdicts = new Map(
       Object.entries(verdicts).map(([id, v]) => [byId(id).body, v]),
@@ -129,6 +140,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
       maxCostMicros,
       runtime,
       datasetVersion: set.datasetVersion,
+      diagnose,
     });
   }
 
@@ -219,6 +231,120 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     expect(outcome.rules.noBadApproved).toBe(false);
     expect(outcome.rules.goodApprovedOrOwner).toBe(true);
     expect(outcome.pass).toBe(false);
+  }, 120_000);
+
+  it("collects both rounds' reasons for a diagnosis and writes them only under .runtime", async () => {
+    const cases = ["good-join-now", "good-reply", "good-needs"].map(byId);
+    const entries: CaseDiagnosis[] = [];
+    const report = await run(
+      cases,
+      {
+        "good-join-now": { 1: "approve" },
+        "good-reply": { 1: "revise", 2: "reject" },
+        "good-needs": { 1: "reject" },
+      },
+      plan.maxCostMicros,
+      (entry) => entries.push(entry),
+    );
+    expect(report.stoppedReason).toBeNull();
+    expect(entries.map((e) => e.caseId)).toEqual(cases.map((c) => c.id));
+    const [approved, revised, rejected] = entries;
+    expect(approved).toEqual({
+      caseId: "good-join-now",
+      label: "good",
+      category: "good",
+      verdict: "approve",
+      errorCode: null,
+      rounds: [
+        {
+          round: 1,
+          verdict: "approve",
+          modelVerdict: "approve",
+          reasons: [],
+          revisionInstructions: null,
+          deterministicProblems: [],
+          body: byId("good-join-now").body,
+        },
+      ],
+    });
+    expect(revised!.verdict).toBe("reject");
+    expect(revised!.rounds).toEqual([
+      {
+        round: 1,
+        verdict: "revise",
+        modelVerdict: "revise",
+        reasons: ["Synthetic reason."],
+        revisionInstructions: "Synthetic instruction.",
+        deterministicProblems: [],
+        body: byId("good-reply").body,
+      },
+      {
+        round: 2,
+        verdict: "reject",
+        modelVerdict: "reject",
+        reasons: ["Synthetic reason."],
+        revisionInstructions: null,
+        deterministicProblems: [],
+        // The worst-case copywriter keeps the body unchanged.
+        body: byId("good-reply").body,
+      },
+    ]);
+    expect(rejected!.rounds).toEqual([
+      expect.objectContaining({
+        round: 1,
+        verdict: "reject",
+        reasons: ["Synthetic reason."],
+      }),
+    ]);
+    // The metrics report never carries the reasons.
+    expect(JSON.stringify(report)).not.toContain("Synthetic reason");
+
+    const evidenceDir = fileURLToPath(
+      new URL("../../docs/evidence/", import.meta.url),
+    );
+    const evidenceBefore = (await readdir(evidenceDir)).sort();
+    const root = await mkdtemp(join(tmpdir(), "orbit-diagnosis-"));
+    try {
+      const stamp = "2026-10-10T07-00-00Z";
+      const paths = await writeDiagnosis(
+        root,
+        stamp,
+        {
+          mode: "diagnose-good",
+          datasetVersion: report.datasetVersion,
+          datasetHash: report.datasetHash,
+          startedAt: report.startedAt,
+          commit: "0".repeat(40),
+          dirty: false,
+          promptHash: plan.promptHash,
+          stoppedReason: report.stoppedReason,
+          cleanupError: report.cleanupError,
+          cases: entries,
+        },
+        runtime.apiKey,
+      );
+      const base = join(root, DIAGNOSIS_DIR, `agent-review-diagnosis-${stamp}`);
+      expect(DIAGNOSIS_DIR).toBe(".runtime");
+      expect(paths).toEqual({ json: base + ".json", md: base + ".md" });
+      // Owner-only files.
+      expect((await stat(paths.json)).mode & 0o777).toBe(0o600);
+      const written = JSON.parse(await readFile(paths.json, "utf8"));
+      expect(written.note).toContain("DIAGNOSTIC");
+      expect(written.result).toBe("DIAGNOSTIC");
+      expect(written.cases).toEqual(entries);
+      const markdown = await readFile(paths.md, "utf8");
+      expect(markdown).toContain("DIAGNOSTIC — not a gate result");
+      expect(markdown).toContain("Synthetic instruction.");
+      expect(markdown).toContain(byId("good-reply").body);
+      for (const text of [JSON.stringify(written), markdown])
+        expect(text).not.toContain(runtime.apiKey);
+      // Nothing else is written: only .runtime under the root, nothing in docs/evidence.
+      expect(await readdir(root)).toEqual([DIAGNOSIS_DIR]);
+      expect(existsSync(join(root, "docs"))).toBe(false);
+      expect((await readdir(evidenceDir)).sort()).toEqual(evidenceBefore);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   }, 120_000);
 
   it("stops at the ceiling before a reservation it cannot afford", async () => {
