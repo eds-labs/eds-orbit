@@ -4,7 +4,8 @@ import { audit, create, data, entity, list, update } from "../../shared.ts";
 import { activePolicy } from "../policy.ts";
 import { zonedTime } from "../posting-slots.ts";
 import { enqueue } from "../workflow.ts";
-import { agentsEnabled } from "./assignments.ts";
+import { agentsEnabled, confirmedDelivery } from "./assignments.ts";
+import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
@@ -329,6 +330,20 @@ export async function planAssignmentRuns(
     // Posts need a policy for their rules; without one nothing can be planned.
     if (!policy) continue;
     const known = await plannedDates(tx, scope, row.id, today);
+    // Draft delivery with Postiz drafts switched off (R73, M3): no run and no
+    // spend; one notice per assignment and day while a run would be due.
+    if (confirmedDelivery(d) === "postiz_draft" && !postizDraftsEnabled()) {
+      if (
+        dueDays(d.schedule, project.timezone, now).some(
+          (due) =>
+            !known.has(due.date) &&
+            due.createAt <= now &&
+            due.slots[due.slots.length - 1]! > now,
+        )
+      )
+        await notify(tx, scope, "drafts_disabled", `${row.id}:${today}`);
+      continue;
+    }
     for (const due of dueDays(d.schedule, project.timezone, now)) {
       if (
         known.has(due.date) ||

@@ -24,6 +24,7 @@ import {
 import { activePolicy } from "../../policy.ts";
 import { errorCode } from "../../telemetry.ts";
 import { listUsableFacts } from "../content-packages.ts";
+import { confirmedDelivery, deliveryOf } from "../assignments.ts";
 import {
   ASSIGNMENT_BUDGET_EXHAUSTED,
   runBudgetKey,
@@ -198,6 +199,9 @@ async function briefMission(
     costCeilingBound: ceiling.monthBound ? "month" : "task",
     // A run with an image writes captions that fit media limits (Telegram 1,024).
     mediaPlanned: assignment.image === true,
+    // The confirmed delivery travels with the draft (R73, I1): the publish
+    // guard reads it, never the live assignment row.
+    delivery: confirmedDelivery(assignment) ?? deliveryOf(assignment),
     ...extra,
   });
   return { missionId: mission.id, monthBound: ceiling.monthBound };

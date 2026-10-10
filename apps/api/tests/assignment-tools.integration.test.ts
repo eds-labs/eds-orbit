@@ -114,6 +114,7 @@ const proposeArgs = (changes: Record<string, unknown> = {}) => ({
   styleAssetIds: [],
   vetoMinutes: null,
   monthlyBudgetMicros: 30_000_000,
+  delivery: null,
   ...changes,
 });
 const changeArgs = (
@@ -135,6 +136,7 @@ const patch = (changes: Record<string, unknown>) => ({
   styleAssetIds: null,
   vetoMinutes: null,
   monthlyBudgetMicros: null,
+  delivery: null,
   ...changes,
 });
 
@@ -286,6 +288,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
           styleAssetIds: [],
           vetoMinutes: 180,
           monthlyBudgetMicros: 30_000_000,
+          delivery: "publish",
           actionRequestId: results[0].actionRequestId,
         },
       },
@@ -490,6 +493,66 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     });
   });
 
+  it("sets the Postiz draft delivery at proposal and change (R73)", async () => {
+    vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
+    try {
+      const proposed = await turn(project.editor, [
+        [
+          call(
+            "assignment_propose",
+            proposeArgs({ name: "Drafts only", delivery: "postiz_draft" }),
+          ),
+        ],
+        [answer("Proposed as drafts.")],
+      ]);
+      expect(proposed.cards[0]).toMatchObject({
+        assignment: { name: "Drafts only", delivery: "postiz_draft" },
+      });
+      // A confirmed publishing assignment switched to drafts needs a new confirmation.
+      const id = await confirmed();
+      const version = (await assignmentOf(id)).version;
+      const { results, cards } = await turn(project.editor, [
+        [
+          call(
+            "assignment_change",
+            changeArgs(
+              id,
+              version,
+              "change",
+              patch({ delivery: "postiz_draft" }),
+            ),
+          ),
+        ],
+        [answer("The change awaits the owner's confirmation.")],
+      ]);
+      expect(results[0]).toMatchObject({
+        status: "awaiting_confirmation",
+        confirmationRequired: true,
+      });
+      expect(data(await assignmentOf(id))).toMatchObject({
+        status: "draft",
+        delivery: "postiz_draft",
+      });
+      expect(cards[0]).toMatchObject({
+        assignment: { delivery: "postiz_draft" },
+      });
+      // Switched off, the server refuses it.
+      vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "false");
+      const refused = await turn(project.editor, [
+        [
+          call(
+            "assignment_propose",
+            proposeArgs({ name: "Refused", delivery: "postiz_draft" }),
+          ),
+        ],
+        [answer("Not available.")],
+      ]);
+      expect(refused.results).toEqual([{ error: "POSTIZ_DRAFTS_DISABLED" }]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("answers a stale version with VERSION_CONFLICT and requires a version for changes", async () => {
     const id = await confirmed();
     const version = (await assignmentOf(id)).version;
@@ -535,6 +598,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
         nextSlotLocal: expect.stringMatching(/^\d{4}-\d{2}-\d{2} 09:00$/),
         monthCostMicros: 0,
         monthlyBudgetMicros: 30_000_000,
+        delivery: "publish",
         pendingActionRequestId: null,
       },
     ]);

@@ -39,6 +39,8 @@ export type AssignmentCard = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
+  // How approved posts leave Orbit (R73): published, or only drafts in Postiz.
+  delivery: "publish" | "postiz_draft";
   // Null once the draft has no open confirmation request.
   actionRequestId: string | null;
 };

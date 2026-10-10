@@ -38,8 +38,15 @@ export const NOTIFY_KINDS = [
   "budget_paused",
   // Scheduled posts withdrawn because the owner moved the assignment's times (R70).
   "retimed",
+  // A Postiz error of a publication, or a Postiz draft handoff with an unclear outcome (R73).
   "postiz_error",
+  // An assignment draft created as a draft in Postiz (delivery "Postiz draft", R73); no Stop.
+  "postiz_draft",
   "project_paused",
+  // Posts or drafts withdrawn because the owner confirmed another delivery (R73, I1).
+  "delivery_changed",
+  // A draft-delivery assignment planned no run today: Postiz drafts are switched off (M3).
+  "drafts_disabled",
   "daily_report",
 ] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];

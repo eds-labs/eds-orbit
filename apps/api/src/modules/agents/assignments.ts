@@ -18,9 +18,13 @@ import {
   createActionRequest,
 } from "../action-requests.ts";
 import { activePolicy } from "../policy.ts";
+import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
 import { notify } from "./notifications.ts";
-import { withdrawAssignmentPublications } from "./veto.ts";
+import {
+  applyConfirmedDelivery,
+  withdrawAssignmentPublications,
+} from "./veto.ts";
 
 /**
  * Assignments (Orbit Agents): what Orbit pursues for the owner. An assignment
@@ -72,6 +76,10 @@ const assignmentFields = z
     styleAssetIds: z.array(z.uuid()).max(10),
     vetoMinutes: z.number().int().min(30).max(1440).default(180),
     monthlyBudgetMicros: z.number().int().min(0).max(10_000_000_000),
+    // How approved posts leave Orbit (R73): published after the veto window,
+    // or only created as drafts in Postiz at their slot, which the owner
+    // publishes himself. Absent means "publish" (rows from before R73).
+    delivery: z.enum(["publish", "postiz_draft"]).optional(),
   })
   .strict();
 type Content = z.infer<typeof assignmentFields>;
@@ -101,14 +109,57 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(["schedule", "weekdays"], "A weekly rhythm needs weekdays");
   if (rhythm === "once" && !date)
     issue(["schedule", "date"], "A one-off assignment needs a date");
+  if (value.delivery === "postiz_draft" && value.contentType !== "social")
+    issue(["delivery"], "Only social posts can be delivered as Postiz drafts");
 });
 export type AssignmentInput = z.output<typeof assignmentInput>;
 
-// Normalized as stored (JSON drops undefined), so a hash is the same before and after saving.
+export type Delivery = "publish" | "postiz_draft";
+/** Preflight blocker for any publication of a draft-delivery assignment's content (R73). */
+export const ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS =
+  "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS";
+/** The delivery of an assignment; a row without one (from before R73) publishes. */
+export const deliveryOf = (source: Record<string, any> | null | undefined) =>
+  (source?.delivery === "postiz_draft"
+    ? "postiz_draft"
+    : "publish") as Delivery;
+
+/**
+ * The delivery the owner confirmed (R73), null without a confirmation. It is
+ * recorded with the confirmation; a confirmation without it confirmed the
+ * row's delivery if its hash still matches the row (the hash covers the
+ * delivery), else it is from before R73 and confirmed "publish". An
+ * unconfirmed change of the live row never changes it.
+ */
+export function confirmedDelivery(
+  source: Record<string, any> | null | undefined,
+): Delivery | null {
+  const confirmation = source?.confirmation;
+  if (!confirmation || typeof confirmation !== "object") return null;
+  if (
+    confirmation.delivery === "publish" ||
+    confirmation.delivery === "postiz_draft"
+  )
+    return confirmation.delivery;
+  return confirmation.assignmentHash === assignmentHash(source!)
+    ? deliveryOf(source)
+    : "publish";
+}
+
+// Normalized as stored (JSON drops undefined), so a hash is the same before
+// and after saving. The default delivery "publish" is left out, so rows from
+// before R73 keep their hash and confirmation, while "postiz_draft" changes it.
 const contentOf = (source: Record<string, any>) =>
   JSON.parse(
     JSON.stringify(
-      Object.fromEntries(CONTENT_KEYS.map((key) => [key, source[key]])),
+      Object.fromEntries(
+        CONTENT_KEYS.map((key) => [
+          key,
+          key === "delivery" && source[key] === "publish"
+            ? undefined
+            : source[key],
+        ]),
+      ),
     ),
   ) as Record<string, any>;
 /** Everything the owner confirms: all content fields, never status, confirmation or versions. */
@@ -146,6 +197,9 @@ async function assertWithinMandate(
 ) {
   if (content.contentType === "report")
     throw new DomainError(REPORT_NOT_AVAILABLE, 409);
+  // Draft delivery needs the Postiz draft handoff switched on (R73).
+  if (deliveryOf(content) === "postiz_draft" && !postizDraftsEnabled())
+    throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
   const policy = await activePolicy(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const mandate = data(policy);
@@ -300,12 +354,17 @@ export async function confirmAssignment(
       at: new Date().toISOString(),
       assignmentHash: assignmentHash(d),
       imageRightsConsent: d.image === true,
+      // The confirmed delivery (R73); the content guard and the runs read it from here.
+      delivery: deliveryOf(d),
     },
   });
   await audit(tx, scope, "assignment.confirmed", row.id, {
     assignmentHash: assignmentHash(d),
     imageRightsConsent: d.image === true,
+    delivery: deliveryOf(d),
   });
+  // Posts and drafts the owner released under the other delivery go (R73).
+  await applyConfirmedDelivery(tx, scope, row.id, deliveryOf(d), saved.version);
   return saved;
 }
 
@@ -373,14 +432,15 @@ export async function updateAssignment(
       confirmation: { ...d.confirmation, assignmentHash: assignmentHash(next) },
     });
     await audit(tx, scope, "assignment.times_changed", id);
-    const { withdrawn } = await withdrawAssignmentPublications(
+    const { withdrawn, canceledDrafts } = await withdrawAssignmentPublications(
       tx,
       scope,
       id,
       "ASSIGNMENT_RETIMED",
       { retimedVersion: saved.version },
     );
-    if (withdrawn) await notify(tx, scope, "retimed", `${id}:${saved.version}`);
+    if (withdrawn || canceledDrafts)
+      await notify(tx, scope, "retimed", `${id}:${saved.version}`);
     return saved;
   }
   if (d.status !== "draft") {

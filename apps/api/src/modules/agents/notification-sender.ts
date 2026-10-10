@@ -15,7 +15,7 @@ import {
   stopCallbackData,
   telegramSender,
 } from "../telegram.ts";
-import { agentsEnabled } from "./assignments.ts";
+import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import {
   dailyReportTime,
   NOTIFY_KINDS,
@@ -241,6 +241,11 @@ async function needsOwner(
     const mission = c.missionId
       ? data(await maybe(() => entity(tx, scope, "missions", c.missionId)))
       : {};
+    const assignment = c.assignmentId
+      ? data(
+          await maybe(() => entity(tx, scope, "assignments", c.assignmentId)),
+        )
+      : {};
     return plain(
       [
         "Entwurf wartet auf deine Freigabe",
@@ -248,7 +253,11 @@ async function needsOwner(
         ...(mission.plannedSlotAt
           ? [`Geplant: ${when(mission.plannedSlotAt, timezone)}`]
           : []),
-        "Orbit hat ihn geprüft. Er geht erst raus, wenn du ihn in Orbit freigibst.",
+        (c.delivery ??
+          confirmedDelivery(assignment) ??
+          deliveryOf(assignment)) === "postiz_draft"
+          ? "Orbit hat ihn geprüft. Er geht erst als Entwurf an Postiz, wenn du ihn in Orbit freigibst."
+          : "Orbit hat ihn geprüft. Er geht erst raus, wenn du ihn in Orbit freigibst.",
       ].join("\n"),
       [openButton()],
     );
@@ -289,7 +298,11 @@ async function dropped(
   const reason =
     entry.code === SLOT_UNAVAILABLE
       ? "Kein freier Slot an dem Tag"
-      : entry.code;
+      : entry.code === "POSTIZ_DRAFTS_DISABLED"
+        ? "Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS)"
+        : entry.code === "AGENT_REVIEW_NOT_ACCEPTED"
+          ? "Die Agenten-Freigabe gilt nicht mehr (Freigabe-Schalter aus oder Bot getrennt); der Entwurf geht nicht an Postiz"
+          : entry.code;
   return plain(
     [
       "Beitrag entfällt",
@@ -299,6 +312,29 @@ async function dropped(
     ].join("\n"),
   );
 }
+
+/** Assignment drafts not sent to Postiz that one change canceled (R73, M4). */
+const canceledDrafts = (
+  tx: DbTx,
+  scope: Scope,
+  assignmentId: string,
+  reason: string,
+  marker: string,
+  version: number,
+) =>
+  tx.entity.count({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "postiz_drafts",
+      AND: [
+        { data: { path: ["assignmentId"], equals: assignmentId } },
+        { data: { path: ["status"], equals: "canceled" } },
+        { data: { path: ["reason"], equals: reason } },
+        { data: { path: [marker], equals: version } },
+      ],
+    },
+  });
 
 const withdrawnText = (count: number) =>
   count === 0
@@ -319,18 +355,27 @@ async function budgetPaused(
   );
   if (!row) return { skip: "STALE" };
   // The scheduled posts the pause withdrew (R20/R23, M6).
-  const withdrawn = await tx.entity.count({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "publications",
-      AND: [
-        { data: { path: ["assignmentId"], equals: assignmentId! } },
-        { data: { path: ["reason"], equals: "ASSIGNMENT_PAUSED" } },
-        { data: { path: ["budgetPausedVersion"], equals: Number(version) } },
-      ],
-    },
-  });
+  const withdrawn =
+    (await tx.entity.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        AND: [
+          { data: { path: ["assignmentId"], equals: assignmentId! } },
+          { data: { path: ["reason"], equals: "ASSIGNMENT_PAUSED" } },
+          { data: { path: ["budgetPausedVersion"], equals: Number(version) } },
+        ],
+      },
+    })) +
+    (await canceledDrafts(
+      tx,
+      scope,
+      assignmentId!,
+      "ASSIGNMENT_PAUSED",
+      "budgetPausedVersion",
+      Number(version),
+    ));
   return plain(
     [
       "Budget aufgebraucht",
@@ -460,18 +505,27 @@ async function retimed(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
     entity(tx, scope, "assignments", assignmentId!),
   );
   if (!row) return { skip: "STALE" };
-  const withdrawn = await tx.entity.count({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "publications",
-      AND: [
-        { data: { path: ["assignmentId"], equals: assignmentId! } },
-        { data: { path: ["reason"], equals: "ASSIGNMENT_RETIMED" } },
-        { data: { path: ["retimedVersion"], equals: Number(version) } },
-      ],
-    },
-  });
+  const withdrawn =
+    (await tx.entity.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        AND: [
+          { data: { path: ["assignmentId"], equals: assignmentId! } },
+          { data: { path: ["reason"], equals: "ASSIGNMENT_RETIMED" } },
+          { data: { path: ["retimedVersion"], equals: Number(version) } },
+        ],
+      },
+    })) +
+    (await canceledDrafts(
+      tx,
+      scope,
+      assignmentId!,
+      "ASSIGNMENT_RETIMED",
+      "retimedVersion",
+      Number(version),
+    ));
   if (!withdrawn) return { skip: "STALE" };
   const times = ((data(row).schedule?.times ?? []) as unknown[])
     .map(String)
@@ -497,7 +551,7 @@ async function postizError(
   timezone: string,
 ): Promise<Built> {
   const pubRow = await maybe(() => entity(tx, scope, "publications", ref));
-  if (!pubRow) return { skip: "STALE" };
+  if (!pubRow) return postizDraftUnknown(tx, scope, ref, timezone);
   const p = data(pubRow);
   // The post moved on (published after all, withdrawn, ...): the error is no longer true.
   if (!["failed", "outcome_unknown"].includes(p.status))
@@ -512,6 +566,66 @@ async function postizError(
         : "Der Beitrag wurde nicht veröffentlicht.",
     ].join("\n"),
   );
+}
+
+/** A Postiz draft handoff of an assignment whose outcome is unclear (R73; `ref` is the handoff id). */
+async function postizDraftUnknown(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const row = await maybe(() => entity(tx, scope, "postiz_drafts", ref));
+  const h = data(row);
+  // Resolved meanwhile, or never unclear: nothing to check.
+  if (!row || h.status !== "outcome_unknown") return { skip: "STALE" };
+  return plain(
+    [
+      "Postiz-Fehler beim Entwurf",
+      `Kanal: ${await channelName(tx, scope, h.integrationId)}`,
+      `Zeit: ${when(h.slotAt ?? h.remoteDate, timezone)}`,
+      "Ergebnis unklar. Bitte in Postiz prüfen, ob der Entwurf existiert, und das in Orbit festhalten. Orbit sendet ihn nicht erneut.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/**
+ * A draft of an assignment with the delivery "Postiz draft" was created in
+ * Postiz (R73; `ref` is the handoff id): channel, slot and the text that was
+ * sent, with its image unless it went without. No Stop button: Orbit
+ * publishes nothing; the owner publishes or deletes the draft in Postiz.
+ */
+async function postizDraft(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+  timezone: string,
+): Promise<Built> {
+  const row = await maybe(() => entity(tx, scope, "postiz_drafts", ref));
+  const h = data(row);
+  if (!row || h.status !== "accepted") return { skip: "STALE" };
+  const asset =
+    h.assetId && !h.withoutImage
+      ? data(await maybe(() => entity(tx, scope, "assets", h.assetId)))
+      : null;
+  const header = [
+    `Entwurf in Postiz angelegt: ${await channelName(tx, scope, h.integrationId)}, ${when(h.slotAt ?? h.remoteDate, timezone)}`,
+    "Orbit veröffentlicht ihn nicht. Veröffentlichen oder löschen machst du in Postiz.",
+    // The image failed before any post request; the draft went without it (M10).
+    ...(h.imageError
+      ? [
+          "Ohne Bild: Das Bild konnte nicht an Postiz übergeben werden. Füge es in Postiz selbst hinzu, falls nötig.",
+        ]
+      : []),
+  ].join("\n");
+  const body = finalPostText(String(h.body ?? ""), h.targetUrl);
+  return {
+    header,
+    text: clip(`${header}\n\n${body}`, TEXT_MAX),
+    asset: asset && Object.keys(asset).length ? asset : null,
+    buttons: [],
+  };
 }
 
 /** The report of the local day named by `ref` (`<projectId>:<YYYY-MM-DD>`). */
@@ -570,6 +684,7 @@ async function dailyReport(
           "assignment.run_problems",
           "assignment.deliverable_dropped",
           "publication.claim_blocked",
+          "postiz_draft.accepted",
         ],
       },
       createdAt: { gte: start, lt: end },
@@ -595,6 +710,8 @@ async function dailyReport(
     sum("assignment.run_problems", "droppedDeliverables") +
     count("assignment.deliverable_dropped");
   const blockedPosts = count("publication.claim_blocked");
+  // Drafts created in Postiz (R73 deliveries and the owner's own handoffs).
+  const postizDrafts = count("postiz_draft.accepted");
   const spent = (from: Date, state: "settled" | "unknown") =>
     tx.budgetReservation.aggregate({
       where: {
@@ -627,6 +744,7 @@ async function dailyReport(
     `Fehlgeschlagene Schritte: ${failedSteps}`,
     `Entfallene Beiträge: ${droppedDeliverables}`,
     `Blockierte Beiträge: ${blockedPosts}`,
+    `Entwürfe an Postiz: ${postizDrafts}`,
     `Kosten heute: ${usd(today._sum.settledMicros)} USD`,
     `Kosten Monat (UTC): ${usd(thisMonth._sum.settledMicros)} USD`,
     ...(unknown._sum.amountMicros
@@ -646,6 +764,83 @@ async function dailyReport(
       : []),
   ];
   return plain(lines.join("\n"), [openButton()]);
+}
+
+/** Posts or drafts withdrawn by a confirmed delivery change (R73); `ref` is `<assignmentId>:<version>`. */
+async function deliveryChanged(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const [assignmentId, version] = ref.split(":");
+  const row = await maybe(() =>
+    entity(tx, scope, "assignments", assignmentId!),
+  );
+  if (!row) return { skip: "STALE" };
+  const withdrawn =
+    (await tx.entity.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        AND: [
+          { data: { path: ["assignmentId"], equals: assignmentId! } },
+          {
+            data: {
+              path: ["reason"],
+              equals: "ASSIGNMENT_DELIVERY_CHANGED",
+            },
+          },
+          {
+            data: {
+              path: ["deliveryChangedVersion"],
+              equals: Number(version),
+            },
+          },
+        ],
+      },
+    })) +
+    (await canceledDrafts(
+      tx,
+      scope,
+      assignmentId!,
+      "ASSIGNMENT_DELIVERY_CHANGED",
+      "deliveryChangedVersion",
+      Number(version),
+    ));
+  if (!withdrawn) return { skip: "STALE" };
+  const drafts = deliveryOf(data(row)) === "postiz_draft";
+  return plain(
+    [
+      "Zustellung geändert",
+      `Auftrag „${clip(String(data(row).name ?? ""), 120)}“: ${
+        drafts
+          ? "jetzt nur als Entwurf in Postiz"
+          : "jetzt veröffentlichen nach dem Veto-Fenster"
+      }.`,
+      `${withdrawn === 1 ? "1 Beitrag zurückgezogen" : `${withdrawn} Beiträge zurückgezogen`}, der noch nach der alten Zustellung vorgesehen war.`,
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** A draft-delivery assignment that planned no run today (M3); `ref` is `<assignmentId>:<YYYY-MM-DD>`. */
+async function draftsDisabled(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const assignmentId = ref.split(":")[0]!;
+  const name = await assignmentName(tx, scope, assignmentId);
+  if (!name) return { skip: "STALE" };
+  return plain(
+    [
+      "Auftrag läuft heute nicht",
+      `Auftrag „${name}“: Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS).`,
+      "Es wird nichts vorbereitet und es entstehen keine Kosten.",
+    ].join("\n"),
+    [openButton()],
+  );
 }
 
 function projectPaused(): Built {
@@ -685,8 +880,14 @@ async function render(
       return retimed(tx, scope, ref);
     case "postiz_error":
       return postizError(tx, scope, ref, timezone);
+    case "postiz_draft":
+      return postizDraft(tx, scope, ref, timezone);
     case "project_paused":
       return projectPaused();
+    case "delivery_changed":
+      return deliveryChanged(tx, scope, ref);
+    case "drafts_disabled":
+      return draftsDisabled(tx, scope, ref);
     case "daily_report":
       return dailyReport(tx, scope, ref, timezone);
   }
