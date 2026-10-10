@@ -5,11 +5,11 @@ import { data, list } from "../../shared.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
-import { agentsEnabled, deliveryOf } from "./assignments.ts";
+import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
 import { assignmentMonthSpend } from "./specialists/runner.ts";
 import { assignmentCardOf } from "./tools/assignment-tools.ts";
-import { assignmentPost, withdrawable } from "./veto.ts";
+import { assignmentPost, draftDelivery, withdrawable } from "./veto.ts";
 
 /**
  * Read models of Orbit Agents for the web (Task 14): the assignments page,
@@ -362,7 +362,10 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       assignmentId: d.assignmentId,
       assignmentName: data(assignment).name ?? null,
       // What the release does: schedule the post, or book a Postiz draft (R73).
-      delivery: deliveryOf(data(assignment)),
+      delivery: draftDelivery(
+        d,
+        confirmedDelivery(data(assignment)) ?? deliveryOf(data(assignment)),
+      ),
       // The review agent approved the text; only its authority was missing.
       agentApproved: Boolean(d.agentReview),
       problems: [

@@ -22,6 +22,7 @@ import { activePolicy, checkClaims } from "./policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
 import { exportAssetContent } from "./content-export.ts";
+import { afterDraftResolved } from "./agents/draft-delivery.ts";
 
 /**
  * Owner-confirmed handoff of one reviewed Content version to Postiz as a
@@ -129,6 +130,9 @@ export async function draftTarget(
     (row) => data(row).contentId === contentId && row.id !== except,
   );
   const open = previous.find((row) => OPEN.includes(data(row).status));
+  // An assignment delivery booked for this content goes first (M1).
+  if (open && data(open).status === "queued")
+    throw new DomainError("POSTIZ_DRAFT_QUEUED", 409);
   if (open) throw new DomainError("POSTIZ_DRAFT_OUTCOME_UNKNOWN", 409);
   const done = previous.find(
     (row) =>
@@ -242,7 +246,10 @@ const defaultDeps: DraftDeps = {
  * The HTTP step of every handoff, outside any transaction, and its recorded
  * outcome. The handoff must be `sending`. A failed media upload cannot have
  * created a post, so it is a clear failure; only an unclear post creation
- * becomes `outcome_unknown`, with an exception. With `imageFallback` a
+ * becomes `outcome_unknown`, with an exception. An answer that arrives after
+ * the handoff was declared unclear meanwhile (lease recovery, sweep) never
+ * overwrites that state: it is kept as `lateResult` and the exception stays
+ * open for the owner (M7). With `imageFallback` a
  * failed image read or upload goes on without the image (still nothing was
  * posted) and records `imageError`. `after` runs in the transaction that
  * records the outcome, with the saved handoff.
@@ -313,6 +320,8 @@ export async function sendDraftHandoff(
         : "POSTIZ_DRAFT_FAILED";
     return scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const row = await entity(tx, scope, "postiz_drafts", handoffId);
+      if (data(row).status !== "sending")
+        return lateResult(tx, scope, row, { status: "failed", error: code });
       // No post request was sent before the upload finished.
       const known =
         step === "upload_media" ||
@@ -339,6 +348,8 @@ export async function sendDraftHandoff(
   }
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const row = await entity(tx, scope, "postiz_drafts", handoffId);
+    if (data(row).status !== "sending")
+      return lateResult(tx, scope, row, { status: "accepted", remoteId });
     await audit(tx, scope, "postiz_draft.accepted", handoffId, { remoteId });
     const saved = await update(tx, scope, row, {
       ...data(row),
@@ -352,6 +363,23 @@ export async function sendDraftHandoff(
     });
     await options.after?.(tx, saved);
     return saved;
+  });
+}
+
+/** A send's answer that came after its handoff left `sending`: recorded beside the state, which stays (M7). */
+async function lateResult(
+  tx: DbTx,
+  scope: Scope,
+  row: Awaited<ReturnType<typeof entity>>,
+  result: Record<string, unknown>,
+) {
+  await audit(tx, scope, "postiz_draft.late_result", row.id, {
+    status: data(row).status,
+    result: result.status,
+  });
+  return update(tx, scope, row, {
+    ...data(row),
+    lateResult: { ...result, at: new Date().toISOString() },
   });
 }
 
@@ -412,11 +440,20 @@ export async function resolvePostizDraft(tx: DbTx, scope: Scope, raw: unknown) {
   await audit(tx, scope, "postiz_draft.resolved", row.id, {
     resolution: input.resolution,
   });
-  return update(tx, scope, row, {
+  // A draft the owner found in Postiz counts like any other created draft (daily report, M5).
+  if (input.resolution === "exists")
+    await audit(tx, scope, "postiz_draft.accepted", row.id, {
+      remoteId: data(row).remoteId ?? null,
+      resolved: true,
+    });
+  const saved = await update(tx, scope, row, {
     ...data(row),
     status: input.resolution === "exists" ? "accepted" : "failed",
     resolution: input.resolution,
     resolvedBy: scope.userId,
     resolvedAt: new Date().toISOString(),
   });
+  // An assignment's draft not created gives its slot back (M5).
+  await afterDraftResolved(tx, scope, saved, input.resolution);
+  return saved;
 }

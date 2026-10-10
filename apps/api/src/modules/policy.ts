@@ -13,7 +13,7 @@ import { channelPostsNear } from "./agents/channel-posts.ts";
 import { agentReviewAccepted } from "./agents/agent-review.ts";
 import {
   ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
-  deliveryOf,
+  confirmedDelivery,
 } from "./agents/assignments.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
@@ -315,8 +315,13 @@ export async function preflight(
     where: { id: scope.projectId },
   });
   if (project.paused) blockers.push("PROJECT_PAUSED");
-  // An assignment that delivers Postiz drafts never publishes (R73): its owner publishes in Postiz.
-  if (
+  // An assignment that delivers Postiz drafts never publishes (R73): its
+  // owner publishes in Postiz. Read from the delivery stamped on the draft
+  // when it was written and the assignment's confirmed delivery, never its
+  // live row, so an unconfirmed change neither lifts nor adds the block (I1).
+  if (c.delivery === "postiz_draft")
+    blockers.push(ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS);
+  else if (
     typeof c.assignmentId === "string" &&
     /^[0-9a-f-]{36}$/i.test(c.assignmentId)
   ) {
@@ -328,7 +333,7 @@ export async function preflight(
         projectId: scope.projectId,
       },
     });
-    if (assignment && deliveryOf(data(assignment)) === "postiz_draft")
+    if (assignment && confirmedDelivery(data(assignment)) === "postiz_draft")
       blockers.push(ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS);
   }
   if (!c.synthetic && (!c.missionId || !c.campaignType || !c.profileVersion))

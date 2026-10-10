@@ -6,10 +6,16 @@ import { activePolicy, approve, packageFor } from "../policy.ts";
 import { publishIntent, reviewContent } from "../workflow.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
-import { agentsEnabled, deliveryOf } from "./assignments.ts";
+import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
-import { moveDraft, slotKey, vetoSlot, type RunSlot } from "./veto.ts";
+import {
+  draftDelivery,
+  moveDraft,
+  slotKey,
+  vetoSlot,
+  type RunSlot,
+} from "./veto.ts";
 
 /**
  * The owner's release of one assignment draft that was left for them (spec
@@ -157,7 +163,12 @@ export async function releaseAssignmentDraft(
   );
   if (!confirmedHash(assignment) || !withinConfirmation(assignment, c))
     throw new DomainError("ASSIGNMENT_NOT_CONFIRMED", 409);
-  const drafting = deliveryOf(assignment) === "postiz_draft";
+  // The delivery the draft was written under, else the confirmed one (I1).
+  const drafting =
+    draftDelivery(
+      c,
+      confirmedDelivery(assignment) ?? deliveryOf(assignment),
+    ) === "postiz_draft";
   if (drafting && !postizDraftsEnabled())
     throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
   const run = await entity(tx, scope, RUNS, c.assignmentRunId);

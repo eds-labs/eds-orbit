@@ -2,6 +2,7 @@ import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   audit,
+  create,
   data,
   DomainError,
   entity,
@@ -16,15 +17,16 @@ import {
   recordDraftHandoff,
   sendDraftHandoff,
   type DraftDeps,
+  type DraftSend,
 } from "../postiz-draft.ts";
 import { errorCode } from "../telemetry.ts";
 import { enqueue } from "../workflow.ts";
-import { confirmedHash } from "./agent-review.ts";
+import { agentReviewAccepted, confirmedHash } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import {
   agentsEnabled,
   ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
-  deliveryOf,
+  confirmedDelivery,
 } from "./assignments.ts";
 import { notify } from "./notifications.ts";
 
@@ -66,6 +68,7 @@ const publicationStep = () =>
     ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
   ]);
 const PENDING_JOB = ["queued", "running", "retry_scheduled"];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Handoffs older than this are no longer sent again by the sweep.
 const REQUEUE_DAYS = 3;
 
@@ -124,10 +127,7 @@ export async function bookPostizDraft(
     input.content.id,
     input.content.version,
   );
-  // This exact version is in Postiz already (the owner handed it over himself).
-  if ("done" in target) throw new DomainError("POSTIZ_DRAFT_EXISTS", 409);
-  const handoff = await recordDraftHandoff(tx, scope, target, {
-    status: "queued",
+  const fields = {
     source: "assignment",
     assignmentId: input.assignmentId,
     assignmentRunId: input.runId,
@@ -138,6 +138,13 @@ export async function bookPostizDraft(
       input.approvedBy === "owner"
         ? scope.userId
         : `agent:${input.reviewTaskId}`,
+  };
+  // This exact version is in Postiz already (the owner handed it over
+  // himself, M8): delivered, nothing is sent, the slot stays held.
+  if ("done" in target) return recordExisting(tx, scope, target.done, fields);
+  const handoff = await recordDraftHandoff(tx, scope, target, {
+    status: "queued",
+    ...fields,
   });
   await enqueue(
     tx,
@@ -150,6 +157,45 @@ export async function bookPostizDraft(
 }
 
 /**
+ * An assignment delivery whose content version the owner already handed to
+ * Postiz himself (M8): recorded as delivered (`accepted`, `alreadyInPostiz`,
+ * the existing remote draft), without a send or a notice; it keeps its slot.
+ */
+async function recordExisting(
+  tx: DbTx,
+  scope: Scope,
+  done: Row,
+  fields: Record<string, unknown>,
+) {
+  const e = data(done);
+  const row = await create(tx, scope, KIND, {
+    contentId: e.contentId,
+    contentVersion: e.contentVersion,
+    body: e.body,
+    targetUrl: e.targetUrl ?? null,
+    assetId: e.assetId ?? null,
+    integrationId: e.integrationId,
+    integrationName: e.integrationName ?? null,
+    integrationIdentifier: e.integrationIdentifier ?? null,
+    ...fields,
+    status: "accepted",
+    ...existingFields(done),
+  });
+  await audit(tx, scope, "postiz_draft.existing", row.id, {
+    existingHandoffId: done.id,
+  });
+  return row;
+}
+const existingFields = (done: Row) => ({
+  alreadyInPostiz: true,
+  existingHandoffId: done.id,
+  remoteId: data(done).remoteId ?? null,
+  remoteType: "draft",
+  remoteDate: data(done).remoteDate ?? null,
+  finishedAt: new Date().toISOString(),
+});
+
+/**
  * Gives the run slot of a handoff back (`releasedAt`), and with `dropped`
  * records the deliverable as dropped with that code, audits it and notifies
  * the owner (the existing `dropped` notice).
@@ -160,6 +206,7 @@ async function releaseDraftSlot(
   handoff: Row,
   code: string,
   dropped: boolean,
+  options: { notice?: boolean } = {},
 ) {
   const h = data(handoff);
   if (typeof h.assignmentRunId !== "string") return;
@@ -228,19 +275,26 @@ async function releaseDraftSlot(
     code,
     postizDraftId: handoff.id,
   });
-  await notify(tx, scope, "dropped", h.contentId);
+  if (options.notice !== false) await notify(tx, scope, "dropped", h.contentId);
 }
 
-/** Ends a booked handoff before anything was sent: failed (dropped, notified) or canceled (slot back, no notice). */
+/**
+ * Ends a booked handoff before anything was sent: failed (dropped, notified)
+ * or canceled (slot back; with `notice` also recorded as dropped and
+ * notified). `extra` is recorded on the handoff (e.g. the version of the
+ * change that canceled it, counted by its notice).
+ */
 async function endBooked(
   tx: DbTx,
   scope: Scope,
   row: Row,
   status: "failed" | "canceled",
   code: string,
+  options: { notice?: boolean; extra?: Record<string, unknown> } = {},
 ) {
   const saved = await update(tx, scope, row, {
     ...data(row),
+    ...options.extra,
     status,
     ...(status === "failed"
       ? { error: code, failedStep: "prepare" }
@@ -248,8 +302,31 @@ async function endBooked(
     finishedAt: new Date().toISOString(),
   });
   await audit(tx, scope, `postiz_draft.${status}`, row.id, { code });
-  await releaseDraftSlot(tx, scope, saved, code, status === "failed");
+  await releaseDraftSlot(
+    tx,
+    scope,
+    saved,
+    code,
+    status === "failed" || options.notice === true,
+  );
   return saved;
+}
+
+/**
+ * The owner resolved an unclear assignment handoff after checking Postiz
+ * (resolvePostizDraft, M5): "not_created" gives the slot back and records
+ * the deliverable as dropped (no notice; the owner decided it himself).
+ */
+export async function afterDraftResolved(
+  tx: DbTx,
+  scope: Scope,
+  row: Row,
+  resolution: "not_created" | "exists",
+) {
+  if (data(row).source !== "assignment" || resolution !== "not_created") return;
+  await releaseDraftSlot(tx, scope, row, "POSTIZ_DRAFT_NOT_CREATED", true, {
+    notice: false,
+  });
 }
 
 /** A handoff whose send may have reached Postiz: unclear, with an exception and a notice; never sent again. */
@@ -306,7 +383,10 @@ async function afterSend(tx: DbTx, scope: Scope, row: Row) {
  * dated at its slot. Idempotent: only a `queued` handoff is sent, once. It
  * checks again first: switched off or past its slot, the deliverable is
  * dropped with a notice; Orbit Agents off, an assignment no longer
- * confirmed for draft delivery or a canceled run withdraws it (slot back); a
+ * confirmed for draft delivery or a canceled run withdraws it (slot back);
+ * an agent approval that no longer counts (authority, bot, M2) withdraws it
+ * with a notice; a blocker or a send that cannot be prepared fails it (I2c);
+ * the same version already in Postiz is recorded as delivered (M8); a
  * project pause leaves it queued for the sweep after the resume.
  */
 export async function deliverPostizDraft(
@@ -348,26 +428,23 @@ export async function deliverPostizDraft(
         await endBooked(tx, scope, row, "failed", "POSTIZ_DRAFTS_DISABLED");
         return null;
       }
-      const assignment = await tx.entity.findFirst({
-        where: {
-          id: h.assignmentId,
-          kind: "assignments",
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-        },
-      });
-      const run = await tx.entity.findFirst({
-        where: {
-          id: h.assignmentRunId,
-          kind: RUNS,
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-        },
-      });
+      const find = (kind: string, id: unknown) =>
+        typeof id === "string" && UUID.test(id)
+          ? tx.entity.findFirst({
+              where: {
+                id,
+                kind,
+                workspaceId: scope.workspaceId,
+                projectId: scope.projectId,
+              },
+            })
+          : Promise.resolve(null);
+      const assignment = await find("assignments", h.assignmentId);
+      const run = await find(RUNS, h.assignmentRunId);
       if (
         !assignment ||
         !confirmedHash(data(assignment)) ||
-        deliveryOf(data(assignment)) !== "postiz_draft"
+        confirmedDelivery(data(assignment)) !== "postiz_draft"
       ) {
         await endBooked(tx, scope, row, "canceled", "ASSIGNMENT_NOT_CONFIRMED");
         return null;
@@ -381,21 +458,66 @@ export async function deliverPostizDraft(
         await endBooked(tx, scope, row, "failed", SLOT_UNAVAILABLE);
         return null;
       }
-      let target: Awaited<ReturnType<typeof draftTarget>>;
+      // The agent's approval must still stand in for the owner's (M2).
+      const content = await find("content", h.contentId);
+      if (
+        h.approvedBy === "agent" &&
+        (!content || !(await agentReviewAccepted(tx, scope, data(content))))
+      ) {
+        await endBooked(
+          tx,
+          scope,
+          row,
+          "canceled",
+          "AGENT_REVIEW_NOT_ACCEPTED",
+          { notice: true },
+        );
+        return null;
+      }
+      // Everything up to the send is prepared in a savepoint: any failure,
+      // also a database error, ends the handoff failed instead of leaving it
+      // queued by a rollback (I2c).
+      await tx.$executeRaw`SAVEPOINT prepare_postiz_draft`;
+      let send: DraftSend;
       try {
         const blockers = await draftBlockers(tx, scope, h.contentId, slotAt);
         if (blockers.length) throw new DomainError(blockers.join(","), 409);
-        target = await draftTarget(
+        const target = await draftTarget(
           tx,
           scope,
           h.contentId,
           h.contentVersion,
           row.id,
         );
-        if ("done" in target) throw new DomainError("POSTIZ_DRAFT_EXISTS", 409);
+        if ("done" in target) {
+          await tx.$executeRaw`RELEASE SAVEPOINT prepare_postiz_draft`;
+          // The owner handed this version over himself: delivered (M8).
+          await update(tx, scope, row, {
+            ...h,
+            status: "accepted",
+            ...existingFields(target.done),
+          });
+          await audit(tx, scope, "postiz_draft.existing", row.id, {
+            existingHandoffId: target.done.id,
+          });
+          return null;
+        }
+        send = await draftSend(tx, scope, target, slotAt.toISOString());
+        await tx.$executeRaw`RELEASE SAVEPOINT prepare_postiz_draft`;
       } catch (error) {
-        if (!(error instanceof DomainError)) throw error;
-        await endBooked(tx, scope, row, "failed", error.message.slice(0, 200));
+        await tx.$executeRaw`ROLLBACK TO SAVEPOINT prepare_postiz_draft`;
+        const code =
+          error instanceof DomainError
+            ? error.message.slice(0, 200)
+            : "POSTIZ_DRAFT_PREPARE_FAILED";
+        if (!(error instanceof DomainError))
+          console.error(
+            "Orbit Postiz draft preparation failed",
+            errorCode(error),
+          );
+        // Read again: the savepoint undid nothing of the handoff itself.
+        const current = await entity(tx, scope, KIND, row.id);
+        await endBooked(tx, scope, current, "failed", code);
         return null;
       }
       const sending = await update(tx, scope, row, {
@@ -403,10 +525,7 @@ export async function deliverPostizDraft(
         status: "sending",
         sendingAt: new Date().toISOString(),
       });
-      return {
-        id: sending.id,
-        send: await draftSend(tx, scope, target, slotAt.toISOString()),
-      };
+      return { id: sending.id, send };
     },
   );
   if (!prepared) return null;
@@ -416,18 +535,27 @@ export async function deliverPostizDraft(
   });
 }
 
+// Reasons that withdraw also the drafts the owner released (R71, R73).
+const OWNER_RELEASE_REASONS = [
+  "ASSIGNMENT_PAUSED",
+  "ASSIGNMENT_ENDED",
+  "ASSIGNMENT_DELIVERY_CHANGED",
+];
+
 /**
  * Withdraws an assignment's booked drafts that were not sent yet, as
  * withdrawAssignmentPublications does for its posts: on pause, end, budget
  * exhaustion, content or time change. Drafts the owner released are
- * withdrawn only on pause or end (R71). A draft already in Postiz stays:
- * withdrawing it is done in Postiz.
+ * withdrawn only on pause, end or a confirmed delivery change (R71). A
+ * draft already in Postiz stays: withdrawing it is done in Postiz. `extra`
+ * is recorded on each canceled handoff, so the change's notice counts it.
  */
 export async function cancelAssignmentPostizDrafts(
   tx: DbTx,
   scope: Scope,
   assignmentId: string,
   reason: string,
+  extra: Record<string, unknown> = {},
 ) {
   const rows = await tx.entity.findMany({
     where: {
@@ -444,27 +572,34 @@ export async function cancelAssignmentPostizDrafts(
   for (const row of rows) {
     if (
       data(row).approvedBy === "owner" &&
-      !["ASSIGNMENT_PAUSED", "ASSIGNMENT_ENDED"].includes(reason)
+      !OWNER_RELEASE_REASONS.includes(reason)
     )
       continue;
-    await endBooked(tx, scope, row, "canceled", reason);
+    await endBooked(tx, scope, row, "canceled", reason, { extra });
     canceled++;
   }
   return { canceled };
 }
 
 /**
- * Sweep retry of the send (with R54's sweep): a booked draft whose job ended
- * without sending it, because the worker held it back during a project pause
- * or the job failed on the database, is queued again, at most once per
- * project generation. Each handoff in its own savepoint.
+ * Sweep pass over the assignment handoffs of the last days (with R54's
+ * sweep), each in its own savepoint:
+ * - `sending` without a pending or running job: the send may have reached
+ *   Postiz, so it becomes `outcome_unknown` with the exception and a notice,
+ *   never sent again (I2a);
+ * - `queued` whose slot has passed: failed with `SLOT_UNAVAILABLE`, the
+ *   deliverable dropped with a notice (I2b);
+ * - `queued` whose job ended without sending it (a project pause held it
+ *   back, or the job failed on the database): queued again, at most once
+ *   per project generation.
  */
 export async function requeuePostizDrafts(tx: DbTx, scope: Scope) {
-  if (!agentsEnabled()) return { requeued: 0 };
+  const result = { requeued: 0, unknown: 0, expired: 0 };
+  if (!agentsEnabled()) return result;
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });
-  if (project.paused) return { requeued: 0 };
+  if (project.paused) return result;
   const since = new Date(Date.now() - REQUEUE_DAYS * 86400000);
   const rows = await tx.entity.findMany({
     where: {
@@ -472,13 +607,15 @@ export async function requeuePostizDrafts(tx: DbTx, scope: Scope) {
       projectId: scope.projectId,
       kind: KIND,
       createdAt: { gte: since },
-      data: { path: ["status"], equals: "queued" },
+      OR: ["queued", "sending"].map((status) => ({
+        data: { path: ["status"], equals: status },
+      })),
     },
     orderBy: { createdAt: "asc" },
   });
-  let requeued = 0;
   for (const row of rows) {
-    if (data(row).source !== "assignment") continue;
+    const h = data(row);
+    if (h.source !== "assignment") continue;
     await tx.$executeRaw`SAVEPOINT requeue_postiz_draft`;
     try {
       const jobs = await tx.entity.findMany({
@@ -492,7 +629,18 @@ export async function requeuePostizDrafts(tx: DbTx, scope: Scope) {
           ],
         },
       });
-      if (!jobs.some((job) => PENDING_JOB.includes(data(job).status))) {
+      const pending = jobs.some((job) =>
+        PENDING_JOB.includes(data(job).status),
+      );
+      if (h.status === "sending") {
+        if (!pending) {
+          await markUnknown(tx, scope, row);
+          result.unknown++;
+        }
+      } else if (!(Date.parse(String(h.slotAt)) > Date.now())) {
+        await endBooked(tx, scope, row, "failed", SLOT_UNAVAILABLE);
+        result.expired++;
+      } else if (!pending) {
         const job = await enqueue(
           tx,
           scope,
@@ -500,13 +648,14 @@ export async function requeuePostizDrafts(tx: DbTx, scope: Scope) {
           row.id,
           `postiz_draft:${row.id}:retry:${project.generation}`,
         );
-        if (data(job).status === "queued" && !data(job).attempts) requeued++;
+        if (data(job).status === "queued" && !data(job).attempts)
+          result.requeued++;
       }
       await tx.$executeRaw`RELEASE SAVEPOINT requeue_postiz_draft`;
     } catch (error) {
       await tx.$executeRaw`ROLLBACK TO SAVEPOINT requeue_postiz_draft`;
-      console.error("Orbit Postiz draft requeue failed", errorCode(error));
+      console.error("Orbit Postiz draft sweep failed", errorCode(error));
     }
   }
-  return { requeued };
+  return result;
 }

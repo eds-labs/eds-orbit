@@ -21,7 +21,10 @@ import { activePolicy } from "../policy.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
 import { notify } from "./notifications.ts";
-import { withdrawAssignmentPublications } from "./veto.ts";
+import {
+  applyConfirmedDelivery,
+  withdrawAssignmentPublications,
+} from "./veto.ts";
 
 /**
  * Assignments (Orbit Agents): what Orbit pursues for the owner. An assignment
@@ -120,6 +123,28 @@ export const deliveryOf = (source: Record<string, any> | null | undefined) =>
   (source?.delivery === "postiz_draft"
     ? "postiz_draft"
     : "publish") as Delivery;
+
+/**
+ * The delivery the owner confirmed (R73), null without a confirmation. It is
+ * recorded with the confirmation; a confirmation without it confirmed the
+ * row's delivery if its hash still matches the row (the hash covers the
+ * delivery), else it is from before R73 and confirmed "publish". An
+ * unconfirmed change of the live row never changes it.
+ */
+export function confirmedDelivery(
+  source: Record<string, any> | null | undefined,
+): Delivery | null {
+  const confirmation = source?.confirmation;
+  if (!confirmation || typeof confirmation !== "object") return null;
+  if (
+    confirmation.delivery === "publish" ||
+    confirmation.delivery === "postiz_draft"
+  )
+    return confirmation.delivery;
+  return confirmation.assignmentHash === assignmentHash(source!)
+    ? deliveryOf(source)
+    : "publish";
+}
 
 // Normalized as stored (JSON drops undefined), so a hash is the same before
 // and after saving. The default delivery "publish" is left out, so rows from
@@ -329,12 +354,17 @@ export async function confirmAssignment(
       at: new Date().toISOString(),
       assignmentHash: assignmentHash(d),
       imageRightsConsent: d.image === true,
+      // The confirmed delivery (R73); the content guard and the runs read it from here.
+      delivery: deliveryOf(d),
     },
   });
   await audit(tx, scope, "assignment.confirmed", row.id, {
     assignmentHash: assignmentHash(d),
     imageRightsConsent: d.image === true,
+    delivery: deliveryOf(d),
   });
+  // Posts and drafts the owner released under the other delivery go (R73).
+  await applyConfirmedDelivery(tx, scope, row.id, deliveryOf(d), saved.version);
   return saved;
 }
 
@@ -402,14 +432,15 @@ export async function updateAssignment(
       confirmation: { ...d.confirmation, assignmentHash: assignmentHash(next) },
     });
     await audit(tx, scope, "assignment.times_changed", id);
-    const { withdrawn } = await withdrawAssignmentPublications(
+    const { withdrawn, canceledDrafts } = await withdrawAssignmentPublications(
       tx,
       scope,
       id,
       "ASSIGNMENT_RETIMED",
       { retimedVersion: saved.version },
     );
-    if (withdrawn) await notify(tx, scope, "retimed", `${id}:${saved.version}`);
+    if (withdrawn || canceledDrafts)
+      await notify(tx, scope, "retimed", `${id}:${saved.version}`);
     return saved;
   }
   if (d.status !== "draft") {

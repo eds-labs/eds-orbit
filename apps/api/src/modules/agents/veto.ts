@@ -17,7 +17,12 @@ import { enqueue, publishIntent } from "../workflow.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { agentReviewAccepted } from "./agent-review.ts";
 import { SLOT_STEP_MS, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
-import { agentsEnabled, deliveryOf } from "./assignments.ts";
+import {
+  agentsEnabled,
+  confirmedDelivery,
+  deliveryOf,
+  type Delivery,
+} from "./assignments.ts";
 import {
   bookPostizDraft,
   cancelAssignmentPostizDrafts,
@@ -194,6 +199,20 @@ export async function moveDraft(
 }
 
 /**
+ * The delivery of one assignment draft: the one stamped on it when it was
+ * written (I1), else the assignment's confirmed one. An unconfirmed change
+ * of the assignment never changes it.
+ */
+export function draftDelivery(
+  content: Record<string, any>,
+  assignmentDelivery: Delivery,
+): Delivery {
+  return content.delivery === "postiz_draft" || content.delivery === "publish"
+    ? content.delivery
+    : assignmentDelivery;
+}
+
+/**
  * Creates one publication per approved social draft of a run, with the veto
  * window, and queues its preview (`telegram_notification`,
  * `notify:preview:<publicationId>`, sent by the bot in Task 13). Approved
@@ -229,9 +248,9 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       });
     return [];
   }
-  const drafting = deliveryOf(assignment) === "postiz_draft";
-  // Nothing goes public with draft delivery, so it needs no veto window.
-  const vetoMs = drafting ? 0 : Number(assignment.vetoMinutes ?? 180) * 60000;
+  // The confirmed delivery; each draft carries the one it was written under (I1).
+  const assignmentDelivery =
+    confirmedDelivery(assignment) ?? deliveryOf(assignment);
   const existing = await rowsWhere(
     tx,
     scope,
@@ -239,9 +258,13 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
     "assignmentRunId",
     runId,
   );
-  const handoffs = drafting
-    ? await rowsWhere(tx, scope, POSTIZ_DRAFTS, "assignmentRunId", runId)
-    : [];
+  const handoffs = await rowsWhere(
+    tx,
+    scope,
+    POSTIZ_DRAFTS,
+    "assignmentRunId",
+    runId,
+  );
   const drafts = (
     await rowsWhere(tx, scope, "content", "assignmentRunId", runId)
   ).sort((a, b) =>
@@ -275,6 +298,9 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       !(await agentReviewAccepted(tx, scope, c))
     )
       continue;
+    const drafting = draftDelivery(c, assignmentDelivery) === "postiz_draft";
+    // Nothing goes public with draft delivery, so it needs no veto window.
+    const vetoMs = drafting ? 0 : Number(assignment.vetoMinutes ?? 180) * 60000;
     const mission = await entity(tx, scope, "missions", c.missionId);
     const planned = new Date(data(mission).plannedSlotAt);
     const index = slots.findIndex(
@@ -447,21 +473,20 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
         releasedAt: now.toISOString(),
         releaseReason: "NO_APPROVED_DRAFT",
       };
+  const draftIds = [
+    ...new Set([
+      ...((r.scheduling?.postizDraftIds ?? []) as string[]),
+      ...scheduled
+        .filter((row) => row.kind === POSTIZ_DRAFTS)
+        .map((row) => row.id),
+    ]),
+  ];
   const scheduling = {
     at: r.scheduling?.at ?? now.toISOString(),
-    publicationIds: drafting
-      ? ((r.scheduling?.publicationIds ?? []) as string[])
-      : scheduled.map((pub) => pub.id),
-    ...(drafting
-      ? {
-          postizDraftIds: [
-            ...new Set([
-              ...((r.scheduling?.postizDraftIds ?? []) as string[]),
-              ...scheduled.map((row) => row.id),
-            ]),
-          ],
-        }
-      : {}),
+    publicationIds: scheduled
+      .filter((row) => row.kind !== POSTIZ_DRAFTS)
+      .map((pub) => pub.id),
+    ...(draftIds.length ? { postizDraftIds: draftIds } : {}),
     dropped,
   };
   if (
@@ -712,8 +737,60 @@ export async function withdrawAssignmentPublications(
     scope,
     assignmentId,
     reason,
+    extra,
   );
   return { withdrawn, canceledDrafts: canceled };
+}
+
+/**
+ * A confirmed delivery change (R73, I1) is treated like a pause for what
+ * the owner released under the other delivery: with "postiz_draft" the
+ * assignment's posts Orbit still holds are withdrawn, with "publish" its
+ * booked drafts not sent yet are canceled (`ASSIGNMENT_DELIVERY_CHANGED`,
+ * `deliveryChangedVersion`), with one notice. Posts the agent approved were
+ * already withdrawn by the content change that preceded the confirmation.
+ */
+export async function applyConfirmedDelivery(
+  tx: DbTx,
+  scope: Scope,
+  assignmentId: string,
+  delivery: Delivery,
+  version: number,
+) {
+  const extra = { deliveryChangedVersion: version };
+  let withdrawn = 0;
+  if (delivery === "postiz_draft") {
+    for (const row of await rowsWhere(
+      tx,
+      scope,
+      PUBLICATIONS,
+      "assignmentId",
+      assignmentId,
+    ))
+      if (assignmentPost(data(row)) && withdrawable(data(row))) {
+        await withdrawPublication(
+          tx,
+          scope,
+          row,
+          "ASSIGNMENT_DELIVERY_CHANGED",
+          extra,
+        );
+        await revokeReleasedRight(tx, scope, row);
+        withdrawn++;
+      }
+  } else
+    withdrawn = (
+      await cancelAssignmentPostizDrafts(
+        tx,
+        scope,
+        assignmentId,
+        "ASSIGNMENT_DELIVERY_CHANGED",
+        extra,
+      )
+    ).canceled;
+  if (withdrawn)
+    await notify(tx, scope, "delivery_changed", `${assignmentId}:${version}`);
+  return { withdrawn };
 }
 
 // Publication statuses after which Postiz has the post, or had it.
@@ -732,7 +809,8 @@ type Outcome =
   // Delivery "Postiz draft" (R73): booked or being sent, in Postiz, or unclear.
   | "postiz_draft_pending"
   | "postiz_draft"
-  | "postiz_draft_unknown";
+  | "postiz_draft_unknown"
+  | "postiz_draft_failed";
 
 function publicationOutcome(p: Record<string, any>): {
   outcome: Outcome;
@@ -845,14 +923,20 @@ export async function runDeliverables(
             ? "postiz_draft_pending"
             : h.status === "canceled"
               ? "withdrawn"
-              : null;
+              : h.status === "failed"
+                ? "postiz_draft_failed"
+                : null;
     if (!outcome || covered.has(String(h.contentId))) continue;
     covered.add(String(h.contentId));
     deliverables.push({
       contentId: h.contentId,
       channel: h.integrationId,
       outcome,
-      reason: h.reason ?? h.error ?? null,
+      reason: h.alreadyInPostiz
+        ? "POSTIZ_DRAFT_EXISTS"
+        : h.resolution === "not_created"
+          ? "POSTIZ_DRAFT_NOT_CREATED"
+          : (h.reason ?? h.error ?? null),
       publicationId: null,
       postizDraftId: row.id,
       publicationStatus: null,

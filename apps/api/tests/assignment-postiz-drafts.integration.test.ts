@@ -63,7 +63,15 @@ import {
   confirmAssignment,
   proposeAssignment,
   setAssignmentStatus,
+  updateAssignment,
 } from "../src/modules/agents/assignments.ts";
+import { planAssignmentRuns } from "../src/modules/agents/assignment-runs.ts";
+import {
+  channelSlots,
+  slotContext,
+  slotStatus,
+} from "../src/modules/agents/scheduling.ts";
+import { preflight } from "../src/modules/policy.ts";
 import {
   deliverPostizDraft,
   markPostizDraftOutcomeUnknown,
@@ -79,8 +87,14 @@ import {
   upcomingAssignmentPosts,
 } from "../src/modules/agents/assignment-overview.ts";
 import { sendNotification } from "../src/modules/agents/notification-sender.ts";
-import { planDailyReport } from "../src/modules/agents/notifications.ts";
-import { resolvePostizDraft } from "../src/modules/postiz-draft.ts";
+import {
+  notify,
+  planDailyReport,
+} from "../src/modules/agents/notifications.ts";
+import {
+  handoffPostizDraft,
+  resolvePostizDraft,
+} from "../src/modules/postiz-draft.ts";
 import { publishIntent } from "../src/modules/workflow.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 import {
@@ -88,6 +102,7 @@ import {
   embedded,
   generated,
   message,
+  tomorrowMorning,
 } from "./support/assignment-review.ts";
 
 const enabled = Boolean(
@@ -484,8 +499,11 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
     ).toContain(`notify:postiz_error:${first!.id}`);
     // No retry: neither the job again nor the sweep.
     await deliver(first!.id, client);
+    const before = (await jobs("postiz_draft")).length;
     await h.run((tx) => requeuePostizDrafts(tx, project.owner));
     expect(client.posts).toHaveLength(1);
+    // The sweep queues no new job for it.
+    expect(await jobs("postiz_draft")).toHaveLength(before);
     // The slot stays held: the draft may exist in Postiz.
     const [run] = await h.rows("assignment_runs");
     expect(run!.slots[0]).toMatchObject({ postizDraftId: first!.id });
@@ -621,25 +639,32 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
           error: "PROJECT_PAUSED",
         });
     });
-    expect(await h.run((tx) => requeuePostizDrafts(tx, project.owner))).toEqual(
-      { requeued: 1 },
-    );
+    const before = (await jobs("postiz_draft")).length;
+    expect(
+      await h.run((tx) => requeuePostizDrafts(tx, project.owner)),
+    ).toMatchObject({ requeued: 1, unknown: 0, expired: 0 });
     expect(
       (await jobs("postiz_draft")).filter(
         (job) => job.resourceId === first!.id && job.status === "queued",
       ),
     ).toHaveLength(1);
-    // Once is enough.
-    expect(await h.run((tx) => requeuePostizDrafts(tx, project.owner))).toEqual(
-      { requeued: 0 },
-    );
+    expect(await jobs("postiz_draft")).toHaveLength(before + 1);
+    // Once is enough: no further job.
+    expect(
+      await h.run((tx) => requeuePostizDrafts(tx, project.owner)),
+    ).toMatchObject({ requeued: 0 });
+    expect(await jobs("postiz_draft")).toHaveLength(before + 1);
   });
 
   it("drops the drafts with a notice when Postiz drafts are switched off at run time", async () => {
     await linkBot();
     await h.makeAssignment({ delivery: "postiz_draft" });
+    // Switched off after the run was planned and drafted.
+    const planned = await drafted();
     vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "false");
-    const { runId } = await reviewed();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), planned.review.id);
+    const runId = planned.runId;
     expect(await handoffs()).toEqual([]);
     expect(await h.rows("publications")).toEqual([]);
     const [run] = await h.rows("assignment_runs");
@@ -809,5 +834,681 @@ describe.skipIf(!enabled)("Assignment delivery as Postiz drafts", () => {
       sleep: async () => {},
     });
     expect(String(calls[0]!.body.text)).toContain("Entwürfe an Postiz: 1");
+  });
+
+  // ---- Fix round (review findings I1–I3, M1–M8) ----
+
+  /** The text of one notification job as the fake Telegram receives it. */
+  const telegramText = async (jobId: string) => {
+    const calls: Array<{ method: string; body: Record<string, any> }> = [];
+    const fetch = async (url: string | URL, init: RequestInit = {}) => {
+      calls.push({
+        method: String(url).split("/").pop()!,
+        body: JSON.parse(String(init.body ?? "{}")),
+      });
+      return new Response(
+        JSON.stringify({ ok: true, result: { message_id: calls.length } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    await sendNotification(h.worker(), jobId, {
+      fetch,
+      sleep: async () => {},
+    });
+    return calls
+      .filter((call) => call.method.startsWith("send"))
+      .map((call) => String(call.body.text ?? call.body.caption ?? ""))
+      .join("\n");
+  };
+  const handoffOf = async (id: string) =>
+    (await handoffs()).find((row) => row.id === id)!;
+  const blockersOf = (contentId: string) =>
+    h.run(
+      async (tx) =>
+        (
+          await preflight(tx, project.owner, contentId, {
+            test: true,
+            ignoreApproval: true,
+          })
+        ).blockers,
+    );
+  /** Drafts left for the owner (authority off), the first one released by the owner. */
+  const releasedByOwner = async (delivery: "publish" | "postiz_draft") => {
+    delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
+    await linkBot();
+    const assignment = await h.makeAssignment({ delivery });
+    const planned = await reviewed();
+    const drafts = await contents();
+    const released = await h.run((tx) =>
+      releaseAssignmentDraft(
+        tx,
+        project.owner,
+        drafts[0]!.id,
+        drafts[0]!.version,
+      ),
+    );
+    return { assignment, drafts, released, ...planned };
+  };
+  const assignmentRow = (id: string) =>
+    h.run((tx) => entity(tx, project.owner, "assignments", id));
+
+  it("stamps the confirmed delivery on the drafts' missions and contents (I1)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    await drafted();
+    for (const draft of await contents()) {
+      expect(draft.delivery).toBe("postiz_draft");
+      const mission = await h.run(async (tx) =>
+        data(await entity(tx, project.owner, "missions", draft.missionId)),
+      );
+      expect(mission.delivery).toBe("postiz_draft");
+    }
+  });
+
+  it("blocks by the confirmed delivery: an unconfirmed switch to drafts neither blocks nor withdraws, the confirmed one does (I1)", async () => {
+    const { assignment, drafts, released } = await releasedByOwner("publish");
+    expect(released.delivery).toBe("publish");
+    expect(drafts[0]!.delivery).toBe("publish");
+    expect(await blockersOf(drafts[0]!.id)).not.toContain(
+      "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
+    );
+    // Unconfirmed: the live row says drafts, nothing changes for the released post.
+    const row = await assignmentRow(assignment.id);
+    await h.run((tx) =>
+      updateAssignment(tx, project.editor, assignment.id, row.version, {
+        delivery: "postiz_draft",
+      }),
+    );
+    expect(await blockersOf(drafts[0]!.id)).not.toContain(
+      "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
+    );
+    const [pub] = await h.rows("publications");
+    expect(pub!.status).toBe("intent_created");
+    // Confirmed: the released post is withdrawn with a notice, and blocked.
+    const draftRow = await assignmentRow(assignment.id);
+    const confirmed = await h.run((tx) =>
+      confirmAssignment(tx, project.owner, assignment.id, draftRow.version),
+    );
+    expect(data(confirmed).confirmation.delivery).toBe("postiz_draft");
+    expect((await h.rows("publications"))[0]).toMatchObject({
+      status: "canceled",
+      reason: "ASSIGNMENT_DELIVERY_CHANGED",
+    });
+    expect(await blockersOf(drafts[0]!.id)).toContain(
+      "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
+    );
+    const [notice] = await notices("delivery_changed");
+    expect(notice!.idempotencyKey).toBe(
+      `notify:delivery_changed:${assignment.id}:${confirmed.version}`,
+    );
+    expect(await telegramText(notice!.id)).toContain("1 Beitrag zurückgezogen");
+  });
+
+  it("keeps the drafts' block on an unconfirmed switch to publishing and cancels the booked draft once confirmed (I1)", async () => {
+    const { assignment, drafts, released } =
+      await releasedByOwner("postiz_draft");
+    expect(released.delivery).toBe("postiz_draft");
+    expect(await blockersOf(drafts[0]!.id)).toContain(
+      "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
+    );
+    const row = await assignmentRow(assignment.id);
+    await h.run((tx) =>
+      updateAssignment(tx, project.editor, assignment.id, row.version, {
+        delivery: "publish",
+      }),
+    );
+    // Unconfirmed: the stamp keeps blocking; the owner-released draft stays booked (R71).
+    expect(await blockersOf(drafts[0]!.id)).toContain(
+      "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
+    );
+    expect((await handoffOf(released.postizDraftId!)).status).toBe("queued");
+    const draftRow = await assignmentRow(assignment.id);
+    const confirmed = await h.run((tx) =>
+      confirmAssignment(tx, project.owner, assignment.id, draftRow.version),
+    );
+    expect(data(confirmed).confirmation.delivery).toBe("publish");
+    expect(await handoffOf(released.postizDraftId!)).toMatchObject({
+      status: "canceled",
+      reason: "ASSIGNMENT_DELIVERY_CHANGED",
+    });
+    // A text approved for drafts only is never published, also after the switch.
+    expect(await blockersOf(drafts[0]!.id)).toContain(
+      "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
+    );
+    const [notice] = await notices("delivery_changed");
+    expect(await telegramText(notice!.id)).toContain("1 Beitrag zurückgezogen");
+  });
+
+  it("leaves content of no assignment alone (I1)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    await drafted();
+    const [draft] = await contents();
+    const {
+      id: _id,
+      version: _version,
+      assignmentId: _a,
+      assignmentRunId: _r,
+      delivery: _d,
+      briefKey: _b,
+      ...rest
+    } = draft!;
+    const unrelated = await h.run((tx) =>
+      create(tx, project.owner, "content", rest),
+    );
+    expect(await blockersOf(unrelated.id)).not.toContain(
+      "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS",
+    );
+  });
+
+  it("keeps a draft-held slot from other assignments and packages (I3)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    const { slots } = await reviewed();
+    expect(await handoffs()).toHaveLength(2);
+    // Slot rules see the run's draft at the slot.
+    const status = await h.run(async (tx) =>
+      slotStatus(
+        await slotContext(tx, project.owner),
+        X,
+        new Date(slots[1]!.at),
+      ),
+    );
+    expect(status.free).toBe(false);
+    expect(status.occupiedBy).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "run" })]),
+    );
+    // A package does not get the 17:00 slot.
+    const packages = await h.run((tx) =>
+      channelSlots(tx, project.owner, { channels: [X], days: 3 }),
+    );
+    expect(
+      packages.channels[0]!.slots.find((slot) => slot.at === slots[1]!.at)!
+        .free,
+    ).toBe(false);
+    // Another assignment with the same times gets no slot that day.
+    const other = await h.makeAssignment({ name: "Second assignment" });
+    await h.run((tx) =>
+      planAssignmentRuns(tx, project.owner, tomorrowMorning()),
+    );
+    const otherRun = (await h.rows("assignment_runs")).find(
+      (run) => run.assignmentId === other.id,
+    )!;
+    expect(otherRun.slots).toEqual([]);
+    expect(otherRun.unavailable.map((entry: any) => entry.requestedAt)).toEqual(
+      slots.map((slot) => slot.at),
+    );
+  });
+
+  it("cancels booked drafts when the assignment ends or its content changes (I3)", async () => {
+    await linkBot();
+    const assignment = await h.makeAssignment({ delivery: "postiz_draft" });
+    await reviewed();
+    const row = await assignmentRow(assignment.id);
+    await h.run((tx) =>
+      updateAssignment(tx, project.editor, assignment.id, row.version, {
+        topicFrame: "Weekly deep dives on beta access for teams",
+      }),
+    );
+    expect((await handoffs()).map((h) => [h.status, h.reason])).toEqual([
+      ["canceled", "ASSIGNMENT_CHANGED"],
+      ["canceled", "ASSIGNMENT_CHANGED"],
+    ]);
+    const [run] = await h.rows("assignment_runs");
+    expect(run!.slots.every((slot: any) => slot.releasedAt)).toBe(true);
+  });
+
+  it("cancels booked drafts when the assignment ends (I3)", async () => {
+    await linkBot();
+    const assignment = await h.makeAssignment({ delivery: "postiz_draft" });
+    await reviewed();
+    await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "ended"),
+    );
+    expect((await handoffs()).map((h) => h.reason)).toEqual([
+      "ASSIGNMENT_ENDED",
+      "ASSIGNMENT_ENDED",
+    ]);
+  });
+
+  it("cancels booked drafts on a time change and counts them in the notice (I3, M4)", async () => {
+    await linkBot();
+    const assignment = await h.makeAssignment({ delivery: "postiz_draft" });
+    await reviewed();
+    const row = await assignmentRow(assignment.id);
+    const saved = await h.run((tx) =>
+      updateAssignment(tx, project.owner, assignment.id, row.version, {
+        schedule: { ...data(row).schedule, times: ["11:00", "18:00"] },
+      }),
+    );
+    expect((await handoffs()).map((h) => h.reason)).toEqual([
+      "ASSIGNMENT_RETIMED",
+      "ASSIGNMENT_RETIMED",
+    ]);
+    const [notice] = await notices("retimed");
+    expect(notice!.idempotencyKey).toBe(
+      `notify:retimed:${assignment.id}:${saved.version}`,
+    );
+    expect(await telegramText(notice!.id)).toContain(
+      "2 geplante Beiträge zurückgezogen",
+    );
+  });
+
+  it("cancels booked drafts when the budget is used up and counts them in the notice (I3, M4)", async () => {
+    await linkBot();
+    const assignment = await h.makeAssignment({ delivery: "postiz_draft" });
+    await reviewed();
+    const saved = await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "budget_exhausted"),
+    );
+    expect((await handoffs()).map((h) => h.reason)).toEqual([
+      "ASSIGNMENT_PAUSED",
+      "ASSIGNMENT_PAUSED",
+    ]);
+    const job = await h.run((tx) =>
+      notify(
+        tx,
+        project.owner,
+        "budget_paused",
+        `${assignment.id}:${saved.version}`,
+      ),
+    );
+    expect(await telegramText(job!.id)).toContain(
+      "2 geplante Beiträge zurückgezogen",
+    );
+  });
+
+  it("keeps an owner-released draft on a content change and cancels it on pause (I3, R71)", async () => {
+    const { assignment, released } = await releasedByOwner("postiz_draft");
+    const row = await assignmentRow(assignment.id);
+    await h.run((tx) =>
+      updateAssignment(tx, project.editor, assignment.id, row.version, {
+        topicFrame: "Weekly deep dives on beta access for teams",
+      }),
+    );
+    expect((await handoffOf(released.postizDraftId!)).status).toBe("queued");
+    await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "ended"),
+    );
+    expect(await handoffOf(released.postizDraftId!)).toMatchObject({
+      status: "canceled",
+      reason: "ASSIGNMENT_ENDED",
+    });
+  });
+
+  describe("send-time checks", () => {
+    const booked = async () => {
+      await linkBot();
+      const assignment = await h.makeAssignment({ delivery: "postiz_draft" });
+      const planned = await reviewed();
+      const [first] = await handoffs();
+      return { assignment, first: first!, ...planned };
+    };
+
+    it("withdraws a booked draft when Orbit Agents is off", async () => {
+      const { first } = await booked();
+      delete process.env.ORBIT_AGENTS;
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      process.env.ORBIT_AGENTS = "true";
+      expect(client.posts).toEqual([]);
+      expect(await handoffOf(first.id)).toMatchObject({
+        status: "canceled",
+        reason: "AGENTS_DISABLED",
+      });
+    });
+
+    it("withdraws a booked draft whose assignment is no longer confirmed", async () => {
+      const { assignment, first } = await booked();
+      await h.run(async (tx) => {
+        const row = await entity(
+          tx,
+          project.owner,
+          "assignments",
+          assignment.id,
+        );
+        await update(tx, project.owner, row, {
+          ...data(row),
+          confirmation: { ...data(row).confirmation, assignmentHash: "other" },
+        });
+      });
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      expect(client.posts).toEqual([]);
+      expect(await handoffOf(first.id)).toMatchObject({
+        status: "canceled",
+        reason: "ASSIGNMENT_NOT_CONFIRMED",
+      });
+    });
+
+    it("withdraws a booked draft of a canceled run", async () => {
+      const { first, runId } = await booked();
+      await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "assignment_runs", runId);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "canceled",
+        });
+      });
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      expect(client.posts).toEqual([]);
+      expect((await handoffOf(first.id)).reason).toBe("RUN_CANCELED");
+    });
+
+    it("drops a booked draft whose slot has passed", async () => {
+      const { first, slots } = await booked();
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(new Date(Date.parse(slots[0]!.at) + 60000));
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      vi.useRealTimers();
+      expect(client.posts).toEqual([]);
+      expect(await handoffOf(first.id)).toMatchObject({
+        status: "failed",
+        error: "SLOT_UNAVAILABLE",
+      });
+      expect((await notices("dropped")).map((j) => j.idempotencyKey)).toEqual([
+        `notify:dropped:${first.contentId}`,
+      ]);
+    });
+
+    it("drops a booked draft that a deterministic blocker stops at send", async () => {
+      const { first } = await booked();
+      await h.setPolicy({ allowedOrigins: [] });
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      expect(client.posts).toEqual([]);
+      expect(await handoffOf(first.id)).toMatchObject({ status: "failed" });
+      expect((await handoffOf(first.id)).error).toMatch(/LINK_NOT_ALLOWED/);
+    });
+
+    it("withdraws an agent-approved draft with a notice when the agent review no longer counts (M2)", async () => {
+      const { first } = await booked();
+      delete process.env.ORBIT_AGENT_REVIEW_AUTHORITY;
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      expect(client.posts).toEqual([]);
+      expect(await handoffOf(first.id)).toMatchObject({
+        status: "canceled",
+        reason: "AGENT_REVIEW_NOT_ACCEPTED",
+      });
+      const [notice] = await notices("dropped");
+      expect(notice!.idempotencyKey).toBe(`notify:dropped:${first.contentId}`);
+      expect(await telegramText(notice!.id)).toContain("Agenten-Freigabe");
+    });
+
+    it("fails a draft whose send cannot be prepared instead of leaving it queued (I2c)", async () => {
+      const { first } = await booked();
+      await h.run(async (tx) => {
+        const connector = (await list(tx, project.owner, "connectors")).find(
+          (row) => data(row).provider === "postiz",
+        )!;
+        await update(tx, project.owner, connector, {
+          ...data(connector),
+          encryptedCredential: "not-a-credential",
+        });
+      });
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      expect(client.posts).toEqual([]);
+      expect(await handoffOf(first.id)).toMatchObject({
+        status: "failed",
+        // The credential cannot be read: a clear failure, nothing was sent.
+        error: "INVALID_ENCRYPTED_CREDENTIAL",
+      });
+    });
+
+    it("records the draft the owner already handed over as existing and keeps the slot (M8)", async () => {
+      const { first, runId } = await booked();
+      const manual = await h.run((tx) =>
+        create(tx, project.owner, "postiz_drafts", {
+          contentId: first.contentId,
+          contentVersion: first.contentVersion,
+          integrationId: X,
+          status: "accepted",
+          remoteId: "manual-draft",
+          remoteType: "draft",
+          remoteDate: first.slotAt,
+        }),
+      );
+      const client = fakePostiz();
+      await deliver(first.id, client);
+      expect(client.posts).toEqual([]);
+      expect(await handoffOf(first.id)).toMatchObject({
+        status: "accepted",
+        alreadyInPostiz: true,
+        existingHandoffId: manual.id,
+        remoteId: "manual-draft",
+      });
+      const [run] = await h.rows("assignment_runs");
+      expect(run!.slots[0].releasedAt).toBeUndefined();
+      expect(run!.scheduling.dropped).toEqual([]);
+      const result = await h.run(async (tx) =>
+        runDeliverables(
+          tx,
+          project.owner,
+          await entity(tx, project.owner, "assignment_runs", runId),
+        ),
+      );
+      expect(
+        result.deliverables.find((d) => d.contentId === first.contentId),
+      ).toMatchObject({
+        outcome: "postiz_draft",
+        reason: "POSTIZ_DRAFT_EXISTS",
+      });
+    });
+
+    it("keeps an unclear outcome when the HTTP answer comes late (M7)", async () => {
+      const { first } = await booked();
+      const client = fakePostiz(async () => {
+        // Meanwhile the send was declared unclear (lease recovery).
+        await h.run(async (tx) => {
+          await markPostizDraftOutcomeUnknown(tx, h.worker(), first.id);
+        });
+        return {
+          remotePosts: [{ postId: "late-draft", integration: X }],
+          state: "accepted",
+          requestedType: "draft",
+        };
+      });
+      await deliver(first.id, client);
+      const row = await handoffOf(first.id);
+      expect(row).toMatchObject({
+        status: "outcome_unknown",
+        lateResult: { status: "accepted", remoteId: "late-draft" },
+      });
+      expect(await notices("postiz_draft")).toEqual([]);
+      expect(
+        (await h.rows("exceptions")).some(
+          (e) =>
+            JSON.stringify(e).includes("POSTIZ_DRAFT_OUTCOME_UNKNOWN") &&
+            e.status === "open",
+        ),
+      ).toBe(true);
+    });
+  });
+
+  it("marks a send whose job is gone unclear in the sweep (I2a)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    await reviewed();
+    const [first] = await handoffs();
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "postiz_drafts", first!.id);
+      await update(tx, project.owner, row, { ...data(row), status: "sending" });
+      for (const job of (await list(tx, project.owner, "jobs")).filter(
+        (job) => data(job).resourceId === first!.id,
+      ))
+        await update(tx, project.owner, job, {
+          ...data(job),
+          status: "succeeded",
+        });
+    });
+    const before = (await jobs("postiz_draft")).length;
+    expect(
+      await h.run((tx) => requeuePostizDrafts(tx, project.owner)),
+    ).toMatchObject({ unknown: 1, requeued: 0 });
+    expect((await handoffOf(first!.id)).status).toBe("outcome_unknown");
+    expect(
+      (await notices("postiz_error")).map((j) => j.idempotencyKey),
+    ).toContain(`notify:postiz_error:${first!.id}`);
+    expect(
+      (await h.rows("exceptions")).some((e) =>
+        JSON.stringify(e).includes("POSTIZ_DRAFT_OUTCOME_UNKNOWN"),
+      ),
+    ).toBe(true);
+    expect(await jobs("postiz_draft")).toHaveLength(before);
+  });
+
+  it("ends queued drafts whose slot passed in the sweep (I2b)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    const { slots } = await reviewed();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.parse(slots[0]!.at) + 60000));
+    const result = await h.run((tx) => requeuePostizDrafts(tx, project.owner));
+    vi.useRealTimers();
+    expect(result).toMatchObject({ expired: 1 });
+    const [first, second] = await handoffs();
+    expect(first).toMatchObject({
+      status: "failed",
+      error: "SLOT_UNAVAILABLE",
+    });
+    expect(second!.status).toBe("queued");
+    expect((await notices("dropped")).map((j) => j.idempotencyKey)).toEqual([
+      `notify:dropped:${first!.contentId}`,
+    ]);
+  });
+
+  it("refuses the owner's own handoff of a draft the assignment has queued (M1)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    await reviewed();
+    const [draft] = await contents();
+    expect(
+      await code(
+        handoffPostizDraft(
+          project.owner,
+          {
+            contentId: draft!.id,
+            version: draft!.version,
+            confirmDraftOnly: true,
+          },
+          fakePostiz().deps,
+        ),
+      ),
+    ).toBe("POSTIZ_DRAFT_QUEUED");
+  });
+
+  it("plans no run while Postiz drafts are off and says so once a day (M3)", async () => {
+    await linkBot();
+    const assignment = await h.makeAssignment({ delivery: "postiz_draft" });
+    vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "false");
+    for (let i = 0; i < 2; i++)
+      await h.run((tx) =>
+        planAssignmentRuns(tx, project.owner, tomorrowMorning()),
+      );
+    expect(await h.rows("assignment_runs")).toEqual([]);
+    expect(await h.rows("agent_tasks")).toEqual([]);
+    const sent = await notices("drafts_disabled");
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.idempotencyKey).toMatch(
+      new RegExp(
+        `^notify:drafts_disabled:${assignment.id}:\\d{4}-\\d{2}-\\d{2}$`,
+      ),
+    );
+    expect(
+      await h.run((tx) =>
+        tx.budgetReservation.count({
+          where: { projectId: project.owner.projectId },
+        }),
+      ),
+    ).toBe(0);
+    expect(await telegramText(sent[0]!.id)).toContain(
+      "Entwürfe an Postiz sind ausgeschaltet",
+    );
+  });
+
+  it("frees the slot of a draft resolved as not created and counts one resolved as existing (M5)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    const { runId } = await reviewed();
+    const [first, second] = await handoffs();
+    const unclear = fakePostiz(async () => {
+      throw new ConnectorError("TIMEOUT", "unknown");
+    });
+    await deliver(first!.id, unclear);
+    await deliver(second!.id, unclear);
+    await h.run((tx) =>
+      resolvePostizDraft(tx, project.owner, {
+        handoffId: first!.id,
+        resolution: "not_created",
+        confirmCheckedInPostiz: true,
+      }),
+    );
+    await h.run((tx) =>
+      resolvePostizDraft(tx, project.owner, {
+        handoffId: second!.id,
+        resolution: "exists",
+        confirmCheckedInPostiz: true,
+      }),
+    );
+    const [run] = await h.rows("assignment_runs");
+    expect(run!.slots[0]).toMatchObject({
+      postizDraftId: first!.id,
+      releasedAt: expect.any(String),
+    });
+    expect(run!.slots[1].releasedAt).toBeUndefined();
+    expect(run!.scheduling.dropped).toEqual([
+      expect.objectContaining({
+        contentId: first!.contentId,
+        code: "POSTIZ_DRAFT_NOT_CREATED",
+      }),
+    ]);
+    const result = await h.run(async (tx) =>
+      runDeliverables(
+        tx,
+        project.owner,
+        await entity(tx, project.owner, "assignment_runs", runId),
+      ),
+    );
+    expect(result.deliverables.map((d) => [d.contentId, d.outcome])).toEqual([
+      [first!.contentId, "postiz_draft_failed"],
+      [second!.contentId, "postiz_draft"],
+    ]);
+    const accepted = await h.run((tx) =>
+      tx.auditEvent.count({
+        where: {
+          projectId: project.owner.projectId,
+          action: "postiz_draft.accepted",
+          resourceId: second!.id,
+        },
+      }),
+    );
+    expect(accepted).toBe(1);
+  });
+
+  it("reports a draft that failed in Postiz as failed in run_status (M5)", async () => {
+    await linkBot();
+    await h.makeAssignment({ delivery: "postiz_draft" });
+    const { runId } = await reviewed();
+    const [first] = await handoffs();
+    await deliver(
+      first!.id,
+      fakePostiz(async () => {
+        throw new ConnectorError("HTTP_400", "rejected");
+      }),
+    );
+    const result = await h.run(async (tx) =>
+      runDeliverables(
+        tx,
+        project.owner,
+        await entity(tx, project.owner, "assignment_runs", runId),
+      ),
+    );
+    expect(
+      result.deliverables.find((d) => d.contentId === first!.contentId),
+    ).toMatchObject({ outcome: "postiz_draft_failed", reason: "HTTP_400" });
   });
 });

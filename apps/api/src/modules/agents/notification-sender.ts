@@ -15,7 +15,7 @@ import {
   stopCallbackData,
   telegramSender,
 } from "../telegram.ts";
-import { agentsEnabled, deliveryOf } from "./assignments.ts";
+import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import {
   dailyReportTime,
   NOTIFY_KINDS,
@@ -253,7 +253,9 @@ async function needsOwner(
         ...(mission.plannedSlotAt
           ? [`Geplant: ${when(mission.plannedSlotAt, timezone)}`]
           : []),
-        deliveryOf(assignment) === "postiz_draft"
+        (c.delivery ??
+          confirmedDelivery(assignment) ??
+          deliveryOf(assignment)) === "postiz_draft"
           ? "Orbit hat ihn geprüft. Er geht erst als Entwurf an Postiz, wenn du ihn in Orbit freigibst."
           : "Orbit hat ihn geprüft. Er geht erst raus, wenn du ihn in Orbit freigibst.",
       ].join("\n"),
@@ -298,7 +300,9 @@ async function dropped(
       ? "Kein freier Slot an dem Tag"
       : entry.code === "POSTIZ_DRAFTS_DISABLED"
         ? "Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS)"
-        : entry.code;
+        : entry.code === "AGENT_REVIEW_NOT_ACCEPTED"
+          ? "Die Agenten-Freigabe gilt nicht mehr (Freigabe-Schalter aus oder Bot getrennt); der Entwurf geht nicht an Postiz"
+          : entry.code;
   return plain(
     [
       "Beitrag entfällt",
@@ -308,6 +312,29 @@ async function dropped(
     ].join("\n"),
   );
 }
+
+/** Assignment drafts not sent to Postiz that one change canceled (R73, M4). */
+const canceledDrafts = (
+  tx: DbTx,
+  scope: Scope,
+  assignmentId: string,
+  reason: string,
+  marker: string,
+  version: number,
+) =>
+  tx.entity.count({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "postiz_drafts",
+      AND: [
+        { data: { path: ["assignmentId"], equals: assignmentId } },
+        { data: { path: ["status"], equals: "canceled" } },
+        { data: { path: ["reason"], equals: reason } },
+        { data: { path: [marker], equals: version } },
+      ],
+    },
+  });
 
 const withdrawnText = (count: number) =>
   count === 0
@@ -328,18 +355,27 @@ async function budgetPaused(
   );
   if (!row) return { skip: "STALE" };
   // The scheduled posts the pause withdrew (R20/R23, M6).
-  const withdrawn = await tx.entity.count({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "publications",
-      AND: [
-        { data: { path: ["assignmentId"], equals: assignmentId! } },
-        { data: { path: ["reason"], equals: "ASSIGNMENT_PAUSED" } },
-        { data: { path: ["budgetPausedVersion"], equals: Number(version) } },
-      ],
-    },
-  });
+  const withdrawn =
+    (await tx.entity.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        AND: [
+          { data: { path: ["assignmentId"], equals: assignmentId! } },
+          { data: { path: ["reason"], equals: "ASSIGNMENT_PAUSED" } },
+          { data: { path: ["budgetPausedVersion"], equals: Number(version) } },
+        ],
+      },
+    })) +
+    (await canceledDrafts(
+      tx,
+      scope,
+      assignmentId!,
+      "ASSIGNMENT_PAUSED",
+      "budgetPausedVersion",
+      Number(version),
+    ));
   return plain(
     [
       "Budget aufgebraucht",
@@ -469,18 +505,27 @@ async function retimed(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
     entity(tx, scope, "assignments", assignmentId!),
   );
   if (!row) return { skip: "STALE" };
-  const withdrawn = await tx.entity.count({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "publications",
-      AND: [
-        { data: { path: ["assignmentId"], equals: assignmentId! } },
-        { data: { path: ["reason"], equals: "ASSIGNMENT_RETIMED" } },
-        { data: { path: ["retimedVersion"], equals: Number(version) } },
-      ],
-    },
-  });
+  const withdrawn =
+    (await tx.entity.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        AND: [
+          { data: { path: ["assignmentId"], equals: assignmentId! } },
+          { data: { path: ["reason"], equals: "ASSIGNMENT_RETIMED" } },
+          { data: { path: ["retimedVersion"], equals: Number(version) } },
+        ],
+      },
+    })) +
+    (await canceledDrafts(
+      tx,
+      scope,
+      assignmentId!,
+      "ASSIGNMENT_RETIMED",
+      "retimedVersion",
+      Number(version),
+    ));
   if (!withdrawn) return { skip: "STALE" };
   const times = ((data(row).schedule?.times ?? []) as unknown[])
     .map(String)
@@ -567,8 +612,11 @@ async function postizDraft(
   const header = [
     `Entwurf in Postiz angelegt: ${await channelName(tx, scope, h.integrationId)}, ${when(h.slotAt ?? h.remoteDate, timezone)}`,
     "Orbit veröffentlicht ihn nicht. Veröffentlichen oder löschen machst du in Postiz.",
+    // The image failed before any post request; the draft went without it (M10).
     ...(h.imageError
-      ? ["Ohne Bild: Das Bild konnte nicht an Postiz übergeben werden."]
+      ? [
+          "Ohne Bild: Das Bild konnte nicht an Postiz übergeben werden. Füge es in Postiz selbst hinzu, falls nötig.",
+        ]
       : []),
   ].join("\n");
   const body = finalPostText(String(h.body ?? ""), h.targetUrl);
@@ -718,6 +766,83 @@ async function dailyReport(
   return plain(lines.join("\n"), [openButton()]);
 }
 
+/** Posts or drafts withdrawn by a confirmed delivery change (R73); `ref` is `<assignmentId>:<version>`. */
+async function deliveryChanged(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const [assignmentId, version] = ref.split(":");
+  const row = await maybe(() =>
+    entity(tx, scope, "assignments", assignmentId!),
+  );
+  if (!row) return { skip: "STALE" };
+  const withdrawn =
+    (await tx.entity.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "publications",
+        AND: [
+          { data: { path: ["assignmentId"], equals: assignmentId! } },
+          {
+            data: {
+              path: ["reason"],
+              equals: "ASSIGNMENT_DELIVERY_CHANGED",
+            },
+          },
+          {
+            data: {
+              path: ["deliveryChangedVersion"],
+              equals: Number(version),
+            },
+          },
+        ],
+      },
+    })) +
+    (await canceledDrafts(
+      tx,
+      scope,
+      assignmentId!,
+      "ASSIGNMENT_DELIVERY_CHANGED",
+      "deliveryChangedVersion",
+      Number(version),
+    ));
+  if (!withdrawn) return { skip: "STALE" };
+  const drafts = deliveryOf(data(row)) === "postiz_draft";
+  return plain(
+    [
+      "Zustellung geändert",
+      `Auftrag „${clip(String(data(row).name ?? ""), 120)}“: ${
+        drafts
+          ? "jetzt nur als Entwurf in Postiz"
+          : "jetzt veröffentlichen nach dem Veto-Fenster"
+      }.`,
+      `${withdrawn === 1 ? "1 Beitrag zurückgezogen" : `${withdrawn} Beiträge zurückgezogen`}, der noch nach der alten Zustellung vorgesehen war.`,
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** A draft-delivery assignment that planned no run today (M3); `ref` is `<assignmentId>:<YYYY-MM-DD>`. */
+async function draftsDisabled(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const assignmentId = ref.split(":")[0]!;
+  const name = await assignmentName(tx, scope, assignmentId);
+  if (!name) return { skip: "STALE" };
+  return plain(
+    [
+      "Auftrag läuft heute nicht",
+      `Auftrag „${name}“: Entwürfe an Postiz sind ausgeschaltet (ENABLE_POSTIZ_DRAFTS).`,
+      "Es wird nichts vorbereitet und es entstehen keine Kosten.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
 function projectPaused(): Built {
   return plain(
     "Projekt pausiert. Es geht nichts mehr raus. Fortsetzen nur in Orbit.",
@@ -759,6 +884,10 @@ async function render(
       return postizDraft(tx, scope, ref, timezone);
     case "project_paused":
       return projectPaused();
+    case "delivery_changed":
+      return deliveryChanged(tx, scope, ref);
+    case "drafts_disabled":
+      return draftsDisabled(tx, scope, ref);
     case "daily_report":
       return dailyReport(tx, scope, ref, timezone);
   }
