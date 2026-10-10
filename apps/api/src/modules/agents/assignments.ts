@@ -18,6 +18,7 @@ import {
   createActionRequest,
 } from "../action-requests.ts";
 import { activePolicy } from "../policy.ts";
+import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
 import { notify } from "./notifications.ts";
 import { withdrawAssignmentPublications } from "./veto.ts";
@@ -72,6 +73,10 @@ const assignmentFields = z
     styleAssetIds: z.array(z.uuid()).max(10),
     vetoMinutes: z.number().int().min(30).max(1440).default(180),
     monthlyBudgetMicros: z.number().int().min(0).max(10_000_000_000),
+    // How approved posts leave Orbit (R73): published after the veto window,
+    // or only created as drafts in Postiz at their slot, which the owner
+    // publishes himself. Absent means "publish" (rows from before R73).
+    delivery: z.enum(["publish", "postiz_draft"]).optional(),
   })
   .strict();
 type Content = z.infer<typeof assignmentFields>;
@@ -101,14 +106,35 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(["schedule", "weekdays"], "A weekly rhythm needs weekdays");
   if (rhythm === "once" && !date)
     issue(["schedule", "date"], "A one-off assignment needs a date");
+  if (value.delivery === "postiz_draft" && value.contentType !== "social")
+    issue(["delivery"], "Only social posts can be delivered as Postiz drafts");
 });
 export type AssignmentInput = z.output<typeof assignmentInput>;
 
-// Normalized as stored (JSON drops undefined), so a hash is the same before and after saving.
+export type Delivery = "publish" | "postiz_draft";
+/** Preflight blocker for any publication of a draft-delivery assignment's content (R73). */
+export const ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS =
+  "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS";
+/** The delivery of an assignment; a row without one (from before R73) publishes. */
+export const deliveryOf = (source: Record<string, any> | null | undefined) =>
+  (source?.delivery === "postiz_draft"
+    ? "postiz_draft"
+    : "publish") as Delivery;
+
+// Normalized as stored (JSON drops undefined), so a hash is the same before
+// and after saving. The default delivery "publish" is left out, so rows from
+// before R73 keep their hash and confirmation, while "postiz_draft" changes it.
 const contentOf = (source: Record<string, any>) =>
   JSON.parse(
     JSON.stringify(
-      Object.fromEntries(CONTENT_KEYS.map((key) => [key, source[key]])),
+      Object.fromEntries(
+        CONTENT_KEYS.map((key) => [
+          key,
+          key === "delivery" && source[key] === "publish"
+            ? undefined
+            : source[key],
+        ]),
+      ),
     ),
   ) as Record<string, any>;
 /** Everything the owner confirms: all content fields, never status, confirmation or versions. */
@@ -146,6 +172,9 @@ async function assertWithinMandate(
 ) {
   if (content.contentType === "report")
     throw new DomainError(REPORT_NOT_AVAILABLE, 409);
+  // Draft delivery needs the Postiz draft handoff switched on (R73).
+  if (deliveryOf(content) === "postiz_draft" && !postizDraftsEnabled())
+    throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
   const policy = await activePolicy(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const mandate = data(policy);

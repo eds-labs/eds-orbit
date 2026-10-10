@@ -11,6 +11,10 @@ import {
 } from "./channel-rules.ts";
 import { channelPostsNear } from "./agents/channel-posts.ts";
 import { agentReviewAccepted } from "./agents/agent-review.ts";
+import {
+  ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
+  deliveryOf,
+} from "./agents/assignments.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,
@@ -311,6 +315,22 @@ export async function preflight(
     where: { id: scope.projectId },
   });
   if (project.paused) blockers.push("PROJECT_PAUSED");
+  // An assignment that delivers Postiz drafts never publishes (R73): its owner publishes in Postiz.
+  if (
+    typeof c.assignmentId === "string" &&
+    /^[0-9a-f-]{36}$/i.test(c.assignmentId)
+  ) {
+    const assignment = await tx.entity.findFirst({
+      where: {
+        id: c.assignmentId,
+        kind: "assignments",
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+      },
+    });
+    if (assignment && deliveryOf(data(assignment)) === "postiz_draft")
+      blockers.push(ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS);
+  }
   if (!c.synthetic && (!c.missionId || !c.campaignType || !c.profileVersion))
     blockers.push("CAMPAIGN_MISSION_REQUIRED");
   if (c.missionId) {

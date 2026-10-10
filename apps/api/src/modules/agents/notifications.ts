@@ -38,7 +38,10 @@ export const NOTIFY_KINDS = [
   "budget_paused",
   // Scheduled posts withdrawn because the owner moved the assignment's times (R70).
   "retimed",
+  // A Postiz error of a publication, or a Postiz draft handoff with an unclear outcome (R73).
   "postiz_error",
+  // An assignment draft created as a draft in Postiz (delivery "Postiz draft", R73); no Stop.
+  "postiz_draft",
   "project_paused",
   "daily_report",
 ] as const;

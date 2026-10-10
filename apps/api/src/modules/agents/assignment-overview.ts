@@ -5,7 +5,7 @@ import { data, list } from "../../shared.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
-import { agentsEnabled } from "./assignments.ts";
+import { agentsEnabled, deliveryOf } from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
 import { assignmentMonthSpend } from "./specialists/runner.ts";
 import { assignmentCardOf } from "./tools/assignment-tools.ts";
@@ -112,6 +112,7 @@ export async function listAssignments(
       schedule: d.schedule,
       image: d.image === true,
       vetoMinutes: d.vetoMinutes,
+      delivery: deliveryOf(d),
       // A paused project runs nothing, so no run is due.
       nextRunAt: project.paused
         ? null
@@ -171,7 +172,11 @@ export async function conversationAssignments(
  * Assignment posts Orbit still holds (the veto allow-list, R56): created,
  * or blocked before any handoff, each with its slot, veto deadline (null for
  * a post the owner released, `ownerReleased`), a text excerpt and the
- * assignment. Earliest slot first.
+ * assignment. With them the drafts of assignments with the delivery "Postiz
+ * draft" (R73) whose slot is still ahead: booked, being sent, created in
+ * Postiz or unclear (`delivery: "postiz_draft"`, the handoff's id and
+ * status). Those have no Stop: Orbit publishes none of them, and a draft
+ * already in Postiz is withdrawn there. Earliest slot first.
  */
 export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
   const rows = (
@@ -188,19 +193,61 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
       take: 200,
     })
   ).filter((row) => assignmentPost(data(row)) && withdrawable(data(row)));
+  const now = Date.now();
+  const drafts = (
+    await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "postiz_drafts",
+        data: { path: ["source"], equals: "assignment" },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    })
+  ).filter(
+    (row) =>
+      ["queued", "sending", "accepted", "outcome_unknown"].includes(
+        data(row).status,
+      ) && Date.parse(String(data(row).slotAt)) > now,
+  );
   const contents = await rowsById(
     tx,
     scope,
     "content",
     rows.map((row) => data(row).contentId),
   );
-  const assignments = await rowsById(
-    tx,
-    scope,
-    "assignments",
-    rows.map((row) => data(row).assignmentId),
-  );
+  const assignments = await rowsById(tx, scope, "assignments", [
+    ...rows.map((row) => data(row).assignmentId),
+    ...drafts.map((row) => data(row).assignmentId),
+  ]);
   const names = await channelNames(tx, scope);
+  const excerptOf = (body: unknown) => {
+    const text = String(body ?? "")
+      .replace(/\s+/g, " ")
+      .trim();
+    return text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text;
+  };
+  const delivered = drafts.map((row) => {
+    const h = data(row);
+    return {
+      id: row.id,
+      version: row.version,
+      status: String(h.status),
+      reason: h.error ?? null,
+      channel: h.integrationId,
+      channelName: names.get(String(h.integrationId)) ?? null,
+      scheduledAt: h.slotAt,
+      vetoDeadline: null,
+      ownerReleased: h.approvedBy === "owner",
+      // The text that was handed over, not a later version of the content.
+      excerpt: excerptOf(h.body),
+      assignmentId: h.assignmentId ?? null,
+      assignmentName:
+        data(assignments.get(String(h.assignmentId))).name ?? null,
+      delivery: "postiz_draft" as const,
+    };
+  });
   return rows
     .map((row) => {
       const p = data(row);
@@ -222,8 +269,10 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
         assignmentId: p.assignmentId ?? null,
         assignmentName:
           data(assignments.get(String(p.assignmentId))).name ?? null,
+        delivery: "publish" as "publish" | "postiz_draft",
       };
     })
+    .concat(delivered)
     .sort((a, b) => String(a.scheduledAt).localeCompare(String(b.scheduledAt)));
 }
 
@@ -312,6 +361,8 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       excerpt: text.length > EXCERPT ? `${text.slice(0, EXCERPT)}…` : text,
       assignmentId: d.assignmentId,
       assignmentName: data(assignment).name ?? null,
+      // What the release does: schedule the post, or book a Postiz draft (R73).
+      delivery: deliveryOf(data(assignment)),
       // The review agent approved the text; only its authority was missing.
       agentApproved: Boolean(d.agentReview),
       problems: [

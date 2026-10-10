@@ -14,9 +14,14 @@ import {
 import { activePolicy } from "../policy.ts";
 import { errorCode } from "../telemetry.ts";
 import { enqueue, publishIntent } from "../workflow.ts";
+import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { agentReviewAccepted } from "./agent-review.ts";
 import { SLOT_STEP_MS, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
-import { agentsEnabled } from "./assignments.ts";
+import { agentsEnabled, deliveryOf } from "./assignments.ts";
+import {
+  bookPostizDraft,
+  cancelAssignmentPostizDrafts,
+} from "./draft-delivery.ts";
 import {
   withdrawPublication,
   type WithdrawReason,
@@ -36,11 +41,17 @@ import { localDate, slotContext, slotStatus } from "./scheduling.ts";
  * hands it over only after the deadline without a stop (R4), and preflight
  * accepts the window in place of a package approval only then (R52). Blog and
  * newsletter drafts are never published: the review saves them to Drive.
+ * An assignment with the delivery "Postiz draft" (R73) publishes nothing:
+ * its approved drafts are booked as Postiz drafts at their slot instead
+ * (draft-delivery.ts), with no veto window and no preview.
  */
 const RUNS = "assignment_runs";
 const PUBLICATIONS = "publications";
+const POSTIZ_DRAFTS = "postiz_drafts";
 // The publication is out of Orbit's hands from the claim on.
 const INACTIVE = ["canceled", "failed", "blocked_dependency"];
+// A Postiz draft handoff that no longer delivers (R73).
+const INACTIVE_HANDOFF = ["canceled", "failed"];
 
 /**
  * A publication Orbit still holds (R56 allow-list): not claimed for Postiz.
@@ -73,6 +84,8 @@ export type RunSlot = {
   // The slot the run was given, when the post moved for its veto window.
   requestedAt?: string;
   publicationId?: string;
+  // The Postiz draft handoff that holds the slot (delivery "Postiz draft", R73).
+  postizDraftId?: string;
   releasedAt?: string;
   releaseReason?: string;
 };
@@ -190,6 +203,12 @@ export async function moveDraft(
  * `scheduling` and the success marker `scheduledAt` (R54), which is written
  * with the rest or not at all. Calling it again creates nothing new and
  * returns the run's publications that are still active.
+ *
+ * With the delivery "Postiz draft" (R73) each approved draft is booked as a
+ * Postiz draft handoff at its slot instead (`bookPostizDraft`): no
+ * publication, no veto window (nothing goes public) and no preview; the
+ * slot records `postizDraftId` and keeps holding. It then returns the run's
+ * handoffs that are still active.
  */
 export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
   if (!agentsEnabled()) return [];
@@ -210,7 +229,9 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       });
     return [];
   }
-  const vetoMs = Number(assignment.vetoMinutes ?? 180) * 60000;
+  const drafting = deliveryOf(assignment) === "postiz_draft";
+  // Nothing goes public with draft delivery, so it needs no veto window.
+  const vetoMs = drafting ? 0 : Number(assignment.vetoMinutes ?? 180) * 60000;
   const existing = await rowsWhere(
     tx,
     scope,
@@ -218,6 +239,9 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
     "assignmentRunId",
     runId,
   );
+  const handoffs = drafting
+    ? await rowsWhere(tx, scope, POSTIZ_DRAFTS, "assignmentRunId", runId)
+    : [];
   const drafts = (
     await rowsWhere(tx, scope, "content", "assignmentRunId", runId)
   ).sort((a, b) =>
@@ -236,6 +260,12 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       if (!INACTIVE.includes(data(own).status)) scheduled.push(own);
       continue;
     }
+    const booked = handoffs.find((row) => data(row).contentId === draft.id);
+    if (booked) {
+      if (!INACTIVE_HANDOFF.includes(data(booked).status))
+        scheduled.push(booked);
+      continue;
+    }
     const c = data(draft);
     if (
       dropped.some((entry) => entry.contentId === draft.id) ||
@@ -251,45 +281,63 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       (slot) =>
         slot.channel === c.channel &&
         Date.parse(slot.at) === planned.valueOf() &&
-        !slot.publicationId,
+        !slot.publicationId &&
+        !slot.postizDraftId,
     );
     let failure: string | null = null;
     let publication: Awaited<ReturnType<typeof entity>> | null = null;
+    let handoff: Awaited<ReturnType<typeof entity>> | null = null;
     let target: Date | null = null;
     // Read per draft: a long pass must not leave a late draft with a deadline already gone.
     const now = new Date();
     try {
-      target = await vetoSlot(
-        tx,
-        scope,
-        runId,
-        c.channel,
-        planned,
-        vetoMs,
-        now,
-        // Slots of this run that got a publication or were released in this pass no longer hold.
-        new Set(
-          slots
-            .filter((slot) => !slot.publicationId && !slot.releasedAt)
-            .map((slot) => slotKey(slot.channel, slot.at)),
-        ),
-      );
-      if (!target) failure = SLOT_UNAVAILABLE;
+      // Switched off: the deliverable is dropped with a notice (R73).
+      if (drafting && !postizDraftsEnabled())
+        failure = "POSTIZ_DRAFTS_DISABLED";
+      else
+        target = await vetoSlot(
+          tx,
+          scope,
+          runId,
+          c.channel,
+          planned,
+          vetoMs,
+          now,
+          // Slots of this run that got a publication or were released in this
+          // pass no longer hold; booked Postiz drafts still do (slotContext).
+          new Set(
+            slots
+              .filter((slot) => !slot.publicationId && !slot.releasedAt)
+              .map((slot) => slotKey(slot.channel, slot.at)),
+          ),
+        );
+      if (failure) target = null;
+      else if (!target) failure = SLOT_UNAVAILABLE;
       else {
         const content = await moveDraft(tx, scope, draft, mission, target);
-        publication = await publishIntent(tx, scope, {
-          contentId: content.id,
-          version: content.version,
-          scheduledAt: target.toISOString(),
-          vetoDeadline: new Date(target.valueOf() - vetoMs).toISOString(),
-        });
+        if (drafting)
+          handoff = await bookPostizDraft(tx, scope, {
+            content,
+            slotAt: target,
+            runId,
+            assignmentId: r.assignmentId,
+            approvedBy: "agent",
+            reviewTaskId: c.agentReview?.taskId ?? null,
+          });
+        else
+          publication = await publishIntent(tx, scope, {
+            contentId: content.id,
+            version: content.version,
+            scheduledAt: target.toISOString(),
+            vetoDeadline: new Date(target.valueOf() - vetoMs).toISOString(),
+          });
       }
     } catch (error) {
       // A blocker drops this deliverable only; the others go on.
       if (!(error instanceof DomainError)) throw error;
       failure = error.message.slice(0, 200);
     }
-    if (!publication || !target) {
+    if ((!publication && !handoff) || !target) {
       dropped.push({
         contentId: draft.id,
         briefKey: c.briefKey ?? null,
@@ -314,6 +362,33 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       await notify(tx, scope, "dropped", draft.id);
       continue;
     }
+    if (handoff) {
+      if (index >= 0)
+        slots[index] = {
+          ...slots[index]!,
+          at: target.toISOString(),
+          ...(target.valueOf() !== planned.valueOf()
+            ? { requestedAt: slots[index]!.at }
+            : {}),
+          postizDraftId: handoff.id,
+        };
+      // Every automatic approval is audited (spec §11), here without a veto deadline.
+      await audit(tx, scope, "assignment.postiz_draft_booked", handoff.id, {
+        contentId: draft.id,
+        runId,
+        assignmentId: r.assignmentId,
+        assignmentVersion: assignmentRow.version,
+        assignmentHash: c.agentReview?.assignmentHash ?? null,
+        reviewTaskId: c.agentReview?.taskId ?? null,
+        deterministicProblems: c.agentReview?.deterministicProblems ?? null,
+        slotAt: target.toISOString(),
+        requestedAt: planned.toISOString(),
+        approvedBy: "agent",
+      });
+      scheduled.push(handoff);
+      continue;
+    }
+    if (!publication) continue;
     const p = data(publication);
     if (index >= 0)
       slots[index] = {
@@ -355,6 +430,7 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
           PENDING_DRAFT.includes(data(draft).status) &&
           !data(draft).supersededBy &&
           !existing.some((pub) => data(pub).contentId === draft.id) &&
+          !handoffs.some((row) => data(row).contentId === draft.id) &&
           !dropped.some((entry) => entry.contentId === draft.id),
       )
       .map((draft) => String(data(draft).briefKey)),
@@ -362,6 +438,7 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
   for (const [index, slot] of slots.entries())
     if (
       !slot.publicationId &&
+      !slot.postizDraftId &&
       !slot.releasedAt &&
       !waiting.has(slotKey(slot.channel, slot.at))
     )
@@ -372,7 +449,19 @@ export async function scheduleApproved(tx: DbTx, scope: Scope, runId: string) {
       };
   const scheduling = {
     at: r.scheduling?.at ?? now.toISOString(),
-    publicationIds: scheduled.map((pub) => pub.id),
+    publicationIds: drafting
+      ? ((r.scheduling?.publicationIds ?? []) as string[])
+      : scheduled.map((pub) => pub.id),
+    ...(drafting
+      ? {
+          postizDraftIds: [
+            ...new Set([
+              ...((r.scheduling?.postizDraftIds ?? []) as string[]),
+              ...scheduled.map((row) => row.id),
+            ]),
+          ],
+        }
+      : {}),
     dropped,
   };
   if (
@@ -617,7 +706,14 @@ export async function withdrawAssignmentPublications(
       await revokeReleasedRight(tx, scope, row);
       withdrawn++;
     }
-  return { withdrawn };
+  // Booked Postiz drafts not sent yet go the same way (R73); sent ones stay in Postiz.
+  const { canceled } = await cancelAssignmentPostizDrafts(
+    tx,
+    scope,
+    assignmentId,
+    reason,
+  );
+  return { withdrawn, canceledDrafts: canceled };
 }
 
 // Publication statuses after which Postiz has the post, or had it.
@@ -632,7 +728,11 @@ type Outcome =
   | "blocked"
   | "failed"
   | "dropped"
-  | "awaiting_owner";
+  | "awaiting_owner"
+  // Delivery "Postiz draft" (R73): booked or being sent, in Postiz, or unclear.
+  | "postiz_draft_pending"
+  | "postiz_draft"
+  | "postiz_draft_unknown";
 
 function publicationOutcome(p: Record<string, any>): {
   outcome: Outcome;
@@ -726,6 +826,43 @@ export async function runDeliverables(
         vetoedAt: p.vetoedAt,
         source: p.vetoSource ?? null,
       });
+  }
+  // Drafts delivered to Postiz (R73); a failed one is listed as dropped below.
+  for (const row of await rowsWhere(
+    tx,
+    scope,
+    POSTIZ_DRAFTS,
+    "assignmentRunId",
+    run.id,
+  )) {
+    const h = data(row);
+    const outcome: Outcome | null =
+      h.status === "accepted"
+        ? "postiz_draft"
+        : h.status === "outcome_unknown"
+          ? "postiz_draft_unknown"
+          : ["queued", "sending"].includes(h.status)
+            ? "postiz_draft_pending"
+            : h.status === "canceled"
+              ? "withdrawn"
+              : null;
+    if (!outcome || covered.has(String(h.contentId))) continue;
+    covered.add(String(h.contentId));
+    deliverables.push({
+      contentId: h.contentId,
+      channel: h.integrationId,
+      outcome,
+      reason: h.reason ?? h.error ?? null,
+      publicationId: null,
+      postizDraftId: row.id,
+      publicationStatus: null,
+      scheduledAt: h.slotAt ?? null,
+      requestedAt: null,
+      vetoDeadline: null,
+      releasedBy: h.approvedBy === "owner" ? "owner" : "agent",
+      // A draft in Postiz is Postiz's; Orbit never publishes it.
+      handedOver: ["accepted", "sending", "outcome_unknown"].includes(h.status),
+    });
   }
   for (const entry of (r.scheduling?.dropped ?? []) as Dropped[]) {
     if (covered.has(entry.contentId)) continue;

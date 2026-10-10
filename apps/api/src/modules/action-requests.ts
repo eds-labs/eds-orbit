@@ -383,6 +383,11 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
                 styleAssetIds: d.payload.styleAssetIds,
                 vetoMinutes: d.payload.vetoMinutes,
                 monthlyBudgetMicros: d.payload.monthlyBudgetMicros,
+                // Absent in the payload means "publish" (R73).
+                delivery:
+                  d.payload.delivery === "postiz_draft"
+                    ? "postiz_draft"
+                    : "publish",
               },
             }
           : {}),
