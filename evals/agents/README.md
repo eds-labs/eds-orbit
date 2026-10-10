@@ -223,3 +223,7 @@ Otherwise it prints **FAIL** and exits non-zero. With PASS, Mario may set
   test project's (voice "clear", one fact, CTA "Learn more."), not uLiquid's.
   A PASS shows the review's judgement on this set, not on the production
   brand's guardrails.
+
+## The brief
+
+The review checks that a draft follows its brief, so every case is judged against the set's own `brief` (`review-v2.json`). It must match the drafts. A mismatched brief makes good cases fail and lets bad cases pass for the wrong reason. Run 2's diagnosis found exactly that: the harness's default test brief asked for day-one use and "Join the beta." The brief is part of the dataset hash and the confirmation.

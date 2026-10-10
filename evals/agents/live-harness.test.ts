@@ -136,6 +136,7 @@ describe.skipIf(!enabled)("Live review eval harness (offline replay)", () => {
     replay.seen = { 1: [], 2: [] };
     return runReviewEval({
       cases,
+      brief: set.brief,
       route: plan.route,
       maxCostMicros,
       runtime,

@@ -96,6 +96,7 @@ describe("Live agent review eval", () => {
         // Errors after the first review call are returned in the report, not thrown.
         report = await runReviewEval({
           cases: plan.cases,
+          brief: set.brief,
           route: plan.route,
           maxCostMicros: plan.maxCostMicros,
           runtime: { apiKey, ...plan.runtime },

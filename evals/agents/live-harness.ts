@@ -50,7 +50,7 @@ import {
   assertLocalDatabase,
   removeStaleEvals,
 } from "../generation/harness.ts";
-import { isBareHost, type ReviewCase } from "./review-set.ts";
+import { isBareHost, type ReviewBrief, type ReviewCase } from "./review-set.ts";
 import type { CaseDiagnosis, RoundDiagnosis } from "./diagnosis.ts";
 import {
   caseAsPlanned,
@@ -96,7 +96,11 @@ function assertStubs() {
  * offline replay: the copywriter writes one draft whose shape (mission,
  * evidence, slot) every case reuses; the draft itself is archived.
  */
-async function prepare(project: Project, maxCostMicros: number) {
+async function prepare(
+  project: Project,
+  maxCostMicros: number,
+  brief: ReviewBrief,
+) {
   const h = assignmentRun(project);
   // The ceiling is also the project's budget: the policy refuses beyond it.
   await h.setPolicy({
@@ -120,7 +124,8 @@ async function prepare(project: Project, maxCostMicros: number) {
       leadMinutes: 360,
     },
   });
-  await h.planWithBriefs((slots) => slots.map((slot) => h.brief(slot)));
+  // The set's brief, so the cases are judged against the brief they answer.
+  await h.planWithBriefs((slots) => slots.map((slot) => h.brief(slot, brief)));
   await runAgentTask(h.worker(), (await h.task(`copywriter:${X}`)).id);
   const [template] = await h.rows("content");
   if (!template) throw new Error("EVAL_TEMPLATE_MISSING");
@@ -416,6 +421,7 @@ function stopReason(result: CaseResult, unknown: boolean) {
 
 export async function runReviewEval(options: {
   cases: ReviewCase[];
+  brief: ReviewBrief;
   route: ModelRoute;
   maxCostMicros: number;
   runtime: OpenAiRuntimeConfig;
@@ -449,7 +455,11 @@ export async function runReviewEval(options: {
   let setupError: unknown = null;
   try {
     project = await createPackageProject({ name: REVIEW_EVAL_MARKER });
-    const { h, template } = await prepare(project, maxCostMicros);
+    const { h, template } = await prepare(
+      project,
+      maxCostMicros,
+      options.brief,
+    );
     // The key enters the project only now, after the stubbed draft.
     await configure(project.owner, runtime, route);
     try {
@@ -494,7 +504,7 @@ export async function runReviewEval(options: {
   if (setupError) throw setupError;
   return {
     datasetVersion: options.datasetVersion,
-    datasetHash: reviewDatasetHash(cases, route, maxCostMicros),
+    datasetHash: reviewDatasetHash(cases, route, maxCostMicros, options.brief),
     startedAt,
     workspaceId: project!.owner.workspaceId,
     route,
