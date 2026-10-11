@@ -1,8 +1,10 @@
 export function missionFactKeys(mission: Record<string, unknown>) {
-  // Confirmed Chat proposals, content packages and planned autopilot slots carry exact keys.
+  // Confirmed Chat proposals, content packages, planned autopilot slots and
+  // assignment briefs (Orbit Agents) carry exact keys.
   if (
     typeof mission.chatProposalId !== "string" &&
     typeof mission.packageId !== "string" &&
+    typeof mission.assignmentRunId !== "string" &&
     mission.autopilot !== true
   )
     return undefined;
