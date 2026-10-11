@@ -27,6 +27,18 @@ describe("mission fact keys", () => {
     ).toBeUndefined();
   });
 
+  it("uses the exact fact keys of an assignment mission", () => {
+    // The strategy brief names its facts; without them a copywriter draft
+    // retrieves every matching public fact and exceeds the fact context
+    // limit (production uLiquid, 2026-10-11: EVIDENCE_INVALID).
+    expect(
+      missionFactKeys({
+        assignmentRunId: "run",
+        factKeys: ["product.status", "url.beta_registration"],
+      }),
+    ).toEqual(["product.status", "url.beta_registration"]);
+  });
+
   it("uses the exact fact keys of a content package mission", () => {
     // Without them a package draft retrieves every public fact and exceeds
     // the fact context limit (production uLiquid, 2026-10-05).
