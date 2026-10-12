@@ -1,0 +1,98 @@
+{
+  "slug": "market-intelligence-context-not-signal",
+  "title": "Market Intelligence Is Context, Not a Signal: A Better Review Workflow",
+  "seoTitle": "Market Intelligence Is Context, Not a Signal",
+  "description": "Learn how to use price, news, events and derivatives context in a controlled review workflow without treating market intelligence as a trading signal.",
+  "category": "Market intelligence",
+  "publishedAt": "2026-09-21",
+  "updatedAt": "2026-09-21",
+  "readTime": "7 min read",
+  "author": "Mario Euchner",
+  "authorTitle": "Founder & Product Lead",
+  "keywords": [
+    "market intelligence workflow",
+    "source-aware market analysis",
+    "user-controlled trading",
+    "read-only risk analysis",
+    "responsible trading automation"
+  ],
+  "excerpt": "Market intelligence is most useful when it improves a question, not when it pretends to provide a final answer. A controlled review keeps source, freshness and user judgment visible.",
+  "sections": [
+    {
+      "heading": "Start with a question, not a conclusion",
+      "paragraphs": [
+        "It is easy to treat a dashboard as if it is already a verdict. A large move may look decisive. A headline may feel urgent. A funding-rate or open-interest change may appear to confirm an existing view. But market inputs become more useful when they are approached as questions: what changed, which source supports that observation, what relevant context could be missing, and does it fit a personal plan and risk limit?",
+        "This approach slows down a common failure mode: treating one visible input as a complete explanation. Market intelligence should organize the available context so a user can investigate it. It should not manufacture certainty from incomplete information or turn context into a trading instruction."
+      ]
+    },
+    {
+      "heading": "Bring relevant context together",
+      "paragraphs": [
+        "Market Intelligence in uLiquid Desk structures market data, news, economic events and derivatives context for analysis, alerts and risk decisions. Price and volume can show what happened. News and event context can help explain what may be influencing attention or volatility. Funding and open interest can add derivatives context. Each input has a different role.",
+        "A useful review does not flatten those inputs into a single buy-or-sell instruction. For example, unusual volatility before a scheduled event can prompt a review of the timeline, market-data freshness and a user's own exposure. The appropriate result may be to wait for more information or take no action at all. That is still a valuable outcome."
+      ]
+    },
+    {
+      "heading": "Source and freshness are part of the analysis",
+      "paragraphs": [
+        "A number without context can be misleading. The same is true for a headline, event label or derivatives metric. When reviewing market intelligence, users should know whether an input is current, where it originated and whether a provider has supplied complete information. Missing or degraded data should remain visible instead of being silently treated as neutral or complete.",
+        "A practical review has three checks. First, provenance: what source or provider produced this input? Second, freshness: is the information recent enough for the question at hand? Third, completeness: is anything unavailable, delayed or outside the selected scope? These checks do not eliminate trading risk, but they make uncertainty easier to see before it becomes part of a decision."
+      ],
+      "list": [
+        "Read market inputs as supporting context, not as isolated instructions.",
+        "Keep unavailable or degraded fields visible rather than inferring a value.",
+        "Compare explanations with the source, timeframe and current market context."
+      ]
+    },
+    {
+      "heading": "Keep market context separate from account-bound analysis",
+      "paragraphs": [
+        "Market context and position context are related, but they are not the same thing. Market intelligence can help a user understand broader conditions. Position Copilot is a separate, account-bound and read-only risk-analysis surface. It can help inspect selected position context without becoming an execution path.",
+        "That separation matters. Position Copilot cannot change orders, leverage, wallets, vaults, bots or capital state. It can support a review of exposure or scenario context, but it does not replace the user's judgment. Keeping responsibilities distinct makes a workflow easier to supervise: market intelligence structures external context, Position Copilot reviews selected account-bound risk context, and the user decides whether any action is appropriate."
+      ]
+    },
+    {
+      "heading": "Use AI to structure the review, not to bypass it",
+      "paragraphs": [
+        "Market Analyst is available for assistive, source-aware market analysis. It can help users frame a question, compare context and identify areas that deserve closer review. The output should remain challengeable: users should be able to compare an explanation with the underlying context, ask what may be missing and decide whether it fits their own process.",
+        "uLiquid Desk keeps AI assistance distinct from account-changing actions. AI cannot autonomously change orders, leverage, wallets, vaults, bots or capital state. AI assists. You decide. That boundary allows an explanation to be useful without treating it as a mandate."
+      ]
+    },
+    {
+      "heading": "Automation needs its own decision boundary",
+      "paragraphs": [
+        "Automation & Bots remain Beta and have their own product controls. Strategies produce structured intents, while policies validate limits, venue capabilities and current state before a runner can act. That is different from allowing a model to author unrestricted trades.",
+        "A strategy idea, a policy-approved action and a completed execution are separate stages. Each can have a different level of evidence, permission and review. The important question is not whether a workflow is called automated. It is which controls remain in place: paper-first validation, explicit limits, observable state and a clear recovery path when a workflow is degraded or fails."
+      ]
+    },
+    {
+      "heading": "A calm review loop",
+      "paragraphs": [
+        "A repeatable workflow can stay simple: observe relevant market, event and account context; frame a specific question; check source, freshness and missing-data boundaries; challenge the explanation against a personal plan; and then decide whether to act, wait, reduce risk or do nothing. Afterwards, review the decision process instead of treating an outcome as proof of certainty.",
+        "Market intelligence should help people understand what they are looking at and what they still need to verify. uLiquid Desk combines market context, assistive analysis, read-only account-bound risk review and controlled workflow boundaries so users can keep decisions understandable. The goal is clearer context, better questions and deliberate action only where it is appropriate."
+      ]
+    }
+  ],
+  "relatedLinks": [
+    {
+      "label": "Explore Market Intelligence",
+      "href": "/features/market-intelligence/"
+    },
+    {
+      "label": "Explore the platform",
+      "href": "/platform/"
+    },
+    {
+      "label": "See the AI Workbench",
+      "href": "/features/ai-workbench/"
+    },
+    {
+      "label": "Read the risk disclosure",
+      "href": "/risk-disclosure/"
+    },
+    {
+      "label": "Read the AI and product FAQ",
+      "href": "/faq/"
+    }
+  ]
+}
