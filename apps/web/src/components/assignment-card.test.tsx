@@ -110,6 +110,42 @@ describe("AssignmentCard", () => {
     expect(html).not.toContain("wenn du sie nicht stoppst");
   });
 
+  it("shows a shared text and the format the owner confirms (R76, R77)", () => {
+    const card = (changes: Partial<AssignmentContent>) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{ ...assignment(true), ...changes }}
+          status="draft"
+          request={null}
+          de
+          canDecide={false}
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    const shared = card({
+      sharedAcrossChannels: true,
+      format: {
+        minChars: 600,
+        maxChars: 900,
+        hashtags: { min: 2, max: 3 },
+        paragraphs: true,
+        cta: "https://desk.example.invalid/en/register",
+      },
+    });
+    expect(shared).toContain("Beiträge");
+    expect(shared).toContain("Ein Text und ein Bild für alle Kanäle");
+    expect(shared).toContain(
+      "600–900 Zeichen · 2–3 Hashtags · kurze Absätze · Link https://desk.example.invalid/en/register",
+    );
+    // A card from before R76/R77: one text per channel, no format.
+    const plain = card({});
+    expect(plain).toContain("Eigener Text je Kanal");
+    expect(plain).toContain("Ohne Vorgabe");
+    expect(plain).not.toContain("Ein Text und ein Bild für alle Kanäle");
+  });
+
   it("lets only a person who may decide confirm", () => {
     const html = render(true, false);
     expect(confirmButton(html)).toBeUndefined();

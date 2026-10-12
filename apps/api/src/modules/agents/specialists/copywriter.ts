@@ -24,7 +24,12 @@ import {
 import { activePolicy } from "../../policy.ts";
 import { errorCode } from "../../telemetry.ts";
 import { listUsableFacts } from "../content-packages.ts";
-import { confirmedDelivery, deliveryOf } from "../assignments.ts";
+import {
+  confirmedDelivery,
+  deliveryOf,
+  type AssignmentFormat,
+} from "../assignments.ts";
+import { groupSlots } from "../shared-posts.ts";
 import {
   ASSIGNMENT_BUDGET_EXHAUSTED,
   runBudgetKey,
@@ -37,10 +42,14 @@ import { attachRunImage } from "./visual.ts";
 /**
  * Copywriter step of an assignment run (Orbit Agents, spec §5): an executor,
  * not a model specialist. For every strategy brief of its channel (R18; the
- * single copywriter of a blog or newsletter run takes all briefs) it creates
+ * single copywriter of a blog or newsletter run, or of a shared run (R76),
+ * takes all briefs) it creates
  * one draft-only mission in the shape content packages use and drafts it
  * through Orbit's generation (claims ledger, fact placeholders, channel
- * rules), with the brief in the generation contract. Paid calls are
+ * rules), with the brief in the generation contract; a shared run's brief
+ * is written once for its slot group's strictest channel and names every
+ * channel of the group (`sharedChannels`), and an assignment format (R77)
+ * travels with the mission into the contract. Paid calls are
  * attributed to the task (R37): job `agent:<taskId>:copy:<briefKey>`, budget
  * run `assignment-run:<runId>`; each mission's cost ceiling is what the run's
  * pool (R75) and the assignment's month have left. A failed brief does not stop the
@@ -133,13 +142,22 @@ async function briefMission(
   const profile = marketingProfile.parse(profileRow.data);
   const policyRow = await activePolicy(tx, scope);
   if (!policyRow) throw new DomainError("POLICY_REQUIRED", 409);
-  const link = await officialTargetLink(
-    tx,
-    scope,
-    profile,
-    data(policyRow).allowedOrigins ?? [],
-    brief.factKeys,
-  );
+  const allowedOrigins: string[] = data(policyRow).allowedOrigins ?? [];
+  const format = assignment.format as AssignmentFormat | undefined;
+  // The format's link (R77) must still be an official link the policy allows.
+  const link = format?.cta
+    ? (profile.officialLinks.find(
+        (item) =>
+          item.url === format.cta &&
+          allowedOrigins.includes(new URL(item.url).origin),
+      ) ?? null)
+    : await officialTargetLink(
+        tx,
+        scope,
+        profile,
+        allowedOrigins,
+        brief.factKeys,
+      );
   if (!link) throw new DomainError("LINK_NOT_ALLOWED", 409);
   const slot = Date.parse(brief.slotAt);
   if (!Number.isFinite(slot) || slot <= now.valueOf())
@@ -181,6 +199,14 @@ async function briefMission(
     },
     facts.map((fact) => fact.id),
   );
+  // A shared run (R76): the text goes out unchanged on every channel of its slot group.
+  const run = data(await entity(tx, scope, "assignment_runs", task.runId));
+  const sharedChannels =
+    run.sharedAcrossChannels === true
+      ? groupSlots(run.slots ?? [], brief.channel, brief.slotAt).map(
+          (slot) => slot.channel,
+        )
+      : [];
   const ceiling = await missionCeiling(tx, scope, task);
   const mission = await create(tx, scope, "missions", {
     ...checked.parsed,
@@ -207,6 +233,9 @@ async function briefMission(
     // The confirmed delivery travels with the draft (R73, I1): the publish
     // guard reads it, never the live assignment row.
     delivery: confirmedDelivery(assignment) ?? deliveryOf(assignment),
+    // The confirmed format and the channels of a shared text reach the generation contract (R76, R77).
+    ...(format ? { format } : {}),
+    ...(sharedChannels.length > 1 ? { sharedChannels } : {}),
     ...extra,
   });
   return { missionId: mission.id, monthBound: ceiling.monthBound };

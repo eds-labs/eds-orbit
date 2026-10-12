@@ -41,6 +41,16 @@ export type AssignmentCard = {
   monthlyBudgetMicros: number;
   // How approved posts leave Orbit (R73): published, or only drafts in Postiz.
   delivery: "publish" | "postiz_draft";
+  // One text and one image per slot for all channels (R76).
+  sharedAcrossChannels: boolean;
+  // The shape of every post (R77); absent for none.
+  format?: {
+    minChars: number;
+    maxChars: number;
+    hashtags: { min: number; max: number };
+    paragraphs: boolean;
+    cta?: string;
+  };
   // Null once the draft has no open confirmation request.
   actionRequestId: string | null;
 };

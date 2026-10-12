@@ -66,6 +66,7 @@ import {
   createPackageProject,
   IMAGE_MAX,
   IMAGE_MODEL,
+  OFFICIAL_URL,
   X,
 } from "./support/package-project.ts";
 
@@ -115,6 +116,8 @@ const proposeArgs = (changes: Record<string, unknown> = {}) => ({
   vetoMinutes: null,
   monthlyBudgetMicros: 30_000_000,
   delivery: null,
+  sharedAcrossChannels: null,
+  format: null,
   ...changes,
 });
 const changeArgs = (
@@ -137,6 +140,8 @@ const patch = (changes: Record<string, unknown>) => ({
   vetoMinutes: null,
   monthlyBudgetMicros: null,
   delivery: null,
+  sharedAcrossChannels: null,
+  format: null,
   ...changes,
 });
 
@@ -289,6 +294,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
           vetoMinutes: 180,
           monthlyBudgetMicros: 30_000_000,
           delivery: "publish",
+          sharedAcrossChannels: false,
           actionRequestId: results[0].actionRequestId,
         },
       },
@@ -493,6 +499,100 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     });
   });
 
+  it("sets one text for all channels and a format at proposal and change (R76, R77)", async () => {
+    const format = {
+      minChars: 600,
+      maxChars: 900,
+      hashtags: { min: 2, max: 3 },
+      paragraphs: true,
+      cta: OFFICIAL_URL,
+    };
+    const proposed = await turn(project.editor, [
+      [
+        call(
+          "assignment_propose",
+          proposeArgs({
+            name: "Shared",
+            sharedAcrossChannels: true,
+            format,
+          }),
+        ),
+      ],
+      [answer("Proposed.")],
+    ]);
+    expect(proposed.cards[0]).toMatchObject({
+      assignment: { name: "Shared", sharedAcrossChannels: true, format },
+    });
+    // The confirmation request carries both: they are part of the confirmed content.
+    const request = await run((tx) =>
+      entity(
+        tx,
+        project.owner,
+        "action_requests",
+        proposed.cards[0]!.assignment!.actionRequestId!,
+      ),
+    );
+    expect(data(request).payload).toMatchObject({
+      sharedAcrossChannels: true,
+      format,
+    });
+    // A change of either returns a confirmed assignment to draft.
+    const id = await confirmed();
+    const version = (await assignmentOf(id)).version;
+    const { results } = await turn(project.editor, [
+      [
+        call(
+          "assignment_change",
+          changeArgs(
+            id,
+            version,
+            "change",
+            patch({ format: { ...format, cta: null } }),
+          ),
+        ),
+      ],
+      [answer("The change awaits the owner's confirmation.")],
+    ]);
+    expect(results[0]).toMatchObject({ status: "awaiting_confirmation" });
+    expect(data(await assignmentOf(id))).toMatchObject({
+      status: "draft",
+      format: { minChars: 600, maxChars: 900 },
+    });
+    expect(data(await assignmentOf(id)).format).not.toHaveProperty("cta");
+    // The link must be an official link inside the policy's allowed origins.
+    for (const [cta, code] of [
+      ["https://elsewhere.invalid/register", "LINK_NOT_ALLOWED"],
+      [`${OFFICIAL_URL}/other`, "FORMAT_CTA_NOT_OFFICIAL_LINK"],
+    ] as const) {
+      const refused = await turn(project.editor, [
+        [
+          call(
+            "assignment_propose",
+            proposeArgs({ name: "Refused", format: { ...format, cta } }),
+          ),
+        ],
+        [answer("Refused.")],
+      ]);
+      expect(refused.results).toEqual([{ error: code }]);
+    }
+    // Shared text and format are for social posts with a consistent range only.
+    const invalid = await turn(project.editor, [
+      [
+        call(
+          "assignment_propose",
+          proposeArgs({
+            name: "Invalid",
+            format: { ...format, minChars: 950 },
+          }),
+        ),
+      ],
+      [answer("Invalid.")],
+    ]);
+    expect(invalid.results[0]).toMatchObject({
+      error: "ASSIGNMENT_VALIDATION_FAILED",
+    });
+  });
+
   it("sets the Postiz draft delivery at proposal and change (R73)", async () => {
     vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
     try {
@@ -599,6 +699,8 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
         monthCostMicros: 0,
         monthlyBudgetMicros: 30_000_000,
         delivery: "publish",
+        sharedAcrossChannels: false,
+        format: null,
         pendingActionRequestId: null,
       },
     ]);

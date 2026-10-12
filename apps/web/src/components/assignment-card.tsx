@@ -29,7 +29,18 @@ export type AssignmentContent = {
   monthlyBudgetMicros: number;
   // How approved posts leave Orbit (R73); absent means "publish".
   delivery?: "publish" | "postiz_draft";
+  // One text and one image per slot for all channels (R76); absent means one text per channel.
+  sharedAcrossChannels?: boolean;
+  // The shape of every post (R77); absent means none.
+  format?: AssignmentFormat;
   actionRequestId?: string | null;
+};
+export type AssignmentFormat = {
+  minChars: number;
+  maxChars: number;
+  hashtags: { min: number; max: number };
+  paragraphs: boolean;
+  cta?: string;
 };
 /** The `assignment.confirm` action request the card decides. */
 export type AssignmentRequest = {
@@ -69,6 +80,29 @@ export const deliveryText = (
   delivery: AssignmentContent["delivery"],
   de: boolean,
 ) => deliveryLabels[delivery ?? "publish"][de ? 1 : 0];
+
+/** Whether a slot's channels share one text and image (R76). */
+export const sharedText = (shared: boolean | undefined, de: boolean) =>
+  shared
+    ? de
+      ? "Ein Text und ein Bild für alle Kanäle"
+      : "One text and one image for all channels"
+    : de
+      ? "Eigener Text je Kanal"
+      : "Own text per channel";
+
+/** "600–900 Zeichen · 2–3 Hashtags · Absätze · Link …" (R77). */
+export function formatText(format: AssignmentFormat | undefined, de: boolean) {
+  if (!format) return de ? "Ohne Vorgabe" : "None";
+  const range = (min: number, max: number) =>
+    min === max ? `${min}` : `${min}–${max}`;
+  return [
+    `${range(format.minChars, format.maxChars)} ${de ? "Zeichen" : "characters"}`,
+    `${range(format.hashtags.min, format.hashtags.max)} Hashtags`,
+    ...(format.paragraphs ? [de ? "kurze Absätze" : "short paragraphs"] : []),
+    ...(format.cta ? [`${de ? "Link" : "Link"} ${format.cta}`] : []),
+  ].join(" · ");
+}
 
 export const contentTypeLabels: Record<string, [string, string]> = {
   social: ["Social post", "Social-Post"],
@@ -218,6 +252,18 @@ export function AssignmentCard({
                 : "None"}
           </dd>
         </div>
+        {assignment.contentType === "social" && (
+          <>
+            <div>
+              <dt>{de ? "Beiträge" : "Posts"}</dt>
+              <dd>{sharedText(assignment.sharedAcrossChannels, de)}</dd>
+            </div>
+            <div>
+              <dt>{de ? "Format" : "Format"}</dt>
+              <dd>{formatText(assignment.format, de)}</dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>{de ? "Zustellung" : "Delivery"}</dt>
           <dd>{deliveryText(assignment.delivery, de)}</dd>

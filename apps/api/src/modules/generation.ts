@@ -97,6 +97,20 @@ type GenerationContract = {
     cta: string;
     notARepeatBecause: string;
   };
+  // Present only for an assignment with a format (R77): length, hashtags, paragraphs and link of the post.
+  format?: {
+    minChars: number;
+    maxChars: number;
+    hashtags: { min: number; max: number };
+    paragraphs: boolean;
+    cta?: string;
+  };
+  // Present only for a shared text (R76): every channel it goes out on, unchanged.
+  sharedChannels?: {
+    channel: string;
+    providerIdentifier: string | null;
+    characterLimit: number | null;
+  }[];
 };
 /** The draft a revision changes; it must still be the version the user asked to revise. */
 async function revisionContext(
@@ -181,6 +195,30 @@ async function packageDrafts(
       title: String(data(row).title ?? ""),
       body: String(data(row).body ?? "").slice(0, 1000),
     }));
+}
+
+/** The rules of every channel a shared assignment text goes out on (R76), one after the other in the transaction. */
+async function sharedChannelRules(
+  tx: DbTx,
+  scope: Scope,
+  m: Record<string, any>,
+) {
+  const shared: NonNullable<GenerationContract["sharedChannels"]> = [];
+  for (const channel of m.sharedChannels as string[]) {
+    const rules = await resolveChannelRules(
+      tx,
+      scope,
+      channel,
+      m.contentType,
+      missionHasMedia(m),
+    );
+    shared.push({
+      channel,
+      providerIdentifier: rules.providerIdentifier,
+      characterLimit: rules.characterLimit,
+    });
+  }
+  return shared;
 }
 
 /** Channel limits for attached media apply to approved assets and to a planned package image. */
@@ -456,6 +494,27 @@ async function generateMissionDraft(
                 cta: String(m.brief.cta),
                 notARepeatBecause: String(m.brief.notARepeatBecause),
               },
+            }
+          : {}),
+        ...(m.assignmentRunId && m.format
+          ? {
+              format: {
+                minChars: Number(m.format.minChars),
+                maxChars: Number(m.format.maxChars),
+                hashtags: {
+                  min: Number(m.format.hashtags?.min ?? 0),
+                  max: Number(m.format.hashtags?.max ?? 0),
+                },
+                paragraphs: m.format.paragraphs === true,
+                ...(m.format.cta ? { cta: String(m.format.cta) } : {}),
+              },
+            }
+          : {}),
+        ...(m.assignmentRunId &&
+        Array.isArray(m.sharedChannels) &&
+        m.sharedChannels.length > 1
+          ? {
+              sharedChannels: await sharedChannelRules(tx, scope, m),
             }
           : {}),
         ...(m.autopilot === true || m.assignmentRunId

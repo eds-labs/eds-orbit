@@ -15,6 +15,8 @@ import {
   channelText,
   contentTypeLabels,
   deliveryText,
+  formatText,
+  sharedText,
   scheduleText,
   statusTone,
   type AssignmentContent,
@@ -33,6 +35,8 @@ export type AssignmentItem = Pick<
   | "channelNames"
   | "image"
   | "delivery"
+  | "sharedAcrossChannels"
+  | "format"
 > & {
   version: number;
   status: string;
@@ -263,6 +267,14 @@ export function AssignmentTable({
                     {de ? "Zustellung" : "Delivery"}:{" "}
                     {deliveryText(item.delivery, de)}
                   </small>
+                  {item.sharedAcrossChannels && (
+                    <small>{sharedText(true, de)}</small>
+                  )}
+                  {item.format && (
+                    <small>
+                      {de ? "Format" : "Format"}: {formatText(item.format, de)}
+                    </small>
+                  )}
                 </td>
                 <td>
                   <Badge tone={statusTone(item.status)}>

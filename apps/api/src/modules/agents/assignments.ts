@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import {
+  marketingProfile,
+  type Scope,
+} from "../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -17,6 +20,7 @@ import {
   cancelActionRequest,
   createActionRequest,
 } from "../action-requests.ts";
+import { currentMarketingProfile } from "../marketing-profile.ts";
 import { activePolicy } from "../policy.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
@@ -40,6 +44,32 @@ export function agentsEnabled() {
 }
 
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
+/**
+ * The shape of every post of an assignment (R77): length of the body as
+ * written (the link Orbit appends is not counted), hashtag count, short
+ * paragraphs and the link the posts lead to. Absent means no format, as
+ * before R77. Social assignments only.
+ */
+export const assignmentFormat = z
+  .object({
+    minChars: z.number().int().min(1).max(4000),
+    maxChars: z.number().int().min(1).max(4000),
+    hashtags: z
+      .object({
+        min: z.number().int().min(0).max(10),
+        max: z.number().int().min(0).max(10),
+      })
+      .strict(),
+    paragraphs: z.boolean(),
+    // The link of every post: one of the profile's official links inside the policy's allowed origins.
+    cta: z
+      .url({ protocol: /^https$/ })
+      .max(500)
+      .optional(),
+  })
+  .strict();
+export type AssignmentFormat = z.infer<typeof assignmentFormat>;
 
 export const assignmentSchedule = z
   .object({
@@ -80,6 +110,10 @@ const assignmentFields = z
     // or only created as drafts in Postiz at their slot, which the owner
     // publishes himself. Absent means "publish" (rows from before R73).
     delivery: z.enum(["publish", "postiz_draft"]).optional(),
+    // One text and one image per slot for all channels (R76). Absent means
+    // false: one text per channel, as before R76.
+    sharedAcrossChannels: z.boolean().optional(),
+    format: assignmentFormat.optional(),
   })
   .strict();
 type Content = z.infer<typeof assignmentFields>;
@@ -111,6 +145,19 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(["schedule", "date"], "A one-off assignment needs a date");
   if (value.delivery === "postiz_draft" && value.contentType !== "social")
     issue(["delivery"], "Only social posts can be delivered as Postiz drafts");
+  if (value.sharedAcrossChannels === true && value.contentType !== "social")
+    issue(
+      ["sharedAcrossChannels"],
+      "Only social posts can share one text across channels",
+    );
+  if (value.format) {
+    if (value.contentType !== "social")
+      issue(["format"], "Only social posts have a format");
+    if (value.format.minChars > value.format.maxChars)
+      issue(["format", "minChars"], "minChars must not exceed maxChars");
+    if (value.format.hashtags.min > value.format.hashtags.max)
+      issue(["format", "hashtags", "min"], "min must not exceed max");
+  }
 });
 export type AssignmentInput = z.output<typeof assignmentInput>;
 
@@ -146,16 +193,29 @@ export function confirmedDelivery(
     : "publish";
 }
 
+/** Whether an assignment writes one text and one image per slot for all its channels (R76). */
+export const sharedAcrossChannels = (
+  source: Record<string, any> | null | undefined,
+) => source?.sharedAcrossChannels === true && source?.contentType === "social";
+
+// Field values that equal the behaviour before the field existed; the hash leaves them out.
+const LEGACY_DEFAULTS: Partial<Record<keyof Content, unknown>> = {
+  delivery: "publish",
+  sharedAcrossChannels: false,
+};
+
 // Normalized as stored (JSON drops undefined), so a hash is the same before
-// and after saving. The default delivery "publish" is left out, so rows from
-// before R73 keep their hash and confirmation, while "postiz_draft" changes it.
+// and after saving. Defaults that keep the old behaviour (delivery "publish",
+// R73; sharedAcrossChannels false, R76; no format, R77) are left out, so rows
+// from before them keep their hash and confirmation, while any other value
+// changes it.
 const contentOf = (source: Record<string, any>) =>
   JSON.parse(
     JSON.stringify(
       Object.fromEntries(
         CONTENT_KEYS.map((key) => [
           key,
-          key === "delivery" && source[key] === "publish"
+          key in LEGACY_DEFAULTS && source[key] === LEGACY_DEFAULTS[key]
             ? undefined
             : source[key],
         ]),
@@ -188,6 +248,39 @@ async function committedBudget(tx: DbTx, scope: Scope, selfId: string | null) {
  * confirmed or resumed, until a report delivery exists.
  */
 export const REPORT_NOT_AVAILABLE = "REPORT_NOT_AVAILABLE";
+/** The format's link is not one of the marketing profile's official links (R77). */
+export const FORMAT_CTA_NOT_OFFICIAL_LINK = "FORMAT_CTA_NOT_OFFICIAL_LINK";
+
+/**
+ * The format's link (R77) must be allowed by the policy and be one of the
+ * marketing profile's official links, which carry the verified fact the
+ * copywriter's link check needs.
+ */
+async function assertFormatLink(
+  tx: DbTx,
+  scope: Scope,
+  cta: string | undefined,
+  allowedOrigins: string[],
+) {
+  if (!cta) return;
+  let origin: string | null = null;
+  try {
+    origin = new URL(cta).origin;
+  } catch {
+    origin = null;
+  }
+  if (!origin || !allowedOrigins.includes(origin))
+    throw new DomainError("LINK_NOT_ALLOWED", 409);
+  const profileRow = await currentMarketingProfile(tx, scope);
+  const profile = profileRow
+    ? marketingProfile.safeParse(profileRow.data)
+    : null;
+  if (
+    !profile?.success ||
+    !profile.data.officialLinks.some((link) => link.url === cta)
+  )
+    throw new DomainError(FORMAT_CTA_NOT_OFFICIAL_LINK, 409);
+}
 
 async function assertWithinMandate(
   tx: DbTx,
@@ -209,6 +302,12 @@ async function assertWithinMandate(
     !mandate.contentTypes?.includes(content.contentType)
   )
     throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+  await assertFormatLink(
+    tx,
+    scope,
+    content.format?.cta,
+    mandate.allowedOrigins ?? [],
+  );
   const committed = await committedBudget(tx, scope, selfId);
   if (
     committed + content.monthlyBudgetMicros >

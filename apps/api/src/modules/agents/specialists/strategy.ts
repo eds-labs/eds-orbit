@@ -3,6 +3,7 @@ import { agentKnowledgeSearch } from "../tools/agent-tools.ts";
 import { channelTools } from "../tools/channel-tools.ts";
 import { recentChannelPosts, syncChannelPosts } from "../channel-posts.ts";
 import { listUsableFacts } from "../content-packages.ts";
+import { sharedBriefSlots } from "../shared-posts.ts";
 import { data } from "../../../shared.ts";
 import { errorCode } from "../../telemetry.ts";
 import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
@@ -99,7 +100,15 @@ async function withContext(
   ...[tx, scope, input]: Parameters<NonNullable<Specialist["prepareInput"]>>
 ) {
   const now = new Date();
-  const slots = (input.run?.slots ?? []) as Slot[];
+  // A shared run (R76) gets one brief per slot group, on its strictest channel.
+  const shared = input.run?.sharedAcrossChannels === true;
+  const briefSlots = shared
+    ? await sharedBriefSlots(tx, scope, input.run?.slots ?? [], {
+        contentType: input.assignment?.contentType,
+        image: input.assignment?.image,
+      })
+    : null;
+  const slots = (briefSlots ?? ((input.run?.slots ?? []) as Slot[])) as Slot[];
   const channels = [
     ...new Set([
       ...((input.assignment?.channels ?? []) as string[]),
@@ -117,6 +126,18 @@ async function withContext(
   const usable = await listUsableFacts(tx, scope, now);
   const prepared = {
     ...input,
+    ...(briefSlots
+      ? {
+          run: {
+            ...input.run,
+            slots: briefSlots.map(({ channel, at, sharedChannels }) => ({
+              channel,
+              at,
+              sharedChannels,
+            })),
+          },
+        }
+      : {}),
     channelHistory: {
       days: STRATEGY_HISTORY_DAYS,
       channels: [...history]
@@ -137,7 +158,7 @@ async function withContext(
   return {
     input: prepared,
     context: {
-      slots,
+      slots: slots.map(({ channel, at }) => ({ channel, at })),
       usableKeys: usable.map((row) => String(data(row).key)),
     },
   };
@@ -199,6 +220,8 @@ export const strategySpecialist: Specialist = {
     "A brief has: topic (what the post is about), angle (how to approach it for this channel and tone), factKeys (one to eight keys from facts that carry every concrete statement of the post; copy them exactly), cta (a call to action), imageIdea (a short picture idea if the assignment has an image, else null) and notARepeatBecause (one sentence naming how it differs from the posts in channelHistory, including scheduled ones and posts from other tools).",
     "Research findings are unverified leads: they may inspire topic and angle but never become claims. Only the facts named in factKeys may be stated as fact; use no figure, name, date or URL that is not in a fact you have seen. Analytics numbers may justify what to emphasize, never an invented claim. If a slot has no suitable fact, leave the slot out.",
     "Do not repeat a topic or angle of channelHistory on the same channel. Use channel_history for older posts and knowledge_search only to understand a fact, never to add new claims.",
+    "If a slot lists sharedChannels, its one post goes out unchanged on every one of those channels: write one brief for it that suits all of them and avoids every one of their recent posts.",
+    "If assignment.format is set, plan each post for it: format.minChars to format.maxChars characters, format.hashtags.min to format.hashtags.max hashtags, short paragraphs when format.paragraphs is true, leading to format.cta as its link when set.",
   ].join(" "),
   tools: [agentKnowledgeSearch, ...channelTools],
   hostedTools: [],

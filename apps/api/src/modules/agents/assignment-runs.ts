@@ -4,7 +4,11 @@ import { audit, create, data, entity, list, update } from "../../shared.ts";
 import { activePolicy } from "../policy.ts";
 import { zonedTime } from "../posting-slots.ts";
 import { enqueue } from "../workflow.ts";
-import { agentsEnabled, confirmedDelivery } from "./assignments.ts";
+import {
+  agentsEnabled,
+  confirmedDelivery,
+  sharedAcrossChannels,
+} from "./assignments.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
@@ -157,11 +161,14 @@ export function buildWorkPlan(assignment: Record<string, any>): WorkStep[] {
     steps = [step("analytics", "analytics")];
   } else {
     const social = assignment.contentType === "social";
-    const copy = social
-      ? channels.map((channel) =>
-          step(`copywriter:${channel}`, "copywriter", ["strategy"]),
-        )
-      : [step("copywriter", "copywriter", ["strategy"])];
+    // One text per slot for all channels (R76): one copywriter writes every brief.
+    const copy = sharedAcrossChannels(assignment)
+      ? [step("copywriter", "copywriter", ["strategy"])]
+      : social
+        ? channels.map((channel) =>
+            step(`copywriter:${channel}`, "copywriter", ["strategy"]),
+          )
+        : [step("copywriter", "copywriter", ["strategy"])];
     // One image per run, reusable across channels.
     const visual = assignment.image
       ? [step("visual", "visual", ["strategy"])]
@@ -345,9 +352,11 @@ async function allocateSlots(
   due: Due,
   channels: string[],
   now: Date,
+  shared = false,
 ) {
   const ctx = await slotContext(tx, scope, now);
-  const slots: HeldSlot[] = [];
+  // A shared run (R76) records the requested time each channel's slot belongs to.
+  const slots: Array<HeldSlot & { groupAt?: string }> = [];
   const unavailable: Array<{
     channel: string;
     requestedAt: string;
@@ -356,7 +365,12 @@ async function allocateSlots(
   for (const requested of due.slots)
     for (const channel of channels) {
       const found = await freeSlot(ctx, channel, requested, due.date, slots);
-      if (found) slots.push({ channel, at: found.toISOString() });
+      if (found)
+        slots.push({
+          channel,
+          at: found.toISOString(),
+          ...(shared ? { groupAt: requested.toISOString() } : {}),
+        });
       else
         unavailable.push({
           channel,
@@ -453,7 +467,15 @@ export async function planAssignmentRuns(
         due.slots[due.slots.length - 1]! <= now
       )
         continue;
-      const allocation = await allocateSlots(tx, scope, due, d.channels, now);
+      const shared = sharedAcrossChannels(d);
+      const allocation = await allocateSlots(
+        tx,
+        scope,
+        due,
+        d.channels,
+        now,
+        shared,
+      );
       // No slot of the day can be reached any more: no run (nothing could be
       // delivered), only the drop notice (R75).
       if (!allocation.slots.length) {
@@ -469,6 +491,8 @@ export async function planAssignmentRuns(
         idempotencyKey: key,
         date: due.date,
         status: "planned",
+        // One text and one image per slot for all channels (R76).
+        ...(shared ? { sharedAcrossChannels: true } : {}),
         ...allocation,
         ceilingMicros: runCeilingOf(d),
         steps: buildWorkPlan(d),
