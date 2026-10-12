@@ -19,6 +19,7 @@ export type FormField = {
     | "email"
     | "password"
     | "number"
+    | "date"
     | "datetime-local"
     | "url"
     | "file"

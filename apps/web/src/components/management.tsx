@@ -16,6 +16,12 @@ import {
 } from "./assignments";
 import { TelegramConnection } from "./telegram-connection";
 import {
+  GithubConnectorActions,
+  GithubConnectorDetails,
+  githubConnectorFields,
+  githubConnectorPayload,
+} from "./github-connection";
+import {
   ExperimentControls,
   MemoryLifecycleControls,
   RetentionControl,
@@ -765,6 +771,16 @@ export function Connectors() {
       description: "Exceptions and accountable decisions",
       capability: "Notify / receive actions",
     },
+    // The website repository as blog target (R81); creation needs ORBIT_BLOG_GITHUB.
+    {
+      id: "github",
+      name: "GitHub (website blog)",
+      description:
+        locale === "de"
+          ? "Website-Artikel als Pull Request ins Repository"
+          : "Website articles as pull requests to the repository",
+      capability: "Pull request / merge",
+    },
   ];
   return (
     <>
@@ -825,6 +841,9 @@ export function Connectors() {
                       {Array.isArray(e.data.blockers) && (
                         <p>{e.data.blockers.join(" · ")}</p>
                       )}
+                      {p.id === "github" && (
+                        <GithubConnectorDetails connector={e} />
+                      )}
                       {p.id === "postiz" && (
                         <div className="connector-details">
                           <p>
@@ -880,12 +899,15 @@ export function Connectors() {
                 <div className="connector-actions">
                   {isOwner && (
                     <>
-                      <Button
-                        variant="outline"
-                        onClick={() => setConfigure(p.id)}
-                      >
-                        {e ? "Update connection" : "Configure"}
-                      </Button>
+                      {/* A saved GitHub target renews its token instead (R81). */}
+                      {!(e && p.id === "github") && (
+                        <Button
+                          variant="outline"
+                          onClick={() => setConfigure(p.id)}
+                        >
+                          {e ? "Update connection" : "Configure"}
+                        </Button>
+                      )}
                       {e &&
                         p.id === "slack" &&
                         e.data.confirmChannelMandate === true && (
@@ -900,7 +922,10 @@ export function Connectors() {
                           <PostizVerification connector={e} />
                         </>
                       )}
-                      {e && p.id !== "slack" && (
+                      {e && p.id === "github" && (
+                        <GithubConnectorActions connector={e} />
+                      )}
+                      {e && p.id !== "slack" && p.id !== "github" && (
                         <Button
                           variant="ghost"
                           disabled={mutation.pending}
@@ -972,7 +997,36 @@ export function Connectors() {
       {configure === "slack" && (
         <SlackConfiguration onClose={() => setConfigure(null)} />
       )}
-      {configure && configure !== "slack" && (
+      {configure === "github" && (
+        <Modal
+          title="Connect GitHub"
+          description={
+            locale === "de"
+              ? "Der Token wird an deinen eigenen Server gesendet, verschlüsselt gespeichert und nie wieder angezeigt."
+              : "The token is sent to your own server, encrypted at rest and never shown again."
+          }
+          onClose={() => setConfigure(null)}
+        >
+          <DataForm
+            fields={githubConnectorFields(locale === "de")}
+            pending={mutation.pending}
+            error={mutation.error}
+            t={t}
+            submitLabel="Save connection"
+            onCancel={() => setConfigure(null)}
+            onSubmit={(v) =>
+              mutation
+                .run(() =>
+                  action(project.id, "connector", githubConnectorPayload(v)),
+                )
+                .then((result) => {
+                  if (result) setConfigure(null);
+                })
+            }
+          />
+        </Modal>
+      )}
+      {configure && configure !== "slack" && configure !== "github" && (
         <Modal
           title={`Connect ${configure}`}
           description="Credentials are sent to your own server and encrypted at rest. They are never returned to this screen."
