@@ -35,6 +35,14 @@ export const vetoInput = z
   .strict();
 
 const EXCERPT = 280;
+/**
+ * Days after its run slot that a website article (github_pr, R81) still
+ * waits for the owner's release: nothing is published at the slot, so the
+ * article does not expire with its day as a social post does. Shared with
+ * the release path (Task 7).
+ */
+export const BLOG_RELEASE_WINDOW_DAYS = 30;
+const DAY_MS = 86400000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Postiz channel names of the project by channel ID, as the owner knows them. */
@@ -307,7 +315,8 @@ function liveUrlOf(connector: Record<string, any>, slug: string) {
  * canceled, left `needs_review` by the review (R47/R49), without a linked
  * bot, while agent review authority is off or, for an article, always,
  * whose assignment's confirmation still covers them and whose run slot is
- * today or later (project time). Each comes with its run slot, a text
+ * today or later (project time; for a website article at most
+ * `BLOG_RELEASE_WINDOW_DAYS` ago). Each comes with its run slot, a text
  * excerpt, whether the review agent approved it and the problems it found;
  * a website article also with its `preview` (`slugTaken` false here: GitHub
  * is read outside the transaction by `withBlogSlugs`). Earliest slot first.
@@ -319,6 +328,11 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     where: { id: scope.projectId },
   });
   const today = localDate(new Date(), project.timezone);
+  // The earliest slot day of a website article still listed (R81).
+  const articleSince = localDate(
+    new Date(Date.now() - BLOG_RELEASE_WINDOW_DAYS * DAY_MS),
+    project.timezone,
+  );
   const rows = (
     await tx.entity.findMany({
       where: {
@@ -385,7 +399,8 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       !confirmedHash(data(assignment)) ||
       !withinConfirmation(data(assignment), d) ||
       !Number.isFinite(Date.parse(slotAt)) ||
-      localDate(new Date(slotAt), project.timezone) < today
+      localDate(new Date(slotAt), project.timezone) <
+        (d.type === "blog" ? articleSince : today)
     )
       continue;
     const text = String(d.body ?? "")

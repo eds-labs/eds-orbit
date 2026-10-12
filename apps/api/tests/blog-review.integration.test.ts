@@ -76,6 +76,7 @@ import {
 import { agentReviewAccepted } from "../src/modules/agents/agent-review.ts";
 import { preflight } from "../src/modules/policy.ts";
 import { blogPostOf } from "../src/modules/blog-target.ts";
+import { BLOG_RELEASE_WINDOW_DAYS } from "../src/modules/agents/assignment-overview.ts";
 import { createPackageProject } from "./support/package-project.ts";
 import {
   assignmentRun,
@@ -282,6 +283,16 @@ describe.skipIf(!enabled)("Blog article review for github_pr (R81)", () => {
   };
   const content = async (id: string) =>
     (await h.rows("content")).find((row) => row.id === id)!;
+  /** `GET /assignment-drafts` as the signed-in owner. */
+  const listDrafts = async () => {
+    const r = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.owner.projectId}/assignment-drafts`,
+      headers: { origin: origin(), cookie },
+    });
+    expect(r.statusCode).toBe(200);
+    return r.json().items as Array<Record<string, any>>;
+  };
 
   beforeAll(async () => {
     if (!enabled) return;
@@ -565,20 +576,50 @@ describe.skipIf(!enabled)("Blog article review for github_pr (R81)", () => {
     });
   });
 
-  it("reads the published list once per request", async () => {
-    await draftedArticle();
+  it("reads the published list once per request for two articles on one blog target", async () => {
+    const draft = await draftedArticle();
     provider.replies.push(answerAll("approve"));
     await review();
-    const before = github.calls.length;
-    const r = await app.inject({
-      method: "GET",
-      url: `/api/projects/${project.owner.projectId}/assignment-drafts`,
-      headers: { origin: origin(), cookie },
+    // A second article of the same run waiting on the same connector.
+    const second = await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "content", draft.id);
+      return create(tx, project.owner, "content", { ...data(row) });
     });
-    expect(r.statusCode).toBe(200);
+    const before = github.calls.length;
+    const items = await listDrafts();
+    expect(items.map((item) => item.id).sort()).toEqual(
+      [draft.id, second.id].sort(),
+    );
+    for (const item of items)
+      expect(item.preview).toMatchObject({ post: { slug: SLUG } });
     const listings = github.calls
       .slice(before)
       .filter((call) => call.endsWith("/contents/content/blog/posts"));
     expect(listings).toHaveLength(1);
+  });
+
+  it("keeps an article listed for 30 days after its run slot", async () => {
+    const draft = await draftedArticle();
+    provider.replies.push(answerAll("approve"));
+    await review();
+    const missionId = (await content(draft.id)).missionId as string;
+    // Read outside the transaction that changes the slot.
+    const slotDaysAgo = (days: number) =>
+      h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "missions", missionId);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          plannedSlotAt: new Date(Date.now() - days * 86400000).toISOString(),
+        });
+      });
+    await slotDaysAgo(3);
+    const [item] = await listDrafts();
+    expect(item).toMatchObject({
+      id: draft.id,
+      preview: { post: { slug: SLUG }, slugTaken: false },
+    });
+    await slotDaysAgo(31);
+    expect(await listDrafts()).toEqual([]);
+    expect(BLOG_RELEASE_WINDOW_DAYS).toBe(30);
   });
 });
