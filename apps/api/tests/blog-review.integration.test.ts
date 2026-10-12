@@ -91,44 +91,11 @@ import {
   REPO,
   TOKEN,
 } from "./support/fake-github.ts";
+import { ARTICLE, articleBody, SLUG, TITLE } from "./support/blog-article.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
-
-const TITLE = "Paper Trading Builds Confidence Before Real Orders";
-const SLUG = "paper-trading-builds-confidence-before-real-orders";
-const ARTICLE = {
-  seoTitle: "Paper trading builds confidence before real orders",
-  description:
-    "Why practising strategies with paper trading helps traders review their decisions calmly.",
-  excerpt:
-    "Paper trading lets traders rehearse a plan, review it and keep every decision their own.",
-  category: "Trading desk",
-  keywords: ["paper trading", "trading desk", "strategy review"],
-  relatedLinks: [
-    { label: "Trading desk", href: "/features/trading-desk/" },
-    {
-      label: "Market intelligence",
-      href: "/blog/market-intelligence-context-not-signal/",
-    },
-  ],
-};
-const SENTENCE =
-  "Paper trading gives a calm place to rehearse a plan and to review each decision before any real order is placed. ";
-const SECOND =
-  "A written plan makes the later review easier, because every trade can be compared with what was intended at the start. ";
-/** A body in the restricted format: six sections of about 220 words with the profile's CTA once, the last with a closing list. */
-const articleBody = (extra = "") =>
-  Array.from({ length: 6 }, (_, index) => {
-    const paragraph = SENTENCE.repeat(5).trim();
-    const second = SECOND.repeat(5).trim();
-    const list =
-      index === 5
-        ? "\n\n- Write the plan down first\n- Review every paper trade"
-        : "";
-    return `## Section ${index + 1} of the review\n\n${paragraph}\n\n${second}${index === 0 ? ` Learn more.${extra}` : ""}${list}`;
-  }).join("\n\n");
 
 /** A recorded review answer with `verdict` for every shown draft. */
 const answerAll =

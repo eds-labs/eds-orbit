@@ -98,6 +98,7 @@ import {
   releaseAssignmentDraft,
   releaseInput,
 } from "./modules/agents/owner-release.ts";
+import { assertSlugFree } from "./modules/agents/blog-delivery.ts";
 import { vetoPublication } from "./modules/agents/veto.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
@@ -1055,8 +1056,11 @@ export async function buildServer(
       };
       const scope = await scopeFor(auth, req, projectId, true, true);
       const input = releaseInput.parse(req.body);
+      const contentId = z.uuid().parse(id);
+      // A website article's slug is checked against GitHub first, outside the transaction (R83).
+      await assertSlugFree(scope, contentId);
       return scoped(scope.workspaceId, projectId, (tx) =>
-        releaseAssignmentDraft(tx, scope, z.uuid().parse(id), input.version),
+        releaseAssignmentDraft(tx, scope, contentId, input.version),
       );
     },
   );

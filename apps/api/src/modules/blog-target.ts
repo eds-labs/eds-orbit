@@ -138,6 +138,19 @@ export async function loadBlogTarget(
   };
 }
 
+/** The article's address: `siteUrl` + `blogPathPrefix` + slug + "/" (R81). */
+export function blogLiveUrl(
+  connector: { siteUrl?: unknown; blogPathPrefix?: unknown },
+  slug: string,
+) {
+  const site = String(connector.siteUrl ?? "").replace(/\/+$/, "");
+  const path = String(connector.blogPathPrefix ?? "/blog/").replace(
+    /^\/+|\/+$/g,
+    "",
+  );
+  return `${site}${path ? `/${path}/` : "/"}${slug}/`;
+}
+
 export function githubFor(
   token: string,
   target: BlogTarget,
@@ -159,7 +172,7 @@ const readTarget = (scope: Scope, connectorId: string) =>
     return { ...loaded, version: row.version, row: data(row) };
   });
 
-const isAuth = (error: unknown) =>
+export const isAuth = (error: unknown) =>
   error instanceof ConnectorError && error.code === "GITHUB_AUTH";
 
 /**
@@ -196,7 +209,7 @@ export async function markTokenInvalid(
 }
 
 /** Runs `work` against GitHub; an auth refusal marks the token invalid before it is rethrown. */
-async function guarded<T>(
+export async function guarded<T>(
   scope: Scope,
   connectorId: string,
   work: () => Promise<T>,

@@ -3,7 +3,12 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { BlogPostJson } from "../../../../../packages/connectors/src/index.ts";
 import { data, list } from "../../shared.ts";
-import { berlinDate, blogPostOf, publishedOrProblem } from "../blog-target.ts";
+import {
+  berlinDate,
+  blogLiveUrl,
+  blogPostOf,
+  publishedOrProblem,
+} from "../blog-target.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
@@ -299,16 +304,6 @@ export type BlogPreview = {
   slugTaken: boolean;
 };
 
-/** The article's address: `siteUrl` + `blogPathPrefix` + slug + "/" (R81). */
-function liveUrlOf(connector: Record<string, any>, slug: string) {
-  const site = String(connector.siteUrl ?? "").replace(/\/+$/, "");
-  const path = String(connector.blogPathPrefix ?? "/blog/").replace(
-    /^\/+|\/+$/g,
-    "",
-  );
-  return `${site}${path ? `/${path}/` : "/"}${slug}/`;
-}
-
 /**
  * Assignment drafts that wait for the owner's release (R70, I1): social
  * drafts and website articles (github_pr, R81) of a run that is not
@@ -411,7 +406,7 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       const built = blogPostOf(d, articleDate);
       preview = {
         ...built,
-        liveUrl: liveUrlOf(
+        liveUrl: blogLiveUrl(
           data(connectors.get(String(d.channel))),
           built.post.slug,
         ),
