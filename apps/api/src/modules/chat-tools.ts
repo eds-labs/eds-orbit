@@ -39,8 +39,9 @@ export type AssignmentCard = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
-  // How approved posts leave Orbit (R73): published, or only drafts in Postiz.
-  delivery: "publish" | "postiz_draft";
+  // How approved posts leave Orbit (R73): published, or only drafts in
+  // Postiz; a blog article as a GitHub pull request (R81).
+  delivery: "publish" | "postiz_draft" | "github_pr";
   // One text and one image per slot for all channels (R76).
   sharedAcrossChannels: boolean;
   // The shape of every post (R77); absent for none.

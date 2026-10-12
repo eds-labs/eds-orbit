@@ -61,7 +61,7 @@ const SLOT_WINDOW_MS = 2 * 3600000;
 
 export type ReleaseResult = {
   result: "released" | "already_released";
-  delivery: "publish" | "postiz_draft";
+  delivery: "publish" | "postiz_draft" | "github_pr";
   // The publication (delivery "publish") or the Postiz draft handoff (R73).
   publicationId: string | null;
   postizDraftId: string | null;

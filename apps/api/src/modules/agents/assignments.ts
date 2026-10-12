@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import {
+  blogGithubEnabled,
+  loadConfig,
+} from "../../../../../packages/config/src/index.ts";
 import {
   marketingProfile,
   type Scope,
@@ -29,6 +32,7 @@ import {
 import { lengthRange } from "./post-format.ts";
 import { activePolicy } from "../policy.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
+import { loadBlogTarget } from "../blog-target.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
 import { assertBannerReady, assignmentBanner } from "./banner.ts";
 import { notify } from "./notifications.ts";
@@ -116,7 +120,9 @@ const assignmentFields = z
     // How approved posts leave Orbit (R73): published after the veto window,
     // or only created as drafts in Postiz at their slot, which the owner
     // publishes himself. Absent means "publish" (rows from before R73).
-    delivery: z.enum(["publish", "postiz_draft"]).optional(),
+    // "github_pr" (R81): a blog article opened as a pull request on the
+    // website repository; its only channel is the github connector id.
+    delivery: z.enum(["publish", "postiz_draft", "github_pr"]).optional(),
     // One text and one image per slot for all channels (R76). Absent means
     // false: one text per channel, as before R76.
     sharedAcrossChannels: z.boolean().optional(),
@@ -160,6 +166,18 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(["schedule", "date"], "A one-off assignment needs a date");
   if (value.delivery === "postiz_draft" && value.contentType !== "social")
     issue(["delivery"], "Only social posts can be delivered as Postiz drafts");
+  if (value.delivery === "github_pr") {
+    // R81: one blog target, no article images (B6).
+    if (value.contentType !== "blog")
+      issue(
+        ["delivery"],
+        "Only blog articles can be delivered as GitHub pull requests",
+      );
+    if (value.channels.length !== 1)
+      issue(["channels"], "A GitHub delivery has exactly one blog target");
+    if (value.image)
+      issue(["image"], "A GitHub delivery has no article images");
+  }
   if (value.sharedAcrossChannels === true && value.contentType !== "social")
     issue(
       ["sharedAcrossChannels"],
@@ -180,15 +198,20 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
 });
 export type AssignmentInput = z.output<typeof assignmentInput>;
 
-export type Delivery = "publish" | "postiz_draft";
+export type Delivery = "publish" | "postiz_draft" | "github_pr";
+const DELIVERIES: readonly Delivery[] = [
+  "publish",
+  "postiz_draft",
+  "github_pr",
+];
 /** Preflight blocker for any publication of a draft-delivery assignment's content (R73). */
 export const ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS =
   "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS";
 /** The delivery of an assignment; a row without one (from before R73) publishes. */
-export const deliveryOf = (source: Record<string, any> | null | undefined) =>
-  (source?.delivery === "postiz_draft"
-    ? "postiz_draft"
-    : "publish") as Delivery;
+export const deliveryOf = (
+  source: Record<string, any> | null | undefined,
+): Delivery =>
+  DELIVERIES.includes(source?.delivery) ? source!.delivery : "publish";
 
 /**
  * The delivery the owner confirmed (R73), null without a confirmation. It is
@@ -202,11 +225,7 @@ export function confirmedDelivery(
 ): Delivery | null {
   const confirmation = source?.confirmation;
   if (!confirmation || typeof confirmation !== "object") return null;
-  if (
-    confirmation.delivery === "publish" ||
-    confirmation.delivery === "postiz_draft"
-  )
-    return confirmation.delivery;
+  if (DELIVERIES.includes(confirmation.delivery)) return confirmation.delivery;
   return confirmation.assignmentHash === assignmentHash(source!)
     ? deliveryOf(source)
     : "publish";
@@ -363,6 +382,33 @@ async function assertFormatFits(
   }
 }
 
+/**
+ * The blog target of a `github_pr` assignment (R81): the flag must be on
+ * (`BLOG_GITHUB_DISABLED`) and the channel a github connector whose write
+ * access was verified (`BLOG_TARGET_NOT_VERIFIED` otherwise, also for an id
+ * that is no connector at all).
+ */
+async function assertBlogTargetReady(
+  tx: DbTx,
+  scope: Scope,
+  connectorId: string,
+) {
+  if (!blogGithubEnabled()) throw new DomainError("BLOG_GITHUB_DISABLED", 409);
+  // Connector ids are UUIDs; anything else (e.g. a social channel) is no blog target.
+  if (!z.uuid().safeParse(connectorId).success)
+    throw new DomainError("BLOG_TARGET_NOT_VERIFIED", 409);
+  const loaded = await loadBlogTarget(tx, scope, connectorId).catch((error) => {
+    if (
+      error instanceof DomainError &&
+      error.code === "BLOG_TARGET_NOT_CONFIGURED"
+    )
+      return null;
+    throw error;
+  });
+  if (loaded?.target.status !== "write_verified")
+    throw new DomainError("BLOG_TARGET_NOT_VERIFIED", 409);
+}
+
 async function assertWithinMandate(
   tx: DbTx,
   scope: Scope,
@@ -374,12 +420,19 @@ async function assertWithinMandate(
   // Draft delivery needs the Postiz draft handoff switched on (R73).
   if (deliveryOf(content) === "postiz_draft" && !postizDraftsEnabled())
     throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
+  const github = deliveryOf(content) === "github_pr";
+  // A GitHub delivery needs the flag and a write-verified github connector (R81).
+  if (github) await assertBlogTargetReady(tx, scope, content.channels[0]!);
   const policy = await activePolicy(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const mandate = data(policy);
   // Reports are refused above (R70); a report delivery must exempt them from this channel scope again.
+  // The blog target of a GitHub delivery is an owner-created connector, not a policy channel (R81).
   if (
-    content.channels.some((channel) => !mandate.channels?.includes(channel)) ||
+    (!github &&
+      content.channels.some(
+        (channel) => !mandate.channels?.includes(channel),
+      )) ||
     !mandate.contentTypes?.includes(content.contentType)
   )
     throw new DomainError("SCOPE_NOT_ALLOWED", 409);

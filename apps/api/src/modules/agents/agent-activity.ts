@@ -14,6 +14,7 @@ import {
   type StepStatus,
   type WorkStep,
 } from "./assignment-runs.ts";
+import { deliveryOf } from "./assignments.ts";
 
 /**
  * The agent activity read model for the overview: the runs the specialists
@@ -59,7 +60,7 @@ export type ActivityRun = {
   firstSlotAt: string | null;
   costMicros: number;
   ceilingMicros: number;
-  delivery: "publish" | "postiz_draft";
+  delivery: "publish" | "postiz_draft" | "github_pr";
   steps: ActivityStep[];
 };
 export type NextItem = {
@@ -155,8 +156,7 @@ export async function agentActivity(tx: DbTx, scope: Scope, now = new Date()) {
       firstSlotAt: slots[0] ?? null,
       costMicros: Number(d.costMicros ?? 0),
       ceilingMicros: Number(d.ceilingMicros ?? 0),
-      delivery:
-        assignment?.delivery === "postiz_draft" ? "postiz_draft" : "publish",
+      delivery: deliveryOf(assignment),
       steps,
     };
   });

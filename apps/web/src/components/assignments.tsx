@@ -71,7 +71,7 @@ export type UpcomingPost = {
   ownerReleased: boolean;
   // "postiz_draft": a draft handoff of an assignment with that delivery (R73);
   // `id`, `version` and `status` are the handoff's then. Absent means "publish".
-  delivery?: "publish" | "postiz_draft";
+  delivery?: "publish" | "postiz_draft" | "github_pr";
 };
 /** One row of `GET /assignment-drafts`: a draft that waits for the owner's release. */
 export type AwaitingOwnerDraft = {
@@ -86,7 +86,7 @@ export type AwaitingOwnerDraft = {
   agentApproved: boolean;
   problems: string[];
   // What the release does: schedule the post or book a Postiz draft (R73).
-  delivery?: "publish" | "postiz_draft";
+  delivery?: "publish" | "postiz_draft" | "github_pr";
 };
 type Role = "owner" | "editor" | "viewer";
 type NextStatus = "paused" | "active" | "ended";

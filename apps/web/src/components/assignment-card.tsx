@@ -27,8 +27,8 @@ export type AssignmentContent = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
-  // How approved posts leave Orbit (R73); absent means "publish".
-  delivery?: "publish" | "postiz_draft";
+  // How approved posts leave Orbit (R73); absent means "publish". "github_pr": a blog article as a pull request (R81).
+  delivery?: "publish" | "postiz_draft" | "github_pr";
   // One text and one image per slot for all channels (R76); absent means one text per channel.
   sharedAcrossChannels?: boolean;
   // The shape of every post (R77); absent means none.
@@ -71,9 +71,9 @@ export const assignmentStatusLabels: Record<string, [string, string]> = {
   budget_exhausted: ["Budget used up", "Budget aufgebraucht"],
   ended: ["Ended", "Beendet"],
 };
-/** The delivery an owner confirms: published after the veto window, or only a draft in Postiz (R73). */
+/** The delivery an owner confirms: published after the veto window, only a draft in Postiz (R73), or a GitHub pull request (R81). */
 export const deliveryLabels: Record<
-  "publish" | "postiz_draft",
+  "publish" | "postiz_draft" | "github_pr",
   [string, string]
 > = {
   publish: [
@@ -84,6 +84,7 @@ export const deliveryLabels: Record<
     "As a draft in Postiz (you publish it yourself)",
     "Als Entwurf in Postiz (du veröffentlichst selbst)",
   ],
+  github_pr: ["GitHub pull request (website)", "GitHub-PR (Website)"],
 };
 export const deliveryText = (
   delivery: AssignmentContent["delivery"],

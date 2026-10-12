@@ -41,7 +41,7 @@ export type ActivityRun = {
   firstSlotAt: string | null;
   costMicros: number;
   ceilingMicros: number;
-  delivery: "publish" | "postiz_draft";
+  delivery: "publish" | "postiz_draft" | "github_pr";
   steps: ActivityStep[];
 };
 export type NextItem = {
@@ -313,7 +313,9 @@ export function AgentGraph({
     node.role === "delivery" && run
       ? run.delivery === "postiz_draft"
         ? t(["Postiz draft", "Postiz-Entwurf"])
-        : t(["Publish", "Veröffentlichen"])
+        : run.delivery === "github_pr"
+          ? t(["GitHub pull request", "GitHub-PR"])
+          : t(["Publish", "Veröffentlichen"])
       : t(roles[node.role]?.label ?? [node.role, node.role]);
   const subLabel = (node: GraphNode) => {
     const state = t(stepStatus[node.status] ?? [node.status, node.status]);

@@ -10,6 +10,7 @@ import {
   sharedAcrossChannels,
 } from "./assignments.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
+import { blogGithubEnabled } from "../../../../../packages/config/src/index.ts";
 import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
@@ -468,6 +469,35 @@ export async function planAssignmentRuns(
         due.slots[due.slots.length - 1]! <= now
       )
         continue;
+      // GitHub delivery with ORBIT_BLOG_GITHUB off (R81): the run ends
+      // `failed` at its start, without slots, tasks or spend; the assignment
+      // keeps its confirmation. Unlike a canceled run, the failed one keeps
+      // the day planned, so the sweep does not retry it.
+      if (confirmedDelivery(d) === "github_pr" && !blogGithubEnabled()) {
+        const ended = await create(tx, scope, RUNS, {
+          assignmentId: row.id,
+          assignmentVersion: row.version,
+          assignmentHash: d.confirmation?.assignmentHash ?? null,
+          idempotencyKey: `assignment:${row.id}:${due.date}`,
+          date: due.date,
+          status: "failed",
+          errorCode: "BLOG_GITHUB_DISABLED",
+          slots: [],
+          unavailable: [],
+          ceilingMicros: runCeilingOf(d),
+          steps: buildWorkPlan(d).map((step) => ({
+            ...step,
+            status: "canceled",
+          })),
+          costMicros: 0,
+          plannedAt: now.toISOString(),
+        });
+        await audit(tx, scope, "assignment.run_refused", ended.id, {
+          assignmentId: row.id,
+          code: "BLOG_GITHUB_DISABLED",
+        });
+        continue;
+      }
       const shared = sharedAcrossChannels(d);
       const allocation = await allocateSlots(
         tx,
