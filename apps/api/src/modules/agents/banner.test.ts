@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { hash } from "../../shared.ts";
 import { assignmentHash, assignmentInput } from "./assignments.ts";
 import {
+  BANNER_LINK_NOT_ALLOWED,
+  BANNER_LINK_NOT_OFFICIAL,
+  bannerLinkProblem,
   BANNER_BRAND_OVERFLOW,
   BANNER_TEXT_UNSAFE,
   bannerOffenses,
@@ -182,6 +185,23 @@ describe("banner copy checks (R78)", () => {
         footer: "desk.uliquid.vip",
       }),
     ).toEqual([BANNER_BRAND_OVERFLOW]);
+  });
+
+  it("tells an unofficial link from an official one the policy does not allow", () => {
+    const links = [{ url: "https://desk.example/en/register" }];
+    expect(
+      bannerLinkProblem("https://desk.example/en/register", links, [
+        "https://desk.example",
+      ]),
+    ).toBeNull();
+    expect(
+      bannerLinkProblem("https://desk.example/en/register", links, []),
+    ).toBe(BANNER_LINK_NOT_ALLOWED);
+    expect(
+      bannerLinkProblem("https://elsewhere.example/", links, [
+        "https://elsewhere.example",
+      ]),
+    ).toBe(BANNER_LINK_NOT_OFFICIAL);
   });
 
   it("names the official link's domain, only for an official link", () => {

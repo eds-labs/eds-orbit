@@ -457,6 +457,31 @@ describe.skipIf(!enabled)(
       });
       return { asset, verification, png };
     }
+    it("never sends a composed assignment banner as a test image (R78)", async () => {
+      enable();
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6iAAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      const banner = await run((tx) =>
+        create(tx, scope, "assets", {
+          mime: "image/png",
+          usageApproved: true,
+          width: 1,
+          height: 1,
+          base64: png.toString("base64"),
+          boundTo: { runId: "run", contentId: "content" },
+        }),
+      );
+      await expect(
+        preparePostizVerification(scope, {
+          connectorId,
+          integrationId: "account-one",
+          confirmSandboxAccount: true,
+          assetId: banner.id,
+        }),
+      ).rejects.toThrow("POSTIZ_TEST_ASSET_NOT_APPROVED");
+    });
     it("binds approved PNG bytes, persists upload receipt and verifies media only after publication", async () => {
       enable();
       const { verification, png } = await mediaVerification();

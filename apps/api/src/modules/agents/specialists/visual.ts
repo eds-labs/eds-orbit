@@ -102,19 +102,29 @@ function runAssets(tx: DbTx, scope: Scope, runId: string) {
 }
 
 /**
- * Which composed banner belongs to a draft (R78): the run's background, the
- * draft's banner copy, the domain of its link and the brand around them
- * (product name, logo id and version). A shared copy (R76) has the same
- * copy and link, so it has the same banner.
+ * Which composed banner belongs to a draft (R78): the run's background and
+ * its bytes (SHA-256), the draft's banner copy, the domain of its link and
+ * the brand around them (product name, logo id and bytes). A shared copy
+ * (R76) has the same copy and link, so it has the same banner. Versions are
+ * left out on purpose: a Drive sync or retry bumps an asset's version
+ * without changing what the banner shows.
  */
 export function bannerKeyOf(
-  backgroundId: string,
+  background: { id: string; data: unknown },
   content: Record<string, any>,
   brand: BannerBrand,
 ) {
   const text = parsedBanner(content.banner);
   const footer = footerDomain(content.targetUrl);
-  return text && footer ? hash({ backgroundId, text, footer, brand }) : null;
+  return text && footer
+    ? hash({
+        backgroundId: background.id,
+        backgroundSha256: String(data(background).sha256 ?? "").toLowerCase(),
+        text,
+        footer,
+        brand,
+      })
+    : null;
 }
 
 /** The brand banners are composed with now, or null without an approved logo. */
@@ -147,11 +157,16 @@ function findAsset(tx: DbTx, scope: Scope, id: unknown) {
     : Promise.resolve(null);
 }
 
+/** An asset's stored SHA-256, lower case. */
+const sha = (row: { data: unknown } | null) =>
+  String(data(row).sha256 ?? "").toLowerCase();
+
 /**
  * Whether a composed banner still stands on approved, unchanged sources
  * (R78): the banner itself, its background and its logo are approved, the
- * background and logo have the versions it was composed from, and the logo
- * is still the profile's.
+ * background and logo still hold the bytes it was composed from (SHA-256,
+ * not the entity version, so Drive syncs and retries change nothing), and
+ * the logo is still the profile's.
  */
 async function bannerSourcesHold(
   tx: DbTx,
@@ -166,11 +181,13 @@ async function bannerSourcesHold(
   const logo = await findAsset(tx, scope, d.brandAssetId);
   return (
     approvedRow(background) &&
-    background!.version === rights.backgroundVersion &&
+    Boolean(rights.backgroundSha256) &&
+    sha(background) === rights.backgroundSha256 &&
     approvedRow(logo) &&
-    logo!.version === rights.logoVersion &&
+    Boolean(rights.logoSha256) &&
+    sha(logo) === rights.logoSha256 &&
     brand.logoId === logo!.id &&
-    brand.logoVersion === logo!.version
+    brand.logoSha256 === sha(logo)
   );
 }
 
@@ -182,11 +199,11 @@ async function draftBanner(
   tx: DbTx,
   scope: Scope,
   assets: Awaited<ReturnType<typeof runAssets>>,
-  background: { id: string },
+  background: { id: string; data: unknown },
   content: Record<string, any>,
   brand: BannerBrand | null,
 ) {
-  const key = brand ? bannerKeyOf(background.id, content, brand) : null;
+  const key = brand ? bannerKeyOf(background, content, brand) : null;
   const banner = key
     ? (assets.find((row) => data(row).bannerKey === key) ?? null)
     : null;
@@ -234,9 +251,19 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
       attached.push(draft.id);
       continue;
     }
+    // A banner of this run that is no longer the draft's own (its copy or
+    // sources changed) gives way to the current one on a draft not yet
+    // reviewed (R78); a reviewed draft keeps what was reviewed and the
+    // review's banner check catches it.
+    const stale =
+      bannerRun &&
+      v.status === "draft" &&
+      (await findAsset(tx, scope, v.assetId).then(
+        (row) => data(row).boundTo?.runId === runId,
+      ));
     const code = !approvedRow(asset)
       ? ASSET_RIGHTS_REQUIRED
-      : v.assetId
+      : v.assetId && !stale
         ? "ASSET_ALREADY_ATTACHED"
         : await refusal(tx, scope, draft.id, v);
     if (code) {
@@ -274,12 +301,16 @@ export async function bannerState(
 ): Promise<"own" | "render_failed" | "media_refused" | "missing"> {
   const brand = await currentBrand(tx, scope);
   const attached = await findAsset(tx, scope, content.assetId);
+  const attachedBackground = attached
+    ? await findAsset(tx, scope, data(attached).visualAssetId)
+    : null;
   if (
     attached &&
+    attachedBackground &&
     brand &&
     data(attached).boundTo?.runId === content.assignmentRunId &&
     data(attached).bannerKey ===
-      bannerKeyOf(String(data(attached).visualAssetId), content, brand) &&
+      bannerKeyOf(attachedBackground, content, brand) &&
     (await bannerSourcesHold(tx, scope, attached, brand))
   )
     return "own";
@@ -288,7 +319,7 @@ export async function bannerState(
     (row) => !data(row).bannerKey && data(row).bannerBackground === true,
   );
   const key =
-    background && brand ? bannerKeyOf(background.id, content, brand) : null;
+    background && brand ? bannerKeyOf(background, content, brand) : null;
   if (key && content.bannerFailure?.key === key) return "render_failed";
   if (
     background &&
@@ -682,8 +713,10 @@ const lockRun = (tx: DbTx, scope: Scope, runId: string) =>
  * brand) as an approved asset bound to its run and draft (`boundTo`: kept
  * out of the asset library and pickers), whose rights are the assignment's
  * image consent plus the background's and logo's versions. The save runs
- * under the run's lock and checks again that consent, background, logo and
- * profile are unchanged (`BRAND_ASSET_CHANGED` stops further saves; banners
+ * under the run's lock and checks again that consent, background (approval,
+ * bytes), logo and product name are unchanged (`BRAND_ASSET_CHANGED` stops
+ * further saves; logo bytes that fail their hash stop it as
+ * `BRAND_ASSET_INTEGRITY_FAILED`; banners
  * already stored stay). Rendering runs outside any transaction, per banner:
  * a render failure is recorded on its drafts (`bannerFailure`,
  * `BANNER_RENDER_FAILED`) and the other slots go on. Copy with a
@@ -719,7 +752,14 @@ export async function composeRunBanners(scope: Scope, runId: string) {
       },
       orderBy: { createdAt: "asc" },
     });
-    const done = new Set(assets.map((row) => data(row).bannerKey));
+    // Only banners whose sources still hold count as done (R78).
+    const done = new Set<string>();
+    for (const row of assets)
+      if (
+        data(row).bannerKey &&
+        (await bannerSourcesHold(tx, scope, row, logo.brand))
+      )
+        done.add(String(data(row).bannerKey));
     const todo = new Map<
       string,
       { contentIds: string[]; v: Record<string, any> }
@@ -728,7 +768,7 @@ export async function composeRunBanners(scope: Scope, runId: string) {
       const v = data(draft);
       if (["archived", "rejected"].includes(v.status) || v.supersededBy)
         continue;
-      const key = bannerKeyOf(background.id, v, logo.brand);
+      const key = bannerKeyOf(background, v, logo.brand);
       // Copy the review will refuse or send back gets no banner (R78).
       const refused = bannerTextProblems(v.banner, {
         brandName: logo.productName,
@@ -771,6 +811,9 @@ export async function composeRunBanners(scope: Scope, runId: string) {
     } catch (error) {
       // Copy that does not fit is the review's to send back (BANNER_TEXT_OVERFLOW).
       if (errorCode(error) === "TEXT_OVERFLOW") continue;
+      // Logo bytes that are not the approved ones stop the run's banners.
+      if (errorCode(error) === "BRAND_ASSET_INTEGRITY_FAILED")
+        return { composed, failed, error: "BRAND_ASSET_INTEGRITY_FAILED" };
       // Only these drafts go without a banner; the review leaves them for the owner.
       await inScope(async (tx) => {
         for (const contentId of contentIds) {
@@ -797,14 +840,18 @@ export async function composeRunBanners(scope: Scope, runId: string) {
         imageRightsSource(
           await entity(tx, scope, "assignments", plan.assignmentId),
         );
+        // What the banner shows is compared, not entity versions (a Drive
+        // sync bumps a version): the brand (product name, logo id and
+        // bytes) and the background's approval and bytes, also the bytes
+        // that were rendered.
         const current = await approvedBannerLogo(tx, scope);
         const background = await findAsset(tx, scope, plan.background.id);
         if (
-          current.row.id !== plan.logo.row.id ||
-          current.row.version !== plan.logo.row.version ||
-          current.profileVersion !== plan.logo.profileVersion ||
+          hash(current.brand) !== hash(plan.logo.brand) ||
           !approvedRow(background) ||
-          background!.version !== plan.background.version
+          sha(background) !== sha(plan.background) ||
+          rendered.backgroundHash !== sha(plan.background) ||
+          rendered.logoHash !== plan.logo.brand.logoSha256
         )
           throw new DomainError("BRAND_ASSET_CHANGED", 409);
         const existing = (await runAssets(tx, scope, runId)).find(
@@ -830,8 +877,11 @@ export async function composeRunBanners(scope: Scope, runId: string) {
           rightsSource: {
             ...plan.rightsSource,
             backgroundAssetId: plan.background.id,
+            backgroundSha256: sha(plan.background),
+            // Versions for the record only; the checks compare the bytes.
             backgroundVersion: plan.background.version,
             logoAssetId: plan.logo.row.id,
+            logoSha256: plan.logo.brand.logoSha256,
             logoVersion: plan.logo.row.version,
           },
           brandAssetId: plan.logo.row.id,

@@ -75,6 +75,8 @@ export const BANNER_TEXT_OVERFLOW = "BANNER_TEXT_OVERFLOW";
 export const BANNER_UNSUPPORTED_CLAIM = "BANNER_UNSUPPORTED_CLAIM";
 export const BANNER_PROHIBITED_LANGUAGE = "BANNER_PROHIBITED_LANGUAGE";
 export const BANNER_LINK_NOT_OFFICIAL = "BANNER_LINK_NOT_OFFICIAL";
+// The post's official link is outside the policy's allowed origins.
+export const BANNER_LINK_NOT_ALLOWED = "BANNER_LINK_NOT_ALLOWED";
 export const BANNER_IMAGE_MISSING = "BANNER_IMAGE_MISSING";
 // The wordmark or the footer domain does not fit: the profile's, not the copy's.
 export const BANNER_BRAND_OVERFLOW = "BANNER_BRAND_OVERFLOW";
@@ -95,7 +97,8 @@ export const BANNER_REVISABLE = new Set([
 export type BannerBrand = {
   productName: string;
   logoId: string;
-  logoVersion: number;
+  // The logo's bytes (stored SHA-256): a new version with the same bytes is the same logo.
+  logoSha256: string;
 };
 
 /**
@@ -140,14 +143,15 @@ export async function approvedBannerLogo(tx: DbTx, scope: Scope) {
     brand: {
       productName: profile.data.productName,
       logoId: row.id,
-      logoVersion: row.version,
+      logoSha256: String(d.sha256).toLowerCase(),
     } satisfies BannerBrand,
   };
 }
 
 /**
  * Refuses a banner the profile cannot carry (R78): no approved logo
- * (`BANNER_LOGO_REQUIRED`), or a product name or official link domain that
+ * (`BANNER_LOGO_REQUIRED`), no official link the policy allows
+ * (`BANNER_LINK_NOT_ALLOWED`), or a product name or official link domain that
  * does not fit the template (`BANNER_BRAND_OVERFLOW`); the copywriter cannot
  * fix either. The domains checked are the format's link, else every official
  * link the policy allows (any may become the post's link).
@@ -170,8 +174,9 @@ export async function assertBannerReady(
             return false;
           }
         });
+  // No official link the policy allows: nothing the button and footer may name.
+  if (!links.length) throw new DomainError(BANNER_LINK_NOT_ALLOWED, 409);
   if (
-    !links.length ||
     links.some((url) =>
       bannerChromeOverflow(logo.productName, footerDomain(url) ?? ""),
     )
@@ -320,6 +325,26 @@ export const bannerTemplateOf = (mission: Record<string, any> | null) =>
   mission?.bannerTemplate === "brand_landscape"
     ? ("brand_landscape" as const)
     : null;
+
+/**
+ * Why a post's link cannot be named on its banner, or null: not one of the
+ * profile's official links (`BANNER_LINK_NOT_OFFICIAL`), or official but
+ * outside the policy's allowed origins (`BANNER_LINK_NOT_ALLOWED`).
+ */
+export function bannerLinkProblem(
+  targetUrl: unknown,
+  officialLinks: Array<{ url: string }>,
+  allowedOrigins: string[],
+) {
+  if (
+    typeof targetUrl !== "string" ||
+    !officialLinks.some((link) => link.url === targetUrl)
+  )
+    return BANNER_LINK_NOT_OFFICIAL;
+  return officialFooter(targetUrl, officialLinks, allowedOrigins)
+    ? null
+    : BANNER_LINK_NOT_ALLOWED;
+}
 
 /** The official link of a post as its banner shows it, or null when the link is not official. */
 export function officialFooter(

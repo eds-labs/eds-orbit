@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   afterAll,
   afterEach,
@@ -241,6 +241,41 @@ describe.skipIf(!enabled)("Orbit Agents routes", () => {
         expect([flag, kind, r.statusCode]).toEqual([flag, kind, 400]);
       }
     }
+  });
+
+  it("keeps composed banners out of the generic asset list but serves their image (R78)", async () => {
+    const png = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6iAAAAABJRU5ErkJggg==",
+      "base64",
+    );
+    const [plain, banner] = await run(async (tx) => [
+      await create(tx, project.owner, "assets", {
+        name: "Plain",
+        type: "photo",
+        usageApproved: true,
+        assetStatus: "approved",
+      }),
+      await create(tx, project.owner, "assets", {
+        name: "Banner",
+        type: "generated_artwork",
+        mime: "image/png",
+        base64: png.toString("base64"),
+        sha256: createHash("sha256").update(png).digest("hex"),
+        usageApproved: true,
+        assetStatus: "approved",
+        boundTo: { runId: randomUUID(), contentId: randomUUID() },
+      }),
+    ]);
+    const listed = await request("owner", "GET", "assets");
+    expect(listed.statusCode).toBe(200);
+    const ids = listed.json().items.map((item: { id: string }) => item.id);
+    expect(ids).toContain(plain!.id);
+    expect(ids).not.toContain(banner!.id);
+    // The draft's preview still loads its banner.
+    expect(
+      (await request("owner", "GET", `assets/${banner!.id}/content`))
+        .statusCode,
+    ).toBe(200);
   });
 
   it("lists assignments with next run, month cost and the open confirmation", async () => {

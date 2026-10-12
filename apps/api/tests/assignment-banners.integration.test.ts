@@ -154,6 +154,7 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
   let project: Awaited<ReturnType<typeof createPackageProject>>;
   let h: ReturnType<typeof assignmentRun>;
   let png: Buffer;
+  let other: Buffer;
   let logoId: string;
   // Banner copy per brief topic; the default is BANNER.
   let bannerFor: (topic: string, revision: boolean) => Record<string, string>;
@@ -249,6 +250,13 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     if (rendered.status !== "rendered")
       throw new Error("FIXTURE_RENDER_FAILED");
     png = rendered.bytes;
+    const second = await renderRasterTemplate({
+      format: "square",
+      logoApproved: true,
+      title: "Other synthetic fixture",
+    });
+    if (second.status !== "rendered") throw new Error("FIXTURE_RENDER_FAILED");
+    other = second.bytes;
   });
   beforeEach(async () => {
     process.env.ORBIT_AGENTS = "true";
@@ -634,6 +642,12 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
         ...changes,
       });
     });
+  /** Puts other image bytes behind an asset id (a semantic change). */
+  const replaceBytes = (assetId: string, bytes = other) =>
+    touch(assetId, {
+      base64: bytes.toString("base64"),
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    });
   const backgroundOf = async () =>
     (await h.rows("assets")).find((a) => a.bannerBackground === true)!;
   const bannersOf = async () =>
@@ -731,24 +745,24 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     ).toBe(true);
   });
 
-  it("composes no banner when the background or logo changes between plan and save", async () => {
+  it("composes no banner when the background or logo bytes change between plan and save", async () => {
     await linkBot();
     await shared();
     const { runId } = await written();
-    // The background is changed while the first banner renders.
+    // The background's bytes are replaced while the first banner renders.
     provider.beforeRender = async () => {
       provider.beforeRender = null;
-      await touch((await backgroundOf()).id);
+      await replaceBytes((await backgroundOf()).id);
     };
     await runAgentTask(h.worker(), (await h.task("visual")).id);
     expect((await h.task("visual")).output).toMatchObject({
       bannerError: "BRAND_ASSET_CHANGED",
     });
     expect(await bannersOf()).toEqual([]);
-    // The logo is changed while the next compose renders.
+    // The logo's bytes are replaced while the next compose renders.
     provider.beforeRender = async () => {
       provider.beforeRender = null;
-      await touch(logoId);
+      await replaceBytes(logoId);
     };
     expect(await composeRunBanners(h.worker(), runId)).toMatchObject({
       composed: [],
@@ -761,21 +775,96 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     );
     await h.run((tx) => attachRunImage(tx, project.owner, runId));
     const [draft] = await contents();
-    expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft!))).toBe(
-      true,
-    );
-    // A banner whose background is revoked or changed is no longer the draft's own.
+    const own = () => h.run((tx) => hasOwnBanner(tx, project.owner, draft!));
+    expect(await own()).toBe(true);
+    // A revoked background takes the banner away; approving it again restores it.
     await touch((await backgroundOf()).id, { assetStatus: "reference" });
-    expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft!))).toBe(
-      false,
-    );
+    expect(await own()).toBe(false);
     await expect(composeRunBanners(h.worker(), runId)).rejects.toThrow(
       "ASSET_RIGHTS_REQUIRED",
     );
     await touch((await backgroundOf()).id, { assetStatus: "approved" });
-    expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft!))).toBe(
-      false,
+    expect(await own()).toBe(true);
+    // Other bytes behind the same background id end it.
+    await replaceBytes((await backgroundOf()).id, png);
+    expect(await own()).toBe(false);
+  });
+
+  it("keeps banners valid across Drive syncs of the background and logo", async () => {
+    await linkBot();
+    await shared();
+    const { runId } = await written();
+    // The background is synced to Drive while the first banner renders (a new version, same bytes).
+    provider.beforeRender = async () => {
+      provider.beforeRender = null;
+      await touch((await backgroundOf()).id, {
+        driveSyncStatus: "SYNCED",
+        driveFileId: "synthetic-drive-file",
+      });
+    };
+    await runAgentTask(h.worker(), (await h.task("visual")).id);
+    const visual = await h.task("visual");
+    expect(visual.output.bannerError).toBeUndefined();
+    const banners = await bannersOf();
+    expect(banners).toHaveLength(2);
+    for (const draft of await contents())
+      expect(banners.map((b) => b.id)).toContain(draft.assetId);
+    // A failed sync and a retry change nothing either.
+    await touch((await backgroundOf()).id, { driveSyncStatus: "FAILED" });
+    await touch(logoId, { driveSyncStatus: "FAILED" });
+    expect((await composeRunBanners(h.worker(), runId)).composed).toEqual([]);
+    for (const draft of await contents())
+      expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft))).toBe(
+        true,
+      );
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), (await h.task("review")).id);
+    const drafts = await contents();
+    expect(drafts).toHaveLength(4);
+    for (const draft of drafts) expect(draft.status).toBe("reviewed");
+  });
+
+  it("stops the run's banners when the logo bytes fail their check", async () => {
+    await linkBot();
+    await shared();
+    const { runId } = await written();
+    await runAgentTask(h.worker(), (await h.task("visual")).id);
+    const before = await bannersOf();
+    await h.run((tx) =>
+      tx.entity.deleteMany({
+        where: { id: { in: before.map((banner) => banner.id) } },
+      }),
     );
+    provider.beforeRender = async () => {
+      throw new Error("BRAND_ASSET_INTEGRITY_FAILED");
+    };
+    expect(await composeRunBanners(h.worker(), runId)).toEqual({
+      composed: [],
+      failed: [],
+      error: "BRAND_ASSET_INTEGRITY_FAILED",
+    });
+    // Nothing is recorded on the drafts: it is the run's problem, not theirs.
+    for (const draft of await contents())
+      expect(draft).not.toHaveProperty("bannerFailure");
+  });
+
+  it("replaces a draft's banner that is no longer its own with the current one", async () => {
+    await linkBot();
+    await shared();
+    const { runId } = await drafted();
+    const before = new Map((await contents()).map((c) => [c.id, c.assetId]));
+    await replaceBytes(logoId);
+    // One new banner per copy (both slots share one copy here).
+    expect((await composeRunBanners(h.worker(), runId)).composed).toHaveLength(
+      new Set(before.values()).size,
+    );
+    await h.run((tx) => attachRunImage(tx, project.owner, runId));
+    for (const draft of await contents()) {
+      expect(draft.assetId).not.toBe(before.get(draft.id));
+      expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft))).toBe(
+        true,
+      );
+    }
   });
 
   it("binds a banner to its draft's copy and keeps it out of the asset library", async () => {
@@ -956,5 +1045,18 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
         setAssignmentStatus(tx, project.owner, assignment.id, "active"),
       ),
     ).rejects.toThrow("BANNER_BRAND_OVERFLOW");
+  });
+
+  it("refuses a banner when the policy allows none of the official links", async () => {
+    const assignment = await shared();
+    await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "paused"),
+    );
+    await h.setPolicy({ allowedOrigins: [] });
+    await expect(
+      h.run((tx) =>
+        setAssignmentStatus(tx, project.owner, assignment.id, "active"),
+      ),
+    ).rejects.toThrow("BANNER_LINK_NOT_ALLOWED");
   });
 });

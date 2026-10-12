@@ -33,6 +33,7 @@ import {
   BANNER_BRAND_OVERFLOW,
   BANNER_IMAGE_MISSING,
   BANNER_LINK_NOT_OFFICIAL,
+  bannerLinkProblem,
   BANNER_MEDIA_REFUSED,
   BANNER_RENDER_FAILED,
   BANNER_REVISABLE,
@@ -325,7 +326,15 @@ async function bannerProblems(
   const footer = profile?.success
     ? officialFooter(v.targetUrl, profile.data.officialLinks, allowedOrigins)
     : null;
-  const problems: string[] = footer ? [] : [BANNER_LINK_NOT_OFFICIAL];
+  const problems: string[] = footer
+    ? []
+    : [
+        bannerLinkProblem(
+          v.targetUrl,
+          profile?.success ? profile.data.officialLinks : [],
+          allowedOrigins,
+        ) ?? BANNER_LINK_NOT_OFFICIAL,
+      ];
   problems.push(
     ...bannerTextProblems(v.banner, {
       brandName: profile?.success ? profile.data.productName : "Brand",

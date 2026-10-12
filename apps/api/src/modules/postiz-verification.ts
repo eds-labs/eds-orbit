@@ -113,6 +113,8 @@ async function approvedAsset(
   if (
     a.mime !== "image/png" ||
     a.usageApproved !== true ||
+    // A composed assignment banner belongs to its reviewed post only (R78).
+    a.boundTo ||
     (typeof a.base64 !== "string" && !a.driveFileId)
   )
     throw new DomainError("POSTIZ_TEST_ASSET_NOT_APPROVED", 409);
