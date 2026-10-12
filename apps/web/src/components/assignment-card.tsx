@@ -33,8 +33,11 @@ export type AssignmentContent = {
   sharedAcrossChannels?: boolean;
   // The shape of every post (R77); absent means none.
   format?: AssignmentFormat;
+  // A 16:9 banner per slot in the brand style (R78); absent means a free image.
+  banner?: AssignmentBanner;
   actionRequestId?: string | null;
 };
+export type AssignmentBanner = { template: "brand_landscape"; style?: string };
 export type AssignmentFormat = {
   minChars: number;
   maxChars: number;
@@ -102,6 +105,28 @@ export function formatText(format: AssignmentFormat | undefined, de: boolean) {
     ...(format.paragraphs ? [de ? "kurze Absätze" : "short paragraphs"] : []),
     ...(format.cta ? [`${de ? "Link" : "Link"} ${format.cta}`] : []),
   ].join(" · ");
+}
+
+/** "Markenbanner 16:9 je Termin …" (R78); without a banner the free image or none. */
+export function bannerText(
+  banner: AssignmentBanner | undefined,
+  image: boolean,
+  de: boolean,
+) {
+  if (!banner)
+    return image
+      ? de
+        ? "Kein Banner, freies Bild je Lauf"
+        : "No banner, a free image per run"
+      : de
+        ? "Kein Banner"
+        : "No banner";
+  const base = de
+    ? "Markenbanner 16:9 je Termin: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund"
+    : "Brand banner 16:9 per slot: logo, headline, subline, button and domain over a generated background";
+  return banner.style
+    ? `${base} · ${de ? "Stil" : "Style"}: ${banner.style}`
+    : base;
 }
 
 export const contentTypeLabels: Record<string, [string, string]> = {
@@ -261,6 +286,10 @@ export function AssignmentCard({
             <div>
               <dt>{de ? "Format" : "Format"}</dt>
               <dd>{formatText(assignment.format, de)}</dd>
+            </div>
+            <div>
+              <dt>Banner</dt>
+              <dd>{bannerText(assignment.banner, assignment.image, de)}</dd>
             </div>
           </>
         )}

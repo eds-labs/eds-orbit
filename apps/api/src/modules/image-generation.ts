@@ -180,6 +180,8 @@ export async function generateAssignmentImage(
     styleDescription: string | null;
     userId: string;
     assetFields: Record<string, unknown>;
+    // Landscape for a banner background (R78); square otherwise.
+    size?: "1024x1024" | "1536x1024";
   },
   options: {
     authorize: (tx: DbTx) => Promise<void>;
@@ -198,7 +200,7 @@ export async function generateAssignmentImage(
       input.styleDescription,
       input.references.length,
     ),
-    size: "1024x1024" as const,
+    size: input.size ?? ("1024x1024" as const),
     quality: "medium" as const,
     background: "opaque" as const,
     validUses: input.validUses,

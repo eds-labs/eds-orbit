@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
 import type { ImageReference } from "../../../../../../packages/ai/src/index.ts";
@@ -8,6 +9,7 @@ import {
   data,
   DomainError,
   entity,
+  hash,
   update,
 } from "../../../shared.ts";
 import { assetBytes } from "../../assets.ts";
@@ -21,7 +23,16 @@ import {
   currentImageTerms,
   generateAssignmentImage,
 } from "../../image-generation.ts";
+import { renderRasterBanner } from "../../../../../../packages/creative/src/index.ts";
 import { assignmentHash } from "../assignments.ts";
+import {
+  approvedBannerLogo,
+  assignmentBanner,
+  bannerBackgroundPrompt,
+  bannerTextProblems,
+  footerDomain,
+  parsedBanner,
+} from "../banner.ts";
 import { errorCode } from "../../telemetry.ts";
 import { assertTaskBudget, runBudgetKey } from "./runner.ts";
 import type { AgentTask, StepHandler } from "./types.ts";
@@ -36,6 +47,8 @@ import type { AgentTask, StepHandler } from "./types.ts";
  * whose channel can carry it. Copywriters run in parallel: whichever step
  * finishes second attaches (the visual to existing drafts, a copywriter to an
  * existing image), so both orders end with the same drafts illustrated.
+ * With a banner (R78) the image is only the background: each draft gets its
+ * own banner composed over it (`composeRunBanners`), one per slot.
  */
 export const ASSET_RIGHTS_REQUIRED = "ASSET_RIGHTS_REQUIRED";
 const STYLES = "assignment_style_descriptions";
@@ -70,9 +83,12 @@ export function imageRightsSource(row: { id: string; data: unknown }) {
   };
 }
 
-/** The run's image, if one was generated. */
-async function runImage(tx: DbTx, scope: Scope, runId: string) {
-  return tx.entity.findFirst({
+/**
+ * The run's assets in creation order: its image (a banner run's background,
+ * R78) first, then its composed banners (`bannerKey`).
+ */
+function runAssets(tx: DbTx, scope: Scope, runId: string) {
+  return tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
@@ -81,6 +97,20 @@ async function runImage(tx: DbTx, scope: Scope, runId: string) {
     },
     orderBy: { createdAt: "asc" },
   });
+}
+
+/**
+ * Which composed banner belongs to a draft (R78): the run's background, the
+ * draft's banner copy and the domain of its link. A shared copy (R76) has
+ * the same copy and link, so it has the same banner.
+ */
+export function bannerKeyOf(
+  backgroundId: string,
+  content: Record<string, any>,
+) {
+  const text = parsedBanner(content.banner);
+  const footer = footerDomain(content.targetUrl);
+  return text && footer ? hash({ backgroundId, text, footer }) : null;
 }
 
 /**
@@ -93,8 +123,11 @@ async function runImage(tx: DbTx, scope: Scope, runId: string) {
 export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
   const attached: string[] = [];
   const skipped: Array<{ contentId: string; code: string }> = [];
-  const image = await runImage(tx, scope, runId);
+  const assets = await runAssets(tx, scope, runId);
+  const image = assets.find((row) => !data(row).bannerKey);
   if (!image) return { assetId: null, attached, skipped };
+  // A banner run (R78) attaches each draft's own composed banner, never the background.
+  const bannerRun = data(image).bannerBackground === true;
   const drafts = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -104,17 +137,25 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
     },
     orderBy: { createdAt: "asc" },
   });
-  const approved =
-    data(image).usageApproved === true &&
-    data(image).assetStatus === "approved";
   for (const draft of drafts) {
     const v = data(draft);
     // An archived, rejected or replaced draft stays as it is.
     if (["archived", "rejected"].includes(v.status) || v.supersededBy) continue;
-    if (v.assetId === image.id) {
+    const key = bannerRun ? bannerKeyOf(image.id, v) : null;
+    const asset = bannerRun
+      ? assets.find((row) => key && data(row).bannerKey === key)
+      : image;
+    if (!asset) {
+      skipped.push({ contentId: draft.id, code: "BANNER_NOT_COMPOSED" });
+      continue;
+    }
+    if (v.assetId === asset.id) {
       attached.push(draft.id);
       continue;
     }
+    const approved =
+      data(asset).usageApproved === true &&
+      data(asset).assetStatus === "approved";
     const code = !approved
       ? ASSET_RIGHTS_REQUIRED
       : v.assetId
@@ -128,18 +169,47 @@ export async function attachRunImage(tx: DbTx, scope: Scope, runId: string) {
     const { review: _review, ...rest } = v;
     await update(tx, scope, draft, {
       ...rest,
-      assetId: image.id,
+      assetId: asset.id,
       status: "draft",
     });
     await invalidateContent(tx, scope, draft.id);
     await audit(tx, scope, "assignment.image_attached", draft.id, {
       assignmentRunId: runId,
-      assetId: image.id,
-      assetVersion: image.version,
+      assetId: asset.id,
+      assetVersion: asset.version,
     });
     attached.push(draft.id);
   }
   return { assetId: image.id, attached, skipped };
+}
+
+/**
+ * Whether a draft carries its own composed banner (R78): an approved banner
+ * of its run whose key matches the draft's copy and link.
+ */
+export async function hasOwnBanner(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+) {
+  if (typeof content.assetId !== "string") return false;
+  const asset = await tx.entity.findFirst({
+    where: {
+      id: content.assetId,
+      kind: "assets",
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+    },
+  });
+  const d = data(asset);
+  return Boolean(
+    asset &&
+    d.usageApproved === true &&
+    d.assetStatus === "approved" &&
+    d.assignmentRunId === content.assignmentRunId &&
+    typeof d.visualAssetId === "string" &&
+    d.bannerKey === bannerKeyOf(d.visualAssetId, content),
+  );
 }
 
 /** Why a draft cannot take the image, or null. */
@@ -318,6 +388,11 @@ export const visualStep: StepHandler = async (scope, task) => {
   const prepared = await inScope(async (tx) => {
     const row = await entity(tx, scope, "assignments", task.assignmentId);
     const rightsSource = imageRightsSource(row);
+    // A banner (R78) needs the approved logo; without it nothing is generated or paid.
+    const banner = data(row).banner
+      ? assignmentBanner.parse(data(row).banner)
+      : null;
+    if (banner) await approvedBannerLogo(tx, scope);
     const rows = await styleAssets(
       tx,
       scope,
@@ -328,6 +403,7 @@ export const visualStep: StepHandler = async (scope, task) => {
       rightsSource,
       rows,
       useReferences,
+      banner,
       contentType: String(data(row).contentType),
       name: String(data(row).name),
       userId: String(data(row).confirmation.userId),
@@ -342,12 +418,15 @@ export const visualStep: StepHandler = async (scope, task) => {
     : await inScope((tx) =>
         storedStyleDescription(tx, scope, task.assignmentId, prepared.rows),
       );
+  const banner = prepared.banner;
   const asset = await generateAssignmentImage(
     scope,
     {
       requestId,
-      name: `Assignment image: ${prepared.name}`,
-      prompt: idea,
+      name: `Assignment ${banner ? "banner background" : "image"}: ${prepared.name}`,
+      // A banner's background follows the banner style, the same for every slot (R78).
+      prompt: banner ? bannerBackgroundPrompt(banner) : idea,
+      ...(banner ? { size: "1536x1024" as const } : {}),
       validUses: [
         prepared.contentType === "newsletter"
           ? "newsletter"
@@ -367,6 +446,9 @@ export const visualStep: StepHandler = async (scope, task) => {
         assignmentId: task.assignmentId,
         assignmentRunId: task.runId,
         agentTaskId: task.id,
+        ...(banner
+          ? { bannerBackground: true, bannerTemplate: banner.template }
+          : {}),
       },
     },
     {
@@ -391,17 +473,194 @@ export const visualStep: StepHandler = async (scope, task) => {
 };
 
 /**
- * Attaches the run image in its own transaction. A failure never touches the
- * stored image: it is reported, and the next attach of the run (a later
- * copywriter or a restarted task) puts the image on the drafts.
+ * Composes the run's banners (R78) and attaches the run image in its own
+ * transaction. A failure never touches the stored image: it is reported, and
+ * the next attach of the run (a later copywriter or a restarted task) puts
+ * the image on the drafts.
  */
 async function attach(scope: Scope, task: AgentTask) {
   try {
+    const { composed } = await composeRunBanners(scope, task.runId);
     const result = await scoped(scope.workspaceId, scope.projectId, (tx) =>
       attachRunImage(tx, scope, task.runId),
     );
-    return { attached: result.attached, skipped: result.skipped };
+    return {
+      attached: result.attached,
+      skipped: result.skipped,
+      ...(composed.length ? { banners: composed } : {}),
+    };
   } catch (error) {
     return { attached: [], skipped: [], attachError: errorCode(error) };
   }
+}
+
+/** An approved image's bytes, from the stored copy or Drive. */
+async function imageBytes(scope: Scope, d: Record<string, any>) {
+  const content =
+    d.driveFileId && !d.base64
+      ? await driveContent(scope, d.driveFileId, {
+          md5Checksum: d.md5Checksum,
+          modifiedTime: d.driveModifiedTime,
+        })
+      : assetBytes(d);
+  if (!["image/png", "image/jpeg", "image/webp"].includes(content.mime))
+    throw new DomainError("BRAND_IMAGE_FORMAT_UNSUPPORTED", 415);
+  return {
+    uri: `data:${content.mime};base64,${content.bytes.toString("base64")}`,
+    hash: createHash("sha256").update(content.bytes).digest("hex"),
+  };
+}
+
+/**
+ * Composes one banner per banner copy of a banner run (R78): over the run's
+ * background (generated once per run, art only), the `brand_landscape`
+ * template places the profile's approved logo and product name, the draft's
+ * banner copy and the domain of its official link. Each banner is stored
+ * once per key (background, copy, domain) as an approved asset whose rights
+ * are the assignment's image consent plus the approved logo; a shared run's
+ * slot (R76) has one copy and so one banner for all its channels. Rendering
+ * runs outside any transaction. Copy with a deterministic banner problem
+ * (too long for the template, a figure, status or promise) gets no banner:
+ * the review sends it back or rejects it. Free: no model call. Returns the
+ * ids of the banners it stored.
+ */
+export async function composeRunBanners(scope: Scope, runId: string) {
+  const inScope = <T>(work: (tx: DbTx) => Promise<T>) =>
+    scoped(scope.workspaceId, scope.projectId, work);
+  const plan = await inScope(async (tx) => {
+    const assets = await runAssets(tx, scope, runId);
+    const background = assets.find((row) => !data(row).bannerKey);
+    if (!background || data(background).bannerBackground !== true) return null;
+    const run = data(await entity(tx, scope, "assignment_runs", runId));
+    const assignment = await entity(
+      tx,
+      scope,
+      "assignments",
+      String(run.assignmentId),
+    );
+    const rightsSource = imageRightsSource(assignment);
+    const logo = await approvedBannerLogo(tx, scope);
+    const drafts = await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "content",
+        data: { path: ["assignmentRunId"], equals: runId },
+      },
+      orderBy: { createdAt: "asc" },
+    });
+    const done = new Set(assets.map((row) => data(row).bannerKey));
+    const todo = new Map<
+      string,
+      { contentId: string; v: Record<string, any> }
+    >();
+    for (const draft of drafts) {
+      const v = data(draft);
+      if (["archived", "rejected"].includes(v.status) || v.supersededBy)
+        continue;
+      const key = bannerKeyOf(background.id, v);
+      // Copy the review will refuse or send back gets no banner (R78).
+      const refused = bannerTextProblems(v.banner, {
+        brandName: logo.productName,
+        footer: footerDomain(v.targetUrl) ?? "",
+      }).length;
+      if (key && !refused && !done.has(key) && !todo.has(key))
+        todo.set(key, { contentId: draft.id, v });
+    }
+    return {
+      background,
+      logo,
+      rightsSource,
+      assignmentId: assignment.id,
+      assignmentName: String(data(assignment).name),
+      todo: [...todo.entries()],
+    };
+  });
+  if (!plan?.todo.length) return { composed: [] as string[] };
+  const backgroundImage = await imageBytes(scope, data(plan.background));
+  const logo = data(plan.logo.row);
+  // The bundled original logo is the template's own; any other is read unchanged.
+  const logoImage =
+    logo.type === "original_logo" ? null : await imageBytes(scope, logo);
+  const composed: string[] = [];
+  for (const [key, { contentId, v }] of plan.todo) {
+    const text = parsedBanner(v.banner)!;
+    let rendered: Awaited<ReturnType<typeof renderRasterBanner>>;
+    try {
+      rendered = await renderRasterBanner({
+        template: "brand_landscape",
+        text,
+        brandName: plan.logo.productName,
+        footer: footerDomain(v.targetUrl)!,
+        logoApproved: true,
+        logoDataUri: logoImage?.uri,
+        logoHash: logoImage?.hash ?? logo.sha256,
+        backgroundDataUri: backgroundImage.uri,
+        backgroundHash: backgroundImage.hash,
+      });
+    } catch (error) {
+      // Copy that does not fit is the review's to send back (BANNER_TEXT_OVERFLOW).
+      if (errorCode(error) === "TEXT_OVERFLOW") continue;
+      throw error;
+    }
+    if (rendered.status !== "rendered") continue;
+    const { bytes, svg: _svg, ...metadata } = rendered;
+    const saved = await inScope(async (tx) => {
+      // Consent and logo still hold when the banner is stored.
+      imageRightsSource(
+        await entity(tx, scope, "assignments", plan.assignmentId),
+      );
+      const current = await approvedBannerLogo(tx, scope);
+      if (
+        current.row.id !== plan.logo.row.id ||
+        current.row.version !== plan.logo.row.version
+      )
+        throw new DomainError("BRAND_ASSET_CHANGED", 409);
+      const existing = (await runAssets(tx, scope, runId)).find(
+        (row) => data(row).bannerKey === key,
+      );
+      if (existing) return null;
+      const asset = await create(tx, scope, "assets", {
+        ...metadata,
+        name: `Banner: ${plan.assignmentName}`.slice(0, 160),
+        type: "generated_artwork",
+        filename: "banner-brand-landscape.png",
+        base64: bytes.toString("base64"),
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        bytes: bytes.length,
+        source: "template",
+        sourceType: "TEMPLATE_GENERATED",
+        usageApproved: true,
+        assetStatus: "approved",
+        license:
+          "Composed by Orbit from the run's AI-generated background (owner's assignment consent) and the approved logo",
+        rightsSource: {
+          ...plan.rightsSource,
+          backgroundAssetId: plan.background.id,
+          logoAssetId: plan.logo.row.id,
+          logoVersion: plan.logo.row.version,
+        },
+        brandAssetId: plan.logo.row.id,
+        visualAssetId: plan.background.id,
+        profileVersion: plan.logo.profileVersion,
+        assignmentId: plan.assignmentId,
+        assignmentRunId: runId,
+        bannerKey: key,
+        bannerText: text,
+        composedFor: contentId,
+        channel: "Social",
+        validUses: ["social"],
+        driveSyncStatus: "LOCAL_ONLY",
+      });
+      await audit(tx, scope, "assignment.banner_composed", asset.id, {
+        assignmentRunId: runId,
+        contentId,
+        backgroundAssetId: plan.background.id,
+        logoAssetId: plan.logo.row.id,
+      });
+      return asset.id;
+    });
+    if (saved) composed.push(saved);
+  }
+  return { composed };
 }

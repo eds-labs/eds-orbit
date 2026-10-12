@@ -253,6 +253,14 @@ describe("AssignmentTable delivery", () => {
   });
 });
 
+describe("AssignmentTable banner (R78)", () => {
+  it("shows the banner setting only when set", () => {
+    const html = render([item({ banner: { template: "brand_landscape" } })]);
+    expect(html).toContain("Banner: Markenbanner 16:9 je Termin");
+    expect(render([item()])).not.toContain("Banner:");
+  });
+});
+
 describe("AwaitingOwnerDraftList", () => {
   const draft = (
     changes: Partial<AwaitingOwnerDraft> = {},

@@ -37,7 +37,7 @@ import {
   taskReservations,
 } from "./runner.ts";
 import type { AgentTask, StepHandler } from "./types.ts";
-import { attachRunImage } from "./visual.ts";
+import { attachRunImage, composeRunBanners } from "./visual.ts";
 
 /**
  * Copywriter step of an assignment run (Orbit Agents, spec §5): an executor,
@@ -236,13 +236,18 @@ async function briefMission(
     // The confirmed format and the channels of a shared text reach the generation contract (R76, R77).
     ...(format ? { format } : {}),
     ...(sharedChannels.length > 1 ? { sharedChannels } : {}),
+    // The draft writes banner copy for the slot's banner (R78).
+    ...(assignment.banner?.template
+      ? { bannerTemplate: assignment.banner.template }
+      : {}),
     ...extra,
   });
   return { missionId: mission.id, monthBound: ceiling.monthBound };
 }
 
 /**
- * Drafts one prepared mission, then puts an existing run image on the draft.
+ * Drafts one prepared mission, then puts an existing run image (or, for a
+ * banner, the draft's own banner, R78) on the draft.
  * The attach is best effort: the paid draft counts even if it fails, and the
  * image reaches the draft with the next attach of the run.
  */
@@ -254,6 +259,8 @@ async function draft(
 ) {
   const content = await generateMissionLive(scope, missionId, jobId);
   try {
+    // A banner run (R78) composes the draft's banner over the run's background first.
+    await composeRunBanners(scope, task.runId);
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       attachRunImage(tx, scope, task.runId),
     );

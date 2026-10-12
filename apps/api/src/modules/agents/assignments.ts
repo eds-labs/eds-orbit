@@ -24,6 +24,7 @@ import { currentMarketingProfile } from "../marketing-profile.ts";
 import { activePolicy } from "../policy.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
+import { approvedBannerLogo, assignmentBanner } from "./banner.ts";
 import { notify } from "./notifications.ts";
 import {
   applyConfirmedDelivery,
@@ -114,6 +115,9 @@ const assignmentFields = z
     // false: one text per channel, as before R76.
     sharedAcrossChannels: z.boolean().optional(),
     format: assignmentFormat.optional(),
+    // A 16:9 banner per slot in the brand style instead of a free image
+    // (R78). Absent means the free image as before R78.
+    banner: assignmentBanner.optional(),
   })
   .strict();
 type Content = z.infer<typeof assignmentFields>;
@@ -150,6 +154,10 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
       ["sharedAcrossChannels"],
       "Only social posts can share one text across channels",
     );
+  if (value.banner && value.contentType !== "social")
+    issue(["banner"], "Only social posts have a banner");
+  if (value.banner && !value.image)
+    issue(["banner"], "A banner needs the image consent (image: true)");
   if (value.format) {
     if (value.contentType !== "social")
       issue(["format"], "Only social posts have a format");
@@ -206,7 +214,7 @@ const LEGACY_DEFAULTS: Partial<Record<keyof Content, unknown>> = {
 
 // Normalized as stored (JSON drops undefined), so a hash is the same before
 // and after saving. Defaults that keep the old behaviour (delivery "publish",
-// R73; sharedAcrossChannels false, R76; no format, R77) are left out, so rows
+// R73; sharedAcrossChannels false, R76; no format, R77; no banner, R78) are left out, so rows
 // from before them keep their hash and confirmation, while any other value
 // changes it.
 const contentOf = (source: Record<string, any>) =>
@@ -308,6 +316,8 @@ async function assertWithinMandate(
     content.format?.cta,
     mandate.allowedOrigins ?? [],
   );
+  // A banner is composed with the profile's approved logo, never a generated one (R78).
+  if (content.banner) await approvedBannerLogo(tx, scope);
   const committed = await committedBudget(tx, scope, selfId);
   if (
     committed + content.monthlyBudgetMicros >

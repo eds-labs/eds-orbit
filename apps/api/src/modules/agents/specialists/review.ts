@@ -29,6 +29,19 @@ import {
   FORMAT_PROBLEMS,
 } from "../post-format.ts";
 import { cloneForChannel, groupSlots } from "../shared-posts.ts";
+import {
+  BANNER_IMAGE_MISSING,
+  BANNER_LINK_NOT_OFFICIAL,
+  BANNER_TEXT_OVERFLOW,
+  bannerCopy,
+  bannerInstruction,
+  bannerTemplateOf,
+  bannerTextProblems,
+  footerDomain,
+  officialFooter,
+  parsedBanner,
+} from "../banner.ts";
+import { hasOwnBanner } from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
 import { ASSIGNMENT_BUDGET_EXHAUSTED, runSpecialist } from "./runner.ts";
@@ -85,7 +98,11 @@ const LEFT_FOR_OWNER = new Set([
   "POLICY_REQUIRED",
   // A bare host such as `site.example`, which may also be a name (R49).
   "LINK_UNVERIFIED",
+  // The draft's banner could not be put on it (R78): the owner decides whether it goes without.
+  BANNER_IMAGE_MISSING,
 ]);
+// Problems one deterministic revision may fix in round 1 (R77, R78).
+const REVISABLE = new Set([...FORMAT_PROBLEMS, BANNER_TEXT_OVERFLOW]);
 // Revision failures of the provider or the project, not of the draft (R49).
 const TRANSIENT_REVISION_FAILURES = new Set([
   "MODEL_OUTCOME_OR_COST_UNKNOWN",
@@ -241,14 +258,62 @@ export async function deterministicProblems(
   );
   // The format the draft was written for (R77), carried on its mission.
   problems.push(...formatProblems(v.body, mission?.format));
+  // The banner copy (R78) is reviewed content too.
+  if (bannerTemplateOf(mission))
+    problems.push(
+      ...(await bannerProblems(
+        tx,
+        scope,
+        v,
+        checked.policyInput?.allowedOrigins ?? [],
+      )),
+    );
   return [...new Set(problems)];
 }
 
 /**
- * A round-1 draft whose only problems are the format's (R77) gets one
- * revision with a deterministic instruction instead of a reject; the model
- * does not judge it in this round. Anything else, or round 2, stays as
- * before: reject or leave for the owner.
+ * The deterministic problems of a draft's banner (R78): its copy
+ * (`bannerTextProblems`: missing, too long for the template, figures,
+ * status or promise wording), links written in it (as in the body), the
+ * official link its button and footer name (`BANNER_LINK_NOT_OFFICIAL`) and,
+ * when all of that is clean, whether its own composed banner is attached
+ * (`BANNER_IMAGE_MISSING`; copy with a problem gets no banner).
+ */
+async function bannerProblems(
+  tx: DbTx,
+  scope: Scope,
+  v: Record<string, any>,
+  allowedOrigins: string[],
+) {
+  const profileRow = await currentMarketingProfile(tx, scope);
+  const profile = profileRow
+    ? marketingProfile.safeParse(profileRow.data)
+    : null;
+  const footer = profile?.success
+    ? officialFooter(v.targetUrl, profile.data.officialLinks, allowedOrigins)
+    : null;
+  const problems: string[] = footer ? [] : [BANNER_LINK_NOT_OFFICIAL];
+  problems.push(
+    ...bannerTextProblems(v.banner, {
+      brandName: profile?.success ? profile.data.productName : "Brand",
+      footer: footer ?? footerDomain(v.targetUrl) ?? "example.com",
+    }),
+  );
+  const text = parsedBanner(v.banner);
+  if (text)
+    problems.push(...bodyLinkProblems(bannerCopy(text), allowedOrigins));
+  // Copy with a problem gets no banner composed: the copy is the reason, not the image.
+  if (!problems.length && !(await hasOwnBanner(tx, scope, v)))
+    problems.push(BANNER_IMAGE_MISSING);
+  return problems;
+}
+
+/**
+ * A round-1 draft whose only problems are the format's (R77) or banner copy
+ * that does not fit the banner (R78) gets one revision with a
+ * deterministic instruction instead of a reject; the model does not judge
+ * it in this round. Anything else, or round 2, stays as before: reject or
+ * leave for the owner.
  */
 async function formatRevision(
   tx: DbTx,
@@ -257,15 +322,20 @@ async function formatRevision(
   problems: string[],
   round: 1 | 2,
 ) {
-  if (round !== 1 || !problems.every((code) => FORMAT_PROBLEMS.has(code)))
+  if (round !== 1 || !problems.every((code) => REVISABLE.has(code)))
     return null;
   const v = data(await entity(tx, scope, "content", contentId));
   const mission = v.missionId
     ? data(await entity(tx, scope, "missions", v.missionId))
     : null;
-  return mission?.format
-    ? formatInstruction(v.body, mission.format, problems)
-    : null;
+  const parts: string[] = [];
+  if (problems.some((code) => FORMAT_PROBLEMS.has(code))) {
+    if (!mission?.format) return null;
+    parts.push(formatInstruction(v.body, mission.format, problems));
+  }
+  if (problems.includes(BANNER_TEXT_OVERFLOW))
+    parts.push(bannerInstruction(v.banner));
+  return parts.join(" ");
 }
 
 /** What the review model sees: the assignment, the brand, the drafts with their facts and brief, and recent posts. No credential, no internal state. */
@@ -300,6 +370,8 @@ async function reviewInput(
         (fact) => ({ key: fact.key, value: String(fact.value).slice(0, 300) }),
       ),
       brief: mission?.brief ?? null,
+      // The banner copy shown on the post's image (R78), reviewed with the text.
+      ...(parsedBanner(v.banner) ? { banner: parsedBanner(v.banner) } : {}),
       // A shared text (R76) goes out unchanged on these channels too.
       ...(Array.isArray(mission?.sharedChannels)
         ? { sharedChannels: mission.sharedChannels as string[] }
@@ -592,6 +664,8 @@ async function approve(
     assignmentVersion: assignmentRow.version,
     assignmentHash: confirmedHash(data(assignmentRow))!,
     bodyHash: hash(v.body),
+    // The banner copy is approved with the text (R78).
+    ...(v.banner !== undefined ? { bannerHash: hash(v.banner) } : {}),
     checkedAt: new Date().toISOString(),
     deterministicProblems: [],
   };
@@ -826,7 +900,10 @@ async function shareDraft(
     } else if (
       review?.taskId === task.id &&
       review.bodyHash === hash(v.body) &&
-      review.bodyHash === hash(data(copy).body)
+      review.bodyHash === hash(data(copy).body) &&
+      // A banner's copy is identical too (R78).
+      review.bannerHash ===
+        (data(copy).banner !== undefined ? hash(data(copy).banner) : undefined)
     ) {
       decision = { ...base, verdict: "approve" };
       await approveCopy(tx, scope, task, copy.id, review, decision, contentId);

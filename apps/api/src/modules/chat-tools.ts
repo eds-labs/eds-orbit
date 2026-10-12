@@ -51,6 +51,8 @@ export type AssignmentCard = {
     paragraphs: boolean;
     cta?: string;
   };
+  // A 16:9 banner per slot in the brand style (R78); absent for a free image.
+  banner?: { template: "brand_landscape"; style?: string };
   // Null once the draft has no open confirmation request.
   actionRequestId: string | null;
 };

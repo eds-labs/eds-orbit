@@ -118,6 +118,7 @@ const proposeArgs = (changes: Record<string, unknown> = {}) => ({
   delivery: null,
   sharedAcrossChannels: null,
   format: null,
+  banner: null,
   ...changes,
 });
 const changeArgs = (
@@ -142,6 +143,7 @@ const patch = (changes: Record<string, unknown>) => ({
   delivery: null,
   sharedAcrossChannels: null,
   format: null,
+  banner: null,
   ...changes,
 });
 
@@ -593,6 +595,64 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     });
   });
 
+  it("sets a brand banner at proposal, only with the approved logo and the image consent (R78)", async () => {
+    const banner = { template: "brand_landscape", style: "More glow" };
+    const propose = (changes: Record<string, unknown>) =>
+      turn(project.editor, [
+        [call("assignment_propose", proposeArgs(changes))],
+        [answer("Done.")],
+      ]);
+    // Without an approved logo in the marketing profile there is no banner.
+    expect(
+      (await propose({ name: "No logo", image: true, banner })).results,
+    ).toEqual([{ error: "BANNER_LOGO_REQUIRED" }]);
+    await run(async (tx) => {
+      const logo = await create(tx, project.owner, "assets", {
+        name: "Synthetic logo",
+        type: "logo",
+        mime: "image/png",
+        usageApproved: true,
+        assetStatus: "approved",
+      });
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: {
+              ...(value.visualIdentity ?? {}),
+              logoAssetId: logo.id,
+            },
+          },
+        },
+      });
+    });
+    // A banner needs the image consent.
+    expect(
+      (await propose({ name: "No image", banner })).results[0],
+    ).toMatchObject({ error: "ASSIGNMENT_VALIDATION_FAILED" });
+    const proposed = await propose({ name: "Branded", image: true, banner });
+    expect(proposed.results[0]).toMatchObject({
+      status: "awaiting_confirmation",
+    });
+    expect(proposed.cards[0]).toMatchObject({
+      assignment: { name: "Branded", image: true, banner },
+    });
+    const request = await run((tx) =>
+      entity(
+        tx,
+        project.owner,
+        "action_requests",
+        proposed.cards[0]!.assignment!.actionRequestId!,
+      ),
+    );
+    expect(data(request).payload).toMatchObject({ banner });
+  });
+
   it("sets the Postiz draft delivery at proposal and change (R73)", async () => {
     vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
     try {
@@ -701,6 +761,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
         delivery: "publish",
         sharedAcrossChannels: false,
         format: null,
+        banner: null,
         pendingActionRequestId: null,
       },
     ]);

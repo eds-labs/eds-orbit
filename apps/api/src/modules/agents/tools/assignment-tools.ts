@@ -81,6 +81,23 @@ const format = z
     "Social only, null for none (as before). Length of the body without the appended link, hashtag count, paragraphs and link; e.g. {minChars:600,maxChars:900,hashtags:{min:2,max:3},paragraphs:true,cta:<registration link>} for long X and Telegram posts. Drafts may miss the range by 10 % below and 5 % above; keep maxChars + 5 % plus the link within the strictest channel limit (Telegram with an image: 1,024 characters)",
   );
 
+// R78: one 16:9 banner per slot in the brand style instead of a free image.
+const banner = z
+  .object({
+    template: z.enum(["brand_landscape"]),
+    style: z
+      .string()
+      .nullable()
+      .describe(
+        "The owner's own notes on the background art (mood, colours, motifs); null for the default style: dark navy, cyan light waves, frosted glass cards with line icons",
+      ),
+  })
+  .strict()
+  .nullable()
+  .describe(
+    "Social with image true only; null for a free image per run (as before). brand_landscape: Orbit generates one background per run (no text, no logos) and composes each slot's banner over it with the approved logo, a two-line headline, a subline, an outlined button and the link's domain, written by the copywriter and reviewed with the post. Needs an approved logo in the marketing profile",
+  );
+
 const proposeParameters = z
   .object({
     name: z.string(),
@@ -116,6 +133,7 @@ const proposeParameters = z
     delivery,
     sharedAcrossChannels,
     format,
+    banner,
   })
   .strict();
 
@@ -146,6 +164,7 @@ const changeParameters = z
         delivery,
         sharedAcrossChannels,
         format,
+        banner,
       })
       .strict()
       .nullable()
@@ -188,6 +207,7 @@ export function assignmentCardOf(row: {
     delivery: deliveryOf(d),
     sharedAcrossChannels: sharedAcrossChannelsOf(d),
     ...(d.format ? { format: d.format } : {}),
+    ...(d.banner ? { banner: d.banner } : {}),
     actionRequestId: d.status === "draft" ? (d.actionRequestId ?? null) : null,
   };
 }
@@ -278,7 +298,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_propose",
     namespace: "assignments",
     description:
-      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, and format for the length, hashtags, paragraphs and link of the posts. Report assignments are not available yet.",
+      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
     parameters: proposeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],
@@ -369,6 +389,7 @@ export const assignmentTools: readonly OrbitTool[] = [
               delivery: deliveryOf(d),
               sharedAcrossChannels: sharedAcrossChannelsOf(d),
               format: d.format ?? null,
+              banner: d.banner ?? null,
               pendingActionRequestId:
                 d.status === "draft" ? (d.actionRequestId ?? null) : null,
             };
@@ -382,7 +403,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_change",
     namespace: "assignments",
     description:
-      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels or format. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
+      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
     parameters: changeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],

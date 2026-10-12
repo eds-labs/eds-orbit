@@ -146,6 +146,33 @@ describe("AssignmentCard", () => {
     expect(plain).not.toContain("Ein Text und ein Bild für alle Kanäle");
   });
 
+  it("shows the banner the owner confirms (R78)", () => {
+    const card = (changes: Partial<AssignmentContent>) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{ ...assignment(true), ...changes }}
+          status="draft"
+          request={null}
+          de
+          canDecide={false}
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    const branded = card({
+      image: true,
+      banner: { template: "brand_landscape", style: "Mehr Glühen" },
+    });
+    expect(branded).toContain("<dt>Banner</dt>");
+    expect(branded).toContain(
+      "Markenbanner 16:9 je Termin: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund · Stil: Mehr Glühen",
+    );
+    // Before R78: a free image per run, or none.
+    expect(card({ image: true })).toContain("Kein Banner, freies Bild je Lauf");
+    expect(card({ image: false })).toContain("<dd>Kein Banner</dd>");
+  });
+
   it("lets only a person who may decide confirm", () => {
     const html = render(true, false);
     expect(confirmButton(html)).toBeUndefined();

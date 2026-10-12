@@ -45,6 +45,8 @@ import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
 import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
 import { assertTaskBudget } from "./agents/specialists/runner.ts";
+import { BANNER_TEXT_LIMITS, bannerTemplateOf } from "./agents/banner.ts";
+import type { BannerText } from "../../../../packages/creative/src/index.ts";
 import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
@@ -104,6 +106,11 @@ type GenerationContract = {
     hashtags: { min: number; max: number };
     paragraphs: boolean;
     cta?: string;
+  };
+  // Present only for an assignment with a banner (R78): the banner copy's template and length guide.
+  banner?: {
+    template: "brand_landscape";
+    limits: Readonly<Record<keyof BannerText, number>>;
   };
   // Present only for a shared text (R76): every channel it goes out on, unchanged.
   sharedChannels?: {
@@ -510,6 +517,14 @@ async function generateMissionDraft(
               },
             }
           : {}),
+        ...(m.assignmentRunId && bannerTemplateOf(m)
+          ? {
+              banner: {
+                template: bannerTemplateOf(m)!,
+                limits: BANNER_TEXT_LIMITS,
+              },
+            }
+          : {}),
         ...(m.assignmentRunId &&
         Array.isArray(m.sharedChannels) &&
         m.sharedChannels.length > 1
@@ -679,6 +694,11 @@ async function generateMissionDraft(
       route: prepared.modelRoute,
       reservationId: prepared.reservationId,
       runtime: prepared.ai,
+      // Banner copy for an assignment with a banner (R78); otherwise the request is unchanged.
+      ...(data(prepared.mission).assignmentRunId &&
+      bannerTemplateOf(data(prepared.mission))
+        ? { banner: true }
+        : {}),
     });
   } catch (error) {
     // A completed response with unusable output has a known cost.

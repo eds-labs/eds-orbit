@@ -262,6 +262,8 @@ const prohibited = [
   /\bguaranteed returns?\b/i,
   /\b(?:100x|moon|last chance|act now|limited time)\b/i,
 ];
+/** Profit, risk and urgency wording no fact can back; also checked on banner copy (R78). */
+export const PROHIBITED_LANGUAGE: readonly RegExp[] = prohibited;
 
 async function supportedFactClaims(
   tx: DbTx,

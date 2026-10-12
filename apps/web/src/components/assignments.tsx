@@ -12,6 +12,7 @@ import {
 } from "@/lib/api";
 import {
   assignmentStatusLabels,
+  bannerText,
   channelText,
   contentTypeLabels,
   deliveryText,
@@ -37,6 +38,7 @@ export type AssignmentItem = Pick<
   | "delivery"
   | "sharedAcrossChannels"
   | "format"
+  | "banner"
 > & {
   version: number;
   status: string;
@@ -274,6 +276,9 @@ export function AssignmentTable({
                     <small>
                       {de ? "Format" : "Format"}: {formatText(item.format, de)}
                     </small>
+                  )}
+                  {item.banner && (
+                    <small>Banner: {bannerText(item.banner, true, de)}</small>
                   )}
                 </td>
                 <td>

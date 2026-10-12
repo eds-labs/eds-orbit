@@ -18,6 +18,8 @@ export type AgentReview = {
   assignmentVersion: number;
   assignmentHash: string;
   bodyHash: string;
+  // The banner copy reviewed with the text (R78); present only for a draft with a banner.
+  bannerHash?: string;
   checkedAt: string;
   deterministicProblems: string[];
 };
@@ -136,6 +138,12 @@ export async function agentReviewAccepted(
   )
     return false;
   if (review.bodyHash !== hash(content.body)) return false;
+  // A banner's copy must be the one reviewed (R78).
+  if (
+    review.bannerHash !==
+    (content.banner !== undefined ? hash(content.banner) : undefined)
+  )
+    return false;
   if (
     !Array.isArray(review.deterministicProblems) ||
     review.deterministicProblems.length
@@ -173,7 +181,12 @@ export async function agentReviewAccepted(
   const policy = await activePolicy(tx, scope);
   if (
     !policy ||
-    bodyLinkProblems(content.body, data(policy).allowedOrigins ?? []).length
+    bodyLinkProblems(
+      content.banner !== undefined
+        ? `${content.body}\n${Object.values(content.banner ?? {}).join("\n")}`
+        : content.body,
+      data(policy).allowedOrigins ?? [],
+    ).length
   )
     return false;
   // The chat must have been linked before the review was made (R50).
