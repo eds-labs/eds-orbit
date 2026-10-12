@@ -20,6 +20,7 @@ import { agentsEnabled } from "./agents/assignments.ts";
 import { nextDailyReportAt, planDailyReport } from "./agents/notifications.ts";
 import { scheduleUnscheduledRuns } from "./agents/veto.ts";
 import { requeuePostizDrafts } from "./agents/draft-delivery.ts";
+import { requeueBlogDeliveries } from "./agents/blog-delivery.ts";
 import {
   nextGithubTokenNoticeAt,
   planGithubTokenNotices,
@@ -213,6 +214,8 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
     await scheduleUnscheduledRuns(tx, scope);
     // Booked Postiz drafts whose send a pause or a failed job held back (R73).
     await requeuePostizDrafts(tx, scope);
+    // Blog deliveries a pause, the flag or a failed job held back (R83).
+    await requeueBlogDeliveries(tx, scope);
     // The bot's daily report, once per local day (a paused project sends none).
     await planDailyReport(tx, scope, at);
     // The GitHub token's recorded expiry, 14 days ahead (R81).

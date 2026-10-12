@@ -314,6 +314,10 @@ export function createGithubClient(options: {
             authorLogin: c.author?.login ? String(c.author.login) : null,
             message: String(c.commit?.message ?? ""),
           })),
+          // Changed file paths between the merge base and `head`; null when GitHub sent none.
+          files: Array.isArray(json.files)
+            ? json.files.map((f: any) => str(f.filename))
+            : null,
         };
       });
     },

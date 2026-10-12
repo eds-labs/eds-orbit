@@ -98,7 +98,11 @@ import {
   releaseAssignmentDraft,
   releaseInput,
 } from "./modules/agents/owner-release.ts";
-import { assertSlugFree } from "./modules/agents/blog-delivery.ts";
+import {
+  assertSlugFree,
+  cancelBlogDelivery,
+  listBlogDeliveries,
+} from "./modules/agents/blog-delivery.ts";
 import { vetoPublication } from "./modules/agents/veto.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
@@ -276,6 +280,8 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/publications/:id/veto",
   "/api/projects/:projectId/assignment-drafts",
   "/api/projects/:projectId/assignment-drafts/:id/release",
+  "/api/projects/:projectId/blog-deliveries",
+  "/api/projects/:projectId/blog-deliveries/:id/cancel",
 ]);
 // The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
 const UUID_SEGMENT =
@@ -1062,6 +1068,32 @@ export async function buildServer(
       return scoped(scope.workspaceId, projectId, (tx) =>
         releaseAssignmentDraft(tx, scope, contentId, input.version),
       );
+    },
+  );
+  // Website article deliveries (R83): the list for members, the cancel for the owner.
+  app.get("/api/projects/:projectId/blog-deliveries", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    assertBlogGithubEnabled();
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        listBlogDeliveries(tx, scope),
+      ),
+    };
+  });
+  app.post(
+    "/api/projects/:projectId/blog-deliveries/:id/cancel",
+    async (req) => {
+      const { projectId, id } = req.params as {
+        projectId: string;
+        id: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      assertBlogGithubEnabled();
+      // GitHub is called between two transactions (close the pull request, delete the branch).
+      return cancelBlogDelivery(scope, z.uuid().parse(id), {
+        fetch: options?.githubFetch,
+      });
     },
   );
   app.get("/api/projects/:projectId/google-drive", async (req) => {

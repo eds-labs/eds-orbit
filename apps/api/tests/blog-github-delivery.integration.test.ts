@@ -98,7 +98,13 @@ import {
   startReadySteps,
 } from "../src/modules/agents/assignment-runs.ts";
 import { releaseAssignmentDraft } from "../src/modules/agents/owner-release.ts";
-import { BLOG_DELIVERY_TOPIC } from "../src/modules/agents/blog-delivery.ts";
+import {
+  advanceBlogDelivery,
+  BLOG_DELIVERY_TOPIC,
+  cancelBlogDelivery,
+  markBlogDeliveryOutcomeUnknown,
+  requeueBlogDeliveries,
+} from "../src/modules/agents/blog-delivery.ts";
 import { berlinDate, blogPostOf } from "../src/modules/blog-target.ts";
 import { createPackageProject } from "./support/package-project.ts";
 import {
@@ -110,7 +116,9 @@ import {
 import {
   FIXTURE_POSTS,
   fakeGithub,
+  HEAD,
   OWNER,
+  POSTS_DIR,
   REPO,
   TOKEN,
 } from "./support/fake-github.ts";
@@ -677,6 +685,594 @@ describe.skipIf(!enabled)(
       expect(r.json().error.code).toBe("BLOG_TARGET_UNREACHABLE");
       expect(await deliveries()).toEqual([]);
       expect(await deliveryJobs()).toEqual([]);
+    });
+
+    describe("worker (R83, spec §7)", () => {
+      const MINUTE = 60000;
+      let clock = Date.now();
+      const deps = () => ({
+        fetch: github.fetch,
+        now: () => new Date(clock),
+      });
+      const worker = () => h.worker();
+      const delivery = async (id: string) =>
+        (await deliveries()).find((row) => row.id === id)!;
+      const blogKeys = async () =>
+        (await deliveryJobs()).map((job) => String(job.idempotencyKey));
+      const queuedJobs = async () =>
+        (await deliveryJobs()).filter((job) => job.status === "queued");
+      const notices = async () =>
+        (await h.rows("jobs"))
+          .filter((job) => job.topic === "telegram_notification")
+          .map((job) => String(job.idempotencyKey));
+      const linkBot = () =>
+        h.run((tx) =>
+          create(tx, project.owner, "telegram_connections", {
+            status: "linked",
+            chatId: "1001",
+            telegramUserId: "1001",
+            linkedUserId: project.owner.userId,
+            linkedAt: new Date().toISOString(),
+          }),
+        );
+      /** The owner's release through the function (no route), returning the delivery id. */
+      const released = async () => {
+        const draft = await awaitingOwner();
+        const result = await h.run((tx) =>
+          releaseAssignmentDraft(tx, project.owner, draft.id, draft.version),
+        );
+        return { id: String(result.blogDeliveryId), draft };
+      };
+      /** Runs the oldest queued delivery job as the worker would; false when none is left. */
+      const runNext = async () => {
+        // Rows come newest first.
+        const job = (await queuedJobs()).at(-1);
+        if (!job) return false;
+        await h.run(async (tx) => {
+          const row = await entity(tx, project.owner, "jobs", job.id);
+          await update(tx, project.owner, row, {
+            ...data(row),
+            status: "succeeded",
+          });
+        });
+        await advanceBlogDelivery(worker(), String(job.resourceId), deps());
+        return true;
+      };
+      /** Runs queued jobs until none is left or the delivery reaches `until`. */
+      const drain = async (id: string, until?: string, max = 40) => {
+        for (let i = 0; i < max; i++) {
+          if (until && (await delivery(id)).status === until) return;
+          if (!(await runNext())) return;
+        }
+      };
+      const setRow = (id: string, changes: Record<string, unknown>) =>
+        h.run(async (tx) => {
+          const row = await entity(tx, project.owner, "blog_deliveries", id);
+          await update(tx, project.owner, row, { ...data(row), ...changes });
+        });
+      /** Replaces the row's data with an earlier snapshot, as a crash before the record would leave it. */
+      const restore = (id: string, snapshot: Record<string, any>) =>
+        h.run(async (tx) => {
+          const row = await entity(tx, project.owner, "blog_deliveries", id);
+          const { id: _id, version: _version, ...rest } = snapshot;
+          await update(tx, project.owner, row, rest);
+        });
+      const setPaused = (paused: boolean) =>
+        h.run((tx) =>
+          tx.project.update({
+            where: { id: project.owner.projectId },
+            data: { paused },
+          }),
+        );
+      const path = `${POSTS_DIR}/${SLUG}.json`;
+      const branch = `blog/${SLUG}`;
+      const blogRefs = () =>
+        github.createdRefs.filter((ref) => ref.ref === `refs/heads/${branch}`);
+
+      beforeEach(() => {
+        clock = Date.now();
+      });
+
+      it("delivers a released article: branch, commit, pull request, checks, merge, live", async () => {
+        await linkBot();
+        await authDb.user.update({
+          where: { id: project.owner.userId },
+          data: { name: "Mario" },
+        });
+        const { id } = await released();
+        await drain(id);
+        const row = await delivery(id);
+        expect(row).toMatchObject({
+          status: "live",
+          prNumber: 1,
+          prUrl: `https://github.com/${OWNER}/${REPO}/pull/1`,
+          headSha: expect.stringMatching(/^[0-9a-f]{40}$/),
+          mergeSha: expect.stringMatching(/^[0-9a-f]{40}$/),
+          error: null,
+        });
+        // The branch starts at the base head.
+        expect(blogRefs()).toEqual([
+          { ref: `refs/heads/${branch}`, sha: HEAD },
+        ]);
+        // The exact file bytes of the release, once.
+        expect(github.puts).toEqual([
+          {
+            path,
+            branch,
+            message: `Add blog post: ${TITLE}`,
+            text: row.fileBytes,
+          },
+        ]);
+        expect(github.pulls).toHaveLength(1);
+        const pull = github.pulls[0]!;
+        expect(pull).toMatchObject({
+          title: `Blog: ${TITLE}`,
+          head: branch,
+          base: "main",
+          merged: true,
+        });
+        expect(pull.body).toContain(
+          `Released by Mario in Orbit on ${berlinDate()}`,
+        );
+        expect(pull.body).toContain(id);
+        expect(pull.body).toContain(SLUG);
+        expect(pull.body).toContain(`https://uliquid.vip/blog/${SLUG}/`);
+        // Merged with Orbit's own head as the guard.
+        expect(github.merges).toEqual([
+          { number: 1, sha: row.headSha, method: "merge" },
+        ]);
+        expect(row.mergeSha).toBe(github.refs.get("main"));
+        expect(github.tree("main")![path]).toBe(row.fileBytes);
+        expect(github.deleted).toContain(`heads/${branch}`);
+        expect(github.refs.has(branch)).toBe(false);
+        expect(github.pageCalls).toContain(`/blog/${SLUG}/`);
+        expect(await notices()).toContain(`notify:blog_live:${id}`);
+        expect(await blogKeys()).toEqual(
+          expect.arrayContaining(
+            [1, 2, 3, 4, 5, 6, 7].map((n) => `blog:${id}:step:${n}`),
+          ),
+        );
+        expect(await queuedJobs()).toEqual([]);
+      });
+
+      it("continues after a crash after each step without a second branch, commit or pull request", async () => {
+        const { id } = await released();
+        const seen: string[] = [];
+        for (let i = 0; i < 40; i++) {
+          if (!(await queuedJobs()).length) break;
+          const before = await delivery(id);
+          await runNext();
+          const after = await delivery(id);
+          if (after.version === before.version) continue;
+          seen.push(`${before.status}->${after.status}`);
+          // The external write happened, its record did not.
+          await restore(id, before);
+          await advanceBlogDelivery(worker(), id, deps());
+          expect(await delivery(id)).toMatchObject({
+            status: after.status,
+            headSha: after.headSha,
+            prNumber: after.prNumber,
+          });
+        }
+        expect(seen).toEqual(
+          expect.arrayContaining([
+            "queued->branch_ready",
+            "branch_ready->committed",
+            "committed->pr_open",
+            "pr_open->checks_passed",
+            "checks_passed->merged",
+            "merged->live",
+          ]),
+        );
+        expect((await delivery(id)).status).toBe("live");
+        expect(blogRefs()).toHaveLength(1);
+        expect(github.puts).toHaveLength(1);
+        expect(github.pulls).toHaveLength(1);
+        expect(github.merges).toHaveLength(1);
+      });
+
+      it("stops at a foreign commit on the article branch and never merges", async () => {
+        const { id } = await released();
+        await drain(id, "branch_ready");
+        github.pushCommit(branch, { "README.md": "changed" }, "Not Orbit");
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "failed",
+          error: "BLOG_BRANCH_FOREIGN",
+        });
+        expect(github.puts).toEqual([]);
+        expect(github.pulls).toEqual([]);
+        expect(github.merges).toEqual([]);
+      });
+
+      it("does not take a commit that looks like Orbit's but changes more", async () => {
+        const { id } = await released();
+        await drain(id, "branch_ready");
+        const row = await delivery(id);
+        github.pushCommit(
+          branch,
+          { [path]: row.fileBytes, "scripts/extra.js": "x" },
+          `Add blog post: ${TITLE}`,
+        );
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "failed",
+          error: "BLOG_BRANCH_FOREIGN",
+        });
+        expect(github.merges).toEqual([]);
+      });
+
+      it("stops at a commit pushed onto Orbit's commit before the pull request", async () => {
+        const { id } = await released();
+        await drain(id, "committed");
+        github.pushCommit(branch, { "README.md": "changed" }, "Not Orbit");
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "failed",
+          error: "BLOG_BRANCH_FOREIGN",
+        });
+        expect(github.pulls).toEqual([]);
+        expect(github.merges).toEqual([]);
+      });
+
+      it("fails with BLOG_HEAD_MOVED when GitHub refuses the merge for a moved head", async () => {
+        await linkBot();
+        const { id } = await released();
+        github.options.mergeStatus = 409;
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "failed",
+          error: "BLOG_HEAD_MOVED",
+        });
+        expect(github.merges).toHaveLength(1);
+        expect(github.tree("main")![path]).toBeUndefined();
+        expect(
+          (await notices()).some((key) =>
+            key.startsWith(`notify:blog_delivery_stopped:${id}:`),
+          ),
+        ).toBe(true);
+      });
+
+      it("stops at failed checks with the pull request open", async () => {
+        await linkBot();
+        const { id } = await released();
+        github.options.checks = () => [
+          { name: "check", status: "completed", conclusion: "failure" },
+        ];
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "checks_failed",
+          prNumber: 1,
+        });
+        expect(github.pulls[0]).toMatchObject({ state: "open", merged: false });
+        expect(github.merges).toEqual([]);
+        expect(await queuedJobs()).toEqual([]);
+        expect(
+          (await notices()).some((key) =>
+            key.startsWith(`notify:blog_delivery_stopped:${id}:`),
+          ),
+        ).toBe(true);
+      });
+
+      it("treats an empty check list as pending and polls until the checks pass", async () => {
+        const { id } = await released();
+        github.options.checks = (_sha, poll) =>
+          poll < 2
+            ? []
+            : poll < 3
+              ? [{ name: "check", status: "in_progress" }]
+              : [{ name: "check", status: "completed", conclusion: "success" }];
+        await drain(id, "pr_open");
+        const states: string[] = [];
+        for (let i = 0; i < 4; i++) {
+          await runNext();
+          states.push((await delivery(id)).status);
+        }
+        expect(states).toEqual([
+          "pr_open",
+          "pr_open",
+          "pr_open",
+          "checks_passed",
+        ]);
+        const polls = (await blogKeys()).filter((key) =>
+          key.startsWith(`blog:${id}:step:5:poll:`),
+        );
+        expect(polls).toHaveLength(3);
+        // Each poll waits a minute.
+        const jobs = await deliveryJobs();
+        const poll = jobs.find((job) => job.idempotencyKey === polls[0])!;
+        expect(Date.parse(poll.availableAt) - clock).toBeGreaterThanOrEqual(
+          59000,
+        );
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+      });
+
+      it("stops with checks_timeout when no check completes within 30 minutes", async () => {
+        const { id } = await released();
+        github.options.checks = () => [];
+        await drain(id, "pr_open");
+        await runNext();
+        await runNext();
+        expect((await delivery(id)).status).toBe("pr_open");
+        clock += 31 * MINUTE;
+        await runNext();
+        expect((await delivery(id)).status).toBe("checks_timeout");
+        expect(await queuedJobs()).toEqual([]);
+        expect(github.merges).toEqual([]);
+      });
+
+      it("merges with Orbit's head although an unrelated commit landed on main", async () => {
+        const { id } = await released();
+        await drain(id, "branch_ready");
+        github.pushCommit("main", { "README.md": "news" }, "Unrelated");
+        await drain(id);
+        const row = await delivery(id);
+        expect(row.status).toBe("live");
+        expect(github.merges).toEqual([
+          { number: 1, sha: row.headSha, method: "merge" },
+        ]);
+        expect(github.tree("main")).toMatchObject({
+          "README.md": "news",
+          [path]: row.fileBytes,
+        });
+      });
+
+      it("fails with CONTENT_CHANGED when the body changed after the release, writing nothing", async () => {
+        const { id, draft } = await released();
+        await h.run(async (tx) => {
+          const row = await entity(tx, project.owner, "content", draft.id);
+          await update(tx, project.owner, row, {
+            ...data(row),
+            body: `${data(row).body}\n\nOne more line.`,
+          });
+        });
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "failed",
+          error: "CONTENT_CHANGED",
+        });
+        expect(github.writes()).toEqual([]);
+      });
+
+      it("stops before the merge when a live gate closed after the release", async () => {
+        await linkBot();
+        const { id } = await released();
+        await drain(id, "checks_passed");
+        await h.setPolicy({ mode: "observe" });
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "blocked_dependency",
+          error: "OBSERVE_FORBIDS_EXTERNAL_WRITE",
+        });
+        expect(github.merges).toEqual([]);
+        expect(
+          (await notices()).some((key) =>
+            key.startsWith(`notify:blog_delivery_stopped:${id}:`),
+          ),
+        ).toBe(true);
+      });
+
+      it("blocks with GITHUB_TARGET_MISSING when the base branch is gone", async () => {
+        const { id } = await released();
+        github.refs.delete("main");
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "blocked_dependency",
+          error: "GITHUB_TARGET_MISSING",
+        });
+        expect(github.writes()).toEqual([]);
+      });
+
+      it("fails with BLOG_SLUG_EXISTS when the file appears on main before the commit", async () => {
+        const { id } = await released();
+        await drain(id, "branch_ready");
+        github.pushCommit("main", { [path]: "{}" }, "Someone else");
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "failed",
+          error: "BLOG_SLUG_EXISTS",
+        });
+        expect(github.puts).toEqual([]);
+        expect(github.merges).toEqual([]);
+      });
+
+      it("blocks on a refused token and marks the connector", async () => {
+        await linkBot();
+        const { id } = await released();
+        github.options.authFail = true;
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "blocked_dependency",
+          error: "GITHUB_TOKEN_INVALID",
+        });
+        const connector = await h.run((tx) =>
+          entity(tx, project.owner, "connectors", connectorId),
+        );
+        expect(data(connector).status).toBe("configured");
+        const keys = await notices();
+        expect(
+          keys.some((key) =>
+            key.startsWith(`notify:github_token_invalid:${connectorId}:`),
+          ),
+        ).toBe(true);
+        expect(
+          keys.some((key) =>
+            key.startsWith(`notify:blog_delivery_stopped:${id}:`),
+          ),
+        ).toBe(true);
+      });
+
+      it("waits for the rate limit reset without changing the state", async () => {
+        const { id } = await released();
+        const before = await delivery(id);
+        github.options.rateLimit = () => true;
+        await runNext();
+        const after = await delivery(id);
+        expect(after.status).toBe(before.status);
+        expect(after.error).toBeNull();
+        const [retry] = await queuedJobs();
+        expect(retry!.idempotencyKey).toMatch(
+          new RegExp(`^blog:${id}:step:1:retry:\\d+$`),
+        );
+        const reset = (Math.ceil(Date.now() / 1000) + 120) * 1000;
+        expect(Math.abs(Date.parse(retry!.availableAt) - reset)).toBeLessThan(
+          10000,
+        );
+        github.options.rateLimit = undefined;
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+      });
+
+      it("ends live_unverified when the page stays missing for 30 minutes", async () => {
+        await linkBot();
+        const { id } = await released();
+        github.options.page = () => ({ status: 404, body: "Not found" });
+        await drain(id, "merged");
+        await runNext();
+        await runNext();
+        expect((await delivery(id)).status).toBe("merged");
+        clock += 31 * MINUTE;
+        await runNext();
+        expect((await delivery(id)).status).toBe("live_unverified");
+        expect(await queuedJobs()).toEqual([]);
+        expect(
+          (await notices()).some((key) =>
+            key.startsWith(`notify:blog_delivery_stopped:${id}:`),
+          ),
+        ).toBe(true);
+        expect(await notices()).not.toContain(`notify:blog_live:${id}`);
+      });
+
+      it("finds a title with HTML entities on the live page", async () => {
+        const { id } = await released();
+        await setRow(id, { title: "Risk & Reward <Basics>" });
+        github.options.page = (url) =>
+          url.pathname === `/blog/${SLUG}/`
+            ? {
+                status: 200,
+                body: "<h1>Risk &amp; Reward &lt;Basics&gt;</h1>",
+              }
+            : undefined;
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+      });
+
+      it("pauses while the flag is off or the project is paused and resumes through the sweep", async () => {
+        const { id } = await released();
+        await drain(id, "branch_ready");
+        const before = await delivery(id);
+        const writes = github.writes().length;
+        process.env.ORBIT_BLOG_GITHUB = "false";
+        await runNext();
+        expect((await delivery(id)).version).toBe(before.version);
+        expect(await queuedJobs()).toEqual([]);
+        expect(github.writes()).toHaveLength(writes);
+        // Off, the sweep does not start it again.
+        await h.run((tx) => requeueBlogDeliveries(tx, project.owner));
+        expect(await queuedJobs()).toEqual([]);
+
+        process.env.ORBIT_BLOG_GITHUB = "true";
+        await setPaused(true);
+        await advanceBlogDelivery(worker(), id, deps());
+        expect((await delivery(id)).version).toBe(before.version);
+        await setPaused(false);
+
+        await h.run((tx) => requeueBlogDeliveries(tx, project.owner));
+        expect(await queuedJobs()).toHaveLength(1);
+        // A second pass does not add another job while one is pending.
+        await h.run((tx) => requeueBlogDeliveries(tx, project.owner));
+        expect(await queuedJobs()).toHaveLength(1);
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+      });
+
+      it("cancels before the merge through the owner route", async () => {
+        const { id } = await released();
+        await drain(id, "pr_open");
+        const editor = await code(
+          cancelBlogDelivery(project.editor, id, deps()),
+        );
+        expect(editor).toBe("OWNER_REQUIRED");
+        const listed = await app.inject({
+          method: "GET",
+          url: `/api/projects/${project.owner.projectId}/blog-deliveries`,
+          headers: { origin: origin(), cookie },
+        });
+        expect(listed.statusCode).toBe(200);
+        expect(listed.json().items).toEqual([
+          expect.objectContaining({
+            id,
+            status: "pr_open",
+            slug: SLUG,
+            title: TITLE,
+            prNumber: 1,
+          }),
+        ]);
+        expect(listed.json().items[0].fileBytes).toBeUndefined();
+        const r = await app.inject({
+          method: "POST",
+          url: `/api/projects/${project.owner.projectId}/blog-deliveries/${id}/cancel`,
+          headers: { origin: origin(), cookie },
+          payload: {},
+        });
+        expect(r.statusCode).toBe(200);
+        expect(r.json()).toMatchObject({ id, status: "canceled" });
+        expect(github.closed).toEqual([1]);
+        expect(github.refs.has(branch)).toBe(false);
+        // Pending polls do nothing any more.
+        await drain(id);
+        expect((await delivery(id)).status).toBe("canceled");
+        expect(github.merges).toEqual([]);
+      });
+
+      it("refuses to cancel a merged delivery", async () => {
+        const { id } = await released();
+        await drain(id, "merged");
+        const late = await app.inject({
+          method: "POST",
+          url: `/api/projects/${project.owner.projectId}/blog-deliveries/${id}/cancel`,
+          headers: { origin: origin(), cookie },
+          payload: {},
+        });
+        expect(late.statusCode).toBe(409);
+        expect(late.json().error.code).toBe("BLOG_ALREADY_MERGED");
+      });
+
+      it("marks a step whose job lease ran out as outcome_unknown and continues", async () => {
+        const { id } = await released();
+        await drain(id, "branch_ready");
+        const before = await delivery(id);
+        await runNext();
+        const after = await delivery(id);
+        expect(after.status).toBe("committed");
+        // The worker died after the commit, before its record: the marker stays.
+        await restore(id, {
+          ...before,
+          inFlight: {
+            step: 3,
+            since: new Date(clock - 3 * MINUTE).toISOString(),
+            until: new Date(clock - MINUTE).toISOString(),
+          },
+        });
+        await h.run((tx) =>
+          markBlogDeliveryOutcomeUnknown(tx, project.owner, id),
+        );
+        expect(await delivery(id)).toMatchObject({
+          status: "outcome_unknown",
+          resumeFrom: "branch_ready",
+        });
+        await advanceBlogDelivery(worker(), id, deps());
+        expect(await delivery(id)).toMatchObject({
+          status: "committed",
+          headSha: after.headSha,
+          resumeFrom: null,
+        });
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+        expect(github.puts).toHaveLength(1);
+        expect(github.pulls).toHaveLength(1);
+      });
     });
   },
 );

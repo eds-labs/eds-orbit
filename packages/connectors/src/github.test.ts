@@ -145,6 +145,7 @@ describe("GitHub client requests", () => {
           { sha: "c1", author: { login: "bot" }, commit: { message: "m1" } },
           { sha: "c2", author: null, commit: { message: "m2" } },
         ],
+        files: [{ filename: "content/blog/posts/a.json" }],
       }),
     ]);
     expect(await gh.compareCommits("main", "orbit/post")).toEqual({
@@ -153,6 +154,7 @@ describe("GitHub client requests", () => {
         { sha: "c1", authorLogin: "bot", message: "m1" },
         { sha: "c2", authorLogin: null, message: "m2" },
       ],
+      files: ["content/blog/posts/a.json"],
     });
     expect(f.calls[0]!.url.pathname).toBe(
       "/repos/eds-labs/site/compare/main...orbit/post",
