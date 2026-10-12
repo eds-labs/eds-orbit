@@ -61,7 +61,10 @@ const VALIDATION_CODES = {
 
 const MAX_MODEL_CALLS = 6;
 const MAX_TOOL_CALLS = 8;
-const MAX_INPUT_BYTES = 32000;
+// Each call reserves its cost from these bytes, so the limit bounds size, not
+// spend. The full tool set alone takes about 20 KB (assignment tools ~5.5 KB
+// each); 32 KB left too little for the conversation and tool results.
+export const MAX_INPUT_BYTES = 64000;
 const MAX_OUTPUT_CHARS = 8000;
 const instructions = [
   "You are Orbit, a project-specific marketing operator. Use only server tools for project facts, assets, approvals, analytics and status.",
@@ -88,6 +91,24 @@ const assignmentInstructions =
 // Orbit Agents are on, but the assignment tools are deferred and need tool search.
 const assignmentsUnavailable =
   "Standing assignments (for example posts every day) are not available in this setup because they need tool search; say so when asked and do not simulate them.";
+/** Bytes of the largest fixed request part: all instructions and every tool loaded in full. */
+export function staticChatBytes() {
+  const tools = availableTools(chatTools, "owner", [
+    "content_packages",
+    "agents",
+  ]);
+  return Buffer.byteLength(
+    JSON.stringify({
+      instructions: [
+        instructions,
+        packageInstructions,
+        assignmentInstructions,
+        `Load these tools with tool_search before calling them: ${tools.map((tool) => tool.name).join(", ")}.`,
+      ].join(" "),
+      tools: [...tools.map(responsesTool), TOOL_SEARCH],
+    }),
+  );
+}
 async function snapshot(scope: Scope, runId: string, text: string) {
   return chatScoped(scope, async (tx) => {
     const run = await tx.chatRun.findFirst({
