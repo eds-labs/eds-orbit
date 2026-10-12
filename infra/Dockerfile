@@ -1,5 +1,5 @@
 FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS runtime-base
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates fontconfig fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates fontconfig fonts-dejavu-core fonts-inter && rm -rf /var/lib/apt/lists/*
 # Optional content-addressed package/registry cache; empty in a normal build.
 FROM runtime-base AS package-cache
 RUN mkdir /seed

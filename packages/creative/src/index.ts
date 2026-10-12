@@ -455,7 +455,7 @@ export function renderBrandBanner(input: BannerInput) {
   const background = dataImage(input.backgroundDataUri);
   const [w, h] = bannerTemplates[input.template];
   const { margin, headline, subline, button, card, cyan, white, navy } = BANNER;
-  const family = "DejaVu Sans, Arial, sans-serif";
+  const family = "Inter, DejaVu Sans, Arial, sans-serif";
   const words = input.brandName.trim().split(/\s+/u);
   const accentWord = words.length > 1 ? words.pop()! : null;
   const wordmark = `<text data-layer="wordmark" x="${margin + 92}" y="${58 + 50}" font-family="${family}" font-size="${BANNER.wordmark}" font-weight="700" fill="${white}"><tspan>${escape(words.join(" "))}</tspan>${accentWord ? `<tspan dx="${Math.round(BANNER.wordmark * 0.3)}" fill="${cyan}">${escape(accentWord)}</tspan>` : ""}</text>`;

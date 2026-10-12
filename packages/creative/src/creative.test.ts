@@ -160,6 +160,19 @@ describe("brand banner (R78)", () => {
       },
     );
 
+  it("sets every banner text in Inter, falling back to DejaVu Sans", () => {
+    // The runtime image installs fonts-inter; the reference banners use it.
+    const rendered = renderBrandBanner(input);
+    if (rendered.status !== "rendered") throw new Error(rendered.status);
+    const families = [
+      ...rendered.svg.matchAll(/<text\b[^>]*font-family="([^"]+)"/g),
+    ].map(([, family]) => family);
+    expect(families.length).toBeGreaterThan(0);
+    expect(new Set(families)).toEqual(
+      new Set(["Inter, DejaVu Sans, Arial, sans-serif"]),
+    );
+  });
+
   it("adds a 16:9 format of 1600×900", () => {
     expect(templateFormats.wide).toEqual([1600, 900]);
     expect(bannerTemplates.brand_landscape).toEqual([1600, 900]);
