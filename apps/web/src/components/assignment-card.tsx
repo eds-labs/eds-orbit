@@ -29,7 +29,21 @@ export type AssignmentContent = {
   monthlyBudgetMicros: number;
   // How approved posts leave Orbit (R73); absent means "publish".
   delivery?: "publish" | "postiz_draft";
+  // One text and one image per slot for all channels (R76); absent means one text per channel.
+  sharedAcrossChannels?: boolean;
+  // The shape of every post (R77); absent means none.
+  format?: AssignmentFormat;
+  // A 16:9 banner per slot in the brand style (R78); absent means a free image.
+  banner?: AssignmentBanner;
   actionRequestId?: string | null;
+};
+export type AssignmentBanner = { template: "brand_landscape"; style?: string };
+export type AssignmentFormat = {
+  minChars: number;
+  maxChars: number;
+  hashtags: { min: number; max: number };
+  paragraphs: boolean;
+  cta?: string;
 };
 /** The `assignment.confirm` action request the card decides. */
 export type AssignmentRequest = {
@@ -42,6 +56,12 @@ export type AssignmentRequest = {
 export const IMAGE_RIGHTS_CONSENT: [string, string] = [
   "Generated images may be used for this assignment (no logos, no real persons, no text in the image)",
   "Generierte Bilder dürfen für diesen Auftrag verwendet werden (keine Logos, keine echten Personen, kein Text im Bild)",
+];
+
+/** What a banner adds to the image consent (R78): Orbit composes it, nothing is generated but the background. */
+export const BANNER_CONSENT: [string, string] = [
+  "Banner: a generated background, with the approved logo and reviewed text added by Orbit",
+  "Banner: generierter Hintergrund, dazu das freigegebene Logo und geprüfter Text",
 ];
 
 export const assignmentStatusLabels: Record<string, [string, string]> = {
@@ -69,6 +89,59 @@ export const deliveryText = (
   delivery: AssignmentContent["delivery"],
   de: boolean,
 ) => deliveryLabels[delivery ?? "publish"][de ? 1 : 0];
+
+/** Whether a slot's channels share one text (and the image, when there is one) (R76). */
+export const sharedText = (
+  shared: boolean | undefined,
+  de: boolean,
+  image = true,
+) =>
+  shared
+    ? image
+      ? de
+        ? "Ein Text und ein Bild für alle Kanäle"
+        : "One text and one image for all channels"
+      : de
+        ? "Ein Text für alle Kanäle"
+        : "One text for all channels"
+    : de
+      ? "Eigener Text je Kanal"
+      : "Own text per channel";
+
+/** "600–900 Zeichen · 2–3 Hashtags · Absätze · Link …" (R77). */
+export function formatText(format: AssignmentFormat | undefined, de: boolean) {
+  if (!format) return de ? "Ohne Vorgabe" : "None";
+  const range = (min: number, max: number) =>
+    min === max ? `${min}` : `${min}–${max}`;
+  return [
+    `${range(format.minChars, format.maxChars)} ${de ? "Zeichen" : "characters"}`,
+    `${range(format.hashtags.min, format.hashtags.max)} Hashtags`,
+    ...(format.paragraphs ? [de ? "kurze Absätze" : "short paragraphs"] : []),
+    ...(format.cta ? [`${de ? "Link" : "Link"} ${format.cta}`] : []),
+  ].join(" · ");
+}
+
+/** "Markenbanner 16:9 je Termin …" (R78); without a banner the free image or none. */
+export function bannerText(
+  banner: AssignmentBanner | undefined,
+  image: boolean,
+  de: boolean,
+) {
+  if (!banner)
+    return image
+      ? de
+        ? "Kein Banner, freies Bild je Lauf"
+        : "No banner, a free image per run"
+      : de
+        ? "Kein Banner"
+        : "No banner";
+  const base = de
+    ? "Markenbanner 16:9 je Termin: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund"
+    : "Brand banner 16:9 per slot: logo, headline, subline, button and domain over a generated background";
+  return banner.style
+    ? `${base} · ${de ? "Stil" : "Style"}: ${banner.style}`
+    : base;
+}
 
 export const contentTypeLabels: Record<string, [string, string]> = {
   social: ["Social post", "Social-Post"],
@@ -218,6 +291,28 @@ export function AssignmentCard({
                 : "None"}
           </dd>
         </div>
+        {assignment.contentType === "social" && (
+          <>
+            <div>
+              <dt>{de ? "Beiträge" : "Posts"}</dt>
+              <dd>
+                {sharedText(
+                  assignment.sharedAcrossChannels,
+                  de,
+                  assignment.image,
+                )}
+              </dd>
+            </div>
+            <div>
+              <dt>{de ? "Format" : "Format"}</dt>
+              <dd>{formatText(assignment.format, de)}</dd>
+            </div>
+            <div>
+              <dt>Banner</dt>
+              <dd>{bannerText(assignment.banner, assignment.image, de)}</dd>
+            </div>
+          </>
+        )}
         <div>
           <dt>{de ? "Zustellung" : "Delivery"}</dt>
           <dd>{deliveryText(assignment.delivery, de)}</dd>
@@ -251,7 +346,15 @@ export function AssignmentCard({
                 checked={consent}
                 onChange={(event) => setConsent(event.target.checked)}
               />
-              <span>{IMAGE_RIGHTS_CONSENT[de ? 1 : 0]}</span>
+              <span>
+                {IMAGE_RIGHTS_CONSENT[de ? 1 : 0]}
+                {assignment.banner && (
+                  <>
+                    <br />
+                    {BANNER_CONSENT[de ? 1 : 0]}
+                  </>
+                )}
+              </span>
             </label>
           )}
           {expiresAt && (

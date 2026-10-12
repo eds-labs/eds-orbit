@@ -170,3 +170,75 @@ describe("unusable generation output", () => {
     expect((error as Error).message).toBe("socket hang up");
   });
 });
+
+describe("banner copy in drafts (R78)", () => {
+  const params = {
+    task: "draft",
+    goal: "g",
+    evidence: {},
+    route: { model: "m", maxOutputTokens: 1800 },
+    reservationId: "r",
+    runtime,
+  };
+  const banner = {
+    headline1: "Start free.",
+    headline2: "Build your workflow.",
+    subline: "Markets. Paper trading. Bots.",
+    button: "Explore Desk",
+  };
+  const withBanner = (value: unknown) => ({
+    ...answer,
+    output_text: JSON.stringify({
+      ...JSON.parse(answer.output_text),
+      banner: value,
+    }),
+  });
+  beforeEach(() => {
+    create.mockReset().mockResolvedValue(answer);
+  });
+
+  it("leaves a draft without a banner exactly as before", async () => {
+    await generate(params);
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).not.toContain("banner");
+    expect(Object.keys(body.text.format.schema.properties)).toEqual([
+      "title",
+      "body",
+      "claims",
+    ]);
+    expect(body.text.format.schema.required).toEqual([
+      "title",
+      "body",
+      "claims",
+    ]);
+  });
+
+  it("asks for and returns the banner copy", async () => {
+    create.mockResolvedValue(withBanner(banner));
+    const result = await generate({ ...params, banner: true });
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).toMatch(/ The contract has a banner: /);
+    // A revision keeps the banner unless its instruction concerns it.
+    expect(body.instructions).toContain(
+      "return previousBanner unchanged unless revision.instruction concerns the banner",
+    );
+    expect(body.text.format.schema.required).toContain("banner");
+    expect(body.text.format.schema.properties.banner.required).toEqual([
+      "headline1",
+      "headline2",
+      "subline",
+      "button",
+    ]);
+    expect(result.output.banner).toEqual(banner);
+  });
+
+  it("refuses an answer without the banner it asked for, at the known cost", async () => {
+    await expect(generate({ ...params, banner: true })).rejects.toBeInstanceOf(
+      GenerationOutputError,
+    );
+    create.mockResolvedValue(withBanner({ ...banner, button: "" }));
+    await expect(generate({ ...params, banner: true })).rejects.toMatchObject({
+      code: "MODEL_OUTPUT_NOT_VALID",
+    });
+  });
+});

@@ -53,6 +53,8 @@ export async function renderProjectAsset(scope: Scope, raw: unknown) {
         if (
           value.usageApproved !== true ||
           value.assetStatus !== "approved" ||
+          // A composed assignment banner is bound to its post (R78).
+          value.boundTo ||
           (isLogo
             ? !["logo", "original_logo"].includes(String(value.type))
             : ["logo", "original_logo"].includes(String(value.type)))

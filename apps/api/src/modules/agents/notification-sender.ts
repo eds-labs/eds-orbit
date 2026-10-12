@@ -216,10 +216,20 @@ async function rejected(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
   const problems = (
     (c.agentReviewDecision?.deterministicProblems ?? []) as unknown[]
   ).map(String);
+  // A shared text (R76) is dropped on every channel of its slot.
+  const channels = (
+    Array.isArray(c.agentReviewDecision?.channels) &&
+    c.agentReviewDecision.channels.length > 1
+      ? c.agentReviewDecision.channels
+      : [c.channel]
+  ) as string[];
+  const names: string[] = [];
+  for (const channel of channels)
+    names.push(await channelName(tx, scope, channel));
   return plain(
     [
       "Entwurf abgelehnt",
-      `Kanal: ${await channelName(tx, scope, c.channel)}`,
+      `${names.length > 1 ? "Kanäle" : "Kanal"}: ${names.join(", ")}`,
       `Grund: ${clip([...reasons, ...problems].join("; ") || "nicht angegeben", 300)}`,
       "Es geht nichts raus.",
     ].join("\n"),
@@ -691,10 +701,19 @@ async function dailyReport(
       },
       select: { metadata: true },
     })
-  ).filter(
-    (event) =>
-      (event.metadata as Record<string, unknown> | null)?.revisedTo == null,
-  ).length;
+  )
+    .filter(
+      (event) =>
+        (event.metadata as Record<string, unknown> | null)?.revisedTo == null,
+    )
+    // A shared text (R76) counts once per channel it would have gone to.
+    .reduce((sum, event) => {
+      const channels = (event.metadata as Record<string, unknown> | null)
+        ?.channels;
+      return (
+        sum + (Array.isArray(channels) && channels.length ? channels.length : 1)
+      );
+    }, 0);
   // Deliverables that stopped today (I4), from the audits written with their notices.
   const events = await tx.auditEvent.findMany({
     where: {

@@ -1371,6 +1371,8 @@ export async function buildServer(
     const scope = await scopeFor(auth, req, projectId);
     return scoped(scope.workspaceId, projectId, async (tx) => ({
       items: (await list(tx, scope, collection))
+        // Composed assignment banners are bound to their post (R78): no library entry.
+        .filter((row) => collection !== "assets" || !data(row).boundTo)
         .slice(0, 500)
         .map(publicEntity),
     }));

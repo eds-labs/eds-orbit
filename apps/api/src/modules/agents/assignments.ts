@@ -1,7 +1,10 @@
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import {
+  marketingProfile,
+  type Scope,
+} from "../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -17,9 +20,17 @@ import {
   cancelActionRequest,
   createActionRequest,
 } from "../action-requests.ts";
+import { currentMarketingProfile } from "../marketing-profile.ts";
+import {
+  channelTextLength,
+  finalPostText,
+  resolveChannelRules,
+} from "../channel-rules.ts";
+import { lengthRange } from "./post-format.ts";
 import { activePolicy } from "../policy.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
+import { assertBannerReady, assignmentBanner } from "./banner.ts";
 import { notify } from "./notifications.ts";
 import {
   applyConfirmedDelivery,
@@ -40,6 +51,32 @@ export function agentsEnabled() {
 }
 
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
+
+/**
+ * The shape of every post of an assignment (R77): length of the body as
+ * written (the link Orbit appends is not counted), hashtag count, short
+ * paragraphs and the link the posts lead to. Absent means no format, as
+ * before R77. Social assignments only.
+ */
+export const assignmentFormat = z
+  .object({
+    minChars: z.number().int().min(1).max(4000),
+    maxChars: z.number().int().min(1).max(4000),
+    hashtags: z
+      .object({
+        min: z.number().int().min(0).max(10),
+        max: z.number().int().min(0).max(10),
+      })
+      .strict(),
+    paragraphs: z.boolean(),
+    // The link of every post: one of the profile's official links inside the policy's allowed origins.
+    cta: z
+      .url({ protocol: /^https$/ })
+      .max(500)
+      .optional(),
+  })
+  .strict();
+export type AssignmentFormat = z.infer<typeof assignmentFormat>;
 
 export const assignmentSchedule = z
   .object({
@@ -80,10 +117,22 @@ const assignmentFields = z
     // or only created as drafts in Postiz at their slot, which the owner
     // publishes himself. Absent means "publish" (rows from before R73).
     delivery: z.enum(["publish", "postiz_draft"]).optional(),
+    // One text and one image per slot for all channels (R76). Absent means
+    // false: one text per channel, as before R76.
+    sharedAcrossChannels: z.boolean().optional(),
+    format: assignmentFormat.optional(),
+    // A 16:9 banner per slot in the brand style instead of a free image
+    // (R78). Absent means the free image as before R78.
+    banner: assignmentBanner.optional(),
   })
   .strict();
 type Content = z.infer<typeof assignmentFields>;
 const CONTENT_KEYS = Object.keys(assignmentFields.shape) as (keyof Content)[];
+/**
+ * Optional fields a change may clear with an explicit null (R77, R78); an
+ * absent field stays unchanged. The chat tool sends them as `clear`.
+ */
+export const CLEARABLE = ["format", "banner"] as const;
 
 export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
   const { rhythm, weekdays, date } = value.schedule;
@@ -111,6 +160,23 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(["schedule", "date"], "A one-off assignment needs a date");
   if (value.delivery === "postiz_draft" && value.contentType !== "social")
     issue(["delivery"], "Only social posts can be delivered as Postiz drafts");
+  if (value.sharedAcrossChannels === true && value.contentType !== "social")
+    issue(
+      ["sharedAcrossChannels"],
+      "Only social posts can share one text across channels",
+    );
+  if (value.banner && value.contentType !== "social")
+    issue(["banner"], "Only social posts have a banner");
+  if (value.banner && !value.image)
+    issue(["banner"], "A banner needs the image consent (image: true)");
+  if (value.format) {
+    if (value.contentType !== "social")
+      issue(["format"], "Only social posts have a format");
+    if (value.format.minChars > value.format.maxChars)
+      issue(["format", "minChars"], "minChars must not exceed maxChars");
+    if (value.format.hashtags.min > value.format.hashtags.max)
+      issue(["format", "hashtags", "min"], "min must not exceed max");
+  }
 });
 export type AssignmentInput = z.output<typeof assignmentInput>;
 
@@ -146,16 +212,29 @@ export function confirmedDelivery(
     : "publish";
 }
 
+/** Whether an assignment writes one text and one image per slot for all its channels (R76). */
+export const sharedAcrossChannels = (
+  source: Record<string, any> | null | undefined,
+) => source?.sharedAcrossChannels === true && source?.contentType === "social";
+
+// Field values that equal the behaviour before the field existed; the hash leaves them out.
+const LEGACY_DEFAULTS: Partial<Record<keyof Content, unknown>> = {
+  delivery: "publish",
+  sharedAcrossChannels: false,
+};
+
 // Normalized as stored (JSON drops undefined), so a hash is the same before
-// and after saving. The default delivery "publish" is left out, so rows from
-// before R73 keep their hash and confirmation, while "postiz_draft" changes it.
+// and after saving. Defaults that keep the old behaviour (delivery "publish",
+// R73; sharedAcrossChannels false, R76; no format, R77; no banner, R78) are left out, so rows
+// from before them keep their hash and confirmation, while any other value
+// changes it.
 const contentOf = (source: Record<string, any>) =>
   JSON.parse(
     JSON.stringify(
       Object.fromEntries(
         CONTENT_KEYS.map((key) => [
           key,
-          key === "delivery" && source[key] === "publish"
+          key in LEGACY_DEFAULTS && source[key] === LEGACY_DEFAULTS[key]
             ? undefined
             : source[key],
         ]),
@@ -188,6 +267,101 @@ async function committedBudget(tx: DbTx, scope: Scope, selfId: string | null) {
  * confirmed or resumed, until a report delivery exists.
  */
 export const REPORT_NOT_AVAILABLE = "REPORT_NOT_AVAILABLE";
+/** The format's link is not one of the marketing profile's official links (R77). */
+export const FORMAT_CTA_NOT_OFFICIAL_LINK = "FORMAT_CTA_NOT_OFFICIAL_LINK";
+
+/**
+ * The format's link (R77) must be allowed by the policy and be one of the
+ * marketing profile's official links, which carry the verified fact the
+ * copywriter's link check needs.
+ */
+async function assertFormatLink(
+  tx: DbTx,
+  scope: Scope,
+  cta: string | undefined,
+  allowedOrigins: string[],
+) {
+  if (!cta) return;
+  let origin: string | null = null;
+  try {
+    origin = new URL(cta).origin;
+  } catch {
+    origin = null;
+  }
+  if (!origin || !allowedOrigins.includes(origin))
+    throw new DomainError("LINK_NOT_ALLOWED", 409);
+  const profileRow = await currentMarketingProfile(tx, scope);
+  const profile = profileRow
+    ? marketingProfile.safeParse(profileRow.data)
+    : null;
+  if (
+    !profile?.success ||
+    !profile.data.officialLinks.some((link) => link.url === cta)
+  )
+    throw new DomainError(FORMAT_CTA_NOT_OFFICIAL_LINK, 409);
+}
+
+/** The format's longest body plus a newline and its link exceeds a channel's limit (R77). */
+export const FORMAT_EXCEEDS_CHANNEL_LIMIT = "FORMAT_EXCEEDS_CHANNEL_LIMIT";
+
+/**
+ * A format must fit every channel (R77): its longest accepted body
+ * (`maxChars` + 5 %, `lengthRange`) plus a newline and the link Orbit
+ * appends, counted as each channel counts it (X weighted with its URL
+ * allowance, Telegram in UTF-16 units) with the image when the assignment
+ * has one (Telegram's 1,024-character caption), must stay within the
+ * smallest limit. The link is the format's, else the longest official link
+ * the policy allows. A channel without a known limit is not checked.
+ */
+async function assertFormatFits(
+  tx: DbTx,
+  scope: Scope,
+  content: Content,
+  allowedOrigins: string[],
+) {
+  if (!content.format) return;
+  let link = content.format.cta ?? "";
+  if (!link) {
+    const profileRow = await currentMarketingProfile(tx, scope);
+    const profile = profileRow
+      ? marketingProfile.safeParse(profileRow.data)
+      : null;
+    for (const official of profile?.success ? profile.data.officialLinks : []) {
+      let origin: string | null = null;
+      try {
+        origin = new URL(official.url).origin;
+      } catch {
+        origin = null;
+      }
+      if (
+        origin &&
+        allowedOrigins.includes(origin) &&
+        official.url.length > link.length
+      )
+        link = official.url;
+    }
+  }
+  const text = finalPostText(
+    "x".repeat(lengthRange(content.format).max),
+    link || null,
+  );
+  for (const channel of content.channels) {
+    const rules = await resolveChannelRules(
+      tx,
+      scope,
+      channel,
+      content.contentType,
+      content.image === true,
+    );
+    const length = channelTextLength(text, rules);
+    if (
+      rules.characterLimit !== null &&
+      length !== null &&
+      length > rules.characterLimit
+    )
+      throw new DomainError(FORMAT_EXCEEDS_CHANNEL_LIMIT, 409);
+  }
+}
 
 async function assertWithinMandate(
   tx: DbTx,
@@ -209,6 +383,22 @@ async function assertWithinMandate(
     !mandate.contentTypes?.includes(content.contentType)
   )
     throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+  await assertFormatLink(
+    tx,
+    scope,
+    content.format?.cta,
+    mandate.allowedOrigins ?? [],
+  );
+  await assertFormatFits(tx, scope, content, mandate.allowedOrigins ?? []);
+  // A banner is composed with the profile's approved logo, never a generated
+  // one, and its wordmark and domain must fit the template (R78).
+  if (content.banner)
+    await assertBannerReady(
+      tx,
+      scope,
+      content.format?.cta,
+      mandate.allowedOrigins ?? [],
+    );
   const committed = await committedBudget(tx, scope, selfId);
   if (
     committed + content.monthlyBudgetMicros >
@@ -405,22 +595,33 @@ export async function updateAssignment(
   requireEditor(scope);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const row = await entity(tx, scope, KIND, id);
-  const d = data(row);
-  if (d.status === "ended") throw new DomainError("ASSIGNMENT_ENDED", 409);
+  const current = data(row);
+  if (current.status === "ended")
+    throw new DomainError("ASSIGNMENT_ENDED", 409);
   if (row.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   const unknown = Object.keys(patch).filter(
     (key) => !CONTENT_KEYS.includes(key as keyof Content),
   );
   if (unknown.length) throw new DomainError("ASSIGNMENT_FIELD_UNKNOWN", 400);
-  const next = assignmentInput.parse({
-    ...contentOf(d),
+  // An absent field stays as it is; an explicit null clears an optional one.
+  const cleared = CLEARABLE.filter((key) => patch[key] === null);
+  const merged: Record<string, unknown> = {
+    ...contentOf(current),
     ...Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined),
     ),
-  });
-  if (assignmentHash(next) === assignmentHash(d)) return row;
+  };
+  for (const key of cleared) delete merged[key];
+  const next = assignmentInput.parse(merged);
+  // The stored row loses a cleared field too.
+  const d = Object.fromEntries(
+    Object.entries(current).filter(
+      ([key]) => !cleared.includes(key as (typeof CLEARABLE)[number]),
+    ),
+  ) as Record<string, any>;
+  if (assignmentHash(next) === assignmentHash(current)) return row;
   // Moving the times of any assignment is the owner's decision; an editor proposes a content change instead.
-  const timesChanged = hash(withoutTimes(next)) === hash(withoutTimes(d));
+  const timesChanged = hash(withoutTimes(next)) === hash(withoutTimes(current));
   if (timesChanged && scope.role !== "owner")
     throw new DomainError("OWNER_REQUIRED", 403);
   await assertWithinMandate(tx, scope, next, id);

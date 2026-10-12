@@ -52,7 +52,7 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create, data, entity, list } from "../src/shared.ts";
+import { create, data, entity, list, update } from "../src/shared.ts";
 import {
   createConversation,
   getConversation,
@@ -66,6 +66,7 @@ import {
   createPackageProject,
   IMAGE_MAX,
   IMAGE_MODEL,
+  OFFICIAL_URL,
   X,
 } from "./support/package-project.ts";
 
@@ -115,6 +116,9 @@ const proposeArgs = (changes: Record<string, unknown> = {}) => ({
   vetoMinutes: null,
   monthlyBudgetMicros: 30_000_000,
   delivery: null,
+  sharedAcrossChannels: null,
+  format: null,
+  banner: null,
   ...changes,
 });
 const changeArgs = (
@@ -137,6 +141,10 @@ const patch = (changes: Record<string, unknown>) => ({
   vetoMinutes: null,
   monthlyBudgetMicros: null,
   delivery: null,
+  sharedAcrossChannels: null,
+  format: null,
+  banner: null,
+  clear: null,
   ...changes,
 });
 
@@ -289,6 +297,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
           vetoMinutes: 180,
           monthlyBudgetMicros: 30_000_000,
           delivery: "publish",
+          sharedAcrossChannels: false,
           actionRequestId: results[0].actionRequestId,
         },
       },
@@ -493,6 +502,267 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     });
   });
 
+  it("sets one text for all channels and a format at proposal and change (R76, R77)", async () => {
+    // Fits X without long posts (280): 210 characters, a newline and the link.
+    const format = {
+      minChars: 100,
+      maxChars: 200,
+      hashtags: { min: 2, max: 3 },
+      paragraphs: true,
+      cta: OFFICIAL_URL,
+    };
+    const proposed = await turn(project.editor, [
+      [
+        call(
+          "assignment_propose",
+          proposeArgs({
+            name: "Shared",
+            sharedAcrossChannels: true,
+            format,
+          }),
+        ),
+      ],
+      [answer("Proposed.")],
+    ]);
+    expect(proposed.cards[0]).toMatchObject({
+      assignment: { name: "Shared", sharedAcrossChannels: true, format },
+    });
+    // The confirmation request carries both: they are part of the confirmed content.
+    const request = await run((tx) =>
+      entity(
+        tx,
+        project.owner,
+        "action_requests",
+        proposed.cards[0]!.assignment!.actionRequestId!,
+      ),
+    );
+    expect(data(request).payload).toMatchObject({
+      sharedAcrossChannels: true,
+      format,
+    });
+    // A change of either returns a confirmed assignment to draft.
+    const id = await confirmed();
+    const version = (await assignmentOf(id)).version;
+    const { results } = await turn(project.editor, [
+      [
+        call(
+          "assignment_change",
+          changeArgs(
+            id,
+            version,
+            "change",
+            patch({ format: { ...format, cta: null } }),
+          ),
+        ),
+      ],
+      [answer("The change awaits the owner's confirmation.")],
+    ]);
+    expect(results[0]).toMatchObject({ status: "awaiting_confirmation" });
+    expect(data(await assignmentOf(id))).toMatchObject({
+      status: "draft",
+      format: { minChars: 100, maxChars: 200 },
+    });
+    expect(data(await assignmentOf(id)).format).not.toHaveProperty("cta");
+    // The link must be an official link inside the policy's allowed origins.
+    for (const [cta, code] of [
+      ["https://elsewhere.invalid/register", "LINK_NOT_ALLOWED"],
+      [`${OFFICIAL_URL}/other`, "FORMAT_CTA_NOT_OFFICIAL_LINK"],
+    ] as const) {
+      const refused = await turn(project.editor, [
+        [
+          call(
+            "assignment_propose",
+            proposeArgs({ name: "Refused", format: { ...format, cta } }),
+          ),
+        ],
+        [answer("Refused.")],
+      ]);
+      expect(refused.results).toEqual([{ error: code }]);
+    }
+    // Shared text and format are for social posts with a consistent range only.
+    const invalid = await turn(project.editor, [
+      [
+        call(
+          "assignment_propose",
+          proposeArgs({
+            name: "Invalid",
+            format: { ...format, minChars: 250 },
+          }),
+        ),
+      ],
+      [answer("Invalid.")],
+    ]);
+    expect(invalid.results[0]).toMatchObject({
+      error: "ASSIGNMENT_VALIDATION_FAILED",
+    });
+  });
+
+  it("refuses a format that does not fit the strictest channel (FORMAT_EXCEEDS_CHANNEL_LIMIT)", async () => {
+    const long = {
+      minChars: 600,
+      maxChars: 900,
+      hashtags: { min: 2, max: 3 },
+      paragraphs: true,
+      cta: OFFICIAL_URL,
+    };
+    const setLongPosts = (on: boolean) =>
+      run(async (tx) => {
+        const row = (await list(tx, project.owner, "connectors")).find(
+          (c) => data(c).provider === "postiz",
+        )!;
+        await update(tx, project.owner, row, {
+          ...data(row),
+          xLongPostIntegrationIds: on ? [X] : [],
+        });
+      });
+    // X without long posts takes 280 characters: 945 + newline + link do not fit.
+    const refused = await turn(project.editor, [
+      [call("assignment_propose", proposeArgs({ name: "Long", format: long }))],
+      [answer("Refused.")],
+    ]);
+    expect(refused.results).toEqual([
+      { error: "FORMAT_EXCEEDS_CHANNEL_LIMIT" },
+    ]);
+    // With X long posts (4,000) it fits; confirmed, it runs.
+    await setLongPosts(true);
+    const proposed = await turn(project.editor, [
+      [call("assignment_propose", proposeArgs({ name: "Long", format: long }))],
+      [answer("Proposed.")],
+    ]);
+    const id = proposed.results[0].assignmentId as string;
+    await decide(project.owner, proposed.results[0].actionRequestId);
+    expect(data(await assignmentOf(id)).status).toBe("active");
+    // Long posts switched off meanwhile: the paused assignment cannot resume.
+    const pause = await turn(project.owner, [
+      [call("assignment_change", changeArgs(id, null, "pause"))],
+      [answer("Paused.")],
+    ]);
+    expect(pause.results[0]).toMatchObject({ status: "paused" });
+    await setLongPosts(false);
+    const resumed = await turn(project.owner, [
+      [call("assignment_change", changeArgs(id, null, "resume"))],
+      [answer("Refused.")],
+    ]);
+    expect(resumed.results).toEqual([
+      { error: "FORMAT_EXCEEDS_CHANNEL_LIMIT" },
+    ]);
+  });
+
+  it("clears the format on request and keeps it when the field is left out", async () => {
+    const format = {
+      minChars: 100,
+      maxChars: 200,
+      hashtags: { min: 2, max: 3 },
+      paragraphs: true,
+      cta: null,
+    };
+    const proposed = await turn(project.editor, [
+      [call("assignment_propose", proposeArgs({ name: "Clear", format }))],
+      [answer("Proposed.")],
+    ]);
+    const id = proposed.results[0].assignmentId as string;
+    // Another change leaves the format as it is.
+    await turn(project.editor, [
+      [
+        call(
+          "assignment_change",
+          changeArgs(
+            id,
+            (await assignmentOf(id)).version,
+            "change",
+            patch({ tone: "Calm" }),
+          ),
+        ),
+      ],
+      [answer("Changed.")],
+    ]);
+    expect(data(await assignmentOf(id)).format).toMatchObject({
+      minChars: 100,
+    });
+    // `clear` removes it.
+    const cleared = await turn(project.editor, [
+      [
+        call(
+          "assignment_change",
+          changeArgs(
+            id,
+            (await assignmentOf(id)).version,
+            "change",
+            patch({ clear: ["format"] }),
+          ),
+        ),
+      ],
+      [answer("Cleared.")],
+    ]);
+    expect(cleared.results[0]).toMatchObject({
+      status: "awaiting_confirmation",
+    });
+    const d = data(await assignmentOf(id));
+    expect(d).not.toHaveProperty("format");
+    expect(d.tone).toBe("Calm");
+    expect(cleared.cards[0]!.assignment).not.toHaveProperty("format");
+  });
+
+  it("sets a brand banner at proposal, only with the approved logo and the image consent (R78)", async () => {
+    const banner = { template: "brand_landscape", style: "More glow" };
+    const propose = (changes: Record<string, unknown>) =>
+      turn(project.editor, [
+        [call("assignment_propose", proposeArgs(changes))],
+        [answer("Done.")],
+      ]);
+    // Without an approved logo in the marketing profile there is no banner.
+    expect(
+      (await propose({ name: "No logo", image: true, banner })).results,
+    ).toEqual([{ error: "BANNER_LOGO_REQUIRED" }]);
+    await run(async (tx) => {
+      const logo = await create(tx, project.owner, "assets", {
+        name: "Synthetic logo",
+        type: "logo",
+        mime: "image/png",
+        // Metadata only: the proposal checks the asset, not its bytes.
+        sha256: "a".repeat(64),
+        usageApproved: true,
+        assetStatus: "approved",
+      });
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      const value = profile.data as Record<string, any>;
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...value,
+            visualIdentity: {
+              ...(value.visualIdentity ?? {}),
+              logoAssetId: logo.id,
+            },
+          },
+        },
+      });
+    });
+    // A banner needs the image consent.
+    expect(
+      (await propose({ name: "No image", banner })).results[0],
+    ).toMatchObject({ error: "ASSIGNMENT_VALIDATION_FAILED" });
+    const proposed = await propose({ name: "Branded", image: true, banner });
+    expect(proposed.results[0]).toMatchObject({
+      status: "awaiting_confirmation",
+    });
+    expect(proposed.cards[0]).toMatchObject({
+      assignment: { name: "Branded", image: true, banner },
+    });
+    const request = await run((tx) =>
+      entity(
+        tx,
+        project.owner,
+        "action_requests",
+        proposed.cards[0]!.assignment!.actionRequestId!,
+      ),
+    );
+    expect(data(request).payload).toMatchObject({ banner });
+  });
+
   it("sets the Postiz draft delivery at proposal and change (R73)", async () => {
     vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
     try {
@@ -599,6 +869,9 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
         monthCostMicros: 0,
         monthlyBudgetMicros: 30_000_000,
         delivery: "publish",
+        sharedAcrossChannels: false,
+        format: null,
+        banner: null,
         pendingActionRequestId: null,
       },
     ]);

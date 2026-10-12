@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
+  bannerChromeOverflow,
+  bannerTemplates,
+  bannerTextOverflow,
+  renderBrandBanner,
+  renderRasterBanner,
   renderTemplate,
   renderRasterTemplate,
   templateFormats,
@@ -119,4 +125,209 @@ describe("bounded PNG export", () => {
       expect(output.renderer.version).toBe("0.35.5");
     },
   );
+});
+
+describe("brand banner (R78)", () => {
+  const text = {
+    headline1: "Start free.",
+    headline2: "Build your workflow.",
+    subline: "Markets. Paper trading. Bots.",
+    button: "Explore Desk",
+  };
+  // A 1×1 PNG stands in for the model's background art.
+  const background = `data:image/png;base64,${Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1i8AAAAASUVORK5CYII=",
+    "base64",
+  ).toString("base64")}`;
+  const input = {
+    template: "brand_landscape" as const,
+    text,
+    brandName: "uLiquid Desk",
+    footer: "desk.uliquid.vip",
+    logoApproved: true,
+    backgroundDataUri: background,
+  };
+  const sha = (uri: string) =>
+    createHash("sha256")
+      .update(Buffer.from(uri.split(",")[1]!, "base64"))
+      .digest("hex");
+  /** The SVG's structure: element names with the attributes that place layers, no pixel data. */
+  const structure = (svg: string) =>
+    [...svg.matchAll(/<(image|text|tspan|rect|line|path)\b([^>]*)>/g)].map(
+      ([, tag, attributes]) => {
+        const id = attributes!.match(/\bdata-layer="([^"]+)"/)?.[1];
+        return id ? `${tag}#${id}` : tag;
+      },
+    );
+
+  it("adds a 16:9 format of 1600×900", () => {
+    expect(templateFormats.wide).toEqual([1600, 900]);
+    expect(bannerTemplates.brand_landscape).toEqual([1600, 900]);
+  });
+
+  it("composes background, left shade, approved logo, wordmark, headline, subline, button and footer", () => {
+    const a = renderBrandBanner(input);
+    const b = renderBrandBanner(input);
+    expect(a.status).toBe("rendered");
+    if (a.status !== "rendered") return;
+    expect(a.contentHash).toBe(b.status === "rendered" ? b.contentHash : "");
+    expect([a.width, a.height]).toEqual([1600, 900]);
+    // The bundled logo stands in when no logo asset is given, unchanged.
+    expect(a.logoHash).toBe(
+      "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
+    );
+    // Hashes are taken from the bytes rendered, never from the caller.
+    expect(a.backgroundHash).toBe(sha(background));
+    expect(structure(a.svg).filter((entry) => entry.includes("#")))
+      .toMatchInlineSnapshot(`
+      [
+        "rect#base",
+        "image#background",
+        "rect#glow",
+        "rect#shade",
+        "image#logo",
+        "text#wordmark",
+        "text#headline1",
+        "text#headline2",
+        "text#subline",
+        "rect#button",
+        "text#button-label",
+        "path#button-arrow",
+        "line#divider",
+        "text#footer",
+        "rect#card",
+        "image#card-logo",
+      ]
+    `);
+    // Exact copy, shown in capitals; line 1 white, line 2 cyan.
+    expect(a.svg).toContain(">START FREE.</tspan>");
+    expect(a.svg).toContain("BUILD YOUR");
+    expect(a.svg).toContain("WORKFLOW.");
+    expect(a.svg).toContain(">Markets. Paper trading. Bots.</tspan>");
+    expect(a.svg).toContain(">Explore Desk</text>");
+    expect(a.svg).toContain(">desk.uliquid.vip</text>");
+    expect(a.svg).toMatch(
+      /><tspan>uLiquid<\/tspan><tspan dx="\d+" fill="#22D3EE">Desk</,
+    );
+    expect(a.svg).toContain(background);
+    expect(a.lines).toEqual({
+      headline1: ["START FREE."],
+      headline2: ["BUILD YOUR", "WORKFLOW."],
+      subline: ["Markets. Paper trading. Bots."],
+    });
+  });
+
+  it("renders without a background on the template's own navy and waves", () => {
+    const rendered = renderBrandBanner({
+      ...input,
+      backgroundDataUri: undefined,
+    });
+    expect(rendered.status).toBe("rendered");
+    if (rendered.status !== "rendered") return;
+    expect(structure(rendered.svg)).not.toContain("image#background");
+    expect(structure(rendered.svg)).toContain("path#wave");
+  });
+
+  it("blocks overflow instead of cutting text", () => {
+    for (const changes of [
+      { headline1: "Supercalifragilisticexpialidocious" },
+      { headline2: "Build your workflow and your strategy today" },
+      {
+        subline:
+          "Markets, paper trading, bots, alerts, journals, screeners and much more for every team.",
+      },
+      { button: "Explore the whole trading desk right now for free" },
+    ]) {
+      expect(() =>
+        renderBrandBanner({ ...input, text: { ...text, ...changes } }),
+      ).toThrow("TEXT_OVERFLOW");
+      expect(bannerTextOverflow({ ...text, ...changes })).toBe(true);
+    }
+    expect(bannerTextOverflow(text)).toBe(false);
+    expect(() =>
+      renderBrandBanner({
+        ...input,
+        footer: "a-very-long-subdomain.example-domain-name.invalid",
+      }),
+    ).toThrow("TEXT_OVERFLOW");
+  });
+
+  it("uses a raster logo only with the approved asset's exact bytes", () => {
+    const logoUri = background;
+    const rendered = renderBrandBanner({
+      ...input,
+      logoDataUri: logoUri,
+      logoSha256: sha(logoUri),
+    });
+    expect(rendered.status === "rendered" && rendered.logoHash).toBe(
+      sha(logoUri),
+    );
+    for (const logoSha256 of [undefined, "c".repeat(64)])
+      expect(() =>
+        renderBrandBanner({ ...input, logoDataUri: logoUri, logoSha256 }),
+      ).toThrow("BRAND_ASSET_INTEGRITY_FAILED");
+  });
+
+  it("tells a wordmark or footer that cannot fit apart from copy that can be shortened", () => {
+    expect(bannerChromeOverflow("uLiquid Desk", "desk.uliquid.vip")).toBe(
+      false,
+    );
+    expect(
+      bannerChromeOverflow(
+        "A very long product name that no banner can hold",
+        "desk.uliquid.vip",
+      ),
+    ).toBe(true);
+    expect(
+      bannerChromeOverflow(
+        "uLiquid Desk",
+        "a-very-long-subdomain.of-an-example-domain-name.invalid",
+      ),
+    ).toBe(true);
+    expect(bannerChromeOverflow("", "desk.uliquid.vip")).toBe(true);
+  });
+
+  it("keeps the logo rules: approval required, raster logos only, markup escaped", () => {
+    expect(renderBrandBanner({ ...input, logoApproved: false })).toMatchObject({
+      status: "blocked_asset",
+      creativeBrief: { requiredAsset: "Approved original project logo" },
+    });
+    expect(() =>
+      renderBrandBanner({
+        ...input,
+        logoDataUri: "data:image/svg+xml;base64,PHN2Zy8+",
+      }),
+    ).toThrow("INVALID_BRAND_ASSET");
+    expect(() =>
+      renderBrandBanner({
+        ...input,
+        backgroundDataUri: "https://example.invalid/a.png",
+      }),
+    ).toThrow("INVALID_BRAND_ASSET");
+    const escaped = renderBrandBanner({
+      ...input,
+      text: { ...text, headline1: "<script>" },
+    });
+    expect(escaped.status === "rendered" && escaped.svg).not.toContain(
+      "<script>",
+    );
+    expect(() =>
+      renderBrandBanner({ ...input, text: { ...text, button: " " } }),
+    ).toThrow("INVALID_TEMPLATE_INPUT");
+  });
+
+  it("exports a 1600×900 PNG", async () => {
+    const output = await renderRasterBanner(input);
+    expect(output.status).toBe("rendered");
+    if (output.status !== "rendered") return;
+    expect(output.mime).toBe("image/png");
+    expect(output.bytes.subarray(0, 8).toString("hex")).toBe(
+      "89504e470d0a1a0a",
+    );
+    expect([
+      output.bytes.readUInt32BE(16),
+      output.bytes.readUInt32BE(20),
+    ]).toEqual([1600, 900]);
+    expect(output.sourceSvgHash).toHaveLength(64);
+  });
 });

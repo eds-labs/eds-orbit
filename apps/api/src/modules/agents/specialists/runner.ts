@@ -342,8 +342,20 @@ async function taskInput(
       topicFrame: assignment.topicFrame,
       tone: assignment.tone ?? null,
       image: Boolean(assignment.image),
+      // Only when set, so the input of other assignments stays as it was (R76, R77).
+      ...(assignment.sharedAcrossChannels === true
+        ? { sharedAcrossChannels: true }
+        : {}),
+      ...(assignment.format ? { format: assignment.format } : {}),
     },
-    run: { id: task.runId, date: run.date, slots: run.slots ?? [] },
+    run: {
+      id: task.runId,
+      date: run.date,
+      slots: run.slots ?? [],
+      ...(run.sharedAcrossChannels === true
+        ? { sharedAcrossChannels: true }
+        : {}),
+    },
     inputs,
   };
 }

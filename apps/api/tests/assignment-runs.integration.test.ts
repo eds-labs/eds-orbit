@@ -95,6 +95,35 @@ describe("Work plan of an assignment", () => {
     );
   });
 
+  it("plans one copywriter for a text shared across channels (R76)", () => {
+    const steps = plan({
+      channels: [X, TELEGRAM],
+      image: true,
+      sharedAcrossChannels: true,
+    });
+    expect(shape(steps)).toEqual([
+      ["analytics", "analytics", []],
+      ["research", "research", []],
+      ["strategy", "strategy", ["analytics", "research"]],
+      ["copywriter", "copywriter", ["strategy"]],
+      ["visual", "visual", ["strategy"]],
+      ["review", "review", ["copywriter", "visual"]],
+    ]);
+    expect(steps.reduce((sum, step) => sum + step.ceilingMicros, 0)).toBe(
+      1_000_000,
+    );
+    // An explicit false plans as before.
+    expect(
+      shape(
+        plan({
+          channels: [X, TELEGRAM],
+          image: true,
+          sharedAcrossChannels: false,
+        }),
+      ),
+    ).toEqual(shape(plan({ channels: [X, TELEGRAM], image: true })));
+  });
+
   it("leaves out the visual without an image", () => {
     expect(plan({}).map((step) => step.role)).toEqual([
       "analytics",

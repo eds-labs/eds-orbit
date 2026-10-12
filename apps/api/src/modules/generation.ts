@@ -46,6 +46,12 @@ import { missionFactKeys } from "./mission-evidence.ts";
 import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
 import { assertTaskBudget } from "./agents/specialists/runner.ts";
 import {
+  BANNER_TEXT_LIMITS,
+  bannerTemplateOf,
+  parsedBanner,
+} from "./agents/banner.ts";
+import type { BannerText } from "../../../../packages/creative/src/index.ts";
+import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
   MAX_BATCH_DRAFTS,
@@ -85,7 +91,12 @@ type GenerationContract = {
     previousDrafts: { title: string; claims: string[] }[];
   } | null;
   // Present only for a package revision of one existing draft.
-  revision?: { instruction: string; previousBody: string };
+  revision?: {
+    instruction: string;
+    previousBody: string;
+    // The banner copy of the revised draft (R78): kept unless the instruction concerns it.
+    previousBanner?: BannerText;
+  };
   // Present only for an autopilot day: the channel's posts around its slot.
   recentChannelPosts?: { title: string; claims: string[] }[];
   // Present only for a package or assignment run mission: its drafts for the other channels.
@@ -97,19 +108,41 @@ type GenerationContract = {
     cta: string;
     notARepeatBecause: string;
   };
+  // Present only for an assignment with a format (R77): length, hashtags, paragraphs and link of the post.
+  format?: {
+    minChars: number;
+    maxChars: number;
+    hashtags: { min: number; max: number };
+    paragraphs: boolean;
+    cta?: string;
+  };
+  // Present only for an assignment with a banner (R78): the banner copy's template and length guide.
+  banner?: {
+    template: "brand_landscape";
+    limits: Readonly<Record<keyof BannerText, number>>;
+  };
+  // Present only for a shared text (R76): every channel it goes out on, unchanged.
+  sharedChannels?: {
+    channel: string;
+    providerIdentifier: string | null;
+    characterLimit: number | null;
+  }[];
 };
 /** The draft a revision changes; it must still be the version the user asked to revise. */
 async function revisionContext(
   tx: DbTx,
   scope: Scope,
   revisionOf: { contentId: string; version: number; instruction: string },
+  withBanner = false,
 ) {
   const parent = await entity(tx, scope, "content", revisionOf.contentId);
   if (parent.version !== revisionOf.version)
     throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+  const previousBanner = withBanner ? parsedBanner(data(parent).banner) : null;
   return {
     instruction: revisionOf.instruction,
     previousBody: String(data(parent).body ?? ""),
+    ...(previousBanner ? { previousBanner } : {}),
   };
 }
 
@@ -121,15 +154,17 @@ export async function recentChannelPosts(
   tx: DbTx,
   scope: Scope,
   missionId: string,
-  channel: string,
+  channel: string | string[],
   slot: number,
 ) {
+  // A shared text (R76) avoids the recent posts of every channel it goes to.
+  const channels = Array.isArray(channel) ? channel : [channel];
   const at = (row: Awaited<ReturnType<typeof list>>[number]) =>
     Date.parse(String(data(row).scheduledAt ?? "")) || row.createdAt.valueOf();
   const own = (await list(tx, scope, "content"))
     .filter(
       (row) =>
-        data(row).channel === channel &&
+        channels.includes(data(row).channel) &&
         data(row).missionId !== missionId &&
         data(row).status !== "archived" &&
         withinClaimRepeatWindow(at(row), slot),
@@ -140,16 +175,20 @@ export async function recentChannelPosts(
       claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
     }));
   // Posts made outside Orbit count as well (channel history from Postiz).
-  const external = await externalChannelPosts(
-    tx,
-    scope,
-    channel,
-    slot,
-    CLAIM_REPEAT_WINDOW_DAYS,
-  );
+  const external: Array<{ at: number; title: string; claims: string[] }> = [];
+  for (const one of channels)
+    external.push(
+      ...(await externalChannelPosts(
+        tx,
+        scope,
+        one,
+        slot,
+        CLAIM_REPEAT_WINDOW_DAYS,
+      )),
+    );
   return [...own, ...external]
     .sort((a, b) => Math.abs(a.at - slot) - Math.abs(b.at - slot))
-    .slice(0, MAX_BATCH_DRAFTS)
+    .slice(0, MAX_BATCH_DRAFTS * channels.length)
     .map(({ title, claims }) => ({ title, claims }));
 }
 
@@ -181,6 +220,30 @@ async function packageDrafts(
       title: String(data(row).title ?? ""),
       body: String(data(row).body ?? "").slice(0, 1000),
     }));
+}
+
+/** The rules of every channel a shared assignment text goes out on (R76), one after the other in the transaction. */
+async function sharedChannelRules(
+  tx: DbTx,
+  scope: Scope,
+  m: Record<string, any>,
+) {
+  const shared: NonNullable<GenerationContract["sharedChannels"]> = [];
+  for (const channel of m.sharedChannels as string[]) {
+    const rules = await resolveChannelRules(
+      tx,
+      scope,
+      channel,
+      m.contentType,
+      missionHasMedia(m),
+    );
+    shared.push({
+      channel,
+      providerIdentifier: rules.providerIdentifier,
+      characterLimit: rules.characterLimit,
+    });
+  }
+  return shared;
 }
 
 /** Channel limits for attached media apply to approved assets and to a planned package image. */
@@ -384,7 +447,12 @@ async function generateMissionDraft(
       )
         throw new DomainError("CHANNEL_LIMIT_EXCEEDED", 409);
       const revision = m.revisionOf
-        ? await revisionContext(tx, scope, m.revisionOf)
+        ? await revisionContext(
+            tx,
+            scope,
+            m.revisionOf,
+            Boolean(m.assignmentRunId && bannerTemplateOf(m)),
+          )
         : null;
       const contract: GenerationContract = {
         ...(revision ? { revision } : {}),
@@ -458,13 +526,44 @@ async function generateMissionDraft(
               },
             }
           : {}),
+        ...(m.assignmentRunId && m.format
+          ? {
+              format: {
+                minChars: Number(m.format.minChars),
+                maxChars: Number(m.format.maxChars),
+                hashtags: {
+                  min: Number(m.format.hashtags?.min ?? 0),
+                  max: Number(m.format.hashtags?.max ?? 0),
+                },
+                paragraphs: m.format.paragraphs === true,
+                ...(m.format.cta ? { cta: String(m.format.cta) } : {}),
+              },
+            }
+          : {}),
+        ...(m.assignmentRunId && bannerTemplateOf(m)
+          ? {
+              banner: {
+                template: bannerTemplateOf(m)!,
+                limits: BANNER_TEXT_LIMITS,
+              },
+            }
+          : {}),
+        ...(m.assignmentRunId &&
+        Array.isArray(m.sharedChannels) &&
+        m.sharedChannels.length > 1
+          ? {
+              sharedChannels: await sharedChannelRules(tx, scope, m),
+            }
+          : {}),
         ...(m.autopilot === true || m.assignmentRunId
           ? {
               recentChannelPosts: await recentChannelPosts(
                 tx,
                 scope,
                 missionId,
-                channel,
+                Array.isArray(m.sharedChannels) && m.sharedChannels.length > 1
+                  ? (m.sharedChannels as string[])
+                  : channel,
                 Date.parse(m.plannedSlotAt ?? "") || Date.now(),
               ),
             }
@@ -620,6 +719,11 @@ async function generateMissionDraft(
       route: prepared.modelRoute,
       reservationId: prepared.reservationId,
       runtime: prepared.ai,
+      // Banner copy for an assignment with a banner (R78); otherwise the request is unchanged.
+      ...(data(prepared.mission).assignmentRunId &&
+      bannerTemplateOf(data(prepared.mission))
+        ? { banner: true }
+        : {}),
     });
   } catch (error) {
     // A completed response with unusable output has a known cost.

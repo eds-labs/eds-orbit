@@ -232,6 +232,33 @@ describe("AssignmentTable delivery", () => {
       "Zustellung: Als Entwurf in Postiz (du veröffentlichst selbst)",
     );
   });
+
+  it("shows a shared text and the format (R76, R77)", () => {
+    const html = render([
+      item({
+        sharedAcrossChannels: true,
+        format: {
+          minChars: 600,
+          maxChars: 900,
+          hashtags: { min: 2, max: 3 },
+          paragraphs: false,
+        },
+      }),
+    ]);
+    expect(html).toContain("Ein Text und ein Bild für alle Kanäle");
+    expect(html).toContain("Format: 600–900 Zeichen · 2–3 Hashtags");
+    const plain = render([item()]);
+    expect(plain).not.toContain("Ein Text und ein Bild für alle Kanäle");
+    expect(plain).not.toContain("Format:");
+  });
+});
+
+describe("AssignmentTable banner (R78)", () => {
+  it("shows the banner setting only when set", () => {
+    const html = render([item({ banner: { template: "brand_landscape" } })]);
+    expect(html).toContain("Banner: Markenbanner 16:9 je Termin");
+    expect(render([item()])).not.toContain("Banner:");
+  });
 });
 
 describe("AwaitingOwnerDraftList", () => {

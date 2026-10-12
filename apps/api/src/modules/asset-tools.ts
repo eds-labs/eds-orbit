@@ -9,18 +9,27 @@ import {
 } from "./google-drive.ts";
 import { data, DomainError, publicEntity } from "../shared.ts";
 
+/**
+ * A composed assignment banner (R78) is bound to its run and draft: its
+ * text was reviewed for that post only, so it is never offered or reused.
+ */
+export const boundAsset = (row: { data: unknown } | null) =>
+  Boolean(row && data(row).boundTo);
+
 async function rows(scope: Scope) {
-  return scoped(scope.workspaceId, scope.projectId, (tx) =>
-    tx.entity.findMany({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        kind: "assets",
-      },
-      orderBy: { createdAt: "desc" },
-      take: 500,
-    }),
-  );
+  return (
+    await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      tx.entity.findMany({
+        where: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          kind: "assets",
+        },
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      }),
+    )
+  ).filter((row) => !boundAsset(row));
 }
 
 // Agent callers receive project-scoped assets and bytes, never OAuth credentials.
@@ -51,7 +60,7 @@ export const assetTools = {
         },
       }),
     );
-    if (!row) throw new DomainError("NOT_FOUND", 404);
+    if (!row || boundAsset(row)) throw new DomainError("NOT_FOUND", 404);
     const value = data(row);
     if (value.usageApproved !== true || value.assetStatus !== "approved")
       throw new DomainError("ASSET_NOT_APPROVED", 403);
@@ -125,5 +134,6 @@ export async function assertMissionAssets(
       data(row).assetStatus !== "approved"
     )
       throw new DomainError("ASSET_NOT_APPROVED", 409);
+    if (boundAsset(row)) throw new DomainError("ASSET_BOUND", 409);
   }
 }

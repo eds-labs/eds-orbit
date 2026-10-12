@@ -110,6 +110,98 @@ describe("AssignmentCard", () => {
     expect(html).not.toContain("wenn du sie nicht stoppst");
   });
 
+  it("shows a shared text and the format the owner confirms (R76, R77)", () => {
+    const card = (changes: Partial<AssignmentContent>) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{ ...assignment(true), ...changes }}
+          status="draft"
+          request={null}
+          de
+          canDecide={false}
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    const shared = card({
+      sharedAcrossChannels: true,
+      format: {
+        minChars: 600,
+        maxChars: 900,
+        hashtags: { min: 2, max: 3 },
+        paragraphs: true,
+        cta: "https://desk.example.invalid/en/register",
+      },
+    });
+    expect(shared).toContain("Beiträge");
+    expect(shared).toContain("Ein Text und ein Bild für alle Kanäle");
+    expect(shared).toContain(
+      "600–900 Zeichen · 2–3 Hashtags · kurze Absätze · Link https://desk.example.invalid/en/register",
+    );
+    // Without an image the shared post is one text.
+    const textOnly = card({ image: false, sharedAcrossChannels: true });
+    expect(textOnly).toContain("Ein Text für alle Kanäle");
+    expect(textOnly).not.toContain("Ein Text und ein Bild");
+    // A card from before R76/R77: one text per channel, no format.
+    const plain = card({});
+    expect(plain).toContain("Eigener Text je Kanal");
+    expect(plain).toContain("Ohne Vorgabe");
+    expect(plain).not.toContain("Ein Text und ein Bild für alle Kanäle");
+  });
+
+  it("shows the banner the owner confirms (R78)", () => {
+    const card = (changes: Partial<AssignmentContent>) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{ ...assignment(true), ...changes }}
+          status="draft"
+          request={null}
+          de
+          canDecide={false}
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    const branded = card({
+      image: true,
+      banner: { template: "brand_landscape", style: "Mehr Glühen" },
+    });
+    expect(branded).toContain("<dt>Banner</dt>");
+    expect(branded).toContain(
+      "Markenbanner 16:9 je Termin: Logo, Überschrift, Unterzeile, Button und Domain auf generiertem Hintergrund · Stil: Mehr Glühen",
+    );
+    // Before R78: a free image per run, or none.
+    expect(card({ image: true })).toContain("Kein Banner, freies Bild je Lauf");
+    expect(card({ image: false })).toContain("<dd>Kein Banner</dd>");
+  });
+
+  it("names the banner in the consent the owner gives (R78)", () => {
+    const html = (changes: Partial<AssignmentContent>) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{ ...assignment(true), image: true, ...changes }}
+          status="draft"
+          request={{
+            id: "request-1",
+            version: 1,
+            packageHash: "hash",
+            status: "pending",
+          }}
+          de
+          canDecide
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    expect(html({ banner: { template: "brand_landscape" } })).toContain(
+      "Banner: generierter Hintergrund, dazu das freigegebene Logo und geprüfter Text",
+    );
+    expect(html({})).not.toContain("Banner: generierter Hintergrund");
+  });
+
   it("lets only a person who may decide confirm", () => {
     const html = render(true, false);
     expect(confirmButton(html)).toBeUndefined();

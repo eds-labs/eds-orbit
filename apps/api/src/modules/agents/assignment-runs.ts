@@ -4,11 +4,16 @@ import { audit, create, data, entity, list, update } from "../../shared.ts";
 import { activePolicy } from "../policy.ts";
 import { zonedTime } from "../posting-slots.ts";
 import { enqueue } from "../workflow.ts";
-import { agentsEnabled, confirmedDelivery } from "./assignments.ts";
+import {
+  agentsEnabled,
+  confirmedDelivery,
+  sharedAcrossChannels,
+} from "./assignments.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
+import { groupSlots, type SharedSlot } from "./shared-posts.ts";
 
 /**
  * Runs of assignments (Orbit Agents). A run is one due execution of an active
@@ -157,11 +162,14 @@ export function buildWorkPlan(assignment: Record<string, any>): WorkStep[] {
     steps = [step("analytics", "analytics")];
   } else {
     const social = assignment.contentType === "social";
-    const copy = social
-      ? channels.map((channel) =>
-          step(`copywriter:${channel}`, "copywriter", ["strategy"]),
-        )
-      : [step("copywriter", "copywriter", ["strategy"])];
+    // One text per slot for all channels (R76): one copywriter writes every brief.
+    const copy = sharedAcrossChannels(assignment)
+      ? [step("copywriter", "copywriter", ["strategy"])]
+      : social
+        ? channels.map((channel) =>
+            step(`copywriter:${channel}`, "copywriter", ["strategy"]),
+          )
+        : [step("copywriter", "copywriter", ["strategy"])];
     // One image per run, reusable across channels.
     const visual = assignment.image
       ? [step("visual", "visual", ["strategy"])]
@@ -345,9 +353,11 @@ async function allocateSlots(
   due: Due,
   channels: string[],
   now: Date,
+  shared = false,
 ) {
   const ctx = await slotContext(tx, scope, now);
-  const slots: HeldSlot[] = [];
+  // A shared run (R76) records the requested time each channel's slot belongs to.
+  const slots: Array<HeldSlot & { groupAt?: string }> = [];
   const unavailable: Array<{
     channel: string;
     requestedAt: string;
@@ -356,7 +366,12 @@ async function allocateSlots(
   for (const requested of due.slots)
     for (const channel of channels) {
       const found = await freeSlot(ctx, channel, requested, due.date, slots);
-      if (found) slots.push({ channel, at: found.toISOString() });
+      if (found)
+        slots.push({
+          channel,
+          at: found.toISOString(),
+          ...(shared ? { groupAt: requested.toISOString() } : {}),
+        });
       else
         unavailable.push({
           channel,
@@ -453,7 +468,15 @@ export async function planAssignmentRuns(
         due.slots[due.slots.length - 1]! <= now
       )
         continue;
-      const allocation = await allocateSlots(tx, scope, due, d.channels, now);
+      const shared = sharedAcrossChannels(d);
+      const allocation = await allocateSlots(
+        tx,
+        scope,
+        due,
+        d.channels,
+        now,
+        shared,
+      );
       // No slot of the day can be reached any more: no run (nothing could be
       // delivered), only the drop notice (R75).
       if (!allocation.slots.length) {
@@ -469,6 +492,8 @@ export async function planAssignmentRuns(
         idempotencyKey: key,
         date: due.date,
         status: "planned",
+        // One text and one image per slot for all channels (R76).
+        ...(shared ? { sharedAcrossChannels: true } : {}),
         ...allocation,
         ceilingMicros: runCeilingOf(d),
         steps: buildWorkPlan(d),
@@ -761,7 +786,40 @@ export async function runProblems(
             code: String(entry.code),
           });
   }
+  if (data(run).sharedAcrossChannels === true)
+    problems.dropped = everyChannel(
+      (data(run).slots ?? []) as SharedSlot[],
+      problems.dropped,
+    );
   return problems;
+}
+
+/**
+ * A shared run's dropped texts on every channel of their slot group (R76):
+ * a brief or text is written for the group's strictest channel, but its
+ * loss drops the post on all of them. One entry per channel and slot; a
+ * reason other than `NO_BRIEF` wins.
+ */
+function everyChannel(
+  slots: SharedSlot[],
+  dropped: RunProblems["dropped"],
+): RunProblems["dropped"] {
+  const byKey = new Map<string, RunProblems["dropped"][number]>();
+  for (const entry of dropped) {
+    const group = groupSlots(slots, entry.channel, entry.slotAt, true);
+    for (const slot of group.length
+      ? group.map((member) => ({
+          channel: member.channel,
+          slotAt: new Date(member.requestedAt ?? member.at).toISOString(),
+        }))
+      : [{ channel: entry.channel, slotAt: entry.slotAt }]) {
+      const key = `${slot.channel}@${Date.parse(slot.slotAt)}`;
+      const known = byKey.get(key);
+      if (!known || known.code === "NO_BRIEF")
+        byKey.set(key, { ...slot, code: entry.code });
+    }
+  }
+  return [...byKey.values()];
 }
 
 /**
