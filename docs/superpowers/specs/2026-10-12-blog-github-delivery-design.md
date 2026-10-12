@@ -12,14 +12,14 @@ Prerequisite (done 2026-10-12, website PR #1, `dae0b4e`): the website stores one
 
 ## 2. Decisions (Mario, 2026-10-12)
 
-| #   | Question                    | Decision                                                                                                                                                           |
-| --- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| B1  | How far Orbit goes          | After Mario's release Orbit opens the PR, waits for green CI and merges itself. One release, no GitHub click.                                                     |
-| B2  | GitHub credential           | Fine-grained personal access token limited to `eds-labs/uliquid-desk-website-v2`, permissions Contents and Pull requests read & write, expiry at most one year. |
-| B3  | Topics                      | A standing blog assignment (for example monthly); research and strategy pick the topic, Mario may give a topic frame.                                            |
-| B4  | Article format in Orbit     | Approach A: the copywriter writes a restricted Markdown article plus metadata; a deterministic target profile maps it to the website's JSON.                      |
-| B5  | Release authority           | Only the owner releases a blog article. Agent review authority (`ORBIT_AGENT_REVIEW_AUTHORITY`) never publishes a blog article on its own.                      |
-| B6  | Scope of v1                 | uLiquid only, new articles only, English, no article images (the site's shared social image is used).                                                            |
+| #   | Question                | Decision                                                                                                                                                        |
+| --- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| B1  | How far Orbit goes      | After Mario's release Orbit opens the PR, waits for green CI and merges itself. One release, no GitHub click.                                                   |
+| B2  | GitHub credential       | Fine-grained personal access token limited to `eds-labs/uliquid-desk-website-v2`, permissions Contents and Pull requests read & write, expiry at most one year. |
+| B3  | Topics                  | A standing blog assignment (for example monthly); research and strategy pick the topic, Mario may give a topic frame.                                           |
+| B4  | Article format in Orbit | Approach A: the copywriter writes a restricted Markdown article plus metadata; a deterministic target profile maps it to the website's JSON.                    |
+| B5  | Release authority       | Only the owner releases a blog article. Agent review authority (`ORBIT_AGENT_REVIEW_AUTHORITY`) never publishes a blog article on its own.                      |
+| B6  | Scope of v1             | uLiquid only, new articles only, English, no article images (the site's shared social image is used).                                                           |
 
 ## 3. Terms
 
@@ -39,13 +39,13 @@ assignment (contentType blog, delivery github_pr)
 
 New units, each with one job:
 
-| Unit | Location | Responsibility |
-| --- | --- | --- |
-| GitHub client | `packages/connectors/src/github.ts` | Minimal REST calls over `http.ts` (`boundedFetch`, HTTPS only, no redirects, timeouts): get ref, get content, list directory, create ref, delete ref, put file, create pull, get pull, list check runs for a ref, merge pull (with `sha`), close pull. Maps errors to `ConnectorError` (401/403 → `rejected`, 404, 409/422 conflict, network → `unknown`). Base URL fixed to `https://api.github.com`. |
-| Target profile | `packages/connectors/src/blog-targets/uliquid-blog-json-v1.ts` | `parseArticle` (restricted Markdown → sections), `toPostJson` (adds slug, readTime, author, dates), `validatePost` (website rules, section 6), `linkAllowlist(existingSlugs)`. Pure functions, no I/O. |
-| Blog target service | `apps/api/src/modules/blog-target.ts` | Loads the connector, decrypts the token, lists published posts for strategy, renders the preview, verifies the connector (section 5). |
-| Blog delivery | `apps/api/src/modules/agents/blog-delivery.ts` | Books a delivery at release, runs the worker steps idempotently, reconciles after a crash, cancels. Same shape as `draft-delivery.ts` (R73). |
-| Worker topic | `apps/worker/src/main.ts` | Queue class and dispatch for `blog_github_pr`, lease and crash recovery like `postiz_draft`. |
+| Unit                | Location                                                       | Responsibility                                                                                                                                                                                                                                                                                                                                                                                         |
+| ------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GitHub client       | `packages/connectors/src/github.ts`                            | Minimal REST calls over `http.ts` (`boundedFetch`, HTTPS only, no redirects, timeouts): get ref, get content, list directory, create ref, delete ref, put file, create pull, get pull, list check runs for a ref, merge pull (with `sha`), close pull. Maps errors to `ConnectorError` (401/403 → `rejected`, 404, 409/422 conflict, network → `unknown`). Base URL fixed to `https://api.github.com`. |
+| Target profile      | `packages/connectors/src/blog-targets/uliquid-blog-json-v1.ts` | `parseArticle` (restricted Markdown → sections), `toPostJson` (adds slug, readTime, author, dates), `validatePost` (website rules, section 6), `linkAllowlist(existingSlugs)`. Pure functions, no I/O.                                                                                                                                                                                                 |
+| Blog target service | `apps/api/src/modules/blog-target.ts`                          | Loads the connector, decrypts the token, lists published posts for strategy, renders the preview, verifies the connector (section 5).                                                                                                                                                                                                                                                                  |
+| Blog delivery       | `apps/api/src/modules/agents/blog-delivery.ts`                 | Books a delivery at release, runs the worker steps idempotently, reconciles after a crash, cancels. Same shape as `draft-delivery.ts` (R73).                                                                                                                                                                                                                                                           |
+| Worker topic        | `apps/worker/src/main.ts`                                      | Queue class and dispatch for `blog_github_pr`, lease and crash recovery like `postiz_draft`.                                                                                                                                                                                                                                                                                                           |
 
 Existing code that changes: `assignments.ts` (delivery union gains `github_pr`, allowed only for `contentType: "blog"`, mandate check `BLOG_GITHUB_DISABLED`), the hand-copied delivery unions (`chat-tools.ts`, `owner-release.ts`, `agent-activity.ts`, web `assignments.tsx`, `assignment-card.tsx`, `agent-activity.tsx`), `assignment-runs.ts` (blog strategy input), `specialists/strategy.ts`, `specialists/copywriter.ts`, `specialists/review.ts` (no auto-settle to publish for blog; Drive save stays), `owner-release.ts` (blog branch), `veto.ts` (`scheduleApproved` keeps returning early for blog), `action-readiness.ts` (`blog_live`), `notifications.ts` (new kinds), connector route provider enum (`server.ts`), web management connector form, `packages/ai` (article output fields), config flag.
 
@@ -112,18 +112,18 @@ Feature flag `ORBIT_BLOG_GITHUB` (`z.enum(["false","true"]).default("false")` in
 
 ## 8. Error handling summary
 
-| Situation | Result |
-| --- | --- |
-| Slug exists at release or preflight | Release refused / `failed BLOG_SLUG_EXISTS`; nothing written |
-| Draft changed after release | `failed CONTENT_CHANGED`; nothing written |
-| Crash or timeout mid-step | `outcome_unknown`, worker lease recovery re-runs the step, which reads GitHub first |
-| Foreign commit on the branch or moved head | No merge; `failed` with code and notice |
-| CI red or no result in 30 minutes | `checks_failed` / `checks_timeout`; PR open; notice; owner cancels or fixes manually |
-| 401/403 | `blocked_dependency`; connector back to `configured`; `github_token_invalid` |
-| 404 on repo or base branch | `blocked_dependency` `GITHUB_TARGET_MISSING` |
-| GitHub rate limit (403 with `x-ratelimit-remaining: 0`, or 429) | Retry after the reset time, no state change |
-| Not live 30 minutes after merge | `live_unverified`; notice; merge stands |
-| Flag turned off | Queued and in-flight deliveries pause before their next step |
+| Situation                                                       | Result                                                                               |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Slug exists at release or preflight                             | Release refused / `failed BLOG_SLUG_EXISTS`; nothing written                         |
+| Draft changed after release                                     | `failed CONTENT_CHANGED`; nothing written                                            |
+| Crash or timeout mid-step                                       | `outcome_unknown`, worker lease recovery re-runs the step, which reads GitHub first  |
+| Foreign commit on the branch or moved head                      | No merge; `failed` with code and notice                                              |
+| CI red or no result in 30 minutes                               | `checks_failed` / `checks_timeout`; PR open; notice; owner cancels or fixes manually |
+| 401/403                                                         | `blocked_dependency`; connector back to `configured`; `github_token_invalid`         |
+| 404 on repo or base branch                                      | `blocked_dependency` `GITHUB_TARGET_MISSING`                                         |
+| GitHub rate limit (403 with `x-ratelimit-remaining: 0`, or 429) | Retry after the reset time, no state change                                          |
+| Not live 30 minutes after merge                                 | `live_unverified`; notice; merge stands                                              |
+| Flag turned off                                                 | Queued and in-flight deliveries pause before their next step                         |
 
 ## 9. Rollback
 
