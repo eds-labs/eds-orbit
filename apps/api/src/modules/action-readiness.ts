@@ -54,6 +54,10 @@ export type ReadinessInputs = {
   postizWriteVerified: boolean;
   postizChannelWriteVerified: boolean;
   matomoReadVerified: boolean;
+  // Blog delivery as a GitHub pull request (R81): flag, a github connector, its write verification.
+  blogGithubEnabled: boolean;
+  blogTargetConfigured: boolean;
+  blogTargetWriteVerified: boolean;
 };
 
 function result(
@@ -100,6 +104,12 @@ export function actionReadiness(
     i.driveReconnectRequired &&
     "GOOGLE_DRIVE_RECONNECT_REQUIRED";
   const publishDrive = i.publishingUsesDriveAssets && driveReconnect;
+  // Only the first missing piece of the blog target is named (R81).
+  const blogTarget = !i.blogGithubEnabled
+    ? "BLOG_GITHUB_DISABLED"
+    : !i.blogTargetConfigured
+      ? "BLOG_TARGET_NOT_CONFIGURED"
+      : !i.blogTargetWriteVerified && "GITHUB_WRITE_VERIFICATION_REQUIRED";
   return {
     chat: result(
       "internal",
@@ -176,8 +186,8 @@ export function actionReadiness(
     ),
     blog_live: result(
       "external",
-      [paused, "BLOG_TARGET_NOT_CONFIGURED"],
-      ["BLOG_TARGET_NOT_CONFIGURED"],
+      [paused, blogTarget],
+      ["BLOG_GITHUB_DISABLED", "BLOG_TARGET_NOT_CONFIGURED"],
     ),
     newsletter_live: result(
       "external",

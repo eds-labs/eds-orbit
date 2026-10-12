@@ -44,6 +44,11 @@ import {
 } from "./modules/ai-usage.ts";
 import { pauseProject } from "./modules/pause.ts";
 import {
+  assertBlogGithubEnabled,
+  githubConnectorInput,
+  verifyBlogTarget,
+} from "./modules/blog-target.ts";
+import {
   blockCalendar,
   unblockCalendar,
   calendarBlock,
@@ -277,7 +282,11 @@ const TELEGRAM_WEBHOOK_PATH = new RegExp(
 );
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
-  options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
+  options?: {
+    logStream?: NodeJS.WritableStream;
+    telegramFetch?: FetchLike;
+    githubFetch?: FetchLike;
+  },
 ) {
   const config = loadConfig(),
     auth = makeAuth();
@@ -993,6 +1002,18 @@ export async function buildServer(
       ),
     );
   });
+  // GitHub blog target verification (R81): owner only; GitHub is called outside a transaction.
+  app.post(
+    "/api/projects/:projectId/connectors/:id/verify-github",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      assertBlogGithubEnabled();
+      return verifyBlogTarget(scope, z.uuid().parse(id), {
+        fetch: options?.githubFetch,
+      });
+    },
+  );
   // Assignment drafts left for the owner (R70): the list, and the owner's release of one.
   app.get("/api/projects/:projectId/assignment-drafts", async (req) => {
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
@@ -2271,6 +2292,19 @@ export async function buildServer(
           },
         });
         return { queued: true };
+      }
+      if (action === "connector" && input.provider === "github") {
+        // The website repository as blog target (R81); owner only, behind ORBIT_BLOG_GITHUB.
+        assertBlogGithubEnabled();
+        const { credential, ...metadata } = githubConnectorInput.parse(input);
+        return publicEntity(
+          await create(tx, scope, "connectors", {
+            ...metadata,
+            encryptedCredential: encrypt(credential, config.CREDENTIAL_KEY),
+            status: "configured",
+            capabilities: [],
+          }),
+        );
       }
       if (action === "connector") {
         const c = z

@@ -886,6 +886,99 @@ async function draftsDisabled(
   );
 }
 
+/** The GitHub repository of a blog target connector, e.g. "eds-labs/site". */
+const repoOf = (d: Record<string, any>) =>
+  `${String(d.owner ?? "")}/${String(d.repo ?? "")}`;
+
+/** GitHub refused the blog target's token (R81); `ref` is `<connectorId>:<version>`. */
+async function githubTokenInvalid(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const row = await maybe(() =>
+    entity(tx, scope, "connectors", ref.split(":")[0]!),
+  );
+  const d = data(row);
+  // Verified again meanwhile: the token works.
+  if (!row || d.provider !== "github" || d.status !== "configured")
+    return { skip: "STALE" };
+  return plain(
+    [
+      "GitHub-Token erneuern",
+      `GitHub hat den Token für ${repoOf(d)} abgelehnt.`,
+      "Blog-Auslieferungen warten, bis ein neuer Token hinterlegt und geprüft ist.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** The recorded token expiry is near (R81); `ref` is `<connectorId>:<YYYY-MM-DD>`. */
+async function githubTokenExpiring(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const [connectorId, date] = ref.split(":");
+  const row = await maybe(() => entity(tx, scope, "connectors", connectorId!));
+  const d = data(row);
+  // A new token with another expiry date was recorded meanwhile.
+  if (!row || d.provider !== "github" || d.tokenExpiresAt !== date)
+    return { skip: "STALE" };
+  return plain(
+    [
+      "GitHub-Token erneuern",
+      `Der Token für ${repoOf(d)} läuft am ${String(date).split("-").reverse().join(".")} ab.`,
+      "Neuen Token in GitHub erstellen und in Orbit hinterlegen.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** A blog delivery whose article is live (R81); `ref` is the delivery id. */
+async function blogLive(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
+  const row = await maybe(() => entity(tx, scope, "blog_deliveries", ref));
+  const d = data(row);
+  if (!row || d.status !== "live" || !d.liveUrl) return { skip: "STALE" };
+  return plain(`Artikel ist live: ${String(d.liveUrl)}`);
+}
+
+// Delivery states in which a blog delivery stopped and waits for the owner (R81).
+const BLOG_STOPPED = [
+  "checks_failed",
+  "checks_timeout",
+  "live_unverified",
+  "blocked_dependency",
+  "outcome_unknown",
+  "canceled",
+  "failed",
+];
+
+/** A blog delivery stopped in a side state (R81); `ref` is `<deliveryId>:<event>`. */
+async function blogDeliveryStopped(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const row = await maybe(() =>
+    entity(tx, scope, "blog_deliveries", ref.split(":")[0]!),
+  );
+  const d = data(row);
+  if (!row || !BLOG_STOPPED.includes(d.status)) return { skip: "STALE" };
+  const code =
+    typeof d.error === "string"
+      ? d.error
+      : String(d.error?.code ?? d.status ?? "unbekannt");
+  return plain(
+    [
+      `Auslieferung gestoppt: ${clip(code, 120)}`,
+      ...(d.slug ? [`Artikel: ${clip(String(d.slug), 120)}`] : []),
+      "Bitte in Orbit prüfen.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
 function projectPaused(): Built {
   return plain(
     "Projekt pausiert. Es geht nichts mehr raus. Fortsetzen nur in Orbit.",
@@ -931,6 +1024,14 @@ async function render(
       return deliveryChanged(tx, scope, ref);
     case "drafts_disabled":
       return draftsDisabled(tx, scope, ref);
+    case "github_token_invalid":
+      return githubTokenInvalid(tx, scope, ref);
+    case "github_token_expiring":
+      return githubTokenExpiring(tx, scope, ref);
+    case "blog_live":
+      return blogLive(tx, scope, ref);
+    case "blog_delivery_stopped":
+      return blogDeliveryStopped(tx, scope, ref);
     case "daily_report":
       return dailyReport(tx, scope, ref, timezone);
   }
