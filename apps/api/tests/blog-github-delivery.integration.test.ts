@@ -116,6 +116,7 @@ import {
 import {
   FIXTURE_POSTS,
   fakeGithub,
+  type FakeCheckRun,
   HEAD,
   OWNER,
   POSTS_DIR,
@@ -775,10 +776,6 @@ describe.skipIf(!enabled)(
 
       it("delivers a released article: branch, commit, pull request, checks, merge, live", async () => {
         await linkBot();
-        await authDb.user.update({
-          where: { id: project.owner.userId },
-          data: { name: "Mario" },
-        });
         const { id } = await released();
         await drain(id);
         const row = await delivery(id);
@@ -1164,19 +1161,24 @@ describe.skipIf(!enabled)(
         const before = await delivery(id);
         const writes = github.writes().length;
         process.env.ORBIT_BLOG_GITHUB = "false";
-        await runNext();
-        expect((await delivery(id)).version).toBe(before.version);
-        expect(await queuedJobs()).toEqual([]);
-        expect(github.writes()).toHaveLength(writes);
-        // Off, the sweep does not start it again.
-        await h.run((tx) => requeueBlogDeliveries(tx, project.owner));
-        expect(await queuedJobs()).toEqual([]);
-
-        process.env.ORBIT_BLOG_GITHUB = "true";
+        try {
+          await runNext();
+          expect((await delivery(id)).version).toBe(before.version);
+          expect(await queuedJobs()).toEqual([]);
+          expect(github.writes()).toHaveLength(writes);
+          // Off, the sweep does not start it again.
+          await h.run((tx) => requeueBlogDeliveries(tx, project.owner));
+          expect(await queuedJobs()).toEqual([]);
+        } finally {
+          process.env.ORBIT_BLOG_GITHUB = "true";
+        }
         await setPaused(true);
-        await advanceBlogDelivery(worker(), id, deps());
-        expect((await delivery(id)).version).toBe(before.version);
-        await setPaused(false);
+        try {
+          await advanceBlogDelivery(worker(), id, deps());
+          expect((await delivery(id)).version).toBe(before.version);
+        } finally {
+          await setPaused(false);
+        }
 
         await h.run((tx) => requeueBlogDeliveries(tx, project.owner));
         expect(await queuedJobs()).toHaveLength(1);
@@ -1185,6 +1187,130 @@ describe.skipIf(!enabled)(
         expect(await queuedJobs()).toHaveLength(1);
         await drain(id);
         expect((await delivery(id)).status).toBe("live");
+      });
+
+      const cancelRoute = (id: string) =>
+        app.inject({
+          method: "POST",
+          url: `/api/projects/${project.owner.projectId}/blog-deliveries/${id}/cancel`,
+          headers: { origin: origin(), cookie },
+          payload: {},
+        });
+      const stopped = async (id: string) =>
+        (await notices()).some((key) =>
+          key.startsWith(`notify:blog_delivery_stopped:${id}:`),
+        );
+
+      it("records a merge found after a crash although a gate closed meanwhile", async () => {
+        await linkBot();
+        const { id } = await released();
+        await drain(id, "checks_passed");
+        const before = await delivery(id);
+        await runNext();
+        expect((await delivery(id)).status).toBe("merged");
+        // The merge happened, its record did not; then a live gate closed.
+        await restore(id, before);
+        await h.setPolicy({ mode: "observe" });
+        await advanceBlogDelivery(worker(), id, deps());
+        expect(await delivery(id)).toMatchObject({
+          status: "merged",
+          error: null,
+          mergeSha: github.refs.get("main"),
+        });
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+        expect(github.merges).toHaveLength(1);
+        expect(await stopped(id)).toBe(false);
+      });
+
+      it("records a pull request merged by hand during the checks although a gate closed", async () => {
+        const { id } = await released();
+        github.options.checks = () => [];
+        await drain(id, "pr_open");
+        github.mergeByHand(1);
+        await h.setPolicy({ mode: "observe" });
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "live",
+          error: null,
+          mergeSha: github.refs.get("main"),
+        });
+        // Orbit never sent a merge of its own.
+        expect(github.merges).toEqual([]);
+      });
+
+      it("holds the merge when the row changed between the checks and the merge call", async () => {
+        const { id } = await released();
+        await drain(id, "checks_passed");
+        const success: FakeCheckRun[] = [
+          { name: "check", status: "completed", conclusion: "success" },
+        ];
+        // The second read of Orbit's head is the one right before the merge.
+        github.options.checks = async (_sha, poll) => {
+          if (poll === 1) await setRow(id, { note: "changed meanwhile" });
+          return success;
+        };
+        await runNext();
+        expect((await delivery(id)).status).toBe("checks_passed");
+        expect(github.merges).toEqual([]);
+        expect(await queuedJobs()).toEqual([]);
+        // Once the step's marker ran out the sweep starts it again.
+        clock += 3 * MINUTE;
+        await h.run((tx) => requeueBlogDeliveries(tx, project.owner));
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+        expect(github.merges).toHaveLength(1);
+      });
+
+      it("refuses a cancel that finds the pull request merged and records the merge", async () => {
+        const { id } = await released();
+        github.options.checks = () => [];
+        await drain(id, "pr_open");
+        github.mergeByHand(1);
+        const r = await cancelRoute(id);
+        expect(r.statusCode).toBe(409);
+        expect(r.json().error.code).toBe("BLOG_ALREADY_MERGED");
+        expect(await delivery(id)).toMatchObject({
+          status: "merged",
+          mergeSha: github.refs.get("main"),
+        });
+        expect(github.closed).toEqual([]);
+        expect(await blogKeys()).toContain(`blog:${id}:step:7`);
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+      });
+
+      it("cancels a delivery with failed checks, deletes Orbit's branch and lets the slug be delivered again", async () => {
+        const draft = await awaitingOwner();
+        const second = await copyOf(draft.id);
+        const first = await h.run((tx) =>
+          releaseAssignmentDraft(tx, project.owner, draft.id, draft.version),
+        );
+        const id = String(first.blogDeliveryId);
+        github.options.checks = () => [
+          { name: "check", status: "completed", conclusion: "failure" },
+        ];
+        await drain(id);
+        expect((await delivery(id)).status).toBe("checks_failed");
+        const r = await cancelRoute(id);
+        expect(r.statusCode).toBe(200);
+        expect(r.json()).toMatchObject({ status: "canceled" });
+        expect(github.closed).toEqual([1]);
+        expect(github.refs.has(branch)).toBe(false);
+
+        github.options.checks = undefined;
+        const again = await h.run((tx) =>
+          releaseAssignmentDraft(tx, project.owner, second.id, second.version),
+        );
+        const next = String(again.blogDeliveryId);
+        expect(next).not.toBe(id);
+        await drain(next);
+        expect(await delivery(next)).toMatchObject({
+          status: "live",
+          error: null,
+          prNumber: 2,
+        });
+        expect(blogRefs()).toHaveLength(2);
       });
 
       it("cancels before the merge through the owner route", async () => {

@@ -55,7 +55,10 @@ export type FakeGithubOptions = {
   // The only token this GitHub accepts; anything else is a 401.
   token?: string;
   // Check runs of a commit; `poll` counts the reads of that commit (0 first).
-  checks?: (sha: string, poll: number) => FakeCheckRun[];
+  checks?: (
+    sha: string,
+    poll: number,
+  ) => FakeCheckRun[] | Promise<FakeCheckRun[]>;
   // The merge answers with this status instead of merging (e.g. 405).
   mergeStatus?: number;
   // A call this returns true for is answered with a primary rate limit (403, remaining 0).
@@ -188,6 +191,26 @@ export function fakeGithub(options: FakeGithubOptions = {}) {
     base: { ref: pull.base },
     html_url: `https://github.com/${OWNER}/${REPO}/pull/${pull.number}`,
   });
+  /** Merges a pull request at `head` into its base (a merge commit). */
+  const mergeOf = (pull: Pull, head: string) => {
+    const base = refs.get(pull.base)!;
+    const { files, changes } = compare(base, head);
+    const tree = { ...commits.get(base)!.tree };
+    for (const file of files)
+      if (file in changes.after) tree[file] = changes.after[file]!;
+      else delete tree[file];
+    const sha = newSha();
+    commits.set(sha, {
+      parents: [base, head],
+      message: `Merge pull request #${pull.number}`,
+      tree,
+    });
+    refs.set(pull.base, sha);
+    pull.state = "closed";
+    pull.merged = true;
+    pull.mergeSha = sha;
+    return sha;
+  };
   const json = (
     status: number,
     body: unknown,
@@ -398,22 +421,7 @@ export function fakeGithub(options: FakeGithubOptions = {}) {
             message:
               "Head branch was modified. Review and try the merge again.",
           });
-        const base = refs.get(pull.base)!;
-        const { files, changes } = compare(base, head);
-        const tree = { ...commits.get(base)!.tree };
-        for (const file of files)
-          if (file in changes.after) tree[file] = changes.after[file]!;
-          else delete tree[file];
-        const sha = newSha();
-        commits.set(sha, {
-          parents: [base, head],
-          message: `Merge pull request #${pull.number}`,
-          tree,
-        });
-        refs.set(pull.base, sha);
-        pull.state = "closed";
-        pull.merged = true;
-        pull.mergeSha = sha;
+        const sha = mergeOf(pull, head);
         return json(200, { sha, merged: true });
       }
     }
@@ -424,7 +432,7 @@ export function fakeGithub(options: FakeGithubOptions = {}) {
       const sha = checkMatch[1]!;
       const poll = checkReads.get(sha) ?? 0;
       checkReads.set(sha, poll + 1);
-      const runs = options.checks?.(sha, poll) ?? [
+      const runs = (await options.checks?.(sha, poll)) ?? [
         { name: "check", status: "completed", conclusion: "success" },
       ];
       return json(200, {
@@ -448,6 +456,11 @@ export function fakeGithub(options: FakeGithubOptions = {}) {
     refs,
     options,
     pushCommit,
+    /** A merge by hand in GitHub (not through Orbit). */
+    mergeByHand: (number: number) => {
+      const pull = pulls.find((p) => p.number === number)!;
+      return mergeOf(pull, pullHead(pull));
+    },
     /** The files of a branch or commit. */
     tree: (ref: string) => treeOf(ref),
     /** Every call that writes to GitHub. */

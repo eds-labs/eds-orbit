@@ -1,9 +1,5 @@
 import { createHash } from "node:crypto";
-import {
-  authDb,
-  scoped,
-  type DbTx,
-} from "../../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import { blogGithubEnabled } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
@@ -549,20 +545,8 @@ async function schedule(
   return enqueue(tx, scope, BLOG_DELIVERY_TOPIC, id, key, next.at);
 }
 
-/**
- * Who released the article, for the pull request body: the owner's display
- * name, else "Mario" (R83). Read from the auth store outside any transaction.
- */
-async function releaserName(userId: unknown) {
-  if (typeof userId !== "string" || !UUID.test(userId)) return "Mario";
-  const user = await authDb.user
-    .findUnique({ where: { id: userId }, select: { name: true } })
-    .catch(() => null);
-  const name = squash(String(user?.name ?? ""));
-  return name && name.length <= 100 ? name : "Mario";
-}
-
-async function pullBody(id: string, d: D) {
+// The release line is fixed (spec §7); no account data goes to GitHub.
+function pullBody(id: string, d: D) {
   const date = berlinDate(new Date(String(d.releasedAt ?? Date.now())));
   return [
     `Adds the blog post "${String(d.title)}".`,
@@ -572,7 +556,7 @@ async function pullBody(id: string, d: D) {
     `- Live URL after the deploy: ${String(d.liveUrl)}`,
     `- Orbit delivery: ${id}`,
     "",
-    `Released by ${await releaserName(d.releasedBy)} in Orbit on ${date}.`,
+    `Released by Mario in Orbit on ${date}.`,
     "",
     "Orbit merges this pull request itself once the checks are green (R83).",
   ].join("\n");
@@ -728,7 +712,7 @@ async function stepPull(c: StepContext): Promise<Outcome> {
         title: `Blog: ${String(c.d.title)}`,
         head: String(c.d.branch),
         base: c.target!.baseBranch,
-        body: await pullBody(c.id, c.d),
+        body: pullBody(c.id, c.d),
       });
     } catch (error) {
       // A pull request created meanwhile (422): read it instead.
@@ -956,7 +940,10 @@ export async function advanceBlogDelivery(
     if (d.inFlight && Date.parse(String(d.inFlight.until)) > at.valueOf())
       return null;
     let loaded: { target: BlogTarget; token: string } | null = null;
-    if (step <= 6) {
+    // Gates stop a delivery only before a GitHub write (steps 1-4 here, the
+    // merge in step 6 right before its call). Steps 5-7 read the pull request
+    // first, so a merge that happened is always recorded (R83).
+    if (step <= 4) {
       const gate = await gates(tx, scope, d);
       if ("stop" in gate) {
         await settle(tx, scope, row, {
@@ -968,10 +955,22 @@ export async function advanceBlogDelivery(
         return null;
       }
       loaded = gate;
-    } else
+    } else {
       loaded = await loadBlogTarget(tx, scope, String(d.connectorId)).catch(
         () => null,
       );
+      // Without the connector the pull request cannot be read.
+      if (!loaded && step <= 6) {
+        await settle(tx, scope, row, {
+          ...d,
+          status: "blocked_dependency",
+          error: "BLOG_TARGET_NOT_VERIFIED",
+          inFlight: null,
+          resumeFrom: null,
+        });
+        return null;
+      }
+    }
     const marked = await update(tx, scope, row, {
       ...d,
       // A resumed step takes its state back; the marker guards it again (a
