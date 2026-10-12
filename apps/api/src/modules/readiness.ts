@@ -6,7 +6,10 @@ import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { publicOpenAiConfiguration } from "./openai-configuration.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
 import { actionReadiness } from "./action-readiness.ts";
-import { loadConfig } from "../../../../packages/config/src/index.ts";
+import {
+  blogGithubEnabled,
+  loadConfig,
+} from "../../../../packages/config/src/index.ts";
 import { imagePriceConfigured } from "../../../../packages/ai/src/index.ts";
 import {
   driveReconnectRequired,
@@ -106,6 +109,9 @@ export async function readiness(tx: DbTx, scope: Scope) {
   const postiz =
     postizConnector &&
     ["read_verified", "write_verified"].includes(data(postizConnector).status);
+  const githubConnectors = connectors.filter(
+    (c) => data(c).provider === "github",
+  );
   const assignedChannels: string[] = postizConnector
     ? (data(postizConnector).assignedIntegrationIds ?? [])
     : [];
@@ -157,6 +163,11 @@ export async function readiness(tx: DbTx, scope: Scope) {
         process.env.PUBLISHER_INSTANCE_ID,
     ),
     matomoReadVerified: Boolean(matomo),
+    blogGithubEnabled: blogGithubEnabled(),
+    blogTargetConfigured: githubConnectors.length > 0,
+    blogTargetWriteVerified: githubConnectors.some(
+      (c) => data(c).status === "write_verified",
+    ),
   });
   return {
     actions,
@@ -195,7 +206,9 @@ export async function readiness(tx: DbTx, scope: Scope) {
       },
       blog: {
         state: knowledge ? "draft_ready" : "not_configured",
-        liveBlocker: "BLOG_TARGET_NOT_CONFIGURED",
+        liveBlocker: actions.blog_live.blockers.find(
+          (code) => code !== "PROJECT_PAUSED",
+        ),
       },
       newsletter: {
         state: "draft_ready",

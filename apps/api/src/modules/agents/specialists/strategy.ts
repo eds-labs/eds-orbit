@@ -6,6 +6,15 @@ import { listUsableFacts } from "../content-packages.ts";
 import { sharedBriefSlots } from "../shared-posts.ts";
 import { data } from "../../../shared.ts";
 import { errorCode } from "../../telemetry.ts";
+import {
+  publishedArticlesForRun,
+  type PublishedArticle,
+} from "../../blog-target.ts";
+import {
+  ProfileError,
+  slugify,
+} from "../../../../../../packages/connectors/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
 
 // The history and fact base are embedded in the task input; the runner fails a call whose context is larger than its limit.
@@ -21,6 +30,7 @@ export const AGENT_UNKNOWN_FACT = "AGENT_UNKNOWN_FACT";
 export const AGENT_FACTS_REQUIRED = "AGENT_FACTS_REQUIRED";
 export const AGENT_UNKNOWN_SLOT = "AGENT_UNKNOWN_SLOT";
 export const AGENT_DUPLICATE_SLOT = "AGENT_DUPLICATE_SLOT";
+export const BLOG_SLUG_EXISTS = "BLOG_SLUG_EXISTS";
 
 const text = (max: number) =>
   z.string().refine((value) => value.length > 0 && value.length <= max);
@@ -95,11 +105,32 @@ async function syncHistory(scope: Parameters<typeof syncChannelPosts>[0]) {
   }
 }
 
+/** A run whose article goes to the website as a pull request (R82); its one channel is the blog target. */
+const githubBlog = (input: any) =>
+  input?.assignment?.delivery === "github_pr" &&
+  typeof input.assignment.channels?.[0] === "string";
+
+/**
+ * The published articles of a GitHub blog run (R82), read outside any
+ * transaction. An unreachable GitHub fails the task: a brief written without
+ * them could repeat a published slug or topic.
+ */
+async function loadPublished(scope: Scope, input: any) {
+  if (!githubBlog(input)) return null;
+  return publishedArticlesForRun(scope, input.assignment.channels[0]);
+}
+
 /** The task input plus the channel history of the last 14 days (Orbit and external posts, published and queued) and the usable Verified Facts. */
 async function withContext(
-  ...[tx, scope, input]: Parameters<NonNullable<Specialist["prepareInput"]>>
+  ...[tx, scope, input, loaded]: Parameters<
+    NonNullable<Specialist["prepareInput"]>
+  >
 ) {
   const now = new Date();
+  // A GitHub blog run (R82) reads the published articles instead of the channel history.
+  const published = githubBlog(input)
+    ? ((loaded ?? []) as PublishedArticle[])
+    : null;
   // A shared run (R76) gets one brief per slot group, on its strictest channel.
   const shared = input.run?.sharedAcrossChannels === true;
   const briefSlots = shared
@@ -115,14 +146,16 @@ async function withContext(
       ...slots.map((slot) => slot.channel),
     ]),
   ];
-  const history = await recentChannelPosts(
-    tx,
-    scope,
-    channels,
-    STRATEGY_HISTORY_DAYS,
-    HISTORY_PER_CHANNEL,
-    now.valueOf(),
-  );
+  const history = published
+    ? null
+    : await recentChannelPosts(
+        tx,
+        scope,
+        channels,
+        STRATEGY_HISTORY_DAYS,
+        HISTORY_PER_CHANNEL,
+        now.valueOf(),
+      );
   const usable = await listUsableFacts(tx, scope, now);
   const prepared = {
     ...input,
@@ -138,20 +171,24 @@ async function withContext(
           },
         }
       : {}),
-    channelHistory: {
-      days: STRATEGY_HISTORY_DAYS,
-      channels: [...history]
-        .filter(([, posts]) => posts.length)
-        .map(([channelId, posts]) => ({
-          channelId,
-          posts: posts.map((post) => ({
-            source: post.source,
-            status: post.state === "QUEUE" ? "scheduled" : "published",
-            publishedAt: post.publishedAt,
-            text: post.text.slice(0, HISTORY_TEXT),
-          })),
-        })),
-    },
+    ...(published || !history
+      ? { publishedArticles: published }
+      : {
+          channelHistory: {
+            days: STRATEGY_HISTORY_DAYS,
+            channels: [...history]
+              .filter(([, posts]) => posts.length)
+              .map(([channelId, posts]) => ({
+                channelId,
+                posts: posts.map((post) => ({
+                  source: post.source,
+                  status: post.state === "QUEUE" ? "scheduled" : "published",
+                  publishedAt: post.publishedAt,
+                  text: post.text.slice(0, HISTORY_TEXT),
+                })),
+              })),
+          },
+        }),
     facts: offeredFacts(usable, input.assignment),
   };
   // The answer is checked against every usable key, not only the offered ones.
@@ -162,16 +199,35 @@ async function withContext(
       // A shared slot that stays uncovered drops every channel of its group (R76).
       members: briefSlots?.map((slot) => slot.members) ?? null,
       usableKeys: usable.map((row) => String(data(row).key)),
+      ...(published
+        ? { publishedSlugs: published.map((article) => article.slug) }
+        : {}),
     },
   };
+}
+
+/**
+ * Why a blog brief's slug cannot be used (R82), or null. Advisory: the slug
+ * comes from the topic, the article's title may still differ; release and
+ * delivery check the slug again.
+ */
+function blogSlugProblem(topic: string, publishedSlugs: string[]) {
+  try {
+    return publishedSlugs.includes(slugify(topic)) ? BLOG_SLUG_EXISTS : null;
+  } catch (error) {
+    if (error instanceof ProfileError) return error.code;
+    throw error;
+  }
 }
 
 /**
  * Keeps one brief per slot of the run. A brief is dropped, with its code
  * recorded, when its slot is not one of the run's, when the slot already has
  * a brief, when it names no fact or a key that is not a usable Verified Fact
- * (`AGENT_UNKNOWN_FACT`). Slots left without a brief are listed as uncovered;
- * a shared slot (R76) with every channel of its group.
+ * (`AGENT_UNKNOWN_FACT`), or, for a GitHub blog run (R82), when the slug of
+ * its topic is already published (`BLOG_SLUG_EXISTS`). Slots left without a
+ * brief are listed as uncovered; a shared slot (R76) with every channel of
+ * its group.
  */
 function checkBriefs(
   output: z.infer<typeof strategyOutput>,
@@ -180,6 +236,7 @@ function checkBriefs(
     slots: Slot[];
     usableKeys: string[];
     members?: Array<Slot[]> | null;
+    publishedSlugs?: string[];
   },
 ) {
   const slots = context.slots;
@@ -200,7 +257,9 @@ function checkBriefs(
           ? AGENT_FACTS_REQUIRED
           : candidate.factKeys.some((key) => !usable.has(key))
             ? AGENT_UNKNOWN_FACT
-            : null;
+            : context.publishedSlugs
+              ? blogSlugProblem(candidate.topic, context.publishedSlugs)
+              : null;
     if (code)
       dropped.push({
         channel: candidate.channel,
@@ -234,12 +293,14 @@ export const strategySpecialist: Specialist = {
     "Do not repeat a topic or angle of channelHistory on the same channel. Use channel_history for older posts and knowledge_search only to understand a fact, never to add new claims.",
     "If a slot lists sharedChannels, its one post goes out unchanged on every one of those channels: write one brief for it that suits all of them and avoids every one of their recent posts.",
     "If assignment.format is set, plan each post for it: format.minChars to format.maxChars characters, format.hashtags.min to format.hashtags.max hashtags, short paragraphs when format.paragraphs is true, leading to format.cta as its link when set.",
+    "If assignment.delivery is github_pr, the run writes one website article: write exactly one brief for its one slot. There is no channelHistory; publishedArticles lists the articles already on the website (slug, title, category, keywords, publishedAt). The topic is the article's working title in English; its slug (the topic in lowercase words joined by hyphens) must not be the slug of a published article, and the article must not cover a published article's topic again. The angle states the search intent, the target keywords and an outline of 5 to 8 sections. notARepeatBecause names how it differs from publishedArticles.",
   ].join(" "),
   tools: [agentKnowledgeSearch, ...channelTools],
   hostedTools: [],
   outputSchema: strategyOutput,
   limits: { ...DEFAULT_SPECIALIST_LIMITS, maxWebSearches: 0 },
   refresh: syncHistory,
+  load: loadPublished,
   prepareInput: withContext,
   finalize: checkBriefs,
 };

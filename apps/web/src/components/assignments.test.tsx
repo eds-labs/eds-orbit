@@ -14,6 +14,7 @@ import {
   type AssignmentItem,
   type AutopilotMigration,
   type AwaitingOwnerDraft,
+  type BlogPreview,
   type UpcomingPost,
 } from "./assignments";
 
@@ -321,6 +322,60 @@ describe("AwaitingOwnerDraftList", () => {
 
   it("renders nothing without drafts", () => {
     expect(render([])).toBe("");
+  });
+
+  // A website article (R81): its preview instead of the excerpt, and no
+  // release while the preview has problems or the slug is taken.
+  const article = (preview: Partial<BlogPreview> = {}) =>
+    draft({
+      delivery: "github_pr",
+      preview: {
+        post: {
+          slug: "liquidity-basics",
+          title: "Liquidity basics for desks",
+          seoTitle: "Liquidity basics",
+          description: "How a desk reads liquidity.",
+          category: "Guides",
+          publishedAt: "2026-10-12",
+          updatedAt: "2026-10-12",
+          readTime: "7 min read",
+          author: "Mario Euchner",
+          authorTitle: "Founder & Product Lead",
+          keywords: ["liquidity"],
+          excerpt: "A short guide.",
+          sections: [{ heading: "Why liquidity matters", paragraphs: ["P"] }],
+          relatedLinks: [{ label: "Beta access", href: "/beta/" }],
+        },
+        problems: [],
+        liveUrl: "https://uliquid.vip/blog/liquidity-basics/",
+        slugTaken: false,
+        ...preview,
+      },
+    });
+  const releaseButton = (html: string) =>
+    html.match(/<button[^>]*>Freigeben<\/button>/)?.[0] ?? "";
+
+  it("shows the article preview and an enabled release for a valid article", () => {
+    const html = render([article()]);
+    expect(html).toContain("Liquidity basics for desks");
+    expect(html).toContain("Why liquidity matters");
+    expect(html).toContain("Pull Request");
+    expect(releaseButton(html)).not.toBe("");
+    expect(releaseButton(html)).not.toContain("disabled");
+  });
+
+  it("disables the release with the first problem", () => {
+    const html = render([
+      article({ problems: ["sections: too few", "title: too long"] }),
+    ]);
+    expect(releaseButton(html)).toContain("disabled");
+    expect(html).toContain("sections: too few");
+  });
+
+  it("disables the release when the slug exists", () => {
+    const html = render([article({ slugTaken: true })]);
+    expect(releaseButton(html)).toContain("disabled");
+    expect(html).toContain("Slug existiert bereits");
   });
 });
 

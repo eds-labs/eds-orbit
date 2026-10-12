@@ -1,0 +1,88 @@
+{
+  "slug": "ai-assisted-trading-keeps-decisions-with-the-user",
+  "title": "AI-Assisted Trading: How uLiquid Desk Keeps Decisions With the User",
+  "seoTitle": "AI-Assisted Trading: Decisions Stay With You",
+  "description": "A practical introduction to AI-assisted market workflows, read-only analysis and the control boundaries that keep trading decisions with the user.",
+  "category": "Product knowledge",
+  "publishedAt": "2026-09-14",
+  "updatedAt": "2026-09-14",
+  "readTime": "6 min read",
+  "author": "Mario Euchner",
+  "authorTitle": "Founder & Product Lead",
+  "keywords": [
+    "AI-assisted trading",
+    "market intelligence workflow",
+    "user-controlled trading",
+    "read-only position analysis",
+    "responsible trading automation"
+  ],
+  "excerpt": "Useful market intelligence should make a decision easier to understand, not quietly make it for someone else. uLiquid Desk is designed around that distinction.",
+  "sections": [
+    {
+      "heading": "Useful AI starts with a clear role",
+      "paragraphs": [
+        "Market information moves quickly, but more information does not automatically produce a better decision. Prices, news, economic events, funding data and account context can all matter at once. The practical challenge is to turn that information into something a person can review without losing the reasons behind it.",
+        "That is where assistive AI can help. It can organize context, explain patterns and surface questions worth investigating. It should not present a market view as a certainty, place a trade without permission or hide the limits of the information it used. At uLiquid Desk, the principle is simple: AI assists. You decide."
+      ]
+    },
+    {
+      "heading": "Observe before acting",
+      "paragraphs": [
+        "A controlled workflow begins with observation. Before a decision is made, users need a view of relevant market context, account state and the information that may be incomplete or delayed. A useful workspace does not turn every data point into a signal. It helps people distinguish context from confirmation.",
+        "This is why market intelligence belongs before execution. An explanation is more valuable when a user can relate it to the data, timeframe and current account situation instead of treating it as an instruction. The goal is better prepared judgment, not a shortcut around judgment."
+      ]
+    },
+    {
+      "heading": "Analysis should remain reviewable",
+      "paragraphs": [
+        "Good assistance keeps the review path visible. A user should be able to ask what information shaped an explanation, what could be missing and what needs independent confirmation. That makes it easier to challenge an output, compare it with a personal plan and decide whether no action is the right outcome.",
+        "uLiquid Desk separates product surfaces so their responsibilities remain understandable. Market intelligence provides context. The Trading Desk supports controlled order workflows. AI Workbench tools help structure analysis. This separation makes it clearer which part of the workspace is observing, explaining, deciding or executing."
+      ]
+    },
+    {
+      "heading": "Read-only analysis protects the decision boundary",
+      "paragraphs": [
+        "Position Copilot is an example of a deliberately narrow role. It is account-bound and read-only: it can help a user inspect position context without becoming an execution path. Keeping analysis separate from account-changing actions is a useful product boundary, especially when a decision can affect capital.",
+        "This does not remove trading risk or replace independent research. It gives the user another structured view of the situation while preserving the user's responsibility for any later action. A clear boundary is often more useful than a feature that tries to do everything."
+      ]
+    },
+    {
+      "heading": "Automation needs its own controls",
+      "paragraphs": [
+        "Automation can reduce repetitive work, but it should not erase accountability. A robust workflow distinguishes an idea, a proposed action, an approved policy, execution and the records needed to review what happened. The more consequence an action has, the more important it becomes to make permissions and controls explicit.",
+        "uLiquid Desk treats automation and bots as a separate product surface with its own availability and control boundaries. Users should understand when a workflow is informative, when it is preparing an action and when a permitted action can proceed. AI assistance does not give an AI system authority to move capital on its own."
+      ]
+    },
+    {
+      "heading": "A practical review loop",
+      "paragraphs": [
+        "A calm workflow can be straightforward: observe the market and account context, use analysis to frame the question, compare the result with a personal plan, then decide whether to act. If an action is appropriate, use the relevant controlled workflow and review the outcome afterwards. Each step has a different job.",
+        "This approach also makes it easier to pause. Uncertain data, changing conditions or a mismatch with a user's own risk limits are reasons to reassess, not prompts to force an action. The value of an assistive workspace is not that it creates activity. It helps make decisions more deliberate."
+      ],
+      "list": [
+        "Use context to form a question, not to manufacture certainty.",
+        "Review assumptions and risk before taking any action.",
+        "Keep analysis, approval and execution as distinct steps.",
+        "Treat every trading decision as the user's own responsibility."
+      ]
+    }
+  ],
+  "relatedLinks": [
+    {
+      "label": "Explore the platform",
+      "href": "/platform/"
+    },
+    {
+      "label": "See the AI Workbench",
+      "href": "/features/ai-workbench/"
+    },
+    {
+      "label": "Read the risk disclosure",
+      "href": "/risk-disclosure/"
+    },
+    {
+      "label": "Browse public resources",
+      "href": "/resources/"
+    }
+  ]
+}

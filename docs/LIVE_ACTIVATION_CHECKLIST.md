@@ -22,7 +22,7 @@
 - Review the exact Postiz sandbox account, text and optional PNG, then authorize the bounded proof operation. Require the observed remote ID, intended account and published status. Image publication needs its own media proof. Bind proof to the connector version and `PUBLISHER_INSTANCE_ID`; credentials or an HTTP receipt alone are insufficient.
 - If Slack is enabled, configure the signed app, exact workspace/channel and owner mappings. Verify delivery and a current one-use response under its time-bounded mandate. No actual Slack message or response was exercised during local acceptance.
 - For Matomo, configure the scoped site token and verify actual reports, timezone, currency and attribution against the source. Missing metrics remain missing, rather than zero.
-- Select an actual downstream blog/CMS, mail or ads provider before proposing its implementation/activation. Portable article/newsletter/ad drafts and exports work now; unsupported external write capabilities stay unavailable. Community ingestion is authorized import, not private scraping or automatic replies.
+- Select an actual downstream mail or ads provider before proposing its implementation/activation. The blog target is chosen (GitHub pull request to the uLiquid website repository, behind `ORBIT_BLOG_GITHUB`; activation steps in `docs/OPERATIONS.md`). Portable article/newsletter/ad drafts and exports work now; unsupported external write capabilities stay unavailable. Community ingestion is authorized import, not private scraping or automatic replies.
 
 ## 4. Review the publishing mandate and cutover
 

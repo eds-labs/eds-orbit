@@ -25,10 +25,16 @@ import { activePolicy } from "../../policy.ts";
 import { errorCode } from "../../telemetry.ts";
 import { listUsableFacts } from "../content-packages.ts";
 import {
+  assertBlogTargetReady,
   confirmedDelivery,
   deliveryOf,
   type AssignmentFormat,
 } from "../assignments.ts";
+import { publishedArticlesForRun } from "../../blog-target.ts";
+import {
+  linkAllowlist,
+  PROFILE_ID,
+} from "../../../../../../packages/connectors/src/index.ts";
 import { groupSlots } from "../shared-posts.ts";
 import {
   ASSIGNMENT_BUDGET_EXHAUSTED,
@@ -82,6 +88,38 @@ function taskBriefs(task: AgentTask): Brief[] {
   return (briefs as Brief[]).filter(
     (brief) => channel === null || brief.channel === channel,
   );
+}
+
+/** What a website article is written against (R82), stored on its mission. */
+export type MissionBlogTarget = {
+  connectorId: string;
+  profile: typeof PROFILE_ID;
+  allowlist: string[];
+  publishedArticles: { slug: string; title: string }[];
+};
+
+/**
+ * The blog target of a GitHub blog run (R82), or null for any other run:
+ * the published articles are read outside any transaction, and an
+ * unreachable GitHub fails the task before anything is drafted.
+ */
+async function blogTargetOf(
+  scope: Scope,
+  task: AgentTask,
+): Promise<MissionBlogTarget | null> {
+  const assignment = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    entity(tx, scope, "assignments", task.assignmentId).then(data),
+  );
+  if ((confirmedDelivery(assignment) ?? deliveryOf(assignment)) !== "github_pr")
+    return null;
+  const connectorId = String(assignment.channels?.[0] ?? "");
+  const published = await publishedArticlesForRun(scope, connectorId);
+  return {
+    connectorId,
+    profile: PROFILE_ID,
+    allowlist: linkAllowlist(published.map((article) => article.slug)),
+    publishedArticles: published.map(({ slug, title }) => ({ slug, title })),
+  };
 }
 
 /** The mission a job of this task already created, if any. */
@@ -162,6 +200,17 @@ async function briefMission(
   const slot = Date.parse(brief.slotAt);
   if (!Number.isFinite(slot) || slot <= now.valueOf())
     throw new DomainError("SLOT_PASSED", 409);
+  // A GitHub blog run (R82) writes for its verified blog target, which is no policy channel.
+  const delivery = confirmedDelivery(assignment) ?? deliveryOf(assignment);
+  const blogTarget = extra.blogTarget as MissionBlogTarget | undefined;
+  if (delivery === "github_pr") {
+    if (
+      brief.channel !== assignment.channels?.[0] ||
+      blogTarget?.connectorId !== brief.channel
+    )
+      throw new DomainError("CHANNEL_NOT_APPROVED", 409);
+    await assertBlogTargetReady(tx, scope, brief.channel);
+  }
   const rules = await resolveChannelRules(
     tx,
     scope,
@@ -198,6 +247,7 @@ async function briefMission(
       ).toISOString(),
     },
     facts.map((fact) => fact.id),
+    delivery === "github_pr" ? { blogTargetId: brief.channel } : {},
   );
   // A shared run (R76): the text goes out unchanged on every channel of its slot group.
   const run = data(await entity(tx, scope, "assignment_runs", task.runId));
@@ -232,7 +282,7 @@ async function briefMission(
     mediaPlanned: assignment.image === true,
     // The confirmed delivery travels with the draft (R73, I1): the publish
     // guard reads it, never the live assignment row.
-    delivery: confirmedDelivery(assignment) ?? deliveryOf(assignment),
+    delivery,
     // The confirmed format and the channels of a shared text reach the generation contract (R76, R77).
     ...(format ? { format } : {}),
     ...(sharedChannels.length > 1 ? { sharedChannels } : {}),
@@ -321,6 +371,7 @@ async function requeuedByPause(
 }
 
 export const copywriterStep: StepHandler = async (scope, task) => {
+  const blogTarget = await blogTargetOf(scope, task);
   const contentIds: string[] = [];
   const failed: Array<{ briefKey: string; code: string }> = [];
   // Missions the project pause refused: failed or left ready once the task is known (N1).
@@ -346,7 +397,14 @@ export const copywriterStep: StepHandler = async (scope, task) => {
             monthBound = data(existing).costCeilingBound === "month";
             return existing.id;
           }
-          const created = await briefMission(tx, scope, task, brief, jobId);
+          const created = await briefMission(
+            tx,
+            scope,
+            task,
+            brief,
+            jobId,
+            blogTarget ? { blogTarget } : {},
+          );
           monthBound = created.monthBound;
           return created.missionId;
         },
@@ -420,6 +478,8 @@ export async function reviseAssignmentDraft(
             version: parent.version,
             instruction: input.instruction,
           },
+          // A revised article keeps the blog target it was written for (R82).
+          ...(original.blogTarget ? { blogTarget: original.blogTarget } : {}),
         },
       );
       return created.missionId;

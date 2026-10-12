@@ -45,7 +45,14 @@ export const configSchema = z.object({
   // The review agent's approval stands in for the owner's only when "true"; set after the review
   // eval passed (Approval J). While "false", assignment posts wait for the owner.
   ORBIT_AGENT_REVIEW_AUTHORITY: z.enum(["false", "true"]).default("false"),
+  // Blog delivery as a GitHub pull request (R81): off means no github connector,
+  // delivery github_pr refused (BLOG_GITHUB_DISABLED) and queued deliveries held.
+  ORBIT_BLOG_GITHUB: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);
+}
+/** Blog delivery as a GitHub pull request (`ORBIT_BLOG_GITHUB`, R81). */
+export function blogGithubEnabled() {
+  return loadConfig().ORBIT_BLOG_GITHUB === "true";
 }

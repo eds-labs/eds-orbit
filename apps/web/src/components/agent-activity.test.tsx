@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   AgentGraph,
+  BlogDeliveryList,
+  canCancelDelivery,
   layoutGraph,
   type ActivityRun,
   type ActivityStep,
+  type BlogDelivery,
 } from "./agent-activity";
 
 const step = (
@@ -120,5 +123,71 @@ describe("AgentGraph", () => {
       expect(html).toContain(label);
     expect(html).toContain("ready");
     expect(html).not.toContain("animateMotion");
+  });
+});
+
+describe("BlogDeliveryList (R83)", () => {
+  const delivery = (changes: Partial<BlogDelivery> = {}): BlogDelivery => ({
+    id: "delivery",
+    version: 2,
+    createdAt: "2026-10-12T08:00:00.000Z",
+    updatedAt: "2026-10-12T08:05:00.000Z",
+    slug: "liquidity-basics",
+    title: "Liquidity basics for desks",
+    status: "pr_open",
+    prNumber: 7,
+    prUrl: "https://github.com/eds-labs/site/pull/7",
+    liveUrl: "https://uliquid.vip/blog/liquidity-basics/",
+    error: null,
+    ...changes,
+  });
+  const render = (items: BlogDelivery[], de = true, canCancel = true) =>
+    renderToStaticMarkup(
+      <BlogDeliveryList
+        items={items}
+        de={de}
+        canCancel={canCancel}
+        pending={false}
+        onCancel={() => {}}
+      />,
+    );
+
+  it("shows an open pull request with its link and the owner's cancel", () => {
+    const html = render([delivery()]);
+    expect(html).toContain("Liquidity basics for desks");
+    expect(html).toContain("PR offen");
+    expect(html).toContain('href="https://github.com/eds-labs/site/pull/7"');
+    expect(html).toContain("Auslieferung abbrechen");
+    expect(html).not.toContain(
+      'href="https://uliquid.vip/blog/liquidity-basics/"',
+    );
+  });
+
+  it("hides the cancel once merged and links a live article", () => {
+    const merged = render([delivery({ status: "merged" })]);
+    expect(merged).toContain("Gemerged");
+    expect(merged).not.toContain("Auslieferung abbrechen");
+    const live = render([delivery({ status: "live" })]);
+    expect(live).toContain("Live");
+    expect(live).not.toContain("Auslieferung abbrechen");
+    expect(live).toContain('href="https://uliquid.vip/blog/liquidity-basics/"');
+  });
+
+  it("offers no cancel to others and speaks English", () => {
+    const html = render([delivery({ status: "checks_failed" })], false, false);
+    expect(html).toContain("CI failed");
+    expect(html).toContain("Blog deliveries");
+    expect(html).not.toContain("Cancel delivery");
+  });
+
+  it("renders nothing without deliveries", () => {
+    expect(render([])).toBe("");
+  });
+
+  it("allows the cancel only before the merge", () => {
+    for (const status of ["queued", "pr_open", "checks_timeout", "failed"])
+      expect(canCancelDelivery(status)).toBe(true);
+    for (const status of ["merged", "live", "live_unverified", "canceled"])
+      expect(canCancelDelivery(status)).toBe(false);
   });
 });

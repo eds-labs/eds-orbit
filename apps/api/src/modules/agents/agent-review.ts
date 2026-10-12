@@ -4,7 +4,11 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { data, hash } from "../../shared.ts";
 import { activePolicy } from "../policy.ts";
 import { linkedTelegramConnection } from "../telegram.ts";
-import { agentsEnabled, assignmentHash } from "./assignments.ts";
+import {
+  agentsEnabled,
+  assignmentHash,
+  confirmedDelivery,
+} from "./assignments.ts";
 
 /**
  * Agent review authority (Orbit Agents, spec §6). The review agent's
@@ -121,7 +125,8 @@ export function confirmedHash(assignment: Record<string, any>) {
  * confirmation covers the content's type and channel; the text names no link
  * outside the policy; a Telegram chat was linked to the project before the
  * review was made; a post with banner copy is delivered as a Postiz draft
- * (R79). The veto
+ * (R79); the content is no website article delivered as a pull request: only
+ * the owner releases one (R81, spec B5). The veto
  * deadline belongs to the publication and is checked at handoff (R4).
  */
 export async function agentReviewAccepted(
@@ -138,6 +143,8 @@ export async function agentReviewAccepted(
     !agentReviewAuthority()
   )
     return false;
+  // Only the owner releases a website article (R81, spec B5).
+  if (content.delivery === "github_pr") return false;
   if (review.bodyHash !== hash(content.body)) return false;
   // Banner copy is outside the review eval set (R79): the agent's approval
   // of a post with a banner stands in for the owner only when it becomes a
@@ -180,7 +187,8 @@ export async function agentReviewAccepted(
   )
     return false;
   const assignment = await find("assignments", content.assignmentId);
-  if (!assignment) return false;
+  if (!assignment || confirmedDelivery(data(assignment)) === "github_pr")
+    return false;
   const confirmed = confirmedHash(data(assignment));
   if (!confirmed || review.assignmentHash !== confirmed) return false;
   if (!withinConfirmation(data(assignment), content)) return false;

@@ -8,6 +8,14 @@ import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
+import {
+  activeBlogDelivery,
+  bookBlogDelivery,
+  releasableAgain,
+} from "./blog-delivery.ts";
+import { BLOG_RELEASE_WINDOW_DAYS } from "./assignment-overview.ts";
+import { localDate } from "./scheduling.ts";
+import { assertBlogGithubEnabled, berlinDate } from "../blog-target.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import {
   draftDelivery,
@@ -48,6 +56,16 @@ import {
  * a publish right the draft is booked as a Postiz draft at the same slot
  * (`bookPostizDraft`, which checks the deterministic blockers at the slot);
  * the worker sends it. Releasing again returns the same handoff.
+ *
+ * A website article (blog, delivery "GitHub pull request", R83) follows no
+ * slot rule: the owner's review is recorded the same way and one
+ * `blog_deliveries` row is booked (`bookBlogDelivery`) whose worker opens and
+ * merges the pull request. It can be released up to
+ * `BLOG_RELEASE_WINDOW_DAYS` after its run slot. The route checks the slug
+ * against the repository first (`assertSlugFree`, outside the transaction).
+ * Releasing again returns the same delivery while it is active; after it
+ * failed or was canceled, the same article (unchanged body) can be released
+ * again and books a new delivery.
  */
 export const releaseInput = z
   .object({ version: z.number().int().positive() })
@@ -61,10 +79,13 @@ const SLOT_WINDOW_MS = 2 * 3600000;
 
 export type ReleaseResult = {
   result: "released" | "already_released";
-  delivery: "publish" | "postiz_draft";
-  // The publication (delivery "publish") or the Postiz draft handoff (R73).
+  delivery: "publish" | "postiz_draft" | "github_pr";
+  // The publication (delivery "publish"), the Postiz draft handoff (R73) or
+  // the website article's GitHub delivery (R83).
   publicationId: string | null;
   postizDraftId: string | null;
+  blogDeliveryId: string | null;
+  // For an article: when it was released (its delivery starts then).
   scheduledAt: string;
   // The run slot the draft was planned for; differs when the post moved.
   requestedAt: string;
@@ -134,6 +155,7 @@ export async function releaseAssignmentDraft(
       delivery: "publish",
       publicationId: existing.id,
       postizDraftId: null,
+      blogDeliveryId: null,
       scheduledAt: p.scheduledAt,
       requestedAt: p.requestedSlotAt ?? p.scheduledAt,
     };
@@ -148,11 +170,28 @@ export async function releaseAssignmentDraft(
       delivery: "postiz_draft",
       publicationId: null,
       postizDraftId: booked.id,
+      blogDeliveryId: null,
       scheduledAt: h.slotAt,
       requestedAt: h.requestedSlotAt ?? h.slotAt,
     };
   }
-  // Blog and newsletter drafts are saved to Drive, never published.
+  const delivered = await activeBlogDelivery(tx, scope, content.id);
+  if (delivered) {
+    const b = data(delivered);
+    return {
+      result: "already_released",
+      delivery: "github_pr",
+      publicationId: null,
+      postizDraftId: null,
+      blogDeliveryId: delivered.id,
+      scheduledAt: b.releasedAt ?? delivered.createdAt.toISOString(),
+      requestedAt: b.requestedSlotAt ?? b.releasedAt,
+    };
+  }
+  // A website article goes to GitHub as a pull request (R83).
+  if (c.type === "blog" && c.delivery === "github_pr")
+    return releaseAsBlogDelivery(tx, scope, content, version);
+  // Other blog and newsletter drafts are saved to Drive, never published.
   if (c.type !== "social") throw new DomainError("DRAFT_NOT_PUBLISHABLE", 409);
   if (c.status !== "needs_review" || c.supersededBy)
     throw new DomainError("DRAFT_NOT_AWAITING_OWNER", 409);
@@ -337,6 +376,7 @@ export async function releaseAssignmentDraft(
     delivery: "publish",
     publicationId: publication.id,
     postizDraftId: null,
+    blogDeliveryId: null,
     scheduledAt,
     requestedAt: planned.toISOString(),
   };
@@ -439,7 +479,113 @@ async function releaseAsPostizDraft(
     delivery: "postiz_draft",
     publicationId: null,
     postizDraftId: booked.id,
+    blogDeliveryId: null,
     scheduledAt: slotAt,
     requestedAt: planned.toISOString(),
+  };
+}
+
+/**
+ * The release of a website article (R83): the same checks of draft,
+ * assignment, run and mission as a social release, but no slot rule, no
+ * publish right and no publication. The article may be released until
+ * `BLOG_RELEASE_WINDOW_DAYS` after its run slot (project days, as the owner
+ * list shows it), else `BLOG_RELEASE_WINDOW_PASSED`. The owner's review of
+ * exactly this text is recorded, then the delivery is booked with the post
+ * dated at the release (Europe/Berlin). An article whose deliveries all ended
+ * (`releasableAgain`) is released again the same way: the review is recorded
+ * again and a new delivery is booked.
+ */
+async function releaseAsBlogDelivery(
+  tx: DbTx,
+  scope: Scope,
+  content: Awaited<ReturnType<typeof entity>>,
+  version: number,
+): Promise<ReleaseResult> {
+  const c = data(content);
+  assertBlogGithubEnabled();
+  // A first release, or a release again after every delivery of the
+  // article failed or was canceled (`releasableAgain`, final review I1).
+  if (
+    c.supersededBy ||
+    (c.status !== "needs_review" &&
+      !(await releasableAgain(tx, scope, content)))
+  )
+    throw new DomainError("DRAFT_NOT_AWAITING_OWNER", 409);
+  if (content.version !== version)
+    throw new DomainError("VERSION_CONFLICT", 409);
+  const assignment = data(
+    await entity(tx, scope, "assignments", c.assignmentId),
+  );
+  if (!confirmedHash(assignment) || !withinConfirmation(assignment, c))
+    throw new DomainError("ASSIGNMENT_NOT_CONFIRMED", 409);
+  const run = await entity(tx, scope, RUNS, c.assignmentRunId);
+  const r = data(run);
+  if (r.assignmentId !== c.assignmentId || r.status === "canceled")
+    throw new DomainError("RUN_CANCELED", 409);
+  if (
+    ((r.scheduling?.dropped ?? []) as Array<{ contentId: string }>).some(
+      (entry) => entry.contentId === content.id,
+    )
+  )
+    throw new DomainError("DRAFT_NOT_AWAITING_OWNER", 409);
+  const mission = data(await entity(tx, scope, "missions", c.missionId));
+  if (mission.assignmentRunId !== c.assignmentRunId)
+    throw new DomainError("MISSION_SCOPE_NOT_ALLOWED", 409);
+  if (mission.status === "ready")
+    throw new DomainError("MISSION_STILL_DRAFTING", 409);
+  // The release window counts in project days from the run slot, like the owner list.
+  const slotAt = String(mission.plannedSlotAt ?? c.scheduledAt ?? "");
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  const now = new Date();
+  const since = localDate(
+    new Date(now.valueOf() - BLOG_RELEASE_WINDOW_DAYS * 86400000),
+    project.timezone,
+  );
+  if (
+    !Number.isFinite(Date.parse(slotAt)) ||
+    localDate(new Date(slotAt), project.timezone) < since
+  )
+    throw new DomainError("BLOG_RELEASE_WINDOW_PASSED", 409);
+  // The owner saw the exact text: their decision is the human content review.
+  const reviewed = await reviewContent(
+    tx,
+    scope,
+    content.id,
+    content.version,
+    true,
+  );
+  if (data(reviewed).status !== "reviewed")
+    throw new DomainError(
+      ((data(reviewed).review?.problems ?? []) as string[]).join(",") ||
+        "CONTENT_REVIEW_REQUIRED",
+      409,
+    );
+  const requestedAt = new Date(slotAt).toISOString();
+  const delivery = await bookBlogDelivery(tx, scope, {
+    content: reviewed,
+    runId: run.id,
+    assignmentId: c.assignmentId,
+    connectorId: String(c.channel),
+    date: berlinDate(now),
+    requestedSlotAt: requestedAt,
+  });
+  await audit(tx, scope, "assignment.draft_released", content.id, {
+    blogDeliveryId: delivery.id,
+    runId: run.id,
+    assignmentId: c.assignmentId,
+    requestedAt,
+    delivery: "github_pr",
+  });
+  return {
+    result: "released",
+    delivery: "github_pr",
+    publicationId: null,
+    postizDraftId: null,
+    blogDeliveryId: delivery.id,
+    scheduledAt: String(data(delivery).releasedAt),
+    requestedAt,
   };
 }

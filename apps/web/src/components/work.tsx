@@ -72,7 +72,7 @@ import {
 import { CreativeRenderer } from "./advanced";
 import { useWorkspace } from "./workspace-context";
 import { ActionRequestInbox } from "./action-request-inbox";
-import { AgentActivityPanel } from "./agent-activity";
+import { AgentActivityPanel, BlogDeliveriesPanel } from "./agent-activity";
 import {
   AutopilotMigrationCard,
   UpcomingAssignmentPosts,
@@ -217,6 +217,7 @@ export function Overview() {
               />
             </div>
             <AgentActivityPanel />
+            <BlogDeliveriesPanel />
             <div className="overview-columns">
               <section className="panel">
                 <div className="panel-head">

@@ -199,6 +199,29 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
       agentApproved: true,
       problems: [],
     });
+    // Only website articles carry a post preview (R81).
+    for (const item of listed) expect(item).not.toHaveProperty("preview");
+    // A social draft keeps today's rule (R81 changes only articles): a
+    // slot from yesterday is no longer listed.
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "missions", first!.missionId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        plannedSlotAt: new Date(Date.now() - 86400000).toISOString(),
+      });
+    });
+    expect(
+      (await h.run((tx) => draftsAwaitingOwner(tx, project.owner))).map(
+        (item) => item.id,
+      ),
+    ).not.toContain(first!.id);
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "missions", first!.missionId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        plannedSlotAt: slots[0]!.at,
+      });
+    });
 
     const released = await release(project.owner, first!);
     expect(released).toMatchObject({

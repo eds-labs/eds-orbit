@@ -110,6 +110,29 @@ describe("AssignmentCard", () => {
     expect(html).not.toContain("wenn du sie nicht stoppst");
   });
 
+  it("labels the GitHub pull request delivery of a blog assignment (R81)", () => {
+    const card = (de: boolean) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{
+            ...assignment(false),
+            contentType: "blog",
+            channels: ["connector"],
+            delivery: "github_pr",
+          }}
+          status="draft"
+          request={null}
+          de={de}
+          canDecide={false}
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    expect(card(true)).toContain("GitHub-PR (Website)");
+    expect(card(false)).toContain("GitHub pull request (website)");
+  });
+
   it("shows a shared text and the format the owner confirms (R76, R77)", () => {
     const card = (changes: Partial<AssignmentContent>) =>
       renderToStaticMarkup(

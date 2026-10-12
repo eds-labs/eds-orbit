@@ -1,5 +1,18 @@
 # Implementation status
 
+## Blog delivery as GitHub pull request (2026-10-12, local, flag off)
+
+Branch `claude/uliquid-blog-publishing-c9a252`, rulings R81–R83, design [blog GitHub delivery](superpowers/specs/2026-10-12-blog-github-delivery-design.md), not pushed or deployed; no production verification yet. Behind `ORBIT_BLOG_GITHUB` (default `false`, in `.env.example` and `docker-compose.yml`); no migration.
+
+- GitHub client (`packages/connectors/src/github.ts`) and the target profile `uliquid-blog-json-v1` (restricted Markdown to the website's post JSON, the website's validation ported, two fixture posts and 13 rejection cases for parity).
+- `github` connector (owner only, encrypted fine-grained token, read and write verification, token renewal, expiry and invalid-token notices) and `blog_live` readiness naming the missing piece.
+- Blog assignments with delivery `github_pr`: run slot without social slot rules, strategy with `publishedArticles`, copywriter `article` output and `ARTICLE_DRAFT_INSTRUCTION`, review checks (overlap, profile validation, placeholders), `draft_blog` default ceiling 8,000.
+- Owner-only release (agent review authority never releases a blog) with a preview from the profile; the release books a `blog_deliveries` row after the live preflight. Worker topic `blog_github_pr`: branch, commit, pull request, CI polling, merge with the expected head, live check, cancel, crash recovery and sweep requeue.
+- Web: blog preview and disabled release with reason, GitHub connection form and verification, delivery status list with cancel.
+- Tests: `packages/connectors` (`github.test.ts`, `blog-targets/uliquid-blog-json-v1.test.ts`), `packages/ai` (`requests.test.ts`, `routing.test.ts`), API integration (`blog-target`, `assignment-github-pr`, `blog-generation`, `blog-review`, `blog-github-delivery` with a stateful fake GitHub in `apps/api/tests/support/fake-github.ts`), web component tests (`blog-preview`, `github-connection`, additions in `assignments`, `agent-activity`, `assignment-card`). Offline only; no live GitHub or model call was made.
+- Production rollout pending, each step with Mario's approval (design section 13): deploy with the flag off; Mario creates the token, flag on, connector created and verified (read, write); production route `draft_blog` ceiling 4,000 to 8,000; live eval of two blog runs (about 0.30 to 0.50 USD each); Mario confirms the blog assignment (monthly, 5 USD, `github_pr`); first run accompanied through release, pull request, CI, merge and live page. Operations notes are in `docs/OPERATIONS.md`.
+- Known limits: `blocked_dependency` is terminal (cancel and release again); no withdraw or update of published articles; one site (uLiquid), English, no article images.
+
 ## Assignment banners in the brand style (2026-10-12, local)
 
 Review fix round (R79, commit after `60ebd02`): agent review authority does not cover banner posts with publish delivery (they wait for the owner until the review eval has banner cases; Postiz draft delivery unchanged); revisions keep the banner (`previousBanner`); banners stay tied to approved, unchanged background, logo and profile (key, save re-check under the run lock, `bannerState`); uploaded raster logo with verified bytes only; `BANNER_BRAND_OVERFLOW` at proposal and run time; per-banner render failures (`BANNER_RENDER_FAILED`); banners bound to their post and out of the library and pickers; banner claim words revised once, NFKC and script checks (`BANNER_TEXT_UNSAFE`); copies of media-capable channels keep the slot's banner when only the strictest channel refuses it (`BANNER_MEDIA_REFUSED`). DejaVu stays the font.

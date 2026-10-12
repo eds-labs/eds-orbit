@@ -18,6 +18,7 @@ import {
 } from "../../../../packages/ai/src/index.ts";
 import {
   activePolicy,
+  channelInScope,
   CLAIM_REPEAT_WINDOW_DAYS,
   withinClaimRepeatWindow,
 } from "./policy.ts";
@@ -51,6 +52,7 @@ import {
   parsedBanner,
 } from "./agents/banner.ts";
 import type { BannerText } from "../../../../packages/creative/src/index.ts";
+import { BLOG_ARTICLE_LIMITS } from "./blog-target.ts";
 import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
@@ -96,6 +98,9 @@ type GenerationContract = {
     previousBody: string;
     // The banner copy of the revised draft (R78): kept unless the instruction concerns it.
     previousBanner?: BannerText;
+    // The title and article fields of a revised website article (R82): kept unless the instruction concerns them.
+    previousTitle?: string;
+    previousArticle?: Record<string, unknown>;
   };
   // Present only for an autopilot day: the channel's posts around its slot.
   recentChannelPosts?: { title: string; claims: string[] }[];
@@ -121,6 +126,15 @@ type GenerationContract = {
     template: "brand_landscape";
     limits: Readonly<Record<keyof BannerText, number>>;
   };
+  // Present only for a GitHub blog run's article (R82): the target profile,
+  // the links it may use and the articles already published.
+  blogTarget?: {
+    profile: string;
+    allowlist: string[];
+    publishedArticles: { slug: string; title: string }[];
+    words: { min: number; max: number };
+    sections: { min: number; max: number };
+  };
   // Present only for a shared text (R76): every channel it goes out on, unchanged.
   sharedChannels?: {
     channel: string;
@@ -128,21 +142,49 @@ type GenerationContract = {
     characterLimit: number | null;
   }[];
 };
+/** The article's part of the contract (R82), or null when the mission writes none. */
+function blogTargetContract(
+  m: Record<string, any>,
+): GenerationContract["blogTarget"] | null {
+  if (!m.assignmentRunId || m.delivery !== "github_pr" || !m.blogTarget)
+    return null;
+  return {
+    profile: String(m.blogTarget.profile),
+    allowlist: (m.blogTarget.allowlist ?? []).map(String),
+    publishedArticles: (m.blogTarget.publishedArticles ?? []).map(
+      (article: Record<string, unknown>) => ({
+        slug: String(article.slug),
+        title: String(article.title),
+      }),
+    ),
+    words: { ...BLOG_ARTICLE_LIMITS.words },
+    sections: { ...BLOG_ARTICLE_LIMITS.sections },
+  };
+}
+
 /** The draft a revision changes; it must still be the version the user asked to revise. */
 async function revisionContext(
   tx: DbTx,
   scope: Scope,
   revisionOf: { contentId: string; version: number; instruction: string },
   withBanner = false,
+  withArticle = false,
 ) {
   const parent = await entity(tx, scope, "content", revisionOf.contentId);
   if (parent.version !== revisionOf.version)
     throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
   const previousBanner = withBanner ? parsedBanner(data(parent).banner) : null;
+  const article = data(parent).article;
   return {
     instruction: revisionOf.instruction,
     previousBody: String(data(parent).body ?? ""),
     ...(previousBanner ? { previousBanner } : {}),
+    ...(withArticle && article && typeof article === "object"
+      ? {
+          previousTitle: String(data(parent).title ?? ""),
+          previousArticle: article as Record<string, unknown>,
+        }
+      : {}),
   };
 }
 
@@ -330,7 +372,7 @@ async function generateMissionDraft(
       const activeScope = data(currentPolicy);
       const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
       if (
-        !activeScope.channels?.includes(channel) ||
+        !channelInScope(activeScope.channels, m, channel) ||
         !activeScope.contentTypes?.includes(m.contentType)
       )
         throw new DomainError("SCOPE_NOT_ALLOWED", 409);
@@ -416,7 +458,7 @@ async function generateMissionDraft(
       );
       const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
       if (
-        !parsed.channels.includes(channel) ||
+        !channelInScope(parsed.channels, m, channel) ||
         !parsed.contentTypes.includes(m.contentType)
       )
         throw new DomainError("SCOPE_NOT_ALLOWED", 409);
@@ -452,6 +494,7 @@ async function generateMissionDraft(
             scope,
             m.revisionOf,
             Boolean(m.assignmentRunId && bannerTemplateOf(m)),
+            Boolean(blogTargetContract(m)),
           )
         : null;
       const contract: GenerationContract = {
@@ -547,6 +590,9 @@ async function generateMissionDraft(
                 limits: BANNER_TEXT_LIMITS,
               },
             }
+          : {}),
+        ...(blogTargetContract(m)
+          ? { blogTarget: blogTargetContract(m)! }
           : {}),
         ...(m.assignmentRunId &&
         Array.isArray(m.sharedChannels) &&
@@ -724,6 +770,8 @@ async function generateMissionDraft(
       bannerTemplateOf(data(prepared.mission))
         ? { banner: true }
         : {}),
+      // The website article fields for a GitHub blog run (R82).
+      ...(blogTargetContract(data(prepared.mission)) ? { article: true } : {}),
     });
   } catch (error) {
     // A completed response with unusable output has a known cost.
@@ -882,6 +930,10 @@ async function generateMissionDraft(
             briefKey: m.briefKey,
             // The delivery confirmed when the mission was made (R73, I1).
             ...(m.delivery ? { delivery: m.delivery } : {}),
+            // The links the article was written with (R82), for its later checks.
+            ...(blogTargetContract(m)
+              ? { articleAllowlist: blogTargetContract(m)!.allowlist }
+              : {}),
           }
         : {}),
       evidenceId: prepared.evidence.id,

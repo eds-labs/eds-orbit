@@ -3347,6 +3347,27 @@ body:has(dialog[open]) {
   margin: 0;
   overflow-wrap: anywhere;
 }
+/* Website article preview of a blog draft (R81). */
+.blog-preview {
+  display: grid;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.blog-preview h3,
+.blog-preview h4,
+.blog-preview p {
+  margin: 0;
+}
+.blog-preview ul {
+  margin: 0;
+  padding-left: 20px;
+}
+.blog-preview-problems {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 /* Agent hub on the overview: live run graph, up next and health. */
 .agent-activity {
   margin-bottom: 18px;

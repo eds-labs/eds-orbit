@@ -20,6 +20,11 @@ import { agentsEnabled } from "./agents/assignments.ts";
 import { nextDailyReportAt, planDailyReport } from "./agents/notifications.ts";
 import { scheduleUnscheduledRuns } from "./agents/veto.ts";
 import { requeuePostizDrafts } from "./agents/draft-delivery.ts";
+import { requeueBlogDeliveries } from "./agents/blog-delivery.ts";
+import {
+  nextGithubTokenNoticeAt,
+  planGithubTokenNotices,
+} from "./blog-target.ts";
 import {
   nextAssignmentPlanAt,
   planAssignmentRuns,
@@ -209,8 +214,12 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
     await scheduleUnscheduledRuns(tx, scope);
     // Booked Postiz drafts whose send a pause or a failed job held back (R73).
     await requeuePostizDrafts(tx, scope);
+    // Blog deliveries a pause, the flag or a failed job held back (R83).
+    await requeueBlogDeliveries(tx, scope);
     // The bot's daily report, once per local day (a paused project sends none).
     await planDailyReport(tx, scope, at);
+    // The GitHub token's recorded expiry, 14 days ahead (R81).
+    await planGithubTokenNotices(tx, scope, at);
   } else await planAutopilot(tx, scope, at);
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
@@ -327,6 +336,7 @@ export async function nextSweepAt(tx: DbTx, scope: Scope, at = new Date()) {
   if (agentsEnabled()) {
     consider((await nextAssignmentPlanAt(tx, scope, at))?.valueOf());
     consider((await nextDailyReportAt(tx, scope, at))?.valueOf());
+    consider((await nextGithubTokenNoticeAt(tx, scope))?.valueOf());
   } else consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
   return Number.isFinite(next) ? new Date(next) : null;
 }

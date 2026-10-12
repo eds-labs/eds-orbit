@@ -22,6 +22,7 @@ import {
   statusTone,
   type AssignmentContent,
 } from "./assignment-card";
+import { BlogPreviewCard, releaseBlock } from "./blog-preview";
 import { Alert, Badge, Button, Loading } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
 
@@ -71,7 +72,7 @@ export type UpcomingPost = {
   ownerReleased: boolean;
   // "postiz_draft": a draft handoff of an assignment with that delivery (R73);
   // `id`, `version` and `status` are the handoff's then. Absent means "publish".
-  delivery?: "publish" | "postiz_draft";
+  delivery?: "publish" | "postiz_draft" | "github_pr";
 };
 /** One row of `GET /assignment-drafts`: a draft that waits for the owner's release. */
 export type AwaitingOwnerDraft = {
@@ -86,7 +87,33 @@ export type AwaitingOwnerDraft = {
   agentApproved: boolean;
   problems: string[];
   // What the release does: schedule the post or book a Postiz draft (R73).
-  delivery?: "publish" | "postiz_draft";
+  delivery?: "publish" | "postiz_draft" | "github_pr";
+  // A website article (R81): the post as the target profile builds it, its
+  // problems, its address and whether its slug is already taken.
+  preview?: BlogPreview;
+};
+/** The website post of a blog draft (R81, target profile uliquid-blog-json-v1). */
+export type BlogPostJson = {
+  slug: string;
+  title: string;
+  seoTitle: string;
+  description: string;
+  category: string;
+  publishedAt: string;
+  updatedAt: string;
+  readTime: string;
+  author: string;
+  authorTitle: string;
+  keywords: string[];
+  excerpt: string;
+  sections: { heading: string; paragraphs: string[]; list?: string[] }[];
+  relatedLinks: { label: string; href: string }[];
+};
+export type BlogPreview = {
+  post: BlogPostJson;
+  problems: string[];
+  liveUrl: string;
+  slugTaken: boolean;
 };
 type Role = "owner" | "editor" | "viewer";
 type NextStatus = "paused" | "active" | "ended";
@@ -616,56 +643,72 @@ export function AwaitingOwnerDraftList({
           </p>
         </div>
       </div>
-      {items.map((item) => (
-        <article key={item.id} className="autopilot-approval">
-          <p className="panel-note">
-            {when(item.slotAt, locale, timezone)} ·{" "}
-            {item.channelName ?? item.channel}
-            {item.assignmentName && ` · ${item.assignmentName}`}
-            {item.problems.map((code) => (
-              <span key={code}>
-                {" "}
-                <Badge tone="warning">{code}</Badge>
-              </span>
-            ))}
-          </p>
-          <pre className="autopilot-approval-body">{item.excerpt}</pre>
-          {item.delivery === "postiz_draft" && (
+      {items.map((item) => {
+        // A website article is not released while its preview is blocked (R81).
+        const blocked = item.preview ? releaseBlock(item.preview, de) : null;
+        return (
+          <article key={item.id} className="autopilot-approval">
             <p className="panel-note">
-              {de
-                ? "Zustellung als Entwurf: Die Freigabe legt ihn nur als Entwurf in Postiz an, zu seinem Termin. Veröffentlichen machst du selbst in Postiz."
-                : "Draft delivery: releasing only creates it as a draft in Postiz, dated at its slot. You publish it yourself in Postiz."}
+              {when(item.slotAt, locale, timezone)} ·{" "}
+              {item.channelName ?? item.channel}
+              {item.assignmentName && ` · ${item.assignmentName}`}
+              {item.problems.map((code) => (
+                <span key={code}>
+                  {" "}
+                  <Badge tone="warning">{code}</Badge>
+                </span>
+              ))}
             </p>
-          )}
-          <p className="panel-note">
-            {item.agentApproved
-              ? de
-                ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
-                : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
-              : de
-                ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
-                : "The review agent left this draft to you."}
-          </p>
-          {canRelease ? (
-            <div className="form-actions">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={pending}
-                onClick={() => onRelease(item)}
-              >
-                {de ? "Freigeben" : "Release"}
-              </Button>
-            </div>
-          ) : (
+            {item.preview ? (
+              <BlogPreviewCard preview={item.preview} de={de} />
+            ) : (
+              <pre className="autopilot-approval-body">{item.excerpt}</pre>
+            )}
+            {item.delivery === "github_pr" && (
+              <p className="panel-note">
+                {de
+                  ? "Zustellung als Pull Request: Die Freigabe öffnet einen Pull Request im Website-Repository; Orbit merged ihn, sobald die CI grün ist."
+                  : "Pull request delivery: releasing opens a pull request in the website repository; Orbit merges it once CI is green."}
+              </p>
+            )}
+            {item.delivery === "postiz_draft" && (
+              <p className="panel-note">
+                {de
+                  ? "Zustellung als Entwurf: Die Freigabe legt ihn nur als Entwurf in Postiz an, zu seinem Termin. Veröffentlichen machst du selbst in Postiz."
+                  : "Draft delivery: releasing only creates it as a draft in Postiz, dated at its slot. You publish it yourself in Postiz."}
+              </p>
+            )}
             <p className="panel-note">
-              {de
-                ? "Nur ein Owner kann freigeben."
-                : "Only an owner can release it."}
+              {item.agentApproved
+                ? de
+                  ? "Vom Review-Agenten geprüft – ohne verbundenen Bot oder freigeschaltete Agenten-Freigabe entscheidest du."
+                  : "Checked by the review agent – without a linked bot or enabled agent approval, you decide."
+                : de
+                  ? "Der Review-Agent hat diesen Entwurf an dich übergeben."
+                  : "The review agent left this draft to you."}
             </p>
-          )}
-        </article>
-      ))}
+            {canRelease ? (
+              <div className="form-actions">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={pending || Boolean(blocked)}
+                  onClick={() => onRelease(item)}
+                >
+                  {de ? "Freigeben" : "Release"}
+                </Button>
+                {blocked && <span className="panel-note">{blocked}</span>}
+              </div>
+            ) : (
+              <p className="panel-note">
+                {de
+                  ? "Nur ein Owner kann freigeben."
+                  : "Only an owner can release it."}
+              </p>
+            )}
+          </article>
+        );
+      })}
     </section>
   );
 }

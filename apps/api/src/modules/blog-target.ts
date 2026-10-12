@@ -1,0 +1,711 @@
+import { randomBytes } from "node:crypto";
+import { z } from "zod";
+import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import {
+  blogGithubEnabled,
+  loadConfig,
+} from "../../../../packages/config/src/index.ts";
+import {
+  AUTHOR,
+  AUTHOR_TITLE,
+  checkOrbitRules,
+  ConnectorError,
+  createGithubClient,
+  linkAllowlist,
+  parseArticleBody,
+  PROFILE_ID,
+  ProfileError,
+  readTime,
+  slugify,
+  validatePost,
+  type ArticleMeta,
+  type BlogPostJson,
+  type FetchLike,
+  type GithubClient,
+  type Section,
+} from "../../../../packages/connectors/src/index.ts";
+import {
+  audit,
+  data,
+  decrypt,
+  DomainError,
+  encrypt,
+  entity,
+  exception,
+  list,
+  update,
+} from "../shared.ts";
+import { notify } from "./agents/notifications.ts";
+
+/**
+ * The GitHub blog target (R81): the `github` connector that points at the
+ * website repository, its verification (`configured` → `read_verified` →
+ * `write_verified`, as for Postiz), the list of published articles and the
+ * token notices. Network calls never run inside a database transaction: the
+ * connector is read in one `scoped` call and the outcome written in another.
+ */
+export type BlogTarget = {
+  connectorId: string;
+  owner: string;
+  repo: string;
+  baseBranch: string;
+  postsPath: string;
+  siteUrl: string;
+  blogPathPrefix: string;
+  profile: typeof PROFILE_ID;
+  status: string;
+};
+export type BlogTargetDeps = { fetch?: FetchLike };
+export type PublishedArticle = {
+  slug: string;
+  title: string;
+  category: string;
+  keywords: string[];
+  publishedAt: string;
+};
+
+/** Days before `tokenExpiresAt` at which the owner is told to renew the token. */
+export const TOKEN_EXPIRY_NOTICE_DAYS = 14;
+
+const NAME = /^[A-Za-z0-9._-]+$/;
+const PATH_SEGMENT = /^(?!\.{1,2}$)[A-Za-z0-9._-]+$/;
+const repoPath = z
+  .string()
+  .max(200)
+  .refine((v) => v.split("/").every((p) => PATH_SEGMENT.test(p)));
+
+/** Input of the connector action for `provider: "github"`; the token is `credential`. */
+export const githubConnectorInput = z
+  .object({
+    provider: z.literal("github"),
+    owner: z.string().max(100).regex(NAME),
+    repo: z.string().max(100).regex(NAME),
+    baseBranch: repoPath.default("main"),
+    postsPath: repoPath.default("content/blog/posts"),
+    siteUrl: z
+      .url()
+      .max(200)
+      .refine((v) => new URL(v).protocol === "https:", "HTTPS_REQUIRED"),
+    blogPathPrefix: z
+      .string()
+      .regex(/^\/(?:[a-z0-9-]+\/)*$/)
+      .default("/blog/"),
+    profile: z.literal(PROFILE_ID),
+    tokenExpiresAt: z.iso.date(),
+    credential: z.string().min(10).max(1000),
+  })
+  .strict();
+
+export function assertBlogGithubEnabled() {
+  if (!blogGithubEnabled()) throw new DomainError("BLOG_GITHUB_DISABLED", 409);
+}
+
+function toTarget(id: string, d: Record<string, any>): BlogTarget {
+  return {
+    connectorId: id,
+    owner: String(d.owner),
+    repo: String(d.repo),
+    baseBranch: String(d.baseBranch ?? "main"),
+    postsPath: String(d.postsPath ?? "content/blog/posts"),
+    siteUrl: String(d.siteUrl),
+    blogPathPrefix: String(d.blogPathPrefix ?? "/blog/"),
+    profile: PROFILE_ID,
+    status: String(d.status),
+  };
+}
+
+/** The connector as a blog target with its decrypted token; `BLOG_TARGET_NOT_CONFIGURED` if absent or not github. */
+export async function loadBlogTarget(
+  tx: DbTx,
+  scope: Scope,
+  connectorId: string,
+): Promise<{ target: BlogTarget; token: string }> {
+  // Only "not found" means not configured; any other error (database, decryption) propagates.
+  const row = await entity(tx, scope, "connectors", connectorId).catch(
+    (error) => {
+      if (error instanceof DomainError && error.code === "NOT_FOUND")
+        return null;
+      throw error;
+    },
+  );
+  const d = data(row);
+  if (!row || d.provider !== "github" || !d.encryptedCredential)
+    throw new DomainError("BLOG_TARGET_NOT_CONFIGURED", 409);
+  return {
+    target: toTarget(row.id, d),
+    token: decrypt(d.encryptedCredential, loadConfig().CREDENTIAL_KEY),
+  };
+}
+
+/** The article's address: `siteUrl` + `blogPathPrefix` + slug + "/" (R81). */
+export function blogLiveUrl(
+  connector: { siteUrl?: unknown; blogPathPrefix?: unknown },
+  slug: string,
+) {
+  const site = String(connector.siteUrl ?? "").replace(/\/+$/, "");
+  const path = String(connector.blogPathPrefix ?? "/blog/").replace(
+    /^\/+|\/+$/g,
+    "",
+  );
+  return `${site}${path ? `/${path}/` : "/"}${slug}/`;
+}
+
+export function githubFor(
+  token: string,
+  target: BlogTarget,
+  deps?: BlogTargetDeps,
+): GithubClient {
+  return createGithubClient({
+    token,
+    owner: target.owner,
+    repo: target.repo,
+    fetch: deps?.fetch,
+  });
+}
+
+/** A target and its token read in their own transaction; the caller talks to GitHub afterwards. */
+const readTarget = (scope: Scope, connectorId: string) =>
+  scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const loaded = await loadBlogTarget(tx, scope, connectorId);
+    const row = await entity(tx, scope, "connectors", connectorId);
+    return { ...loaded, version: row.version, row: data(row) };
+  });
+
+export const isAuth = (error: unknown) =>
+  error instanceof ConnectorError && error.code === "GITHUB_AUTH";
+
+/**
+ * A 401/403 at any call after verification (R81): the connector goes back to
+ * `configured` and the owner gets `github_token_invalid` once per connector
+ * version (a second call on an already downgraded connector changes nothing).
+ */
+export async function markTokenInvalid(
+  tx: DbTx,
+  scope: Scope,
+  connectorId: string,
+): Promise<void> {
+  const row = await entity(tx, scope, "connectors", connectorId);
+  const d = data(row);
+  if (d.provider !== "github") return;
+  let current = row;
+  if (d.status !== "configured" || !d.tokenInvalidAt) {
+    current = await update(tx, scope, row, {
+      ...d,
+      status: "configured",
+      tokenInvalidAt: new Date().toISOString(),
+    });
+    await audit(tx, scope, "github.token_invalid", row.id, {
+      previousStatus: d.status,
+    });
+    await exception(tx, scope, "GITHUB_TOKEN_INVALID", row.id);
+  }
+  await notify(
+    tx,
+    scope,
+    "github_token_invalid",
+    `${row.id}:${current.version}`,
+  );
+}
+
+/** Runs `work` against GitHub; an auth refusal marks the token invalid before it is rethrown. */
+export async function guarded<T>(
+  scope: Scope,
+  connectorId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    if (isAuth(error))
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        markTokenInvalid(tx, scope, connectorId),
+      );
+    throw error;
+  }
+}
+
+type PostFile = {
+  name: string;
+  slug: string;
+  post?: unknown;
+  problems: string[];
+};
+
+/** Every `.json` file in the posts directory of the base branch with its validation problems. */
+async function readPosts(
+  client: GithubClient,
+  target: BlogTarget,
+): Promise<PostFile[]> {
+  const entries = await client.listDirectory(
+    target.postsPath,
+    target.baseBranch,
+  );
+  const files: PostFile[] = [];
+  for (const item of entries) {
+    if (item.type !== "file" || !item.name.endsWith(".json")) continue;
+    const slug = item.name.slice(0, -".json".length);
+    const file = await client.getFile(item.path, target.baseBranch);
+    if (!file) {
+      files.push({ name: item.name, slug, problems: ["file not readable"] });
+      continue;
+    }
+    let post: unknown;
+    try {
+      post = JSON.parse(file.text);
+    } catch {
+      files.push({ name: item.name, slug, problems: ["invalid JSON"] });
+      continue;
+    }
+    files.push({
+      name: item.name,
+      slug,
+      post,
+      problems: validatePost(post, slug),
+    });
+  }
+  return files;
+}
+
+/**
+ * The posts directory of the base branch (R81, R82): the published articles
+ * (slug, title, category, keywords, publishedAt; newest first) and every slug
+ * that has a `.json` file there, valid or not, since any file blocks its
+ * path. One directory listing plus one read per file.
+ */
+export async function readPublished(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<{ articles: PublishedArticle[]; slugs: string[] }> {
+  assertBlogGithubEnabled();
+  const { target, token } = await readTarget(scope, connectorId);
+  const client = githubFor(token, target, deps);
+  const files = await guarded(scope, connectorId, () =>
+    readPosts(client, target),
+  );
+  const articles = files
+    .filter((file) => !file.problems.length)
+    .map((file) => {
+      const p = file.post as Record<string, any>;
+      return {
+        slug: String(p.slug),
+        title: String(p.title),
+        category: String(p.category),
+        keywords: (p.keywords as unknown[]).map(String),
+        publishedAt: String(p.publishedAt),
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.publishedAt.localeCompare(a.publishedAt) ||
+        a.slug.localeCompare(b.slug),
+    );
+  return { articles, slugs: files.map((file) => file.slug) };
+}
+
+/**
+ * The published articles (slug, title, category, keywords, publishedAt) of the
+ * posts directory, newest first. Files that fail the profile's validation are
+ * skipped here; verification is where they are reported.
+ */
+export async function listPublishedArticles(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<PublishedArticle[]> {
+  return (await readPublished(scope, connectorId, deps)).articles;
+}
+
+const problemCode = (error: unknown) =>
+  error instanceof ConnectorError ? error.code : "UNEXPECTED";
+
+/**
+ * An answer that says nothing about the token or the repository: timeouts,
+ * rate limits, 5xx, network trouble, unclear outcomes, unexpected errors.
+ * Verification keeps the stored status for these (R81).
+ */
+const transient = (error: unknown) =>
+  !(error instanceof ConnectorError) ||
+  error.retryable ||
+  error.outcome === "unknown" ||
+  error.status === 408 ||
+  error.status === 429 ||
+  (error.status !== undefined && error.status >= 500) ||
+  [
+    "RATE_LIMITED",
+    "GITHUB_UNAVAILABLE",
+    "NETWORK_ERROR",
+    "REQUEST_TIMEOUT",
+    "DNS_TIMEOUT",
+    "INVALID_PROVIDER_RESPONSE",
+    "RESPONSE_TOO_LARGE",
+  ].includes(error.code);
+
+const STATUS_RANK = ["configured", "read_verified", "write_verified"] as const;
+type VerifyStatus = (typeof STATUS_RANK)[number];
+const rankOf = (status: unknown) =>
+  Math.max(0, STATUS_RANK.indexOf(status as VerifyStatus));
+
+/**
+ * Verifies the connector (R81). Read: repository, base branch, posts
+ * directory, and every post passes the profile's validation. Write: a branch
+ * `orbit/verify-<8 hex>` is created at the base head and deleted again; the
+ * base branch is never written. A branch that could not be deleted is reported
+ * (`VERIFY_BRANCH_NOT_DELETED`), kept on the connector and deleted first on the
+ * next verification. The connector status is stored as the result.
+ */
+export async function verifyBlogTarget(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<{ status: VerifyStatus; problems: string[] }> {
+  assertBlogGithubEnabled();
+  const { target, token, version, row } = await readTarget(scope, connectorId);
+  const client = githubFor(token, target, deps);
+  const problems: string[] = [];
+  let pending = ((row.pendingVerifyBranches ?? []) as unknown[]).map(String);
+  let readOk = false;
+  let writeOk = false;
+  // A transient answer in the read or the write phase (keeps the stored status).
+  let readUnsure = false;
+  let writeUnsure = false;
+  let head: string | null = null;
+  try {
+    await client.getRepo();
+    head = await client.getBranchHead(target.baseBranch);
+    if (!head) problems.push("GITHUB_BASE_BRANCH_NOT_FOUND");
+    else {
+      for (const file of await readPosts(client, target))
+        for (const problem of file.problems)
+          problems.push(`${file.name}: ${problem}`);
+      readOk = !problems.length;
+    }
+  } catch (error) {
+    problems.push(problemCode(error));
+    readUnsure = transient(error);
+  }
+  if (readOk && head) {
+    // Leftovers of an earlier verification go first (R81).
+    const left: string[] = [];
+    for (const branch of pending)
+      try {
+        await client.deleteBranch(branch);
+      } catch {
+        left.push(branch);
+      }
+    pending = left;
+    const branch = `orbit/verify-${randomBytes(4).toString("hex")}`;
+    try {
+      await client.createBranch(branch, head);
+      writeOk = true;
+      try {
+        await client.deleteBranch(branch);
+      } catch {
+        pending.push(branch);
+        problems.push("VERIFY_BRANCH_NOT_DELETED");
+      }
+    } catch (error) {
+      problems.push(problemCode(error));
+      writeUnsure = transient(error);
+    }
+    if (pending.length && !problems.includes("VERIFY_BRANCH_NOT_DELETED"))
+      problems.push("VERIFY_BRANCH_NOT_DELETED");
+  }
+  // Definitive results set the status: a failed read or invalid posts mean
+  // "configured", a refused write "read_verified". A transient answer only
+  // reports the problem and never downgrades the stored status (R81).
+  const stored = rankOf(row.status);
+  const status: VerifyStatus = writeOk
+    ? "write_verified"
+    : readUnsure
+      ? STATUS_RANK[stored]!
+      : readOk && writeUnsure
+        ? STATUS_RANK[Math.max(stored, 1)]!
+        : readOk
+          ? "read_verified"
+          : "configured";
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const current = await entity(tx, scope, "connectors", connectorId);
+    // The connector changed while GitHub was asked: the result belongs to the old one.
+    if (current.version !== version)
+      throw new DomainError("VERSION_CONFLICT", 409);
+    const d = data(current);
+    await update(tx, scope, current, {
+      ...d,
+      status,
+      verifiedAt: new Date().toISOString(),
+      verificationProblems: problems.slice(0, 50),
+      pendingVerifyBranches: pending,
+      ...(readOk ? { tokenInvalidAt: null } : {}),
+    });
+    await audit(tx, scope, "github.verified", connectorId, {
+      status,
+      problems: problems.length,
+    });
+  });
+  return { status, problems };
+}
+
+/** Counts token replacements, so a renewed token gets its own expiry notice. */
+export const credentialGeneration = (d: Record<string, any>) =>
+  Number.isInteger(d.credentialGeneration) ? d.credentialGeneration : 1;
+
+/** The `tokenExpiresAt` date as the start of that day (UTC); NaN when absent or invalid. */
+const expiryOf = (d: Record<string, any>) =>
+  Date.parse(`${String(d.tokenExpiresAt ?? "")}T00:00:00.000Z`);
+
+/**
+ * Daily sweep (R81): `github_token_expiring` once per connector token
+ * (expiry date and credential generation), from 14 days before `tokenExpiresAt`. The token's expiry is not
+ * readable through the API; the owner records it in the connector form.
+ */
+export async function planGithubTokenNotices(
+  tx: DbTx,
+  scope: Scope,
+  at = new Date(),
+) {
+  if (!blogGithubEnabled()) return;
+  for (const row of await list(tx, scope, "connectors")) {
+    const d = data(row);
+    if (d.provider !== "github") continue;
+    const expiry = expiryOf(d);
+    if (!Number.isFinite(expiry)) continue;
+    if (expiry - at.valueOf() > TOKEN_EXPIRY_NOTICE_DAYS * 86400000) continue;
+    await notify(
+      tx,
+      scope,
+      "github_token_expiring",
+      `${row.id}:${d.tokenExpiresAt}:${credentialGeneration(d)}`,
+    );
+  }
+}
+
+/** The next time a token notice becomes due, so the sweep wakes up for it. */
+export async function nextGithubTokenNoticeAt(tx: DbTx, scope: Scope) {
+  if (!blogGithubEnabled()) return null;
+  let next = Infinity;
+  for (const row of await list(tx, scope, "connectors")) {
+    const d = data(row);
+    if (d.provider !== "github") continue;
+    const due = expiryOf(d) - TOKEN_EXPIRY_NOTICE_DAYS * 86400000;
+    if (Number.isFinite(due)) next = Math.min(next, due);
+  }
+  return Number.isFinite(next) ? new Date(next) : null;
+}
+
+/** Input of the token renewal of an existing github connector. */
+export const githubCredentialInput = z
+  .object({
+    credential: z.string().min(10).max(1000),
+    tokenExpiresAt: z.iso.date(),
+  })
+  .strict();
+
+/**
+ * Replaces the token of an existing github connector (R81), the path the
+ * token notices ask for: the new token is stored encrypted, the expiry date
+ * recorded and a new credential generation started (a later expiry notices
+ * again). The connector goes back to `configured`; it needs a new
+ * verification. Owner only and behind the flag (checked by the route).
+ */
+export async function replaceGithubCredential(
+  tx: DbTx,
+  scope: Scope,
+  connectorId: string,
+  input: unknown,
+) {
+  const i = githubCredentialInput.parse(input);
+  const row = await entity(tx, scope, "connectors", connectorId);
+  const d = data(row);
+  if (d.provider !== "github")
+    throw new DomainError("BLOG_TARGET_NOT_CONFIGURED", 409);
+  const saved = await update(tx, scope, row, {
+    ...d,
+    encryptedCredential: encrypt(i.credential, loadConfig().CREDENTIAL_KEY),
+    tokenExpiresAt: i.tokenExpiresAt,
+    credentialGeneration: credentialGeneration(d) + 1,
+    tokenInvalidAt: null,
+    status: "configured",
+    verificationProblems: [],
+  });
+  await audit(tx, scope, "github.credential_replaced", row.id, {
+    previousStatus: d.status,
+    tokenExpiresAt: i.tokenExpiresAt,
+  });
+  return saved;
+}
+
+/** Length targets of a generated article (R82); the profile's own checks are wider (1000-2200 words). */
+export const BLOG_ARTICLE_LIMITS = {
+  words: { min: 1200, max: 1800 },
+  sections: { min: 5, max: 8 },
+} as const;
+
+/**
+ * The published articles for an assignment run (R82): read at the step's
+ * start, outside any transaction. An unreachable GitHub fails the step with
+ * `BLOG_TARGET_UNREACHABLE` (a refused token with `GITHUB_TOKEN_INVALID`)
+ * rather than letting it write an unchecked brief or article; Orbit's own
+ * errors (flag off, connector missing, database) keep their codes.
+ */
+export async function publishedArticlesForRun(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<PublishedArticle[]> {
+  try {
+    return await listPublishedArticles(scope, connectorId, deps);
+  } catch (error) {
+    // Only GitHub's answers are mapped; Orbit's own errors keep their codes.
+    if (!(error instanceof ConnectorError)) throw error;
+    if (isAuth(error)) throw new DomainError("GITHUB_TOKEN_INVALID", 409);
+    throw new DomainError("BLOG_TARGET_UNREACHABLE", 503);
+  }
+}
+
+/**
+ * `readPublished` for a step or read model that goes on without GitHub
+ * (R81: the review leaves the article for the owner, the owner list still
+ * answers). An unreachable GitHub becomes `BLOG_TARGET_UNREACHABLE`, a
+ * refused token `GITHUB_TOKEN_INVALID`; Orbit's own refusals (flag off,
+ * connector missing) keep their codes; other errors (database) propagate.
+ * Read outside any transaction.
+ */
+export async function publishedOrProblem(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<{
+  articles: PublishedArticle[];
+  slugs: string[];
+  problem: string | null;
+}> {
+  try {
+    return {
+      ...(await readPublished(scope, connectorId, deps)),
+      problem: null,
+    };
+  } catch (error) {
+    const problem =
+      error instanceof ConnectorError
+        ? isAuth(error)
+          ? "GITHUB_TOKEN_INVALID"
+          : "BLOG_TARGET_UNREACHABLE"
+        : error instanceof DomainError
+          ? error.code
+          : null;
+    if (!problem) throw error;
+    return { articles: [], slugs: [], problem };
+  }
+}
+
+/** The calendar date (YYYY-MM-DD) in Europe/Berlin, the profile's date zone. */
+export const berlinDate = (at = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+
+/** A fact placeholder left in an article field (R82); see `blogPostOf`. */
+export const BLOG_FACT_PLACEHOLDER = "BLOG_FACT_PLACEHOLDER";
+const FACT_PLACEHOLDER_START = /\{\{\s*fact:/;
+
+const NO_ARTICLE: ArticleMeta = {
+  seoTitle: "",
+  description: "",
+  excerpt: "",
+  category: "",
+  keywords: [],
+  relatedLinks: [],
+};
+
+/**
+ * The website post of a blog draft (R82) for `date` (publishedAt and
+ * updatedAt) and its problems: the body's format error
+ * (`BLOG_BODY_FORMAT: <detail>`), a missing article or title
+ * (`BLOG_ARTICLE_MISSING`, `BLOG_SLUG_INVALID`), the website's validation and
+ * Orbit's stricter rules, and a fact placeholder left in the title or an
+ * article field (`BLOG_FACT_PLACEHOLDER: <field>`). Links are checked
+ * against `allowlist`, else the one the draft was written with
+ * (`articleAllowlist`). Never throws for content problems: the post is
+ * built from what is there.
+ */
+export function blogPostOf(
+  content: Record<string, any>,
+  date: string,
+  options: { allowlist?: string[] } = {},
+): { post: BlogPostJson; problems: string[] } {
+  const problems: string[] = [];
+  const title = String(content.title ?? "");
+  const article: ArticleMeta =
+    content.article && typeof content.article === "object"
+      ? { ...NO_ARTICLE, ...content.article }
+      : (problems.push("BLOG_ARTICLE_MISSING"), NO_ARTICLE);
+  const profileProblem = (error: unknown) => {
+    if (!(error instanceof ProfileError)) throw error;
+    problems.push(error.detail ? `${error.code}: ${error.detail}` : error.code);
+  };
+  let sections: Section[] = [];
+  let bodyParsed = true;
+  try {
+    sections = parseArticleBody(String(content.body ?? ""));
+  } catch (error) {
+    profileProblem(error);
+    bodyParsed = false;
+  }
+  let slug = "";
+  try {
+    slug = slugify(title);
+  } catch (error) {
+    profileProblem(error);
+  }
+  const post: BlogPostJson = {
+    slug,
+    title,
+    seoTitle: article.seoTitle,
+    description: article.description,
+    category: article.category,
+    publishedAt: date,
+    updatedAt: date,
+    readTime: readTime(sections),
+    author: AUTHOR,
+    authorTitle: AUTHOR_TITLE,
+    keywords: article.keywords,
+    excerpt: article.excerpt,
+    sections,
+    relatedLinks: article.relatedLinks,
+  };
+  const allowlist =
+    options.allowlist ??
+    (Array.isArray(content.articleAllowlist)
+      ? content.articleAllowlist.map(String)
+      : linkAllowlist([]));
+  // A body that did not parse has no sections; its format error says enough about them.
+  const aboutBody = (message: string) =>
+    !bodyParsed && /^(sections|body)[:[]/.test(message);
+  problems.push(
+    ...[...validatePost(post), ...checkOrbitRules(post, allowlist)].filter(
+      (message) => !aboutBody(message),
+    ),
+  );
+  // Orbit resolves fact placeholders only in the body (R82): one left in a
+  // field would reach the website as `{{fact:…}}`.
+  const fields: Record<string, string[]> = {
+    title: [post.title],
+    seoTitle: [post.seoTitle],
+    description: [post.description],
+    excerpt: [post.excerpt],
+    category: [post.category],
+    keywords: Array.isArray(post.keywords) ? post.keywords.map(String) : [],
+    relatedLinks: Array.isArray(post.relatedLinks)
+      ? post.relatedLinks.map((link) => String(link?.label ?? ""))
+      : [],
+  };
+  for (const [field, values] of Object.entries(fields))
+    if (values.some((value) => FACT_PLACEHOLDER_START.test(value)))
+      problems.push(`${BLOG_FACT_PLACEHOLDER}: ${field}`);
+  return { post, problems };
+}

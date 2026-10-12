@@ -387,6 +387,8 @@ export async function validateDraftMission(
   scope: Scope,
   mission: unknown,
   factIds: string[],
+  // A GitHub blog run's mission (R82): its channel is this verified blog target, not a policy channel.
+  options: { blogTargetId?: string } = {},
 ) {
   const parsed = missionSchema.parse({
     ...(mission as object),
@@ -405,7 +407,13 @@ export async function validateDraftMission(
       ),
     ),
   );
-  if (parsed.channels.some((channel) => !p.channels.includes(channel)))
+  const blogTarget = (channel: string) =>
+    parsed.contentType === "blog" && channel === options.blogTargetId;
+  if (
+    parsed.channels.some(
+      (channel) => !p.channels.includes(channel) && !blogTarget(channel),
+    )
+  )
     throw new DomainError("CHANNEL_NOT_APPROVED", 409);
   if (!p.allowedOrigins.includes(new URL(parsed.targetUrl!).origin))
     throw new DomainError("LINK_NOT_ALLOWED", 409);

@@ -31,6 +31,9 @@ const draftOnly: ReadinessInputs = {
   postizWriteVerified: false,
   postizChannelWriteVerified: false,
   matomoReadVerified: false,
+  blogGithubEnabled: false,
+  blogTargetConfigured: false,
+  blogTargetWriteVerified: false,
 };
 const fullyVerified: ReadinessInputs = {
   ...draftOnly,
@@ -40,6 +43,9 @@ const fullyVerified: ReadinessInputs = {
   postizWriteVerified: true,
   postizChannelWriteVerified: true,
   matomoReadVerified: true,
+  blogGithubEnabled: true,
+  blogTargetConfigured: true,
+  blogTargetWriteVerified: true,
 };
 
 describe("action-specific readiness", () => {
@@ -101,9 +107,29 @@ describe("action-specific readiness", () => {
       state: "not_configured",
       blockers: ["POSTIZ_DRAFTS_DISABLED"],
     });
-    expect(actions.blog_live.state).toBe("not_configured");
     expect(actions.newsletter_live.state).toBe("not_configured");
     expect(actions.ads_live.state).toBe("not_configured");
+  });
+
+  it("names the first missing piece of the GitHub blog target (R81)", () => {
+    const blog = (inputs: Partial<ReadinessInputs>) =>
+      actionReadiness({ ...fullyVerified, ...inputs }).blog_live;
+    expect(blog({ blogGithubEnabled: false })).toMatchObject({
+      state: "not_configured",
+      blockers: ["BLOG_GITHUB_DISABLED"],
+    });
+    expect(
+      blog({ blogTargetConfigured: false, blogTargetWriteVerified: false }),
+    ).toMatchObject({
+      state: "not_configured",
+      blockers: ["BLOG_TARGET_NOT_CONFIGURED"],
+    });
+    expect(blog({ blogTargetWriteVerified: false })).toMatchObject({
+      state: "blocked",
+      blockers: ["GITHUB_WRITE_VERIFICATION_REQUIRED"],
+    });
+    expect(blog({})).toMatchObject({ state: "ready", blockers: [] });
+    expect(actionReadiness(draftOnly).blog_live.state).toBe("not_configured");
   });
 
   it("allows Postiz drafts with their own switch while live posts stay off", () => {

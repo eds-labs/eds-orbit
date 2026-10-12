@@ -10,6 +10,7 @@ import {
   sharedAcrossChannels,
 } from "./assignments.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
+import { blogGithubEnabled } from "../../../../../packages/config/src/index.ts";
 import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
@@ -382,6 +383,27 @@ async function allocateSlots(
   return { slots, unavailable };
 }
 
+/**
+ * The single slot of a `github_pr` blog run (R81): the day's first requested
+ * time that has not passed, on the connector (the assignment's only channel).
+ * Policy channels, quotas, spacing, quiet hours, calendar blocks and other
+ * assignments do not apply: nothing is published at it.
+ */
+function githubSlot(due: Due, channels: string[], now: Date) {
+  const at = due.slots.find((slot) => slot > now);
+  return {
+    slots: at ? [{ channel: channels[0]!, at: at.toISOString() }] : [],
+    unavailable: [] as Array<{
+      channel: string;
+      requestedAt: string;
+      code: typeof SLOT_UNAVAILABLE;
+    }>,
+  };
+}
+
+/** Run-level codes that end a run before any step (R81); reported as one failed entry. */
+const RUN_REFUSALS = ["BLOG_GITHUB_DISABLED"];
+
 export const DAY_SKIPPED = "assignment.day_skipped";
 
 /**
@@ -468,15 +490,45 @@ export async function planAssignmentRuns(
         due.slots[due.slots.length - 1]! <= now
       )
         continue;
+      // GitHub delivery with ORBIT_BLOG_GITHUB off (R81): the run ends
+      // `failed` at its start, without slots, tasks or spend; the assignment
+      // keeps its confirmation. Unlike a canceled run, the failed one keeps
+      // the day planned, so the sweep does not retry it.
+      if (confirmedDelivery(d) === "github_pr" && !blogGithubEnabled()) {
+        const ended = await create(tx, scope, RUNS, {
+          assignmentId: row.id,
+          assignmentVersion: row.version,
+          assignmentHash: d.confirmation?.assignmentHash ?? null,
+          idempotencyKey: `assignment:${row.id}:${due.date}`,
+          date: due.date,
+          status: "failed",
+          errorCode: "BLOG_GITHUB_DISABLED",
+          slots: [],
+          unavailable: [],
+          ceilingMicros: runCeilingOf(d),
+          steps: buildWorkPlan(d).map((step) => ({
+            ...step,
+            status: "canceled",
+          })),
+          costMicros: 0,
+          plannedAt: now.toISOString(),
+        });
+        await audit(tx, scope, "assignment.run_refused", ended.id, {
+          assignmentId: row.id,
+          code: "BLOG_GITHUB_DISABLED",
+        });
+        // The owner hears of it once per run; a one-off has nothing left to do.
+        await reportRunProblems(tx, scope, ended);
+        await completeOneOff(tx, scope, row.id, ended.id);
+        continue;
+      }
       const shared = sharedAcrossChannels(d);
-      const allocation = await allocateSlots(
-        tx,
-        scope,
-        due,
-        d.channels,
-        now,
-        shared,
-      );
+      // A GitHub delivery (R81) publishes nothing at its slot (the owner's
+      // release opens the pull request later), so no social slot rule applies.
+      const allocation =
+        confirmedDelivery(d) === "github_pr"
+          ? githubSlot(due, d.channels, now)
+          : await allocateSlots(tx, scope, due, d.channels, now, shared);
       // No slot of the day can be reached any more: no run (nothing could be
       // delivered), only the drop notice (R75).
       if (!allocation.slots.length) {
@@ -709,8 +761,9 @@ const REPORTED_ELSEWHERE = [
 ];
 
 export type RunProblems = {
-  // Steps whose task ended failed or outcome_unknown, with the task's code.
-  failed: Array<{ stepKey: string; role: StepRole; code: string }>;
+  // Steps whose task ended failed or outcome_unknown, with the task's code;
+  // a run refused at its start (R81) has one entry `run` without a role.
+  failed: Array<{ stepKey: string; role: StepRole | null; code: string }>;
   // Slots the strategy left without a brief and briefs a copywriter could not write.
   dropped: Array<{ channel: string; slotAt: string; code: string }>;
   // Steps that never ran because a step they need failed.
@@ -744,6 +797,9 @@ export async function runProblems(
     ).map((task) => [task.id, data(task)]),
   );
   const problems: RunProblems = { failed: [], dropped: [], skipped: [] };
+  const refusal = String(data(run).errorCode ?? "");
+  if (RUN_REFUSALS.includes(refusal))
+    problems.failed.push({ stepKey: "run", role: null, code: refusal });
   for (const step of (data(run).steps ?? []) as WorkStep[]) {
     if (step.status === "skipped") problems.skipped.push(step.key);
     const task = step.taskId ? tasks.get(step.taskId) : undefined;

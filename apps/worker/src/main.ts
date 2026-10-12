@@ -70,6 +70,11 @@ import {
   deliverPostizDraft,
   markPostizDraftOutcomeUnknown,
 } from "../../api/src/modules/agents/draft-delivery.ts";
+import {
+  advanceBlogDelivery,
+  BLOG_DELIVERY_TOPIC,
+  markBlogDeliveryOutcomeUnknown,
+} from "../../api/src/modules/agents/blog-delivery.ts";
 import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
 import {
   dispatchPublication,
@@ -111,6 +116,8 @@ const classes = [
   "telegram_notification",
   // Approved assignment posts sent to Postiz as drafts only (delivery "Postiz draft", R73).
   "postiz_draft",
+  // Released website articles delivered as GitHub pull requests (R83).
+  "blog_github_pr",
 ] as const;
 const queues = new Map(
   classes.map((c) => [
@@ -198,7 +205,9 @@ const workers = classes.map(
             // A specialist task may run its full 120 s wall time, a notification with its retries nearly as long; the lease outlasts both.
             leaseUntil: new Date(
               Date.now() +
-                (topic === "agent" || topic === "telegram_notification"
+                (topic === "agent" ||
+                topic === "telegram_notification" ||
+                topic === BLOG_DELIVERY_TOPIC
                   ? 180000
                   : 120000),
             ).toISOString(),
@@ -329,6 +338,9 @@ const workers = classes.map(
           } else if (topic === "postiz_draft") {
             // Records its own outcome on the handoff; an unclear send is never repeated.
             await deliverPostizDraft(scope, data(claimed).resourceId);
+          } else if (topic === BLOG_DELIVERY_TOPIC) {
+            // One step per job; it records its outcome and enqueues the next step itself (R83).
+            await advanceBlogDelivery(scope, data(claimed).resourceId);
           } else if (topic === "agent") {
             // Records its own outcome on the task; never retried after a paid call.
             await runAgentTask(scope, data(claimed).resourceId);
@@ -425,6 +437,9 @@ async function processProject(p: DueProject, claimed: Date) {
         // A draft send that may have reached Postiz is never repeated (R73).
         if (d.topic === "postiz_draft")
           await markPostizDraftOutcomeUnknown(tx, scope, d.resourceId);
+        // A step that may have written to GitHub is repeated, reading GitHub first (R83).
+        if (d.topic === BLOG_DELIVERY_TOPIC)
+          await markBlogDeliveryOutcomeUnknown(tx, scope, d.resourceId);
         if (d.topic === "publishing") {
           const pub = await entity(tx, scope, "publications", d.resourceId);
           if (data(pub).status === "sending") {

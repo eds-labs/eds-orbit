@@ -44,11 +44,12 @@ const kind = z.enum(["one_off", "standing"]);
 // No `report` until a report delivery exists (R70, I6): the server refuses it with REPORT_NOT_AVAILABLE.
 const contentType = z.enum(["social", "blog", "newsletter"]);
 // R73: how approved posts leave Orbit; the server refuses postiz_draft while drafts are off.
+// R81: github_pr delivers a blog article as a pull request on the website repository.
 const delivery = z
-  .enum(["publish", "postiz_draft"])
+  .enum(["publish", "postiz_draft", "github_pr"])
   .nullable()
   .describe(
-    "publish (default when null): posts go out after the veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off)",
+    "publish (default when null): posts go out after the veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off). github_pr: blog articles only, no image; channels is exactly one blogTargets id from project_status (a write_verified github connector), never a social channel; after the owner's release Orbit opens a pull request on the website repository (BLOG_GITHUB_DISABLED while off, BLOG_TARGET_NOT_VERIFIED without a verified connector)",
   );
 
 // R76: one text and one image per slot for all channels.
@@ -107,7 +108,9 @@ const proposeParameters = z
     contentType,
     channels: z
       .array(z.string())
-      .describe("Policy channel IDs from project_status, at least one"),
+      .describe(
+        "Policy channel IDs from project_status, at least one; for delivery github_pr exactly one blogTargets id from project_status",
+      ),
     topicFrame: z
       .string()
       .describe("What the posts are about, in the user's words"),
@@ -307,7 +310,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_propose",
     namespace: "assignments",
     description:
-      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
+      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, github_pr for blog articles the website receives as a pull request, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
     parameters: proposeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],
@@ -412,7 +415,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_change",
     namespace: "assignments",
     description:
-      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
+      "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish, postiz_draft or github_pr), sharedAcrossChannels, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
     parameters: changeParameters,
     risk: "P_proposal",
     roles: ["editor", "owner"],

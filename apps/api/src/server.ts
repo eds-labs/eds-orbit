@@ -44,6 +44,12 @@ import {
 } from "./modules/ai-usage.ts";
 import { pauseProject } from "./modules/pause.ts";
 import {
+  assertBlogGithubEnabled,
+  githubConnectorInput,
+  replaceGithubCredential,
+  verifyBlogTarget,
+} from "./modules/blog-target.ts";
+import {
   blockCalendar,
   unblockCalendar,
   calendarBlock,
@@ -86,11 +92,17 @@ import {
   listAssignments,
   upcomingAssignmentPosts,
   vetoInput,
+  withBlogSlugs,
 } from "./modules/agents/assignment-overview.ts";
 import {
   releaseAssignmentDraft,
   releaseInput,
 } from "./modules/agents/owner-release.ts";
+import {
+  assertSlugFree,
+  cancelBlogDelivery,
+  listBlogDeliveries,
+} from "./modules/agents/blog-delivery.ts";
 import { vetoPublication } from "./modules/agents/veto.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import {
@@ -268,6 +280,8 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/publications/:id/veto",
   "/api/projects/:projectId/assignment-drafts",
   "/api/projects/:projectId/assignment-drafts/:id/release",
+  "/api/projects/:projectId/blog-deliveries",
+  "/api/projects/:projectId/blog-deliveries/:id/cancel",
 ]);
 // The plain webhook path only: exactly two lowercase UUIDs, nothing encoded.
 const UUID_SEGMENT =
@@ -277,7 +291,11 @@ const TELEGRAM_WEBHOOK_PATH = new RegExp(
 );
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
-  options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
+  options?: {
+    logStream?: NodeJS.WritableStream;
+    telegramFetch?: FetchLike;
+    githubFetch?: FetchLike;
+  },
 ) {
   const config = loadConfig(),
     auth = makeAuth();
@@ -993,14 +1011,44 @@ export async function buildServer(
       ),
     );
   });
+  // GitHub blog target verification (R81): owner only; GitHub is called outside a transaction.
+  app.post(
+    "/api/projects/:projectId/connectors/:id/verify-github",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      assertBlogGithubEnabled();
+      return verifyBlogTarget(scope, z.uuid().parse(id), {
+        fetch: options?.githubFetch,
+      });
+    },
+  );
+  // Token renewal of an existing GitHub blog target (R81): owner only; status back to configured.
+  app.post(
+    "/api/projects/:projectId/connectors/:id/github-credential",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      assertBlogGithubEnabled();
+      return publicEntity(
+        await scoped(scope.workspaceId, projectId, (tx) =>
+          replaceGithubCredential(tx, scope, z.uuid().parse(id), req.body),
+        ),
+      );
+    },
+  );
   // Assignment drafts left for the owner (R70): the list, and the owner's release of one.
   app.get("/api/projects/:projectId/assignment-drafts", async (req) => {
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId);
+    // Website article previews read GitHub after the transaction (R81).
     return {
-      items: await scoped(scope.workspaceId, projectId, (tx) =>
-        draftsAwaitingOwner(tx, scope),
+      items: await withBlogSlugs(
+        scope,
+        await scoped(scope.workspaceId, projectId, (tx) =>
+          draftsAwaitingOwner(tx, scope),
+        ),
       ),
     };
   });
@@ -1014,9 +1062,38 @@ export async function buildServer(
       };
       const scope = await scopeFor(auth, req, projectId, true, true);
       const input = releaseInput.parse(req.body);
+      const contentId = z.uuid().parse(id);
+      // A website article's slug is checked against GitHub first, outside the transaction (R83).
+      await assertSlugFree(scope, contentId);
       return scoped(scope.workspaceId, projectId, (tx) =>
-        releaseAssignmentDraft(tx, scope, z.uuid().parse(id), input.version),
+        releaseAssignmentDraft(tx, scope, contentId, input.version),
       );
+    },
+  );
+  // Website article deliveries (R83): the list for members, the cancel for the owner.
+  app.get("/api/projects/:projectId/blog-deliveries", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId);
+    assertBlogGithubEnabled();
+    return {
+      items: await scoped(scope.workspaceId, projectId, (tx) =>
+        listBlogDeliveries(tx, scope),
+      ),
+    };
+  });
+  app.post(
+    "/api/projects/:projectId/blog-deliveries/:id/cancel",
+    async (req) => {
+      const { projectId, id } = req.params as {
+        projectId: string;
+        id: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      assertBlogGithubEnabled();
+      // GitHub is called between two transactions (close the pull request, delete the branch).
+      return cancelBlogDelivery(scope, z.uuid().parse(id), {
+        fetch: options?.githubFetch,
+      });
     },
   );
   app.get("/api/projects/:projectId/google-drive", async (req) => {
@@ -2271,6 +2348,19 @@ export async function buildServer(
           },
         });
         return { queued: true };
+      }
+      if (action === "connector" && input.provider === "github") {
+        // The website repository as blog target (R81); owner only, behind ORBIT_BLOG_GITHUB.
+        assertBlogGithubEnabled();
+        const { credential, ...metadata } = githubConnectorInput.parse(input);
+        return publicEntity(
+          await create(tx, scope, "connectors", {
+            ...metadata,
+            encryptedCredential: encrypt(credential, config.CREDENTIAL_KEY),
+            status: "configured",
+            capabilities: [],
+          }),
+        );
       }
       if (action === "connector") {
         const c = z

@@ -47,6 +47,14 @@ export const NOTIFY_KINDS = [
   "delivery_changed",
   // A draft-delivery assignment planned no run today: Postiz drafts are switched off (M3).
   "drafts_disabled",
+  // The GitHub blog target refused the token; ref `<connectorId>:<version>` (R81).
+  "github_token_invalid",
+  // The recorded GitHub token expiry is at most 14 days away; ref `<connectorId>:<YYYY-MM-DD>:<generation>` (R81).
+  "github_token_expiring",
+  // A blog delivery reached its live page; ref is the delivery id (R81).
+  "blog_live",
+  // A blog delivery stopped in a side state; ref `<deliveryId>:<event>` (R81).
+  "blog_delivery_stopped",
   "daily_report",
 ] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];

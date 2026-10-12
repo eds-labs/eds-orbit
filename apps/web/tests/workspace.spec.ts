@@ -1138,7 +1138,7 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
   ).toHaveValue("");
   await expect(
     dialog.getByLabel("Blog drafts maximum output tokens", { exact: true }),
-  ).toHaveValue("1800");
+  ).toHaveValue("8000");
 
   // Save a Blog drafts route; the untouched groups keep their stored/empty state.
   await dialog

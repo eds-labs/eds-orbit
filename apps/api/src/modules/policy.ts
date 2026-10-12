@@ -274,6 +274,25 @@ async function releasedByVeto(
 }
 
 /**
+ * Whether a mission may draft for `channel` under the policy's channels: a
+ * GitHub blog run's article (R82) goes to its blog target, which is a
+ * verified connector and no policy channel; the content type still has to be
+ * allowed. Generation and preflight share this rule (R81).
+ */
+export function channelInScope(
+  policyChannels: string[] | undefined,
+  m: Record<string, any> | null,
+  channel: string,
+) {
+  return (
+    (policyChannels ?? []).includes(channel) ||
+    (m?.delivery === "github_pr" &&
+      m.contentType === "blog" &&
+      m.blogTarget?.connectorId === channel)
+  );
+}
+
+/**
  * A mission's own publishing right for one content. An assignment mission's
  * right covers only the post the owner released (`publishAuthorizedBy`,
  * owner-release.ts, R70), never another text on the same mission.
@@ -338,9 +357,10 @@ export async function preflight(
   }
   if (!c.synthetic && (!c.missionId || !c.campaignType || !c.profileVersion))
     blockers.push("CAMPAIGN_MISSION_REQUIRED");
+  // The content's mission, also for the policy's channel rule (R81).
+  let m: Record<string, any> | null = null;
   if (c.missionId) {
-    const mission = await entity(tx, scope, "missions", c.missionId),
-      m = data(mission);
+    m = data(await entity(tx, scope, "missions", c.missionId));
     if (at < new Date(m.startAt) || at >= new Date(m.endAt))
       blockers.push("MISSION_EXPIRED");
     if (!m.channels.includes(c.channel) || m.contentType !== c.type)
@@ -434,7 +454,10 @@ export async function preflight(
   if (p) {
     if (at < new Date(p.startAt) || at >= new Date(p.endAt))
       blockers.push("POLICY_EXPIRED");
-    if (!p.channels.includes(c.channel) || !p.contentTypes.includes(c.type))
+    if (
+      !channelInScope(p.channels, m, c.channel) ||
+      !p.contentTypes.includes(c.type)
+    )
       blockers.push("SCOPE_NOT_ALLOWED");
     if (c.targetUrl && !p.allowedOrigins.includes(new URL(c.targetUrl).origin))
       blockers.push("LINK_NOT_ALLOWED");

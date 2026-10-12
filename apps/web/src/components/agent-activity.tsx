@@ -15,8 +15,17 @@ import {
   ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
-import { ApiError, api, collectionPath, usd, when } from "@/lib/api";
-import { Badge } from "./ui/primitives";
+import {
+  ApiError,
+  api,
+  collectionPath,
+  post,
+  useMutation,
+  useResource,
+  usd,
+  when,
+} from "@/lib/api";
+import { Alert, Badge, Button } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
 
 /** One step of `GET /agent-activity` runs. */
@@ -41,7 +50,7 @@ export type ActivityRun = {
   firstSlotAt: string | null;
   costMicros: number;
   ceilingMicros: number;
-  delivery: "publish" | "postiz_draft";
+  delivery: "publish" | "postiz_draft" | "github_pr";
   steps: ActivityStep[];
 };
 export type NextItem = {
@@ -313,7 +322,9 @@ export function AgentGraph({
     node.role === "delivery" && run
       ? run.delivery === "postiz_draft"
         ? t(["Postiz draft", "Postiz-Entwurf"])
-        : t(["Publish", "Veröffentlichen"])
+        : run.delivery === "github_pr"
+          ? t(["GitHub pull request", "GitHub-PR"])
+          : t(["Publish", "Veröffentlichen"])
       : t(roles[node.role]?.label ?? [node.role, node.role]);
   const subLabel = (node: GraphNode) => {
     const state = t(stepStatus[node.status] ?? [node.status, node.status]);
@@ -693,5 +704,175 @@ export function AgentActivityView({
         </aside>
       </div>
     </section>
+  );
+}
+
+/** One row of `GET /blog-deliveries` (R83): a released website article on its way. */
+export type BlogDelivery = {
+  id: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  slug: string;
+  title: string;
+  status: string;
+  prNumber: number | null;
+  prUrl?: string | null;
+  liveUrl: string;
+  error: string | null;
+};
+
+// [en, de] per delivery status (R83).
+export const blogDeliveryStatus: Record<string, [string, string]> = {
+  queued: ["Queued", "In Warteschlange"],
+  branch_ready: ["Preparing", "Wird vorbereitet"],
+  committed: ["Preparing", "Wird vorbereitet"],
+  pr_open: ["PR open", "PR offen"],
+  checks_passed: ["CI green", "CI grün"],
+  checks_failed: ["CI failed", "CI fehlgeschlagen"],
+  checks_timeout: ["CI without result", "CI ohne Ergebnis"],
+  merged: ["Merged", "Gemerged"],
+  live: ["Live", "Live"],
+  live_unverified: ["Live not confirmed", "Live nicht bestätigt"],
+  blocked_dependency: ["Blocked", "Blockiert"],
+  outcome_unknown: ["Unclear", "Unklar"],
+  canceled: ["Canceled", "Abgebrochen"],
+  failed: ["Failed", "Fehlgeschlagen"],
+};
+const deliveryTone: Record<
+  string,
+  "success" | "warning" | "danger" | "neutral"
+> = {
+  live: "success",
+  merged: "success",
+  checks_passed: "success",
+  checks_failed: "danger",
+  failed: "danger",
+  blocked_dependency: "danger",
+  checks_timeout: "warning",
+  live_unverified: "warning",
+  outcome_unknown: "warning",
+};
+
+/** The owner cancels a delivery only before its merge (R83, spec §7 "Cancel"). */
+export function canCancelDelivery(status: string) {
+  return !["merged", "live", "live_unverified", "canceled"].includes(status);
+}
+
+/** Released website articles with their status, pull request and live link (R83). */
+export function BlogDeliveryList({
+  items,
+  de,
+  canCancel,
+  pending,
+  onCancel,
+}: {
+  items: BlogDelivery[];
+  de: boolean;
+  canCancel: boolean;
+  pending: boolean;
+  onCancel: (delivery: BlogDelivery) => void;
+}) {
+  if (!items.length) return null;
+  return (
+    <section className="panel autopilot-approvals">
+      <div className="panel-head">
+        <div>
+          <h2>{de ? "Blog-Auslieferungen" : "Blog deliveries"}</h2>
+          <p>
+            {de
+              ? "Freigegebene Artikel gehen als Pull Request ins Website-Repository; Orbit merged nach grüner CI."
+              : "Released articles go to the website repository as pull requests; Orbit merges after green CI."}
+          </p>
+        </div>
+      </div>
+      {items.map((item) => (
+        <article key={item.id} className="autopilot-approval">
+          <p className="panel-note">
+            <strong>{item.title}</strong> · <code>{item.slug}</code>{" "}
+            <Badge tone={deliveryTone[item.status] ?? "neutral"}>
+              {
+                (blogDeliveryStatus[item.status] ?? [item.status, item.status])[
+                  de ? 1 : 0
+                ]
+              }
+            </Badge>
+            {item.error && (
+              <>
+                {" "}
+                <Badge tone="warning">{item.error}</Badge>
+              </>
+            )}
+          </p>
+          <p className="panel-note">
+            {item.prUrl && (
+              <a href={item.prUrl} target="_blank" rel="noreferrer">
+                {de ? "Pull Request" : "Pull request"}
+                {item.prNumber ? ` #${item.prNumber}` : ""}
+              </a>
+            )}
+            {item.prUrl &&
+              ["live", "live_unverified"].includes(item.status) &&
+              " · "}
+            {["live", "live_unverified"].includes(item.status) && (
+              <a href={item.liveUrl} target="_blank" rel="noreferrer">
+                {de ? "Artikel ansehen" : "View article"}
+              </a>
+            )}
+          </p>
+          {canCancel && canCancelDelivery(item.status) && (
+            <div className="form-actions">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={pending}
+                onClick={() => onCancel(item)}
+              >
+                {de ? "Auslieferung abbrechen" : "Cancel delivery"}
+              </Button>
+            </div>
+          )}
+        </article>
+      ))}
+    </section>
+  );
+}
+
+// The blog deliveries are off while the flag is off (409) or the route is missing (404).
+const deliveriesOff = (error: ApiError | null) =>
+  error?.status === 404 || error?.code === "BLOG_GITHUB_DISABLED";
+
+/** Overview panel of the website article deliveries (R83); hidden while there are none. */
+export function BlogDeliveriesPanel() {
+  const { project, revision, locale, isOwner, refresh } = useWorkspace();
+  const de = locale === "de";
+  const resource = useResource<{ items: BlogDelivery[] }>(
+    collectionPath(project.id, `blog-deliveries?revision=${revision}`),
+  );
+  const mutation = useMutation(() => {
+    resource.refresh();
+    refresh();
+  });
+  if (deliveriesOff(resource.error)) return null;
+  const items = (resource.data?.items ?? []).slice(0, 10);
+  return (
+    <>
+      {resource.error && <Alert kind="error">{resource.error.message}</Alert>}
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      <BlogDeliveryList
+        items={items}
+        de={de}
+        canCancel={isOwner}
+        pending={mutation.pending}
+        onCancel={(item) =>
+          mutation.run(() =>
+            post(
+              collectionPath(project.id, `blog-deliveries/${item.id}/cancel`),
+              {},
+            ),
+          )
+        }
+      />
+    </>
   );
 }

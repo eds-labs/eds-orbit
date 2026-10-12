@@ -135,10 +135,15 @@ const usd = (micros: bigint | null | undefined) =>
     maximumFractionDigits: 2,
   });
 
-/** The channel's name from the Postiz connector; the id when it is not known. */
+/**
+ * The channel's name from the Postiz connector, the repository of a github
+ * blog target (R81); the id when it is not known.
+ */
 async function channelName(tx: DbTx, scope: Scope, channel: unknown) {
   const id = String(channel ?? "");
   for (const row of await list(tx, scope, "connectors")) {
+    if (row.id === id && data(row).provider === "github")
+      return repoOf(data(row));
     const found = (
       (data(row).channels ?? []) as Array<Record<string, any>>
     ).find((item) => item.id === id);
@@ -248,6 +253,9 @@ async function needsOwner(
   );
   if (!contentRow) return { skip: "STALE" };
   const c = data(contentRow);
+  // A website article (R83) waits for the owner's release as a pull request.
+  if (c.type === "blog" && c.delivery === "github_pr")
+    return articleNeedsOwner(tx, scope, c, taskId, timezone);
   // The agent approved it, but only the owner's release counts (R71).
   if (c.agentReview?.taskId === taskId) {
     // Released, replaced or otherwise decided meanwhile: nothing left to ask.
@@ -288,6 +296,39 @@ async function needsOwner(
       `Kanal: ${await channelName(tx, scope, c.channel)}`,
       `Orbit konnte ihn nicht selbst freigeben${why.length ? ` (${clip(why.join(", "), 200)})` : ""}.`,
       "Bitte in Orbit prüfen. Bis dahin geht nichts raus.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** `needs_owner` of a website article (github_pr, R83): its title and repository. */
+async function articleNeedsOwner(
+  tx: DbTx,
+  scope: Scope,
+  c: Record<string, any>,
+  taskId: string | undefined,
+  timezone: string,
+): Promise<Built> {
+  if (c.status !== "needs_review" || c.supersededBy) return { skip: "STALE" };
+  const mission = c.missionId
+    ? data(await maybe(() => entity(tx, scope, "missions", c.missionId)))
+    : {};
+  const why = [
+    ...((c.agentReviewDecision?.deterministicProblems ?? []) as unknown[]),
+    c.agentReviewDecision?.revisionError,
+  ]
+    .filter(Boolean)
+    .map(String);
+  return plain(
+    [
+      `Artikel wartet auf Freigabe: ${clip(String(c.title ?? "ohne Titel"), 160)}`,
+      `Repository: ${await channelName(tx, scope, c.channel)}`,
+      ...(mission.plannedSlotAt
+        ? [`Geplant: ${when(mission.plannedSlotAt, timezone)}`]
+        : []),
+      c.agentReview?.taskId === taskId
+        ? "Orbit hat ihn geprüft. Er geht erst als Pull Request an GitHub, wenn du ihn in Orbit freigibst."
+        : `Orbit konnte ihn nicht selbst prüfen${why.length ? ` (${clip(why.join(", "), 200)})` : ""}. Bitte in Orbit prüfen. Bis dahin geht nichts raus.`,
     ].join("\n"),
     [openButton()],
   );
@@ -416,9 +457,11 @@ const FACT_CODES = [
 const reasonText = (code: string) =>
   code === SLOT_UNAVAILABLE
     ? "kein freier Slot an dem Tag"
-    : FACT_CODES.includes(code)
-      ? `Fakten fehlen (${code})`
-      : code;
+    : code === "BLOG_GITHUB_DISABLED"
+      ? "Blog-Zustellung per GitHub ist ausgeschaltet (BLOG_GITHUB_DISABLED)"
+      : FACT_CODES.includes(code)
+        ? `Fakten fehlen (${code})`
+        : code;
 
 /**
  * Deliverables that got no slot: of a new run (`ref` is the run id) or of a
@@ -886,6 +929,106 @@ async function draftsDisabled(
   );
 }
 
+/** The GitHub repository of a blog target connector, e.g. "eds-labs/site". */
+const repoOf = (d: Record<string, any>) =>
+  `${String(d.owner ?? "")}/${String(d.repo ?? "")}`;
+
+/** GitHub refused the blog target's token (R81); `ref` is `<connectorId>:<version>`. */
+async function githubTokenInvalid(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const row = await maybe(() =>
+    entity(tx, scope, "connectors", ref.split(":")[0]!),
+  );
+  const d = data(row);
+  // Verified again meanwhile: the token works.
+  if (!row || d.provider !== "github" || d.status !== "configured")
+    return { skip: "STALE" };
+  return plain(
+    [
+      "GitHub-Token erneuern",
+      `GitHub hat den Token für ${repoOf(d)} abgelehnt.`,
+      "Blog-Auslieferungen warten, bis ein neuer Token hinterlegt und geprüft ist.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** The recorded token expiry is near (R81); `ref` is `<connectorId>:<YYYY-MM-DD>:<generation>`. */
+async function githubTokenExpiring(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const [connectorId, date, generation] = ref.split(":");
+  const row = await maybe(() => entity(tx, scope, "connectors", connectorId!));
+  const d = data(row);
+  // A new token was recorded meanwhile (another date or generation).
+  if (
+    !row ||
+    d.provider !== "github" ||
+    d.tokenExpiresAt !== date ||
+    String(
+      Number.isInteger(d.credentialGeneration) ? d.credentialGeneration : 1,
+    ) !== (generation ?? "1")
+  )
+    return { skip: "STALE" };
+  return plain(
+    [
+      "GitHub-Token erneuern",
+      `Der Token für ${repoOf(d)} läuft am ${String(date).split("-").reverse().join(".")} ab.`,
+      "Neuen Token in GitHub erstellen und in Orbit hinterlegen.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** A blog delivery whose article is live (R81); `ref` is the delivery id. */
+async function blogLive(tx: DbTx, scope: Scope, ref: string): Promise<Built> {
+  const row = await maybe(() => entity(tx, scope, "blog_deliveries", ref));
+  const d = data(row);
+  if (!row || d.status !== "live" || !d.liveUrl) return { skip: "STALE" };
+  return plain(`Artikel ist live: ${String(d.liveUrl)}`);
+}
+
+// Delivery states in which a blog delivery stopped and waits for the owner (R81).
+const BLOG_STOPPED = [
+  "checks_failed",
+  "checks_timeout",
+  "live_unverified",
+  "blocked_dependency",
+  "outcome_unknown",
+  "canceled",
+  "failed",
+];
+
+/** A blog delivery stopped in a side state (R81); `ref` is `<deliveryId>:<event>`. */
+async function blogDeliveryStopped(
+  tx: DbTx,
+  scope: Scope,
+  ref: string,
+): Promise<Built> {
+  const row = await maybe(() =>
+    entity(tx, scope, "blog_deliveries", ref.split(":")[0]!),
+  );
+  const d = data(row);
+  if (!row || !BLOG_STOPPED.includes(d.status)) return { skip: "STALE" };
+  const code =
+    typeof d.error === "string"
+      ? d.error
+      : String(d.error?.code ?? d.status ?? "unbekannt");
+  return plain(
+    [
+      `Auslieferung gestoppt: ${clip(code, 120)}`,
+      ...(d.slug ? [`Artikel: ${clip(String(d.slug), 120)}`] : []),
+      "Bitte in Orbit prüfen.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
 function projectPaused(): Built {
   return plain(
     "Projekt pausiert. Es geht nichts mehr raus. Fortsetzen nur in Orbit.",
@@ -931,6 +1074,14 @@ async function render(
       return deliveryChanged(tx, scope, ref);
     case "drafts_disabled":
       return draftsDisabled(tx, scope, ref);
+    case "github_token_invalid":
+      return githubTokenInvalid(tx, scope, ref);
+    case "github_token_expiring":
+      return githubTokenExpiring(tx, scope, ref);
+    case "blog_live":
+      return blogLive(tx, scope, ref);
+    case "blog_delivery_stopped":
+      return blogDeliveryStopped(tx, scope, ref);
     case "daily_report":
       return dailyReport(tx, scope, ref, timezone);
   }

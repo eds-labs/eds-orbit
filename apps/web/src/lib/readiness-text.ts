@@ -83,6 +83,10 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
     EXTERNAL_WRITES_DISABLED: "External writes are switched off.",
     MATOMO_READ_VERIFICATION_REQUIRED: "Connect and verify Matomo.",
     BLOG_TARGET_NOT_CONFIGURED: "No blog target is configured.",
+    BLOG_GITHUB_DISABLED:
+      "Blog delivery via GitHub is switched off (ORBIT_BLOG_GITHUB).",
+    GITHUB_WRITE_VERIFICATION_REQUIRED:
+      "GitHub write access to the website repository has not been verified.",
     MAIL_PROVIDER_NOT_CONFIGURED: "No mail provider is configured.",
     ADS_WRITE_MANDATE_NOT_CONFIGURED: "No ads mandate is configured.",
   },
@@ -118,6 +122,10 @@ const blockerReasons: Record<Locale, Record<string, string>> = {
     EXTERNAL_WRITES_DISABLED: "Externe Schreibzugriffe sind ausgeschaltet.",
     MATOMO_READ_VERIFICATION_REQUIRED: "Matomo verbinden und prüfen.",
     BLOG_TARGET_NOT_CONFIGURED: "Kein Blog-Ziel eingerichtet.",
+    BLOG_GITHUB_DISABLED:
+      "Blog-Auslieferung über GitHub ist ausgeschaltet (ORBIT_BLOG_GITHUB).",
+    GITHUB_WRITE_VERIFICATION_REQUIRED:
+      "Schreibzugriff auf das Website-Repository in GitHub ist noch nicht geprüft.",
     MAIL_PROVIDER_NOT_CONFIGURED: "Kein Mail-Anbieter eingerichtet.",
     ADS_WRITE_MANDATE_NOT_CONFIGURED: "Kein Ads-Mandat eingerichtet.",
   },
