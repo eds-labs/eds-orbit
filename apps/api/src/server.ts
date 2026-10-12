@@ -103,6 +103,7 @@ import { readiness } from "./modules/readiness.ts";
 import {
   assignPostizChannels,
   postizAssignmentInput,
+  postizHealthStatus,
 } from "./modules/postiz-assignment.ts";
 import {
   publicOpenAiConfiguration,
@@ -1689,7 +1690,7 @@ export async function buildServer(
           error: null,
         };
         result = {
-          status: "read_verified",
+          status: postizHealthStatus(d),
           capabilities: client.capabilities,
           channels,
           groups,

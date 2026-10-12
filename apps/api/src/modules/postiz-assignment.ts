@@ -32,6 +32,18 @@ export function postingTimeFor(
   return typeof value === "string" && POSTING_TIME.test(value) ? value : null;
 }
 
+/**
+ * Status after a read-only Postiz health check: it proves reads and refreshes
+ * the channel list, but a verified sandbox write stays valid, so a connector
+ * with verified write integrations keeps `write_verified`.
+ */
+export function postizHealthStatus(connector: Record<string, any>) {
+  return Array.isArray(connector.writeVerifiedIntegrationIds) &&
+    connector.writeVerifiedIntegrationIds.length > 0
+    ? "write_verified"
+    : "read_verified";
+}
+
 export function hasXLongPosts(
   connector: Record<string, any>,
   integrationId: string,
