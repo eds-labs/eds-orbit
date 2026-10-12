@@ -1763,7 +1763,8 @@ type OpenAiConfigurationView = {
 const taskClasses = [
   { id: "chat_operator", label: "Chat operator", defaultTokens: 3000 },
   { id: "draft_social", label: "Social drafts", defaultTokens: 1800 },
-  { id: "draft_blog", label: "Blog drafts", defaultTokens: 1800 },
+  // Mirrors the API default (R82).
+  { id: "draft_blog", label: "Blog drafts", defaultTokens: 8000 },
   { id: "agent_strategy", label: "Agent strategy", defaultTokens: 1800 },
   { id: "agent_research", label: "Agent research", defaultTokens: 1800 },
   { id: "agent_analytics", label: "Agent analytics", defaultTokens: 1800 },

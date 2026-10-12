@@ -42,6 +42,13 @@ export type Specialist = {
    */
   refresh?: (scope: Scope) => Promise<void>;
   /**
+   * Required reads from outside services before `prepareInput`, outside any
+   * transaction (R82: the strategy of a GitHub blog run reads the published
+   * articles). Unlike `refresh` it may throw: the task then fails with the
+   * error's code before any paid call. Its result reaches `prepareInput`.
+   */
+  load?: (scope: Scope, input: any) => Promise<unknown>;
+  /**
    * Adds stored context (read-only) to the task input before the model sees
    * it. `input` is what the model gets; `context` (default: `input`) is
    * what `finalize` gets, for data the model need not see. The stored task
@@ -51,6 +58,7 @@ export type Specialist = {
     tx: DbTx,
     scope: Scope,
     input: any,
+    loaded?: unknown,
   ) => Promise<{ input: unknown; context?: unknown }>;
   /**
    * Runs on the parsed answer with the normalized URLs the task's web

@@ -15,6 +15,7 @@ import {
 import { invalidateContent } from "../../content-invalidation.ts";
 import { currentMarketingProfile } from "../../marketing-profile.ts";
 import { checkClaims, preflight } from "../../policy.ts";
+import { berlinDate, blogPostOf } from "../../blog-target.ts";
 import { errorCode } from "../../telemetry.ts";
 import {
   bodyLinkProblems,
@@ -247,8 +248,9 @@ function writtenDrafts(task: AgentTask) {
 
 /**
  * The deterministic problems of one draft: preflight at its slot (without the
- * codes this step decides), the run and the confirmation it belongs to, and
- * links written in the text outside the policy.
+ * codes this step decides), the run and the confirmation it belongs to,
+ * links written in the text outside the policy and, for a website article
+ * (R82), the target profile's problems (`blogPostOf`).
  */
 export async function deterministicProblems(
   tx: DbTx,
@@ -290,6 +292,9 @@ export async function deterministicProblems(
   );
   // The format the draft was written for (R77), carried on its mission.
   problems.push(...formatProblems(v.body, mission?.format));
+  // A website article (R82): the target profile's format and validation, for today's date.
+  if (v.delivery === "github_pr" && v.type === "blog")
+    problems.push(...blogPostOf(v, berlinDate()).problems);
   // The banner copy (R78) is reviewed content too.
   if (bannerTemplateOf(mission))
     problems.push(

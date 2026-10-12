@@ -49,6 +49,8 @@ import {
 import {
   agentsEnabled,
   assignmentHash,
+  confirmedDelivery,
+  deliveryOf,
   setAssignmentStatus,
 } from "../assignments.ts";
 import { notify } from "../notifications.ts";
@@ -347,6 +349,11 @@ async function taskInput(
         ? { sharedAcrossChannels: true }
         : {}),
       ...(assignment.format ? { format: assignment.format } : {}),
+      // A website article delivered as a pull request (R82): its channel is the blog target.
+      ...((confirmedDelivery(assignment) ?? deliveryOf(assignment)) ===
+      "github_pr"
+        ? { delivery: "github_pr" }
+        : {}),
     },
     run: {
       id: task.runId,
@@ -624,9 +631,13 @@ export async function runSpecialist(
   try {
     // Best-effort work outside any transaction (the strategy's channel history sync, C1).
     if (specialist.refresh) await specialist.refresh(scope);
+    // Required reads outside any transaction (the blog target's published articles, R82).
+    const loaded = specialist.load
+      ? await specialist.load(scope, task.input)
+      : undefined;
     const prepared = specialist.prepareInput
       ? await scoped(scope.workspaceId, scope.projectId, (tx) =>
-          specialist.prepareInput!(tx, scope, task.input),
+          specialist.prepareInput!(tx, scope, task.input, loaded),
         )
       : { input: task.input };
     const input = prepared.input;

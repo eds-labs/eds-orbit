@@ -51,6 +51,7 @@ import {
   parsedBanner,
 } from "./agents/banner.ts";
 import type { BannerText } from "../../../../packages/creative/src/index.ts";
+import { BLOG_ARTICLE_LIMITS } from "./blog-target.ts";
 import {
   batchCostUsedMicros,
   enqueueNextBatchRun,
@@ -121,6 +122,15 @@ type GenerationContract = {
     template: "brand_landscape";
     limits: Readonly<Record<keyof BannerText, number>>;
   };
+  // Present only for a GitHub blog run's article (R82): the target profile,
+  // the links it may use and the articles already published.
+  blogTarget?: {
+    profile: string;
+    allowlist: string[];
+    publishedArticles: { slug: string; title: string }[];
+    words: { min: number; max: number };
+    sections: { min: number; max: number };
+  };
   // Present only for a shared text (R76): every channel it goes out on, unchanged.
   sharedChannels?: {
     channel: string;
@@ -128,6 +138,45 @@ type GenerationContract = {
     characterLimit: number | null;
   }[];
 };
+/**
+ * Whether a mission may draft for `channel` under the policy's channels: a
+ * GitHub blog run's article (R82) goes to its blog target, which is a
+ * verified connector and no policy channel; the content type still has to be
+ * allowed.
+ */
+function channelInScope(
+  policyChannels: string[] | undefined,
+  m: Record<string, any>,
+  channel: string,
+) {
+  return (
+    (policyChannels ?? []).includes(channel) ||
+    (m.delivery === "github_pr" &&
+      m.contentType === "blog" &&
+      m.blogTarget?.connectorId === channel)
+  );
+}
+
+/** The article's part of the contract (R82), or null when the mission writes none. */
+function blogTargetContract(
+  m: Record<string, any>,
+): GenerationContract["blogTarget"] | null {
+  if (!m.assignmentRunId || m.delivery !== "github_pr" || !m.blogTarget)
+    return null;
+  return {
+    profile: String(m.blogTarget.profile),
+    allowlist: (m.blogTarget.allowlist ?? []).map(String),
+    publishedArticles: (m.blogTarget.publishedArticles ?? []).map(
+      (article: Record<string, unknown>) => ({
+        slug: String(article.slug),
+        title: String(article.title),
+      }),
+    ),
+    words: { ...BLOG_ARTICLE_LIMITS.words },
+    sections: { ...BLOG_ARTICLE_LIMITS.sections },
+  };
+}
+
 /** The draft a revision changes; it must still be the version the user asked to revise. */
 async function revisionContext(
   tx: DbTx,
@@ -330,7 +379,7 @@ async function generateMissionDraft(
       const activeScope = data(currentPolicy);
       const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
       if (
-        !activeScope.channels?.includes(channel) ||
+        !channelInScope(activeScope.channels, m, channel) ||
         !activeScope.contentTypes?.includes(m.contentType)
       )
         throw new DomainError("SCOPE_NOT_ALLOWED", 409);
@@ -416,7 +465,7 @@ async function generateMissionDraft(
       );
       const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
       if (
-        !parsed.channels.includes(channel) ||
+        !channelInScope(parsed.channels, m, channel) ||
         !parsed.contentTypes.includes(m.contentType)
       )
         throw new DomainError("SCOPE_NOT_ALLOWED", 409);
@@ -547,6 +596,9 @@ async function generateMissionDraft(
                 limits: BANNER_TEXT_LIMITS,
               },
             }
+          : {}),
+        ...(blogTargetContract(m)
+          ? { blogTarget: blogTargetContract(m)! }
           : {}),
         ...(m.assignmentRunId &&
         Array.isArray(m.sharedChannels) &&
@@ -724,6 +776,8 @@ async function generateMissionDraft(
       bannerTemplateOf(data(prepared.mission))
         ? { banner: true }
         : {}),
+      // The website article fields for a GitHub blog run (R82).
+      ...(blogTargetContract(data(prepared.mission)) ? { article: true } : {}),
     });
   } catch (error) {
     // A completed response with unusable output has a known cost.
@@ -882,6 +936,10 @@ async function generateMissionDraft(
             briefKey: m.briefKey,
             // The delivery confirmed when the mission was made (R73, I1).
             ...(m.delivery ? { delivery: m.delivery } : {}),
+            // The links the article was written with (R82), for its later checks.
+            ...(blogTargetContract(m)
+              ? { articleAllowlist: blogTargetContract(m)!.allowlist }
+              : {}),
           }
         : {}),
       evidenceId: prepared.evidence.id,

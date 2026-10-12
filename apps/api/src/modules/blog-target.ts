@@ -7,12 +7,23 @@ import {
   loadConfig,
 } from "../../../../packages/config/src/index.ts";
 import {
+  AUTHOR,
+  AUTHOR_TITLE,
+  checkOrbitRules,
   ConnectorError,
   createGithubClient,
+  linkAllowlist,
+  parseArticleBody,
   PROFILE_ID,
+  ProfileError,
+  readTime,
+  slugify,
   validatePost,
+  type ArticleMeta,
+  type BlogPostJson,
   type FetchLike,
   type GithubClient,
+  type Section,
 } from "../../../../packages/connectors/src/index.ts";
 import {
   audit,
@@ -495,4 +506,120 @@ export async function replaceGithubCredential(
     tokenExpiresAt: i.tokenExpiresAt,
   });
   return saved;
+}
+
+/** Length targets of a generated article (R82); the profile's own checks are wider (1000-2200 words). */
+export const BLOG_ARTICLE_LIMITS = {
+  words: { min: 1200, max: 1800 },
+  sections: { min: 5, max: 8 },
+} as const;
+
+/**
+ * The published articles for an assignment run (R82): read at the step's
+ * start, outside any transaction. An unreachable GitHub fails the step with
+ * `BLOG_TARGET_UNREACHABLE` (a refused token with `GITHUB_TOKEN_INVALID`)
+ * rather than letting it write an unchecked brief or article; Orbit's own
+ * errors (flag off, connector missing, database) keep their codes.
+ */
+export async function publishedArticlesForRun(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<PublishedArticle[]> {
+  try {
+    return await listPublishedArticles(scope, connectorId, deps);
+  } catch (error) {
+    // Only GitHub's answers are mapped; Orbit's own errors keep their codes.
+    if (!(error instanceof ConnectorError)) throw error;
+    if (isAuth(error)) throw new DomainError("GITHUB_TOKEN_INVALID", 409);
+    throw new DomainError("BLOG_TARGET_UNREACHABLE", 503);
+  }
+}
+
+/** The calendar date (YYYY-MM-DD) in Europe/Berlin, the profile's date zone. */
+export const berlinDate = (at = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(at);
+
+const NO_ARTICLE: ArticleMeta = {
+  seoTitle: "",
+  description: "",
+  excerpt: "",
+  category: "",
+  keywords: [],
+  relatedLinks: [],
+};
+
+/**
+ * The website post of a blog draft (R82) for `date` (publishedAt and
+ * updatedAt) and its problems: the body's format error
+ * (`BLOG_BODY_FORMAT: <detail>`), a missing article or title
+ * (`BLOG_ARTICLE_MISSING`, `BLOG_SLUG_INVALID`), the website's validation and
+ * Orbit's stricter rules. Links are checked against `allowlist`, else the one
+ * the draft was written with (`articleAllowlist`). Never throws for content
+ * problems: the post is built from what is there.
+ */
+export function blogPostOf(
+  content: Record<string, any>,
+  date: string,
+  options: { allowlist?: string[] } = {},
+): { post: BlogPostJson; problems: string[] } {
+  const problems: string[] = [];
+  const title = String(content.title ?? "");
+  const article: ArticleMeta =
+    content.article && typeof content.article === "object"
+      ? { ...NO_ARTICLE, ...content.article }
+      : (problems.push("BLOG_ARTICLE_MISSING"), NO_ARTICLE);
+  const profileProblem = (error: unknown) => {
+    if (!(error instanceof ProfileError)) throw error;
+    problems.push(error.detail ? `${error.code}: ${error.detail}` : error.code);
+  };
+  let sections: Section[] = [];
+  let bodyParsed = true;
+  try {
+    sections = parseArticleBody(String(content.body ?? ""));
+  } catch (error) {
+    profileProblem(error);
+    bodyParsed = false;
+  }
+  let slug = "";
+  try {
+    slug = slugify(title);
+  } catch (error) {
+    profileProblem(error);
+  }
+  const post: BlogPostJson = {
+    slug,
+    title,
+    seoTitle: article.seoTitle,
+    description: article.description,
+    category: article.category,
+    publishedAt: date,
+    updatedAt: date,
+    readTime: readTime(sections),
+    author: AUTHOR,
+    authorTitle: AUTHOR_TITLE,
+    keywords: article.keywords,
+    excerpt: article.excerpt,
+    sections,
+    relatedLinks: article.relatedLinks,
+  };
+  const allowlist =
+    options.allowlist ??
+    (Array.isArray(content.articleAllowlist)
+      ? content.articleAllowlist.map(String)
+      : linkAllowlist([]));
+  // A body that did not parse has no sections; its format error says enough about them.
+  const aboutBody = (message: string) =>
+    !bodyParsed && /^(sections|body)[:[]/.test(message);
+  problems.push(
+    ...[...validatePost(post), ...checkOrbitRules(post, allowlist)].filter(
+      (message) => !aboutBody(message),
+    ),
+  );
+  return { post, problems };
 }

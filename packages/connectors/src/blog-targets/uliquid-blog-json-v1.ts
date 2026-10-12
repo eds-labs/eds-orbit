@@ -44,8 +44,8 @@ export type BlogPostJson = {
   relatedLinks: { label: string; href: string }[];
 };
 
-const AUTHOR = "Mario Euchner";
-const AUTHOR_TITLE = "Founder & Product Lead";
+export const AUTHOR = "Mario Euchner";
+export const AUTHOR_TITLE = "Founder & Product Lead";
 const WORDS_PER_MINUTE = 220;
 const MAX_SLUG_LENGTH = 80;
 

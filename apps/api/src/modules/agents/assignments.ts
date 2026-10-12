@@ -390,7 +390,7 @@ async function assertFormatFits(
  * access was verified (`BLOG_TARGET_NOT_VERIFIED` otherwise, also for an id
  * that is no connector at all).
  */
-async function assertBlogTargetReady(
+export async function assertBlogTargetReady(
   tx: DbTx,
   scope: Scope,
   connectorId: string,

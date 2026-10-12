@@ -43,7 +43,8 @@ export const taskRoutesSchema = z
 export const defaultOutputTokens: Record<TaskClass, number> = {
   chat_operator: 3000,
   draft_social: 1800,
-  draft_blog: 1800,
+  // A website article (R82): 1,200-1,800 words plus reasoning tokens.
+  draft_blog: 8000,
   agent_strategy: 1800,
   agent_research: 1800,
   agent_analytics: 1800,

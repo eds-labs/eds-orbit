@@ -1,5 +1,4 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import {
   afterAll,
   afterEach,
@@ -16,7 +15,6 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import type { FetchLike } from "../../../packages/connectors/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
 import { buildServer } from "../src/server.ts";
 import { create, data, encrypt, entity, list } from "../src/shared.ts";
@@ -28,103 +26,17 @@ import {
 } from "../src/modules/blog-target.ts";
 import { readiness } from "../src/modules/readiness.ts";
 import { sweepProject } from "../src/modules/lifecycle.ts";
+import {
+  FIXTURE_POSTS,
+  fakeGithub,
+  OWNER,
+  REPO,
+  TOKEN,
+} from "./support/fake-github.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
-// Synthetic token; the fake GitHub below is the only "GitHub" these tests reach.
-const TOKEN = "github_pat_synthetic_0123456789_ABCDEFGHIJ";
-const OWNER = "eds-labs";
-const REPO = "uliquid-desk-website-v2";
-const HEAD = "1".repeat(40);
-const FIXTURES = new URL(
-  "../../../packages/connectors/src/blog-targets/fixtures/",
-  import.meta.url,
-);
-const fixture = (name: string) =>
-  readFileSync(new URL(`${name}.json`, FIXTURES), "utf8");
-const FIXTURE_POSTS = {
-  "market-intelligence-context-not-signal.json": fixture(
-    "market-intelligence-context-not-signal",
-  ),
-  "ai-assisted-trading-keeps-decisions-with-the-user.json": fixture(
-    "ai-assisted-trading-keeps-decisions-with-the-user",
-  ),
-};
-
-/** An in-memory GitHub for one repository; it records every call. */
-function fakeGithub(
-  options: {
-    posts?: Record<string, string>;
-    createStatus?: number;
-    deleteStatus?: number;
-    authFail?: boolean;
-    // Every call answers with this status (e.g. 502), as a GitHub outage would.
-    outage?: number;
-    // The only token this GitHub accepts; anything else is a 401.
-    token?: string;
-  } = {},
-) {
-  const posts: Record<string, string> = options.posts ?? FIXTURE_POSTS;
-  const created: string[] = [];
-  const deleted: string[] = [];
-  const calls: string[] = [];
-  const json = (status: number, body: unknown) =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
-  const root = `/repos/${OWNER}/${REPO}`;
-  const dir = `${root}/contents/content/blog/posts`;
-  const fetch: FetchLike = async (input, init = {}) => {
-    const url = new URL(String(input));
-    const method = init.method ?? "GET";
-    calls.push(`${method} ${url.pathname}`);
-    const bearer = new Headers(init.headers).get("authorization");
-    if (options.authFail || bearer !== `Bearer ${options.token ?? TOKEN}`)
-      return json(401, { message: "Bad credentials" });
-    if (options.outage) return json(options.outage, { message: "Bad gateway" });
-    if (method === "GET" && url.pathname === root)
-      return json(200, { default_branch: "main", private: true });
-    if (method === "GET" && url.pathname === `${root}/git/ref/heads/main`)
-      return json(200, { object: { sha: HEAD } });
-    if (method === "GET" && url.pathname === dir)
-      return json(
-        200,
-        Object.keys(posts).map((name) => ({
-          name,
-          path: `content/blog/posts/${name}`,
-          sha: "a".repeat(40),
-          type: "file",
-        })),
-      );
-    if (method === "GET" && url.pathname.startsWith(`${dir}/`)) {
-      const name = decodeURIComponent(url.pathname.slice(dir.length + 1));
-      if (!(name in posts)) return json(404, { message: "Not Found" });
-      return json(200, {
-        sha: "b".repeat(40),
-        content: Buffer.from(posts[name]!, "utf8").toString("base64"),
-      });
-    }
-    if (method === "POST" && url.pathname === `${root}/git/refs`) {
-      const body = JSON.parse(String(init.body));
-      if (options.createStatus)
-        return json(options.createStatus, {
-          message: "Resource not accessible by personal access token",
-        });
-      created.push(body.ref);
-      return json(201, { ref: body.ref, object: { sha: body.sha } });
-    }
-    if (method === "DELETE" && url.pathname.startsWith(`${root}/git/refs/`)) {
-      if (options.deleteStatus)
-        return json(options.deleteStatus, { message: "Server Error" });
-      deleted.push(url.pathname.slice(`${root}/git/refs/`.length));
-      return new Response(null, { status: 204 });
-    }
-    return json(404, { message: "Not Found" });
-  };
-  return { fetch, created, deleted, calls };
-}
 
 describe.skipIf(!enabled)("GitHub blog target (R81)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;

@@ -6,7 +6,12 @@ vi.mock("openai", () => ({
     responses = { create };
   },
 }));
-import { GenerationOutputError, generate, streamChat } from "./index.ts";
+import {
+  ARTICLE_DRAFT_INSTRUCTION,
+  GenerationOutputError,
+  generate,
+  streamChat,
+} from "./index.ts";
 
 const runtime = {
   apiKey: "test-key",
@@ -238,6 +243,97 @@ describe("banner copy in drafts (R78)", () => {
     );
     create.mockResolvedValue(withBanner({ ...banner, button: "" }));
     await expect(generate({ ...params, banner: true })).rejects.toMatchObject({
+      code: "MODEL_OUTPUT_NOT_VALID",
+    });
+  });
+});
+
+describe("website-ready blog articles (R82)", () => {
+  const params = {
+    task: "draft",
+    goal: "g",
+    evidence: {},
+    route: { model: "m", maxOutputTokens: 8000 },
+    reservationId: "r",
+    runtime,
+  };
+  const article = {
+    seoTitle: "AI-assisted trading keeps decisions with you",
+    description: "How uLiquid Desk supports traders without deciding for them.",
+    excerpt: "A short look at assisted trading.",
+    category: "AI Workbench",
+    keywords: ["ai trading", "decision support", "workbench"],
+    relatedLinks: [
+      { label: "Platform", href: "/platform/" },
+      { label: "AI Workbench", href: "/features/ai-workbench/" },
+    ],
+  };
+  const withArticle = (value: unknown) => ({
+    ...answer,
+    output_text: JSON.stringify({
+      ...JSON.parse(answer.output_text),
+      article: value,
+    }),
+  });
+  beforeEach(() => {
+    create.mockReset().mockResolvedValue(answer);
+  });
+
+  it("leaves a draft without an article exactly as before", async () => {
+    await generate(params);
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).not.toContain("blogTarget");
+    expect(body.text.format.schema.properties.article).toBeUndefined();
+  });
+
+  it("asks for and returns the article fields with the restricted format", async () => {
+    create.mockResolvedValue(withArticle(article));
+    const result = await generate({ ...params, article: true });
+    const body = create.mock.calls[0]![0];
+    expect(body.instructions).toContain(` ${ARTICLE_DRAFT_INSTRUCTION}`);
+    for (const rule of [
+      '"## "',
+      "at most one list",
+      "no links",
+      "1200 to 1800 words",
+      "5 to 8 sections",
+      "English",
+      "blogTarget.allowlist",
+      "2 to 4",
+      "seoTitle at most 70",
+      "description at most 200",
+      "excerpt at most 320",
+      "category at most 40",
+      "3 to 8 keywords",
+    ])
+      expect(ARTICLE_DRAFT_INSTRUCTION).toContain(rule);
+    expect(body.text.format.schema.required).toContain("article");
+    const schema = body.text.format.schema.properties.article;
+    expect(schema.required).toEqual([
+      "seoTitle",
+      "description",
+      "excerpt",
+      "category",
+      "keywords",
+      "relatedLinks",
+    ]);
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.properties.relatedLinks.items.required).toEqual([
+      "label",
+      "href",
+    ]);
+    expect(result.output.article).toEqual(article);
+  });
+
+  it("refuses an answer without the article it asked for, at the known cost", async () => {
+    await expect(generate({ ...params, article: true })).rejects.toMatchObject({
+      code: "MODEL_OUTPUT_NOT_VALID",
+    });
+  });
+
+  it("refuses an article nobody asked for", async () => {
+    create.mockResolvedValue(withArticle(article));
+    await expect(generate(params)).rejects.toMatchObject({
       code: "MODEL_OUTPUT_NOT_VALID",
     });
   });

@@ -13,7 +13,8 @@ describe("resolveRoute", () => {
     const blog = resolveRoute("draft_blog", {
       verifiedModels: ["gpt-5.6-sol"],
     });
-    expect(blog).toEqual({ model: "gpt-5.6-sol", maxOutputTokens: 1800 });
+    // A website-ready article needs room for its reasoning and 1,800 words (R82).
+    expect(blog).toEqual({ model: "gpt-5.6-sol", maxOutputTokens: 8000 });
     expect("reasoningEffort" in blog).toBe(false);
     expect(resolveRoute("chat_operator", { verifiedModels: all })).toEqual({
       model: "gpt-5.6-terra",
