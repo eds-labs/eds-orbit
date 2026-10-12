@@ -41,7 +41,7 @@ import {
   officialFooter,
   parsedBanner,
 } from "../banner.ts";
-import { hasOwnBanner } from "./visual.ts";
+import { hasOwnBanner, mediaRefusal } from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
 import { ASSIGNMENT_BUDGET_EXHAUSTED, runSpecialist } from "./runner.ts";
@@ -101,6 +101,19 @@ const LEFT_FOR_OWNER = new Set([
   // The draft's banner could not be put on it (R78): the owner decides whether it goes without.
   BANNER_IMAGE_MISSING,
 ]);
+// Problems of one channel and slot, not of the text (R76): in a shared run
+// they hold back only that channel's post, never the text on the others.
+export const CHANNEL_PROBLEMS = new Set([
+  "MANUAL_CALENDAR_BLOCK",
+  "QUIET_HOURS",
+  "DUPLICATE_CONTENT",
+  "CLAIM_OVERLAP_DUPLICATE",
+  "CHANNEL_LIMIT_EXCEEDED",
+  "SCOPE_NOT_ALLOWED",
+  "ASSIGNMENT_SCOPE_NOT_ALLOWED",
+]);
+/** The text changed after the review model judged it (R76): its verdict covers another text. */
+export const AGENT_REVIEW_TEXT_CHANGED = "AGENT_REVIEW_TEXT_CHANGED";
 // Problems one deterministic revision may fix in round 1 (R77, R78).
 const REVISABLE = new Set([...FORMAT_PROBLEMS, BANNER_TEXT_OVERFLOW]);
 // Revision failures of the provider or the project, not of the draft (R49).
@@ -162,6 +175,15 @@ export type ReviewDecision = {
   revisionError?: string | null;
   // A copy of a shared run's draft for another channel (R76): the original it was settled from.
   sharedFrom?: string;
+  // The text the model judged (R76): a decision covers exactly this body and banner copy.
+  bodyHash?: string;
+  bannerHash?: string;
+  // Problems of the draft's own channel and slot in a shared run (R76).
+  channelProblems?: string[];
+  // A shared run's draft held back on its own channel while its text was approved for the others.
+  textApproved?: boolean;
+  // Every channel a rejected shared text would have gone to (R76).
+  channels?: string[];
 };
 
 // Exported for the review eval, which binds its hash into the run confirmation.
@@ -338,6 +360,56 @@ async function formatRevision(
   return parts.join(" ");
 }
 
+/**
+ * The channels a draft's text goes to: in a shared run (R76) every channel
+ * of its slot group, released slots included; otherwise, and for a copy,
+ * its own channel.
+ */
+async function textChannels(tx: DbTx, scope: Scope, v: Record<string, any>) {
+  if (v.sharedFrom || v.type !== "social" || !v.assignmentRunId)
+    return [String(v.channel)];
+  const run = await tx.entity.findFirst({
+    where: {
+      id: String(v.assignmentRunId),
+      kind: "assignment_runs",
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+    },
+  });
+  if (!run || data(run).sharedAcrossChannels !== true)
+    return [String(v.channel)];
+  const mission = v.missionId
+    ? data(await entity(tx, scope, "missions", v.missionId))
+    : null;
+  const group = groupSlots(
+    data(run).slots ?? [],
+    v.channel,
+    mission?.plannedSlotAt ?? v.scheduledAt ?? "",
+    true,
+  );
+  return group.length ? group.map((slot) => slot.channel) : [String(v.channel)];
+}
+
+/**
+ * Splits a shared text's problems (R76): channel problems hold only for the
+ * draft's own channel and slot, every other problem (claims, facts, links,
+ * format, banner, project) is the text's. Without other channels every
+ * problem is the text's.
+ */
+function splitProblems(problems: string[], shared: boolean) {
+  if (!shared) return { text: problems, channel: [] as string[] };
+  return {
+    text: problems.filter((code) => !CHANNEL_PROBLEMS.has(code)),
+    channel: problems.filter((code) => CHANNEL_PROBLEMS.has(code)),
+  };
+}
+
+/** The body and banner copy of a draft as hashes: what a review verdict covers. */
+const judgedText = (v: Record<string, any>) => ({
+  bodyHash: hash(v.body),
+  ...(v.banner !== undefined ? { bannerHash: hash(v.banner) } : {}),
+});
+
 /** What the review model sees: the assignment, the brand, the drafts with their facts and brief, and recent posts. No credential, no internal state. */
 async function reviewInput(
   tx: DbTx,
@@ -505,6 +577,8 @@ async function decideRound(
 ) {
   const decisions = new Map<string, ReviewDecision>();
   const clean: string[] = [];
+  // Shared texts whose only problems are their own channel's (R76).
+  const channelOnly = new Map<string, string[]>();
   await inScope(scope, async (tx) => {
     for (const id of ids) {
       const prior = storedDecision(
@@ -516,19 +590,27 @@ async function decideRound(
         continue;
       }
       const problems = await deterministicProblems(tx, scope, task, id);
-      if (!problems.length) {
+      const v = data(await entity(tx, scope, "content", id));
+      const { text, channel } = splitProblems(
+        problems,
+        (await textChannels(tx, scope, v)).length > 1,
+      );
+      // A shared text blocked only on its own channel is still judged for the others.
+      if (!text.length) {
         clean.push(id);
+        if (channel.length) channelOnly.set(id, channel);
         continue;
       }
-      const instruction = await formatRevision(tx, scope, id, problems, round);
+      const instruction = await formatRevision(tx, scope, id, text, round);
       const decision: ReviewDecision = {
         taskId: task.id,
         round,
-        verdict: instruction ? "revise" : verdictFor(problems),
+        verdict: instruction ? "revise" : verdictFor(text),
         modelVerdict: null,
         reasons: [],
         revisionInstructions: instruction,
         deterministicProblems: problems,
+        ...(channel.length ? { channelProblems: channel } : {}),
         checkedAt: new Date().toISOString(),
       };
       await recordDecision(tx, scope, id, decision);
@@ -536,9 +618,17 @@ async function decideRound(
     }
   });
   if (clean.length) {
-    const input = await inScope(scope, (tx) =>
-      reviewInput(tx, scope, task, clean, round),
-    );
+    // The texts as the model sees them: its verdicts cover exactly these.
+    const judged = new Map<string, ReturnType<typeof judgedText>>();
+    const input = await inScope(scope, async (tx) => {
+      const built = await reviewInput(tx, scope, task, clean, round);
+      for (const id of clean)
+        judged.set(
+          id,
+          judgedText(data(await entity(tx, scope, "content", id))),
+        );
+      return built;
+    });
     const output = (await runSpecialist(scope, task, reviewSpecialist(input), {
       callKey: `review${round}`,
     })) as ReviewOutput;
@@ -549,6 +639,10 @@ async function decideRound(
           round,
           ...modelDecision(output, id, round),
           deterministicProblems: [],
+          ...judged.get(id),
+          ...(channelOnly.has(id)
+            ? { channelProblems: channelOnly.get(id) }
+            : {}),
           checkedAt: new Date().toISOString(),
         };
         await recordDecision(tx, scope, id, decision);
@@ -569,11 +663,18 @@ async function reject(
 ) {
   const row = await entity(tx, scope, "content", contentId);
   if (data(row).status === "rejected") return;
+  // A shared text that is dropped drops every channel of its slot (R76):
+  // the notice and the daily report count them all.
+  const channels =
+    decision.revisedTo || decision.sharedFrom || decision.textApproved
+      ? [String(data(row).channel)]
+      : await textChannels(tx, scope, data(row));
+  const recorded = channels.length > 1 ? { ...decision, channels } : decision;
   await update(tx, scope, row, {
     ...data(row),
     ...extra,
     status: "rejected",
-    agentReviewDecision: decision,
+    agentReviewDecision: recorded,
   });
   await invalidateContent(tx, scope, contentId);
   await audit(tx, scope, "content.agent_rejected", contentId, {
@@ -582,6 +683,7 @@ async function reject(
     deterministicProblems: decision.deterministicProblems,
     reasons: decision.reasons,
     revisedTo: decision.revisedTo ?? null,
+    channels,
   });
   // A draft replaced by its revision is not news; the revision continues.
   if (!decision.revisedTo)
@@ -631,26 +733,69 @@ async function approve(
   task: AgentTask,
   contentId: string,
   decision: ReviewDecision,
-): Promise<Verdict> {
+): Promise<{ verdict: Verdict; text: Verdict }> {
   const row = await entity(tx, scope, "content", contentId);
   const v = data(row);
   if (
     v.agentReview?.taskId === task.id &&
     v.agentReview.bodyHash === hash(v.body)
   )
-    return "approve";
+    return { verdict: "approve", text: "approve" };
+  // Held back on its own channel by this task, its text approved for the others (R76).
+  if (
+    v.status === "rejected" &&
+    v.agentReviewDecision?.taskId === task.id &&
+    v.agentReviewDecision?.textApproved === true
+  )
+    return { verdict: "reject", text: "approve" };
+  const now = new Date().toISOString();
+  // The model judged another text: its verdict does not cover this one (R76).
+  const judged = judgedText(v);
+  if (
+    decision.bodyHash &&
+    (decision.bodyHash !== judged.bodyHash ||
+      decision.bannerHash !== judged.bannerHash)
+  ) {
+    await leaveForOwner(tx, scope, contentId, {
+      ...decision,
+      verdict: "needs_owner",
+      deterministicProblems: [AGENT_REVIEW_TEXT_CHANGED],
+      checkedAt: now,
+    });
+    return { verdict: "needs_owner", text: "needs_owner" };
+  }
   const problems = await deterministicProblems(tx, scope, task, contentId);
-  if (problems.length) {
+  const { text, channel } = splitProblems(
+    problems,
+    (await textChannels(tx, scope, v)).length > 1,
+  );
+  if (text.length) {
     const changed = {
       ...decision,
-      verdict: verdictFor(problems),
+      verdict: verdictFor(text),
       deterministicProblems: problems,
-      checkedAt: new Date().toISOString(),
+      checkedAt: now,
     };
     if (changed.verdict === "needs_owner")
       await leaveForOwner(tx, scope, contentId, changed);
     else await reject(tx, scope, contentId, changed);
-    return changed.verdict;
+    return { verdict: changed.verdict, text: changed.verdict };
+  }
+  // Only its own channel fails (R76): this post is held back with its codes,
+  // the approved text goes on to the slot's other channels.
+  if (channel.length) {
+    const own: ReviewDecision = {
+      ...decision,
+      verdict: verdictFor(channel),
+      deterministicProblems: channel,
+      channelProblems: channel,
+      textApproved: true,
+      checkedAt: now,
+    };
+    if (own.verdict === "needs_owner")
+      await leaveForOwner(tx, scope, contentId, own);
+    else await reject(tx, scope, contentId, own);
+    return { verdict: own.verdict, text: "approve" };
   }
   const assignmentRow = await entity(
     tx,
@@ -697,7 +842,7 @@ async function approve(
   // Same key as `leaveForOwner`, so one notice per draft and review task.
   if (!result.valid && v.type === "social")
     await notify(tx, scope, "needs_owner", `${contentId}:${task.id}`);
-  return "approve";
+  return { verdict: "approve", text: "approve" };
 }
 
 /**
@@ -804,13 +949,28 @@ async function settleRound(
     if (verdict === "approve")
       verdict = await inScope(scope, async (tx) => {
         const settled = await approve(tx, scope, task, contentId, decision);
-        shared = await shareDraft(tx, scope, task, contentId);
-        return settled;
+        if (settled.text === "approve" || settled.text === "needs_owner")
+          shared = await shareDraft(
+            tx,
+            scope,
+            task,
+            contentId,
+            settled.text,
+            decision,
+          );
+        return settled.verdict;
       });
     else if (verdict === "needs_owner")
       await inScope(scope, async (tx) => {
         await leaveForOwner(tx, scope, contentId, decision);
-        shared = await shareDraft(tx, scope, task, contentId);
+        shared = await shareDraft(
+          tx,
+          scope,
+          task,
+          contentId,
+          "needs_owner",
+          decision,
+        );
       });
     else await inScope(scope, (tx) => reject(tx, scope, contentId, decision));
     const final = await inScope(scope, async (tx) =>
@@ -831,33 +991,31 @@ async function settleRound(
 }
 
 /**
- * Copies a settled draft of a shared run (R76) for the other channels of its
+ * Copies a settled text of a shared run (R76) for the other channels of its
  * slot group and settles every copy on its own channel, without a model
  * call: the copy runs the same deterministic checks for its channel and
  * slot (preflight with channel limit, duplicates, calendar, scope; links;
- * format). A copy with a problem is rejected (notice `rejected`) or left
- * for the owner like any draft, while the other channels go on. A clean
- * copy carries the original's agent review only when its body is
- * byte-identical to the reviewed one; a clean copy of a draft left for the
- * owner is left for the owner too. Idempotent per task.
+ * format; banner). A copy with a problem is rejected (notice `rejected`) or
+ * left for the owner like any draft, while the other channels go on. With
+ * `text` "approve" a clean copy gets an agent review of its own, but only
+ * when its body (and banner copy) is the text the model judged; otherwise,
+ * and with `text` "needs_owner", it is left for the owner. The original may
+ * itself be held back on its own channel (`textApproved`). A channel that
+ * cannot carry the image gets the copy without it. Idempotent per task.
  */
 async function shareDraft(
   tx: DbTx,
   scope: Scope,
   task: AgentTask,
   contentId: string,
+  text: "approve" | "needs_owner",
+  decision: ReviewDecision,
 ): Promise<Outcome[]> {
   const run = data(await entity(tx, scope, "assignment_runs", task.runId));
   if (run.sharedAcrossChannels !== true) return [];
   const original = await entity(tx, scope, "content", contentId);
   const v = data(original);
-  if (
-    v.sharedFrom ||
-    v.type !== "social" ||
-    v.supersededBy ||
-    !["reviewed", "needs_review"].includes(v.status)
-  )
-    return [];
+  if (v.sharedFrom || v.type !== "social" || v.supersededBy) return [];
   const mission = data(await entity(tx, scope, "missions", v.missionId));
   const others = groupSlots(
     run.slots ?? [],
@@ -873,9 +1031,26 @@ async function shareDraft(
       data: { path: ["assignmentRunId"], equals: task.runId },
     },
   });
+  // Decisions recorded before R76's fix round have no judged text: the original's then.
+  const judged = decision.bodyHash
+    ? { bodyHash: decision.bodyHash, bannerHash: decision.bannerHash }
+    : judgedText(v);
+  const {
+    channelProblems: _channelProblems,
+    textApproved: _textApproved,
+    channels: _channels,
+    ...textDecision
+  } = decision;
   const outcomes: Outcome[] = [];
   for (const slot of others) {
-    const copy = await cloneForChannel(tx, scope, original, slot, existing);
+    const copy = await cloneForChannel(
+      tx,
+      scope,
+      original,
+      slot,
+      existing,
+      (content) => mediaRefusal(tx, scope, content),
+    );
     const prior = storedDecision(copy, task);
     if (prior) {
       outcomes.push(sharedOutcome(copy.id, contentId, prior));
@@ -883,35 +1058,32 @@ async function shareDraft(
     }
     const problems = await deterministicProblems(tx, scope, task, copy.id);
     const base: ReviewDecision = {
-      ...(v.agentReviewDecision as ReviewDecision),
+      ...textDecision,
       taskId: task.id,
       revisedTo: null,
       sharedFrom: contentId,
       deterministicProblems: problems,
       checkedAt: new Date().toISOString(),
     };
-    const review = v.agentReview as AgentReview | undefined;
-    let decision: ReviewDecision;
+    const own = judgedText(data(copy));
+    let settled: ReviewDecision;
     if (problems.length) {
-      decision = { ...base, verdict: verdictFor(problems) };
-      if (decision.verdict === "needs_owner")
-        await leaveForOwner(tx, scope, copy.id, decision);
-      else await reject(tx, scope, copy.id, decision);
+      settled = { ...base, verdict: verdictFor(problems) };
+      if (settled.verdict === "needs_owner")
+        await leaveForOwner(tx, scope, copy.id, settled);
+      else await reject(tx, scope, copy.id, settled);
     } else if (
-      review?.taskId === task.id &&
-      review.bodyHash === hash(v.body) &&
-      review.bodyHash === hash(data(copy).body) &&
-      // A banner's copy is identical too (R78).
-      review.bannerHash ===
-        (data(copy).banner !== undefined ? hash(data(copy).banner) : undefined)
+      text === "approve" &&
+      own.bodyHash === judged.bodyHash &&
+      own.bannerHash === judged.bannerHash
     ) {
-      decision = { ...base, verdict: "approve" };
-      await approveCopy(tx, scope, task, copy.id, review, decision, contentId);
+      settled = { ...base, verdict: "approve" };
+      await approveCopy(tx, scope, task, copy.id, settled, contentId);
     } else {
-      decision = { ...base, verdict: "needs_owner" };
-      await leaveForOwner(tx, scope, copy.id, decision);
+      settled = { ...base, verdict: "needs_owner" };
+      await leaveForOwner(tx, scope, copy.id, settled);
     }
-    outcomes.push(sharedOutcome(copy.id, contentId, decision));
+    outcomes.push(sharedOutcome(copy.id, contentId, settled));
   }
   return outcomes;
 }
@@ -930,23 +1102,38 @@ const sharedOutcome = (
 });
 
 /**
- * Records the original's agent review on a clean, byte-identical copy
- * (R76) and moves it on as `approve` does: `reviewed` when the claim check
- * passes, else `needs_review` with the owner notice.
+ * Records the agent review of the judged text on a clean copy for another
+ * channel (R76) and moves it on as `approve` does: `reviewed` when the
+ * claim check passes, else `needs_review` with the owner notice.
  */
 async function approveCopy(
   tx: DbTx,
   scope: Scope,
   task: AgentTask,
   contentId: string,
-  review: AgentReview,
   decision: ReviewDecision,
   sharedFrom: string,
 ) {
   const row = await entity(tx, scope, "content", contentId);
+  const c = data(row);
+  const assignmentRow = await entity(
+    tx,
+    scope,
+    "assignments",
+    task.assignmentId,
+  );
+  const review: AgentReview = {
+    taskId: task.id,
+    assignmentId: task.assignmentId,
+    assignmentVersion: assignmentRow.version,
+    assignmentHash: confirmedHash(data(assignmentRow))!,
+    ...judgedText(c),
+    checkedAt: new Date().toISOString(),
+    deterministicProblems: [],
+  };
   const reviewed = await update(tx, scope, row, {
-    ...data(row),
-    agentReview: { ...review, deterministicProblems: [] },
+    ...c,
+    agentReview: review,
     agentReviewDecision: decision,
   });
   const result = await checkClaims(tx, scope, contentId);
@@ -997,6 +1184,22 @@ export const reviewStep: StepHandler = async (scope, task) => {
     });
     if (revisedTo) second.push(revisedTo);
     if (error === ASSIGNMENT_BUDGET_EXHAUSTED) exhausted = true;
+    // A revision that failed for the provider leaves the text for the owner
+    // on every channel of a shared slot, not only on its own (R76).
+    const left = await inScope(scope, async (tx) => {
+      const row = await entity(tx, scope, "content", contentId);
+      const stored = storedDecision(row, task);
+      return data(row).status === "needs_review" &&
+        stored?.verdict === "needs_owner"
+        ? stored
+        : null;
+    });
+    if (left)
+      outcomes.push(
+        ...(await inScope(scope, (tx) =>
+          shareDraft(tx, scope, task, contentId, "needs_owner", left),
+        )),
+      );
   }
   await settleRound(scope, task, first, outcomes);
   await settleRound(

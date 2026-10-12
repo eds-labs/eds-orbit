@@ -13,6 +13,7 @@ import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { notify } from "./notifications.ts";
 import { localDate, slotContext, slotStatus } from "./scheduling.ts";
 import type { HeldSlot, SlotContext } from "./scheduling.ts";
+import { groupSlots, type SharedSlot } from "./shared-posts.ts";
 
 /**
  * Runs of assignments (Orbit Agents). A run is one due execution of an active
@@ -785,7 +786,40 @@ export async function runProblems(
             code: String(entry.code),
           });
   }
+  if (data(run).sharedAcrossChannels === true)
+    problems.dropped = everyChannel(
+      (data(run).slots ?? []) as SharedSlot[],
+      problems.dropped,
+    );
   return problems;
+}
+
+/**
+ * A shared run's dropped texts on every channel of their slot group (R76):
+ * a brief or text is written for the group's strictest channel, but its
+ * loss drops the post on all of them. One entry per channel and slot; a
+ * reason other than `NO_BRIEF` wins.
+ */
+function everyChannel(
+  slots: SharedSlot[],
+  dropped: RunProblems["dropped"],
+): RunProblems["dropped"] {
+  const byKey = new Map<string, RunProblems["dropped"][number]>();
+  for (const entry of dropped) {
+    const group = groupSlots(slots, entry.channel, entry.slotAt, true);
+    for (const slot of group.length
+      ? group.map((member) => ({
+          channel: member.channel,
+          slotAt: new Date(member.requestedAt ?? member.at).toISOString(),
+        }))
+      : [{ channel: entry.channel, slotAt: entry.slotAt }]) {
+      const key = `${slot.channel}@${Date.parse(slot.slotAt)}`;
+      const known = byKey.get(key);
+      if (!known || known.code === "NO_BRIEF")
+        byKey.set(key, { ...slot, code: entry.code });
+    }
+  }
+  return [...byKey.values()];
 }
 
 /**

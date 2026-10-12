@@ -235,6 +235,19 @@ async function refusal(
     },
   });
   if (scheduled) return "ALREADY_SCHEDULED";
+  return mediaRefusal(tx, scope, v);
+}
+
+/**
+ * Why a draft's channel cannot carry an image, or null: no known media
+ * support, or a text longer than the channel's caption limit. Also used for
+ * the per-channel copies of a shared text (R76).
+ */
+export async function mediaRefusal(
+  tx: DbTx,
+  scope: Scope,
+  v: Record<string, any>,
+) {
   if (v.type !== "social") return null;
   const rules = await resolveChannelRules(tx, scope, v.channel, v.type, true);
   if (!rules.liveCapabilityKnown) return "MEDIA_NOT_SUPPORTED";

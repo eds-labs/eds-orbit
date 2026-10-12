@@ -107,14 +107,20 @@ describe("format checks (R77)", () => {
     expect(formatProblems(body(945), format)).toEqual([]);
     expect(formatProblems(body(539), format)).toEqual([FORMAT_LENGTH]);
     expect(formatProblems(body(946), format)).toEqual([FORMAT_LENGTH]);
-    // Characters, not UTF-16 units; surrounding space does not count.
-    expect(formatProblems(`  ${"😀".repeat(570)} #a #b  `, format)).toEqual([]);
+    // UTF-16 units, as Telegram counts its caption: an emoji counts twice;
+    // surrounding space does not count.
+    expect(formatProblems(`  ${"😀".repeat(470)} #a #b  `, format)).toEqual([
+      FORMAT_LENGTH,
+    ]);
+    expect(formatProblems(`  ${"😀".repeat(280)} #a #b  `, format)).toEqual([]);
   });
 
   it("counts hashtags exactly", () => {
     expect(hashtagCount("Text #beta #teams, #web3_now.")).toBe(3);
     // Not hashtags: an HTML entity, a URL fragment, a word with a sign inside.
     expect(hashtagCount("A&#39;s https://x.example/#top C#sharp")).toBe(0);
+    // A number is no hashtag.
+    expect(hashtagCount("Since #2026 and #100_000, #web3 #2026beta")).toBe(2);
     expect(formatProblems(body(700, " #one"), format)).toEqual([
       FORMAT_HASHTAGS,
     ]);

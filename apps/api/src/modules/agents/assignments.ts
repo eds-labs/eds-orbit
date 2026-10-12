@@ -21,6 +21,12 @@ import {
   createActionRequest,
 } from "../action-requests.ts";
 import { currentMarketingProfile } from "../marketing-profile.ts";
+import {
+  channelTextLength,
+  finalPostText,
+  resolveChannelRules,
+} from "../channel-rules.ts";
+import { lengthRange } from "./post-format.ts";
 import { activePolicy } from "../policy.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
@@ -122,6 +128,11 @@ const assignmentFields = z
   .strict();
 type Content = z.infer<typeof assignmentFields>;
 const CONTENT_KEYS = Object.keys(assignmentFields.shape) as (keyof Content)[];
+/**
+ * Optional fields a change may clear with an explicit null (R77, R78); an
+ * absent field stays unchanged. The chat tool sends them as `clear`.
+ */
+export const CLEARABLE = ["format", "banner"] as const;
 
 export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
   const { rhythm, weekdays, date } = value.schedule;
@@ -290,6 +301,68 @@ async function assertFormatLink(
     throw new DomainError(FORMAT_CTA_NOT_OFFICIAL_LINK, 409);
 }
 
+/** The format's longest body plus a newline and its link exceeds a channel's limit (R77). */
+export const FORMAT_EXCEEDS_CHANNEL_LIMIT = "FORMAT_EXCEEDS_CHANNEL_LIMIT";
+
+/**
+ * A format must fit every channel (R77): its longest accepted body
+ * (`maxChars` + 5 %, `lengthRange`) plus a newline and the link Orbit
+ * appends, counted as each channel counts it (X weighted with its URL
+ * allowance, Telegram in UTF-16 units) with the image when the assignment
+ * has one (Telegram's 1,024-character caption), must stay within the
+ * smallest limit. The link is the format's, else the longest official link
+ * the policy allows. A channel without a known limit is not checked.
+ */
+async function assertFormatFits(
+  tx: DbTx,
+  scope: Scope,
+  content: Content,
+  allowedOrigins: string[],
+) {
+  if (!content.format) return;
+  let link = content.format.cta ?? "";
+  if (!link) {
+    const profileRow = await currentMarketingProfile(tx, scope);
+    const profile = profileRow
+      ? marketingProfile.safeParse(profileRow.data)
+      : null;
+    for (const official of profile?.success ? profile.data.officialLinks : []) {
+      let origin: string | null = null;
+      try {
+        origin = new URL(official.url).origin;
+      } catch {
+        origin = null;
+      }
+      if (
+        origin &&
+        allowedOrigins.includes(origin) &&
+        official.url.length > link.length
+      )
+        link = official.url;
+    }
+  }
+  const text = finalPostText(
+    "x".repeat(lengthRange(content.format).max),
+    link || null,
+  );
+  for (const channel of content.channels) {
+    const rules = await resolveChannelRules(
+      tx,
+      scope,
+      channel,
+      content.contentType,
+      content.image === true,
+    );
+    const length = channelTextLength(text, rules);
+    if (
+      rules.characterLimit !== null &&
+      length !== null &&
+      length > rules.characterLimit
+    )
+      throw new DomainError(FORMAT_EXCEEDS_CHANNEL_LIMIT, 409);
+  }
+}
+
 async function assertWithinMandate(
   tx: DbTx,
   scope: Scope,
@@ -316,6 +389,7 @@ async function assertWithinMandate(
     content.format?.cta,
     mandate.allowedOrigins ?? [],
   );
+  await assertFormatFits(tx, scope, content, mandate.allowedOrigins ?? []);
   // A banner is composed with the profile's approved logo, never a generated one (R78).
   if (content.banner) await approvedBannerLogo(tx, scope);
   const committed = await committedBudget(tx, scope, selfId);
@@ -514,22 +588,33 @@ export async function updateAssignment(
   requireEditor(scope);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const row = await entity(tx, scope, KIND, id);
-  const d = data(row);
-  if (d.status === "ended") throw new DomainError("ASSIGNMENT_ENDED", 409);
+  const current = data(row);
+  if (current.status === "ended")
+    throw new DomainError("ASSIGNMENT_ENDED", 409);
   if (row.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   const unknown = Object.keys(patch).filter(
     (key) => !CONTENT_KEYS.includes(key as keyof Content),
   );
   if (unknown.length) throw new DomainError("ASSIGNMENT_FIELD_UNKNOWN", 400);
-  const next = assignmentInput.parse({
-    ...contentOf(d),
+  // An absent field stays as it is; an explicit null clears an optional one.
+  const cleared = CLEARABLE.filter((key) => patch[key] === null);
+  const merged: Record<string, unknown> = {
+    ...contentOf(current),
     ...Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined),
     ),
-  });
-  if (assignmentHash(next) === assignmentHash(d)) return row;
+  };
+  for (const key of cleared) delete merged[key];
+  const next = assignmentInput.parse(merged);
+  // The stored row loses a cleared field too.
+  const d = Object.fromEntries(
+    Object.entries(current).filter(
+      ([key]) => !cleared.includes(key as (typeof CLEARABLE)[number]),
+    ),
+  ) as Record<string, any>;
+  if (assignmentHash(next) === assignmentHash(current)) return row;
   // Moving the times of any assignment is the owner's decision; an editor proposes a content change instead.
-  const timesChanged = hash(withoutTimes(next)) === hash(withoutTimes(d));
+  const timesChanged = hash(withoutTimes(next)) === hash(withoutTimes(current));
   if (timesChanged && scope.role !== "owner")
     throw new DomainError("OWNER_REQUIRED", 403);
   await assertWithinMandate(tx, scope, next, id);

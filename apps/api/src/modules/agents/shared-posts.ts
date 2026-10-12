@@ -21,6 +21,8 @@ export type SharedSlot = {
   at: string;
   // The requested time of the shared slot this channel's slot belongs to (R76).
   groupAt?: string;
+  // The slot the run was given, when scheduling moved the post (veto.ts).
+  requestedAt?: string;
   releasedAt?: string;
 };
 
@@ -86,6 +88,8 @@ export async function sharedBriefSlots(
     channel: string;
     at: string;
     sharedChannels: string[];
+    // Every channel's own slot in the group, for what an uncovered slot drops.
+    members: Array<{ channel: string; at: string }>;
   }> = [];
   for (const group of slotGroups(slots)) {
     const channels = group.slots.map((slot) => slot.channel);
@@ -101,25 +105,41 @@ export async function sharedBriefSlots(
       channel: primary,
       at: slot.at,
       sharedChannels: channels,
+      members: group.slots.map((member) => ({
+        channel: member.channel,
+        at: member.at,
+      })),
     });
   }
   return briefSlots;
 }
 
-/** The held slots of the group the slot `channel@at` belongs to, itself first. */
-export function groupSlots(slots: SharedSlot[], channel: string, at: string) {
+/**
+ * The held slots of the group the slot `channel@at` belongs to, itself
+ * first. With `includeReleased`, released slots count too (reports read
+ * after scheduling gave slots back); a slot moved for its veto window is
+ * also found by the time it was given (`requestedAt`).
+ */
+export function groupSlots(
+  slots: SharedSlot[],
+  channel: string,
+  at: string,
+  includeReleased = false,
+) {
+  const held = (slot: SharedSlot) => includeReleased || !slot.releasedAt;
   const own = slots.find(
     (slot) =>
-      !slot.releasedAt &&
+      held(slot) &&
       slot.channel === channel &&
-      Date.parse(slot.at) === Date.parse(at),
+      [slot.at, slot.requestedAt].some(
+        (value) => value && Date.parse(value) === Date.parse(at),
+      ),
   );
   if (!own) return [];
   return [
     own,
     ...slots.filter(
-      (slot) =>
-        slot !== own && !slot.releasedAt && groupOf(slot) === groupOf(own),
+      (slot) => slot !== own && held(slot) && groupOf(slot) === groupOf(own),
     ),
   ];
 }
@@ -130,8 +150,11 @@ export function groupSlots(slots: SharedSlot[], channel: string, at: string) {
  * mission, without its publishing right or revision link) and a content row
  * with byte-identical title, body, claims, evidence, link and image, as a
  * `draft` without any review. `sharedFrom` names the original and its body
- * hash; the caller judges the copy (review.ts `shareDraft`). Returns the
- * existing copy when there is one.
+ * hash; the caller judges the copy (review.ts `shareDraft`). A channel
+ * that cannot carry the image (`imageRefusal`, the check the visual step
+ * makes before it attaches one) gets the copy without it, with the reason
+ * in `imageSkipped`, as it would in per-channel mode. Returns the existing
+ * copy when there is one.
  */
 export async function cloneForChannel(
   tx: DbTx,
@@ -139,6 +162,7 @@ export async function cloneForChannel(
   original: Awaited<ReturnType<typeof entity>>,
   slot: SharedSlot,
   existing: Array<Awaited<ReturnType<typeof entity>>>,
+  imageRefusal: (content: Record<string, any>) => Promise<string | null>,
 ) {
   const found = existing.find(
     (row) =>
@@ -185,8 +209,14 @@ export async function cloneForChannel(
     status: _status,
     ...rest
   } = v;
+  const skipped =
+    typeof v.assetId === "string"
+      ? await imageRefusal({ ...v, channel: slot.channel })
+      : null;
+  if (skipped) delete rest.assetId;
   return create(tx, scope, "content", {
     ...rest,
+    ...(skipped ? { imageSkipped: skipped } : {}),
     channel: slot.channel,
     missionId: mission.id,
     briefKey: slotKey(slot.channel, at),

@@ -7,6 +7,7 @@ import { runsMatching } from "../assignment-runs.ts";
 import { runDeliverables } from "../veto.ts";
 import { assignmentMonthSpend } from "../specialists/runner.ts";
 import {
+  CLEARABLE,
   deliveryOf,
   sharedAcrossChannels as sharedAcrossChannelsOf,
   proposeAssignment,
@@ -165,6 +166,14 @@ const changeParameters = z
         sharedAcrossChannels,
         format,
         banner,
+        // Strict tool schemas need every key, so null means "unchanged" here;
+        // clearing an optional field is asked for by name (sent to the server as an explicit null).
+        clear: z
+          .array(z.enum(CLEARABLE))
+          .nullable()
+          .describe(
+            "Optional fields to remove (format: no length or hashtag rule; banner: a free image per run instead); null for none",
+          ),
       })
       .strict()
       .nullable()
@@ -411,10 +420,10 @@ export const assignmentTools: readonly OrbitTool[] = [
     deferLoading: true,
     async execute(context, args) {
       const input = changeParameters.parse(args);
-      const patch = dropNullFields(input.changes ?? {}) as Record<
-        string,
-        unknown
-      >;
+      const { clear, ...changes } = input.changes ?? { clear: null };
+      const patch = dropNullFields(changes) as Record<string, unknown>;
+      // An explicit null clears the field on the server (R77, R78).
+      for (const key of clear ?? []) patch[key] = null;
       if (input.action === "change") {
         if (input.version === null)
           throw new DomainError("ASSIGNMENT_VERSION_REQUIRED", 400);

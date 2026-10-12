@@ -84,12 +84,20 @@ export const deliveryText = (
   de: boolean,
 ) => deliveryLabels[delivery ?? "publish"][de ? 1 : 0];
 
-/** Whether a slot's channels share one text and image (R76). */
-export const sharedText = (shared: boolean | undefined, de: boolean) =>
+/** Whether a slot's channels share one text (and the image, when there is one) (R76). */
+export const sharedText = (
+  shared: boolean | undefined,
+  de: boolean,
+  image = true,
+) =>
   shared
-    ? de
-      ? "Ein Text und ein Bild für alle Kanäle"
-      : "One text and one image for all channels"
+    ? image
+      ? de
+        ? "Ein Text und ein Bild für alle Kanäle"
+        : "One text and one image for all channels"
+      : de
+        ? "Ein Text für alle Kanäle"
+        : "One text for all channels"
     : de
       ? "Eigener Text je Kanal"
       : "Own text per channel";
@@ -281,7 +289,13 @@ export function AssignmentCard({
           <>
             <div>
               <dt>{de ? "Beiträge" : "Posts"}</dt>
-              <dd>{sharedText(assignment.sharedAcrossChannels, de)}</dd>
+              <dd>
+                {sharedText(
+                  assignment.sharedAcrossChannels,
+                  de,
+                  assignment.image,
+                )}
+              </dd>
             </div>
             <div>
               <dt>{de ? "Format" : "Format"}</dt>

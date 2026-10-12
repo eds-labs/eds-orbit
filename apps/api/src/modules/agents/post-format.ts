@@ -2,12 +2,13 @@ import type { AssignmentFormat } from "./assignments.ts";
 
 /**
  * Deterministic format checks of an assignment draft (R77). The length is
- * the body as written, in Unicode characters, without the link Orbit
- * appends; it may fall short of the range by a tenth of `minChars` and
+ * the body as written, in UTF-16 units as Telegram counts its caption (an
+ * emoji counts twice; never fewer than the characters a reader sees),
+ * without the link Orbit appends; it may fall short of the range by a tenth of `minChars` and
  * exceed it by a twentieth of `maxChars` (a model does not count characters
  * exactly; less room above, since a long body runs into channel limits such
- * as Telegram's 1,024-character caption). Hashtags (`#word`) are counted
- * exactly. Paragraphs are asked for in the prompt but not checked.
+ * as Telegram's 1,024-character caption). Hashtags (`#word` with at least
+ * one letter; `#2026` is a number) are counted exactly. Paragraphs are asked for in the prompt but not checked.
  * The review lets the copywriter revise a draft once for these problems
  * alone; a revision that still misses them is rejected.
  */
@@ -17,11 +18,10 @@ export const FORMAT_PROBLEMS = new Set([FORMAT_LENGTH, FORMAT_HASHTAGS]);
 export const FORMAT_SHORT_TOLERANCE_PERCENT = 10;
 export const FORMAT_LONG_TOLERANCE_PERCENT = 5;
 
-const HASHTAG = /(?:^|[^\p{L}\p{N}_&#/])#[\p{L}\p{N}_]+/gu;
+const HASHTAG = /(?:^|[^\p{L}\p{N}_&#/])#(?=[\p{N}_]*\p{L})[\p{L}\p{N}_]+/gu;
 
 /** Characters of a body as the format counts them. */
-export const formatLength = (body: unknown) =>
-  Array.from(String(body ?? "").trim()).length;
+export const formatLength = (body: unknown) => String(body ?? "").trim().length;
 
 /** Hashtags in a body. */
 export const hashtagCount = (body: unknown) =>

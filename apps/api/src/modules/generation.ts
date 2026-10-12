@@ -142,15 +142,17 @@ export async function recentChannelPosts(
   tx: DbTx,
   scope: Scope,
   missionId: string,
-  channel: string,
+  channel: string | string[],
   slot: number,
 ) {
+  // A shared text (R76) avoids the recent posts of every channel it goes to.
+  const channels = Array.isArray(channel) ? channel : [channel];
   const at = (row: Awaited<ReturnType<typeof list>>[number]) =>
     Date.parse(String(data(row).scheduledAt ?? "")) || row.createdAt.valueOf();
   const own = (await list(tx, scope, "content"))
     .filter(
       (row) =>
-        data(row).channel === channel &&
+        channels.includes(data(row).channel) &&
         data(row).missionId !== missionId &&
         data(row).status !== "archived" &&
         withinClaimRepeatWindow(at(row), slot),
@@ -161,16 +163,20 @@ export async function recentChannelPosts(
       claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
     }));
   // Posts made outside Orbit count as well (channel history from Postiz).
-  const external = await externalChannelPosts(
-    tx,
-    scope,
-    channel,
-    slot,
-    CLAIM_REPEAT_WINDOW_DAYS,
-  );
+  const external: Array<{ at: number; title: string; claims: string[] }> = [];
+  for (const one of channels)
+    external.push(
+      ...(await externalChannelPosts(
+        tx,
+        scope,
+        one,
+        slot,
+        CLAIM_REPEAT_WINDOW_DAYS,
+      )),
+    );
   return [...own, ...external]
     .sort((a, b) => Math.abs(a.at - slot) - Math.abs(b.at - slot))
-    .slice(0, MAX_BATCH_DRAFTS)
+    .slice(0, MAX_BATCH_DRAFTS * channels.length)
     .map(({ title, claims }) => ({ title, claims }));
 }
 
@@ -538,7 +544,9 @@ async function generateMissionDraft(
                 tx,
                 scope,
                 missionId,
-                channel,
+                Array.isArray(m.sharedChannels) && m.sharedChannels.length > 1
+                  ? (m.sharedChannels as string[])
+                  : channel,
                 Date.parse(m.plannedSlotAt ?? "") || Date.now(),
               ),
             }

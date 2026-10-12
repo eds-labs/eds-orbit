@@ -159,6 +159,8 @@ async function withContext(
     input: prepared,
     context: {
       slots: slots.map(({ channel, at }) => ({ channel, at })),
+      // A shared slot that stays uncovered drops every channel of its group (R76).
+      members: briefSlots?.map((slot) => slot.members) ?? null,
       usableKeys: usable.map((row) => String(data(row).key)),
     },
   };
@@ -168,12 +170,17 @@ async function withContext(
  * Keeps one brief per slot of the run. A brief is dropped, with its code
  * recorded, when its slot is not one of the run's, when the slot already has
  * a brief, when it names no fact or a key that is not a usable Verified Fact
- * (`AGENT_UNKNOWN_FACT`). Slots left without a brief are listed as uncovered.
+ * (`AGENT_UNKNOWN_FACT`). Slots left without a brief are listed as uncovered;
+ * a shared slot (R76) with every channel of its group.
  */
 function checkBriefs(
   output: z.infer<typeof strategyOutput>,
   _sources: ReadonlySet<string>,
-  context: { slots: Slot[]; usableKeys: string[] },
+  context: {
+    slots: Slot[];
+    usableKeys: string[];
+    members?: Array<Slot[]> | null;
+  },
 ) {
   const slots = context.slots;
   const usable = new Set(context.usableKeys);
@@ -205,9 +212,14 @@ function checkBriefs(
   return {
     briefs: slots.flatMap((slot) => kept.get(slot) ?? []),
     dropped,
-    uncovered: slots
-      .filter((slot) => !kept.has(slot))
-      .map((slot) => ({ channel: slot.channel, slotAt: slot.at })),
+    uncovered: slots.flatMap((slot, index) =>
+      kept.has(slot)
+        ? []
+        : (context.members?.[index] ?? [slot]).map((member) => ({
+            channel: member.channel,
+            slotAt: member.at,
+          })),
+    ),
   };
 }
 

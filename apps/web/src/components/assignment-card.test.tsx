@@ -139,6 +139,10 @@ describe("AssignmentCard", () => {
     expect(shared).toContain(
       "600–900 Zeichen · 2–3 Hashtags · kurze Absätze · Link https://desk.example.invalid/en/register",
     );
+    // Without an image the shared post is one text.
+    const textOnly = card({ image: false, sharedAcrossChannels: true });
+    expect(textOnly).toContain("Ein Text für alle Kanäle");
+    expect(textOnly).not.toContain("Ein Text und ein Bild");
     // A card from before R76/R77: one text per channel, no format.
     const plain = card({});
     expect(plain).toContain("Eigener Text je Kanal");

@@ -17,7 +17,7 @@ const provider = vi.hoisted(() => ({
   generateImage: vi.fn(),
   generateImageWithReferences: vi.fn(),
   requests: [] as any[],
-  replies: [] as Array<(request: any) => Reply>,
+  replies: [] as Array<(request: any) => Reply | Promise<Reply>>,
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
@@ -32,7 +32,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
       provider.requests.push(structuredClone(request));
       const next = provider.replies.shift();
       if (!next) throw new Error("NO_RECORDED_REPLY");
-      const reply = next(request);
+      const reply = await next(request);
       return {
         output: reply.output,
         usage: {
@@ -75,6 +75,10 @@ import {
 } from "../src/modules/agents/assignment-runs.ts";
 import { preflight } from "../src/modules/policy.ts";
 import { releaseAssignmentDraft } from "../src/modules/agents/owner-release.ts";
+import { reviewStep } from "../src/modules/agents/specialists/review.ts";
+import { runProblems } from "../src/modules/agents/assignment-runs.ts";
+import { sendNotification } from "../src/modules/agents/notification-sender.ts";
+import { planDailyReport } from "../src/modules/agents/notifications.ts";
 import {
   createPackageProject,
   IMAGE_MODEL,
@@ -114,6 +118,30 @@ const approveAll = (request: any): Reply => ({
     }),
   ],
 });
+
+/** A recorded review answer: one verdict per shown draft. */
+const decideAll =
+  (
+    decide: (draft: Record<string, any>) => {
+      verdict: "approve" | "revise" | "reject";
+      revisionInstructions?: string | null;
+      reasons?: string[];
+    },
+  ) =>
+  (request: any): Reply => ({
+    output: [
+      message({
+        decisions: JSON.parse(request.input[0].content).drafts.map(
+          (draft: Record<string, any>) => ({
+            contentId: draft.contentId,
+            reasons: [],
+            revisionInstructions: null,
+            ...decide(draft),
+          }),
+        ),
+      }),
+    ],
+  });
 
 /**
  * One post per slot across channels (R76) and the assignment format (R77):
@@ -408,7 +436,10 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
       });
       // The copy carries the review of exactly this text and passes on its own channel.
       expect(copy.status).toBe("reviewed");
-      expect(copy.agentReview).toEqual(original.agentReview);
+      expect(copy.agentReview).toEqual({
+        ...original.agentReview,
+        checkedAt: expect.any(String),
+      });
       expect(copy.agentReview.bodyHash).toBe(hash(copy.body));
       expect(copy.missionId).not.toBe(original.missionId);
       // Identical text on another channel is no duplicate.
@@ -661,5 +692,404 @@ describe.skipIf(!enabled)("Shared assignment posts and format", () => {
         .map((row) => `${row.integrationId}@${row.slotAt}`)
         .sort(),
     ).toEqual(second.map((slot) => `${slot.channel}@${slot.at}`).sort());
+  });
+  // ---- Fix round: every channel of a shared slot, formats against channel limits ----
+
+  /** The text of one notification job as a fake Telegram receives it. */
+  const telegramText = async (jobId: string) => {
+    const calls: Array<{ method: string; body: Record<string, any> }> = [];
+    const fetch = async (url: string | URL, init: RequestInit = {}) => {
+      calls.push({
+        method: String(url).split("/").pop()!,
+        body: JSON.parse(String(init.body ?? "{}")),
+      });
+      return new Response(
+        JSON.stringify({ ok: true, result: { message_id: calls.length } }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+    await sendNotification(h.worker(), jobId, {
+      fetch,
+      sleep: async () => {},
+    });
+    return calls
+      .filter((call) => call.method.startsWith("send"))
+      .map((call) => String(call.body.text ?? call.body.caption ?? ""))
+      .join("\n");
+  };
+  const block = (channel: string, at: string) =>
+    h.run((tx) =>
+      create(tx, project.owner, "calendar_blocks", {
+        status: "active",
+        channels: [channel],
+        startAt: new Date(Date.parse(at) - 60000).toISOString(),
+        endAt: new Date(Date.parse(at) + 60000).toISOString(),
+        reason: "Synthetic block",
+      }),
+    );
+  /** Runs the review task's handler again, as a worker restart would. */
+  const reviewAgain = async (taskId: string) => {
+    await h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "agent_tasks", taskId);
+      await update(tx, project.owner, row, { ...data(row), status: "running" });
+    });
+    const task = (await h.rows("agent_tasks")).find((t) => t.id === taskId)!;
+    return reviewStep(h.worker(), task as any);
+  };
+
+  it("copies the text for every channel when a revision fails for the provider (I1)", async () => {
+    await linkBot();
+    await shared({ delivery: "postiz_draft" });
+    const { review, slots } = await drafted();
+    provider.generate.mockImplementation(async (params: any) => {
+      const contract = JSON.parse(params.goal);
+      if (contract.revision) throw new Error("synthetic provider outage");
+      return generated(`${BODY} (${String(contract.brief?.topic ?? "")})`);
+    });
+    provider.replies.push(
+      decideAll(() => ({
+        verdict: "revise",
+        revisionInstructions: "Lead with the team benefit.",
+      })),
+    );
+    await runAgentTask(h.worker(), review.id);
+    expect((await h.task("review")).status).toBe("done");
+    const drafts = await contents();
+    // Two originals left for the owner after the failed revision, and their copies.
+    expect(drafts).toHaveLength(4);
+    expect(drafts.map((c) => c.status)).toEqual(Array(4).fill("needs_review"));
+    for (const original of drafts.filter((c) => c.channel === TELEGRAM)) {
+      expect(original.agentReviewDecision).toMatchObject({
+        verdict: "needs_owner",
+        revisionError: "MODEL_OUTCOME_OR_COST_UNKNOWN",
+      });
+      const copy = drafts.find((c) => c.sharedFrom?.contentId === original.id)!;
+      expect(copy.channel).toBe(X);
+      expect(copy.body).toBe(original.body);
+      expect(copy.agentReviewDecision).toMatchObject({
+        verdict: "needs_owner",
+        sharedFrom: original.id,
+      });
+    }
+    // Every channel's slot still waits for the owner's release.
+    const [runRow] = await h.rows("assignment_runs");
+    expect(
+      (runRow!.slots as Array<Record<string, any>>).filter(
+        (slot) => slot.releasedAt,
+      ),
+    ).toEqual([]);
+    expect(runRow!.slots).toHaveLength(slots.length);
+  });
+
+  it("lets the text go on when only the strictest channel fails its checks (I2)", async () => {
+    await linkBot();
+    await shared({ delivery: "postiz_draft" });
+    const { review, slots } = await drafted();
+    const first = slots.find((slot) => slot.channel === TELEGRAM)!;
+    // Telegram (the strictest channel, which the text was written for) is blocked at the first slot.
+    await block(TELEGRAM, first.at);
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    // The model judged both texts, also the one whose own channel is blocked.
+    expect(provider.requests).toHaveLength(1);
+    expect(
+      JSON.parse(provider.requests[0].input[0].content).drafts,
+    ).toHaveLength(2);
+    const drafts = await contents();
+    const original = drafts.find(
+      (c) => c.channel === TELEGRAM && c.scheduledAt === first.at,
+    )!;
+    expect(original.status).toBe("rejected");
+    expect(original.agentReviewDecision).toMatchObject({
+      verdict: "reject",
+      deterministicProblems: ["MANUAL_CALENDAR_BLOCK"],
+      channelProblems: ["MANUAL_CALENDAR_BLOCK"],
+      textApproved: true,
+    });
+    expect(original).not.toHaveProperty("agentReview");
+    // X still gets the post of that slot, approved for exactly that text.
+    const copy = drafts.find((c) => c.sharedFrom?.contentId === original.id)!;
+    expect(copy.channel).toBe(X);
+    expect(copy.status).toBe("reviewed");
+    expect(copy.agentReview.bodyHash).toBe(hash(original.body));
+    expect(
+      (await h.rows("postiz_drafts"))
+        .map((row) => `${row.integrationId}@${row.slotAt}`)
+        .sort(),
+    ).toEqual(
+      slots
+        .filter((slot) => slot !== first)
+        .map((slot) => `${slot.channel}@${slot.at}`)
+        .sort(),
+    );
+    // One rejection notice: for Telegram only.
+    const rejected = await notices("rejected");
+    expect(rejected.map((job) => job.idempotencyKey)).toEqual([
+      `notify:rejected:${original.id}:${review.id}`,
+    ]);
+    expect(await telegramText(rejected[0]!.id)).toContain(
+      "Kanal: Synthetic Telegram",
+    );
+  });
+
+  it("names every channel of the slot when a text is dropped (I3)", async () => {
+    await linkBot();
+    await shared({ delivery: "postiz_draft" });
+    // The first slot's brief names a fact that is no longer usable: the copywriter drops it.
+    const { review, runId, slots } = await drafted((index) =>
+      index === 0 ? { factKeys: ["launch.deadline"] } : {},
+    );
+    const first = slots.find((slot) => slot.channel === TELEGRAM)!;
+    const second = slots.find(
+      (slot) => slot.channel === TELEGRAM && slot !== first,
+    )!;
+    // The model rejects the second slot's text.
+    provider.replies.push(
+      decideAll(() => ({ verdict: "reject", reasons: ["Off tone"] })),
+    );
+    await runAgentTask(h.worker(), review.id);
+    const problems = await h.run(async (tx) =>
+      runProblems(
+        tx,
+        project.owner,
+        await entity(tx, project.owner, "assignment_runs", runId),
+      ),
+    );
+    expect(
+      problems.dropped
+        .map((entry) => `${entry.channel}@${entry.slotAt}:${entry.code}`)
+        .sort(),
+    ).toEqual(
+      slots
+        .filter((slot) => (slot as any).groupAt === (first as any).groupAt)
+        .map((slot) => `${slot.channel}@${slot.at}:FACT_NOT_USABLE`)
+        .sort(),
+    );
+    // The rejected text counts for both channels: in its notice and in the daily report.
+    const rejected = await notices("rejected");
+    expect(rejected).toHaveLength(1);
+    const text = await telegramText(rejected[0]!.id);
+    expect(text).toContain("Synthetic Telegram");
+    expect(text).toContain("Synthetic X");
+    const audit = await h.run((tx) =>
+      tx.auditEvent.findFirst({
+        where: {
+          projectId: project.owner.projectId,
+          action: "content.agent_rejected",
+        },
+      }),
+    );
+    expect((audit!.metadata as any).channels.sort()).toEqual(
+      [TELEGRAM, X].sort(),
+    );
+    void second;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const evening = new Date();
+      evening.setUTCHours(21, 0, 0, 0);
+      vi.setSystemTime(evening);
+      await h.run((tx) => planDailyReport(tx, project.owner, evening));
+    } finally {
+      vi.useRealTimers();
+    }
+    const report = (await notices("daily_report"))[0]!;
+    expect(await telegramText(report.id)).toContain("Abgelehnt: 2");
+  });
+
+  it("expands the strategy's uncovered slot to every channel of its group (I3)", async () => {
+    await shared({});
+    await h.run((tx) =>
+      planAssignmentRuns(tx, project.owner, tomorrowMorning()),
+    );
+    for (const role of ["analytics", "research"]) {
+      const found = await h.task(role);
+      await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "agent_tasks", found.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          status: "failed",
+        });
+        await startReadySteps(tx, project.owner, data(row).runId);
+      });
+    }
+    const [runRow] = await h.rows("assignment_runs");
+    const all = runRow!.slots as Array<{ channel: string; at: string }>;
+    const times = [...new Set(all.map((slot) => slot.at))].sort();
+    // A brief for the first time only.
+    provider.replies.push((request) => ({
+      output: [
+        message({
+          briefs: JSON.parse(request.input[0].content)
+            .run.slots.filter((slot: any) => slot.at === times[0])
+            .map((slot: any) => h.brief(slot)),
+        }),
+      ],
+    }));
+    await runAgentTask(h.worker(), (await h.task("strategy")).id);
+    const strategy = await h.task("strategy");
+    expect(strategy.output.uncovered.map((s: any) => s.channel).sort()).toEqual(
+      [TELEGRAM, X].sort(),
+    );
+    const problems = await h.run(async (tx) =>
+      runProblems(
+        tx,
+        project.owner,
+        await entity(tx, project.owner, "assignment_runs", runRow!.id),
+      ),
+    );
+    expect(
+      problems.dropped
+        .map((entry) => `${entry.channel}@${entry.slotAt}`)
+        .sort(),
+    ).toEqual(
+      all
+        .filter((slot) => slot.at === times[1])
+        .map((slot) => `${slot.channel}@${slot.at}`)
+        .sort(),
+    );
+  });
+
+  it("leaves the copy for the owner when the text changed after the model judged it", async () => {
+    await linkBot();
+    await shared({ delivery: "postiz_draft" });
+    const { review, slots } = await drafted();
+    const first = slots.find((slot) => slot.channel === TELEGRAM)!;
+    provider.replies.push(async (request) => {
+      // The first slot's text changes while the model is answering.
+      const target = (await contents()).find(
+        (c) => c.channel === TELEGRAM && c.scheduledAt === first.at,
+      )!;
+      await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", target.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          body: `${data(row).body} Changed.`,
+        });
+      });
+      return approveAll(request);
+    });
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    const original = drafts.find(
+      (c) => c.channel === TELEGRAM && c.scheduledAt === first.at,
+    )!;
+    const copy = drafts.find((c) => c.sharedFrom?.contentId === original.id)!;
+    // Neither carries the approval of a text the model did not see.
+    for (const draft of [original, copy]) {
+      expect(draft.status).toBe("needs_review");
+      expect(draft).not.toHaveProperty("agentReview");
+    }
+    expect(original.agentReviewDecision.deterministicProblems).toEqual([
+      "AGENT_REVIEW_TEXT_CHANGED",
+    ]);
+    expect(copy.agentReviewDecision.verdict).toBe("needs_owner");
+    // The other slot goes on both channels.
+    expect(await h.rows("postiz_drafts")).toHaveLength(2);
+  });
+
+  it("copies nothing twice when the review task runs again", async () => {
+    await linkBot();
+    await shared({ delivery: "postiz_draft" });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const before = await contents();
+    expect(before).toHaveLength(4);
+    const output = (await reviewAgain(review.id)) as any;
+    const after = await contents();
+    expect(after.map((c) => c.id).sort()).toEqual(
+      before.map((c) => c.id).sort(),
+    );
+    expect(after.map((c) => c.version)).toEqual(before.map((c) => c.version));
+    // No second model call; the copies report their recorded decisions.
+    expect(provider.requests).toHaveLength(1);
+    expect(
+      output.decisions
+        .filter((d: any) => d.sharedFrom)
+        .map((d: any) => d.verdict),
+    ).toEqual(["approve", "approve"]);
+  });
+
+  it("rejects a draft that misses the format while the project is paused (stricter)", async () => {
+    await linkBot();
+    await shared({
+      delivery: "postiz_draft",
+      format: {
+        minChars: 120,
+        maxChars: 200,
+        hashtags: { min: 2, max: 3 },
+        paragraphs: true,
+      },
+    });
+    const { review } = await drafted();
+    await h.run((tx) =>
+      tx.project.update({
+        where: { id: project.owner.projectId },
+        data: { paused: true },
+      }),
+    );
+    await runAgentTask(h.worker(), review.id);
+    // No revision, no model call, no copy: format problems with a pause reject.
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    expect(provider.requests).toHaveLength(0);
+    const drafts = await contents();
+    expect(drafts).toHaveLength(2);
+    for (const draft of drafts) {
+      expect(draft.status).toBe("rejected");
+      expect(draft.agentReviewDecision.deterministicProblems).toEqual(
+        expect.arrayContaining(["FORMAT_LENGTH", "PROJECT_PAUSED"]),
+      );
+    }
+  });
+
+  it("drops the image of a copy for a channel without media support (M5)", async () => {
+    await linkBot();
+    // X becomes a channel Orbit knows no media support for.
+    await h.run(async (tx) => {
+      const connector = (await list(tx, project.owner, "connectors")).find(
+        (row) => data(row).provider === "postiz",
+      )!;
+      await update(tx, project.owner, connector, {
+        ...data(connector),
+        channels: data(connector).channels.map((channel: any) =>
+          channel.id === X
+            ? { ...channel, identifier: "unknown-network" }
+            : channel,
+        ),
+      });
+    });
+    await shared({ image: true, delivery: "postiz_draft" });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    const [image] = await h.rows("assets");
+    for (const original of drafts.filter((c) => c.channel === TELEGRAM)) {
+      expect(original.assetId).toBe(image!.id);
+      const copy = drafts.find((c) => c.sharedFrom?.contentId === original.id)!;
+      expect(copy.assetId).toBeUndefined();
+      expect(copy.imageSkipped).toBe("MEDIA_NOT_SUPPORTED");
+      expect(copy.body).toBe(original.body);
+    }
+  });
+
+  it("gives the copywriter the recent posts of every channel of the slot (M6)", async () => {
+    await shared({});
+    await h.run((tx) =>
+      create(tx, project.owner, "channel_posts", {
+        channel: X,
+        remoteId: "external-x",
+        publishedAt: new Date(Date.now() - 86_400_000).toISOString(),
+        state: "PUBLISHED",
+        text: "An X post from another tool about beta teams.",
+        source: "external",
+        syncedAt: new Date().toISOString(),
+      }),
+    );
+    await drafted();
+    for (const contract of contracts())
+      expect(JSON.stringify(contract.recentChannelPosts)).toContain(
+        "An X post from another tool about beta teams.",
+      );
   });
 });

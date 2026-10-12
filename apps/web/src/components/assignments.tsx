@@ -270,7 +270,7 @@ export function AssignmentTable({
                     {deliveryText(item.delivery, de)}
                   </small>
                   {item.sharedAcrossChannels && (
-                    <small>{sharedText(true, de)}</small>
+                    <small>{sharedText(true, de, item.image)}</small>
                   )}
                   {item.format && (
                     <small>
