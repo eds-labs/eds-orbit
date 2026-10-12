@@ -49,7 +49,7 @@ const delivery = z
   .enum(["publish", "postiz_draft", "github_pr"])
   .nullable()
   .describe(
-    "publish (default when null): posts go out after the veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off). github_pr: blog articles only, no image; channels is exactly the one write-verified github connector ID; after the owner's release Orbit opens a pull request on the website repository (BLOG_GITHUB_DISABLED while off, BLOG_TARGET_NOT_VERIFIED without a verified connector)",
+    "publish (default when null): posts go out after the veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off). github_pr: blog articles only, no image; channels is exactly one blogTargets id from project_status (a write_verified github connector), never a social channel; after the owner's release Orbit opens a pull request on the website repository (BLOG_GITHUB_DISABLED while off, BLOG_TARGET_NOT_VERIFIED without a verified connector)",
   );
 
 // R76: one text and one image per slot for all channels.
@@ -109,7 +109,7 @@ const proposeParameters = z
     channels: z
       .array(z.string())
       .describe(
-        "Policy channel IDs from project_status, at least one; for delivery github_pr exactly the github connector ID",
+        "Policy channel IDs from project_status, at least one; for delivery github_pr exactly one blogTargets id from project_status",
       ),
     topicFrame: z
       .string()

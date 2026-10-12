@@ -271,6 +271,9 @@ describe("GitHub client requests", () => {
       pending: 1,
       failed: ["test"],
       passed: 3,
+      // Names by conclusion, for the target profile's required checks (R83).
+      succeeded: ["build"],
+      skipped: ["lint", "skip"],
     });
     expect(f.calls[0]!.url.pathname).toBe(
       "/repos/eds-labs/site/commits/abcdef1/check-runs",
@@ -301,6 +304,11 @@ describe("GitHub client requests", () => {
       pending: 0,
       failed: ["late-fail"],
       passed: 149,
+      succeeded: [
+        ...page1.map((run) => run.name),
+        ...page2.slice(0, 49).map((run) => run.name),
+      ],
+      skipped: [],
     });
     expect(f.calls[1]!.url.searchParams.get("page")).toBe("2");
   });

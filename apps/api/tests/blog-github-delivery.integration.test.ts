@@ -98,6 +98,7 @@ import {
   startReadySteps,
 } from "../src/modules/agents/assignment-runs.ts";
 import { releaseAssignmentDraft } from "../src/modules/agents/owner-release.ts";
+import { draftsAwaitingOwner } from "../src/modules/agents/assignment-overview.ts";
 import {
   advanceBlogDelivery,
   BLOG_DELIVERY_TOPIC,
@@ -106,6 +107,8 @@ import {
   requeueBlogDeliveries,
 } from "../src/modules/agents/blog-delivery.ts";
 import { berlinDate, blogPostOf } from "../src/modules/blog-target.ts";
+import { notify } from "../src/modules/agents/notifications.ts";
+import { sendNotification } from "../src/modules/agents/notification-sender.ts";
 import { createPackageProject } from "./support/package-project.ts";
 import {
   assignmentRun,
@@ -686,6 +689,47 @@ describe.skipIf(!enabled)(
       expect(r.json().error.code).toBe("BLOG_TARGET_UNREACHABLE");
       expect(await deliveries()).toEqual([]);
       expect(await deliveryJobs()).toEqual([]);
+    });
+
+    it("renders the owner notice of an article with its title and repository, not as a social draft", async () => {
+      const draft = await awaitingOwner();
+      await h.run((tx) =>
+        create(tx, project.owner, "telegram_connections", {
+          status: "linked",
+          encryptedToken: encrypt(
+            "123456789:AAsyntheticTelegramTokenForTests_0123456",
+            process.env.CREDENTIAL_KEY!,
+          ),
+          chatId: "4711",
+          telegramUserId: "4711",
+          linkedUserId: project.owner.userId,
+          linkedAt: new Date().toISOString(),
+        }),
+      );
+      const taskId = String(
+        (draft.agentReview as { taskId?: string } | undefined)?.taskId ??
+          "task",
+      );
+      const job = await h.run((tx) =>
+        notify(tx, project.owner, "needs_owner", `${draft.id}:${taskId}`),
+      );
+      const sent: string[] = [];
+      await sendNotification(h.worker(), job!.id, {
+        fetch: async (_url, init: RequestInit = {}) => {
+          const body = JSON.parse(String(init.body ?? "{}"));
+          sent.push(String(body.text ?? body.caption ?? ""));
+          return new Response(
+            JSON.stringify({ ok: true, result: { message_id: 1 } }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        },
+        sleep: async () => {},
+      });
+      const text = sent.join("\n");
+      expect(text).toContain(`Artikel wartet auf Freigabe: ${TITLE}`);
+      expect(text).toContain(`${OWNER}/${REPO}`);
+      expect(text).not.toContain("Entwurf");
+      expect(text).not.toContain(connectorId);
     });
 
     describe("worker (R83, spec §7)", () => {
@@ -1398,6 +1442,228 @@ describe.skipIf(!enabled)(
         expect((await delivery(id)).status).toBe("live");
         expect(github.puts).toHaveLength(1);
         expect(github.pulls).toHaveLength(1);
+      });
+
+      /** The owner list's ids (R81), as the route builds it inside a transaction. */
+      const listedIds = async () =>
+        (await h.run((tx) => draftsAwaitingOwner(tx, project.owner))).map(
+          (item) => item.id,
+        );
+      const releaseAgain = async (contentId: string) => {
+        const row = await content(contentId);
+        const result = await h.run((tx) =>
+          releaseAssignmentDraft(tx, project.owner, contentId, row.version),
+        );
+        return result;
+      };
+
+      it("lists a canceled article with failed checks again and delivers the same content on a second release", async () => {
+        const { id, draft } = await released();
+        // A delivery on its way is no draft for the owner.
+        expect(await listedIds()).not.toContain(draft.id);
+        github.options.checks = () => [
+          { name: "check", status: "completed", conclusion: "failure" },
+        ];
+        await drain(id);
+        expect((await delivery(id)).status).toBe("checks_failed");
+        // A stopped delivery still holds the article until it is canceled.
+        expect(await listedIds()).not.toContain(draft.id);
+        expect(
+          await code(
+            h.run(async (tx) =>
+              releaseAssignmentDraft(
+                tx,
+                project.owner,
+                draft.id,
+                (await entity(tx, project.owner, "content", draft.id)).version,
+              ),
+            ),
+          ),
+        ).toBeNull();
+        expect(await deliveries()).toHaveLength(1);
+        const canceled = await cancelBlogDelivery(project.owner, id, deps());
+        expect(canceled).toMatchObject({ status: "canceled" });
+        expect(await content(draft.id)).toMatchObject({ status: "reviewed" });
+        // Listed again, with its preview.
+        const listed = (
+          await h.run((tx) => draftsAwaitingOwner(tx, project.owner))
+        ).find((item) => item.id === draft.id);
+        expect(listed).toMatchObject({
+          delivery: "github_pr",
+          // The repository, not the connector id.
+          channelName: `${OWNER}/${REPO}`,
+          preview: { post: { slug: SLUG }, problems: [] },
+        });
+        // The route checks the slug and releases the same content again.
+        github.options.checks = undefined;
+        const r = await app.inject({
+          method: "POST",
+          url: `/api/projects/${project.owner.projectId}/assignment-drafts/${draft.id}/release`,
+          headers: { origin: origin(), cookie },
+          payload: { version: (await content(draft.id)).version },
+        });
+        expect(r.statusCode).toBe(200);
+        const next = String(r.json().blogDeliveryId);
+        expect(next).not.toBe(id);
+        expect(await listedIds()).not.toContain(draft.id);
+        // A second click returns the same delivery.
+        expect(await releaseAgain(draft.id)).toMatchObject({
+          result: "already_released",
+          blogDeliveryId: next,
+        });
+        await drain(next);
+        expect(await delivery(next)).toMatchObject({
+          status: "live",
+          contentId: draft.id,
+          error: null,
+          prNumber: 2,
+        });
+        expect(await listedIds()).not.toContain(draft.id);
+      });
+
+      it("lists an article blocked by a refused token again after the cancel and delivers it", async () => {
+        const { id, draft } = await released();
+        github.options.authFail = true;
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "blocked_dependency",
+          error: "GITHUB_TOKEN_INVALID",
+        });
+        expect(await listedIds()).not.toContain(draft.id);
+        // The owner renews the token (the connector is verified again), then cancels.
+        github.options.authFail = false;
+        await h.run(async (tx) => {
+          const row = await entity(
+            tx,
+            project.owner,
+            "connectors",
+            connectorId,
+          );
+          await update(tx, project.owner, row, {
+            ...data(row),
+            status: "write_verified",
+          });
+        });
+        await cancelBlogDelivery(project.owner, id, deps());
+        expect(await listedIds()).toContain(draft.id);
+        const again = await releaseAgain(draft.id);
+        expect(again).toMatchObject({
+          result: "released",
+          delivery: "github_pr",
+        });
+        await drain(String(again.blogDeliveryId));
+        expect((await delivery(String(again.blogDeliveryId))).status).toBe(
+          "live",
+        );
+      });
+
+      it("does not list or release a canceled article whose body changed after the review", async () => {
+        const { id, draft } = await released();
+        await drain(id, "pr_open");
+        await cancelBlogDelivery(project.owner, id, deps());
+        expect(await listedIds()).toContain(draft.id);
+        await h.run(async (tx) => {
+          const row = await entity(tx, project.owner, "content", draft.id);
+          await update(tx, project.owner, row, {
+            ...data(row),
+            body: `${data(row).body}\n\nOne more line.`,
+          });
+        });
+        expect(await listedIds()).not.toContain(draft.id);
+        expect(
+          await code(
+            h.run(async (tx) =>
+              releaseAssignmentDraft(
+                tx,
+                project.owner,
+                draft.id,
+                (await entity(tx, project.owner, "content", draft.id)).version,
+              ),
+            ),
+          ),
+        ).toBe("DRAFT_NOT_AWAITING_OWNER");
+        expect(await deliveries()).toHaveLength(1);
+      });
+
+      it("does not count third-party checks without the required `check` run as passed", async () => {
+        const { id } = await released();
+        github.options.checks = () => [
+          { name: "vercel", status: "completed", conclusion: "success" },
+        ];
+        await drain(id, "pr_open");
+        for (let i = 0; i < 3; i++) await runNext();
+        expect((await delivery(id)).status).toBe("pr_open");
+        expect(github.merges).toEqual([]);
+        clock += 31 * MINUTE;
+        await runNext();
+        expect((await delivery(id)).status).toBe("checks_timeout");
+        expect(github.merges).toEqual([]);
+      });
+
+      it("does not count a skipped `check` run as passed", async () => {
+        const { id } = await released();
+        github.options.checks = () => [
+          { name: "check", status: "completed", conclusion: "skipped" },
+          { name: "vercel", status: "completed", conclusion: "success" },
+        ];
+        await drain(id);
+        expect(await delivery(id)).toMatchObject({
+          status: "checks_failed",
+          failedChecks: ["check"],
+        });
+        expect(github.merges).toEqual([]);
+      });
+
+      it("merges when the required `check` run succeeded beside other runs", async () => {
+        const { id } = await released();
+        github.options.checks = () => [
+          { name: "check", status: "completed", conclusion: "success" },
+          { name: "vercel", status: "completed", conclusion: "neutral" },
+        ];
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
+      });
+
+      it("keeps the state when the connector cannot be read at the checks (database or key fault)", async () => {
+        const { id } = await released();
+        await drain(id, "pr_open");
+        const saved = await h.run(async (tx) =>
+          data(await entity(tx, project.owner, "connectors", connectorId)),
+        );
+        await h.run(async (tx) => {
+          const row = await entity(
+            tx,
+            project.owner,
+            "connectors",
+            connectorId,
+          );
+          await update(tx, project.owner, row, {
+            ...data(row),
+            encryptedCredential: "not-a-credential",
+          });
+        });
+        // The fault is thrown for the job to retry; nothing is recorded.
+        expect(
+          await code(advanceBlogDelivery(worker(), id, deps())),
+        ).not.toBeNull();
+        const row = await delivery(id);
+        expect(row.status).toBe("pr_open");
+        expect(row.error ?? null).toBeNull();
+        expect(row.inFlight ?? null).toBeNull();
+        await h.run(async (tx) => {
+          const row = await entity(
+            tx,
+            project.owner,
+            "connectors",
+            connectorId,
+          );
+          await update(tx, project.owner, row, {
+            ...data(row),
+            encryptedCredential: saved.encryptedCredential,
+          });
+        });
+        await drain(id);
+        expect((await delivery(id)).status).toBe("live");
       });
     });
   },

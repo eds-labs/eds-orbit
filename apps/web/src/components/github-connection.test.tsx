@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
+import type { Entity } from "@/lib/api";
 import {
+  GithubConnectorSummary,
   GithubVerifyResult,
   githubConnectorFields,
   githubConnectorPayload,
@@ -92,5 +94,32 @@ describe("GithubVerifyResult", () => {
     expect(html).toContain("Not verified");
     expect(html).toContain("GITHUB_BASE_BRANCH_NOT_FOUND");
     expect(html).toContain("a.json: title missing");
+  });
+});
+
+describe("GithubConnectorSummary (R83)", () => {
+  const connector = {
+    id: "0f6c3b1e-2a4d-4c8e-9b7a-5d1e2f3a4b5c",
+    version: 3,
+    data: {
+      provider: "github",
+      owner: "eds-labs",
+      repo: "uliquid-site",
+      baseBranch: "main",
+      postsPath: "content/blog/posts",
+      siteUrl: "https://uliquid.vip",
+      tokenExpiresAt: "2027-01-31",
+      status: "write_verified",
+    },
+  } as unknown as Entity;
+
+  it("shows the connector id to copy and the repository", () => {
+    const html = renderToStaticMarkup(
+      <GithubConnectorSummary connector={connector} de />,
+    );
+    expect(html).toContain("Connector-ID");
+    expect(html).toContain("0f6c3b1e-2a4d-4c8e-9b7a-5d1e2f3a4b5c");
+    expect(html).toContain("ID kopieren");
+    expect(html).toContain("eds-labs/uliquid-site");
   });
 });

@@ -407,15 +407,28 @@ export function createGithubClient(options: {
         let pending = 0,
           passed = 0;
         const failed: string[] = [];
+        // Names by conclusion, so a caller can require named checks (R83).
+        const succeeded: string[] = [];
+        const skipped: string[] = [];
         for (const run of runs) {
           if (run.status !== "completed") pending++;
-          else if (["success", "neutral", "skipped"].includes(run.conclusion))
+          else if (["success", "neutral", "skipped"].includes(run.conclusion)) {
             passed++;
-          else failed.push(str(run.name));
+            (run.conclusion === "success" ? succeeded : skipped).push(
+              str(run.name),
+            );
+          } else failed.push(str(run.name));
         }
         // Runs we could not read (page cap, short pages) never count as a pass.
         pending += Math.max(0, total - runs.length);
-        return { total: Math.max(total, runs.length), pending, failed, passed };
+        return {
+          total: Math.max(total, runs.length),
+          pending,
+          failed,
+          passed,
+          succeeded,
+          skipped,
+        };
       });
     },
     async mergePull(number: number, sha: string) {

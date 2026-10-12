@@ -25,6 +25,7 @@ import {
   verifyBlogTarget,
 } from "../src/modules/blog-target.ts";
 import { readiness } from "../src/modules/readiness.ts";
+import { runReadTool } from "../src/modules/chat-tools.ts";
 import { sweepProject } from "../src/modules/lifecycle.ts";
 import {
   FIXTURE_POSTS,
@@ -460,6 +461,19 @@ describe.skipIf(!enabled)("GitHub blog target (R81)", () => {
     await expect(
       run((tx) => loadBlogTarget(tx, owner, row.id)),
     ).rejects.toMatchObject({ code: "INVALID_ENCRYPTED_CREDENTIAL" });
+  });
+
+  it("project_status names the github blog targets without credentials", async () => {
+    const row = await addConnector({ status: "write_verified" });
+    const { result } = await runReadTool(owner, "project_status", {});
+    const status = result as { blogTargets: unknown[] };
+    expect(status.blogTargets).toEqual([
+      { id: row.id, repo: `${OWNER}/${REPO}`, status: "write_verified" },
+    ]);
+    const text = JSON.stringify(result);
+    expect(text).not.toContain("encryptedCredential");
+    expect(text).not.toContain(TOKEN);
+    expect(text).not.toContain(data(row).encryptedCredential);
   });
 
   it("lists the published articles newest first", async () => {

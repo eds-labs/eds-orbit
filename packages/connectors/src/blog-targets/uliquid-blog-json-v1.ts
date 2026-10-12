@@ -44,6 +44,14 @@ export type BlogPostJson = {
   relatedLinks: { label: string; href: string }[];
 };
 
+/**
+ * Check runs that must have succeeded on Orbit's head before the merge (R83):
+ * the website's GitHub Actions job. Renaming that job in the website
+ * repository requires changing this list, else deliveries end in
+ * `checks_timeout`.
+ */
+export const REQUIRED_CHECKS: readonly string[] = ["check"];
+
 export const AUTHOR = "Mario Euchner";
 export const AUTHOR_TITLE = "Founder & Product Lead";
 const WORDS_PER_MINUTE = 220;

@@ -8,7 +8,11 @@ import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
-import { activeBlogDelivery, bookBlogDelivery } from "./blog-delivery.ts";
+import {
+  activeBlogDelivery,
+  bookBlogDelivery,
+  releasableAgain,
+} from "./blog-delivery.ts";
 import { BLOG_RELEASE_WINDOW_DAYS } from "./assignment-overview.ts";
 import { localDate } from "./scheduling.ts";
 import { assertBlogGithubEnabled, berlinDate } from "../blog-target.ts";
@@ -59,7 +63,9 @@ import {
  * merges the pull request. It can be released up to
  * `BLOG_RELEASE_WINDOW_DAYS` after its run slot. The route checks the slug
  * against the repository first (`assertSlugFree`, outside the transaction).
- * Releasing again returns the same delivery.
+ * Releasing again returns the same delivery while it is active; after it
+ * failed or was canceled, the same article (unchanged body) can be released
+ * again and books a new delivery.
  */
 export const releaseInput = z
   .object({ version: z.number().int().positive() })
@@ -486,7 +492,9 @@ async function releaseAsPostizDraft(
  * `BLOG_RELEASE_WINDOW_DAYS` after its run slot (project days, as the owner
  * list shows it), else `BLOG_RELEASE_WINDOW_PASSED`. The owner's review of
  * exactly this text is recorded, then the delivery is booked with the post
- * dated at the release (Europe/Berlin).
+ * dated at the release (Europe/Berlin). An article whose deliveries all ended
+ * (`releasableAgain`) is released again the same way: the review is recorded
+ * again and a new delivery is booked.
  */
 async function releaseAsBlogDelivery(
   tx: DbTx,
@@ -496,7 +504,13 @@ async function releaseAsBlogDelivery(
 ): Promise<ReleaseResult> {
   const c = data(content);
   assertBlogGithubEnabled();
-  if (c.status !== "needs_review" || c.supersededBy)
+  // A first release, or a release again after every delivery of the
+  // article failed or was canceled (`releasableAgain`, final review I1).
+  if (
+    c.supersededBy ||
+    (c.status !== "needs_review" &&
+      !(await releasableAgain(tx, scope, content)))
+  )
     throw new DomainError("DRAFT_NOT_AWAITING_OWNER", 409);
   if (content.version !== version)
     throw new DomainError("VERSION_CONFLICT", 409);

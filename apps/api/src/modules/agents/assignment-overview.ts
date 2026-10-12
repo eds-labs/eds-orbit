@@ -13,6 +13,10 @@ import { assignedPostizChannels } from "../postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
 import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
+import {
+  awaitsReleaseAgain,
+  blogDeliveriesByContent,
+} from "./blog-delivery.ts";
 import { localDate } from "./scheduling.ts";
 import { assignmentMonthSpend } from "./specialists/runner.ts";
 import { assignmentCardOf } from "./tools/assignment-tools.ts";
@@ -50,13 +54,21 @@ export const BLOG_RELEASE_WINDOW_DAYS = 30;
 const DAY_MS = 86400000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Postiz channel names of the project by channel ID, as the owner knows them. */
+/**
+ * Postiz channel names of the project by channel ID, as the owner knows
+ * them, and the repository (`owner/repo`) of each github blog target by its
+ * connector id (R83), so a github_pr channel never shows as a raw id.
+ */
 export async function channelNames(tx: DbTx, scope: Scope) {
   const names = new Map<string, string>();
-  for (const row of await list(tx, scope, "connectors"))
-    if (data(row).provider === "postiz")
-      for (const channel of assignedPostizChannels(data(row)))
+  for (const row of await list(tx, scope, "connectors")) {
+    const d = data(row);
+    if (d.provider === "postiz")
+      for (const channel of assignedPostizChannels(d))
         names.set(String(channel.id), String(channel.name ?? channel.id));
+    if (d.provider === "github")
+      names.set(row.id, `${String(d.owner ?? "")}/${String(d.repo ?? "")}`);
+  }
   return names;
 }
 const namesOf = (channels: unknown, names: Map<string, string>) =>
@@ -308,7 +320,9 @@ export type BlogPreview = {
  * Assignment drafts that wait for the owner's release (R70, I1): social
  * drafts and website articles (github_pr, R81) of a run that is not
  * canceled, left `needs_review` by the review (R47/R49), without a linked
- * bot, while agent review authority is off or, for an article, always,
+ * bot, while agent review authority is off or, for an article, always (an
+ * article also when it was released and all its deliveries failed or were
+ * canceled, `awaitsReleaseAgain`),
  * whose assignment's confirmation still covers them and whose run slot is
  * today or later (project time; for a website article at most
  * `BLOG_RELEASE_WINDOW_DAYS` ago). Each comes with its run slot, a text
@@ -328,7 +342,7 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     new Date(Date.now() - BLOG_RELEASE_WINDOW_DAYS * DAY_MS),
     project.timezone,
   );
-  const rows = (
+  const waiting = (
     await tx.entity.findMany({
       where: {
         workspaceId: scope.workspaceId,
@@ -348,6 +362,34 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
       !d.supersededBy
     );
   });
+  // Released website articles whose deliveries all ended wait again (I1).
+  const released = (
+    await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "content",
+        AND: [
+          { data: { path: ["status"], equals: "reviewed" } },
+          { data: { path: ["type"], equals: "blog" } },
+          { data: { path: ["delivery"], equals: "github_pr" } },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    })
+  ).filter((row) => typeof data(row).assignmentRunId === "string");
+  const ended = await blogDeliveriesByContent(
+    tx,
+    scope,
+    released.map((row) => row.id),
+  );
+  const rows = [
+    ...waiting,
+    ...released.filter((row) =>
+      awaitsReleaseAgain(data(row), ended.get(row.id) ?? []),
+    ),
+  ];
   const missions = await rowsById(
     tx,
     scope,

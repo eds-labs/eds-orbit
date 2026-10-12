@@ -6,6 +6,7 @@ import {
   ConnectorError,
   fetchPublicPage,
   postFileBytes,
+  REQUIRED_CHECKS,
   type GithubClient,
 } from "../../../../../packages/connectors/src/index.ts";
 import {
@@ -124,6 +125,65 @@ export async function activeBlogDelivery(
     orderBy: { createdAt: "asc" },
   });
   return rows.find((row) => !ENDED.includes(data(row).status)) ?? null;
+}
+
+/**
+ * Whether a released website article waits for the owner again (R83, final
+ * review I1): a github_pr article in status `reviewed` (the owner's earlier
+ * release) whose deliveries all ended (`failed` or `canceled`, at least one),
+ * whose body is still the one the owner reviewed (`humanReviewedBodyHash`)
+ * and that no revision superseded. The release window and the run checks are
+ * applied by the caller as for a first release. `deliveries` are the
+ * content's `blog_deliveries` rows.
+ */
+export function awaitsReleaseAgain(
+  c: Record<string, any>,
+  deliveries: Array<{ data: unknown }>,
+): boolean {
+  return (
+    c.type === "blog" &&
+    c.delivery === "github_pr" &&
+    c.status === "reviewed" &&
+    !c.supersededBy &&
+    typeof c.humanReviewedBodyHash === "string" &&
+    c.humanReviewedBodyHash === hash(c.body) &&
+    deliveries.length > 0 &&
+    deliveries.every((row) => ENDED.includes(data(row).status))
+  );
+}
+
+/** The blog deliveries of the given contents, by content id. */
+export async function blogDeliveriesByContent(
+  tx: DbTx,
+  scope: Scope,
+  contentIds: string[],
+) {
+  const byContent = new Map<string, Row[]>();
+  if (!contentIds.length) return byContent;
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: BLOG_DELIVERY_KIND,
+      OR: contentIds.map((id) => ({
+        data: { path: ["contentId"], equals: id },
+      })),
+    },
+    orderBy: { createdAt: "asc" },
+  });
+  for (const row of rows) {
+    const id = String(data(row).contentId);
+    byContent.set(id, [...(byContent.get(id) ?? []), row as Row]);
+  }
+  return byContent;
+}
+
+/** `awaitsReleaseAgain` for one content row, reading its deliveries. */
+export async function releasableAgain(tx: DbTx, scope: Scope, content: Row) {
+  const c = data(content);
+  if (c.status !== "reviewed" || c.type !== "blog") return false;
+  const deliveries = await blogDeliveriesByContent(tx, scope, [content.id]);
+  return awaitsReleaseAgain(c, deliveries.get(content.id) ?? []);
 }
 
 /** The blog target's connector, or `BLOG_TARGET_NOT_VERIFIED` without verified write access. */
@@ -256,7 +316,12 @@ export async function assertSlugFree(
     });
     const c = data(row);
     if (!row || c.type !== "blog" || c.delivery !== "github_pr") return null;
-    if (c.status !== "needs_review" || c.supersededBy) return null;
+    // A first release, or a release again after the delivery ended.
+    if (
+      c.supersededBy ||
+      (c.status !== "needs_review" && !(await releasableAgain(tx, scope, row)))
+    )
+      return null;
     if (await activeBlogDelivery(tx, scope, contentId)) return null;
     assertBlogGithubEnabled();
     // Only the slug is used here; it comes from the title, not from the date.
@@ -742,21 +807,48 @@ const mergedOutcome = (c: StepContext, mergeSha: string | null): Outcome => ({
   next: nextStep(7, c.at, POLL_MS),
 });
 
+type CheckRuns = Awaited<ReturnType<GithubClient["checkRuns"]>>;
+
+/**
+ * The checks of Orbit's head as one verdict (R83): `failed` when a run
+ * failed or a required check (`REQUIRED_CHECKS` of the target profile, the
+ * website's GitHub Actions job) completed without success (skipped,
+ * neutral); `pending` while a run is not completed, no run exists yet or a
+ * required check has no run; `passed` only when every run completed without
+ * failure and every required check succeeded.
+ */
+function checksVerdict(
+  checks: CheckRuns,
+): { verdict: "failed"; names: string[] } | { verdict: "pending" | "passed" } {
+  const notRun = REQUIRED_CHECKS.filter(
+    (name) => !checks.succeeded.includes(name),
+  );
+  const unsuccessful = notRun.filter((name) => checks.skipped.includes(name));
+  if (checks.failed.length || unsuccessful.length)
+    return {
+      verdict: "failed",
+      names: [...checks.failed, ...unsuccessful].slice(0, 20),
+    };
+  if (checks.total === 0 || checks.pending > 0 || notRun.length)
+    return { verdict: "pending" };
+  return { verdict: "passed" };
+}
+
 /** Step 5: the check runs of Orbit's head, polled every minute for 30 minutes. */
 async function stepChecks(c: StepContext): Promise<Outcome> {
   const pull = await c.client!.getPull(Number(c.d.prNumber));
   if (pull.merged) return mergedOutcome(c, pull.mergeCommitSha);
   if (pull.state !== "open") return failed("BLOG_PR_CLOSED");
   if (pull.headSha !== c.d.headSha) return failed("BLOG_HEAD_MOVED");
-  const checks = await c.client!.checkRuns(String(c.d.headSha));
-  if (checks.failed.length)
+  const checks = checksVerdict(await c.client!.checkRuns(String(c.d.headSha)));
+  if (checks.verdict === "failed")
     return {
       status: "checks_failed",
       error: "CHECKS_FAILED",
-      fields: { failedChecks: checks.failed.slice(0, 20) },
+      fields: { failedChecks: checks.names },
     };
-  // No check run yet counts as pending, never as passed (R83).
-  if (checks.total === 0 || checks.pending > 0) {
+  // No check run yet, or no run of a required check, counts as pending (R83).
+  if (checks.verdict === "pending") {
     const since = Date.parse(String(c.d.checksSince ?? c.at.toISOString()));
     if (c.at.valueOf() - since >= CHECKS_TIMEOUT_MS)
       return { status: "checks_timeout", error: "CHECKS_TIMEOUT" };
@@ -780,14 +872,14 @@ async function stepMerge(c: StepContext): Promise<Outcome> {
   if (pull.merged) return mergedOutcome(c, pull.mergeCommitSha);
   if (pull.state !== "open") return failed("BLOG_PR_CLOSED");
   if (pull.headSha !== c.d.headSha) return failed("BLOG_HEAD_MOVED");
-  const checks = await c.client!.checkRuns(String(c.d.headSha));
-  if (checks.failed.length)
+  const checks = checksVerdict(await c.client!.checkRuns(String(c.d.headSha)));
+  if (checks.verdict === "failed")
     return {
       status: "checks_failed",
       error: "CHECKS_FAILED",
-      fields: { failedChecks: checks.failed.slice(0, 20) },
+      fields: { failedChecks: checks.names },
     };
-  if (checks.total === 0 || checks.pending > 0)
+  if (checks.verdict === "pending")
     // A check was started again: back to polling.
     return {
       status: "pr_open",
@@ -956,8 +1048,17 @@ export async function advanceBlogDelivery(
       }
       loaded = gate;
     } else {
+      // Only a missing connector is a stop; any other fault (database,
+      // decryption) is thrown, so the job tries the step again.
       loaded = await loadBlogTarget(tx, scope, String(d.connectorId)).catch(
-        () => null,
+        (error) => {
+          if (
+            error instanceof DomainError &&
+            error.code === "BLOG_TARGET_NOT_CONFIGURED"
+          )
+            return null;
+          throw error;
+        },
       );
       // Without the connector the pull request cannot be read.
       if (!loaded && step <= 6) {

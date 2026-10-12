@@ -141,10 +141,36 @@ export function GithubVerifyResult({
 /** Repository, branch, path, site and token expiry of a saved connector; never the token. */
 export function GithubConnectorDetails({ connector }: { connector: Entity }) {
   const { locale } = useWorkspace();
-  const de = locale === "de";
+  return <GithubConnectorSummary connector={connector} de={locale === "de"} />;
+}
+
+/**
+ * The saved GitHub connector's details: its id (the one channel of a
+ * github_pr assignment, R83), repository, posts path and token expiry.
+ */
+export function GithubConnectorSummary({
+  connector,
+  de,
+}: {
+  connector: Entity;
+  de: boolean;
+}) {
   const d = connector.data;
   return (
     <div className="connector-details">
+      <p>
+        <strong>{de ? "Connector-ID:" : "Connector ID:"}</strong>{" "}
+        <code style={{ userSelect: "all" }}>{connector.id}</code>{" "}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            void navigator.clipboard?.writeText(connector.id).catch(() => {});
+          }}
+        >
+          {de ? "ID kopieren" : "Copy ID"}
+        </Button>
+      </p>
       <p>
         <strong>Repository:</strong> {String(d.owner)}/{String(d.repo)} ·{" "}
         {String(d.baseBranch ?? "main")}

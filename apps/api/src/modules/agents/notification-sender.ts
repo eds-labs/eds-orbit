@@ -135,10 +135,15 @@ const usd = (micros: bigint | null | undefined) =>
     maximumFractionDigits: 2,
   });
 
-/** The channel's name from the Postiz connector; the id when it is not known. */
+/**
+ * The channel's name from the Postiz connector, the repository of a github
+ * blog target (R81); the id when it is not known.
+ */
 async function channelName(tx: DbTx, scope: Scope, channel: unknown) {
   const id = String(channel ?? "");
   for (const row of await list(tx, scope, "connectors")) {
+    if (row.id === id && data(row).provider === "github")
+      return repoOf(data(row));
     const found = (
       (data(row).channels ?? []) as Array<Record<string, any>>
     ).find((item) => item.id === id);
@@ -248,6 +253,9 @@ async function needsOwner(
   );
   if (!contentRow) return { skip: "STALE" };
   const c = data(contentRow);
+  // A website article (R83) waits for the owner's release as a pull request.
+  if (c.type === "blog" && c.delivery === "github_pr")
+    return articleNeedsOwner(tx, scope, c, taskId, timezone);
   // The agent approved it, but only the owner's release counts (R71).
   if (c.agentReview?.taskId === taskId) {
     // Released, replaced or otherwise decided meanwhile: nothing left to ask.
@@ -288,6 +296,39 @@ async function needsOwner(
       `Kanal: ${await channelName(tx, scope, c.channel)}`,
       `Orbit konnte ihn nicht selbst freigeben${why.length ? ` (${clip(why.join(", "), 200)})` : ""}.`,
       "Bitte in Orbit prüfen. Bis dahin geht nichts raus.",
+    ].join("\n"),
+    [openButton()],
+  );
+}
+
+/** `needs_owner` of a website article (github_pr, R83): its title and repository. */
+async function articleNeedsOwner(
+  tx: DbTx,
+  scope: Scope,
+  c: Record<string, any>,
+  taskId: string | undefined,
+  timezone: string,
+): Promise<Built> {
+  if (c.status !== "needs_review" || c.supersededBy) return { skip: "STALE" };
+  const mission = c.missionId
+    ? data(await maybe(() => entity(tx, scope, "missions", c.missionId)))
+    : {};
+  const why = [
+    ...((c.agentReviewDecision?.deterministicProblems ?? []) as unknown[]),
+    c.agentReviewDecision?.revisionError,
+  ]
+    .filter(Boolean)
+    .map(String);
+  return plain(
+    [
+      `Artikel wartet auf Freigabe: ${clip(String(c.title ?? "ohne Titel"), 160)}`,
+      `Repository: ${await channelName(tx, scope, c.channel)}`,
+      ...(mission.plannedSlotAt
+        ? [`Geplant: ${when(mission.plannedSlotAt, timezone)}`]
+        : []),
+      c.agentReview?.taskId === taskId
+        ? "Orbit hat ihn geprüft. Er geht erst als Pull Request an GitHub, wenn du ihn in Orbit freigibst."
+        : `Orbit konnte ihn nicht selbst prüfen${why.length ? ` (${clip(why.join(", "), 200)})` : ""}. Bitte in Orbit prüfen. Bis dahin geht nichts raus.`,
     ].join("\n"),
     [openButton()],
   );

@@ -100,13 +100,26 @@ export async function runReadTool(
       });
       const policies = await list(tx, scope, "policies");
       const active = policies.find((p) => data(p).active);
-      const availableChannels = (await list(tx, scope, "connectors"))
+      const connectors = await list(tx, scope, "connectors");
+      const availableChannels = connectors
         .filter((row) => data(row).provider === "postiz")
         .flatMap((row) => assignedPostizChannels(data(row)))
         .map((channel: any) => ({
           id: String(channel.id),
           name: clipped(channel.name, 120),
           provider: clipped(channel.identifier, 50),
+        }));
+      // Website blog targets (R81): the id is the one channel of a github_pr
+      // assignment. Only id, repository and status; never a credential.
+      const blogTargets = connectors
+        .filter((row) => data(row).provider === "github")
+        .map((row) => ({
+          id: row.id,
+          repo: clipped(
+            `${data(row).owner ?? ""}/${data(row).repo ?? ""}`,
+            200,
+          ),
+          status: clipped(data(row).status, 40),
         }));
       const approvals = (await list(tx, scope, "approvals"))
         .filter((a) => data(a).status === "pending")
@@ -149,6 +162,7 @@ export async function runReadTool(
               }
             : null,
           availableChannels,
+          blogTargets,
           policy: active
             ? {
                 id: active.id,
