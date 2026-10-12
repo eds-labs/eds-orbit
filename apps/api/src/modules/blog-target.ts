@@ -255,22 +255,23 @@ async function readPosts(
 }
 
 /**
- * The published articles (slug, title, category, keywords, publishedAt) of the
- * posts directory, newest first. Files that fail the profile's validation are
- * skipped here; verification is where they are reported.
+ * The posts directory of the base branch (R81, R82): the published articles
+ * (slug, title, category, keywords, publishedAt; newest first) and every slug
+ * that has a `.json` file there, valid or not, since any file blocks its
+ * path. One directory listing plus one read per file.
  */
-export async function listPublishedArticles(
+export async function readPublished(
   scope: Scope,
   connectorId: string,
   deps?: BlogTargetDeps,
-): Promise<PublishedArticle[]> {
+): Promise<{ articles: PublishedArticle[]; slugs: string[] }> {
   assertBlogGithubEnabled();
   const { target, token } = await readTarget(scope, connectorId);
   const client = githubFor(token, target, deps);
   const files = await guarded(scope, connectorId, () =>
     readPosts(client, target),
   );
-  return files
+  const articles = files
     .filter((file) => !file.problems.length)
     .map((file) => {
       const p = file.post as Record<string, any>;
@@ -287,6 +288,20 @@ export async function listPublishedArticles(
         b.publishedAt.localeCompare(a.publishedAt) ||
         a.slug.localeCompare(b.slug),
     );
+  return { articles, slugs: files.map((file) => file.slug) };
+}
+
+/**
+ * The published articles (slug, title, category, keywords, publishedAt) of the
+ * posts directory, newest first. Files that fail the profile's validation are
+ * skipped here; verification is where they are reported.
+ */
+export async function listPublishedArticles(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<PublishedArticle[]> {
+  return (await readPublished(scope, connectorId, deps)).articles;
 }
 
 const problemCode = (error: unknown) =>
@@ -536,6 +551,42 @@ export async function publishedArticlesForRun(
   }
 }
 
+/**
+ * `readPublished` for a step or read model that goes on without GitHub
+ * (R81: the review leaves the article for the owner, the owner list still
+ * answers). An unreachable GitHub becomes `BLOG_TARGET_UNREACHABLE`, a
+ * refused token `GITHUB_TOKEN_INVALID`; Orbit's own refusals (flag off,
+ * connector missing) keep their codes; other errors (database) propagate.
+ * Read outside any transaction.
+ */
+export async function publishedOrProblem(
+  scope: Scope,
+  connectorId: string,
+  deps?: BlogTargetDeps,
+): Promise<{
+  articles: PublishedArticle[];
+  slugs: string[];
+  problem: string | null;
+}> {
+  try {
+    return {
+      ...(await readPublished(scope, connectorId, deps)),
+      problem: null,
+    };
+  } catch (error) {
+    const problem =
+      error instanceof ConnectorError
+        ? isAuth(error)
+          ? "GITHUB_TOKEN_INVALID"
+          : "BLOG_TARGET_UNREACHABLE"
+        : error instanceof DomainError
+          ? error.code
+          : null;
+    if (!problem) throw error;
+    return { articles: [], slugs: [], problem };
+  }
+}
+
 /** The calendar date (YYYY-MM-DD) in Europe/Berlin, the profile's date zone. */
 export const berlinDate = (at = new Date()) =>
   new Intl.DateTimeFormat("en-CA", {
@@ -544,6 +595,10 @@ export const berlinDate = (at = new Date()) =>
     month: "2-digit",
     day: "2-digit",
   }).format(at);
+
+/** A fact placeholder left in an article field (R82); see `blogPostOf`. */
+export const BLOG_FACT_PLACEHOLDER = "BLOG_FACT_PLACEHOLDER";
+const FACT_PLACEHOLDER_START = /\{\{\s*fact:/;
 
 const NO_ARTICLE: ArticleMeta = {
   seoTitle: "",
@@ -559,9 +614,11 @@ const NO_ARTICLE: ArticleMeta = {
  * updatedAt) and its problems: the body's format error
  * (`BLOG_BODY_FORMAT: <detail>`), a missing article or title
  * (`BLOG_ARTICLE_MISSING`, `BLOG_SLUG_INVALID`), the website's validation and
- * Orbit's stricter rules. Links are checked against `allowlist`, else the one
- * the draft was written with (`articleAllowlist`). Never throws for content
- * problems: the post is built from what is there.
+ * Orbit's stricter rules, and a fact placeholder left in the title or an
+ * article field (`BLOG_FACT_PLACEHOLDER: <field>`). Links are checked
+ * against `allowlist`, else the one the draft was written with
+ * (`articleAllowlist`). Never throws for content problems: the post is
+ * built from what is there.
  */
 export function blogPostOf(
   content: Record<string, any>,
@@ -621,5 +678,21 @@ export function blogPostOf(
       (message) => !aboutBody(message),
     ),
   );
+  // Orbit resolves fact placeholders only in the body (R82): one left in a
+  // field would reach the website as `{{fact:…}}`.
+  const fields: Record<string, string[]> = {
+    title: [post.title],
+    seoTitle: [post.seoTitle],
+    description: [post.description],
+    excerpt: [post.excerpt],
+    category: [post.category],
+    keywords: Array.isArray(post.keywords) ? post.keywords.map(String) : [],
+    relatedLinks: Array.isArray(post.relatedLinks)
+      ? post.relatedLinks.map((link) => String(link?.label ?? ""))
+      : [],
+  };
+  for (const [field, values] of Object.entries(fields))
+    if (values.some((value) => FACT_PLACEHOLDER_START.test(value)))
+      problems.push(`${BLOG_FACT_PLACEHOLDER}: ${field}`);
   return { post, problems };
 }

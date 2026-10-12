@@ -15,7 +15,12 @@ import {
 import { invalidateContent } from "../../content-invalidation.ts";
 import { currentMarketingProfile } from "../../marketing-profile.ts";
 import { checkClaims, preflight } from "../../policy.ts";
-import { berlinDate, blogPostOf } from "../../blog-target.ts";
+import {
+  berlinDate,
+  blogPostOf,
+  publishedOrProblem,
+  type PublishedArticle,
+} from "../../blog-target.ts";
 import { errorCode } from "../../telemetry.ts";
 import {
   bodyLinkProblems,
@@ -75,7 +80,11 @@ import {
  * the model for a decided draft nor revises twice (R26). A draft that only
  * misses the assignment's format (R77) is revised once without the model;
  * a shared run's settled draft is copied for its slot group's other
- * channels, each copy checked on its own channel (R76, `shareDraft`).
+ * channels, each copy checked on its own channel (R76, `shareDraft`). A
+ * website article (github_pr, R81/R82) is judged against the published
+ * articles; its target profile problems are revised once like a format
+ * problem and then left for the owner, and an `approve` never releases it:
+ * only the owner does (spec B5).
  */
 export const AGENT_REVIEW_DECISION_MISSING = "AGENT_REVIEW_DECISION_MISSING";
 export const AGENT_REVIEW_DECISION_CONFLICT = "AGENT_REVIEW_DECISION_CONFLICT";
@@ -140,6 +149,8 @@ const HISTORY_DAYS = 14;
 const HISTORY_PER_CHANNEL = 5;
 const HISTORY_TEXT = 240;
 const BODY_TEXT = 6000;
+// A website article (R82) is judged whole: 1200-1800 words.
+const ARTICLE_TEXT = 16000;
 
 const text = (max: number) =>
   z.string().refine((value) => value.length > 0 && value.length <= max);
@@ -165,9 +176,27 @@ type ModelVerdict = "approve" | "revise" | "reject";
 // `needs_owner`: left unjudged for the owner's review.
 type Verdict = ModelVerdict | "needs_owner";
 
-/** The verdict for deterministic problems: reject, unless all of them leave the draft for the owner. */
-const verdictFor = (problems: string[]): Verdict =>
-  problems.every((code) => LEFT_FOR_OWNER.has(code)) ? "needs_owner" : "reject";
+/**
+ * The verdict for deterministic problems: reject, unless all of them leave
+ * the draft for the owner. A website article's own problems (`article`,
+ * R81/R82: format and validation of the target profile) leave it for the
+ * owner once its one revision did not fix them.
+ */
+const verdictFor = (problems: string[], article: string[] = []): Verdict =>
+  problems.every((code) => LEFT_FOR_OWNER.has(code) || article.includes(code))
+    ? "needs_owner"
+    : "reject";
+
+/** A website article delivered as a pull request (R81). */
+const isGithubArticle = (v: Record<string, any>) =>
+  v.delivery === "github_pr" && v.type === "blog";
+
+/**
+ * The target profile's problems of a website article (R82, `blogPostOf` for
+ * today's Berlin date; the release fixes the date later), else none.
+ */
+const articleProblems = (v: Record<string, any>) =>
+  isGithubArticle(v) ? blogPostOf(v, berlinDate()).problems : [];
 
 /** One draft's decision in a review task, stored on the content as `agentReviewDecision`. */
 export type ReviewDecision = {
@@ -208,10 +237,20 @@ export const REVIEW_INSTRUCTIONS = [
   "Return exactly one decision per draft with its contentId copied exactly, and short reasons (none needed for approve).",
 ].join(" ");
 
-const reviewSpecialist = (input: unknown): Specialist => ({
+/**
+ * The addition for website articles (R81, R82): sent only when the drafts
+ * include one, so `REVIEW_INSTRUCTIONS` and the review eval's prompt hash
+ * stay as they are (Approval J, as for the banner in R78).
+ */
+export const ARTICLE_REVIEW_INSTRUCTION =
+  "A draft with delivery github_pr is a website article: judge its title, body and article fields (seoTitle, description, excerpt, category, keywords, relatedLinks) together under the same rules. publishedArticles lists the articles already on the website (slug, title, category, keywords, publishedAt): reject an article that covers the topic of a published article again, and revise one that overlaps a published article only in part, naming the overlap and what to change. Your approve never publishes a website article; the owner releases it.";
+
+const reviewSpecialist = (input: unknown, article = false): Specialist => ({
   role: "review",
   taskClass: "agent_review",
-  instructions: REVIEW_INSTRUCTIONS,
+  instructions: article
+    ? `${REVIEW_INSTRUCTIONS} ${ARTICLE_REVIEW_INSTRUCTION}`
+    : REVIEW_INSTRUCTIONS,
   tools: [],
   hostedTools: [],
   outputSchema: reviewOutput,
@@ -293,8 +332,7 @@ export async function deterministicProblems(
   // The format the draft was written for (R77), carried on its mission.
   problems.push(...formatProblems(v.body, mission?.format));
   // A website article (R82): the target profile's format and validation, for today's date.
-  if (v.delivery === "github_pr" && v.type === "blog")
-    problems.push(...blogPostOf(v, berlinDate()).problems);
+  problems.push(...articleProblems(v));
   // The banner copy (R78) is reviewed content too.
   if (bannerTemplateOf(mission))
     problems.push(
@@ -360,8 +398,9 @@ async function bannerProblems(
 }
 
 /**
- * A round-1 draft whose only problems are the format's (R77) or its banner
- * copy's (R78: too long, a figure, status or promise word) gets one revision with a
+ * A round-1 draft whose only problems are the format's (R77), its banner
+ * copy's (R78: too long, a figure, status or promise word) or, for a website
+ * article, the target profile's (R82) gets one revision with a
  * deterministic instruction instead of a reject; the model does not judge
  * it in this round. Anything else, or round 2, stays as before: reject or
  * leave for the owner.
@@ -373,9 +412,13 @@ async function formatRevision(
   problems: string[],
   round: 1 | 2,
 ) {
-  if (round !== 1 || !problems.every((code) => REVISABLE.has(code)))
-    return null;
   const v = data(await entity(tx, scope, "content", contentId));
+  const article = articleProblems(v);
+  if (
+    round !== 1 ||
+    !problems.every((code) => REVISABLE.has(code) || article.includes(code))
+  )
+    return null;
   const mission = v.missionId
     ? data(await entity(tx, scope, "missions", v.missionId))
     : null;
@@ -386,6 +429,12 @@ async function formatRevision(
   }
   if (problems.some((code) => BANNER_REVISABLE.has(code)))
     parts.push(bannerInstruction(v.banner, problems));
+  // A website article's format and validation problems (R82), quoted as Orbit found them.
+  const found = problems.filter((code) => article.includes(code));
+  if (found.length)
+    parts.push(
+      `Fix the website article so it passes the target profile's checks, changing nothing else: ${found.join("; ")}.`,
+    );
   return parts.join(" ");
 }
 
@@ -446,6 +495,8 @@ async function reviewInput(
   task: AgentTask,
   ids: string[],
   round: 1 | 2,
+  // The articles on the website, for a run with website articles (R81).
+  publishedArticles: PublishedArticle[] | null = null,
 ) {
   const assignment = data(
     await entity(tx, scope, "assignments", task.assignmentId),
@@ -465,7 +516,10 @@ async function reviewInput(
       channel: v.channel,
       type: v.type,
       title: String(v.title ?? "").slice(0, 300),
-      body: String(v.body ?? "").slice(0, BODY_TEXT),
+      body: String(v.body ?? "").slice(
+        0,
+        isGithubArticle(v) ? ARTICLE_TEXT : BODY_TEXT,
+      ),
       link: v.targetUrl ?? null,
       facts: ((evidence.facts ?? []) as Array<Record<string, any>>).map(
         (fact) => ({ key: fact.key, value: String(fact.value).slice(0, 300) }),
@@ -473,6 +527,10 @@ async function reviewInput(
       brief: mission?.brief ?? null,
       // The banner copy shown on the post's image (R78), reviewed with the text.
       ...(parsedBanner(v.banner) ? { banner: parsedBanner(v.banner) } : {}),
+      // A website article (R81, R82): its fields are judged with the body.
+      ...(isGithubArticle(v)
+        ? { delivery: "github_pr", article: v.article ?? null }
+        : {}),
       // A shared text (R76) goes out unchanged on these channels too.
       ...(Array.isArray(mission?.sharedChannels)
         ? { sharedChannels: mission.sharedChannels as string[] }
@@ -517,6 +575,7 @@ async function reviewInput(
         channel,
         posts: posts.map((post) => post.text.slice(0, HISTORY_TEXT)),
       })),
+    ...(publishedArticles ? { publishedArticles } : {}),
   };
 }
 
@@ -634,7 +693,7 @@ async function decideRound(
       const decision: ReviewDecision = {
         taskId: task.id,
         round,
-        verdict: instruction ? "revise" : verdictFor(text),
+        verdict: instruction ? "revise" : verdictFor(text, articleProblems(v)),
         modelVerdict: null,
         reasons: [],
         revisionInstructions: instruction,
@@ -646,11 +705,19 @@ async function decideRound(
       decisions.set(id, decision);
     }
   });
+  const published = await publishedForReview(
+    scope,
+    task,
+    round,
+    clean,
+    channelOnly,
+    decisions,
+  );
   if (clean.length) {
     // The texts as the model sees them: its verdicts cover exactly these.
     const judged = new Map<string, ReturnType<typeof judgedText>>();
     const input = await inScope(scope, async (tx) => {
-      const built = await reviewInput(tx, scope, task, clean, round);
+      const built = await reviewInput(tx, scope, task, clean, round, published);
       for (const id of clean)
         judged.set(
           id,
@@ -658,9 +725,14 @@ async function decideRound(
         );
       return built;
     });
-    const output = (await runSpecialist(scope, task, reviewSpecialist(input), {
-      callKey: `review${round}`,
-    })) as ReviewOutput;
+    const output = (await runSpecialist(
+      scope,
+      task,
+      reviewSpecialist(input, published !== null),
+      {
+        callKey: `review${round}`,
+      },
+    )) as ReviewOutput;
     await inScope(scope, async (tx) => {
       for (const id of clean) {
         const decision: ReviewDecision = {
@@ -680,6 +752,64 @@ async function decideRound(
     });
   }
   return ids.map((id) => ({ contentId: id, decision: decisions.get(id)! }));
+}
+
+/**
+ * The published articles for the website articles among the clean drafts
+ * (R81, spec §6: the review judges topic overlap with them), read outside any
+ * transaction; null when no website article is judged. A draft whose blog
+ * target cannot be read is left for the owner with the reason
+ * (`BLOG_TARGET_UNREACHABLE`, `GITHUB_TOKEN_INVALID`, ...) instead of being
+ * judged without them; it leaves `clean`.
+ */
+async function publishedForReview(
+  scope: Scope,
+  task: AgentTask,
+  round: 1 | 2,
+  clean: string[],
+  channelOnly: Map<string, string[]>,
+  decisions: Map<string, ReviewDecision>,
+) {
+  if (!clean.length) return null;
+  const targets = await inScope(scope, async (tx) => {
+    const found = new Map<string, string>();
+    for (const id of clean) {
+      const v = data(await entity(tx, scope, "content", id));
+      if (isGithubArticle(v)) found.set(id, String(v.channel));
+    }
+    return found;
+  });
+  if (!targets.size) return null;
+  const articles: PublishedArticle[] = [];
+  const problems = new Map<string, string>();
+  for (const connectorId of new Set(targets.values())) {
+    const read = await publishedOrProblem(scope, connectorId);
+    if (read.problem) problems.set(connectorId, read.problem);
+    else articles.push(...read.articles);
+  }
+  const unread = [...targets].filter(([, connectorId]) =>
+    problems.has(connectorId),
+  );
+  if (unread.length)
+    await inScope(scope, async (tx) => {
+      for (const [id, connectorId] of unread) {
+        const decision: ReviewDecision = {
+          taskId: task.id,
+          round,
+          verdict: "needs_owner",
+          modelVerdict: null,
+          reasons: [],
+          revisionInstructions: null,
+          deterministicProblems: [problems.get(connectorId)!],
+          checkedAt: new Date().toISOString(),
+        };
+        await recordDecision(tx, scope, id, decision);
+        decisions.set(id, decision);
+        clean.splice(clean.indexOf(id), 1);
+        channelOnly.delete(id);
+      }
+    });
+  return unread.length === targets.size ? null : articles;
 }
 
 /** Rejects a draft (once) and records why. */
@@ -801,7 +931,7 @@ async function approve(
   if (text.length) {
     const changed = {
       ...decision,
-      verdict: verdictFor(text),
+      verdict: verdictFor(text, articleProblems(v)),
       deterministicProblems: problems,
       checkedAt: now,
     };
@@ -867,9 +997,10 @@ async function approve(
     accepted: result.valid,
   });
   // The agent approved, but its approval does not stand in for the owner's
-  // (authority off, no bot, R70/R71): the post waits for the owner's release.
-  // Same key as `leaveForOwner`, so one notice per draft and review task.
-  if (!result.valid && v.type === "social")
+  // (authority off, no bot, R70/R71; never for a website article, R81): the
+  // post waits for the owner's release. Same key as `leaveForOwner`, so one
+  // notice per draft and review task.
+  if (!result.valid && (v.type === "social" || isGithubArticle(v)))
     await notify(tx, scope, "needs_owner", `${contentId}:${task.id}`);
   return { verdict: "approve", text: "approve" };
 }

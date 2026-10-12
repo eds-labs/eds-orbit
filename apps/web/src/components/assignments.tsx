@@ -87,6 +87,32 @@ export type AwaitingOwnerDraft = {
   problems: string[];
   // What the release does: schedule the post or book a Postiz draft (R73).
   delivery?: "publish" | "postiz_draft" | "github_pr";
+  // A website article (R81): the post as the target profile builds it, its
+  // problems, its address and whether its slug is already taken.
+  preview?: BlogPreview;
+};
+/** The website post of a blog draft (R81, target profile uliquid-blog-json-v1). */
+export type BlogPostJson = {
+  slug: string;
+  title: string;
+  seoTitle: string;
+  description: string;
+  category: string;
+  publishedAt: string;
+  updatedAt: string;
+  readTime: string;
+  author: string;
+  authorTitle: string;
+  keywords: string[];
+  excerpt: string;
+  sections: { heading: string; paragraphs: string[]; list?: string[] }[];
+  relatedLinks: { label: string; href: string }[];
+};
+export type BlogPreview = {
+  post: BlogPostJson;
+  problems: string[];
+  liveUrl: string;
+  slugTaken: boolean;
 };
 type Role = "owner" | "editor" | "viewer";
 type NextStatus = "paused" | "active" | "ended";

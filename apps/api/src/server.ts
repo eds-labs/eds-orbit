@@ -92,6 +92,7 @@ import {
   listAssignments,
   upcomingAssignmentPosts,
   vetoInput,
+  withBlogSlugs,
 } from "./modules/agents/assignment-overview.ts";
 import {
   releaseAssignmentDraft,
@@ -1034,9 +1035,13 @@ export async function buildServer(
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId);
+    // Website article previews read GitHub after the transaction (R81).
     return {
-      items: await scoped(scope.workspaceId, projectId, (tx) =>
-        draftsAwaitingOwner(tx, scope),
+      items: await withBlogSlugs(
+        scope,
+        await scoped(scope.workspaceId, projectId, (tx) =>
+          draftsAwaitingOwner(tx, scope),
+        ),
       ),
     };
   });

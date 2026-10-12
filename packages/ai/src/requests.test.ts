@@ -305,6 +305,8 @@ describe("website-ready blog articles (R82)", () => {
       "excerpt at most 320",
       "category at most 40",
       "3 to 8 keywords",
+      // A revision keeps title and article unless asked otherwise (R82).
+      "revision.previousTitle and revision.previousArticle, return them unchanged",
     ])
       expect(ARTICLE_DRAFT_INSTRUCTION).toContain(rule);
     expect(body.text.format.schema.required).toContain("article");

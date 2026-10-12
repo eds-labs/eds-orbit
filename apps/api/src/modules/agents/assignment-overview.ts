@@ -1,7 +1,9 @@
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import type { BlogPostJson } from "../../../../../packages/connectors/src/index.ts";
 import { data, list } from "../../shared.ts";
+import { berlinDate, blogPostOf, publishedOrProblem } from "../blog-target.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
@@ -277,13 +279,39 @@ export async function upcomingAssignmentPosts(tx: DbTx, scope: Scope) {
 }
 
 /**
+ * The preview of a website article waiting for the owner (R81, spec §7): the
+ * post as the target profile builds it for today's Berlin date (the release
+ * fixes the date), its problems, its address on the website and whether a
+ * file with its slug is already in the posts directory.
+ */
+export type BlogPreview = {
+  post: BlogPostJson;
+  problems: string[];
+  liveUrl: string;
+  slugTaken: boolean;
+};
+
+/** The article's address: `siteUrl` + `blogPathPrefix` + slug + "/" (R81). */
+function liveUrlOf(connector: Record<string, any>, slug: string) {
+  const site = String(connector.siteUrl ?? "").replace(/\/+$/, "");
+  const path = String(connector.blogPathPrefix ?? "/blog/").replace(
+    /^\/+|\/+$/g,
+    "",
+  );
+  return `${site}${path ? `/${path}/` : "/"}${slug}/`;
+}
+
+/**
  * Assignment drafts that wait for the owner's release (R70, I1): social
- * drafts of a run that is not canceled, left `needs_review` by the review
- * (R47/R49), without a linked bot or while agent review authority is off,
+ * drafts and website articles (github_pr, R81) of a run that is not
+ * canceled, left `needs_review` by the review (R47/R49), without a linked
+ * bot, while agent review authority is off or, for an article, always,
  * whose assignment's confirmation still covers them and whose run slot is
  * today or later (project time). Each comes with its run slot, a text
- * excerpt, whether the review agent approved it and the problems it found.
- * Earliest slot first. Empty while Orbit Agents is off.
+ * excerpt, whether the review agent approved it and the problems it found;
+ * a website article also with its `preview` (`slugTaken` false here: GitHub
+ * is read outside the transaction by `withBlogSlugs`). Earliest slot first.
+ * Empty while Orbit Agents is off.
  */
 export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
   if (!agentsEnabled()) return [];
@@ -306,7 +334,8 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     const d = data(row);
     return (
       typeof d.assignmentRunId === "string" &&
-      d.type === "social" &&
+      (d.type === "social" ||
+        (d.type === "blog" && d.delivery === "github_pr")) &&
       !d.supersededBy
     );
   });
@@ -329,6 +358,16 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     rows.map((row) => data(row).assignmentId),
   );
   const names = await channelNames(tx, scope);
+  // The blog targets of the website articles (R81), for their addresses.
+  const connectors = await rowsById(
+    tx,
+    scope,
+    "connectors",
+    rows
+      .filter((row) => data(row).type === "blog")
+      .map((row) => data(row).channel),
+  );
+  const articleDate = berlinDate();
   const items = [];
   for (const row of rows) {
     const d = data(row);
@@ -352,6 +391,18 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
     const text = String(d.body ?? "")
       .replace(/\s+/g, " ")
       .trim();
+    let preview: BlogPreview | undefined;
+    if (d.type === "blog") {
+      const built = blogPostOf(d, articleDate);
+      preview = {
+        ...built,
+        liveUrl: liveUrlOf(
+          data(connectors.get(String(d.channel))),
+          built.post.slug,
+        ),
+        slugTaken: false,
+      };
+    }
     items.push({
       id: row.id,
       version: row.version,
@@ -377,7 +428,45 @@ export async function draftsAwaitingOwner(tx: DbTx, scope: Scope) {
           ),
         ]),
       ],
+      ...(preview ? { preview } : {}),
     });
   }
   return items.sort((a, b) => a.slotAt.localeCompare(b.slotAt));
+}
+
+/**
+ * Completes the website article previews of `draftsAwaitingOwner` with the
+ * posts directory (R81): `slugTaken` when a file with the slug exists. Read
+ * outside any transaction, once per blog target and call (not per draft); an
+ * unreachable GitHub leaves `slugTaken` false and adds its problem
+ * (`BLOG_TARGET_UNREACHABLE`) to the preview, so the list still answers.
+ */
+export async function withBlogSlugs<
+  T extends { channel: unknown; preview?: BlogPreview },
+>(scope: Scope, items: T[]): Promise<T[]> {
+  const connectorIds = [
+    ...new Set(
+      items.filter((item) => item.preview).map((item) => String(item.channel)),
+    ),
+  ];
+  const reads = new Map<
+    string,
+    Awaited<ReturnType<typeof publishedOrProblem>>
+  >();
+  for (const connectorId of connectorIds)
+    reads.set(connectorId, await publishedOrProblem(scope, connectorId));
+  return items.map((item) => {
+    if (!item.preview) return item;
+    const read = reads.get(String(item.channel))!;
+    return {
+      ...item,
+      preview: {
+        ...item.preview,
+        slugTaken: !read.problem && read.slugs.includes(item.preview.post.slug),
+        problems: read.problem
+          ? [...item.preview.problems, read.problem]
+          : item.preview.problems,
+      },
+    };
+  });
 }

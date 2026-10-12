@@ -199,6 +199,8 @@ describe.skipIf(!enabled)("Owner release of assignment drafts", () => {
       agentApproved: true,
       problems: [],
     });
+    // Only website articles carry a post preview (R81).
+    for (const item of listed) expect(item).not.toHaveProperty("preview");
 
     const released = await release(project.owner, first!);
     expect(released).toMatchObject({

@@ -18,6 +18,7 @@ import {
 } from "../../../../packages/ai/src/index.ts";
 import {
   activePolicy,
+  channelInScope,
   CLAIM_REPEAT_WINDOW_DAYS,
   withinClaimRepeatWindow,
 } from "./policy.ts";
@@ -97,6 +98,9 @@ type GenerationContract = {
     previousBody: string;
     // The banner copy of the revised draft (R78): kept unless the instruction concerns it.
     previousBanner?: BannerText;
+    // The title and article fields of a revised website article (R82): kept unless the instruction concerns them.
+    previousTitle?: string;
+    previousArticle?: Record<string, unknown>;
   };
   // Present only for an autopilot day: the channel's posts around its slot.
   recentChannelPosts?: { title: string; claims: string[] }[];
@@ -138,25 +142,6 @@ type GenerationContract = {
     characterLimit: number | null;
   }[];
 };
-/**
- * Whether a mission may draft for `channel` under the policy's channels: a
- * GitHub blog run's article (R82) goes to its blog target, which is a
- * verified connector and no policy channel; the content type still has to be
- * allowed.
- */
-function channelInScope(
-  policyChannels: string[] | undefined,
-  m: Record<string, any>,
-  channel: string,
-) {
-  return (
-    (policyChannels ?? []).includes(channel) ||
-    (m.delivery === "github_pr" &&
-      m.contentType === "blog" &&
-      m.blogTarget?.connectorId === channel)
-  );
-}
-
 /** The article's part of the contract (R82), or null when the mission writes none. */
 function blogTargetContract(
   m: Record<string, any>,
@@ -183,15 +168,23 @@ async function revisionContext(
   scope: Scope,
   revisionOf: { contentId: string; version: number; instruction: string },
   withBanner = false,
+  withArticle = false,
 ) {
   const parent = await entity(tx, scope, "content", revisionOf.contentId);
   if (parent.version !== revisionOf.version)
     throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
   const previousBanner = withBanner ? parsedBanner(data(parent).banner) : null;
+  const article = data(parent).article;
   return {
     instruction: revisionOf.instruction,
     previousBody: String(data(parent).body ?? ""),
     ...(previousBanner ? { previousBanner } : {}),
+    ...(withArticle && article && typeof article === "object"
+      ? {
+          previousTitle: String(data(parent).title ?? ""),
+          previousArticle: article as Record<string, unknown>,
+        }
+      : {}),
   };
 }
 
@@ -501,6 +494,7 @@ async function generateMissionDraft(
             scope,
             m.revisionOf,
             Boolean(m.assignmentRunId && bannerTemplateOf(m)),
+            Boolean(blogTargetContract(m)),
           )
         : null;
       const contract: GenerationContract = {
