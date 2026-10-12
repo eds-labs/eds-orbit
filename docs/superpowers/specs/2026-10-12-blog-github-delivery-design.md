@@ -1,6 +1,6 @@
 # Blog delivery as GitHub pull request — design
 
-Status: draft for Mario's review (2026-10-12). Builds on Orbit Agents ([design](2026-10-09-orbit-agents-design.md), rulings R1–R80), the draft delivery (R73) and the owner release (R70). Resolves master contract acceptance **A16** ("one real publishing path verified in the target project", `docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md:290`) for the uLiquid website.
+Status: draft for Mario's review (2026-10-12). Builds on Orbit Agents ([design](2026-10-09-orbit-agents-design.md), rulings R1–R80), the draft delivery (R73) and the owner release (R70). Resolves master contract acceptance **A16** ("one real publishing path verified in the target project", `docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md` line 290) for the uLiquid website.
 
 ## 1. Goal
 
@@ -8,7 +8,7 @@ Orbit writes a monthly blog article for `https://uliquid.vip/blog/`, Mario relea
 
 Success means the monthly ChatGPT job plus manual commit and push is replaced by one Orbit assignment and one release click per article, with Orbit's facts, budget, review and checks, and that no article reaches `main` without Mario's release and a green website build.
 
-Prerequisite (done 2026-10-12, website PR #1, `dae0b4e`): the website stores one validated JSON file per post (`docs/BLOG_PUBLISHING.md` in the website repo) and runs `npm run check` in GitHub Actions on every pull request.
+Prerequisite (done 2026-10-12, website PR #1, `dae0b4e`): the website stores one validated JSON file per post (BLOG_PUBLISHING.md in the website repository in the website repo) and runs `npm run check` in GitHub Actions on every pull request.
 
 ## 2. Decisions (Mario, 2026-10-12)
 
@@ -79,7 +79,7 @@ Feature flag `ORBIT_BLOG_GITHUB` (`z.enum(["false","true"]).default("false")` in
 
 **Facts.** `checkClaims` runs unchanged on the body: product statements need verified facts, explanatory passages are style claims. Review checks topic overlap against `publishedArticles` and judges the article; a failed `validatePost` is a deterministic problem (revise once, then `needs_owner` with the reasons).
 
-**Model and budget.** `draft_blog` stays on the quality route. Production today: `gpt-6.1-sol`, reasoning effort low, output ceiling 4,000 (`docs/ORBIT_ULIQUID_PRODUCTION_GOAL.md:932`); reasoning tokens count against it, so the ceiling rises to 8,000 (route change in production with Mario's approval at rollout; the code default rises from 1,800 to 8,000). Estimate at the stored rate card (Sol: input 2.00, output 10.00 USD per 1M tokens): article call ≤ 0.08 USD output plus ≈ 0.04 input; with research, strategy, review and one revision about 0.30–0.50 USD per run. Suggested assignment budget: 5 USD per month.
+**Model and budget.** `draft_blog` stays on the quality route. Production today: `gpt-6.1-sol`, reasoning effort low, output ceiling 4,000 (`docs/ORBIT_ULIQUID_PRODUCTION_GOAL.md` line 932); reasoning tokens count against it, so the ceiling rises to 8,000 (route change in production with Mario's approval at rollout; the code default rises from 1,800 to 8,000). Estimate at the stored rate card (Sol: input 2.00, output 10.00 USD per 1M tokens): article call ≤ 0.08 USD output plus ≈ 0.04 input; with research, strategy, review and one revision about 0.30–0.50 USD per run. Suggested assignment budget: 5 USD per month.
 
 ## 7. Release and delivery
 
@@ -127,7 +127,7 @@ Feature flag `ORBIT_BLOG_GITHUB` (`z.enum(["false","true"]).default("false")` in
 
 ## 9. Rollback
 
-- **One article**: revert the merge commit in GitHub, or remove the post file through a pull request; Hostinger redeploys. Documented in the website's `docs/BLOG_PUBLISHING.md` and Orbit's `docs/OPERATIONS.md`. An Orbit "withdraw article" action is out of scope.
+- **One article**: revert the merge commit in GitHub, or remove the post file through a pull request; Hostinger redeploys. Documented in the website's BLOG_PUBLISHING.md in the website repository and Orbit's `docs/OPERATIONS.md`. An Orbit "withdraw article" action is out of scope.
 - **The feature**: set `ORBIT_BLOG_GITHUB=false`. No migration to undo; `blog_deliveries` rows stay as history. Assignments with delivery `github_pr` are refused at run start with `BLOG_GITHUB_DISABLED` and keep their confirmation.
 - **Credential**: revoke the token in GitHub; Orbit notices on the next call.
 

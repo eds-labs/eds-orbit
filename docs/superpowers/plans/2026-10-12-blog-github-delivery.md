@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (Node 22, ESM), Fastify API, BullMQ worker, Prisma Entity table, zod, Vitest, React (web).
 
-**Spec:** `docs/superpowers/specs/2026-10-12-blog-github-delivery-design.md` (decisions B1–B6). Website contract: `docs/BLOG_PUBLISHING.md` and `content/blog/blog-posts.mjs` in `eds-labs/uliquid-desk-website-v2` at commit `dae0b4e`.
+**Spec:** `docs/superpowers/specs/2026-10-12-blog-github-delivery-design.md` (decisions B1–B6). Website contract: BLOG_PUBLISHING.md in the website repository and `content/blog/blog-posts.mjs` in `eds-labs/uliquid-desk-website-v2` at commit `dae0b4e`.
 
 ## Global Constraints
 
