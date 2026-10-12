@@ -212,6 +212,23 @@ describe("uliquid-blog-json-v1", () => {
     );
   });
 
+  it("a heading directly after a line starts a new section like with a blank line", () => {
+    expect(parseArticleBody("## A\n\nOne.\n## B\n\nTwo.")).toEqual(
+      parseArticleBody("## A\n\nOne.\n\n## B\n\nTwo."),
+    );
+    expect(parseArticleBody("## A\nOne.\n## B\nTwo.")).toEqual([
+      { heading: "A", paragraphs: ["One."] },
+      { heading: "B", paragraphs: ["Two."] },
+    ]);
+  });
+
+  it("a list item directly followed by a heading ends the list", () => {
+    expect(parseArticleBody("## A\n\nOne.\n\n- x\n- y\n## B\n\nTwo.")).toEqual([
+      { heading: "A", paragraphs: ["One."], list: ["x", "y"] },
+      { heading: "B", paragraphs: ["Two."] },
+    ]);
+  });
+
   it.each([
     ["# Title\n\nx", "h1"],
     ["## A\n\n### B", "h3"],

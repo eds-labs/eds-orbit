@@ -135,6 +135,11 @@ export function parseArticleBody(body: string): Section[] {
     if (line.trim() === "") {
       if (current.length) blocks.push(current);
       current = [];
+    } else if (/^#{1,6}(\s|$)/.test(line)) {
+      // A heading line always forms its own block, with or without blank lines around it.
+      if (current.length) blocks.push(current);
+      blocks.push([line]);
+      current = [];
     } else current.push(line);
   }
   if (current.length) blocks.push(current);
