@@ -218,6 +218,10 @@ describe("banner copy in drafts (R78)", () => {
     const result = await generate({ ...params, banner: true });
     const body = create.mock.calls[0]![0];
     expect(body.instructions).toMatch(/ The contract has a banner: /);
+    // A revision keeps the banner unless its instruction concerns it.
+    expect(body.instructions).toContain(
+      "return previousBanner unchanged unless revision.instruction concerns the banner",
+    );
     expect(body.text.format.schema.required).toContain("banner");
     expect(body.text.format.schema.properties.banner.required).toEqual([
       "headline1",

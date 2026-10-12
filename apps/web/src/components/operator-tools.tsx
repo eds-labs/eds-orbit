@@ -9,6 +9,7 @@ import {
   value,
   when,
   type Entity,
+  libraryAssets,
 } from "@/lib/api";
 import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
 import { DataForm, num, options, str } from "./form";
@@ -645,7 +646,7 @@ export function PostizVerification({ connector }: { connector: Entity }) {
   const records = (verifications.data?.items || []).filter(
     (v) => v.data.connectorId === connector.id,
   );
-  const approvedAssets = (assets.data?.items || []).filter(
+  const approvedAssets = libraryAssets(assets.data?.items).filter(
     (a) =>
       a.data.mime === "image/png" &&
       a.data.usageApproved === true &&

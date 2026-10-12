@@ -58,6 +58,12 @@ export const IMAGE_RIGHTS_CONSENT: [string, string] = [
   "Generierte Bilder dürfen für diesen Auftrag verwendet werden (keine Logos, keine echten Personen, kein Text im Bild)",
 ];
 
+/** What a banner adds to the image consent (R78): Orbit composes it, nothing is generated but the background. */
+export const BANNER_CONSENT: [string, string] = [
+  "Banner: a generated background, with the approved logo and reviewed text added by Orbit",
+  "Banner: generierter Hintergrund, dazu das freigegebene Logo und geprüfter Text",
+];
+
 export const assignmentStatusLabels: Record<string, [string, string]> = {
   draft: ["Confirmation required", "Bestätigung erforderlich"],
   active: ["Active", "Aktiv"],
@@ -340,7 +346,15 @@ export function AssignmentCard({
                 checked={consent}
                 onChange={(event) => setConsent(event.target.checked)}
               />
-              <span>{IMAGE_RIGHTS_CONSENT[de ? 1 : 0]}</span>
+              <span>
+                {IMAGE_RIGHTS_CONSENT[de ? 1 : 0]}
+                {assignment.banner && (
+                  <>
+                    <br />
+                    {BANNER_CONSENT[de ? 1 : 0]}
+                  </>
+                )}
+              </span>
             </label>
           )}
           {expiresAt && (

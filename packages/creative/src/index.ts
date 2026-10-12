@@ -301,10 +301,11 @@ export type BannerInput = {
   // The domain of the post's official link.
   footer: string;
   logoApproved?: boolean;
+  // A raster logo; without one the bundled original logo is used.
   logoDataUri?: string;
-  logoHash?: string;
+  // The approved logo asset's stored SHA-256: the bytes must match it.
+  logoSha256?: string;
   backgroundDataUri?: string;
-  backgroundHash?: string;
 };
 
 const BANNER = {
@@ -337,13 +338,30 @@ function bannerInputValid(text: BannerText, brandName: string, footer: string) {
         field.trim().length > 0 &&
         field.length <= BANNER_TEXT_MAX,
     ) &&
-    typeof brandName === "string" &&
-    brandName.trim().length > 0 &&
-    brandName.length <= 80 &&
-    typeof footer === "string" &&
-    footer.trim().length > 0 &&
-    footer.length <= 120 &&
-    !/[\u0000-\u001f]/u.test(fields.join("") + brandName + footer)
+    chromeValid(brandName, footer) &&
+    !/[\u0000-\u001f]/u.test(fields.join(""))
+  );
+}
+
+const chromeValid = (brandName: string, footer: string) =>
+  typeof brandName === "string" &&
+  brandName.trim().length > 0 &&
+  brandName.length <= 80 &&
+  typeof footer === "string" &&
+  footer.trim().length > 0 &&
+  footer.length <= 120 &&
+  !/[\u0000-\u001f]/u.test(brandName + footer);
+
+/**
+ * Whether the parts of a banner the copywriter cannot change — the wordmark
+ * (product name) and the footer domain — are invalid or too wide for the
+ * template (R78). Copy can be revised; these cannot.
+ */
+export function bannerChromeOverflow(brandName: string, footer: string) {
+  return (
+    !chromeValid(brandName, footer) ||
+    width(footer, BANNER.footer) > BANNER.column ||
+    width(brandName, BANNER.wordmark) > BANNER.column - 92
   );
 }
 
@@ -367,9 +385,7 @@ function bannerLayout(text: BannerText, brandName: string, footer: string) {
     width(buttonText, button.size) + 2 * button.padding + button.arrow + 16,
   );
   if (buttonWidth > column) throw new CreativeError("TEXT_OVERFLOW");
-  if (width(footer, BANNER.footer) > column)
-    throw new CreativeError("TEXT_OVERFLOW");
-  if (width(brandName, BANNER.wordmark) > column - 92)
+  if (bannerChromeOverflow(brandName, footer))
     throw new CreativeError("TEXT_OVERFLOW");
   const headlineLines = headline1.length + headline2.length;
   const block =
@@ -426,9 +442,16 @@ export function renderBrandBanner(input: BannerInput) {
         nextStep: "Approve a source asset before rendering an export.",
       },
     };
+  // The logo is used only as the approved asset's exact bytes.
+  const rasterLogo = dataImage(input.logoDataUri);
+  const rasterLogoHash = rasterLogo ? dataUriHash(rasterLogo) : null;
+  if (
+    rasterLogo &&
+    (!input.logoSha256 || rasterLogoHash !== input.logoSha256.toLowerCase())
+  )
+    throw new CreativeError("BRAND_ASSET_INTEGRITY_FAILED");
   const approvedLogo =
-    dataImage(input.logoDataUri) ??
-    `data:image/svg+xml;base64,${logo.toString("base64")}`;
+    rasterLogo ?? `data:image/svg+xml;base64,${logo.toString("base64")}`;
   const background = dataImage(input.backgroundDataUri);
   const [w, h] = bannerTemplates[input.template];
   const { margin, headline, subline, button, card, cyan, white, navy } = BANNER;
@@ -498,11 +521,17 @@ export function renderBrandBanner(input: BannerInput) {
       subline: layout.subline,
     },
     contentHash: createHash("sha256").update(svg).digest("hex"),
-    logoHash: input.logoHash ?? logoHash,
-    backgroundHash: input.backgroundHash,
+    logoHash: rasterLogoHash ?? logoHash,
+    backgroundHash: background ? dataUriHash(background) : undefined,
     overflowChecked: true,
   };
 }
+
+/** SHA-256 of a validated base64 data URI's bytes. */
+const dataUriHash = (uri: string) =>
+  createHash("sha256")
+    .update(Buffer.from(uri.slice(uri.indexOf(",") + 1), "base64"))
+    .digest("hex");
 
 /** The brand banner as PNG; same bounded rasterization as the templates. */
 export async function renderRasterBanner(input: BannerInput) {

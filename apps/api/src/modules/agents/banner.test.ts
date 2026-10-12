@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { hash } from "../../shared.ts";
 import { assignmentHash, assignmentInput } from "./assignments.ts";
 import {
+  BANNER_BRAND_OVERFLOW,
+  BANNER_TEXT_UNSAFE,
+  bannerOffenses,
   BANNER_PROHIBITED_LANGUAGE,
   BANNER_TEXT_MISSING,
   BANNER_TEXT_OVERFLOW,
@@ -121,9 +124,64 @@ describe("banner copy checks (R78)", () => {
     expect(bannerTextProblems({ ...text, button: "" }, layout)).toEqual([
       BANNER_TEXT_MISSING,
     ]);
-    expect(bannerInstruction(text)).toMatch(
-      /^Shorten the banner text so it fits the banner: headline1 at most 18 characters.*add no new claim, figure or link\.$/,
+    expect(bannerInstruction(text, [BANNER_TEXT_OVERFLOW])).toMatch(
+      /^Fix the banner copy: shorten it to fit: headline1 at most 18 characters.*add no new claim, figure or link\.$/,
     );
+  });
+
+  it("catches number words, percentages, look-alike letters and invisible characters", () => {
+    for (const changes of [
+      { headline1: "Ten times faster." },
+      { subline: "Fees cut by half." },
+      { headline2: "Zehn Märkte." },
+      { button: "Save 5 %" },
+      // Full-width digits normalize to digits.
+      { headline1: "Start ７ bots." },
+    ])
+      expect(bannerTextProblems({ ...text, ...changes }, layout)).toEqual([
+        BANNER_UNSUPPORTED_CLAIM,
+      ]);
+    // A Cyrillic "е" hiding "live", and a zero-width space inside a word.
+    expect(
+      bannerTextProblems({ ...text, headline2: "Bеta livе." }, layout),
+    ).toEqual([BANNER_TEXT_UNSAFE]);
+    expect(
+      bannerTextProblems({ ...text, headline2: "Beta li\u200Bve." }, layout),
+    ).toEqual([BANNER_TEXT_UNSAFE]);
+    // German letters are Latin.
+    expect(
+      bannerTextProblems(
+        { ...text, subline: "Märkte. Größer denken." },
+        layout,
+      ),
+    ).toEqual([]);
+  });
+
+  it("names the words to remove in the revision instruction", () => {
+    const claimed = {
+      ...text,
+      headline1: "Earn 10% daily.",
+      subline: "Guaranteed returns.",
+    };
+    expect(bannerOffenses(claimed)).toEqual(
+      expect.arrayContaining(["10", "%", "Guaranteed", "returns"]),
+    );
+    const instruction = bannerInstruction(claimed, [
+      BANNER_UNSUPPORTED_CLAIM,
+      BANNER_PROHIBITED_LANGUAGE,
+    ]);
+    expect(instruction).toContain('"10"');
+    expect(instruction).toContain('"returns"');
+    expect(instruction).toContain("Edit previousBanner only for this");
+  });
+
+  it("tells a wordmark or domain that cannot fit apart from copy", () => {
+    expect(
+      bannerTextProblems(text, {
+        brandName: "A very long product name no banner can hold",
+        footer: "desk.uliquid.vip",
+      }),
+    ).toEqual([BANNER_BRAND_OVERFLOW]);
   });
 
   it("names the official link's domain, only for an official link", () => {

@@ -145,3 +145,10 @@ export const usd = (micros: number | null | undefined) =>
         currency: "USD",
         maximumFractionDigits: 2,
       }).format(micros / 1_000_000);
+
+/**
+ * Assets for the library and the pickers: without composed assignment
+ * banners (R78), which are bound to their reviewed post (`boundTo`).
+ */
+export const libraryAssets = (items: Entity[] | undefined) =>
+  (items ?? []).filter((asset) => !asset.data.boundTo);

@@ -18,6 +18,7 @@ import {
   useResource,
   value,
   type Entity,
+  libraryAssets,
 } from "@/lib/api";
 import {
   Alert,
@@ -69,7 +70,7 @@ export function MarketingProfileConfiguration() {
   const [editing, setEditing] = useState(false);
   const current = profile.data?.data;
   const visual = current?.visualIdentity || {};
-  const logoOptions = (assets.data?.items || [])
+  const logoOptions = libraryAssets(assets.data?.items)
     .filter(
       (asset) =>
         ["logo", "original_logo"].includes(String(asset.data.type)) &&
@@ -335,7 +336,7 @@ export function MarketingProfileConfiguration() {
             <p>
               {sources.data?.items.length || 0} referenced sources ·{" "}
               {
-                (assets.data?.items || []).filter(
+                libraryAssets(assets.data?.items).filter(
                   (asset) => asset.data.assetStatus === "approved",
                 ).length
               }{" "}
@@ -744,7 +745,7 @@ export function CreativeRenderer({
             name: "logoAssetId",
             label: "Approved logo asset",
             type: "select",
-            options: (assets.data?.items || [])
+            options: libraryAssets(assets.data?.items)
               .filter(
                 (e) =>
                   ["logo", "original_logo"].includes(String(e.data.type)) &&
@@ -761,7 +762,7 @@ export function CreativeRenderer({
             name: "visualAssetId",
             label: "Approved visual asset (optional)",
             type: "select",
-            options: (assets.data?.items || [])
+            options: libraryAssets(assets.data?.items)
               .filter(
                 (e) =>
                   !["logo", "original_logo"].includes(String(e.data.type)) &&
@@ -941,7 +942,7 @@ export function BrandAssetLibrary() {
   const [assetQuery, setAssetQuery] = useState("");
   const [assetFilter, setAssetFilter] = useState("all");
   const [assetView, setAssetView] = useState<"grid" | "list">("grid");
-  const visibleAssets = (assets.data?.items || []).filter((asset) => {
+  const visibleAssets = libraryAssets(assets.data?.items).filter((asset) => {
     const v = asset.data;
     const matchesQuery = String(v.name ?? v.filename ?? "")
       .toLowerCase()

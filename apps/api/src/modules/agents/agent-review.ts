@@ -120,7 +120,8 @@ export function confirmedHash(assignment: Record<string, any>) {
  * covers its content and is the one the review was made under; the
  * confirmation covers the content's type and channel; the text names no link
  * outside the policy; a Telegram chat was linked to the project before the
- * review was made. The veto
+ * review was made; a post with banner copy is delivered as a Postiz draft
+ * (R79). The veto
  * deadline belongs to the publication and is checked at handoff (R4).
  */
 export async function agentReviewAccepted(
@@ -138,6 +139,11 @@ export async function agentReviewAccepted(
   )
     return false;
   if (review.bodyHash !== hash(content.body)) return false;
+  // Banner copy is outside the review eval set (R79): the agent's approval
+  // of a post with a banner stands in for the owner only when it becomes a
+  // Postiz draft the owner publishes himself, never for a publication.
+  if (content.banner !== undefined && content.delivery !== "postiz_draft")
+    return false;
   // A banner's copy must be the one reviewed (R78).
   if (
     review.bannerHash !==

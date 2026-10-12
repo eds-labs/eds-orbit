@@ -45,7 +45,11 @@ import { channelTextLength, resolveChannelRules } from "./channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
 import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
 import { assertTaskBudget } from "./agents/specialists/runner.ts";
-import { BANNER_TEXT_LIMITS, bannerTemplateOf } from "./agents/banner.ts";
+import {
+  BANNER_TEXT_LIMITS,
+  bannerTemplateOf,
+  parsedBanner,
+} from "./agents/banner.ts";
 import type { BannerText } from "../../../../packages/creative/src/index.ts";
 import {
   batchCostUsedMicros,
@@ -87,7 +91,12 @@ type GenerationContract = {
     previousDrafts: { title: string; claims: string[] }[];
   } | null;
   // Present only for a package revision of one existing draft.
-  revision?: { instruction: string; previousBody: string };
+  revision?: {
+    instruction: string;
+    previousBody: string;
+    // The banner copy of the revised draft (R78): kept unless the instruction concerns it.
+    previousBanner?: BannerText;
+  };
   // Present only for an autopilot day: the channel's posts around its slot.
   recentChannelPosts?: { title: string; claims: string[] }[];
   // Present only for a package or assignment run mission: its drafts for the other channels.
@@ -124,13 +133,16 @@ async function revisionContext(
   tx: DbTx,
   scope: Scope,
   revisionOf: { contentId: string; version: number; instruction: string },
+  withBanner = false,
 ) {
   const parent = await entity(tx, scope, "content", revisionOf.contentId);
   if (parent.version !== revisionOf.version)
     throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+  const previousBanner = withBanner ? parsedBanner(data(parent).banner) : null;
   return {
     instruction: revisionOf.instruction,
     previousBody: String(data(parent).body ?? ""),
+    ...(previousBanner ? { previousBanner } : {}),
   };
 }
 
@@ -435,7 +447,12 @@ async function generateMissionDraft(
       )
         throw new DomainError("CHANNEL_LIMIT_EXCEEDED", 409);
       const revision = m.revisionOf
-        ? await revisionContext(tx, scope, m.revisionOf)
+        ? await revisionContext(
+            tx,
+            scope,
+            m.revisionOf,
+            Boolean(m.assignmentRunId && bannerTemplateOf(m)),
+          )
         : null;
       const contract: GenerationContract = {
         ...(revision ? { revision } : {}),

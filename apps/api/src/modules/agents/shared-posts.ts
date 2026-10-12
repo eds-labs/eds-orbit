@@ -118,7 +118,8 @@ export async function sharedBriefSlots(
  * The held slots of the group the slot `channel@at` belongs to, itself
  * first. With `includeReleased`, released slots count too (reports read
  * after scheduling gave slots back); a slot moved for its veto window is
- * also found by the time it was given (`requestedAt`).
+ * also found by the time it was given (`requestedAt`), but a slot at
+ * exactly that time comes first.
  */
 export function groupSlots(
   slots: SharedSlot[],
@@ -127,14 +128,16 @@ export function groupSlots(
   includeReleased = false,
 ) {
   const held = (slot: SharedSlot) => includeReleased || !slot.releasedAt;
-  const own = slots.find(
-    (slot) =>
-      held(slot) &&
-      slot.channel === channel &&
-      [slot.at, slot.requestedAt].some(
-        (value) => value && Date.parse(value) === Date.parse(at),
-      ),
+  const same = (value: string | undefined) =>
+    Boolean(value) && Date.parse(value!) === Date.parse(at);
+  // The slot at exactly this time wins over one that was only given it
+  // (`requestedAt`), so a moved slot never takes another slot's place.
+  const candidates = slots.filter(
+    (slot) => held(slot) && slot.channel === channel,
   );
+  const own =
+    candidates.find((slot) => same(slot.at)) ??
+    candidates.find((slot) => same(slot.requestedAt));
   if (!own) return [];
   return [
     own,

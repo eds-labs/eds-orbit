@@ -18,7 +18,9 @@ const provider = vi.hoisted(() => ({
   generateImage: vi.fn(),
   generateImageWithReferences: vi.fn(),
   requests: [] as any[],
-  replies: [] as Array<(request: any) => Reply>,
+  replies: [] as Array<(request: any) => Reply | Promise<Reply>>,
+  // Runs between a banner's plan and its save (after rendering), or fails a render.
+  beforeRender: null as null | ((input: any) => Promise<void>),
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
@@ -33,7 +35,7 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
       provider.requests.push(structuredClone(request));
       const next = provider.replies.shift();
       if (!next) throw new Error("NO_RECORDED_REPLY");
-      const reply = next(request);
+      const reply = await next(request);
       return {
         output: reply.output,
         usage: {
@@ -48,6 +50,20 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
         responseId: `resp_${provider.requests.length}`,
       };
     }),
+  };
+});
+// The banner renderer with a hook, to change sources mid-compose or fail one render.
+vi.mock("../../../packages/creative/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../packages/creative/src/index.ts")
+    >();
+  return {
+    ...actual,
+    renderRasterBanner: async (input: any) => {
+      await provider.beforeRender?.(input);
+      return actual.renderRasterBanner(input);
+    },
   };
 });
 // The strategy's channel history sync reads an empty Postiz.
@@ -73,6 +89,12 @@ import { registerAgentSpecialists } from "../src/modules/agents/specialists/inde
 import { startReadySteps } from "../src/modules/agents/assignment-runs.ts";
 import { setAssignmentStatus } from "../src/modules/agents/assignments.ts";
 import { agentReviewAccepted } from "../src/modules/agents/agent-review.ts";
+import {
+  attachRunImage,
+  composeRunBanners,
+  hasOwnBanner,
+} from "../src/modules/agents/specialists/visual.ts";
+import { assetTools } from "../src/modules/asset-tools.ts";
 import {
   BANNER_TEXT_LIMITS,
   DEFAULT_BANNER_STYLE,
@@ -234,18 +256,29 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     vi.stubEnv("ENABLE_POSTIZ_DRAFTS", "true");
     provider.requests = [];
     provider.replies = [];
+    provider.beforeRender = null;
     bannerFor = () => BANNER;
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
       const contract = JSON.parse(params.goal);
       const topic = String(contract.brief?.topic ?? "");
       const draft = generated(`${BODY} (${topic})`);
+      // A revision keeps the previous banner unless the instruction concerns it.
+      const revision = contract.revision;
+      const banner =
+        revision?.previousBanner &&
+        !String(revision.instruction).startsWith("Fix the banner copy")
+          ? revision.previousBanner
+          : bannerFor(topic, Boolean(revision));
       return params.banner
         ? {
             ...draft,
             output: {
               ...draft.output,
-              banner: bannerFor(topic, Boolean(contract.revision)),
+              banner,
+              ...(revision
+                ? { body: `${revision.previousBody} Revised.` }
+                : {}),
             },
           }
         : draft;
@@ -406,7 +439,7 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     expect(provider.generateImage).toHaveBeenCalledTimes(1);
   });
 
-  it("rejects a draft whose banner states what no fact backs; the review model never sees it", async () => {
+  it("sends back a banner that states what no fact backs once, naming the word, and rejects it if it stays", async () => {
     await linkBot();
     await shared();
     bannerFor = (topic) =>
@@ -418,27 +451,43 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     }));
     provider.replies.push(approveAll);
     await runAgentTask(h.worker(), review.id);
+    // The model only ever sees the clean slot's text.
+    expect(provider.requests).toHaveLength(1);
     const shown = JSON.parse(provider.requests[0].input[0].content).drafts;
-    expect(shown).toHaveLength(1);
-    expect(shown[0].banner).toEqual(BANNER);
+    expect(shown.map((draft: any) => draft.banner)).toEqual([BANNER]);
+    // One revision without the model, naming what to remove.
+    const [revision] = contracts().filter((c) => c.revision);
+    expect(revision.revision.instruction).toMatch(
+      /^Fix the banner copy: remove /,
+    );
+    expect(revision.revision.instruction).toContain('"10"');
+    expect(revision.revision.instruction).toContain('"%"');
+    expect(revision.revision.previousBanner).toEqual({
+      ...BANNER,
+      headline1: "Earn 10% daily.",
+    });
     const drafts = await contents();
-    const claimed = drafts.find(
+    const claimed = drafts.filter(
       (c) => c.banner.headline1 !== BANNER.headline1,
-    )!;
-    expect(claimed.status).toBe("rejected");
-    expect(claimed.agentReviewDecision).toMatchObject({
+    );
+    // The original was replaced; the revision still carries the claim and is rejected.
+    expect(claimed.map((c) => c.agentReviewDecision.round).sort()).toEqual([
+      1, 2,
+    ]);
+    const second = claimed.find((c) => c.agentReviewDecision.round === 2)!;
+    expect(second.status).toBe("rejected");
+    expect(second.agentReviewDecision).toMatchObject({
       verdict: "reject",
       deterministicProblems: ["BANNER_UNSUPPORTED_CLAIM"],
     });
     // Copy with a claim gets no banner composed at all.
-    expect(claimed.assetId).toBeUndefined();
+    for (const draft of claimed) expect(draft.assetId).toBeUndefined();
     expect(
       (await h.rows("assets"))
         .filter((a) => a.bannerKey)
         .map((a) => a.bannerText),
     ).toEqual([BANNER]);
-    // No revision for a claim: only the clean slot goes, on both channels.
-    expect(contracts().filter((c) => c.revision)).toEqual([]);
+    // Only the clean slot goes, on both channels.
     expect(
       drafts
         .filter((c) => c.status === "reviewed")
@@ -468,7 +517,7 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
     expect(done.status).toBe("done");
     const [revision] = contracts().filter((c) => c.revision);
     expect(revision.revision.instruction).toMatch(
-      /^Shorten the banner text so it fits the banner/,
+      /^Fix the banner copy: shorten it to fit/,
     );
     expect(done.output.decisions).toEqual(
       expect.arrayContaining([
@@ -573,5 +622,339 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
       expect(draft.agentReview).not.toHaveProperty("bannerHash");
     }
     expect(FOOTER).toBe("example.invalid");
+  });
+
+  /** Changes an asset row (a new version), or revokes its approval. */
+  const touch = (assetId: string, changes: Record<string, unknown> = {}) =>
+    h.run(async (tx) => {
+      const row = await entity(tx, project.owner, "assets", assetId);
+      await update(tx, project.owner, row, {
+        ...data(row),
+        note: "changed",
+        ...changes,
+      });
+    });
+  const backgroundOf = async () =>
+    (await h.rows("assets")).find((a) => a.bannerBackground === true)!;
+  const bannersOf = async () =>
+    (await h.rows("assets")).filter((a) => a.bannerKey);
+  /** Plans the run with distinct copy per slot and runs the copywriter only. */
+  const written = async () => {
+    bannerFor = (topic) =>
+      topic.includes("SECOND")
+        ? { ...BANNER, headline1: "Plan ahead." }
+        : BANNER;
+    const planned = await h.planWithBriefs((slots) =>
+      slots
+        .filter((slot) => slot.channel === TELEGRAM)
+        .map((slot, index) =>
+          h.brief(slot, {
+            topic: index === 0 ? "Beta access for teams" : "SECOND beta",
+          }),
+        ),
+    );
+    await runAgentTask(h.worker(), (await h.task("copywriter")).id);
+    return planned;
+  };
+
+  it("keeps the banner through a revision of the body only (previousBanner)", async () => {
+    await linkBot();
+    await shared();
+    const { review } = await drafted((index) => ({
+      topic: index === 0 ? "PILOT beta access" : "Beta access for teams",
+    }));
+    const composed = (await bannersOf()).length;
+    provider.replies.push(
+      (request) => ({
+        output: [
+          message({
+            decisions: JSON.parse(request.input[0].content).drafts.map(
+              (draft: Record<string, any>) =>
+                String(draft.brief?.topic).includes("PILOT")
+                  ? {
+                      contentId: draft.contentId,
+                      verdict: "revise",
+                      reasons: ["Name the pilot."],
+                      revisionInstructions: "Mention the pilot.",
+                    }
+                  : {
+                      contentId: draft.contentId,
+                      verdict: "approve",
+                      reasons: [],
+                      revisionInstructions: null,
+                    },
+            ),
+          }),
+        ],
+      }),
+      approveAll,
+    );
+    await runAgentTask(h.worker(), review.id);
+    const [revision] = contracts().filter((c) => c.revision);
+    expect(revision.revision).toMatchObject({
+      instruction: "Mention the pilot.",
+      previousBanner: BANNER,
+    });
+    const live = (await contents()).filter((c) => c.status === "reviewed");
+    expect(live).toHaveLength(4);
+    expect(live.filter((c) => c.body.endsWith("Revised."))).toHaveLength(2);
+    for (const draft of live) expect(draft.banner).toEqual(BANNER);
+    // The same copy keeps the same banner: nothing new was composed.
+    expect((await bannersOf()).length).toBe(composed);
+  });
+
+  it("lets the agent's approval of a banner stand in only for Postiz drafts, not for publishing (R79)", async () => {
+    await linkBot();
+    await shared({ delivery: "publish" });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    expect(drafts).toHaveLength(4);
+    // Approved by the agent, but waiting for the owner: nothing is scheduled.
+    for (const draft of drafts) {
+      expect(draft.agentReview.bannerHash).toBe(hash(draft.banner));
+      expect(draft.status).toBe("needs_review");
+      expect(
+        await h.run((tx) => agentReviewAccepted(tx, project.owner, draft)),
+      ).toBe(false);
+    }
+    expect(await h.rows("publications")).toEqual([]);
+    // The same draft as a Postiz draft delivery is accepted.
+    expect(
+      await h.run((tx) =>
+        agentReviewAccepted(tx, project.owner, {
+          ...drafts[0]!,
+          delivery: "postiz_draft",
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("composes no banner when the background or logo changes between plan and save", async () => {
+    await linkBot();
+    await shared();
+    const { runId } = await written();
+    // The background is changed while the first banner renders.
+    provider.beforeRender = async () => {
+      provider.beforeRender = null;
+      await touch((await backgroundOf()).id);
+    };
+    await runAgentTask(h.worker(), (await h.task("visual")).id);
+    expect((await h.task("visual")).output).toMatchObject({
+      bannerError: "BRAND_ASSET_CHANGED",
+    });
+    expect(await bannersOf()).toEqual([]);
+    // The logo is changed while the next compose renders.
+    provider.beforeRender = async () => {
+      provider.beforeRender = null;
+      await touch(logoId);
+    };
+    expect(await composeRunBanners(h.worker(), runId)).toMatchObject({
+      composed: [],
+      error: "BRAND_ASSET_CHANGED",
+    });
+    expect(await bannersOf()).toEqual([]);
+    // Unchanged sources compose and attach both slots' banners.
+    expect((await composeRunBanners(h.worker(), runId)).composed).toHaveLength(
+      2,
+    );
+    await h.run((tx) => attachRunImage(tx, project.owner, runId));
+    const [draft] = await contents();
+    expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft!))).toBe(
+      true,
+    );
+    // A banner whose background is revoked or changed is no longer the draft's own.
+    await touch((await backgroundOf()).id, { assetStatus: "reference" });
+    expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft!))).toBe(
+      false,
+    );
+    await expect(composeRunBanners(h.worker(), runId)).rejects.toThrow(
+      "ASSET_RIGHTS_REQUIRED",
+    );
+    await touch((await backgroundOf()).id, { assetStatus: "approved" });
+    expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft!))).toBe(
+      false,
+    );
+  });
+
+  it("binds a banner to its draft's copy and keeps it out of the asset library", async () => {
+    await linkBot();
+    await shared();
+    await drafted();
+    const [draft] = await contents();
+    expect(await h.run((tx) => hasOwnBanner(tx, project.owner, draft!))).toBe(
+      true,
+    );
+    expect(
+      await h.run((tx) =>
+        hasOwnBanner(tx, project.owner, {
+          ...draft!,
+          banner: { ...BANNER, headline2: "Another text." },
+        }),
+      ),
+    ).toBe(false);
+    const banners = await bannersOf();
+    for (const banner of banners) {
+      expect(banner.boundTo).toEqual({
+        runId: draft!.assignmentRunId,
+        contentId: expect.any(String),
+      });
+      expect(banner.approvedBy).toBe(project.owner.userId);
+      expect(banner.rightsSource.backgroundVersion).toEqual(expect.any(Number));
+    }
+    const listed = (await assetTools.list(project.owner)).map((a) => a.id);
+    for (const banner of banners) expect(listed).not.toContain(banner.id);
+    await expect(assetTools.get(project.owner, banners[0]!.id)).rejects.toThrow(
+      "NOT_FOUND",
+    );
+  });
+
+  it("stores one banner per copy when composers run at the same time", async () => {
+    await linkBot();
+    await shared();
+    const { runId } = await drafted();
+    const before = await bannersOf();
+    await h.run((tx) =>
+      tx.entity.deleteMany({
+        where: { id: { in: before.map((banner) => banner.id) } },
+      }),
+    );
+    await Promise.all([
+      composeRunBanners(h.worker(), runId),
+      composeRunBanners(h.worker(), runId),
+      composeRunBanners(h.worker(), runId),
+    ]);
+    const after = await bannersOf();
+    expect(after).toHaveLength(before.length);
+    expect(new Set(after.map((banner) => banner.bannerKey)).size).toBe(
+      after.length,
+    );
+  });
+
+  it("leaves only the slot whose banner failed to render for the owner", async () => {
+    await linkBot();
+    await shared();
+    bannerFor = (topic) =>
+      topic.includes("SECOND")
+        ? { ...BANNER, headline1: "Plan ahead." }
+        : BANNER;
+    provider.beforeRender = async (input) => {
+      if (input.text.headline1 === "Plan ahead.")
+        throw new Error("SYNTHETIC_RENDER_FAILURE");
+    };
+    const { review } = await drafted((index) => ({
+      topic: index === 0 ? "Beta access for teams" : "SECOND beta",
+    }));
+    const visual = await h.task("visual");
+    expect(visual.output.bannerFailures).toHaveLength(1);
+    expect(visual.output.bannerError).toBeUndefined();
+    const written = await contents();
+    const failed = written.find((c) => c.banner.headline1 === "Plan ahead.")!;
+    const fine = written.find((c) => c.banner.headline1 === BANNER.headline1)!;
+    expect(failed.bannerFailure).toMatchObject({
+      code: "BANNER_RENDER_FAILED",
+    });
+    expect(failed.assetId).toBeUndefined();
+    expect(fine.assetId).toEqual(expect.any(String));
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    const slotOf = (id: string) =>
+      drafts.filter((c) => c.id === id || c.sharedFrom?.contentId === id);
+    for (const draft of slotOf(failed.id)) {
+      expect(draft.status).toBe("needs_review");
+    }
+    expect(
+      drafts.find((c) => c.id === failed.id)!.agentReviewDecision
+        .deterministicProblems,
+    ).toEqual(["BANNER_RENDER_FAILED"]);
+    for (const draft of slotOf(fine.id)) expect(draft.status).toBe("reviewed");
+  });
+
+  it("leaves a text whose banner changed during the review for the owner", async () => {
+    await linkBot();
+    await shared();
+    const { review } = await drafted();
+    provider.replies.push(async (request) => {
+      const [target] = await contents();
+      await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", target!.id);
+        await update(tx, project.owner, row, {
+          ...data(row),
+          banner: { ...BANNER, headline2: "Changed text." },
+        });
+      });
+      return approveAll(request);
+    });
+    await runAgentTask(h.worker(), review.id);
+    const [changed] = await contents();
+    expect(changed!.status).toBe("needs_review");
+    expect(changed!.agentReviewDecision.deterministicProblems).toEqual([
+      "AGENT_REVIEW_TEXT_CHANGED",
+    ]);
+    expect(changed).not.toHaveProperty("agentReview");
+  });
+
+  it("keeps the banner on the channels that can carry it when the strictest one cannot", async () => {
+    await linkBot();
+    await shared();
+    // A 1,100-character text: too long for Telegram's caption, fine as a Telegram text and on X.
+    provider.generate.mockImplementation(async (params: any) => {
+      const topic = String(JSON.parse(params.goal).brief?.topic ?? "");
+      const draft = generated(
+        `${BODY} (${topic}) ${"Product teams plan their week here. ".repeat(30)}`.trim(),
+      );
+      return { ...draft, output: { ...draft.output, banner: BANNER } };
+    });
+    const { review } = await drafted();
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const drafts = await contents();
+    expect(drafts).toHaveLength(4);
+    const [banner] = await bannersOf();
+    for (const draft of drafts.filter((c) => c.channel === TELEGRAM)) {
+      // Held back on its own channel only: its text was approved for X.
+      expect(draft.status).toBe("needs_review");
+      expect(draft.agentReviewDecision).toMatchObject({
+        deterministicProblems: ["BANNER_MEDIA_REFUSED"],
+        textApproved: true,
+      });
+      expect(draft.assetId).toBeUndefined();
+    }
+    for (const draft of drafts.filter((c) => c.channel === X)) {
+      expect(draft.agentReviewDecision.deterministicProblems).toEqual([]);
+      expect(draft.status).toBe("reviewed");
+      expect(draft.assetId).toBe(banner!.id);
+    }
+    expect(
+      (await h.rows("postiz_drafts")).map((row) => row.integrationId),
+    ).toEqual([X, X]);
+  });
+
+  it("refuses a banner whose product name or link domain cannot fit", async () => {
+    const assignment = await shared();
+    await h.run(async (tx) => {
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...(profile.data as Record<string, any>),
+            productName: "A very long product name that no banner can hold",
+          },
+        },
+      });
+    });
+    await h.run((tx) =>
+      setAssignmentStatus(tx, project.owner, assignment.id, "paused"),
+    );
+    await expect(
+      h.run((tx) =>
+        setAssignmentStatus(tx, project.owner, assignment.id, "active"),
+      ),
+    ).rejects.toThrow("BANNER_BRAND_OVERFLOW");
   });
 });

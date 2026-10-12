@@ -177,6 +177,31 @@ describe("AssignmentCard", () => {
     expect(card({ image: false })).toContain("<dd>Kein Banner</dd>");
   });
 
+  it("names the banner in the consent the owner gives (R78)", () => {
+    const html = (changes: Partial<AssignmentContent>) =>
+      renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{ ...assignment(true), image: true, ...changes }}
+          status="draft"
+          request={{
+            id: "request-1",
+            version: 1,
+            packageHash: "hash",
+            status: "pending",
+          }}
+          de
+          canDecide
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+    expect(html({ banner: { template: "brand_landscape" } })).toContain(
+      "Banner: generierter Hintergrund, dazu das freigegebene Logo und geprüfter Text",
+    );
+    expect(html({})).not.toContain("Banner: generierter Hintergrund");
+  });
+
   it("lets only a person who may decide confirm", () => {
     const html = render(true, false);
     expect(confirmButton(html)).toBeUndefined();

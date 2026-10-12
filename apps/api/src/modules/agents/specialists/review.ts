@@ -30,9 +30,12 @@ import {
 } from "../post-format.ts";
 import { cloneForChannel, groupSlots } from "../shared-posts.ts";
 import {
+  BANNER_BRAND_OVERFLOW,
   BANNER_IMAGE_MISSING,
   BANNER_LINK_NOT_OFFICIAL,
-  BANNER_TEXT_OVERFLOW,
+  BANNER_MEDIA_REFUSED,
+  BANNER_RENDER_FAILED,
+  BANNER_REVISABLE,
   bannerCopy,
   bannerInstruction,
   bannerTemplateOf,
@@ -41,7 +44,7 @@ import {
   officialFooter,
   parsedBanner,
 } from "../banner.ts";
-import { hasOwnBanner, mediaRefusal } from "./visual.ts";
+import { attachOwnBanner, bannerState, mediaRefusal } from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
 import { ASSIGNMENT_BUDGET_EXHAUSTED, runSpecialist } from "./runner.ts";
@@ -100,6 +103,10 @@ const LEFT_FOR_OWNER = new Set([
   "LINK_UNVERIFIED",
   // The draft's banner could not be put on it (R78): the owner decides whether it goes without.
   BANNER_IMAGE_MISSING,
+  BANNER_RENDER_FAILED,
+  BANNER_MEDIA_REFUSED,
+  // The profile's product name or link domain does not fit the banner (R78): not the draft's fault.
+  BANNER_BRAND_OVERFLOW,
 ]);
 // Problems of one channel and slot, not of the text (R76): in a shared run
 // they hold back only that channel's post, never the text on the others.
@@ -111,11 +118,13 @@ export const CHANNEL_PROBLEMS = new Set([
   "CHANNEL_LIMIT_EXCEEDED",
   "SCOPE_NOT_ALLOWED",
   "ASSIGNMENT_SCOPE_NOT_ALLOWED",
+  // This channel cannot carry the slot's banner; the others keep it (R78).
+  BANNER_MEDIA_REFUSED,
 ]);
 /** The text changed after the review model judged it (R76): its verdict covers another text. */
 export const AGENT_REVIEW_TEXT_CHANGED = "AGENT_REVIEW_TEXT_CHANGED";
 // Problems one deterministic revision may fix in round 1 (R77, R78).
-const REVISABLE = new Set([...FORMAT_PROBLEMS, BANNER_TEXT_OVERFLOW]);
+const REVISABLE = new Set([...FORMAT_PROBLEMS, ...BANNER_REVISABLE]);
 // Revision failures of the provider or the project, not of the draft (R49).
 const TRANSIENT_REVISION_FAILURES = new Set([
   "MODEL_OUTCOME_OR_COST_UNKNOWN",
@@ -298,8 +307,10 @@ export async function deterministicProblems(
  * (`bannerTextProblems`: missing, too long for the template, figures,
  * status or promise wording), links written in it (as in the body), the
  * official link its button and footer name (`BANNER_LINK_NOT_OFFICIAL`) and,
- * when all of that is clean, whether its own composed banner is attached
- * (`BANNER_IMAGE_MISSING`; copy with a problem gets no banner).
+ * when all of that is clean, whether its own composed banner is attached:
+ * `BANNER_RENDER_FAILED` (composing it failed), `BANNER_MEDIA_REFUSED` (its
+ * channel cannot carry an image; a channel problem in a shared run) or
+ * `BANNER_IMAGE_MISSING` (copy with a problem gets no banner).
  */
 async function bannerProblems(
   tx: DbTx,
@@ -325,14 +336,18 @@ async function bannerProblems(
   if (text)
     problems.push(...bodyLinkProblems(bannerCopy(text), allowedOrigins));
   // Copy with a problem gets no banner composed: the copy is the reason, not the image.
-  if (!problems.length && !(await hasOwnBanner(tx, scope, v)))
-    problems.push(BANNER_IMAGE_MISSING);
+  if (!problems.length) {
+    const state = await bannerState(tx, scope, v);
+    if (state === "render_failed") problems.push(BANNER_RENDER_FAILED);
+    else if (state === "media_refused") problems.push(BANNER_MEDIA_REFUSED);
+    else if (state === "missing") problems.push(BANNER_IMAGE_MISSING);
+  }
   return problems;
 }
 
 /**
- * A round-1 draft whose only problems are the format's (R77) or banner copy
- * that does not fit the banner (R78) gets one revision with a
+ * A round-1 draft whose only problems are the format's (R77) or its banner
+ * copy's (R78: too long, a figure, status or promise word) gets one revision with a
  * deterministic instruction instead of a reject; the model does not judge
  * it in this round. Anything else, or round 2, stays as before: reject or
  * leave for the owner.
@@ -355,8 +370,8 @@ async function formatRevision(
     if (!mission?.format) return null;
     parts.push(formatInstruction(v.body, mission.format, problems));
   }
-  if (problems.includes(BANNER_TEXT_OVERFLOW))
-    parts.push(bannerInstruction(v.banner));
+  if (problems.some((code) => BANNER_REVISABLE.has(code)))
+    parts.push(bannerInstruction(v.banner, problems));
   return parts.join(" ");
 }
 
@@ -1031,10 +1046,11 @@ async function shareDraft(
       data: { path: ["assignmentRunId"], equals: task.runId },
     },
   });
-  // Decisions recorded before R76's fix round have no judged text: the original's then.
+  // A decision without the judged text (recorded before R76's fix round, or
+  // by the deterministic checks) approves no copy: the copies wait for the owner.
   const judged = decision.bodyHash
     ? { bodyHash: decision.bodyHash, bannerHash: decision.bannerHash }
-    : judgedText(v);
+    : null;
   const {
     channelProblems: _channelProblems,
     textApproved: _textApproved,
@@ -1043,7 +1059,7 @@ async function shareDraft(
   } = decision;
   const outcomes: Outcome[] = [];
   for (const slot of others) {
-    const copy = await cloneForChannel(
+    let copy = await cloneForChannel(
       tx,
       scope,
       original,
@@ -1056,6 +1072,10 @@ async function shareDraft(
       outcomes.push(sharedOutcome(copy.id, contentId, prior));
       continue;
     }
+    // The slot's banner reaches a media-capable channel even when the
+    // original's own channel refused it (R78).
+    if (await attachOwnBanner(tx, scope, copy))
+      copy = await entity(tx, scope, "content", copy.id);
     const problems = await deterministicProblems(tx, scope, task, copy.id);
     const base: ReviewDecision = {
       ...textDecision,
@@ -1074,6 +1094,7 @@ async function shareDraft(
       else await reject(tx, scope, copy.id, settled);
     } else if (
       text === "approve" &&
+      judged !== null &&
       own.bodyHash === judged.bodyHash &&
       own.bannerHash === judged.bannerHash
     ) {

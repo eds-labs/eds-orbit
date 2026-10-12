@@ -52,6 +52,7 @@ import {
   when,
   type Dashboard,
   type Entity,
+  libraryAssets,
 } from "@/lib/api";
 import {
   Alert,
@@ -1525,7 +1526,7 @@ function AutopilotSettings() {
       f.data.publicUse === true &&
       f.data.valueType !== "url",
   );
-  const assetOptions = (assets.data?.items ?? []).filter(
+  const assetOptions = libraryAssets(assets.data?.items).filter(
     (a) => a.data.usageApproved === true,
   );
   const [form, setForm] = useState<{

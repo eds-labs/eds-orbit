@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import {
+  bannerChromeOverflow,
   bannerTemplates,
   bannerTextOverflow,
   renderBrandBanner,
@@ -144,8 +146,11 @@ describe("brand banner (R78)", () => {
     footer: "desk.uliquid.vip",
     logoApproved: true,
     backgroundDataUri: background,
-    backgroundHash: "b".repeat(64),
   };
+  const sha = (uri: string) =>
+    createHash("sha256")
+      .update(Buffer.from(uri.split(",")[1]!, "base64"))
+      .digest("hex");
   /** The SVG's structure: element names with the attributes that place layers, no pixel data. */
   const structure = (svg: string) =>
     [...svg.matchAll(/<(image|text|tspan|rect|line|path)\b([^>]*)>/g)].map(
@@ -171,7 +176,8 @@ describe("brand banner (R78)", () => {
     expect(a.logoHash).toBe(
       "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
     );
-    expect(a.backgroundHash).toBe("b".repeat(64));
+    // Hashes are taken from the bytes rendered, never from the caller.
+    expect(a.backgroundHash).toBe(sha(background));
     expect(structure(a.svg).filter((entry) => entry.includes("#")))
       .toMatchInlineSnapshot(`
       [
@@ -215,7 +221,6 @@ describe("brand banner (R78)", () => {
     const rendered = renderBrandBanner({
       ...input,
       backgroundDataUri: undefined,
-      backgroundHash: undefined,
     });
     expect(rendered.status).toBe("rendered");
     if (rendered.status !== "rendered") return;
@@ -245,6 +250,41 @@ describe("brand banner (R78)", () => {
         footer: "a-very-long-subdomain.example-domain-name.invalid",
       }),
     ).toThrow("TEXT_OVERFLOW");
+  });
+
+  it("uses a raster logo only with the approved asset's exact bytes", () => {
+    const logoUri = background;
+    const rendered = renderBrandBanner({
+      ...input,
+      logoDataUri: logoUri,
+      logoSha256: sha(logoUri),
+    });
+    expect(rendered.status === "rendered" && rendered.logoHash).toBe(
+      sha(logoUri),
+    );
+    for (const logoSha256 of [undefined, "c".repeat(64)])
+      expect(() =>
+        renderBrandBanner({ ...input, logoDataUri: logoUri, logoSha256 }),
+      ).toThrow("BRAND_ASSET_INTEGRITY_FAILED");
+  });
+
+  it("tells a wordmark or footer that cannot fit apart from copy that can be shortened", () => {
+    expect(bannerChromeOverflow("uLiquid Desk", "desk.uliquid.vip")).toBe(
+      false,
+    );
+    expect(
+      bannerChromeOverflow(
+        "A very long product name that no banner can hold",
+        "desk.uliquid.vip",
+      ),
+    ).toBe(true);
+    expect(
+      bannerChromeOverflow(
+        "uLiquid Desk",
+        "a-very-long-subdomain.of-an-example-domain-name.invalid",
+      ),
+    ).toBe(true);
+    expect(bannerChromeOverflow("", "desk.uliquid.vip")).toBe(true);
   });
 
   it("keeps the logo rules: approval required, raster logos only, markup escaped", () => {

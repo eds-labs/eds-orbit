@@ -719,6 +719,8 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
         name: "Synthetic logo",
         type: "logo",
         mime: "image/png",
+        // Metadata only: the proposal checks the asset, not its bytes.
+        sha256: "a".repeat(64),
         usageApproved: true,
         assetStatus: "approved",
       });

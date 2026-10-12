@@ -30,7 +30,7 @@ import { lengthRange } from "./post-format.ts";
 import { activePolicy } from "../policy.ts";
 import { postizDraftsEnabled } from "../postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
-import { approvedBannerLogo, assignmentBanner } from "./banner.ts";
+import { assertBannerReady, assignmentBanner } from "./banner.ts";
 import { notify } from "./notifications.ts";
 import {
   applyConfirmedDelivery,
@@ -390,8 +390,15 @@ async function assertWithinMandate(
     mandate.allowedOrigins ?? [],
   );
   await assertFormatFits(tx, scope, content, mandate.allowedOrigins ?? []);
-  // A banner is composed with the profile's approved logo, never a generated one (R78).
-  if (content.banner) await approvedBannerLogo(tx, scope);
+  // A banner is composed with the profile's approved logo, never a generated
+  // one, and its wordmark and domain must fit the template (R78).
+  if (content.banner)
+    await assertBannerReady(
+      tx,
+      scope,
+      content.format?.cta,
+      mandate.allowedOrigins ?? [],
+    );
   const committed = await committedBudget(tx, scope, selfId);
   if (
     committed + content.monthlyBudgetMicros >

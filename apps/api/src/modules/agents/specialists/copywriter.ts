@@ -258,9 +258,16 @@ async function draft(
   jobId: string,
 ) {
   const content = await generateMissionLive(scope, missionId, jobId);
+  // A banner run (R78) composes the draft's banner over the run's background
+  // first; a banner failure never stops the attach of what exists.
   try {
-    // A banner run (R78) composes the draft's banner over the run's background first.
-    await composeRunBanners(scope, task.runId);
+    const banners = await composeRunBanners(scope, task.runId);
+    if (banners.error)
+      console.error("Orbit assignment banner compose stopped", banners.error);
+  } catch (error) {
+    console.error("Orbit assignment banner compose failed", errorCode(error));
+  }
+  try {
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       attachRunImage(tx, scope, task.runId),
     );

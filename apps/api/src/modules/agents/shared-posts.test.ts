@@ -197,4 +197,27 @@ describe("slot groups of a shared run (R76)", () => {
       ).map((s) => s.channel),
     ).toEqual(["x", "tg"]);
   });
+
+  it("prefers the slot at exactly that time over one moved from it", () => {
+    const moved = [
+      // X's 10:00 post moved to 10:30 for its veto window ...
+      {
+        channel: "x",
+        at: "2026-10-13T10:30:00.000Z",
+        requestedAt: at(10),
+        groupAt: at(10),
+      },
+      // ... while X's 10:30 slot of another group was given that time.
+      {
+        channel: "x",
+        at: at(10),
+        groupAt: "2026-10-13T09:30:00.000Z",
+      },
+      { channel: "tg", at: at(10), groupAt: at(10) },
+    ];
+    expect(groupSlots(moved, "x", at(10))[0]).toBe(moved[1]);
+    expect(
+      groupSlots(moved, "x", "2026-10-13T10:30:00.000Z").map((s) => s.channel),
+    ).toEqual(["x", "tg"]);
+  });
 });
