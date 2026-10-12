@@ -416,9 +416,11 @@ const FACT_CODES = [
 const reasonText = (code: string) =>
   code === SLOT_UNAVAILABLE
     ? "kein freier Slot an dem Tag"
-    : FACT_CODES.includes(code)
-      ? `Fakten fehlen (${code})`
-      : code;
+    : code === "BLOG_GITHUB_DISABLED"
+      ? "Blog-Zustellung per GitHub ist ausgeschaltet (BLOG_GITHUB_DISABLED)"
+      : FACT_CODES.includes(code)
+        ? `Fakten fehlen (${code})`
+        : code;
 
 /**
  * Deliverables that got no slot: of a new run (`ref` is the run id) or of a

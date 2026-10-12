@@ -13,8 +13,12 @@ import {
   confirmedDelivery,
   deliveryOf,
   proposeAssignment,
+  setAssignmentStatus,
 } from "../src/modules/agents/assignments.ts";
-import { planAssignmentRuns } from "../src/modules/agents/assignment-runs.ts";
+import {
+  planAssignmentRuns,
+  runProblems,
+} from "../src/modules/agents/assignment-runs.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 import { tomorrowMorning } from "./support/assignment-review.ts";
 
@@ -79,7 +83,9 @@ describe("github_pr delivery input (R81)", () => {
     );
     expect(
       issues({ ...blogContent("c1"), sharedAcrossChannels: true }),
-    ).toHaveLength(1);
+    ).toEqual([
+      "sharedAcrossChannels: Only social posts can share one text across channels",
+    ]);
     expect(
       issues({
         ...blogContent("c1"),
@@ -90,7 +96,7 @@ describe("github_pr delivery input (R81)", () => {
           paragraphs: true,
         },
       }),
-    ).toHaveLength(1);
+    ).toEqual(["format: Only social posts have a format"]);
     expect(
       issues({ ...blogContent("c1"), image: true, banner: {} }).some((i) =>
         i.startsWith("banner"),
@@ -270,5 +276,141 @@ describe.skipIf(!enabled)("github_pr assignments (R81)", () => {
     expect(after.confirmation).toEqual(before.confirmation);
     await run((tx) => planAssignmentRuns(tx, project.owner, tomorrowMorning()));
     expect(await rows("assignment_runs")).toHaveLength(1);
+  });
+  const notices = async (kind: string) =>
+    (await rows("jobs")).filter((job) =>
+      String(job.idempotencyKey ?? "").startsWith(`notify:${kind}:`),
+    );
+  // A linked bot, so notices are queued as jobs.
+  const linkBot = () =>
+    run((tx) =>
+      create(tx, project.owner, "telegram_connections", {
+        status: "linked",
+        chatId: "4711",
+        linkedUserId: project.owner.userId,
+        linkedAt: new Date().toISOString(),
+      }),
+    );
+  const setConnector = (id: string, status: string) =>
+    run(async (tx) => {
+      const row = await entity(tx, project.owner, "connectors", id);
+      await update(tx, project.owner, row, { ...data(row), status });
+    });
+
+  it("plans one run per due day with one slot on the connector, outside the social slot rules", async () => {
+    await linkBot();
+    const connector = await addConnector();
+    const { assignment, actionRequest } = await propose({
+      ...blogContent(connector.id),
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00", "17:00"],
+      },
+    });
+    await confirm(actionRequest.id);
+    const morning = tomorrowMorning();
+    await run((tx) => planAssignmentRuns(tx, project.owner, morning));
+    const runs = await rows("assignment_runs");
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      assignmentId: assignment.id,
+      unavailable: [],
+    });
+    expect(runs[0]!.status).not.toBe("failed");
+    const slots = runs[0]!.slots as Array<{ channel: string; at: string }>;
+    expect(slots).toHaveLength(1);
+    expect(slots[0]!.channel).toBe(connector.id);
+    expect(Date.parse(slots[0]!.at)).toBeGreaterThan(morning.valueOf());
+    expect((await rows("agent_tasks")).length).toBeGreaterThan(0);
+    expect(await notices("slots_unavailable")).toEqual([]);
+    expect(
+      await run((tx) =>
+        tx.auditEvent.findMany({
+          where: {
+            projectId: project.owner.projectId,
+            action: "assignment.day_skipped",
+          },
+        }),
+      ),
+    ).toEqual([]);
+    // A second sweep the same day adds no second run.
+    await run((tx) => planAssignmentRuns(tx, project.owner, morning));
+    expect(await rows("assignment_runs")).toHaveLength(1);
+  });
+
+  it("tells the owner once about a run refused while the flag is off", async () => {
+    await linkBot();
+    const connector = await addConnector();
+    const { actionRequest } = await propose(blogContent(connector.id));
+    await confirm(actionRequest.id);
+    process.env.ORBIT_BLOG_GITHUB = "false";
+    await run((tx) => planAssignmentRuns(tx, project.owner, tomorrowMorning()));
+    await run((tx) => planAssignmentRuns(tx, project.owner, tomorrowMorning()));
+    const [refused] = await rows("assignment_runs");
+    expect(await notices("run_problem")).toHaveLength(1);
+    expect((await notices("run_problem"))[0]!.idempotencyKey).toBe(
+      `notify:run_problem:${refused!.id}`,
+    );
+    const problems = await run(async (tx) =>
+      runProblems(
+        tx,
+        project.owner,
+        await entity(tx, project.owner, "assignment_runs", refused!.id),
+      ),
+    );
+    expect(problems.failed).toEqual([
+      { stepKey: "run", role: null, code: "BLOG_GITHUB_DISABLED" },
+    ]);
+  });
+
+  it("ends a refused one-off assignment like a one-off whose run is over", async () => {
+    const connector = await addConnector();
+    const morning = tomorrowMorning();
+    const date = morning.toISOString().slice(0, 10);
+    const { assignment, actionRequest } = await propose({
+      ...blogContent(connector.id),
+      kind: "one_off",
+      schedule: { rhythm: "once", weekdays: [], times: ["10:00"], date },
+    });
+    await confirm(actionRequest.id);
+    process.env.ORBIT_BLOG_GITHUB = "false";
+    await run((tx) => planAssignmentRuns(tx, project.owner, morning));
+    expect(await rows("assignment_runs")).toMatchObject([
+      { status: "failed", errorCode: "BLOG_GITHUB_DISABLED" },
+    ]);
+    const ended = await assignmentOf(assignment.id);
+    expect(ended.status).toBe("ended");
+    expect(typeof ended.completedAt).toBe("string");
+    expect(ended.confirmation.delivery).toBe("github_pr");
+  });
+
+  it("checks the blog target again on confirmation and on resume", async () => {
+    const connector = await addConnector();
+    const first = await propose(blogContent(connector.id));
+    await setConnector(connector.id, "read_verified");
+    await expect(confirm(first.actionRequest.id)).rejects.toThrow(
+      "BLOG_TARGET_NOT_VERIFIED",
+    );
+    expect((await assignmentOf(first.assignment.id)).status).toBe("draft");
+    await setConnector(connector.id, "write_verified");
+    await confirm(first.actionRequest.id);
+    await run((tx) =>
+      setAssignmentStatus(tx, project.owner, first.assignment.id, "paused"),
+    );
+    await setConnector(connector.id, "read_verified");
+    await expect(
+      run((tx) =>
+        setAssignmentStatus(tx, project.owner, first.assignment.id, "active"),
+      ),
+    ).rejects.toThrow("BLOG_TARGET_NOT_VERIFIED");
+    process.env.ORBIT_BLOG_GITHUB = "false";
+    await setConnector(connector.id, "write_verified");
+    await expect(
+      run((tx) =>
+        setAssignmentStatus(tx, project.owner, first.assignment.id, "active"),
+      ),
+    ).rejects.toThrow("BLOG_GITHUB_DISABLED");
+    expect((await assignmentOf(first.assignment.id)).status).toBe("paused");
   });
 });

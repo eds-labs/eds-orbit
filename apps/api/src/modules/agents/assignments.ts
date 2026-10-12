@@ -199,19 +199,21 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
 export type AssignmentInput = z.output<typeof assignmentInput>;
 
 export type Delivery = "publish" | "postiz_draft" | "github_pr";
-const DELIVERIES: readonly Delivery[] = [
+export const DELIVERIES: readonly Delivery[] = [
   "publish",
   "postiz_draft",
   "github_pr",
 ];
+/** Whether a stored value is one of the deliveries (R73, R81). */
+export const isDelivery = (value: unknown): value is Delivery =>
+  DELIVERIES.includes(value as Delivery);
 /** Preflight blocker for any publication of a draft-delivery assignment's content (R73). */
 export const ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS =
   "ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS";
 /** The delivery of an assignment; a row without one (from before R73) publishes. */
 export const deliveryOf = (
   source: Record<string, any> | null | undefined,
-): Delivery =>
-  DELIVERIES.includes(source?.delivery) ? source!.delivery : "publish";
+): Delivery => (isDelivery(source?.delivery) ? source.delivery : "publish");
 
 /**
  * The delivery the owner confirmed (R73), null without a confirmation. It is
@@ -225,7 +227,7 @@ export function confirmedDelivery(
 ): Delivery | null {
   const confirmation = source?.confirmation;
   if (!confirmation || typeof confirmation !== "object") return null;
-  if (DELIVERIES.includes(confirmation.delivery)) return confirmation.delivery;
+  if (isDelivery(confirmation.delivery)) return confirmation.delivery;
   return confirmation.assignmentHash === assignmentHash(source!)
     ? deliveryOf(source)
     : "publish";

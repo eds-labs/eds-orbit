@@ -21,6 +21,7 @@ import {
   agentsEnabled,
   confirmedDelivery,
   deliveryOf,
+  isDelivery,
   type Delivery,
 } from "./assignments.ts";
 import {
@@ -207,9 +208,7 @@ export function draftDelivery(
   content: Record<string, any>,
   assignmentDelivery: Delivery,
 ): Delivery {
-  return ["publish", "postiz_draft", "github_pr"].includes(content.delivery)
-    ? content.delivery
-    : assignmentDelivery;
+  return isDelivery(content.delivery) ? content.delivery : assignmentDelivery;
 }
 
 /**
