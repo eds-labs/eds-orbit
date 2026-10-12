@@ -276,6 +276,95 @@ describe("GitHub client requests", () => {
     expect(f.calls[0]!.url.searchParams.get("per_page")).toBe("100");
   });
 
+  it("pages through check runs so a later failure is never missed", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      name: `ok${i}`,
+      status: "completed",
+      conclusion: "success",
+    }));
+    const page2 = [
+      ...Array.from({ length: 49 }, (_, i) => ({
+        name: `ok-b${i}`,
+        status: "completed",
+        conclusion: "success",
+      })),
+      { name: "late-fail", status: "completed", conclusion: "failure" },
+    ];
+    const { f, gh } = client([
+      json({ total_count: 150, check_runs: page1 }),
+      json({ total_count: 150, check_runs: page2 }),
+    ]);
+    expect(await gh.checkRuns("abcdef1")).toEqual({
+      total: 150,
+      pending: 0,
+      failed: ["late-fail"],
+      passed: 149,
+    });
+    expect(f.calls[1]!.url.searchParams.get("page")).toBe("2");
+  });
+
+  it("counts unreadable check runs as pending", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      name: `ok${i}`,
+      status: "completed",
+      conclusion: "success",
+    }));
+    const { gh } = client([
+      json({ total_count: 150, check_runs: page1 }),
+      json({ total_count: 150, check_runs: [] }),
+    ]);
+    expect(await gh.checkRuns("abcdef1")).toMatchObject({
+      pending: 50,
+      passed: 100,
+      failed: [],
+    });
+  });
+
+  it("maps unexpected 2xx shapes to INVALID_PROVIDER_RESPONSE", async () => {
+    const { gh } = client([
+      json({}),
+      json({ a: 1 }),
+      json({ commit: {} }, 201),
+      json({}),
+      new Response("", { status: 200 }),
+    ]);
+    expect(
+      await fails(
+        gh.putFile({ path: "a.json", branch: "b", text: "x", message: "m" }),
+      ),
+    ).toMatchObject({ code: "INVALID_PROVIDER_RESPONSE", outcome: "unknown" });
+    expect(await fails(gh.listDirectory("content", "main"))).toMatchObject({
+      code: "INVALID_PROVIDER_RESPONSE",
+      outcome: "rejected",
+    });
+    expect(
+      await fails(
+        gh.putFile({ path: "a.json", branch: "b", text: "x", message: "m" }),
+      ),
+    ).toMatchObject({ code: "INVALID_PROVIDER_RESPONSE", outcome: "unknown" });
+    expect(await fails(gh.mergePull(7, "abcdef1"))).toMatchObject({
+      code: "INVALID_PROVIDER_RESPONSE",
+      outcome: "unknown",
+    });
+    expect(await fails(gh.getPull(7))).toMatchObject({
+      code: "INVALID_PROVIDER_RESPONSE",
+      outcome: "rejected",
+    });
+  });
+
+  it("treats deleting a missing branch (404 or 422) as success", async () => {
+    const { gh } = client([
+      json({ message: "Reference does not exist" }, 422),
+      json({ message: "Not Found" }, 404),
+      json({ message: "Validation Failed" }, 422),
+    ]);
+    await gh.deleteBranch("gone");
+    await gh.deleteBranch("gone");
+    expect(await fails(gh.deleteBranch("gone"))).toMatchObject({
+      code: "GITHUB_REJECTED",
+    });
+  });
+
   it("merges only with sha and merge method; closes pulls", async () => {
     const { f, gh } = client([
       json({ sha: "ms", merged: true }),
@@ -367,9 +456,9 @@ describe("GitHub error mapping", () => {
   });
 
   it("never leaks the token", async () => {
-    const f = fake([json({ message: "bad token SECRET-TOKEN-123 here" }, 422)]);
+    const f = fake([json({ message: "value abc123XYZ end" }, 422)]);
     const gh = createGithubClient({
-      token: "SECRET-TOKEN-123",
+      token: "abc123XYZ",
       owner: "o",
       repo: "r",
       fetch: f.fetch,
@@ -378,7 +467,7 @@ describe("GitHub error mapping", () => {
       gh.createPull({ title: "t", head: "h", base: "b", body: "x" }),
     );
     expect(JSON.stringify({ m: e.message, d: e.detail })).not.toContain(
-      "SECRET-TOKEN-123",
+      "abc123XYZ",
     );
   });
 });

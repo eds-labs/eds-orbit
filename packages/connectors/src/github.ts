@@ -82,6 +82,7 @@ export function createGithubClient(options: {
       body?: unknown;
       write?: boolean;
       nullOn404?: boolean;
+      okWhen?: (status: number, detail: string | undefined) => boolean;
       map?: (
         status: number,
         detail: string | undefined,
@@ -126,6 +127,7 @@ export function createGithubClient(options: {
       if (status >= 300) {
         const raw = await providerDetail(response);
         // Matching uses the raw message; only the redacted form is ever stored on the error.
+        if (opts.okWhen?.(status, raw)) return { status, json: undefined };
         const mapped = opts.map?.(status, raw);
         const detail = raw?.split(options.token).join("[redacted]");
         const limited =
@@ -182,7 +184,16 @@ export function createGithubClient(options: {
               detail,
             );
       }
-      const text = await readBounded(response, write ? "unknown" : "not_sent");
+      let text: string;
+      try {
+        text = await readBounded(response, write ? "unknown" : "not_sent");
+      } catch (error) {
+        if (error instanceof ConnectorError) throw error;
+        throw new ConnectorError(
+          "INVALID_PROVIDER_RESPONSE",
+          write ? "unknown" : "rejected",
+        );
+      }
       if (!text) return { status, json: undefined };
       try {
         return { status, json: JSON.parse(text) };
@@ -196,37 +207,59 @@ export function createGithubClient(options: {
       clearTimeout(timer);
     }
   }
+  /** Any unexpected 2xx body shape becomes INVALID_PROVIDER_RESPONSE (unknown for writes, rejected for reads). */
+  const shape = <T>(write: boolean, fn: () => T): T => {
+    try {
+      return fn();
+    } catch (error) {
+      if (error instanceof ConnectorError) throw error;
+      throw new ConnectorError(
+        "INVALID_PROVIDER_RESPONSE",
+        write ? "unknown" : "rejected",
+      );
+    }
+  };
+  const str = (v: unknown): string => {
+    if (typeof v !== "string" || !v) throw new TypeError("string expected");
+    return v;
+  };
+  const list = (v: unknown): any[] => {
+    if (!Array.isArray(v)) throw new TypeError("array expected");
+    return v;
+  };
   const pull = (p: any): GithubPull => ({
-    number: p.number,
-    headSha: p.head.sha,
-    htmlUrl: p.html_url,
+    number: Number.isInteger(p.number) ? p.number : str(undefined),
+    headSha: str(p.head.sha),
+    htmlUrl: str(p.html_url),
   });
 
   return {
     async getRepo() {
       const { json } = (await call("GET", root))!;
-      return {
-        defaultBranch: String(json.default_branch),
+      return shape(false, () => ({
+        defaultBranch: str(json.default_branch),
         private: Boolean(json.private),
-      };
+      }));
     },
     async getBranchHead(branch: string): Promise<string | null> {
       const r = await call("GET", `${root}/git/ref/heads/${segments(branch)}`, {
         nullOn404: true,
       });
-      return r ? String(r.json.object.sha) : null;
+      return r ? shape(false, () => str(r.json.object.sha)) : null;
     },
     async listDirectory(path: string, ref: string) {
       const { json } = (await call(
         "GET",
         `${root}/contents/${segments(path, true)}?ref=${refParam(ref)}`,
       ))!;
-      return (json as any[]).map((e) => ({
-        name: String(e.name),
-        path: String(e.path),
-        sha: String(e.sha),
-        type: String(e.type),
-      }));
+      return shape(false, () =>
+        list(json).map((e) => ({
+          name: str(e.name),
+          path: str(e.path),
+          sha: str(e.sha),
+          type: str(e.type),
+        })),
+      );
     },
     async getFile(path: string, ref: string) {
       const r = await call(
@@ -235,12 +268,12 @@ export function createGithubClient(options: {
         { nullOn404: true },
       );
       if (!r) return null;
-      return {
-        sha: String(r.json.sha),
+      return shape(false, () => ({
+        sha: str(r.json.sha),
         text: Buffer.from(String(r.json.content ?? ""), "base64").toString(
           "utf8",
         ),
-      };
+      }));
     },
     async createBranch(branch: string, sha: string): Promise<void> {
       if (!/^[0-9a-f]{7,64}$/i.test(sha)) invalid();
@@ -262,6 +295,9 @@ export function createGithubClient(options: {
     async deleteBranch(branch: string): Promise<void> {
       await call("DELETE", `${root}/git/refs/heads/${segments(branch)}`, {
         nullOn404: true,
+        // GitHub answers a delete of a missing ref with 422 "Reference does not exist".
+        okWhen: (status, detail) =>
+          status === 422 && /does not exist/i.test(detail ?? ""),
       });
     },
     async compareCommits(base: string, head: string) {
@@ -269,14 +305,17 @@ export function createGithubClient(options: {
         "GET",
         `${root}/compare/${segments(base)}...${segments(head)}`,
       ))!;
-      return {
-        aheadBy: Number(json.ahead_by),
-        commits: ((json.commits ?? []) as any[]).map((c) => ({
-          sha: String(c.sha),
-          authorLogin: c.author?.login ? String(c.author.login) : null,
-          message: String(c.commit?.message ?? ""),
-        })),
-      };
+      return shape(false, () => {
+        if (!Number.isInteger(json.ahead_by)) str(undefined);
+        return {
+          aheadBy: json.ahead_by as number,
+          commits: list(json.commits).map((c) => ({
+            sha: str(c.sha),
+            authorLogin: c.author?.login ? String(c.author.login) : null,
+            message: String(c.commit?.message ?? ""),
+          })),
+        };
+      });
     },
     async putFile(input: {
       path: string;
@@ -298,7 +337,7 @@ export function createGithubClient(options: {
           },
         },
       ))!;
-      return { commitSha: String(json.commit.sha) };
+      return shape(true, () => ({ commitSha: str(json.commit.sha) }));
     },
     async findOpenPull(headBranch: string): Promise<GithubPull | null> {
       segments(headBranch);
@@ -306,7 +345,10 @@ export function createGithubClient(options: {
         "GET",
         `${root}/pulls?state=open&per_page=100&head=${encodeURIComponent(`${options.owner}:${headBranch}`)}`,
       ))!;
-      return Array.isArray(json) && json.length ? pull(json[0]) : null;
+      return shape(false, () => {
+        const items = list(json);
+        return items.length ? pull(items[0]) : null;
+      });
     },
     async createPull(input: {
       title: string;
@@ -324,43 +366,53 @@ export function createGithubClient(options: {
           body: input.body,
         },
       }))!;
-      return pull(json);
+      return shape(true, () => pull(json));
     },
     async getPull(number: number) {
       if (!Number.isInteger(number) || number < 1) invalid();
       const { json } = (await call("GET", `${root}/pulls/${number}`))!;
-      return {
-        state: json.state === "open" ? ("open" as const) : ("closed" as const),
+      return shape(false, () => ({
+        state:
+          str(json.state) === "open" ? ("open" as const) : ("closed" as const),
         merged: Boolean(json.merged),
-        headSha: String(json.head.sha),
+        headSha: str(json.head.sha),
         mergeCommitSha: json.merge_commit_sha
-          ? String(json.merge_commit_sha)
+          ? str(json.merge_commit_sha)
           : null,
-        htmlUrl: String(json.html_url),
-      };
+        htmlUrl: str(json.html_url),
+      }));
     },
     async checkRuns(sha: string) {
       if (!/^[0-9a-f]{7,64}$/i.test(sha)) invalid();
-      const { json } = (await call(
-        "GET",
-        `${root}/commits/${sha}/check-runs?per_page=100`,
-      ))!;
-      const runs = (json.check_runs ?? []) as any[];
-      let pending = 0,
-        passed = 0;
-      const failed: string[] = [];
-      for (const run of runs) {
-        if (run.status !== "completed") pending++;
-        else if (["success", "neutral", "skipped"].includes(run.conclusion))
-          passed++;
-        else failed.push(String(run.name));
+      const runs: any[] = [];
+      let total = 0;
+      for (let page = 1; page <= 10; page++) {
+        const { json } = (await call(
+          "GET",
+          `${root}/commits/${sha}/check-runs?per_page=100&page=${page}`,
+        ))!;
+        const batch = shape(false, () => {
+          if (!Number.isInteger(json.total_count)) str(undefined);
+          return list(json.check_runs);
+        });
+        if (page === 1) total = json.total_count as number;
+        runs.push(...batch);
+        if (runs.length >= total || !batch.length) break;
       }
-      return {
-        total: Number(json.total_count ?? runs.length),
-        pending,
-        failed,
-        passed,
-      };
+      return shape(false, () => {
+        let pending = 0,
+          passed = 0;
+        const failed: string[] = [];
+        for (const run of runs) {
+          if (run.status !== "completed") pending++;
+          else if (["success", "neutral", "skipped"].includes(run.conclusion))
+            passed++;
+          else failed.push(str(run.name));
+        }
+        // Runs we could not read (page cap, short pages) never count as a pass.
+        pending += Math.max(0, total - runs.length);
+        return { total: Math.max(total, runs.length), pending, failed, passed };
+      });
     },
     async mergePull(number: number, sha: string) {
       if (
@@ -390,7 +442,7 @@ export function createGithubClient(options: {
                 )
               : undefined,
       }))!;
-      return { mergeSha: String(json.sha) };
+      return shape(true, () => ({ mergeSha: str(json.sha) }));
     },
     async closePull(number: number): Promise<void> {
       if (!Number.isInteger(number) || number < 1) invalid();
@@ -424,7 +476,10 @@ export async function fetchPublicPage(
     }
     return {
       status: response.status,
-      text: await readBounded(response, "not_sent"),
+      text: await readBounded(response, "not_sent").catch((error) => {
+        if (error instanceof ConnectorError) throw error;
+        throw new ConnectorError("NETWORK_ERROR", "not_sent", true);
+      }),
     };
   } finally {
     clearTimeout(timer);
