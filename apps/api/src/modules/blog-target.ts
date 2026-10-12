@@ -19,6 +19,7 @@ import {
   data,
   decrypt,
   DomainError,
+  encrypt,
   entity,
   exception,
   list,
@@ -109,8 +110,13 @@ export async function loadBlogTarget(
   scope: Scope,
   connectorId: string,
 ): Promise<{ target: BlogTarget; token: string }> {
+  // Only "not found" means not configured; any other error (database, decryption) propagates.
   const row = await entity(tx, scope, "connectors", connectorId).catch(
-    () => null,
+    (error) => {
+      if (error instanceof DomainError && error.code === "NOT_FOUND")
+        return null;
+      throw error;
+    },
   );
   const d = data(row);
   if (!row || d.provider !== "github" || !d.encryptedCredential)
@@ -276,6 +282,33 @@ const problemCode = (error: unknown) =>
   error instanceof ConnectorError ? error.code : "UNEXPECTED";
 
 /**
+ * An answer that says nothing about the token or the repository: timeouts,
+ * rate limits, 5xx, network trouble, unclear outcomes, unexpected errors.
+ * Verification keeps the stored status for these (R81).
+ */
+const transient = (error: unknown) =>
+  !(error instanceof ConnectorError) ||
+  error.retryable ||
+  error.outcome === "unknown" ||
+  error.status === 408 ||
+  error.status === 429 ||
+  (error.status !== undefined && error.status >= 500) ||
+  [
+    "RATE_LIMITED",
+    "GITHUB_UNAVAILABLE",
+    "NETWORK_ERROR",
+    "REQUEST_TIMEOUT",
+    "DNS_TIMEOUT",
+    "INVALID_PROVIDER_RESPONSE",
+    "RESPONSE_TOO_LARGE",
+  ].includes(error.code);
+
+const STATUS_RANK = ["configured", "read_verified", "write_verified"] as const;
+type VerifyStatus = (typeof STATUS_RANK)[number];
+const rankOf = (status: unknown) =>
+  Math.max(0, STATUS_RANK.indexOf(status as VerifyStatus));
+
+/**
  * Verifies the connector (R81). Read: repository, base branch, posts
  * directory, and every post passes the profile's validation. Write: a branch
  * `orbit/verify-<8 hex>` is created at the base head and deleted again; the
@@ -287,10 +320,7 @@ export async function verifyBlogTarget(
   scope: Scope,
   connectorId: string,
   deps?: BlogTargetDeps,
-): Promise<{
-  status: "configured" | "read_verified" | "write_verified";
-  problems: string[];
-}> {
+): Promise<{ status: VerifyStatus; problems: string[] }> {
   assertBlogGithubEnabled();
   const { target, token, version, row } = await readTarget(scope, connectorId);
   const client = githubFor(token, target, deps);
@@ -298,6 +328,9 @@ export async function verifyBlogTarget(
   let pending = ((row.pendingVerifyBranches ?? []) as unknown[]).map(String);
   let readOk = false;
   let writeOk = false;
+  // A transient answer in the read or the write phase (keeps the stored status).
+  let readUnsure = false;
+  let writeUnsure = false;
   let head: string | null = null;
   try {
     await client.getRepo();
@@ -311,6 +344,7 @@ export async function verifyBlogTarget(
     }
   } catch (error) {
     problems.push(problemCode(error));
+    readUnsure = transient(error);
   }
   if (readOk && head) {
     // Leftovers of an earlier verification go first (R81).
@@ -334,16 +368,24 @@ export async function verifyBlogTarget(
       }
     } catch (error) {
       problems.push(problemCode(error));
+      writeUnsure = transient(error);
     }
     if (pending.length && !problems.includes("VERIFY_BRANCH_NOT_DELETED"))
       problems.push("VERIFY_BRANCH_NOT_DELETED");
   }
-  // A read that failed or found invalid posts leaves the connector at "configured".
-  const status = writeOk
-    ? ("write_verified" as const)
-    : readOk
-      ? ("read_verified" as const)
-      : ("configured" as const);
+  // Definitive results set the status: a failed read or invalid posts mean
+  // "configured", a refused write "read_verified". A transient answer only
+  // reports the problem and never downgrades the stored status (R81).
+  const stored = rankOf(row.status);
+  const status: VerifyStatus = writeOk
+    ? "write_verified"
+    : readUnsure
+      ? STATUS_RANK[stored]!
+      : readOk && writeUnsure
+        ? STATUS_RANK[Math.max(stored, 1)]!
+        : readOk
+          ? "read_verified"
+          : "configured";
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const current = await entity(tx, scope, "connectors", connectorId);
     // The connector changed while GitHub was asked: the result belongs to the old one.
@@ -366,13 +408,17 @@ export async function verifyBlogTarget(
   return { status, problems };
 }
 
+/** Counts token replacements, so a renewed token gets its own expiry notice. */
+export const credentialGeneration = (d: Record<string, any>) =>
+  Number.isInteger(d.credentialGeneration) ? d.credentialGeneration : 1;
+
 /** The `tokenExpiresAt` date as the start of that day (UTC); NaN when absent or invalid. */
 const expiryOf = (d: Record<string, any>) =>
   Date.parse(`${String(d.tokenExpiresAt ?? "")}T00:00:00.000Z`);
 
 /**
- * Daily sweep (R81): `github_token_expiring` once per connector and expiry
- * date, from 14 days before `tokenExpiresAt`. The token's expiry is not
+ * Daily sweep (R81): `github_token_expiring` once per connector token
+ * (expiry date and credential generation), from 14 days before `tokenExpiresAt`. The token's expiry is not
  * readable through the API; the owner records it in the connector form.
  */
 export async function planGithubTokenNotices(
@@ -391,7 +437,7 @@ export async function planGithubTokenNotices(
       tx,
       scope,
       "github_token_expiring",
-      `${row.id}:${d.tokenExpiresAt}`,
+      `${row.id}:${d.tokenExpiresAt}:${credentialGeneration(d)}`,
     );
   }
 }
@@ -407,4 +453,46 @@ export async function nextGithubTokenNoticeAt(tx: DbTx, scope: Scope) {
     if (Number.isFinite(due)) next = Math.min(next, due);
   }
   return Number.isFinite(next) ? new Date(next) : null;
+}
+
+/** Input of the token renewal of an existing github connector. */
+export const githubCredentialInput = z
+  .object({
+    credential: z.string().min(10).max(1000),
+    tokenExpiresAt: z.iso.date(),
+  })
+  .strict();
+
+/**
+ * Replaces the token of an existing github connector (R81), the path the
+ * token notices ask for: the new token is stored encrypted, the expiry date
+ * recorded and a new credential generation started (a later expiry notices
+ * again). The connector goes back to `configured`; it needs a new
+ * verification. Owner only and behind the flag (checked by the route).
+ */
+export async function replaceGithubCredential(
+  tx: DbTx,
+  scope: Scope,
+  connectorId: string,
+  input: unknown,
+) {
+  const i = githubCredentialInput.parse(input);
+  const row = await entity(tx, scope, "connectors", connectorId);
+  const d = data(row);
+  if (d.provider !== "github")
+    throw new DomainError("BLOG_TARGET_NOT_CONFIGURED", 409);
+  const saved = await update(tx, scope, row, {
+    ...d,
+    encryptedCredential: encrypt(i.credential, loadConfig().CREDENTIAL_KEY),
+    tokenExpiresAt: i.tokenExpiresAt,
+    credentialGeneration: credentialGeneration(d) + 1,
+    tokenInvalidAt: null,
+    status: "configured",
+    verificationProblems: [],
+  });
+  await audit(tx, scope, "github.credential_replaced", row.id, {
+    previousStatus: d.status,
+    tokenExpiresAt: i.tokenExpiresAt,
+  });
+  return saved;
 }

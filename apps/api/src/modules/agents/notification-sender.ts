@@ -913,17 +913,24 @@ async function githubTokenInvalid(
   );
 }
 
-/** The recorded token expiry is near (R81); `ref` is `<connectorId>:<YYYY-MM-DD>`. */
+/** The recorded token expiry is near (R81); `ref` is `<connectorId>:<YYYY-MM-DD>:<generation>`. */
 async function githubTokenExpiring(
   tx: DbTx,
   scope: Scope,
   ref: string,
 ): Promise<Built> {
-  const [connectorId, date] = ref.split(":");
+  const [connectorId, date, generation] = ref.split(":");
   const row = await maybe(() => entity(tx, scope, "connectors", connectorId!));
   const d = data(row);
-  // A new token with another expiry date was recorded meanwhile.
-  if (!row || d.provider !== "github" || d.tokenExpiresAt !== date)
+  // A new token was recorded meanwhile (another date or generation).
+  if (
+    !row ||
+    d.provider !== "github" ||
+    d.tokenExpiresAt !== date ||
+    String(
+      Number.isInteger(d.credentialGeneration) ? d.credentialGeneration : 1,
+    ) !== (generation ?? "1")
+  )
     return { skip: "STALE" };
   return plain(
     [

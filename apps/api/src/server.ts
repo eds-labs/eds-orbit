@@ -46,6 +46,7 @@ import { pauseProject } from "./modules/pause.ts";
 import {
   assertBlogGithubEnabled,
   githubConnectorInput,
+  replaceGithubCredential,
   verifyBlogTarget,
 } from "./modules/blog-target.ts";
 import {
@@ -1012,6 +1013,20 @@ export async function buildServer(
       return verifyBlogTarget(scope, z.uuid().parse(id), {
         fetch: options?.githubFetch,
       });
+    },
+  );
+  // Token renewal of an existing GitHub blog target (R81): owner only; status back to configured.
+  app.post(
+    "/api/projects/:projectId/connectors/:id/github-credential",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, true, true);
+      assertBlogGithubEnabled();
+      return publicEntity(
+        await scoped(scope.workspaceId, projectId, (tx) =>
+          replaceGithubCredential(tx, scope, z.uuid().parse(id), req.body),
+        ),
+      );
     },
   );
   // Assignment drafts left for the owner (R70): the list, and the owner's release of one.

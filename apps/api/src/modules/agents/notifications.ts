@@ -49,7 +49,7 @@ export const NOTIFY_KINDS = [
   "drafts_disabled",
   // The GitHub blog target refused the token; ref `<connectorId>:<version>` (R81).
   "github_token_invalid",
-  // The recorded GitHub token expiry is at most 14 days away; ref `<connectorId>:<YYYY-MM-DD>` (R81).
+  // The recorded GitHub token expiry is at most 14 days away; ref `<connectorId>:<YYYY-MM-DD>:<generation>` (R81).
   "github_token_expiring",
   // A blog delivery reached its live page; ref is the delivery id (R81).
   "blog_live",

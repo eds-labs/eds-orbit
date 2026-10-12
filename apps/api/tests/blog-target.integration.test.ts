@@ -59,6 +59,10 @@ function fakeGithub(
     createStatus?: number;
     deleteStatus?: number;
     authFail?: boolean;
+    // Every call answers with this status (e.g. 502), as a GitHub outage would.
+    outage?: number;
+    // The only token this GitHub accepts; anything else is a 401.
+    token?: string;
   } = {},
 ) {
   const posts: Record<string, string> = options.posts ?? FIXTURE_POSTS;
@@ -76,7 +80,10 @@ function fakeGithub(
     const url = new URL(String(input));
     const method = init.method ?? "GET";
     calls.push(`${method} ${url.pathname}`);
-    if (options.authFail) return json(401, { message: "Bad credentials" });
+    const bearer = new Headers(init.headers).get("authorization");
+    if (options.authFail || bearer !== `Bearer ${options.token ?? TOKEN}`)
+      return json(401, { message: "Bad credentials" });
+    if (options.outage) return json(options.outage, { message: "Bad gateway" });
     if (method === "GET" && url.pathname === root)
       return json(200, { default_branch: "main", private: true });
     if (method === "GET" && url.pathname === `${root}/git/ref/heads/main`)
@@ -417,6 +424,26 @@ describe.skipIf(!enabled)("GitHub blog target (R81)", () => {
       expect((await connector(row.id)).pendingVerifyBranches ?? []).toEqual([]);
     });
 
+    it("keeps a verified connector's status when GitHub answers 502 or 429", async () => {
+      const row = await addConnector({ status: "write_verified" });
+      for (const outage of [502, 429]) {
+        github = fakeGithub({ outage });
+        const result = await verifyBlogTarget(owner, row.id, {
+          fetch: github.fetch,
+        });
+        expect(result.status).toBe("write_verified");
+        expect(result.problems).toEqual([
+          outage === 502 ? "GITHUB_UNAVAILABLE" : "RATE_LIMITED",
+        ]);
+        expect((await connector(row.id)).status).toBe("write_verified");
+      }
+      // A definitive refusal still downgrades.
+      github = fakeGithub({ authFail: true });
+      expect(
+        await verifyBlogTarget(owner, row.id, { fetch: github.fetch }),
+      ).toEqual({ status: "configured", problems: ["GITHUB_AUTH"] });
+    });
+
     it("is reachable for the owner only through the verify route", async () => {
       const row = await addConnector();
       const editor = await request(
@@ -440,6 +467,87 @@ describe.skipIf(!enabled)("GitHub blog target (R81)", () => {
       );
       expect(off.statusCode).toBe(409);
     });
+  });
+
+  describe("token renewal", () => {
+    const NEW_TOKEN = "github_pat_synthetic_renewed_9876543210_ZYX";
+    const renew = (who: "owner" | "editor", id: string, extra = {}) =>
+      request(who, `connectors/${id}/github-credential`, {
+        credential: NEW_TOKEN,
+        tokenExpiresAt: "2027-06-30",
+        ...extra,
+      });
+
+    it("replaces the token of the same connector and requires a new verification", async () => {
+      await linkBot();
+      const row = await addConnector({
+        status: "write_verified",
+        tokenExpiresAt: "2027-01-20",
+      });
+      await run((tx) => markTokenInvalid(tx, owner, row.id));
+      const r = await renew("owner", row.id);
+      expect(r.statusCode).toBe(200);
+      expect(r.body).not.toContain(NEW_TOKEN);
+      expect(r.json().data.encryptedCredential).toBeUndefined();
+      expect(r.json().data).toMatchObject({
+        status: "configured",
+        tokenExpiresAt: "2027-06-30",
+        tokenInvalidAt: null,
+        credentialGeneration: 2,
+      });
+      expect(await run((tx) => list(tx, owner, "connectors"))).toHaveLength(1);
+      // The old token is refused by GitHub now; verification uses the new one.
+      github = fakeGithub({ token: NEW_TOKEN });
+      expect(
+        await verifyBlogTarget(owner, row.id, { fetch: github.fetch }),
+      ).toEqual({ status: "write_verified", problems: [] });
+      // A later expiry of the new token notices again, even on the same date.
+      await run((tx) =>
+        sweepProject(tx, owner, new Date("2027-06-20T12:00:00.000Z")),
+      );
+      expect(
+        (await jobsOf("github_token_expiring")).map((j) => j.idempotencyKey),
+      ).toEqual([`notify:github_token_expiring:${row.id}:2027-06-30:2`]);
+    });
+
+    it("refuses editors, the flag off and connectors that are not github", async () => {
+      const row = await addConnector();
+      expect((await renew("editor", row.id)).statusCode).toBe(403);
+      process.env.ORBIT_BLOG_GITHUB = "false";
+      const off = await renew("owner", row.id);
+      expect(off.statusCode).toBe(409);
+      expect(off.body).toContain("BLOG_GITHUB_DISABLED");
+      process.env.ORBIT_BLOG_GITHUB = "true";
+      const postiz = await run((tx) =>
+        create(tx, owner, "connectors", {
+          provider: "postiz",
+          status: "configured",
+        }),
+      );
+      const wrong = await renew("owner", postiz.id);
+      expect(wrong.statusCode).toBe(409);
+      expect(wrong.body).toContain("BLOG_TARGET_NOT_CONFIGURED");
+      expect((await renew("owner", randomUUID())).statusCode).toBe(404);
+      expect(
+        (await renew("owner", row.id, { tokenExpiresAt: "soon" })).statusCode,
+      ).toBe(400);
+      // Nothing changed on the github connector.
+      expect((await connector(row.id)).tokenExpiresAt).toBe("2027-01-31");
+    });
+  });
+
+  it("loadBlogTarget maps only not-found to BLOG_TARGET_NOT_CONFIGURED", async () => {
+    // A database error (an id the uuid column refuses) is not "not configured".
+    const error = await run((tx) =>
+      loadBlogTarget(tx, owner, "not-a-uuid"),
+    ).catch((e) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect(error.code).not.toBe("BLOG_TARGET_NOT_CONFIGURED");
+    // So is a stored credential that cannot be decrypted.
+    const row = await addConnector({ encryptedCredential: "not.a.cipher" });
+    await expect(
+      run((tx) => loadBlogTarget(tx, owner, row.id)),
+    ).rejects.toMatchObject({ code: "INVALID_ENCRYPTED_CREDENTIAL" });
   });
 
   it("lists the published articles newest first", async () => {
@@ -532,7 +640,7 @@ describe.skipIf(!enabled)("GitHub blog target (R81)", () => {
       );
       const jobs = await jobsOf("github_token_expiring");
       expect(jobs.map((job) => job.idempotencyKey)).toEqual([
-        `notify:github_token_expiring:${soon.id}:2027-01-20`,
+        `notify:github_token_expiring:${soon.id}:2027-01-20:1`,
       ]);
     });
   });
