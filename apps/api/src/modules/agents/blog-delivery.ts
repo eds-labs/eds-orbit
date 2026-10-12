@@ -63,14 +63,23 @@ export type BlogDeliveryStatus =
 
 // A delivery in one of these states holds its slug no longer.
 const ENDED: BlogDeliveryStatus[] = ["failed", "canceled"];
-// Preflight codes of a slot or a publication step: an article is released
-// whenever the owner decides (within the release window) and is published
-// by the merge, not by a mission's publish right.
+// Live preflight codes that do not apply to an article (R83). The merge goes
+// live, so every other live gate (observe mode, synthetic content, external
+// writes, RAG evaluation, the manual calendar block, ...) stays a blocker.
 const NOT_FOR_ARTICLES = new Set([
+  // The run slot's mission window: an article is released within BLOG_RELEASE_WINDOW_DAYS instead.
   "MISSION_EXPIRED",
-  "MISSION_TEST_WRITE_NOT_AUTHORIZED",
+  // Quiet hours govern a post's slot time; the release time is no post time.
   "QUIET_HOURS",
-  "MANUAL_CALENDAR_BLOCK",
+  // The mission's publish rights: the owner's release replaces them for an article.
+  "MISSION_TEST_WRITE_NOT_AUTHORIZED",
+  "MISSION_LIVE_WRITE_NOT_AUTHORIZED",
+  // Postiz as content provider; an article's provider is the write-verified github connector.
+  "LIVE_CONTENT_PROVIDER_CAPABILITY_NOT_CONFIGURED",
+  // Postiz publisher and channel verification; checked here as BLOG_TARGET_NOT_VERIFIED.
+  "PUBLISHER_WRITE_VERIFICATION_REQUIRED",
+  "CHANNEL_WRITE_VERIFICATION_REQUIRED",
+  "CHANNEL_MEDIA_VERIFICATION_REQUIRED",
 ]);
 
 type Row = Awaited<ReturnType<typeof entity>>;
@@ -125,6 +134,8 @@ export async function bookBlogDelivery(
     assignmentId: string;
     connectorId: string;
     date: string;
+    // The run slot the article was written for, kept for the owner's view.
+    requestedSlotAt?: string | null;
   },
 ): Promise<Row> {
   assertBlogGithubEnabled();
@@ -133,8 +144,10 @@ export async function bookBlogDelivery(
   const { post, problems } = blogPostOf(c, input.date);
   if (problems.length) throw new DomainError("BLOG_POST_INVALID", 409);
   const checked = await preflight(tx, scope, input.content.id, {
-    test: true,
+    // The live checks: the merge publishes the article (R83).
+    test: false,
     at: new Date(),
+    // The owner's release is the approval (as for a package approval).
     ignoreApproval: true,
   });
   const blockers = checked.blockers.filter(
@@ -181,6 +194,7 @@ export async function bookBlogDelivery(
     bodyHash: c.humanReviewedBodyHash ?? hash(c.body),
     checksSince: null,
     mergedAt: null,
+    requestedSlotAt: input.requestedSlotAt ?? null,
     releasedBy: scope.userId,
     releasedAt: new Date().toISOString(),
   });
@@ -230,6 +244,7 @@ export async function assertSlugFree(
     if (c.status !== "needs_review" || c.supersededBy) return null;
     if (await activeBlogDelivery(tx, scope, contentId)) return null;
     assertBlogGithubEnabled();
+    // Only the slug is used here; it comes from the title, not from the date.
     const { post } = blogPostOf(c, berlinDate());
     if (!post.slug) return null;
     const loaded = await loadBlogTarget(tx, scope, String(c.channel)).catch(

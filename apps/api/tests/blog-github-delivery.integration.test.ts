@@ -17,7 +17,24 @@ const provider = vi.hoisted(() => ({
   embed: vi.fn(),
   replies: [] as Array<(request: any) => Reply | Promise<Reply>>,
   githubFetch: null as null | ((...args: any[]) => Promise<Response>),
+  // A live precondition outside this task: an evaluated live index.
+  liveIndex: true,
 }));
+vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../packages/knowledge/src/index.ts")
+    >();
+  return {
+    ...actual,
+    validateActiveIndexEvaluation: async (
+      ...args: Parameters<typeof actual.validateActiveIndexEvaluation>
+    ) =>
+      provider.liveIndex
+        ? { valid: true, reasons: [] }
+        : actual.validateActiveIndexEvaluation(...args),
+  };
+});
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("../../../packages/ai/src/index.ts")>();
@@ -218,6 +235,16 @@ describe.skipIf(!enabled)(
       return draft!;
     };
     /** `POST /assignment-drafts/:id/release` as the signed-in owner. */
+    let savedWrites: string | undefined;
+    /** A release that is refused with `code` and books nothing. */
+    const refused = async (id: string, version: number, code: string) => {
+      const r = await release(id, version);
+      expect(r.statusCode).toBe(409);
+      expect(r.json().error.code).toBe(code);
+      expect(await deliveries()).toEqual([]);
+      expect(await deliveryJobs()).toEqual([]);
+      expect(await content(id)).toMatchObject({ status: "needs_review" });
+    };
     const release = (id: string, version: number) =>
       app.inject({
         method: "POST",
@@ -266,6 +293,10 @@ describe.skipIf(!enabled)(
     beforeEach(async () => {
       process.env.ORBIT_AGENTS = "true";
       process.env.ORBIT_BLOG_GITHUB = "true";
+      // The merge goes live: the release checks the live gates (R83).
+      savedWrites = process.env.ENABLE_EXTERNAL_WRITES;
+      process.env.ENABLE_EXTERNAL_WRITES = "true";
+      provider.liveIndex = true;
       provider.replies = [];
       github = fakeGithub();
       provider.githubFetch = (...args) => github.fetch(...(args as [any, any]));
@@ -326,6 +357,8 @@ describe.skipIf(!enabled)(
     afterEach(async () => {
       delete process.env.ORBIT_AGENTS;
       delete process.env.ORBIT_BLOG_GITHUB;
+      if (savedWrites === undefined) delete process.env.ENABLE_EXTERNAL_WRITES;
+      else process.env.ENABLE_EXTERNAL_WRITES = savedWrites;
       await project.cleanup();
     });
     afterAll(async () => {
@@ -377,7 +410,22 @@ describe.skipIf(!enabled)(
         bodyHash: hash(draft.body),
         checksSince: null,
         mergedAt: null,
+        requestedSlotAt: new Date(
+          data(
+            await h.run((tx) =>
+              entity(tx, project.owner, "missions", draft.missionId),
+            ),
+          ).plannedSlotAt,
+        ).toISOString(),
       });
+      // One write: the row starts at version 1.
+      expect(
+        (
+          await h.run((tx) =>
+            entity(tx, project.owner, "blog_deliveries", row!.id),
+          )
+        ).version,
+      ).toBe(1);
       expect(post.publishedAt).toBe(berlinDate());
       expect(row!.id).toBe(result.blogDeliveryId);
       // The owner's release is the human content review of this exact text.
@@ -563,6 +611,72 @@ describe.skipIf(!enabled)(
       const late = await release(second.id, second.version);
       expect(late.statusCode).toBe(409);
       expect(late.json().error.code).toBe("BLOG_RELEASE_WINDOW_PASSED");
+    });
+
+    it("refuses an observe-mode policy, as a live write would be", async () => {
+      const draft = await awaitingOwner();
+      await h.setPolicy({ mode: "observe" });
+      await refused(draft.id, draft.version, "OBSERVE_FORBIDS_EXTERNAL_WRITE");
+    });
+
+    it("refuses synthetic content, as a live write would be", async () => {
+      const draft = await awaitingOwner();
+      const changed = await h.run(async (tx) => {
+        const row = await entity(tx, project.owner, "content", draft.id);
+        return update(tx, project.owner, row, {
+          ...data(row),
+          synthetic: true,
+        });
+      });
+      await refused(
+        draft.id,
+        changed.version,
+        "SYNTHETIC_CONTENT_NO_LIVE_WRITE",
+      );
+    });
+
+    it("refuses while external writes are off or the live index is not evaluated", async () => {
+      const draft = await awaitingOwner();
+      process.env.ENABLE_EXTERNAL_WRITES = "false";
+      await refused(draft.id, draft.version, "EXTERNAL_WRITES_DISABLED");
+      process.env.ENABLE_EXTERNAL_WRITES = "true";
+      provider.liveIndex = false;
+      await refused(draft.id, draft.version, "LIVE_RAG_EVAL_REQUIRED");
+    });
+
+    it("keeps an owner-set calendar block for the blog target", async () => {
+      const draft = await awaitingOwner();
+      await h.run((tx) =>
+        create(tx, project.owner, "calendar_blocks", {
+          status: "active",
+          channels: [connectorId],
+          startAt: new Date(Date.now() - DAY).toISOString(),
+          endAt: new Date(Date.now() + DAY).toISOString(),
+          reason: "No publishing today",
+        }),
+      );
+      await refused(draft.id, draft.version, "MANUAL_CALENDAR_BLOCK");
+    });
+
+    it("maps a refused token at the slug check and marks the connector", async () => {
+      const draft = await awaitingOwner();
+      github = fakeGithub({ authFail: true });
+      await refused(draft.id, draft.version, "GITHUB_TOKEN_INVALID");
+      const connector = await h.run((tx) =>
+        entity(tx, project.owner, "connectors", connectorId),
+      );
+      expect(data(connector)).toMatchObject({ status: "configured" });
+      expect(data(connector).tokenInvalidAt).toEqual(expect.any(String));
+    });
+
+    it("maps a GitHub outage at the slug check", async () => {
+      const draft = await awaitingOwner();
+      github = fakeGithub({ outage: 502 });
+      const r = await release(draft.id, draft.version);
+      expect(r.statusCode).toBe(503);
+      expect(r.json().error.code).toBe("BLOG_TARGET_UNREACHABLE");
+      expect(await deliveries()).toEqual([]);
+      expect(await deliveryJobs()).toEqual([]);
     });
   },
 );

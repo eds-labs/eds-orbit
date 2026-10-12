@@ -549,16 +549,13 @@ async function releaseAsBlogDelivery(
         "CONTENT_REVIEW_REQUIRED",
       409,
     );
-  const booked = await bookBlogDelivery(tx, scope, {
+  const requestedAt = new Date(slotAt).toISOString();
+  const delivery = await bookBlogDelivery(tx, scope, {
     content: reviewed,
     runId: run.id,
     assignmentId: c.assignmentId,
     connectorId: String(c.channel),
     date: berlinDate(now),
-  });
-  const requestedAt = new Date(slotAt).toISOString();
-  const delivery = await update(tx, scope, booked, {
-    ...data(booked),
     requestedSlotAt: requestedAt,
   });
   await audit(tx, scope, "assignment.draft_released", content.id, {
