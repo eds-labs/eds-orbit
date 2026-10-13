@@ -9,14 +9,16 @@ const state = vi.hoisted(() => ({
   failUpload: false,
   tokenFailure: null as null | { status: number; body?: unknown },
 }));
-vi.mock("../../../../packages/db/src/index.ts", () => ({
+vi.mock("../../../../packages/db/src/index.ts", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   scoped: async (
     _workspaceId: string,
     _projectId: string,
     fn: (tx: any) => Promise<unknown>,
   ) => fn(tx),
 }));
-vi.mock("../../../../packages/config/src/index.ts", () => ({
+vi.mock("../../../../packages/config/src/index.ts", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
   loadConfig: () => ({
     GOOGLE_DRIVE_CLIENT_ID: "test-client",
     GOOGLE_DRIVE_CLIENT_SECRET: "test-secret",

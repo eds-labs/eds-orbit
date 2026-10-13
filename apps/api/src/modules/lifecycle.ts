@@ -1,10 +1,6 @@
-import { planAutopilot, nextAutopilotCheckAt } from "./autopilot.ts";
-import { releaseMissedSlots } from "./paused-posts.ts";
-import { prepareFollowup } from "./planning.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
-  create,
   update,
   entity,
   list,
@@ -12,18 +8,7 @@ import {
   hash,
   DomainError,
   audit,
-  exception,
 } from "../shared.ts";
-import { analyze, enqueue } from "./workflow.ts";
-import { advanceContentPackages } from "./agents/content-packages.ts";
-import { agentsEnabled } from "./agents/assignments.ts";
-import { nextDailyReportAt, planDailyReport } from "./agents/notifications.ts";
-import { scheduleUnscheduledRuns } from "./agents/veto.ts";
-import { requeuePostizDrafts } from "./agents/draft-delivery.ts";
-import {
-  nextAssignmentPlanAt,
-  planAssignmentRuns,
-} from "./agents/assignment-runs.ts";
 
 export async function correctMetric(
   tx: DbTx,
@@ -195,138 +180,6 @@ export async function retention(
     purgedPreferences: expiredPrefs.length,
   };
 }
-/** Bounded sweep: an owner-created mission is never extended or regenerated past its quota. */
-export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
-  const project = await tx.project.findUniqueOrThrow({
-    where: { id: scope.projectId },
-  });
-  if (project.paused) return { queued: 0 };
-  await releaseMissedSlots(tx, scope, at);
-  // Assignment runs replace the weekly autopilot: both fill the same slots.
-  if (agentsEnabled()) {
-    await planAssignmentRuns(tx, scope, at);
-    // Runs whose approved posts could not be scheduled after their review (R54).
-    await scheduleUnscheduledRuns(tx, scope);
-    // Booked Postiz drafts whose send a pause or a failed job held back (R73).
-    await requeuePostizDrafts(tx, scope);
-    // The bot's daily report, once per local day (a paused project sends none).
-    await planDailyReport(tx, scope, at);
-  } else await planAutopilot(tx, scope, at);
-  let queued = 0;
-  const metrics = await list(tx, scope, "metrics");
-  // An owner-approved single live draft is the mission's only attempt; its
-  // startAt change bumps the mission version and must not queue another job.
-  const liveDraftMissions = new Set(
-    (await list(tx, scope, "jobs"))
-      .filter(
-        (job) =>
-          data(job).topic === "generation" && data(job).liveDraftOnce === true,
-      )
-      .map((job) => data(job).resourceId),
-  );
-  for (const m of await list(tx, scope, "missions")) {
-    if (metrics.some((row) => data(row).campaign === m.id)) {
-      try {
-        await analyze(tx, scope, m.id);
-      } catch (error) {
-        if (error instanceof DomainError)
-          await exception(tx, scope, error.code, m.id);
-        else throw error;
-      }
-    }
-    const current = (await prepareFollowup(tx, scope, m.id, at)) ?? m;
-    const d = data(current);
-    if (d.status !== "ready" || at < new Date(d.startAt)) continue;
-    if (at >= new Date(d.endAt)) {
-      await update(tx, scope, m, { ...d, status: "expired" });
-      continue;
-    }
-    if (liveDraftMissions.has(m.id)) continue;
-    // An assignment run's missions are drafted by their copywriter task only, under its budget (R37).
-    if (d.assignmentRunId) continue;
-    await enqueue(
-      tx,
-      scope,
-      "generation",
-      m.id,
-      "mission:" + m.id + ":" + current.version,
-      at,
-    );
-    queued++;
-  }
-  await advanceContentPackages(tx, scope);
-  const requests = await list(tx, scope, "sync_requests");
-  for (const source of await list(tx, scope, "sources")) {
-    const d = data(source);
-    if (d.status !== "active" || !d.syncEveryHours) continue;
-    const latest = requests.find((r) => data(r).sourceId === source.id);
-    if (!latest) continue;
-    const last = d.lastSuccessfulSyncAt
-      ? Date.parse(d.lastSuccessfulSyncAt)
-      : 0;
-    if (at.valueOf() - last < d.syncEveryHours * 3600000) continue;
-    const slot = Math.floor(at.valueOf() / (d.syncEveryHours * 3600000));
-    const key = `periodic-sync:${source.id}:${d.generation}:${slot}`;
-    const jobs = await list(tx, scope, "jobs");
-    if (jobs.some((j) => data(j).idempotencyKey === key)) continue;
-    const request = await create(tx, scope, "sync_requests", {
-      ...data(latest),
-      expectedGeneration: d.generation,
-    });
-    await enqueue(tx, scope, "ingestion", request.id, key, at);
-    queued++;
-  }
-  for (const e of await list(tx, scope, "experiments"))
-    if (data(e).status === "running" && at >= new Date(data(e).endAt))
-      await evaluateExperiment(tx, scope, e.id, at);
-  return { queued };
-}
-/**
- * Earliest future time at which sweepProject can change state without any new write.
- * Writes wake a project through database triggers; this covers purely time-based transitions.
- */
-export async function nextSweepAt(tx: DbTx, scope: Scope, at = new Date()) {
-  const project = await tx.project.findUniqueOrThrow({
-    where: { id: scope.projectId },
-  });
-  if (project.paused) return null;
-  const now = at.valueOf();
-  let next = Infinity;
-  const consider = (value: unknown) => {
-    const time =
-      typeof value === "number" ? value : Date.parse(String(value ?? ""));
-    if (Number.isFinite(time) && time > now) next = Math.min(next, time);
-  };
-  for (const m of await list(tx, scope, "missions")) {
-    const d = data(m);
-    if (d.status === "ready") {
-      consider(d.startAt);
-      consider(d.endAt);
-    } else if (d.status === "awaiting_followup") {
-      consider(d.nextPlanAt);
-      consider(d.endAt);
-    }
-  }
-  const requests = await list(tx, scope, "sync_requests");
-  for (const source of await list(tx, scope, "sources")) {
-    const d = data(source);
-    if (d.status !== "active" || !d.syncEveryHours) continue;
-    if (!requests.some((r) => data(r).sourceId === source.id)) continue;
-    const interval = d.syncEveryHours * 3600000;
-    const last = d.lastSuccessfulSyncAt
-      ? Date.parse(d.lastSuccessfulSyncAt)
-      : 0;
-    consider(
-      last + interval > now
-        ? last + interval
-        : (Math.floor(now / interval) + 1) * interval,
-    );
-  }
-  for (const e of await list(tx, scope, "experiments"))
-    if (data(e).status === "running") consider(data(e).endAt);
-  if (agentsEnabled()) {
-    consider((await nextAssignmentPlanAt(tx, scope, at))?.valueOf());
-    consider((await nextDailyReportAt(tx, scope, at))?.valueOf());
-  } else consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
-  return Number.isFinite(next) ? new Date(next) : null;
-}
+// The sweep frame moved to the platform scheduler (WP1.6); its marketing and
+// source-sync parts are scheduler contributions. Importers keep this path.
+export { nextSweepAt, sweepProject } from "../platform/jobs/scheduler.ts";

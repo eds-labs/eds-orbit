@@ -108,6 +108,9 @@ import {
   update,
 } from "../src/shared.ts";
 import { sweepProject } from "../src/modules/lifecycle.ts";
+// Loaded here, after vi.mock, so the sweep's marketing contribution uses the
+// mocked slot lookup (see tests/setup.ts).
+import "../src/modules/registry.ts";
 import {
   freeAssignmentBudget,
   setAssignmentStatus,

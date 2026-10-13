@@ -5,6 +5,7 @@ import {
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
+import { registeredPublicView } from "./modules/contributions.ts";
 import type { DbTx, Prisma } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 export class DomainError extends Error {
@@ -208,15 +209,7 @@ export function publicEntity(row: any) {
     const { encryptedCredential, ...safe } = data(row);
     return { ...row, data: safe };
   }
-  if (row.kind === "assets") {
-    const { base64, ...safe } = data(row);
-    return {
-      ...row,
-      data: {
-        ...safe,
-        hasContent: typeof base64 === "string" && base64.length > 0,
-      },
-    };
-  }
-  return row;
+  // A module's own kinds are projected by the module (WP1.6).
+  const view = registeredPublicView(row.kind);
+  return view ? view(row) : row;
 }

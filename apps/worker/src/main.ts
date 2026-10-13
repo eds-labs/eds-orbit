@@ -1,4 +1,5 @@
 import { registerModules } from "../../api/src/modules/registry.ts";
+import { registeredJobs } from "../../api/src/platform/modules/contributions.ts";
 import {
   runScheduledMatomo,
   nextMatomoRunAt,
@@ -12,18 +13,8 @@ import {
   markSyncFailed,
   connectionStatus,
 } from "../../api/src/modules/google-drive.ts";
-import { runIndexEvaluation } from "../../api/src/modules/index-evaluation.ts";
-import { buildIndexBatch } from "../../api/src/modules/reindex.ts";
 import Redis from "ioredis";
-import {
-  dispatchSlackDigest,
-  markSlackOutcomeUnknown,
-} from "../../api/src/modules/slack.ts";
-import {
-  sweepProject,
-  nextSweepAt,
-  evaluateExperiment,
-} from "../../api/src/modules/lifecycle.ts";
+import { sweepProject, nextSweepAt } from "../../api/src/modules/lifecycle.ts";
 import { writeFile, rename, unlink, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
@@ -50,32 +41,9 @@ import {
   data,
   update,
   exception,
-  audit,
   create,
 } from "../../api/src/shared.ts";
-import {
-  deterministicDraft,
-  claimPublication,
-  finishPublication,
-  reviewContent,
-  publishIntent,
-} from "../../api/src/modules/workflow.ts";
-import { generateMissionLive } from "../../api/src/modules/generation.ts";
-import { runChatJob } from "../../api/src/modules/chat-runner.ts";
-import { stopChatRunForPause } from "../../api/src/modules/chat.ts";
-import { runImageJob } from "../../api/src/modules/image-requests.ts";
 import { registerAgentSpecialists } from "../../api/src/modules/agents/specialists/index.ts";
-import { runAgentTask } from "../../api/src/modules/agents/specialists/runner.ts";
-import { sendNotification } from "../../api/src/modules/agents/notification-sender.ts";
-import {
-  deliverPostizDraft,
-  markPostizDraftOutcomeUnknown,
-} from "../../api/src/modules/agents/draft-delivery.ts";
-import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
-import {
-  dispatchPublication,
-  reconcilePublication,
-} from "../../api/src/modules/publisher.ts";
 // A broken module manifest stops the worker before it takes a job.
 registerModules();
 // Model specialists of the `agent` queue.
@@ -96,25 +64,9 @@ function reportConnectionError() {
 }
 connection.on("error", reportConnectionError);
 await connection.connect();
-const classes = [
-  "publishing",
-  "generation",
-  "chat",
-  "ingestion",
-  "embedding",
-  "reindex",
-  "index_evaluation",
-  "analytics",
-  "reconciliation",
-  "slack_notification",
-  "image",
-  // Specialist tasks of assignment runs (Orbit Agents).
-  "agent",
-  // Previews, notices and the daily report for the owner's Telegram bot (Orbit Agents).
-  "telegram_notification",
-  // Approved assignment posts sent to Postiz as drafts only (delivery "Postiz draft", R73).
-  "postiz_draft",
-] as const;
+// Queue classes as registered by the platform and the modules (WP1.6).
+const jobDefs = registeredJobs();
+const classes = [...jobDefs.keys()];
 const queues = new Map(
   classes.map((c) => [
     c,
@@ -157,6 +109,7 @@ const workers = classes.map(
     new Worker(
       config.QUEUE_NAMESPACE + "-" + topic,
       async (queued) => {
+        const def = jobDefs.get(topic)!;
         const { projectId, workspaceId, jobId } = queued.data;
         const scope: Scope = {
           projectId,
@@ -183,163 +136,36 @@ const workers = classes.map(
           const project = await tx.project.findUniqueOrThrow({
             where: { id: projectId },
           });
-          // A message to the owner's own bot publishes nothing; a pause notice must still reach him.
-          if (project.paused && topic !== "telegram_notification") {
+          if (project.paused && !def.runWhilePaused) {
             await update(tx, scope, job, {
               ...d,
               status: "blocked_dependency",
               error: "PROJECT_PAUSED",
             });
-            // The reply would otherwise wait forever.
-            if (topic === "chat") await stopChatRunForPause(tx, d);
+            await def.onBlockedByPause?.(tx, d);
             return null;
           }
           return update(tx, scope, job, {
             ...d,
             status: "running",
             attempts: d.attempts + 1,
-            // A specialist task may run its full 120 s wall time, a notification with its retries nearly as long; the lease outlasts both.
+            // The lease outlasts the class's longest run (JobDef.leaseMs).
             leaseUntil: new Date(
-              Date.now() +
-                (topic === "agent" || topic === "telegram_notification"
-                  ? 180000
-                  : 120000),
+              Date.now() + (def.leaseMs ?? 120000),
             ).toISOString(),
             worker: config.PUBLISHER_INSTANCE_ID,
           });
         });
         if (!claimed) return;
         try {
-          let chatResult: { status: string; errorCode: string | null } | null =
-            null;
-          if (topic === "chat") {
-            // Runs with the requesting user's current role, never the worker's.
-            const finished = await runChatJob(
+          // A handler may report its own terminal status (chat).
+          const chatResult =
+            (await def.handler({
               scope,
-              data(claimed).actorId,
-              data(claimed).resourceId,
-            );
-            chatResult = {
-              status: finished.status,
-              errorCode: finished.errorCode,
-            };
-          } else if (topic === "generation") {
-            const drafts =
-              config.EXECUTION_MODE === "live" ||
-              data(claimed).liveDraftOnce === true
-                ? [
-                    await generateMissionLive(
-                      scope,
-                      data(claimed).resourceId,
-                      jobId,
-                    ),
-                  ]
-                : await scoped(workspaceId, projectId, (tx) =>
-                    deterministicDraft(
-                      tx,
-                      scope,
-                      data(claimed).resourceId,
-                      jobId,
-                    ),
-                  );
-            for (const content of drafts) {
-              const reviewed = await scoped(
-                workspaceId,
-                projectId,
-                async (tx) => {
-                  const project = await tx.project.findUniqueOrThrow({
-                    where: { id: projectId },
-                  });
-                  if (
-                    data(claimed).liveDraftOnce === true ||
-                    project.mode !== "autopilot"
-                  )
-                    return null;
-                  const mission = await entity(
-                    tx,
-                    scope,
-                    "missions",
-                    data(content).missionId,
-                  );
-                  if (
-                    Array.isArray(data(mission).allowedActions) &&
-                    !data(mission).allowedActions.some(
-                      (action: string) =>
-                        action === "publish_test" || action === "publish_live",
-                    )
-                  )
-                    return null;
-                  const current = await entity(
-                    tx,
-                    scope,
-                    "content",
-                    content.id,
-                  );
-                  const result =
-                    data(current).status === "draft"
-                      ? await reviewContent(
-                          tx,
-                          scope,
-                          current.id,
-                          current.version,
-                        )
-                      : current;
-                  if (data(result).status !== "reviewed") {
-                    await exception(
-                      tx,
-                      scope,
-                      "CONTENT_REVIEW_REQUIRED",
-                      result.id,
-                    );
-                    return null;
-                  }
-                  return result;
-                },
-              );
-              if (reviewed)
-                await scoped(workspaceId, projectId, (tx) =>
-                  publishIntent(tx, scope, {
-                    contentId: reviewed.id,
-                    version: reviewed.version,
-                  }),
-                );
-            }
-          } else if (topic === "ingestion") {
-            await syncSource(scope, data(claimed).resourceId);
-          } else if (topic === "embedding") {
-            await embedDocument(scope, data(claimed).resourceId, jobId);
-          } else if (topic === "index_evaluation") {
-            await runIndexEvaluation(scope, data(claimed).resourceId, jobId);
-          } else if (topic === "reindex") {
-            await buildIndexBatch(scope, data(claimed).resourceId, jobId);
-          } else if (topic === "publishing") {
-            await dispatchPublication(scope, data(claimed).resourceId);
-          } else if (topic === "reconciliation") {
-            await reconcilePublication(scope, data(claimed).resourceId);
-          } else if (topic === "slack_notification") {
-            await dispatchSlackDigest(scope, data(claimed).resourceId);
-          } else if (topic === "image") {
-            // Runs an owner-approved image request with the decider's current role.
-            await runImageJob(
-              scope,
-              data(claimed).actorId,
-              data(claimed).resourceId,
               jobId,
-            );
-          } else if (topic === "telegram_notification") {
-            // Records its own outcome on the job; a failed delivery is an exception, never a retry loop.
-            await sendNotification(scope, jobId);
-          } else if (topic === "postiz_draft") {
-            // Records its own outcome on the handoff; an unclear send is never repeated.
-            await deliverPostizDraft(scope, data(claimed).resourceId);
-          } else if (topic === "agent") {
-            // Records its own outcome on the task; never retried after a paid call.
-            await runAgentTask(scope, data(claimed).resourceId);
-          } else if (topic === "analytics") {
-            await scoped(workspaceId, projectId, (tx) =>
-              evaluateExperiment(tx, scope, data(claimed).resourceId),
-            );
-          } else throw new Error("JOB_CAPABILITY_NOT_CONFIGURED");
+              job: data(claimed),
+              executionMode: config.EXECUTION_MODE,
+            })) ?? null;
           await scoped(workspaceId, projectId, async (tx) => {
             const job = await entity(tx, scope, "jobs", jobId);
             await update(tx, scope, job, {
@@ -378,7 +204,7 @@ const workers = classes.map(
       },
       {
         connection,
-        concurrency: topic === "publishing" ? 2 : 1,
+        concurrency: jobDefs.get(topic)!.concurrency ?? 1,
         lockDuration: 120000,
         stalledInterval: 30000,
         maxStalledCount: 1,
@@ -423,21 +249,8 @@ async function processProject(p: DueProject, claimed: Date) {
           candidates.push(new Date(lease.valueOf() + LEASE_GRACE_MS));
           continue;
         }
-        if (d.topic === "slack_notification")
-          await markSlackOutcomeUnknown(tx, scope, d.resourceId);
-        // A draft send that may have reached Postiz is never repeated (R73).
-        if (d.topic === "postiz_draft")
-          await markPostizDraftOutcomeUnknown(tx, scope, d.resourceId);
-        if (d.topic === "publishing") {
-          const pub = await entity(tx, scope, "publications", d.resourceId);
-          if (data(pub).status === "sending") {
-            await update(tx, scope, pub, {
-              ...data(pub),
-              status: "outcome_unknown",
-            });
-            await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pub.id);
-          }
-        }
+        // Crash recovery per queue class: an ambiguous external write is never repeated.
+        await jobDefs.get(d.topic)?.onLeaseExpired?.(tx, scope, d);
         if (d.liveDraftOnce === true || d.attempts >= d.maxAttempts) {
           await update(tx, scope, job, {
             ...d,
@@ -492,7 +305,7 @@ async function processProject(p: DueProject, claimed: Date) {
   );
   let redispatch = events.length === OUTBOX_BATCH;
   for (const e of events) {
-    const queue = queues.get(e.topic as (typeof classes)[number]);
+    const queue = queues.get(e.topic);
     if (!queue) continue;
     if ((await queue.getWaitingCount()) > 200) {
       redispatch = true;

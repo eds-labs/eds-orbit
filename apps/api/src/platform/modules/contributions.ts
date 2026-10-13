@@ -107,10 +107,17 @@ export function registeredActionType(type: string) {
 export function registeredJobs(): ReadonlyMap<string, JobDef> {
   return current().jobs;
 }
-/** Scheduler contributions: platform first, then modules in dependency order. */
+/**
+ * Scheduler contributions in the order the sweep ran before WP1.6: modules in
+ * dependency order, then the platform (periodic source sync).
+ */
 export function registeredSchedulers(): SchedulerContribution[] {
-  return [...current().byModule.values()]
-    .map((c) => c.scheduler)
+  const all = [...current().byModule.entries()];
+  return [
+    ...all.filter(([id]) => id !== "platform"),
+    ...all.filter(([id]) => id === "platform"),
+  ]
+    .map(([, c]) => c.scheduler)
     .filter((s): s is SchedulerContribution => Boolean(s));
 }
 export function registeredPublicView(kind: string) {

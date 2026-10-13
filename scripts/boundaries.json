@@ -141,16 +141,6 @@
     "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/workflow.ts",
     "platform-imports-module: apps/api/src/modules/google-drive.ts -> apps/api/src/modules/assets.ts",
     "platform-imports-module: apps/api/src/modules/google-drive.ts -> apps/api/src/modules/drive-readiness.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/assignment-runs.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/assignments.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/content-packages.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/draft-delivery.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/notifications.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/veto.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/autopilot.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/paused-posts.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/planning.ts",
-    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/workflow.ts",
     "platform-imports-module: apps/api/src/modules/pause.ts -> apps/api/src/modules/agents/assignment-runs.ts",
     "platform-imports-module: apps/api/src/modules/pause.ts -> apps/api/src/modules/agents/notifications.ts",
     "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/drive-readiness.ts",
@@ -173,15 +163,8 @@
     "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/advanced.tsx",
     "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/knowledge.tsx",
     "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/work.tsx",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/draft-delivery.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/notification-sender.ts",
     "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/specialists/index.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/generation.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/image-requests.ts",
     "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/matomo-schedule.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/postiz-queue-watch.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/publisher.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/slack.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/workflow.ts"
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/postiz-queue-watch.ts"
   ]
 }

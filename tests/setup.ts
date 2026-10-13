@@ -25,8 +25,12 @@ process.env.LOG_LEVEL ??= "silent";
 // The test process is a composition root like the API and the worker: every
 // module's contributions (tools, action types, jobs, sweeps, projections)
 // are registered before the tests run. In a hook, so the registry is loaded
-// after the test file registered its vi.mock replacements.
+// after the test file registered its vi.mock replacements. Vitest applies a
+// file's mocks only to modules loaded through that file: a test that mocks a
+// module reached only through the registry imports
+// "apps/api/src/modules/registry.ts" itself.
 beforeAll(async () => {
-  const { registerModules } = await import("../apps/api/src/modules/registry.ts");
+  const { registerModules } =
+    await import("../apps/api/src/modules/registry.ts");
   registerModules();
 });
