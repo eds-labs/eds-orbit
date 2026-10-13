@@ -233,7 +233,7 @@ docker inspect --format '{{.Image}}' <orbit-api-container>
 
 ### Step 3 — Approval B queries
 
-(2026-10-13: the weekly autopilot and these Phase 0 queries were removed after Phase 0 was done; they remain in the git history.) The queries were versioned in `scripts/rollout/` and covered by `apps/api/tests/rollout-phase0.integration.test.ts`. That test checks that the preview predicts exactly the days the deployed `planAutopilot` skips (daily quota, spacing, already planned days, canceled posts), and that both queries run in a read-only transaction. They run in the Orbit `postgres` container as the database owner (`orbit_migrator`, which can read across projects). `default_transaction_read_only=on` makes the session refuse any write (SQLSTATE `25006`).
+(2026-10-13: the weekly autopilot and these Phase 0 queries were removed after Phase 0 was done; they remain in the git history before commit eb44ae4.) The queries were versioned in scripts/rollout and covered by the rollout-phase0 integration test. That test checks that the preview predicts exactly the days the deployed `planAutopilot` skips (daily quota, spacing, already planned days, canceled posts), and that both queries run in a read-only transaction. They run in the Orbit `postgres` container as the database owner (`orbit_migrator`, which can read across projects). `default_transaction_read_only=on` makes the session refuse any write (SQLSTATE `25006`).
 
 1. Find the uLiquid project ID (read-only):
 
