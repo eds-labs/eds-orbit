@@ -369,6 +369,31 @@ function outputJsonSchema(specialist: Specialist) {
   return schema;
 }
 
+/** Where a final answer fails its schema: paths, issue codes and string lengths, never its text. */
+export function outputIssues(answer: string, schema: Specialist["outputSchema"]) {
+  let value: unknown;
+  try {
+    value = JSON.parse(answer);
+  } catch {
+    return answer.trim() ? "not_json" : "empty";
+  }
+  const result = schema.safeParse(value);
+  if (result.success) return "valid";
+  return result.error.issues
+    .slice(0, 4)
+    .map((issue) => {
+      const at = issue.path.reduce<unknown>(
+        (node, key) =>
+          node && typeof node === "object"
+            ? (node as Record<PropertyKey, unknown>)[key as PropertyKey]
+            : undefined,
+        value,
+      );
+      return `${issue.path.join(".") || "$"}:${issue.code}${typeof at === "string" ? `(${at.length})` : ""}`;
+    })
+    .join(",");
+}
+
 /** The text of the last assistant message of a response. */
 function finalText(output: unknown[]) {
   const messages = output.filter(
@@ -641,10 +666,20 @@ export async function runSpecialist(
       signal: deadline,
     });
     let parsed: unknown;
+    const answer = finalText(lastOutput);
     try {
-      parsed = specialist.outputSchema.parse(JSON.parse(finalText(lastOutput)));
+      parsed = specialist.outputSchema.parse(JSON.parse(answer));
     } catch {
-      // The cost of the last call is already settled.
+      // The cost of the last call is already settled. The span names where
+      // the answer failed, so the cause can be found without its content.
+      await recordSpan(scope, agentRunId, {
+        type: "model_call",
+        name: "output_validation",
+        status: "failed",
+        errorCode: `AGENT_OUTPUT_INVALID ${outputIssues(answer, specialist.outputSchema)}`,
+        startedAt: new Date(),
+        durationMs: 0,
+      });
       throw new DomainError("AGENT_OUTPUT_INVALID");
     }
     const stored = specialist.finalize

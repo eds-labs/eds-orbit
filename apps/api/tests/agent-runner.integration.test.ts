@@ -696,6 +696,18 @@ describe.skipIf(!enabled)("Specialist runner", () => {
       ]),
     ).toEqual([["settled", 7]]);
     expect((await runRow()).costMicros).toBe(7);
+    // A span names where the answer failed, without its content.
+    const spans = await run((tx) =>
+      tx.agentSpan.findMany({
+        where: {
+          projectId: project.owner.projectId,
+          name: "output_validation",
+        },
+      }),
+    );
+    expect(spans).toHaveLength(1);
+    expect(spans[0]).toMatchObject({ type: "model_call", status: "failed" });
+    expect(spans[0]!.errorCode).toMatch(/^AGENT_OUTPUT_INVALID \S+:/);
   });
 
   it("refuses a task of an assignment that is not active and cancels its runs (I3a)", async () => {

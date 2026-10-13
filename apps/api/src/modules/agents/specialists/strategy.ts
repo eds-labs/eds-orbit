@@ -25,18 +25,29 @@ export const AGENT_DUPLICATE_SLOT = "AGENT_DUPLICATE_SLOT";
 const text = (max: number) =>
   z.string().refine((value) => value.length > 0 && value.length <= max);
 
+// Checked after the answer (the strict output schema carries no lengths) and
+// named in the instructions. The angle plans a whole post, up to 900
+// characters with an assignment format, so it gets the most room.
+export const STRATEGY_TEXT_LIMITS = {
+  topic: 300,
+  angle: 1200,
+  cta: 300,
+  imageIdea: 600,
+  notARepeatBecause: 600,
+} as const;
+
 const brief = z
   .object({
     channel: text(80),
     // The ISO time of one slot of the run, as given in the input.
     slotAt: text(40).refine((value) => Number.isFinite(Date.parse(value))),
-    topic: text(200),
-    angle: text(500),
+    topic: text(STRATEGY_TEXT_LIMITS.topic),
+    angle: text(STRATEGY_TEXT_LIMITS.angle),
     // Keys of the usable Verified Facts the post may state; checked after the answer.
     factKeys: z.array(text(160)).refine((keys) => keys.length <= MAX_FACT_KEYS),
-    cta: text(200),
-    imageIdea: text(400).nullable(),
-    notARepeatBecause: text(400),
+    cta: text(STRATEGY_TEXT_LIMITS.cta),
+    imageIdea: text(STRATEGY_TEXT_LIMITS.imageIdea).nullable(),
+    notARepeatBecause: text(STRATEGY_TEXT_LIMITS.notARepeatBecause),
   })
   .strict();
 
@@ -234,6 +245,11 @@ export const strategySpecialist: Specialist = {
     "Do not repeat a topic or angle of channelHistory on the same channel. Use channel_history for older posts and knowledge_search only to understand a fact, never to add new claims.",
     "If a slot lists sharedChannels, its one post goes out unchanged on every one of those channels: write one brief for it that suits all of them and avoids every one of their recent posts.",
     "If assignment.format is set, plan each post for it: format.minChars to format.maxChars characters, format.hashtags.min to format.hashtags.max hashtags, short paragraphs when format.paragraphs is true, leading to format.cta as its link when set.",
+    `A brief plans the post and does not contain it. Keep every text field non-empty and within its limit in characters: ${Object.entries(
+      STRATEGY_TEXT_LIMITS,
+    )
+      .map(([field, max]) => `${field} at most ${max}`)
+      .join(", ")}.`,
   ].join(" "),
   tools: [agentKnowledgeSearch, ...channelTools],
   hostedTools: [],
