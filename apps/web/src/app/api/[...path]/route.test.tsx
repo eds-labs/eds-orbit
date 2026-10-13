@@ -38,4 +38,34 @@ describe("API proxy", () => {
     expect(headers.get("authorization")).toBeNull();
     expect(headers.get("x-other")).toBeNull();
   });
+
+  it("forwards the right-most X-Forwarded-For hop as the client address", async () => {
+    const headers = await call({
+      "x-forwarded-for": "203.0.113.9, 198.51.100.7",
+    });
+    expect(headers.get("x-orbit-client-ip")).toBe("198.51.100.7");
+    expect(headers.get("x-forwarded-for")).toBeNull();
+  });
+
+  it("forwards an IPv6 client address", async () => {
+    const headers = await call({ "x-forwarded-for": "2001:db8::1" });
+    expect(headers.get("x-orbit-client-ip")).toBe("2001:db8::1");
+  });
+
+  it("never passes on a client address the browser sent itself", async () => {
+    const headers = await call({
+      "x-orbit-client-ip": "203.0.113.9",
+      "x-forwarded-for": "198.51.100.7",
+    });
+    expect(headers.get("x-orbit-client-ip")).toBe("198.51.100.7");
+    const unknown = await call({ "x-orbit-client-ip": "203.0.113.9" });
+    expect(unknown.get("x-orbit-client-ip")).toBeNull();
+  });
+
+  it("sends no client address when the last hop is not an IP", async () => {
+    for (const value of ["198.51.100.7, unknown", "198.51.100.7,", "x"]) {
+      const headers = await call({ "x-forwarded-for": value });
+      expect(headers.get("x-orbit-client-ip")).toBeNull();
+    }
+  });
 });

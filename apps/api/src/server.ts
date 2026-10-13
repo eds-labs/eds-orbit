@@ -173,6 +173,7 @@ import {
   userFor,
   fromNodeHeaders,
 } from "./auth.ts";
+import { clientIp, pinClientIpHeader } from "./client-ip.ts";
 import {
   data,
   create,
@@ -283,6 +284,8 @@ export async function buildServer(
     auth = makeAuth();
   const app = Fastify({
     bodyLimit: 1500000,
+    // req.ip stays the TCP peer; the forwarded client address is resolved by
+    // clientIp(), which trusts it only from the internal web hop.
     trustProxy: false,
     // Never trust or echo client-supplied request ids.
     genReqId: () => randomUUID(),
@@ -313,11 +316,14 @@ export async function buildServer(
       directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
     },
   });
+  // Before any hook or handler reads the header (Better Auth included).
+  app.addHook("onRequest", async (req) => pinClientIpHeader(req));
   await app.register(rateLimit, {
     max: (req) => (["GET", "HEAD"].includes(req.method) ? 600 : 100),
     timeWindow: "1 minute",
     keyGenerator: (req) =>
-      req.ip + (["GET", "HEAD"].includes(req.method) ? ":read" : ":write"),
+      clientIp(req) +
+      (["GET", "HEAD"].includes(req.method) ? ":read" : ":write"),
   });
   await app.register(swagger, {
     openapi: {
@@ -527,7 +533,7 @@ export async function buildServer(
         max: 20,
         timeWindow: "1 minute",
         keyGenerator: (req: import("fastify").FastifyRequest) =>
-          req.ip + ":" + req.method + ":" + req.url.split("?")[0],
+          clientIp(req) + ":" + req.method + ":" + req.url.split("?")[0],
       },
     },
     handler: async (req, reply) => {
