@@ -1,5 +1,29 @@
 # Implementation status
 
+## Web shell and navigation: WP1.7 (2026-10-13, local)
+
+Branch `claude/wp17-web-shell`, work package WP1.7 of the modularization roadmap (ADR 0009, AD-12). The web app gets one URL per page; the views themselves are unchanged.
+
+**URL scheme.**
+- `/` opens the last used project, else the only one, else a picker.
+- `/o` lists organizations (server: workspaces), `/o/:orgId` their projects; owners create projects there.
+- `/p/:projectId` is the project home; platform pages are `/p/:projectId/{assistant,approvals,connectors,operations,settings}`, module pages `/p/:projectId/knowledge` and `/p/:projectId/marketing/{missions,content,calendar,assets,analytics,memory}`. A module root opens its first page.
+- The 13 paths from before (`/missions`, `/chat`, `/settings`, …) redirect into the last used project and keep query and hash, so bookmarks, the Telegram "In Orbit öffnen" link (`/approvals`) and the Google Drive callback (`/settings?googleDrive=…`) keep working. In-app links and the API's chat card links are rewritten to the open project.
+- Unknown addresses show "Page not found"; a project the user cannot open shows "Project not available". Before, both silently showed the Overview.
+- Switching the project keeps the page and changes the URL.
+
+**Structure.**
+- `apps/web/src/platform/ui/`: the shared view helpers and the form kit, formerly in `work.tsx` and `components/form.tsx`. This removes the `advanced.tsx` ⇄ `work.tsx` import cycle.
+- `apps/web/src/platform/shell/`: route table (`routes.ts`, checked for conflicts at start), shell context, project home, pickers, not-found view.
+- `apps/web/src/modules/{knowledge,marketing}/manifest.tsx`: web manifests (views, navigation entries, legacy paths, home section). They point to today's components; WP2.3 and WP3.3 move the components.
+- `apps/web/src/modules/registry.ts`: the web composition root. The shell (`components/orbit.tsx`) imports no module; import-boundary violations drop from 45 to 39.
+- Navigation and the project home hide modules that `GET /api/projects/:id/modules` reports as off; until that answer arrives, or if it fails, all modules count as on. A page of a module that is off shows a notice. The server does not enforce activation yet (WP2.4).
+- Project home: the assistant prompt (the text opens in Orbit Chat for review; nothing is sent automatically), one tile per module with its pages, then the marketing overview.
+- The mobile bottom bar comes from the manifests (`mobile` flag), in the old order.
+- The stored language choice is no longer overwritten by the default during the first render.
+
+**Verification (local).** Web typecheck, unit and component tests (16 files, 83 tests), import-boundary check and a production build of the web app (`next build --webpack`; Turbopack refuses the symlinked `node_modules` of this worktree). Manual check against a synthetic mock API: pickers, home, project switch, a project with marketing off, legacy redirect with query and hash, both not-found pages, 375 px without horizontal scroll, German labels. The Playwright suite (new `navigation.spec.ts`, updated `workspace.spec.ts` and `chat.spec.ts`) runs in CI; a local run needs an isolated browser database that was not set up here.
+
 ## Safety net for the modularization: WP0.2 (2026-10-13, local)
 
 Branch `claude/wp02-safety-net`. This adds tests and a CI guard only; no product code changed. It is work package WP0.2 of `plans/orbit-modularization/07-roadmap.md` (decision baseline: PR #93, ADR 0009).
