@@ -8,6 +8,7 @@ import {
 } from "./modules/autopilot.ts";
 import { resumePausedPublications } from "./modules/paused-posts.ts";
 import { archiveMission } from "./modules/mission-archive.ts";
+import { addProjectMember } from "./modules/project-members.ts";
 import {
   archiveOldDrafts,
   restoreDraftCleanup,
@@ -1611,45 +1612,7 @@ export async function buildServer(
         scope,
         schemas.id.parse(input.verificationId),
       );
-    if (action === "add-member") {
-      const i = z
-        .object({
-          email: z.email(),
-          name: z.string().min(1).max(100),
-          password: z.string().min(12).max(128),
-          role: z.enum(["owner", "editor", "viewer"]),
-        })
-        .strict()
-        .parse(input);
-      let user = await authDb.user.findUnique({ where: { email: i.email } });
-      if (!user) {
-        const result = await auth.api.signUpEmail({
-          body: { email: i.email, name: i.name, password: i.password },
-        });
-        user = result.user as any;
-      }
-      const userId = user!.id;
-      await authDb.$transaction(async (tx) => {
-        await tx.workspaceMember.upsert({
-          where: {
-            workspaceId_userId: { workspaceId: scope.workspaceId, userId },
-          },
-          create: { workspaceId: scope.workspaceId, userId, role: "viewer" },
-          update: {},
-        });
-        await tx.projectMember.upsert({
-          where: { projectId_userId: { projectId, userId } },
-          create: {
-            workspaceId: scope.workspaceId,
-            projectId,
-            userId,
-            role: i.role,
-          },
-          update: { role: i.role },
-        });
-      });
-      return { added: true };
-    }
+    if (action === "add-member") return addProjectMember(auth, scope, input);
     if (action === "project-settings") {
       const i = z
         .object({
