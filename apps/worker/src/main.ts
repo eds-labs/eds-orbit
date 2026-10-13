@@ -1,3 +1,4 @@
+import { moduleRegistry } from "../../api/src/modules/registry.ts";
 import {
   runScheduledMatomo,
   nextMatomoRunAt,
@@ -75,6 +76,8 @@ import {
   dispatchPublication,
   reconcilePublication,
 } from "../../api/src/modules/publisher.ts";
+// A broken module manifest stops the worker before it takes a job.
+moduleRegistry();
 // Model specialists of the `agent` queue.
 registerAgentSpecialists();
 const config = loadConfig(),

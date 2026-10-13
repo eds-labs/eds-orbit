@@ -1,5 +1,5 @@
 {
-  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 §2, 05 §3); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added.",
+  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 \u00a72, 05 \u00a73); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added.",
   "roots": [
     "apps/api/src",
     "apps/worker/src",
@@ -10,7 +10,8 @@
     "root:api": [
       "apps/api/src/main.ts",
       "apps/api/src/server.ts",
-      "apps/api/src/openapi.ts"
+      "apps/api/src/openapi.ts",
+      "apps/api/src/modules/registry.ts"
     ],
     "platform": [
       "apps/api/src/platform/",
@@ -102,6 +103,9 @@
     ],
     "package:schemas": [
       "packages/schemas/"
+    ],
+    "package:module-contracts": [
+      "packages/module-contracts/"
     ]
   },
   "dependencies": {

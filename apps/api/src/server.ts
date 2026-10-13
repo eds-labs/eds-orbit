@@ -1,3 +1,4 @@
+import { moduleRegistry } from "./modules/registry.ts";
 import { randomUUID } from "node:crypto";
 import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
 import {
@@ -280,6 +281,8 @@ export async function buildServer(
   diagnostic?: (error: unknown) => void,
   options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
 ) {
+  // A broken module manifest stops the API before it serves anything.
+  moduleRegistry();
   const config = loadConfig(),
     auth = makeAuth();
   const app = Fastify({
