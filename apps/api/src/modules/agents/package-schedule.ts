@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  authorize,
+  PROJECT_WRITE,
+} from "../../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
@@ -81,7 +85,7 @@ export async function proposeSchedule(
   raw: unknown,
   requestedBy: RequestedBy = { kind: "user", userId: scope.userId },
 ) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const input = scheduleProposal.parse(raw);
@@ -429,7 +433,7 @@ export async function cancelPackageSchedule(
   packageId: string,
   raw: unknown,
 ) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   const input = scheduleCancellation.parse(raw);
   return chatScoped(scope, async (tx) => {
     const pkg = await entity(tx, scope, "content_packages", packageId);

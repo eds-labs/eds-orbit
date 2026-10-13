@@ -1,4 +1,5 @@
 import type { DbTx } from "../../../../packages/db/src/index.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, entity, list, update, audit, DomainError } from "../shared.ts";
@@ -44,7 +45,7 @@ export async function officialTargetLink(
 }
 
 function owner(scope: Scope) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
 }
 
 export async function currentMarketingProfile(tx: DbTx, scope: Scope) {

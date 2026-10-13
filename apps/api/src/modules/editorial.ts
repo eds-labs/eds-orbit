@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_WRITE } from "../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -15,8 +16,7 @@ import { checkClaims } from "./policy.ts";
 
 const language = z.enum(["en", "de"]);
 function editor(scope: Scope) {
-  if (!["owner", "editor"].includes(scope.role))
-    throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
 }
 export const briefProposalInput = z
   .object({

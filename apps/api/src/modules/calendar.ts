@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -42,7 +43,7 @@ export async function blockCalendar(
   scope: Scope,
   input: z.infer<typeof calendarBlock>,
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const block = await create(tx, scope, "calendar_blocks", {
     ...input,
     status: "active",
@@ -89,7 +90,7 @@ export async function unblockCalendar(
   id: string,
   version: number,
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const row = await entity(tx, scope, "calendar_blocks", id);
   if (row.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   const result = await update(tx, scope, row, {

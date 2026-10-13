@@ -1,4 +1,5 @@
 import type { ServerModule } from "../../../../../packages/module-contracts/src/index.ts";
+import { knowledgePermissions } from "./permissions.ts";
 
 /**
  * Transitional manifest (WP1.3): declares what the knowledge module owns.
@@ -34,5 +35,5 @@ export const knowledgeModule: ServerModule = {
     "ChunkEmbedding",
     "KnowledgeIndex",
   ],
-  permissions: [],
+  permissions: knowledgePermissions,
 };

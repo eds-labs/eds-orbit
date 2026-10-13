@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
 import { createPostizClient } from "../../../../../../packages/connectors/src/index.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
@@ -26,7 +27,6 @@ const DAY = 86_400_000;
 const DEFAULT_PERIOD_DAYS = 30;
 const MAX_PERIOD_DAYS = 120;
 const METRIC_GROUPS = 20;
-const everyone = ["viewer", "editor", "owner"] as const;
 const dateText = z.iso.date();
 // Counters a metric can carry; sums are formed only within one report (same denominator).
 const COUNTERS = [
@@ -151,7 +151,7 @@ const metricsSummaryTool = defineTool({
     })
     .strict(),
   risk: "R0_read",
-  roles: everyone,
+  permission: PROJECT_READ,
   feature: "agents",
   deferLoading: false,
   async execute(context, args) {
@@ -383,7 +383,7 @@ const postizAnalyticsTool = defineTool({
     })
     .strict(),
   risk: "R0_read",
-  roles: everyone,
+  permission: PROJECT_READ,
   feature: "agents",
   deferLoading: false,
   async execute(context, args) {

@@ -1,4 +1,5 @@
 import type { DbTx } from "../../../../packages/db/src/index.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity, list, update } from "../shared.ts";
 import { activePolicy } from "./policy.ts";
@@ -19,7 +20,7 @@ export function batchJobKey(missionId: string, run: number, suffix = "") {
 }
 
 async function assertSafeOwnerDraftContext(tx: DbTx, scope: Scope) {
-  if (scope.role !== "owner") throw new DomainError("FORBIDDEN", 403);
+  authorize(scope, PROJECT_OWN, "FORBIDDEN");
   if (
     process.env.EXECUTION_MODE !== "test" ||
     process.env.ENABLE_EXTERNAL_WRITES !== "false"

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -390,7 +391,7 @@ async function prepare(
   contentId: string,
   version: number,
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   if (!postizDraftsEnabled())
     throw new DomainError("POSTIZ_DRAFTS_DISABLED", 409);
   const project = await tx.project.findUniqueOrThrow({
@@ -433,7 +434,7 @@ export async function handoffPostizDraft(
 
 /** Owner decision after checking Postiz for a handoff with an unclear outcome. */
 export async function resolvePostizDraft(tx: DbTx, scope: Scope, raw: unknown) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = postizDraftResolveInput.parse(raw);
   const row = await entity(tx, scope, "postiz_drafts", input.handoffId);
   if (data(row).status !== "outcome_unknown")

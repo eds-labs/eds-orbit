@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  authorize,
+  PROJECT_WRITE,
+} from "../../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import {
@@ -297,7 +301,7 @@ export async function requestContentPackage(
   conversationId: string,
   raw: unknown,
 ) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const request = contentPackageRequest.parse(raw);
@@ -979,7 +983,7 @@ export async function reviseDeliverable(
   conversationId: string,
   raw: unknown,
 ) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const input = deliverableRevision.parse(raw);

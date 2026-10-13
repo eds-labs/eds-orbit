@@ -7,6 +7,7 @@ import {
   it,
   vi,
 } from "vitest";
+import { PROJECT_READ } from "../src/platform/tenancy/permissions.ts";
 import { z } from "zod";
 import { APIError } from "openai";
 import {
@@ -97,7 +98,7 @@ const lookup = defineTool({
   description: "Looks up a word for the echo specialist.",
   parameters: z.object({ q: z.string() }),
   risk: "R0_read",
-  roles: ["owner", "editor", "viewer"],
+  permission: PROJECT_READ,
   deferLoading: false,
   async execute(_context, args) {
     return { output: { found: (args as { q: string }).q }, cards: [] };

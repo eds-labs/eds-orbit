@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  authorize,
+  PROJECT_OWN,
+  PROJECT_WRITE,
+} from "../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import {
   marketingProfile,
@@ -99,7 +104,7 @@ async function channelContext(tx: DbTx, scope: Scope) {
 }
 
 export async function configureAutopilot(tx: DbTx, scope: Scope, raw: unknown) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = autopilotInput.parse(raw);
   const connector = await channelContext(tx, scope);
   const assigned = new Set(
@@ -387,7 +392,7 @@ export async function planAutopilot(tx: DbTx, scope: Scope, now = new Date()) {
 
 /** Owner one-click approval: confirm the reviewed text, then schedule it. */
 export async function approveAndSchedule(tx: DbTx, scope: Scope, raw: unknown) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = z
     .object({ contentId: z.uuid(), version: z.number().int().positive() })
     .strict()
@@ -412,9 +417,7 @@ const ASSIGNMENT_CHANNELS = 4;
 
 /** Why saved autopilot settings give no proposal; the migration card shows it. */
 export type AutopilotProposalBlocker =
-  | "POSTING_TIME_REQUIRED"
-  | "ACTIVE_POLICY_REQUIRED"
-  | "NO_FREE_PROJECT_BUDGET";
+  "POSTING_TIME_REQUIRED" | "ACTIVE_POLICY_REQUIRED" | "NO_FREE_PROJECT_BUDGET";
 
 /**
  * The saved weekly autopilot as an Orbit Agents assignment: one social post
@@ -532,7 +535,7 @@ export async function autopilotMigration(tx: DbTx, scope: Scope) {
  * the autopilot settings are left unchanged.
  */
 export async function proposeAutopilotAssignment(scope: Scope) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   return chatScoped(scope, async (tx) => {
     // One proposal at a time: the project lock scoped() also takes (re-entrant

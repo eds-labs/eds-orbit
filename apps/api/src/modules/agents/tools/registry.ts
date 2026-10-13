@@ -4,6 +4,8 @@
  * the pinned openai SDK, which rejects schemas strict mode cannot express.
  */
 import type { z } from "zod";
+import type { PermissionDef } from "../../../../../../packages/module-contracts/src/index.ts";
+import { can } from "../../../platform/tenancy/permissions.ts";
 import { zodResponsesFunction } from "openai/helpers/zod";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import type { ChatCard } from "../../chat-tools.ts";
@@ -41,7 +43,8 @@ export type OrbitTool = {
   description: string;
   parameters: z.ZodObject;
   risk: ToolRisk;
-  roles: readonly ToolRole[];
+  // Who may be offered and run the tool (WP1.5 permission catalogue).
+  permission: PermissionDef;
   feature?: ToolFeature;
   // Design for tool search (plan §6.4); unused until it is enabled.
   deferLoading: boolean;
@@ -127,7 +130,7 @@ export function availableTools(
 ): OrbitTool[] {
   return registry.filter(
     (tool) =>
-      tool.roles.includes(role) &&
+      can({ role }, tool.permission) &&
       (!tool.feature || features.includes(tool.feature)),
   );
 }

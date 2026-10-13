@@ -1,4 +1,5 @@
 import { hasFactPlaceholder } from "./fact-placeholders.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
 import { calendarConflicts } from "./calendar.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
@@ -543,7 +544,7 @@ export async function approve(
   input: { contentId: string; version: number; packageHash: string },
   expiresAt = new Date(Date.now() + 86400000),
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const p = await packageFor(tx, scope, input.contentId);
   if (
     p.content.version !== input.version ||

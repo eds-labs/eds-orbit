@@ -1,5 +1,9 @@
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import {
+  authorize,
+  PROJECT_WRITE,
+} from "../../platform/tenancy/permissions.ts";
+import {
   preference,
   type Scope,
 } from "../../../../../packages/schemas/src/index.ts";
@@ -595,7 +599,7 @@ export async function vetoPublication(
   source: "telegram" | "orbit",
   reason?: string,
 ): Promise<{ result: "vetoed" | "already_handed_over" | "not_found" }> {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (!UUID.test(publicationId)) return { result: "not_found" };
   await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${publicationId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
   const row = await tx.entity.findFirst({

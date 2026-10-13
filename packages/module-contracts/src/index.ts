@@ -72,6 +72,8 @@ const serverModuleSchema = z
 export type PlatformDeclaration = {
   entityKinds: readonly EntityKindDef[];
   tables: readonly string[];
+  /** Platform permission keys, prefixed "platform.". */
+  permissions?: readonly PermissionDef[];
 };
 
 /** A registry that passed validation, with the lookups the platform needs. */
@@ -163,6 +165,11 @@ export function validateRegistry(
     claim(kindOwner, "entity kind", def.kind, "platform");
   for (const table of platform.tables)
     claim(tableOwner, "table", table, "platform");
+  for (const p of platform.permissions ?? []) {
+    if (!p.key.startsWith("platform."))
+      problems.push(`permission ${p.key} lacks the platform prefix`);
+    claim(permissionOwner, "permission", p.key, "platform");
+  }
   for (const m of modules) {
     for (const def of m.entityKinds)
       claim(kindOwner, "entity kind", def.kind, m.id);

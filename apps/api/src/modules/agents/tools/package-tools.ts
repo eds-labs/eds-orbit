@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  PROJECT_READ,
+  PROJECT_WRITE,
+} from "../../../platform/tenancy/permissions.ts";
+import {
   conversationPackages,
   requestContentPackage,
   reviseDeliverable,
@@ -41,7 +45,7 @@ export const packageTools: readonly OrbitTool[] = [
       })
       .strict(),
     risk: "P_proposal",
-    roles: ["editor", "owner"],
+    permission: PROJECT_WRITE,
     feature: "content_packages",
     deferLoading: false,
     async execute(context, args) {
@@ -76,7 +80,7 @@ export const packageTools: readonly OrbitTool[] = [
       "This conversation's packages: status, drafts, schedules, errors. Report only from this tool.",
     parameters: z.object({}).strict(),
     risk: "R0_read",
-    roles: ["viewer", "editor", "owner"],
+    permission: PROJECT_READ,
     feature: "content_packages",
     deferLoading: false,
     async execute(context) {
@@ -98,7 +102,7 @@ export const packageTools: readonly OrbitTool[] = [
       })
       .strict(),
     risk: "W0_internal",
-    roles: ["editor", "owner"],
+    permission: PROJECT_WRITE,
     feature: "content_packages",
     deferLoading: true,
     async execute(context, args) {
@@ -138,7 +142,7 @@ export const packageTools: readonly OrbitTool[] = [
       })
       .strict(),
     risk: "R0_read",
-    roles: ["viewer", "editor", "owner"],
+    permission: PROJECT_READ,
     feature: "content_packages",
     deferLoading: true,
     async execute(context, args) {
@@ -163,7 +167,7 @@ export const packageTools: readonly OrbitTool[] = [
       })
       .strict(),
     risk: "R0_read",
-    roles: ["viewer", "editor", "owner"],
+    permission: PROJECT_READ,
     feature: "content_packages",
     deferLoading: true,
     async execute(context, args) {
@@ -185,7 +189,7 @@ export const packageTools: readonly OrbitTool[] = [
       })
       .strict(),
     risk: "P_proposal",
-    roles: ["editor", "owner"],
+    permission: PROJECT_WRITE,
     feature: "content_packages",
     deferLoading: true,
     async execute(context, args) {

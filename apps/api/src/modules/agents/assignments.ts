@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  authorize,
+  PROJECT_OWN,
+  PROJECT_WRITE,
+} from "../../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import {
@@ -410,7 +415,7 @@ async function assertWithinMandate(
 }
 
 function requireEditor(scope: Scope) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
 }
 
 /** The owner's confirmation request for exactly this content. */
@@ -694,7 +699,7 @@ export async function setAssignmentStatus(
   if (d.status === "ended" && !endCompleted)
     throw new DomainError("ASSIGNMENT_ENDED", 409);
   if (status === "active") {
-    if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+    authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
     if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
     if (
       d.status === "draft" ||

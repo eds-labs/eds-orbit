@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROJECT_WRITE } from "../../../platform/tenancy/permissions.ts";
 import { createProposal } from "../../chat.ts";
 import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
 
@@ -56,7 +57,7 @@ export const proposalTools: readonly OrbitTool[] = [
       .object({ mission, factIds: z.array(z.string()).min(1) })
       .strict(),
     risk: "P_proposal",
-    roles: ["editor", "owner"],
+    permission: PROJECT_WRITE,
     deferLoading: false,
     async execute(context, args) {
       const proposal = await createProposal(

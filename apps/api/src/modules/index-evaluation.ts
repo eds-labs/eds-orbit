@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -47,7 +48,7 @@ export async function queueIndexEvaluation(
   s: Scope,
   raw: z.input<typeof indexEvaluationRequest>,
 ) {
-  if (s.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(s, PROJECT_OWN, "OWNER_REQUIRED");
   const input = indexEvaluationRequest.parse(raw);
   if (
     new Set(input.cases.map((c) => c.id)).size !== input.cases.length ||

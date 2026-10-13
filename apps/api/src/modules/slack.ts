@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { z } from "zod";
 import {
   authDb,
@@ -72,7 +73,7 @@ async function isOwner(
   return !!project;
 }
 function owner(scope: Scope) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
 }
 function credentials(c: ReturnType<typeof data>) {
   try {

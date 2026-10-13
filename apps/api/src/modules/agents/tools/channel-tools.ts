@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
 import { chatScoped } from "../../chat.ts";
 import { channelHistory } from "../channel-posts.ts";
 import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
@@ -23,7 +24,7 @@ export const channelTools: readonly OrbitTool[] = [
       })
       .strict(),
     risk: "R0_read",
-    roles: ["viewer", "editor", "owner"],
+    permission: PROJECT_READ,
     feature: "agents",
     deferLoading: true,
     async execute(context, args) {

@@ -1,4 +1,5 @@
 import type { DbTx } from "../../../../packages/db/src/index.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   list,
@@ -24,7 +25,7 @@ export async function pauseProject(
   paused: boolean,
   options: { notify?: boolean } = {},
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const result = await tx.project.update({
     where: { id: scope.projectId },
     data: { paused, generation: { increment: 1 } },

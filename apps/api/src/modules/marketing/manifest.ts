@@ -1,4 +1,5 @@
 import type { ServerModule } from "../../../../../packages/module-contracts/src/index.ts";
+import { marketingPermissions } from "./permissions.ts";
 
 /**
  * Transitional manifest (WP1.3): declares what the marketing module owns.
@@ -82,5 +83,5 @@ export const marketingModule: ServerModule = {
     { kind: "assets", description: "Brand and generated assets" },
   ],
   tables: ["ProjectMarketingProfile", "ProjectMarketingProfileVersion"],
-  permissions: [],
+  permissions: marketingPermissions,
 };

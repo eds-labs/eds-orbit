@@ -1,4 +1,5 @@
 import type { DbTx } from "../../../../packages/db/src/index.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, list, update } from "../shared.ts";
 import { preflight } from "./policy.ts";
@@ -18,7 +19,7 @@ export async function resumePausedPublications(
   scope: Scope,
   at = new Date(),
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });

@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  authorize,
+  PROJECT_OWN,
+  PROJECT_WRITE,
+} from "../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -192,10 +197,9 @@ export async function decideActionRequest(
   const row = await entity(tx, scope, KIND, id);
   const d = data(row);
   const type = definition(d.actionType);
-  if (type.deciderRole === "owner" && scope.role !== "owner")
-    throw new DomainError("OWNER_REQUIRED", 403);
-  if (type.deciderRole === "editor" && scope.role === "viewer")
-    throw new DomainError("EDITOR_REQUIRED", 403);
+  if (type.deciderRole === "owner")
+    authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  else authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (d.status !== "pending") {
     // A repeated click with the same decision returns the recorded result.
     if (
@@ -298,7 +302,7 @@ export async function cancelActionRequest(tx: DbTx, scope: Scope, id: string) {
  * an owner, newest first, with what the owner must see to decide.
  */
 export async function listActionRequests(tx: DbTx, scope: Scope) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const rows = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,

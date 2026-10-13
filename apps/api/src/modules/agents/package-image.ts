@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  authorize,
+  PROJECT_WRITE,
+} from "../../platform/tenancy/permissions.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   audit,
@@ -40,7 +44,7 @@ export async function attachPackageImage(
   packageId: string,
   raw: unknown,
 ) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const input = imageAttachment.parse(raw);

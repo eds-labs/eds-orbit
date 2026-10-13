@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
 import { runReadTool, validateReadToolResult } from "../../chat-tools.ts";
 import {
   defineTool,
@@ -6,8 +7,6 @@ import {
   type OrbitTool,
   type ToolContext,
 } from "./registry.ts";
-
-const everyone = ["viewer", "editor", "owner"] as const;
 
 // Model-facing shapes only; runReadTool's own zod inputs stay authoritative
 // and enforce the string lengths strict mode cannot express.
@@ -24,7 +23,7 @@ function readTool(
     description,
     parameters,
     risk: "R0_read",
-    roles: everyone,
+    permission: PROJECT_READ,
     deferLoading,
     async execute(context: ToolContext, args: unknown) {
       const read = await runReadTool(

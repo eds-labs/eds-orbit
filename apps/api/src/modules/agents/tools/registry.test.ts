@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  PROJECT_READ,
+  PROJECT_WRITE,
+} from "../../../platform/tenancy/permissions.ts";
 import { z } from "zod";
 import {
   availableTools,
@@ -25,7 +29,7 @@ const tool = (overrides: Partial<OrbitTool> = {}): OrbitTool => ({
     })
     .strict(),
   risk: "R0_read",
-  roles: ["viewer", "editor", "owner"],
+  permission: PROJECT_READ,
   deferLoading: false,
   execute: async () => ({ output: {}, cards: [] }),
   ...overrides,
@@ -143,7 +147,7 @@ describe("tool registry", () => {
   it("offers a tool only to its roles and finds only registered names", () => {
     const registry = [
       defineTool(tool()),
-      defineTool(tool({ name: "sample_propose", roles: ["editor", "owner"] })),
+      defineTool(tool({ name: "sample_propose", permission: PROJECT_WRITE })),
     ];
     expect(availableTools(registry, "viewer").map((t) => t.name)).toEqual([
       "sample_read",
@@ -207,7 +211,7 @@ describe("read tools", () => {
     ]);
     for (const tool of readTools) {
       expect(tool.risk).toBe("R0_read");
-      expect(tool.roles).toEqual(["viewer", "editor", "owner"]);
+      expect(tool.permission).toBe(PROJECT_READ);
       expect(responsesTool(tool).strict).toBe(true);
     }
   });
@@ -268,7 +272,7 @@ describe("proposal tool", () => {
   const mission = (definition.parameters as any).properties.mission;
   it("keeps the mission field set, requires every field and is editor-only", () => {
     expect(propose.name).toBe("propose_campaign");
-    expect(propose.roles).toEqual(["editor", "owner"]);
+    expect(propose.permission).toBe(PROJECT_WRITE);
     expect(propose.risk).toBe("P_proposal");
     expect((definition.parameters as any).required).toEqual([
       "mission",

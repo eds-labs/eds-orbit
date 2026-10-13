@@ -1,4 +1,5 @@
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { generateImage } from "../../../../packages/ai/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, DomainError } from "../shared.ts";
@@ -50,7 +51,7 @@ export async function runImageJob(
       ? await actorScope(base.workspaceId, base.projectId, actorId)
       : null;
   if (!actor) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
-  if (actor.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(actor, PROJECT_OWN, "OWNER_REQUIRED");
   return executeImageRequest(actor, actionRequestId, jobId, provider);
 }
 

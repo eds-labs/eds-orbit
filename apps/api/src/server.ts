@@ -1,3 +1,16 @@
+import {
+  PROJECT_OWN,
+  PROJECT_WRITE,
+  platformActionPermissions,
+} from "./platform/tenancy/permissions.ts";
+import {
+  knowledgeActionPermissions,
+  knowledgeCollectionPermissions,
+} from "./modules/knowledge/permissions.ts";
+import {
+  marketingActionPermissions,
+  marketingCollectionPermissions,
+} from "./modules/marketing/permissions.ts";
 import { moduleRegistry } from "./modules/registry.ts";
 import {
   listModuleStates,
@@ -283,6 +296,23 @@ const UUID_SEGMENT =
 const TELEGRAM_WEBHOOK_PATH = new RegExp(
   `^/api/telegram/${UUID_SEGMENT}/${UUID_SEGMENT}$`,
 );
+/** The permission an action needs; an unknown action needs the writer level. */
+function actionPermission(action: string) {
+  return (
+    platformActionPermissions[action] ??
+    knowledgeActionPermissions[action] ??
+    marketingActionPermissions[action] ??
+    PROJECT_WRITE
+  );
+}
+/** The permission a generic collection write needs. */
+function collectionWritePermission(collection: string) {
+  const owned: Record<string, ReturnType<typeof actionPermission>> = {
+    ...knowledgeCollectionPermissions,
+    ...marketingCollectionPermissions,
+  };
+  return owned[collection] ?? PROJECT_WRITE;
+}
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
   options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
@@ -687,7 +717,7 @@ export async function buildServer(
   });
   app.put("/api/projects/:projectId/modules/:moduleId", async (req) => {
     const { projectId, moduleId } = req.params as any;
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     if (!moduleSwitchingEnabled()) throw new DomainError("NOT_FOUND", 404);
     const input = z.object({ enabled: z.boolean() }).strict().parse(req.body);
     return {
@@ -762,7 +792,7 @@ export async function buildServer(
   });
   app.get("/api/projects/:projectId/agent-runs", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return listAgentRuns(scope, agentRunsQuery.parse(req.query));
   });
   app.get("/api/projects/:projectId/agent-runs/:runId/spans", async (req) => {
@@ -770,17 +800,17 @@ export async function buildServer(
       projectId: string;
       runId: string;
     };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return { items: await listRunSpans(scope, z.uuid().parse(runId)) };
   });
   app.get("/api/projects/:projectId/ai-cost", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return aiCostSummary(scope, aiCostQuery.parse(req.query));
   });
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, false, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, async (tx) =>
       publicOpenAiConfiguration(
         await tx.entity.findFirst({
@@ -906,7 +936,7 @@ export async function buildServer(
   });
   app.get("/api/projects/:projectId/members", async (req) => {
     const { projectId } = req.params as any;
-    await scopeFor(auth, req, projectId, false, true);
+    await scopeFor(auth, req, projectId, PROJECT_OWN);
     return {
       items: await authDb.projectMember.findMany({
         where: { projectId },
@@ -916,7 +946,7 @@ export async function buildServer(
   });
   app.get("/api/projects/:projectId/indexes", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, false, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, async (tx) => ({
       items: await listIndexGenerations(tx, scope),
     }));
@@ -931,7 +961,7 @@ export async function buildServer(
   });
   app.put("/api/projects/:projectId/marketing-profile", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, async (tx) =>
       jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
     );
@@ -940,7 +970,7 @@ export async function buildServer(
   app.get("/api/projects/:projectId/telegram", async (req) => {
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, (tx) =>
       telegramStatus(tx, scope),
     );
@@ -949,7 +979,7 @@ export async function buildServer(
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return connectTelegram(
-      await scopeFor(auth, req, projectId, true, true),
+      await scopeFor(auth, req, projectId, PROJECT_OWN),
       req.body,
       { fetch: options?.telegramFetch },
     );
@@ -958,7 +988,7 @@ export async function buildServer(
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return disconnectTelegram(
-      await scopeFor(auth, req, projectId, true, true),
+      await scopeFor(auth, req, projectId, PROJECT_OWN),
       { fetch: options?.telegramFetch },
     );
   });
@@ -975,7 +1005,7 @@ export async function buildServer(
   app.post("/api/projects/:projectId/assignments/:id/status", async (req) => {
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     const input = assignmentStatusInput.parse(req.body);
     const saved = await scoped(scope.workspaceId, projectId, (tx) =>
       setAssignmentStatus(
@@ -1006,7 +1036,7 @@ export async function buildServer(
     async (req) => {
       if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
       const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       const { assignment, actionRequest, conversationId } =
         await proposeAutopilotAssignment(scope);
       return {
@@ -1039,7 +1069,7 @@ export async function buildServer(
   app.post("/api/projects/:projectId/publications/:id/veto", async (req) => {
     if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     const input = vetoInput.parse(req.body);
     return scoped(scope.workspaceId, projectId, (tx) =>
       vetoPublication(
@@ -1071,7 +1101,7 @@ export async function buildServer(
         projectId: string;
         id: string;
       };
-      const scope = await scopeFor(auth, req, projectId, true, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
       const input = releaseInput.parse(req.body);
       return scoped(scope.workspaceId, projectId, (tx) =>
         releaseAssignmentDraft(tx, scope, z.uuid().parse(id), input.version),
@@ -1084,14 +1114,14 @@ export async function buildServer(
   });
   app.post("/api/projects/:projectId/google-drive/connect", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    return beginConnect(await scopeFor(auth, req, projectId, true, true));
+    return beginConnect(await scopeFor(auth, req, projectId, PROJECT_OWN));
   });
   app.get("/api/google-drive/callback", async (req, reply) => {
     const { code, state } = z
       .object({ code: z.string().min(1), state: z.string().min(40) })
       .parse(req.query);
     const projectId = z.uuid().parse(state.split(".")[0]);
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     const ready = await finishConnect(scope, state, code);
     return reply.redirect(
       `${config.APP_ORIGIN}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
@@ -1105,7 +1135,7 @@ export async function buildServer(
         .object({ pageToken: z.string().max(500).optional() })
         .parse(req.query);
       return rootCandidates(
-        await scopeFor(auth, req, projectId, true, true),
+        await scopeFor(auth, req, projectId, PROJECT_OWN),
         pageToken,
       );
     },
@@ -1116,12 +1146,12 @@ export async function buildServer(
   });
   app.post("/api/projects/:projectId/google-drive/disconnect", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    await disconnect(await scopeFor(auth, req, projectId, true, true));
+    await disconnect(await scopeFor(auth, req, projectId, PROJECT_OWN));
     return { connected: false };
   });
   app.put("/api/projects/:projectId/google-drive/root", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     await configureRoot(scope, req.body);
     return connectionStatus(scope);
   });
@@ -1158,7 +1188,7 @@ export async function buildServer(
         projectId: string;
         fileId: string;
       };
-      const scope = await scopeFor(auth, req, projectId, true, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
       const { type } = z
         .object({
           type: z
@@ -1186,7 +1216,7 @@ export async function buildServer(
         projectId: string;
         assetId: string;
       };
-      const scope = await scopeFor(auth, req, projectId, true, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
       return reply.send(
         publicEntity(
           await saveGeneratedAsset(scope, schemas.id.parse(assetId)),
@@ -1199,7 +1229,7 @@ export async function buildServer(
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (req, reply) => {
       const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
       return reply
         .code(201)
         .send(publicEntity(await uploadUserRaster(scope, req.body)));
@@ -1210,7 +1240,7 @@ export async function buildServer(
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (req, reply) => {
       const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
       const normalized = await normalizeBrandAsset(
         brandAssetUploadInput.parse(req.body),
       );
@@ -1259,7 +1289,7 @@ export async function buildServer(
     { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } },
     async (req, reply) => {
       const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
       return reply.send(
         publicEntity(await generateProjectImage(scope, req.body)),
       );
@@ -1370,14 +1400,14 @@ export async function buildServer(
     "/api/projects/:projectId/chat/proposals/:id/confirm",
     async (req) => {
       const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       return confirmProposal(scope, z.uuid().parse(id), req.body);
     },
   );
   // Stops what has not started; the requester only.
   app.post("/api/projects/:projectId/chat/packages/:id/cancel", async (req) => {
     const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return cancelContentPackage(scope, z.uuid().parse(id));
   });
   // Attaches the package's rights-approved image to chosen drafts; the requester only.
@@ -1385,7 +1415,7 @@ export async function buildServer(
     "/api/projects/:projectId/chat/packages/:id/attach-image",
     async (req) => {
       const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       return attachPackageImage(scope, z.uuid().parse(id), req.body);
     },
   );
@@ -1394,14 +1424,14 @@ export async function buildServer(
     "/api/projects/:projectId/chat/packages/:id/unschedule",
     async (req) => {
       const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       return cancelPackageSchedule(scope, z.uuid().parse(id), req.body);
     },
   );
   // Owners' open decisions (image requests from editors' packages and others).
   app.get("/api/projects/:projectId/action-requests", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return {
       items: await scoped(scope.workspaceId, projectId, (tx) =>
         listActionRequests(tx, scope),
@@ -1413,7 +1443,7 @@ export async function buildServer(
     "/api/projects/:projectId/action-requests/:id/decide",
     async (req) => {
       const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       const decided = await scoped(scope.workspaceId, projectId, (tx) =>
         decideActionRequest(tx, scope, z.uuid().parse(id), req.body),
       );
@@ -1438,10 +1468,12 @@ export async function buildServer(
   });
   app.post("/api/projects/:projectId/:collection", async (req, reply) => {
     const { projectId, collection } = req.params as any;
-    const owner = ["sources", "facts", "policies", "preferences"].includes(
-      collection,
+    const scope = await scopeFor(
+      auth,
+      req,
+      projectId,
+      collectionWritePermission(collection),
     );
-    const scope = await scopeFor(auth, req, projectId, true, owner);
     const result = await scoped(scope.workspaceId, projectId, async (tx) => {
       if (collection === "facts")
         return setFact(tx, scope, factSchema.parse(req.body));
@@ -1524,7 +1556,7 @@ export async function buildServer(
   });
   app.patch("/api/projects/:projectId/content/:id", async (req) => {
     const { projectId, id } = req.params as any,
-      scope = await scopeFor(auth, req, projectId, true);
+      scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     const input = z
       .object({ version: z.number().int(), data: schemas.content })
       .strict()
@@ -1546,71 +1578,13 @@ export async function buildServer(
   });
   app.post("/api/projects/:projectId/actions/:action", async (req) => {
     const { projectId, action } = req.params as any;
-    const owner = [
-      "withdraw-fact",
-      "import-matomo",
-      "evaluate-index",
-      "postiz-test-prepare",
-      "postiz-test-execute",
-      "postiz-draft-handoff",
-      "postiz-draft-resolve",
-      "archive-mission",
-      "configure-autopilot",
-      "configure-matomo-schedule",
-      "approve-and-schedule",
-      "resume-paused-publications",
-      "postiz-test-reconcile",
-      "calendar-block",
-      "calendar-unblock",
-      "approve",
-      "pause",
-      "revoke-source",
-      "source-pause",
-      "revoke-document",
-      "preference-update",
-      "project-settings",
-      "add-member",
-      "brand-approval",
-      "asset-status",
-      "connector",
-      "connector-health",
-      "postiz-assign-channels",
-      "resolve-exception",
-      "slack-configure",
-      "slack-digest",
-      "begin-index",
-      "build-index",
-      "activate-index",
-      "rollback-index",
-      "correct-metric",
-      "memory-lifecycle",
-      "retention",
-      "stop-experiment",
-      "openai-configure",
-      "embed-document",
-      "start-approved-live-draft-once",
-      "start-approved-live-draft-batch",
-      "resume-live-draft-batch",
-      "knowledge-import-commit",
-      "knowledge-import-retry",
-    ].includes(action);
-    // These check the owner role themselves, so editors and viewers alike
-    // get OWNER_REQUIRED instead of the generic FORBIDDEN. Skipping the
-    // generic write gate is safe for them only: they are not in `owner`
-    // above, are dispatched solely inside the scoped transaction below, and
-    // archiveOldDrafts/restoreDraftCleanup refuse every non-owner as their
-    // first statement, before reading or writing anything. Scope still
-    // requires a project membership (NOT_FOUND otherwise).
-    const ownerChecked = [
-      "archive-old-drafts",
-      "restore-draft-cleanup",
-    ].includes(action);
+    // Every action declares its permission in the owning module's catalogue;
+    // an unknown name needs the writer level, as before (WP1.5).
     const scope = await scopeFor(
       auth,
       req,
       projectId,
-      action !== "retrieve" && action !== "preflight" && !ownerChecked,
-      owner,
+      actionPermission(action),
     );
     const input = object.parse(req.body);
     if (action === "retrieve" && input.useEmbeddings === true) {

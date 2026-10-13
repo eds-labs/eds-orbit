@@ -1,4 +1,5 @@
 import { finishMissionRun } from "./planning.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
 import { reportBlockedPost } from "./agents/notifications.ts";
 import { randomUUID } from "node:crypto";
@@ -63,7 +64,7 @@ export async function startApprovedLiveDraftOnce(
   missionId: string,
   expectedVersion: number,
 ) {
-  if (scope.role !== "owner") throw new DomainError("FORBIDDEN", 403);
+  authorize(scope, PROJECT_OWN, "FORBIDDEN");
   assertMissionDraftOwner(data(await entity(tx, scope, "missions", missionId)));
   if (
     process.env.EXECUTION_MODE !== "test" ||
@@ -673,7 +674,7 @@ export async function reviewContent(
   let c = await entity(tx, scope, "content", id);
   if (c.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   if (humanConfirm) {
-    if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+    authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
     c = await update(tx, scope, c, {
       ...data(c),
       humanReviewedBodyHash: hash(data(c).body),

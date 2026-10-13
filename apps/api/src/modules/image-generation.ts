@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { z } from "zod";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import {
@@ -147,7 +148,7 @@ export async function generateProjectImage(
   provider: Provider = generateImage,
   options: ImageOptions = {},
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = imageGenerationInput.parse(raw);
   const agentRunId = await startRun(scope, {
     kind: "image",

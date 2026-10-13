@@ -1,4 +1,5 @@
 import { scoped } from "../../../../packages/db/src/index.ts";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { readFile } from "node:fs/promises";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { assetBytes } from "./assets.ts";
@@ -88,11 +89,11 @@ export const assetTools = {
     driveFileId: string,
     type: "logo" | "photo" | "document" = "photo",
   ) {
-    if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+    authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
     return publicEntity(await importDriveFile(scope, driveFileId, type));
   },
   async saveGeneratedImage(scope: Scope, assetId: string) {
-    if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+    authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
     return publicEntity(await saveGeneratedAsset(scope, assetId));
   },
   async getBrandAssets(scope: Scope) {

@@ -1,4 +1,5 @@
 import type { PlatformDeclaration } from "../../../../../packages/module-contracts/src/index.ts";
+import { platformPermissions } from "../tenancy/permissions.ts";
 
 /**
  * Entity kinds and tables the Orbit Platform owns (plans/orbit-modularization
@@ -56,4 +57,5 @@ export const platformDeclaration: PlatformDeclaration = {
     "ChatRun",
     "ChatProposal",
   ],
+  permissions: platformPermissions,
 };

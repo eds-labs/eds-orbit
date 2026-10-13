@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { authorize, PROJECT_WRITE } from "../platform/tenancy/permissions.ts";
 import { z } from "zod";
 import type { DbTx, Prisma } from "../../../../packages/db/src/index.ts";
 import { userScoped } from "../platform/tenancy/scope.ts";
@@ -480,7 +481,7 @@ export async function createProposal(
   conversationId: string,
   raw: unknown,
 ) {
-  if (scope.role === "viewer") throw new DomainError("EDITOR_REQUIRED", 403);
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
   const input = proposeInput.parse(raw);
   return chatScoped(scope, async (tx) => {
     await conversation(tx, scope, conversationId);
@@ -535,7 +536,7 @@ export async function confirmProposal(
   proposalId: string,
   raw: unknown,
 ) {
-  if (scope.role === "viewer") throw new DomainError("FORBIDDEN", 403);
+  authorize(scope, PROJECT_WRITE, "FORBIDDEN");
   const input = confirmInput.parse(raw);
   return chatScoped(scope, async (tx) => {
     const proposal = await tx.chatProposal.findFirst({

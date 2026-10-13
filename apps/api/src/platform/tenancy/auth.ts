@@ -8,6 +8,8 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { DomainError } from "../shared.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { projectMembership } from "./member-scope.ts";
+import { authorize, PROJECT_READ } from "./permissions.ts";
+import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import { CLIENT_IP_HEADER } from "../../client-ip.ts";
 export function makeAuth() {
   const config = loadConfig();
@@ -65,19 +67,22 @@ export async function userFor(auth: Auth, req: FastifyRequest) {
 export function renewedSessionCookies(req: FastifyRequest) {
   return renewedCookies.get(req) ?? [];
 }
+/**
+ * The caller's scope in a project: NOT_FOUND (404) without membership,
+ * FORBIDDEN (403) when the project role lacks `required`.
+ */
 export async function scopeFor(
   auth: Auth,
   req: FastifyRequest,
   projectId: string,
-  write = false,
-  owner = false,
+  required: PermissionDef = PROJECT_READ,
 ): Promise<Scope> {
   const user = await userFor(auth, req);
   const membership = await projectMembership(projectId, user.id);
   if (!membership) throw new DomainError("NOT_FOUND", 404);
   const role = membership.role;
-  if (!role || (write && role === "viewer") || (owner && role !== "owner"))
-    throw new DomainError("FORBIDDEN", 403);
+  if (!role) throw new DomainError("FORBIDDEN", 403);
+  authorize({ role }, required);
   return {
     workspaceId: membership.workspaceId,
     projectId,

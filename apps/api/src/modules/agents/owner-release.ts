@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity, update } from "../../shared.ts";
@@ -111,7 +112,7 @@ export async function releaseAssignmentDraft(
   version: number,
 ): Promise<ReleaseResult> {
   if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   if (!UUID.test(contentId)) throw new DomainError("NOT_FOUND", 404);
   // One booking at a time per project, as scheduleApproved does: two
   // releases, or a release and a run's scheduling, never take the same slot.

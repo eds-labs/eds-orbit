@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity, list, update } from "../shared.ts";
@@ -17,7 +18,7 @@ export const missionArchiveInput = z
  * previous status, so a restored ready mission can be planned again.
  */
 export async function archiveMission(tx: DbTx, scope: Scope, raw: unknown) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = missionArchiveInput.parse(raw);
   await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${input.missionId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
   const row = await entity(tx, scope, "missions", input.missionId);

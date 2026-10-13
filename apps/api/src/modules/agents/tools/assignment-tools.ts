@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  PROJECT_READ,
+  PROJECT_WRITE,
+} from "../../../platform/tenancy/permissions.ts";
 import { chatScoped } from "../../chat.ts";
 import type { AssignmentCard, ChatCard } from "../../chat-tools.ts";
 import { zonedTime } from "../../posting-slots.ts";
@@ -310,7 +314,7 @@ export const assignmentTools: readonly OrbitTool[] = [
       "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
     parameters: proposeParameters,
     risk: "P_proposal",
-    roles: ["editor", "owner"],
+    permission: PROJECT_WRITE,
     feature: "agents",
     deferLoading: true,
     async execute(context, args) {
@@ -337,7 +341,7 @@ export const assignmentTools: readonly OrbitTool[] = [
       "Assignments with status, next slot and this month's cost. Report assignments only from this tool.",
     parameters: z.object({}).strict(),
     risk: "R0_read",
-    roles: ["viewer", "editor", "owner"],
+    permission: PROJECT_READ,
     feature: "agents",
     deferLoading: true,
     async execute(context) {
@@ -415,7 +419,7 @@ export const assignmentTools: readonly OrbitTool[] = [
       "Pause, resume (owner) or end an assignment, or change it, also its delivery (publish or postiz_draft), sharedAcrossChannels, format or banner. Moving times is the owner's; any other change returns it to draft for a new confirmation.",
     parameters: changeParameters,
     risk: "P_proposal",
-    roles: ["editor", "owner"],
+    permission: PROJECT_WRITE,
     feature: "agents",
     deferLoading: true,
     async execute(context, args) {
@@ -514,7 +518,7 @@ export const assignmentTools: readonly OrbitTool[] = [
       })
       .strict(),
     risk: "R0_read",
-    roles: ["viewer", "editor", "owner"],
+    permission: PROJECT_READ,
     feature: "agents",
     deferLoading: true,
     async execute(context, args) {

@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID } from "node:crypto";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { z } from "zod";
 import {
   authDb,
@@ -70,7 +71,7 @@ const sha256 = (value: string) =>
   createHash("sha256").update(value).digest("hex");
 
 function owner(scope: Scope) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
 }
 
 /** Bot routes and the webhook exist only with Orbit Agents on. */

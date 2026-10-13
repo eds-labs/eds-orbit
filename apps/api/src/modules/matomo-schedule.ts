@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -50,7 +51,7 @@ export async function configureMatomoSchedule(
   scope: Scope,
   raw: unknown,
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = matomoScheduleInput.parse(raw);
   try {
     new Intl.DateTimeFormat("en", { timeZone: input.siteTimezone });

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { z } from "zod";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
@@ -240,7 +241,7 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
  * owner saw, and refuses with CLEANUP_CHANGED when a fresh plan differs.
  */
 export async function archiveOldDrafts(tx: DbTx, scope: Scope, raw: unknown) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = draftCleanupInput.parse(raw);
   const planned = await plan(tx, scope);
   const answer = (cleanupId: string | null) => ({
@@ -303,7 +304,7 @@ export async function restoreDraftCleanup(
   scope: Scope,
   raw: unknown,
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const { cleanupId } = draftCleanupRestoreInput.parse(raw);
   const restored = { content: 0, missions: 0 };
   for (const kind of ["content", "missions"] as const)

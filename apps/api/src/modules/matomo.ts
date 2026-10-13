@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import {
   createMatomoClient,
@@ -316,7 +317,7 @@ export async function importMatomoReport(
   scope: Scope,
   rawInput: MatomoImportInput,
 ) {
-  if (scope.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = matomoImportInput.parse(rawInput);
   const connector = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     entity(tx, scope, "connectors", input.connectorId),
