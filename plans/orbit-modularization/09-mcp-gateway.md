@@ -1,6 +1,6 @@
 # 09 — Orbit MCP gateway
 
-**Status:** Proposal, 2026-10-13. It follows Mario's addendum: a central MCP server for EDS Orbit, securely reachable over the internet, for ChatGPT, personal ChatGPT dots and other compatible MCP clients. **Nothing is implemented.** Work package IDs refer to `07-roadmap.md`.
+**Status:** Accepted design baseline ([ADR 0009](../../docs/adr/0009-modular-platform.md), 2026-10-13); not implemented. Written 2026-10-13. It follows Mario's addendum: a central MCP server for EDS Orbit, securely reachable over the internet, for ChatGPT, personal ChatGPT dots and other compatible MCP clients. **Nothing is implemented.** Work package IDs refer to `07-roadmap.md`.
 
 **Legend:**
 - **[Fact]**: observed in Orbit's code, or in external documentation as of 2026-10-13. External sources are listed at the end.
@@ -16,7 +16,7 @@
 | Area | Finding | Reuse |
 |---|---|---|
 | MCP code | **[Fact]** None. No MCP server, client or SDK dependency exists (`package.json`, `pnpm-lock.yaml`). | — |
-| Decision history | **[Fact]** ADR 0007 §5 and `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md:275-280` keep the registry "MCP-shaped" (name, description, JSON schema, read/write annotation) so that "a later Orbit MCP server needs no tool rewrite". A read-only MCP server is a P3 option and an explicit non-goal (`docs/ORBIT_ULIQUID_PRODUCTION_GOAL.md:71`). ADR 0007 rejects *hosted* MCP for Orbit's own agent, because OpenAI's servers would call Orbit with stored credentials and bypass the per-transaction scope. | Mario's addendum **lifts the non-goal** for an inbound MCP server (AD-20). The ADR 0007 concern does not apply to the gateway: every MCP call executes inside Orbit under `scoped()`, RLS, permission checks and the budget journal. |
+| Decision history | **[Fact]** ADR 0007 §5 and `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md` (lines 275-280) keep the registry "MCP-shaped" (name, description, JSON schema, read/write annotation) so that "a later Orbit MCP server needs no tool rewrite". A read-only MCP server is a P3 option and an explicit non-goal (`docs/ORBIT_ULIQUID_PRODUCTION_GOAL.md` (line 71)). ADR 0007 rejects *hosted* MCP for Orbit's own agent, because OpenAI's servers would call Orbit with stored credentials and bypass the per-transaction scope. | Mario's addendum **lifts the non-goal** for an inbound MCP server (AD-20). The ADR 0007 concern does not apply to the gateway: every MCP call executes inside Orbit under `scoped()`, RLS, permission checks and the budget journal. |
 | Tool registry | **[Fact]** `OrbitTool` (`apps/api/src/modules/agents/tools/registry.ts:37-48`): name, namespace, description, zod `parameters`, risk `R0_read \| W0_internal \| P_proposal`, roles, feature, `execute(ctx, args)`. JSON schemas are generated from zod (`responsesTool`, `:54-71`). Strict-keyword validation (`:75-110`) is a subset of JSON Schema and therefore MCP-compatible. | **Direct reuse.** MCP `tools/list` is generated from the registry, and `tools/call` dispatches to `execute`. Gaps to close: `ToolContext.conversationId` is chat-specific, `ToolResult.cards` is chat-specific, and only read tools validate their output (`chat-tools.ts:476`). WP1.6 already opens these. |
 | Approvals | **[Fact]** `ActionRequest` (`action-requests.ts`): hash-bound, single-use, decider role, TTL, audit, consumed by deterministic executors. Hard floors in ADR 0008 §4. | **Direct reuse.** MCP proposal tools create ActionRequests. Approval happens in Orbit, never by the MCP client's own confirmation. |
 | Authentication | **[Fact]** Better Auth 1.7.5, email/password with DB sessions, cookies only (`apps/api/src/auth.ts`). Allowed paths: sign-in, sign-out, get-session (`server.ts:522-557`). No API tokens, no OAuth server. Installed plugins include `jwt`, `bearer`, `device-authorization` and `organization`, but **no OAuth provider** in the installed package. | User identity, sessions and the login page are reused for the OAuth consent flow. The OAuth authorization server is new (§4). |
@@ -92,7 +92,7 @@ flowchart LR
     DOT[ChatGPT dots — via plugin, to verify]
     OC[Other MCP clients: Claude, Codex, …]
   end
-  subgraph Edge[Traefik — orbit.eds-labs.io / mcp.orbit.eds-labs.io]
+  subgraph Edge[Traefik — orbit.eds-labs.io: /mcp → mcp service, OAuth paths → api, rest → web]
   end
   subgraph Orbit[Orbit — one image]
     subgraph AS[OAuth authorization server — Better Auth OAuth provider in apps/api]
@@ -101,7 +101,7 @@ flowchart LR
       TK[/token · revoke · userinfo/]
     end
     subgraph GW[MCP gateway — service 'mcp' (same code, own process)]
-      PRM[/.well-known/oauth-protected-resource/]
+      PRM[/.well-known/oauth-protected-resource/mcp/]
       EP[/mcp — Streamable HTTP, protocol 2025-11-25 + 2026-07-28/]
       V[Token verification: JWKS, iss, aud=resource, exp, scopes]
       G[Grant resolution → Scope via projectMembership + module activation]
@@ -141,17 +141,17 @@ flowchart LR
 |---|---|---|
 | **OAuth authorization server** (issuer `https://orbit.eds-labs.io`) | Inside `apps/api`, using Better Auth's OAuth provider, MCP and CIMD packages (AD-21). Endpoints routed by Traefik directly to `api` for `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, `/oauth2/*` and the JWKS. | It shares the user store, sessions and login. An external IdP (Keycloak, Auth0) would duplicate identity and add operating cost. |
 | **Consent and grant UI** | `apps/web` platform view `/oauth/consent`, plus **Settings → Connected apps** | The user sees the client (name and logo from CIMD metadata), chooses organization, projects and scopes, and can revoke access later. |
-| **MCP gateway** (resource `https://mcp.orbit.eds-labs.io`, endpoint `/mcp`) | **Own compose service `mcp`** built from the same image with a separate entrypoint (`tsx apps/api/src/mcp-main.ts`). It is routed by Traefik with its own hostname. | It bypasses the Next proxy, which forwards neither `Authorization` nor non-`/api` paths and aborts at 45 s. It also isolates failure, rate limits and scaling from the UI API. It reuses the identical platform code, so there is no duplicated logic. |
+| **MCP gateway** (resource and endpoint `https://orbit.eds-labs.io/mcp`) | **Own compose service `mcp`** built from the same image with a separate entrypoint (`tsx apps/api/src/mcp-main.ts`). Traefik routes the path `/mcp` and `/.well-known/oauth-protected-resource/mcp` to it, with higher priority than the `web` catch-all (decided by Mario, Q-22). | It bypasses the Next proxy, which forwards neither `Authorization` nor non-`/api` paths and aborts at 45 s. It also isolates failure, rate limits and scaling from the UI API. It reuses the identical platform code, so there is no duplicated logic. |
 | **Platform services** | Unchanged (`apps/api/src/platform/**`) | The gateway calls them in-process. There is no HTTP hop to the API and no second implementation. |
 
-**Alternative (Q-22):** mount `/mcp` inside the existing `api` process and route that path from Traefik to `api`. That means one container fewer, but MCP traffic shares the event loop, the DB pool and the rate limits with the UI. Recommendation: the separate service. The extra cost is about one Node process.
+**Rejected alternative:** mount `/mcp` inside the existing `api` process. That means one container fewer, but MCP traffic shares the event loop, the DB pool and the rate limits with the UI.
 
-**Hostnames:** `mcp.orbit.eds-labs.io` is a DNS change and needs approval. Alternative: the path `https://orbit.eds-labs.io/mcp` routed to the `mcp` service. Either way the `resource` identifier must be stable forever, because it is bound into tokens and client configurations.
+**Resource identifier (Q-22, decided 2026-10-13):** `https://orbit.eds-labs.io/mcp`. There is no new subdomain and no DNS change. Because the resource has a path, its Protected Resource Metadata is served at `https://orbit.eds-labs.io/.well-known/oauth-protected-resource/mcp` (RFC 9728 path insertion), and the 401 challenge points there explicitly. Some clients probe only the root `/.well-known/oauth-protected-resource`, so that URL is served too and describes the same resource. Verify both in WP-M5. The identifier must be stable forever, because it is bound into tokens and client configurations. Trade-off: the MCP and UI traffic share the hostname, the TLS certificate and Traefik. The service separation still isolates processes and limits.
 
 ### 3.2 Request flow
 
-1. The client calls `/mcp` without a token. The gateway answers **401** with `WWW-Authenticate: Bearer resource_metadata="https://mcp…/.well-known/oauth-protected-resource"`. For tool results it also sets `isError` with `_meta["mcp/www_authenticate"]`, which ChatGPT needs to show its linking UI.
-2. The client discovers the authorization server and starts **authorization code + PKCE** with `resource=https://mcp.orbit.eds-labs.io`. It identifies itself by its CIMD URL, or a DCR client ID for older clients.
+1. The client calls `/mcp` without a token. The gateway answers **401** with `WWW-Authenticate: Bearer resource_metadata="https://orbit.eds-labs.io/.well-known/oauth-protected-resource/mcp"`. For tool results it also sets `isError` with `_meta["mcp/www_authenticate"]`, which ChatGPT needs to show its linking UI.
+2. The client discovers the authorization server and starts **authorization code + PKCE** with `resource=https://orbit.eds-labs.io/mcp`. It identifies itself by its CIMD URL, or a DCR client ID for older clients.
 3. Orbit `/oauth2/authorize`:
    - If there is no session, the Orbit login page is shown.
    - Then the **consent screen**: the client's identity, the requested scopes, and the user's choice of **organization and projects**, preselected and limited to the user's memberships.
@@ -189,7 +189,7 @@ flowchart LR
 | UserInfo | `sub`, `email`, `email_verified`. ChatGPT Enterprise domain restrictions need these. |
 | Client authentication | `none` (public plus PKCE) and `private_key_jwt` (ChatGPT's JWKS). Secrets only for an explicitly predefined client. |
 | Optional hardening | Verify ChatGPT's mTLS client certificate at Traefik and pass a verified flag to the gateway. Egress IP allowlist as a defence-in-depth signal, never as authentication. |
-| Data | New tables in the **auth** schema: OAuth client, consent, access/refresh tokens and JWKS (Better Auth managed), plus Orbit's `McpGrant`. Owned by `orbit_auth` and added to the grant list in `scripts/db-deploy.ts:131-143`. |
+| Data | New tables in the **auth** schema: OAuth client, consent, access/refresh tokens and JWKS (Better Auth managed), plus Orbit's `McpGrant`. Owned by `orbit_auth` and added to the grant list in `scripts/db-deploy.ts` (lines 131-143). |
 
 ### 4.2 Scopes and grants
 
@@ -396,7 +396,7 @@ New work packages (details in `07-roadmap.md`):
 |---|---|
 | Q-18 | ~~Lift the ADR 0007 MCP non-goal?~~ **Resolved by Mario's addendum, 2026-10-13:** a central MCP gateway is wanted. ADR 0007 gets an addendum in WP0.1. |
 | Q-21 | Is ChatGPT dots support with a custom MCP server or a privately published plugin available on Mario's plan? Verify in WP-M5. Recommendation: build to the standards; do not rely on dots specifics. |
-| Q-22 | Separate `mcp` service with its own hostname (recommended), or a `/mcp` path inside the API process? `mcp.orbit.eds-labs.io` needs a DNS change. |
+| Q-22 | ~~Placement?~~ **Decided by Mario, 2026-10-13:** own `mcp` service under the path `https://orbit.eds-labs.io/mcp`, without a subdomain. |
 | Q-23 | Which ChatGPT plan or workspace will connect? Pro may be limited to read and fetch through custom MCP, which is enough for the read surface (WP-M3). Proposals need full MCP. |
 | Q-24 | Should `orbit:write` (W0) be offered at all in the first release, or only read and propose? Recommendation: read and propose first. |
 | Q-25 | Should ChatGPT's mTLS client certificate be verified at Traefik as an extra signal? This depends on Traefik and Coolify support for optional client certificates. |

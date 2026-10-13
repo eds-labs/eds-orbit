@@ -1,6 +1,6 @@
 # 04 — Platform / Marketing separation
 
-**Status:** Proposal, 2026-10-13. This document applies `02` and `03` to the current code. Work package IDs (WPx.y) refer to `07-roadmap.md`.
+**Status:** Accepted design baseline ([ADR 0009](../../docs/adr/0009-modular-platform.md), 2026-10-13); not implemented. Written 2026-10-13. This document applies `02` and `03` to the current code. Work package IDs (WPx.y) refer to `07-roadmap.md`.
 
 **Legend:**
 - **[Fact]**: current code.
@@ -255,7 +255,7 @@ The duplicated `decide` logic (`chat.tsx:426` and `action-request-inbox.tsx`) me
 
 ## 7. Rollback
 
-- Every PR before WP2.4 is behaviour-neutral. Rollback means redeploying the previous image (`docs/deployment/COOLIFY.md:51-57`).
+- Every PR before WP2.4 is behaviour-neutral. Rollback means redeploying the previous image (`docs/deployment/COOLIFY.md` (lines 51-57)).
 - The only schema change in Phases 1–2 is the additive `ProjectModule` table and an optional `AgentRun.module` column. Both are forward-compatible: older code ignores them. No down-migration is needed.
 - Activation enforcement sits behind a new flag `ORBIT_MODULES` (default `false`). Rollback means setting the flag to false and redeploying.
 - WP2.5 changes how Telegram callbacks are routed, so callback data formats must stay identical. Rollback is the previous image. Pending callbacks stay valid because the format is unchanged.

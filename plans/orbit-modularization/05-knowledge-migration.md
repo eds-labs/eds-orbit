@@ -1,6 +1,6 @@
 # 05 — Extracting the Knowledge module
 
-**Status:** Proposal, 2026-10-13. This step comes after the Platform/Marketing separation (`04`). Work package IDs refer to `07-roadmap.md`.
+**Status:** Accepted design baseline ([ADR 0009](../../docs/adr/0009-modular-platform.md), 2026-10-13); not implemented. Written 2026-10-13. This step comes after the Platform/Marketing separation (`04`). Work package IDs refer to `07-roadmap.md`.
 
 **Legend:** **[Fact]** current code · **[Proposal]** target · **[Open]** decision needed.
 
@@ -135,7 +135,7 @@ These are not pure refactors. Each needs Mario's decision before it ships.
   | `knowledge.index.manage` | index actions | `["owner"]` |
   | `knowledge.search` | `retrieve` | `["owner","editor","viewer"]` |
 
-- **Export.** `/export` includes knowledge data today (`docs/KNOWLEDGE_ARCHITECTURE.md:51-53`). It stays a platform export that asks every module for its export section.
+- **Export.** `/export` includes knowledge data today (`docs/KNOWLEDGE_ARCHITECTURE.md` (lines 51-53)). It stays a platform export that asks every module for its export section.
 - **Index generations and evaluations** are untouched. The active generation, its manifest hash and its evaluation stay valid, because no chunk or manifest changes. This matters because any manifest change blocks live publishing (`INDEX_EVALUATION_CORPUS_CHANGED`).
 
 ## 7. Keeping marketing and the assistant working

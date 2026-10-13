@@ -1,6 +1,6 @@
 # 06 — Support module: own ticket and communication system
 
-**Status:** Proposal, revised 2026-10-13. The revision follows Mario's addendum: Support gets its **own integrated ticket and communication system**, and **Chatwoot is not a dependency**. Migrating existing Chatwoot data is an optional later extension.
+**Status:** Accepted design baseline ([ADR 0009](../../docs/adr/0009-modular-platform.md), 2026-10-13); not implemented. Written 2026-10-13. The revision follows Mario's addendum: Support gets its **own integrated ticket and communication system**, and **Chatwoot is not a dependency**. Migrating existing Chatwoot data is an optional later extension.
 
 **Nothing in this document is implemented.** Support is planned as a functionally independent module inside the Orbit modular monolith (`02`), not as a separate application.
 
@@ -22,7 +22,7 @@ Work package IDs refer to `07-roadmap.md`.
 | Missing | Evidence |
 |---|---|
 | Support, ticket or customer-communication code | grep across `apps/` and `packages/` |
-| Chatwoot integration (it runs only as a separate service on the services VPS) | `docs/VPS_INVENTORY.md:22` |
+| Chatwoot integration (it runs only as a separate service on the services VPS) | `docs/VPS_INVENTORY.md` (line 22) |
 | E-mail sending or receiving (readiness even reports `MAIL_PROVIDER_NOT_CONFIGURED`) | `apps/api/src/modules/readiness.ts` |
 | Public, unauthenticated API for customers. `@fastify/cors` is a dependency but is not registered. Only the Slack and Telegram webhooks are public. | `apps/api/src/server.ts:406, 434` |
 | API tokens or service accounts: only browser sessions | `apps/api/src/auth.ts` |
@@ -338,7 +338,7 @@ The MVP needs none of this: the verified widget identity already links tickets t
 | ID | Question |
 |---|---|
 | Q-09 | How is Desk and FamilyPlan product data provided? Only needed for E5. |
-| Q-12 | What legal basis, retention and OpenAI data-processing terms apply to customer PII? This revisits decision D2 in `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md:31`, which assumed a single-user Orbit. **Blocks the MVP AI features.** |
+| Q-12 | What legal basis, retention and OpenAI data-processing terms apply to customer PII? This revisits decision D2 in `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md` (line 31), which assumed a single-user Orbit. **Blocks the MVP AI features.** |
 | Q-13 | Should support live in the app's project with module roles (recommended), or in a separate support project? |
 | Q-16 | Which e-mail provider (new external provider, approval needed), and which sending domain? |
 | Q-17 | May the widget answer customers without a human in the MVP (evidence-only, per inbox, off by default)? |

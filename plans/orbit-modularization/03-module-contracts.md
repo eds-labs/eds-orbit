@@ -1,6 +1,6 @@
 # 03 — Module contracts and interfaces
 
-**Status:** Proposal, 2026-10-13. These are type sketches, not implemented code. Names are illustrative. They follow the existing conventions: zod 4 schemas, `Scope`, `DbTx`, `DomainError` codes and English comments.
+**Status:** Accepted design baseline ([ADR 0009](../../docs/adr/0009-modular-platform.md), 2026-10-13); not implemented. Written 2026-10-13. These are type sketches, not implemented code. Names are illustrative. They follow the existing conventions: zod 4 schemas, `Scope`, `DbTx`, `DomainError` codes and English comments.
 
 **Legend:** **[Fact]** = observed in the code today. **[Proposal]** = target contract.
 

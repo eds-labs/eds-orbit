@@ -1,5 +1,17 @@
 # Implementation status
 
+## Modular Orbit Platform: decision baseline (2026-10-13, docs only)
+
+Mario accepted the modularization plan in `plans/orbit-modularization/` (documents 01–09) as the decision baseline. This was work package WP0.1, recorded in [ADR 0009](adr/0009-modular-platform.md).
+
+The plan covers:
+
+- Orbit Platform plus statically registered modules, with Marketing and Knowledge first;
+- an own Support module with no Chatwoot dependency;
+- a central MCP gateway under `https://orbit.eds-labs.io/mcp`. ADR 0007 has an addendum lifting the MCP non-goal.
+
+No code, schema or deployment change was made. The next work package is WP0.2, the safety net: RLS and route × role matrices, worker smoke tests and a CI guard against silently skipped integration tests. Pre-existing findings are being fixed separately: F-01 in PR #91 and F-02 in PR #92.
+
 ## Assignment banners in the brand style (2026-10-12, local)
 
 Review fix round (R79, commit after `60ebd02`): agent review authority does not cover banner posts with publish delivery (they wait for the owner until the review eval has banner cases; Postiz draft delivery unchanged); revisions keep the banner (`previousBanner`); banners stay tied to approved, unchanged background, logo and profile (key, save re-check under the run lock, `bannerState`); uploaded raster logo with verified bytes only; `BANNER_BRAND_OVERFLOW` at proposal and run time; per-banner render failures (`BANNER_RENDER_FAILED`); banners bound to their post and out of the library and pickers; banner claim words revised once, NFKC and script checks (`BANNER_TEXT_UNSAFE`); copies of media-capable channels keep the slot's banner when only the strictest channel refuses it (`BANNER_MEDIA_REFUSED`). DejaVu stays the font.

@@ -43,7 +43,7 @@ The safety mechanisms are largely domain-neutral and reusable. The coupling prob
 | Database | PostgreSQL 17 + pgvector 0.8.6, FORCE RLS, two non-privileged roles | `packages/db/prisma/security.sql`, `scripts/db-deploy.ts` |
 | Queue | BullMQ 6.3.6 on Redis 7.4.7, 14 queue classes | `apps/worker/src/main.ts:101-128` |
 | Web | Next.js 16 App Router (single catch-all route), Tailwind 4 plus a 3,800-line semantic stylesheet, lucide icons | `apps/web/src/app/[[...route]]/page.tsx`, `apps/web/src/app/globals.css` |
-| AI | `openai` SDK 7.25: Responses API, embeddings, images. OpenAI is the only provider. | `packages/ai/src/index.ts`, `docs/MODEL_ROUTING.md:3` |
+| AI | `openai` SDK 7.25: Responses API, embeddings, images. OpenAI is the only provider. | `packages/ai/src/index.ts`, `docs/MODEL_ROUTING.md` (line 3) |
 | Documents | mammoth (docx), pdfjs-dist in a child process, sanitize-html | `packages/knowledge/src/extract.ts` |
 | Tests | Vitest 5 (~1,110 cases in ~127 files), Playwright (Chromium), 12 Python governance tests | `vitest.config.ts`, `playwright.config.ts` |
 | Deployment | Coolify Docker Compose build pack, branch `main`, domain `orbit.eds-labs.io` | `docs/deployment/COOLIFY.md` |
@@ -286,7 +286,7 @@ Every new physical table needs a grant edit, an RLS policy and a role check.
 | Google Drive | OAuth, asset import, generated asset and draft save | `google-drive.ts` | `drive_connection` (refresh token encrypted) |
 | OpenAI | Text, embeddings, images | `packages/ai` | `openai_configuration` (two keys encrypted) |
 | CSV / blog | Metric import; portable blog/newsletter bundle | `connectors/csv.ts`, `blog.ts` | — |
-| **Chatwoot** | **No code.** Exists only as a co-resident service on the services VPS (`docs/VPS_INVENTORY.md:22`, `docs/HOSTING_DECISION.md:7`). | — | — |
+| **Chatwoot** | **No code.** Exists only as a co-resident service on the services VPS (`docs/VPS_INVENTORY.md` (line 22), `docs/HOSTING_DECISION.md` (line 7)). | — | — |
 | Desk / FamilyPlan / Forecast | **No data access.** The master spec forbids Desk keys and dependencies (`docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md:310, 441, 502`). | — | — |
 
 **[Fact]** All credentials are encrypted with one `CREDENTIAL_KEY` using AES-256-GCM (`shared.ts:44-72`), with no key ID and no AAD. The encrypted values also persist in `EntityVersion` snapshots. `CREDENTIAL_KEY` is read raw from `process.env` in about 13 places.

@@ -1,13 +1,13 @@
 # 02 — Target architecture: Orbit Platform + modules
 
-**Status:** Proposal, 2026-10-13. Nothing in this document is implemented. Decisions referenced as AD-xx are listed in `08-risks-and-decisions.md`.
+**Status:** Accepted design baseline ([ADR 0009](../../docs/adr/0009-modular-platform.md), 2026-10-13); not implemented. Written 2026-10-13. Nothing in this document is implemented. Decisions referenced as AD-xx are listed in `08-risks-and-decisions.md`.
 **Legend:** **[Fact]** observed today · **[Proposal]** target design · **[Open]** needs a decision.
 
 ---
 
 ## 1. Naming
 
-**[Fact]** The name "Orbit Core" is already in use. It covers the conversational operator, content packages and Orbit Agents (`docs/plans/ORBIT_CORE_JARVIS_PLAN.md`, `docs/IMPLEMENTATION_STATUS.md:34`, ADR 0005, feature flags).
+**[Fact]** The name "Orbit Core" is already in use. It covers the conversational operator, content packages and Orbit Agents (`docs/plans/ORBIT_CORE_JARVIS_PLAN.md`, `docs/IMPLEMENTATION_STATUS.md` (line 34), ADR 0005, feature flags).
 
 **[Proposal] (AD-02)**
 

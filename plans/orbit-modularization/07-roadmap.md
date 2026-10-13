@@ -1,6 +1,6 @@
 # 07 — Roadmap: prioritized work packages
 
-**Status:** Proposal, 2026-10-13. Nothing here is approved for implementation. Each work package (WP) is meant to become one or a few small PRs.
+**Status:** Accepted plan ([ADR 0009](../../docs/adr/0009-modular-platform.md), 2026-10-13). Each WP still needs its own go and, for production steps, its own approval. Each work package (WP) is meant to become one or a few small PRs.
 
 **Effort** is given in person-days (PT) for one developer who knows the codebase. It includes tests and review fixes, but not production rollout waiting time.
 
@@ -87,6 +87,7 @@
 ## Phase 0: Analysis and safeguards
 
 ### WP0.1 Decision baseline
+- **Status:** **done 2026-10-13.** Mario accepted AD-01 to AD-23 and answered Q-01, Q-02, Q-05, Q-06, Q-10, Q-14 and Q-22. The baseline is recorded in `docs/adr/0009-modular-platform.md` plus an addendum to ADR 0007.
 - **Goal / result:** Mario accepts or adjusts AD-01 … AD-14 and answers the blocking open questions (Q-01, Q-02, Q-05, Q-06). The result is the accepted `08-risks-and-decisions.md` plus a short ADR `docs/adr/0009-modular-platform.md`.
 - **Components:** documentation only.
 - **Changes:** none in code.
@@ -124,7 +125,7 @@
 
 ### WP0.3 Import-boundary checker
 - **Goal / result:** Module boundaries become measurable.
-- **Components:** `scripts/source-check.mjs`, new `scripts/boundaries.json` baseline.
+- **Components:** `scripts/source-check.mjs`, new baseline file scripts/boundaries.json.
 - **Changes:**
   - A regex-based import resolver classifies files as `platform`, `modules/<id>`, `packages/<x>`, worker or web.
   - Rules from `02` §3.
@@ -511,7 +512,7 @@
 
 ### WP4.1 Extensibility test suite
 - **Goal / result:** It is proven that a third module can be added purely through the contracts.
-- **Components:** test-only fixture module `tests/fixtures/modules/tasks` (not registered in production).
+- **Components:** new test-only fixture module tests/fixtures/modules/tasks, not registered in production.
 - **Changes:** the fixture module declares:
   - a table (only in the test DB migration, or the Entity kind `fixture_tasks`);
   - a permission and a route;
@@ -662,7 +663,7 @@ The design is in `09-mcp-gateway.md`. The gateway is a protocol and authenticati
 
 ### WP-M1 OAuth authorization server, consent, grants
 - **Goal / result:** Orbit is an OAuth 2.1 authorization server for MCP clients. Users grant a client access to selected organizations, projects and scopes, and can revoke it.
-- **Components:** `apps/api/src/auth.ts` (Better Auth), auth tables and `scripts/db-deploy.ts:131-143` (grants for `orbit_auth`), web consent page and Settings → Connected apps, Traefik routes for `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, `/oauth2/*` and the JWKS.
+- **Components:** `apps/api/src/auth.ts` (Better Auth), auth tables and `scripts/db-deploy.ts` (lines 131-143) (grants for `orbit_auth`), web consent page and Settings → Connected apps, Traefik routes for `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, `/oauth2/*` and the JWKS.
 - **Changes:**
   1. Better Auth OAuth provider, MCP and CIMD packages plus the `jwt` plugin, pinned past the known advisories.
   2. CIMD client registration through an SSRF-safe fetch. DCR only for backward compatibility, rate-limited.
@@ -685,7 +686,7 @@ The design is in `09-mcp-gateway.md`. The gateway is a protocol and authenticati
 
 ### WP-M2 MCP gateway core
 - **Goal / result:** A stateless MCP endpoint that serves the tool registry under the token's grant.
-- **Components:** the new entrypoint `apps/api/src/mcp-main.ts`, `platform/mcp/*`, a `docker-compose.yml` service `mcp` built from the same image with a healthcheck, a Traefik route or hostname, and the `.env.example` entries for issuer and resource.
+- **Components:** the new entrypoint `apps/api/src/mcp-main.ts`, `platform/mcp/*`, a `docker-compose.yml` service `mcp` built from the same image with a healthcheck, a Traefik path route `/mcp` (Q-22), and the `.env.example` entries for issuer and resource.
 - **Changes:**
   1. Streamable HTTP for protocol revisions 2025-11-25 and 2026-07-28 through the official SDK (a new dependency needing approval).
   2. Protected Resource Metadata.
@@ -753,7 +754,7 @@ The design is in `09-mcp-gateway.md`. The gateway is a protocol and authenticati
 
 ### WP-M5 Client compatibility, security review, rollout
 - **Goal / result:** Production MCP access for Mario's ChatGPT, with verified behaviour.
-- **Components:** production deployment, DNS for the MCP hostname (Q-22), Traefik.
+- **Components:** production deployment, the Traefik path route for `/mcp` and the PRM well-known paths (no DNS change, Q-22).
 - **Changes:**
   1. Re-verify the ChatGPT and dots documentation, which is moving.
   2. Test a ChatGPT developer-mode connector end to end.
@@ -762,7 +763,7 @@ The design is in `09-mcp-gateway.md`. The gateway is a protocol and authenticati
   5. Run the security review checklist (`09` §9).
   6. Optional mTLS verification (Q-25).
   7. Write the runbook: revoke a client or grant, rotate JWKS.
-- **Prerequisites:** WP-M4. Explicit approvals for DNS, production deployment and the new dependencies.
+- **Prerequisites:** WP-M4. Explicit approvals for the production deployment, the Traefik route change and the new dependencies.
 - **Acceptance:** the checklist passes; Mario's account can read and propose from ChatGPT; an audit trail exists.
 - **Tests:** manual end-to-end tests plus automated conformance tests.
 - **Risks / rollback:**

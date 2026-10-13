@@ -1,6 +1,6 @@
 # 08 — Risks, open questions and architecture decisions
 
-**Status:** Proposal, 2026-10-13. Every decision below is **proposed**. Nothing is accepted until Mario confirms it (WP0.1).
+**Status:** **Decision baseline accepted by Mario on 2026-10-13 (WP0.1).** AD-01 to AD-23 are accepted as written; AD-23 uses the path variant Mario chose for Q-22. The record is in [ADR 0009](../../docs/adr/0009-modular-platform.md). Open questions not yet answered are deferred to the work package named in §4; each must be answered before that WP starts. Risks and findings are living lists.
 
 **Legend:** **[Fact]** observed · **[Proposal]** recommended · **[Open]** needs Mario.
 
@@ -32,7 +32,7 @@
 | AD-20 | **Central Orbit MCP gateway** as platform infrastructure. It is a pure protocol and authentication adapter over the shared tool registry, permissions, ActionRequests and knowledge services (`09`). It has no business logic and no MCP-only tools. | Mario's addendum, 2026-10-13. The registry was designed MCP-shaped (ADR 0007). One code path for the UI, the Assistant and MCP. | **Separate MCP application with its own logic:** duplicate rules and drift. **Hosted or third-party MCP gateway:** credentials and data outside Orbit's RLS and budget journal. |
 | AD-21 | **Orbit is its own OAuth 2.1 authorization server** (Better Auth OAuth provider with the MCP and CIMD packages and the `jwt` plugin, pinned past known advisories). It uses CIMD first, DCR for backward compatibility only, PKCE S256, RFC 9207 `iss`, resource-bound JWT access tokens and rotating refresh tokens. A consent screen selects organization, projects and scopes and stores an `McpGrant`. | It shares users and sessions with Orbit and meets the ChatGPT and MCP 2026-07-28 requirements. | **External IdP (Keycloak, Auth0):** a second identity store and more operations. **Static API keys:** ChatGPT does not support them. |
 | AD-22 | **Client-side confirmation is never authorization.** MCP exposes R0, P and selected W0 tools. Every consequential action is an ActionRequest decided in Orbit (inbox, Telegram, or a URL elicitation to an Orbit page). Hard floors are never exposed. MCP-originated requests default one step stricter, with per-grant quotas and a kill switch. | ChatGPT notes that writes can occur despite read-only hints. Always-on dots act without step-by-step supervision. | **Trusting the client's write confirmation:** not under Orbit's control. |
-| AD-23 | The MCP gateway runs as its **own compose service `mcp`** from the same image, with its own Traefik route or hostname. It is stateless and supports MCP protocol revisions 2025-11-25 and 2026-07-28. | The Next proxy forwards no `Authorization` header and only `/api/*`, and aborts at 45 s (`route.ts:41-66`). Isolation of load and failures. Stateless design matches the current spec. | **`/mcp` inside the API process:** shared event loop and limits (Q-22). **Through the Next proxy:** a header and timeout mismatch. |
+| AD-23 | The MCP gateway runs as its **own compose service `mcp`** from the same image, served under the **path `https://orbit.eds-labs.io/mcp`** (Q-22, decided 2026-10-13). There is no subdomain; Traefik routes `/mcp` and its Protected Resource Metadata paths to the service. It is stateless and supports MCP protocol revisions 2025-11-25 and 2026-07-28. | The Next proxy forwards no `Authorization` header and only `/api/*`, and aborts at 45 s (`route.ts:41-66`). Isolation of load and failures without a DNS change. Stateless design matches the current spec. | **`/mcp` inside the API process:** shared event loop and limits. **Own subdomain:** cleaner, but needs a DNS change. **Through the Next proxy:** a header and timeout mismatch. |
 
 ## 2. Risks
 
@@ -72,7 +72,7 @@ These were found during analysis. They are **not** fixed by this program, but so
 
 | ID | Finding | Evidence | Severity (estimate) | Recommendation |
 |---|---|---|---|---|
-| F-01 | **`add-member` can attach any existing user by e-mail to the project** with any role, `owner` included. A ProjectMember-level owner can do this. No audit event is written. There is no remove or role-change endpoint. | `apps/api/src/server.ts:1614-1652` | High (authorization) | Separate security fix. Restrict role grants (no owner by non-workspace-owners), audit, add member removal. Surfaced by the WP0.2 matrix. |
+| F-01 | **`add-member` can attach any existing user by e-mail to the project** with any role, `owner` included. A ProjectMember-level owner can do this. No audit event is written. There is no remove or role-change endpoint. | `apps/api/src/server.ts:1614-1652` | High (authorization) | **Fix in progress: [PR #91](https://github.com/eds-labs/eds-orbit/pull/91)** (2026-10-13; open, not yet merged or deployed). Limits add-member for project-only owners and audits additions. Member removal is a follow-up. |
 | F-02 | **Rate limits are effectively global.** `trustProxy:false`, and the Next proxy sends no `X-Forwarded-For`, so the API sees the web container's IP. 100 writes/min and 20 sign-ins/min are shared by all users. Better Auth's IP limit is affected too. | `server.ts:286, 316-321`; `apps/web/src/app/api/[...path]/route.ts:44-58` | Medium (availability and brute-force protection) | **Fixed in [PR #92](https://github.com/eds-labs/eds-orbit/pull/92)** (2026-10-13; open, not yet merged or deployed). The proxy forwards the right-most `X-Forwarded-For` hop as `X-Orbit-Client-IP`; the API believes it only from a loopback or private-network peer and keys all Fastify limits and Better Auth on it. See `docs/OPERATIONS.md` ("Client addresses and rate limits") and `docs/SECURITY_REVIEW.md` SR-16. |
 | F-03 | **`CREDENTIAL_KEY` ciphertexts have no key ID and no AAD**, and old credentials persist in `EntityVersion` snapshots. | `shared.ts:44-72` | Medium | Key ID prefix and AAD bound to `entityId`. Purge credential fields from version history. Plan with the connections registry (WP2.5) but implement separately. |
 | F-04 | **Setup can leave an orphaned user** if the workspace insert fails, because `signUpEmail` probably runs outside the `authDb` transaction. | `server.ts:486-521` | Low | Verify and fix separately. |
@@ -86,28 +86,28 @@ These are prioritized. Blocking questions must be answered before the named WP s
 
 | ID | Question | Blocking for | Recommendation |
 |---|---|---|---|
-| Q-01 | Do you accept the name "Orbit Platform" for the kernel, with "Orbit Core" kept for the operator/Jarvis features? | WP0.1 | Yes (AD-02). |
-| Q-02 | Should "Organization" be the UI name for today's Workspace? Do you expect users with several organizations, for example EDS Labs plus client companies? | WP1.7 | Yes. Build the organization picker but skip it when there is only one organization. |
+| Q-01 | Name of the kernel? | — | **Decided 2026-10-13:** "Orbit Platform" for the kernel, "Orbit Assistant" for the main agent. "Orbit Core" keeps its historical meaning. |
+| Q-02 | UI name for Workspace, and several organizations? | — | **Decided 2026-10-13:** "Organization" in the UI (the table stays `Workspace`). An organization picker is built and skipped when the user has only one organization. |
 | Q-03 | Should modules be enabled per organization (entitlement) in addition to per project? | WP2.4 (not blocking) | Later. Project level is enough now. |
 | Q-04 | Should the OpenAI configuration (keys, routes) stay per project, or move to organization level with project overrides? | WP1.7 settings structure | Keep per project now. The organization default is a later feature. |
-| Q-05 | Should the AI spend mandate become a separate project setting (AD-10 step 2), independent of the marketing policy? | WP3.x / Support | Step 1 only now. Step 2 once a non-marketing module needs paid AI. |
-| Q-06 | Should `assets` (brand library) stay marketing-owned with base64 storage? Platform files (WP4.6) are now needed for Support anyway. | WP2.1 | Yes, keep marketing assets as they are. Migrating them onto platform files is optional later. |
+| Q-05 | Separate AI spend mandate setting? | — | **Decided 2026-10-13:** step 1 only, a projection from the active policy with no data or hash change. Separate storage once a non-marketing module needs paid AI. |
+| Q-06 | Ownership of the brand assets? | — | **Decided 2026-10-13:** they stay marketing-owned with their current storage. Platform files (WP4.6) serve Support. Migration is optional later. |
 | Q-07 | ~~Should Chatwoot stay the agent inbox?~~ **Resolved by Mario, 2026-10-13: no.** Support is an own system (AD-15). | — | — |
 | Q-08 | Should bulk-imported facts keep being auto-verified (`knowledge-import.ts:84`)? | WP3.2 (not blocking) | Separate decision. Candidate status would be safer. |
 | Q-09 | How is Desk and FamilyPlan product data provided to Support? | Support program | A read-only support API per product, with an allowlist of fields. |
-| Q-10 | Module-specific roles for support staff without marketing access. | WP4.5 | **Now required** (WP4.5, a `ProjectMemberModuleRole` table). Confirm. |
+| Q-10 | Module-specific roles? | — | **Decided 2026-10-13:** yes, `ProjectMemberModuleRole` including `none`, in WP4.5. |
 | Q-11 | Should cross-module assistant plans be confirmed per ActionRequest or as one bundle? | WP4.1 | Per request first. A bundle is a UX convenience over the same records. |
-| Q-12 | Which legal basis, retention and OpenAI data-processing terms apply to customer messages? | Support program | Decide before any Support code. Revisit decision D2 in `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md:31`. |
+| Q-12 | Which legal basis, retention and OpenAI data-processing terms apply to customer messages? | Support program | Decide before any Support code. Revisit decision D2 in `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md` (line 31). |
 | Q-13 | Should support run in the app's project with module roles, or in a separate support project? | WP5.1 | Same project as the app's other work, with module roles (`06` §3.7). A separate project only if support staff must never be project members. |
-| Q-14 | Is a feature freeze or move window acceptable for the larger moves (WP2.1, WP2.3), for example 1–2 days per subdomain? | WP2.1 | Yes. It reduces R-07. |
-| Q-15 | Should the pre-existing findings F-01 and F-02 be fixed before the program starts? | — | Yes, F-01 as a separate small security PR. |
+| Q-14 | Move windows for WP2.1 and WP2.3? | — | **Decided 2026-10-13:** yes, announced windows of 1–2 days per subdomain, with no parallel feature PRs in the same files. |
+| Q-15 | Fix F-01 and F-02 before the program? | — | **Under way:** F-01 in [PR #91](https://github.com/eds-labs/eds-orbit/pull/91), F-02 in [PR #92](https://github.com/eds-labs/eds-orbit/pull/92) (both open on 2026-10-13). |
 | Q-16 | Which e-mail provider (a new external provider, approval needed) and which sending domain? Or IMAP/SMTP against an existing mailbox? | WP4.7 | A transactional provider with an EU region, inbound webhook and send API, used for support and notifications. |
 | Q-17 | May the widget answer customers without a human in the MVP (evidence-only, per inbox, off by default)? | WP5.6 | Yes as an option, off by default. Enable per inbox after reviewing drafts for a few weeks. |
 | Q-18 | ~~Lift the ADR 0007 MCP non-goal?~~ **Resolved by Mario, 2026-10-13:** a central MCP gateway (`09`). ADR 0007 gets an addendum in WP0.1. | — | — |
 | Q-19 | Which object storage for attachments? | WP4.6 | A separate R2 bucket and credentials next to the existing backup bucket. |
 | Q-20 | Which apps get the widget first, and who integrates the embed and HMAC signing on the app side (Desk, FamilyPlan teams)? | WP5.4, WP5.9 | Desk first as the pilot. |
 | Q-21 | Can ChatGPT dots on your plan use a custom MCP server or a privately published plugin? | WP-M5 | Verify then. Build to the standards. |
-| Q-22 | Separate `mcp` service with its own hostname `mcp.orbit.eds-labs.io` (a DNS change), or a `/mcp` path on the API? | WP-M2 | Separate service with its own hostname (AD-23). |
+| Q-22 | Placement of the MCP gateway? | — | **Decided 2026-10-13:** own `mcp` service under the path `https://orbit.eds-labs.io/mcp`, without a subdomain (AD-23). |
 | Q-23 | Which ChatGPT plan or workspace connects? Pro may be read and fetch only. | WP-M5 | The read surface works on any plan. Proposals need full MCP. |
 | Q-24 | Offer `orbit:write` (W0) in the first MCP release? | WP-M4 | No. Read and propose first. |
 | Q-25 | Verify ChatGPT's mTLS client certificate at Traefik? | WP-M5 | Optional hardening, if Coolify and Traefik support it. |
