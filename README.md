@@ -70,4 +70,15 @@ Provider states distinguish configured credentials, verified reads, verified wri
 
 Adapter authors should follow [connector development](docs/CONNECTOR_DEVELOPMENT.md) and the actual provider capability matrix.
 
+`pnpm lint` also checks import boundaries for the planned modular platform (`scripts/boundaries.mjs`). `scripts/boundaries.json` maps every source file to its target zone: platform, a module such as marketing or knowledge, the worker, the web shell or a web module, or a package. The rules forbid these imports:
+
+- the platform importing a module;
+- the worker importing a module;
+- the web shell importing a web module;
+- one module importing another, except through a declared dependency's `contract.ts`;
+- packages importing apps;
+- the web app importing server code.
+
+Only violations missing from the recorded baseline fail the check. When a violation is removed, refresh the baseline with `node scripts/source-check.mjs --update-boundaries`. `--boundary-report` prints imports between zones.
+
 Codex Project Framework1.1.0 was merged missing-only; provenance is in [framework baseline](docs/FRAMEWORK_BASELINE.md). The complete controlling specification is retained in `docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md`. Original EDS Labs marks remain reserved brand assets. The repository is private; no open-source license grant has been assumed. See [license status](LICENSE-STATUS.md). Operational inventory and acceptance evidence require review before any public release.

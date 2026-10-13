@@ -1,0 +1,199 @@
+{
+  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 §2, 05 §3); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added.",
+  "roots": [
+    "apps/api/src",
+    "apps/worker/src",
+    "apps/web/src",
+    "packages"
+  ],
+  "zones": {
+    "root:api": [
+      "apps/api/src/main.ts",
+      "apps/api/src/server.ts",
+      "apps/api/src/openapi.ts"
+    ],
+    "platform": [
+      "apps/api/src/platform/",
+      "apps/api/src/shared.ts",
+      "apps/api/src/auth.ts",
+      "apps/api/src/client-ip.ts",
+      "apps/api/src/modules/action-readiness.ts",
+      "apps/api/src/modules/action-requests.ts",
+      "apps/api/src/modules/ai-usage.ts",
+      "apps/api/src/modules/budget.ts",
+      "apps/api/src/modules/chat-runner.ts",
+      "apps/api/src/modules/chat-tools.ts",
+      "apps/api/src/modules/chat.ts",
+      "apps/api/src/modules/google-drive.ts",
+      "apps/api/src/modules/index-evaluation.ts",
+      "apps/api/src/modules/ingestion.ts",
+      "apps/api/src/modules/lifecycle.ts",
+      "apps/api/src/modules/member-scope.ts",
+      "apps/api/src/modules/openai-configuration.ts",
+      "apps/api/src/modules/pause.ts",
+      "apps/api/src/modules/readiness.ts",
+      "apps/api/src/modules/reindex.ts",
+      "apps/api/src/modules/retrieval.ts",
+      "apps/api/src/modules/runtime.ts",
+      "apps/api/src/modules/telegram.ts",
+      "apps/api/src/modules/telemetry.ts",
+      "apps/api/src/modules/agents/runtime/",
+      "apps/api/src/modules/agents/tools/registry.ts",
+      "apps/api/src/modules/agents/specialists/runner.ts",
+      "apps/api/src/modules/agents/specialists/types.ts"
+    ],
+    "module:knowledge": [
+      "apps/api/src/modules/knowledge/",
+      "apps/api/src/modules/knowledge-import.ts"
+    ],
+    "module:marketing": [
+      "apps/api/src/modules/",
+      "apps/api/src/modules/marketing/"
+    ],
+    "worker": [
+      "apps/worker/src/"
+    ],
+    "web-platform": [
+      "apps/web/src/",
+      "apps/web/src/platform/",
+      "apps/web/src/components/action-request-inbox.tsx",
+      "apps/web/src/components/agent-runs.tsx",
+      "apps/web/src/components/chat-errors.ts",
+      "apps/web/src/components/chat-markdown.tsx",
+      "apps/web/src/components/chat-resume.ts",
+      "apps/web/src/components/chat.tsx",
+      "apps/web/src/components/form.tsx",
+      "apps/web/src/components/google-drive.tsx",
+      "apps/web/src/components/management.tsx",
+      "apps/web/src/components/operator-tools.tsx",
+      "apps/web/src/components/orbit.tsx",
+      "apps/web/src/components/telegram-connection.tsx",
+      "apps/web/src/components/ui/",
+      "apps/web/src/components/workspace-context.tsx"
+    ],
+    "web-module:knowledge": [
+      "apps/web/src/modules/knowledge/",
+      "apps/web/src/components/knowledge.tsx"
+    ],
+    "web-module:marketing": [
+      "apps/web/src/components/",
+      "apps/web/src/modules/marketing/"
+    ],
+    "package:ai": [
+      "packages/ai/"
+    ],
+    "package:api-client": [
+      "packages/api-client/"
+    ],
+    "package:config": [
+      "packages/config/"
+    ],
+    "package:connectors": [
+      "packages/connectors/"
+    ],
+    "package:creative": [
+      "packages/creative/"
+    ],
+    "package:db": [
+      "packages/db/"
+    ],
+    "package:knowledge": [
+      "packages/knowledge/"
+    ],
+    "package:schemas": [
+      "packages/schemas/"
+    ]
+  },
+  "dependencies": {
+    "module:marketing": [
+      "module:knowledge"
+    ]
+  },
+  "serverPackages": [
+    "package:ai",
+    "package:config",
+    "package:connectors",
+    "package:db",
+    "package:knowledge"
+  ],
+  "baseline": [
+    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/agents/assignments.ts",
+    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/agents/content-packages.ts",
+    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/agents/package-schedule.ts",
+    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/image-generation.ts",
+    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/postiz-assignment.ts",
+    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/workflow.ts",
+    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/assignment-runs.ts",
+    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/assignments.ts",
+    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/notifications.ts",
+    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/veto.ts",
+    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/agents/specialists/types.ts -> apps/api/src/modules/agents/assignment-runs.ts",
+    "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/assignments.ts",
+    "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/content-packages.ts",
+    "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/tools/index.ts",
+    "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/asset-tools.ts",
+    "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/marketing-profile.ts",
+    "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/postiz-assignment.ts",
+    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/agents/assignment-overview.ts",
+    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/agents/content-packages.ts",
+    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/asset-tools.ts",
+    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/marketing-profile.ts",
+    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/postiz-assignment.ts",
+    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/workflow.ts",
+    "platform-imports-module: apps/api/src/modules/google-drive.ts -> apps/api/src/modules/assets.ts",
+    "platform-imports-module: apps/api/src/modules/google-drive.ts -> apps/api/src/modules/drive-readiness.ts",
+    "platform-imports-module: apps/api/src/modules/index-evaluation.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/index-evaluation.ts -> apps/api/src/modules/workflow.ts",
+    "platform-imports-module: apps/api/src/modules/ingestion.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/ingestion.ts -> apps/api/src/modules/workflow.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/assignment-runs.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/assignments.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/content-packages.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/draft-delivery.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/notifications.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/agents/veto.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/autopilot.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/paused-posts.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/planning.ts",
+    "platform-imports-module: apps/api/src/modules/lifecycle.ts -> apps/api/src/modules/workflow.ts",
+    "platform-imports-module: apps/api/src/modules/pause.ts -> apps/api/src/modules/agents/assignment-runs.ts",
+    "platform-imports-module: apps/api/src/modules/pause.ts -> apps/api/src/modules/agents/notifications.ts",
+    "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/drive-readiness.ts",
+    "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/marketing-profile.ts",
+    "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/postiz-assignment.ts",
+    "platform-imports-module: apps/api/src/modules/reindex.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/reindex.ts -> apps/api/src/modules/workflow.ts",
+    "platform-imports-module: apps/api/src/modules/retrieval.ts -> apps/api/src/modules/policy.ts",
+    "platform-imports-module: apps/api/src/modules/runtime.ts -> apps/api/src/modules/postiz-queue-watch.ts",
+    "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/assignments.ts",
+    "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/veto.ts",
+    "web-module-cross: apps/web/src/components/knowledge.tsx -> apps/web/src/components/work.tsx",
+    "web-platform-imports-module: apps/web/src/components/action-request-inbox.tsx -> apps/web/src/components/assignment-card.tsx",
+    "web-platform-imports-module: apps/web/src/components/chat.tsx -> apps/web/src/components/assignment-card.tsx",
+    "web-platform-imports-module: apps/web/src/components/chat.tsx -> apps/web/src/components/chat-package-card.tsx",
+    "web-platform-imports-module: apps/web/src/components/chat.tsx -> apps/web/src/components/work.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/advanced.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/assignments.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/lifecycle.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/slack-connection.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/work.tsx",
+    "web-platform-imports-module: apps/web/src/components/operator-tools.tsx -> apps/web/src/components/work.tsx",
+    "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/advanced.tsx",
+    "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/knowledge.tsx",
+    "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/work.tsx",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/draft-delivery.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/notification-sender.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/specialists/index.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/generation.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/image-requests.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/matomo-schedule.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/postiz-queue-watch.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/publisher.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/slack.ts",
+    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/workflow.ts"
+  ]
+}
