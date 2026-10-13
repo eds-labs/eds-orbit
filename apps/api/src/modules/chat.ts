@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DbTx, Prisma } from "../../../../packages/db/src/index.ts";
-import { scoped } from "../../../../packages/db/src/index.ts";
+import { userScoped } from "../platform/tenancy/scope.ts";
 import {
   mission as missionSchema,
   policy as policySchema,
@@ -50,15 +50,8 @@ const proposeInput = z
   .object({ mission: z.unknown(), factIds: z.array(z.uuid()).min(1).max(20) })
   .strict();
 
-export async function chatScoped<T>(
-  scope: Scope,
-  work: (tx: DbTx) => Promise<T>,
-): Promise<T> {
-  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    await tx.$executeRaw`SELECT set_config('app.user_id',${scope.userId},true)`;
-    return work(tx);
-  });
-}
+// The user-scoped transaction moved to the platform (WP1.1).
+export const chatScoped = userScoped;
 
 function where(scope: Scope) {
   return {

@@ -17,6 +17,7 @@ import {
   hash,
   list,
   update,
+  credentialKey,
 } from "../shared.ts";
 import { activePolicy, checkClaims } from "./policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
@@ -222,7 +223,7 @@ export async function draftSend(
   const c = target.c;
   return {
     baseUrl: k.baseUrl as string,
-    token: decrypt(k.encryptedCredential, process.env.CREDENTIAL_KEY!),
+    token: decrypt(k.encryptedCredential, credentialKey()),
     integrationId: target.integration.id as string,
     identifier: target.integration.identifier as string,
     text: finalPostText(c.body, c.targetUrl),

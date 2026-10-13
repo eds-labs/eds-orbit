@@ -14,6 +14,7 @@ import {
   hash,
   audit,
   DomainError,
+  credentialKey,
 } from "../shared.ts";
 import { correctMetric } from "./lifecycle.ts";
 
@@ -327,7 +328,7 @@ export async function importMatomoReport(
     Number(c.siteId) !== input.siteId
   )
     throw new DomainError("MATOMO_CONNECTOR_SCOPE", 403);
-  const key = process.env.CREDENTIAL_KEY;
+  const key = credentialKey();
   if (!key) throw new DomainError("CREDENTIAL_CONFIGURATION_REQUIRED");
   const client = createMatomoClient({
     baseUrl: c.baseUrl,

@@ -1,7 +1,15 @@
 import { createPostizClient } from "../../../../packages/connectors/src/index.ts";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { create, data, decrypt, exception, list, update } from "../shared.ts";
+import {
+  create,
+  data,
+  decrypt,
+  exception,
+  list,
+  update,
+  credentialKey,
+} from "../shared.ts";
 import { assignedPostizChannels } from "./postiz-assignment.ts";
 
 /**
@@ -164,7 +172,7 @@ export async function checkPostizQueue(
     const posts = await deps
       .createClient({
         baseUrl: due.baseUrl,
-        token: decrypt(due.encryptedCredential, process.env.CREDENTIAL_KEY!),
+        token: decrypt(due.encryptedCredential, credentialKey()),
       })
       .listPosts({
         startDate: new Date(now.valueOf() - LOOKBACK_MS).toISOString(),

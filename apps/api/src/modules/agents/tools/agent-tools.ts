@@ -10,6 +10,7 @@ import {
   DomainError,
   list,
   update,
+  credentialKey,
 } from "../../../shared.ts";
 import { assignedPostizChannels } from "../../postiz-assignment.ts";
 import { runBudgetKey } from "../specialists/runner.ts";
@@ -303,7 +304,7 @@ export async function postizAnalytics(
         throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
       client ??= createPostizClient({
         baseUrl: state.connector.baseUrl as string,
-        token: decrypt(credential as string, process.env.CREDENTIAL_KEY!),
+        token: decrypt(credential as string, credentialKey()),
       }) as PostizAnalyticsClient;
       const series = summarize(await request(client));
       const result: Answer = {

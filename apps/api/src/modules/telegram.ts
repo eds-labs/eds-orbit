@@ -23,6 +23,7 @@ import {
   encrypt,
   entity,
   update,
+  credentialKey,
 } from "../shared.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { vetoPublication } from "./agents/veto.ts";
@@ -177,9 +178,7 @@ function disabled(row: Connection, by: string, reason: string) {
 function tokenOf(row: Connection) {
   try {
     const value = data(row).encryptedToken;
-    return typeof value === "string"
-      ? decrypt(value, process.env.CREDENTIAL_KEY!)
-      : null;
+    return typeof value === "string" ? decrypt(value, credentialKey()) : null;
   } catch {
     return null;
   }
@@ -246,7 +245,7 @@ export async function connectTelegram(
       }
       const value = {
         status: "pending",
-        encryptedToken: encrypt(token, process.env.CREDENTIAL_KEY!),
+        encryptedToken: encrypt(token, credentialKey()),
         webhookSecretHash: sha256(secret),
         chatId: null,
         telegramUserId: null,

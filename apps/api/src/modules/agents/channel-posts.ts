@@ -9,6 +9,7 @@ import {
   DomainError,
   list,
   update,
+  credentialKey,
 } from "../../shared.ts";
 import { assignedPostizChannels } from "../postiz-assignment.ts";
 
@@ -173,10 +174,7 @@ export async function syncChannelPosts(
       client ??
       createPostizClient({
         baseUrl: claimed.baseUrl,
-        token: decrypt(
-          claimed.encryptedCredential,
-          process.env.CREDENTIAL_KEY!,
-        ),
+        token: decrypt(claimed.encryptedCredential, credentialKey()),
       });
     for (const [from, to] of windows)
       for (const post of await source.listPosts({

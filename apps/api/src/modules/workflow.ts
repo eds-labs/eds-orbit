@@ -28,40 +28,9 @@ import {
 import { assertMissionAssets } from "./asset-tools.ts";
 import { campaignGenerationContext } from "./marketing-profile.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
-export async function enqueue(
-  tx: DbTx,
-  scope: Scope,
-  topic: string,
-  resourceId: string,
-  key: string,
-  availableAt = new Date(),
-) {
-  const old = (await list(tx, scope, "jobs")).find(
-    (x) => data(x).idempotencyKey === key,
-  );
-  if (old) return old;
-  const job = await create(tx, scope, "jobs", {
-    topic,
-    resourceId,
-    idempotencyKey: key,
-    status: "queued",
-    attempts: 0,
-    maxAttempts: 3,
-    availableAt: availableAt.toISOString(),
-    actorId: scope.userId,
-  });
-  await tx.outbox.create({
-    data: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      topic,
-      entityId: job.id,
-      payload: { jobId: job.id },
-      availableAt,
-    },
-  });
-  return job;
-}
+import { enqueue } from "../platform/jobs/enqueue.ts";
+// The job helper moved to the platform (WP1.1); importers of workflow keep working.
+export { enqueue };
 export async function planMission(tx: DbTx, scope: Scope, missionId: string) {
   const m = await entity(tx, scope, "missions", missionId);
   assertMissionDraftOwner(data(m));

@@ -25,6 +25,7 @@ import {
   exception,
   DomainError,
   publicEntity,
+  credentialKey,
 } from "../shared.ts";
 import { preflight, approve } from "./policy.ts";
 import { enqueue } from "./workflow.ts";
@@ -76,7 +77,7 @@ function owner(scope: Scope) {
 function credentials(c: ReturnType<typeof data>) {
   try {
     return privateCredentials.parse(
-      JSON.parse(decrypt(c.encryptedCredential, process.env.CREDENTIAL_KEY!)),
+      JSON.parse(decrypt(c.encryptedCredential, credentialKey())),
     );
   } catch {
     throw new DomainError("SLACK_CREDENTIAL_CONFIGURATION_REQUIRED", 409);
@@ -138,7 +139,7 @@ export async function configureSlack(
     provider: "slack",
     encryptedCredential: encrypt(
       JSON.stringify({ botToken, signingSecret }),
-      process.env.CREDENTIAL_KEY!,
+      credentialKey(),
     ),
     status: "configured",
     capabilities: ["exception_digest", "signed_approval", "signed_pause"],

@@ -25,6 +25,7 @@ import {
   hash,
   list,
   update,
+  credentialKey,
 } from "../shared.ts";
 
 export const postizVerificationInput = z
@@ -250,7 +251,7 @@ export async function executePostizVerification(
     const { c } = await connector(tx, s, d);
     if (!isAssignedPostizChannel(c, d.integrationId))
       throw new DomainError("POSTIZ_ACCOUNT_NOT_ASSIGNED", 409);
-    const token = decrypt(c.encryptedCredential, process.env.CREDENTIAL_KEY!);
+    const token = decrypt(c.encryptedCredential, credentialKey());
     const assetBytes = d.asset
       ? (await approvedAsset(tx, s, d.asset.assetId, file, d.asset)).bytes
       : null;
@@ -410,7 +411,7 @@ export async function reconcilePostizVerification(
     const { c } = await connector(tx, s, d);
     return {
       packet: d,
-      token: decrypt(c.encryptedCredential, process.env.CREDENTIAL_KEY!),
+      token: decrypt(c.encryptedCredential, credentialKey()),
     };
   });
   if ("done" in prepared) return prepared.done;

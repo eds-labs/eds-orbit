@@ -14,6 +14,7 @@ import {
   update,
   DomainError,
   exception,
+  credentialKey,
 } from "../shared.ts";
 import { preflight } from "./policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
@@ -45,7 +46,7 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
         throw new DomainError("CHANNEL_NOT_VERIFIED");
       return {
         baseUrl: c.baseUrl,
-        token: decrypt(c.encryptedCredential, process.env.CREDENTIAL_KEY!),
+        token: decrypt(c.encryptedCredential, credentialKey()),
         integration,
         connectorId: connector.id,
         connectorVersion: connector.version,
@@ -226,7 +227,7 @@ export async function reconcilePublication(scope: Scope, pubId: string) {
     c = data(prepared.connector);
   const client = createPostizClient({
     baseUrl: c.baseUrl,
-    token: decrypt(c.encryptedCredential, process.env.CREDENTIAL_KEY!),
+    token: decrypt(c.encryptedCredential, credentialKey()),
   });
   const result = await client.findPostStatus(p.remoteId, {
     startDate: new Date(
