@@ -1,5 +1,5 @@
 {
-  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 \u00a72, 05 \u00a73); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added.",
+  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 §2, 05 §3); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added.",
   "roots": [
     "apps/api/src",
     "apps/worker/src",
@@ -121,13 +121,7 @@
     "package:knowledge"
   ],
   "baseline": [
-    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/agents/assignments.ts",
-    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/agents/content-packages.ts",
-    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/agents/package-schedule.ts",
-    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/image-generation.ts",
-    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/policy.ts",
     "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/postiz-assignment.ts",
-    "platform-imports-module: apps/api/src/modules/action-requests.ts -> apps/api/src/modules/workflow.ts",
     "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/assignment-runs.ts",
     "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/assignments.ts",
     "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/notifications.ts",
@@ -135,7 +129,6 @@
     "platform-imports-module: apps/api/src/modules/agents/specialists/types.ts -> apps/api/src/modules/agents/assignment-runs.ts",
     "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/assignments.ts",
     "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/content-packages.ts",
-    "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/tools/index.ts",
     "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/asset-tools.ts",
     "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/marketing-profile.ts",
     "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/postiz-assignment.ts",

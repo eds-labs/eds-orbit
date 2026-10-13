@@ -17,9 +17,8 @@ import {
   update,
 } from "../shared.ts";
 import { assignedPostizChannels } from "./postiz-assignment.ts";
-import { activePolicy } from "./policy.ts";
-import { enqueue } from "./workflow.ts";
-import { currentImageTerms, imageRequestPayload } from "./image-generation.ts";
+import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
+import { registeredActionType } from "../platform/modules/contributions.ts";
 
 /**
  * Generic action requests (ADR 0008), stored as Entity(kind="action_requests").
@@ -27,7 +26,8 @@ import { currentImageTerms, imageRequestPayload } from "./image-generation.ts";
  * consumed by the executor in the same transaction as its budget reservation.
  */
 const KIND = "action_requests";
-type Row = Awaited<ReturnType<typeof create>>;
+export type ActionRequestRow = Awaited<ReturnType<typeof create>>;
+type Row = ActionRequestRow;
 
 export const requestedBy = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user"), userId: z.string().min(1) }).strict(),
@@ -51,7 +51,7 @@ export const actionDecision = z
   })
   .strict();
 
-type ActionDefinition<P> = {
+export type ActionDefinition<P> = {
   riskClass: "C1" | "C2" | "W2" | "W0_internal";
   approvalMode: "approval_required";
   deciderRole: "owner" | "editor";
@@ -63,100 +63,17 @@ type ActionDefinition<P> = {
   onApproved: (tx: DbTx, scope: Scope, request: Row) => Promise<void>;
 };
 
-// Code constants: no policy, prompt, imported document or model output can change them.
-const imageGenerate: ActionDefinition<z.infer<typeof imageRequestPayload>> = {
-  riskClass: "C2",
-  approvalMode: "approval_required",
-  deciderRole: "owner",
-  ttlMs: 24 * 3600000,
-  payload: imageRequestPayload,
-  costCeilingMicros: (payload) => payload.maxCostMicros,
-  async revalidate(tx, scope, payload) {
-    const { imageConfig } = await currentImageTerms(tx, scope);
-    if (
-      imageConfig.model !== payload.model ||
-      imageConfig.maxCostMicrosPerImage !== payload.maxCostMicros
-    )
-      throw new DomainError("IMAGE_REQUEST_STALE", 409);
-  },
-  async onApproved(tx, scope, request) {
-    const job = await enqueue(
-      tx,
-      scope,
-      "image",
-      request.id,
-      "action:" + request.id,
-    );
-    // One paid attempt: an unclear provider outcome is never retried.
-    await update(tx, scope, job, { ...data(job), maxAttempts: 1 });
-  },
-};
-// Paid drafts inside the mandate; the user confirms the exact package plan once.
-const contentPackageStart: ActionDefinition<Record<string, unknown>> = {
-  riskClass: "C1",
-  approvalMode: "approval_required",
-  deciderRole: "editor",
-  ttlMs: 24 * 3600000,
-  payload: z.record(z.string(), z.unknown()),
-  costCeilingMicros: (payload) => Number(payload.ceilingMicros),
-  // Loaded on use: the package module itself builds on action requests.
-  async revalidate(tx, scope, payload) {
-    const packages = await import("./agents/content-packages.ts");
-    await packages.revalidateContentPackage(tx, scope, payload);
-  },
-  async onApproved(tx, scope, request) {
-    const packages = await import("./agents/content-packages.ts");
-    await packages.startContentPackage(tx, scope, request);
-  },
-};
-// A public post at a fixed slot: an owner decides the exact post (ADR 0008, J3.1).
-const contentSchedule: ActionDefinition<Record<string, unknown>> = {
-  riskClass: "W2",
-  approvalMode: "approval_required",
-  deciderRole: "owner",
-  ttlMs: 24 * 3600000,
-  payload: z.record(z.string(), z.unknown()),
-  costCeilingMicros: () => 0,
-  async revalidate(tx, scope, payload) {
-    const schedule = await import("./agents/package-schedule.ts");
-    await schedule.revalidateSchedule(
-      tx,
-      scope,
-      schedule.scheduleRequestPayload.parse(payload),
-    );
-  },
-  async onApproved(tx, scope, request) {
-    const schedule = await import("./agents/package-schedule.ts");
-    await schedule.executeSchedule(tx, scope, request);
-  },
-};
-// An internal change without public effect: the owner confirms an assignment's exact content.
-const assignmentConfirm: ActionDefinition<Record<string, unknown>> = {
-  riskClass: "W0_internal",
-  approvalMode: "approval_required",
-  deciderRole: "owner",
-  ttlMs: 7 * 24 * 3600000,
-  payload: z.record(z.string(), z.unknown()),
-  costCeilingMicros: () => 0,
-  async revalidate(tx, scope, payload) {
-    const assignments = await import("./agents/assignments.ts");
-    await assignments.revalidateAssignmentConfirm(tx, scope, payload);
-  },
-  async onApproved(tx, scope, request) {
-    const assignments = await import("./agents/assignments.ts");
-    await assignments.executeAssignmentConfirm(tx, scope, request);
-  },
-};
-const actionTypes = {
-  "image.generate": imageGenerate,
-  "content_package.start": contentPackageStart,
-  "content.schedule": contentSchedule,
-  "assignment.confirm": assignmentConfirm,
-} as const;
-export type ActionType = keyof typeof actionTypes;
+/**
+ * Action types are code constants contributed by modules (WP1.6): no policy,
+ * prompt, imported document or model output can change them.
+ */
+export type ActionType = string;
 
 function definition(actionType: unknown): ActionDefinition<any> {
-  const found = actionTypes[actionType as ActionType];
+  const found =
+    typeof actionType === "string"
+      ? registeredActionType(actionType)
+      : undefined;
   if (!found) throw new DomainError("ACTION_TYPE_NOT_SUPPORTED", 409);
   return found;
 }
@@ -168,7 +85,7 @@ export async function createActionRequest(
 ) {
   const type = definition(input.actionType);
   const payload = type.payload.parse(input.payload);
-  const policy = await activePolicy(tx, scope);
+  const policy = await activePolicyRecord(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   return create(tx, scope, KIND, {
     actionType: input.actionType,
@@ -323,7 +240,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
   const items = [];
   for (const row of rows) {
     const d = data(row);
-    const type = actionTypes[d.actionType as ActionType];
+    const type = registeredActionType(String(d.actionType));
     if (!type || type.deciderRole !== "owner") continue;
     if (Date.parse(d.expiresAt) <= Date.now()) continue;
     const packageId =

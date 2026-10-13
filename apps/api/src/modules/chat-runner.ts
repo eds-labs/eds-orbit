@@ -28,7 +28,7 @@ import { contentPackagesEnabled } from "./agents/content-packages.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { actorScope } from "./member-scope.ts";
 import { type ChatCard } from "./chat-tools.ts";
-import { chatTools } from "./agents/tools/index.ts";
+import { registeredTools } from "../platform/modules/contributions.ts";
 import {
   availableTools,
   deferredDefinition,
@@ -44,9 +44,9 @@ import { legacyResponsesRuntime } from "./agents/runtime/legacy-responses.ts";
 import { loadConfig } from "../../../../packages/config/src/index.ts";
 
 // Span names come from this fixed set; the model-supplied name is never stored.
-const KNOWN_TOOL_NAMES = new Set<string>(chatTools.map((tool) => tool.name));
 const toolSpanName = (name: unknown) =>
-  typeof name === "string" && KNOWN_TOOL_NAMES.has(name)
+  typeof name === "string" &&
+  registeredTools().some((tool) => tool.name === name)
     ? name
     : "unknown_tool";
 
@@ -92,7 +92,7 @@ const assignmentsUnavailable =
   "Standing assignments (for example posts every day) are not available in this setup because they need tool search; say so when asked and do not simulate them.";
 /** Bytes of the largest fixed request part: all instructions and every tool loaded in full. */
 export function staticChatBytes() {
-  const tools = availableTools(chatTools, "owner", [
+  const tools = availableTools(registeredTools(), "owner", [
     "content_packages",
     "agents",
   ]);
@@ -398,7 +398,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         ),
       );
     // Assignment tools exist only as deferred tools, so they need tool search.
-    const offered = availableTools(chatTools, scope.role, [
+    const offered = availableTools(registeredTools(), scope.role, [
       ...(packages ? ["content_packages" as const] : []),
       ...(agents && toolSearch ? ["agents" as const] : []),
     ]);

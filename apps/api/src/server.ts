@@ -11,7 +11,7 @@ import {
   marketingActionPermissions,
   marketingCollectionPermissions,
 } from "./modules/marketing/permissions.ts";
-import { moduleRegistry } from "./modules/registry.ts";
+import { moduleRegistry, registerModules } from "./modules/registry.ts";
 import {
   listModuleStates,
   moduleSwitchingEnabled,
@@ -318,7 +318,7 @@ export async function buildServer(
   options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
 ) {
   // A broken module manifest stops the API before it serves anything.
-  moduleRegistry();
+  registerModules();
   const config = loadConfig(),
     auth = makeAuth();
   const app = Fastify({

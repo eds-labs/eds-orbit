@@ -1,0 +1,118 @@
+import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
+import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
+import type { ActionDefinition } from "../../modules/action-requests.ts";
+import type { JobDef, SchedulerContribution } from "../jobs/types.ts";
+
+/**
+ * What a module plugs into the platform's registries (WP1.6). The platform
+ * never imports a module; the composition roots (API, worker, test setup)
+ * register every module's contributions once at startup.
+ */
+export type ModuleContributions = {
+  /** Assistant tools, in the order they are offered. */
+  tools?: readonly OrbitTool[];
+  /** Action request types (ADR 0008), keyed by type name. */
+  actionTypes?: Readonly<Record<string, ActionDefinition<any>>>;
+  /** Worker queue classes. */
+  jobs?: readonly JobDef[];
+  /** The module's part of the per-project sweep. */
+  scheduler?: SchedulerContribution;
+  /** Client projections of the module's entity kinds (secrets stripped). */
+  publicViews?: Readonly<Record<string, (row: any) => any>>;
+};
+
+type Registered = {
+  registry: ValidatedRegistry;
+  byModule: ReadonlyMap<string, ModuleContributions>;
+  tools: readonly OrbitTool[];
+  actionTypes: ReadonlyMap<string, ActionDefinition<any>>;
+  jobs: ReadonlyMap<string, JobDef>;
+  publicViews: ReadonlyMap<string, (row: any) => any>;
+};
+let registered: Registered | null = null;
+
+/**
+ * Registers the platform's own and every module's contributions. Names must
+ * be unique; a module may only project the entity kinds it owns. Registering
+ * the same registry again is a no-op (test setup and buildServer both do).
+ */
+export function registerContributions(
+  registry: ValidatedRegistry,
+  platform: ModuleContributions,
+  modules: Readonly<Record<string, ModuleContributions>>,
+) {
+  if (registered?.registry === registry) return;
+  const problems: string[] = [];
+  const ordered: [string, ModuleContributions][] = [
+    ["platform", platform],
+    ...registry.order.map(
+      (id) => [id, modules[id] ?? {}] as [string, ModuleContributions],
+    ),
+  ];
+  for (const id of Object.keys(modules))
+    if (!registry.order.includes(id))
+      problems.push(`contributions for unknown module ${id}`);
+  const tools: OrbitTool[] = [];
+  const actionTypes = new Map<string, ActionDefinition<any>>();
+  const jobs = new Map<string, JobDef>();
+  const publicViews = new Map<string, (row: any) => any>();
+  for (const [owner, c] of ordered) {
+    for (const tool of c.tools ?? []) {
+      if (tools.some((t) => t.name === tool.name))
+        problems.push(`tool ${tool.name} registered twice`);
+      tools.push(tool);
+    }
+    for (const [type, def] of Object.entries(c.actionTypes ?? {})) {
+      if (actionTypes.has(type))
+        problems.push(`action type ${type} registered twice`);
+      actionTypes.set(type, def);
+    }
+    for (const job of c.jobs ?? []) {
+      if (jobs.has(job.queueClass))
+        problems.push(`queue class ${job.queueClass} registered twice`);
+      jobs.set(job.queueClass, job);
+    }
+    for (const [kind, view] of Object.entries(c.publicViews ?? {})) {
+      if ((registry.kindOwner.get(kind) ?? null) !== owner)
+        problems.push(`${owner} projects entity kind ${kind} it does not own`);
+      publicViews.set(kind, view);
+    }
+  }
+  if (problems.length)
+    throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
+  registered = {
+    registry,
+    byModule: new Map(ordered),
+    tools,
+    actionTypes,
+    jobs,
+    publicViews,
+  };
+}
+
+function current(): Registered {
+  // Fail closed: without registration no tool, action type, job or
+  // projection silently disappears.
+  if (!registered) throw new Error("MODULE_CONTRIBUTIONS_NOT_REGISTERED");
+  return registered;
+}
+
+/** Assistant tools of every module, platform first, then in registry order. */
+export function registeredTools(): readonly OrbitTool[] {
+  return current().tools;
+}
+export function registeredActionType(type: string) {
+  return current().actionTypes.get(type);
+}
+export function registeredJobs(): ReadonlyMap<string, JobDef> {
+  return current().jobs;
+}
+/** Scheduler contributions: platform first, then modules in dependency order. */
+export function registeredSchedulers(): SchedulerContribution[] {
+  return [...current().byModule.values()]
+    .map((c) => c.scheduler)
+    .filter((s): s is SchedulerContribution => Boolean(s));
+}
+export function registeredPublicView(kind: string) {
+  return current().publicViews.get(kind);
+}
