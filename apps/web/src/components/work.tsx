@@ -1,4 +1,5 @@
 "use client";
+import { AppLink } from "@/platform/ui/app-link";
 import {
   approveEach,
   autopilotApprovals,
@@ -15,7 +16,6 @@ import {
   type BriefProposal,
 } from "./editorial";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   Target,
   Eye,
@@ -85,7 +85,8 @@ import {
   UpcomingAssignmentPosts,
   useAutopilotMigration,
 } from "./assignments";
-export function Overview() {
+/** The marketing section of the project home (until WP2.3 splits it up). */
+export function Overview({ embedded = false }: { embedded?: boolean }) {
   const { project, t, locale, revision, canEdit } = useWorkspace();
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
@@ -95,7 +96,11 @@ export function Overview() {
   const d = dashboard.data;
   return (
     <>
-      <PageHead title={t("heading")} description={t("subtitle")}>
+      <PageHead
+        title={t("heading")}
+        description={t("subtitle")}
+        as={embedded ? "h2" : "h1"}
+      >
         {canEdit && (
           <Button onClick={() => setCreate(true)}>
             <Plus data-icon="inline-start" />
@@ -143,7 +148,7 @@ export function Overview() {
                 </p>
               </div>
               <Button asChild variant="outline">
-                <Link href="/settings">{t("reviewSetup")}</Link>
+                <AppLink href="/settings">{t("reviewSetup")}</AppLink>
               </Button>
             </div>
             <div className="metrics-strip">
@@ -187,22 +192,22 @@ export function Overview() {
               <section className="panel">
                 <div className="panel-head">
                   <h2>{t("missionControl")}</h2>
-                  <Link className="text-link" href="/missions">
+                  <AppLink className="text-link" href="/missions">
                     {t("viewAll")}
                     <ArrowRight />
-                  </Link>
+                  </AppLink>
                 </div>
                 {missions.data?.items.length ? (
                   <div className="data-list">
                     {missions.data.items.slice(0, 4).map((m) => (
-                      <Link className="data-row" key={m.id} href="/missions">
+                      <AppLink className="data-row" key={m.id} href="/missions">
                         <Target />
                         <div>
                           <strong>{value(m, "title")}</strong>
                           <p>{value(m, "goal")}</p>
                         </div>
                         <Status value={m.data.status} />
-                      </Link>
+                      </AppLink>
                     ))}
                   </div>
                 ) : (
@@ -277,10 +282,10 @@ export function Overview() {
             <section className="panel activity-panel">
               <div className="panel-head">
                 <h2>{t("recent")}</h2>
-                <Link className="text-link" href="/operations">
+                <AppLink className="text-link" href="/operations">
                   {t("viewAll")}
                   <ArrowRight />
-                </Link>
+                </AppLink>
               </div>
               {d.jobs.length ? (
                 <EntityRows
@@ -340,11 +345,11 @@ function Readiness({
   href: string;
 }) {
   return (
-    <Link href={href} className="readiness-row">
+    <AppLink href={href} className="readiness-row">
       <Icon />
       <span>{label}</span>
       <Badge tone={ready ? "success" : "neutral"}>{status}</Badge>
-    </Link>
+    </AppLink>
   );
 }
 function ActionReadinessList({
@@ -1052,10 +1057,10 @@ export function ContentStudio() {
           )}
         </select>
         <Button asChild variant="outline">
-          <Link href="/calendar">
+          <AppLink href="/calendar">
             <CalendarDays data-icon="inline-start" />
             {t("calendar")}
-          </Link>
+          </AppLink>
         </Button>
       </div>
       <ResourceError error={resource.error} retry={resource.refresh} />
@@ -2171,7 +2176,7 @@ export function CalendarView() {
               }
             >
               <Button asChild variant="outline">
-                <Link href="/content">{t("content")}</Link>
+                <AppLink href="/content">{t("content")}</AppLink>
               </Button>
             </Empty>
           )}

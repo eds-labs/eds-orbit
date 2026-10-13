@@ -21,15 +21,18 @@ export function PageHead({
   title,
   description,
   children,
+  as: Heading = "h1",
 }: {
   title: string;
   description: string;
   children?: React.ReactNode;
+  /** "h2" when the page is a section of another page, such as the home. */
+  as?: "h1" | "h2";
 }) {
   return (
     <div className="page-head">
       <div>
-        <h1>{title}</h1>
+        <Heading>{title}</Heading>
         <p>{description}</p>
       </div>
       {children && <div className="page-actions">{children}</div>}

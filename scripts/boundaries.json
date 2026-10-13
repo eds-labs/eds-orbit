@@ -7,6 +7,10 @@
     "packages"
   ],
   "zones": {
+    "root:web": [
+      "apps/web/src/app/[[...route]]/page.tsx",
+      "apps/web/src/modules/registry.ts"
+    ],
     "root:api": [
       "apps/api/src/main.ts",
       "apps/api/src/server.ts",
@@ -156,9 +160,6 @@
     "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/lifecycle.tsx",
     "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/slack-connection.tsx",
     "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/work.tsx",
-    "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/advanced.tsx",
-    "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/knowledge.tsx",
-    "web-platform-imports-module: apps/web/src/components/orbit.tsx -> apps/web/src/components/work.tsx",
     "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/specialists/index.ts",
     "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/matomo-schedule.ts",
     "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/postiz-queue-watch.ts"

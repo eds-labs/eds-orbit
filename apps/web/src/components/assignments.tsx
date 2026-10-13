@@ -1,6 +1,6 @@
 "use client";
+import { AppLink } from "@/platform/ui/app-link";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   ApiError,
   collectionPath,
@@ -293,9 +293,9 @@ export function AssignmentTable({
                   {item.status === "draft" && item.actionRequestId && (
                     <small>
                       {de ? "Bestätigung offen" : "Confirmation open"} ·{" "}
-                      <Link href="/approvals">
+                      <AppLink href="/approvals">
                         {de ? "Freigaben" : "Approvals"}
-                      </Link>
+                      </AppLink>
                     </small>
                   )}
                 </td>
@@ -401,7 +401,9 @@ export function Assignments({
           </p>
         </div>
         <Button asChild variant="outline">
-          <Link href="/chat">{de ? "Im Chat ändern" : "Change in chat"}</Link>
+          <AppLink href="/chat">
+            {de ? "Im Chat ändern" : "Change in chat"}
+          </AppLink>
         </Button>
       </div>
       {data?.paused && (
@@ -864,7 +866,7 @@ export function AutopilotMigrationView({
           {de
             ? "Vorschlag erstellt – die Bestätigung ist offen unter"
             : "Proposal created – its confirmation is open under"}{" "}
-          <Link href="/approvals">{de ? "Freigaben" : "Approvals"}</Link>.
+          <AppLink href="/approvals">{de ? "Freigaben" : "Approvals"}</AppLink>.
         </p>
       ) : !proposal ? (
         reason && (

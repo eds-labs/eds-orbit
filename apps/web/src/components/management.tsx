@@ -1,4 +1,5 @@
 "use client";
+import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
 import { GoogleDriveSettings } from "./google-drive";
 import { useEffect, useState } from "react";
@@ -21,7 +22,6 @@ import {
   RetentionControl,
   MetricCorrection,
 } from "./lifecycle";
-import Link from "next/link";
 import {
   Activity,
   BarChart3,
@@ -940,7 +940,7 @@ export function Connectors() {
               </div>
             </div>
             <Button asChild variant="outline">
-              <Link href="/content">Open content</Link>
+              <AppLink href="/content">Open content</AppLink>
             </Button>
           </section>
           <section className="connector">
@@ -958,7 +958,7 @@ export function Connectors() {
               </div>
             </div>
             <Button asChild variant="outline">
-              <Link href="/content">Open drafts</Link>
+              <AppLink href="/content">Open drafts</AppLink>
             </Button>
           </section>
         </div>
@@ -1376,14 +1376,14 @@ export function ProjectSettings() {
               </div>
             )}
             <div className="setup-links">
-              <Link href="/knowledge">
+              <AppLink href="/knowledge">
                 <BookOpenIcon />
                 Add source rights and verified facts
-              </Link>
-              <Link href="/connectors">
+              </AppLink>
+              <AppLink href="/connectors">
                 <Link2 />
                 Verify connector capabilities
-              </Link>
+              </AppLink>
               <button onClick={() => setPolicy(true)} disabled={!isOwner}>
                 <Wallet />
                 Set budget and routine boundaries

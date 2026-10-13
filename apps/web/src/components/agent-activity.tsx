@@ -1,6 +1,6 @@
 "use client";
+import { AppLink } from "@/platform/ui/app-link";
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
   ArrowRight,
   BarChart3,
@@ -641,7 +641,7 @@ export function AgentActivityView({
                     className={`next-${item.kind}`}
                   >
                     {item.kind === "owner_release" ? (
-                      <Link href="/approvals">{row}</Link>
+                      <AppLink href="/approvals">{row}</AppLink>
                     ) : (
                       <span>{row}</span>
                     )}
@@ -666,10 +666,10 @@ export function AgentActivityView({
                 return (
                   <li key={issue.code} className={`issue-${issue.severity}`}>
                     {href ? (
-                      <Link href={href}>
+                      <AppLink href={href}>
                         {text}
                         <ArrowRight aria-hidden="true" />
-                      </Link>
+                      </AppLink>
                     ) : (
                       text
                     )}

@@ -1,6 +1,6 @@
 "use client";
+import { AppLink } from "@/platform/ui/app-link";
 import { useState } from "react";
-import Link from "next/link";
 import { action, useMutation, value, type Entity } from "@/lib/api";
 import {
   Alert,
@@ -350,7 +350,7 @@ export function CommunityQuestions() {
                 />
               ) : (
                 <p>
-                  <Link href="/missions">Create a mission</Link> using
+                  <AppLink href="/missions">Create a mission</AppLink> using
                   separately approved knowledge, then link it here.
                 </p>
               )}
@@ -387,7 +387,9 @@ export function CommunityQuestions() {
                 />
               ) : (
                 <p>
-                  <Link href="/content">Create an internal answer draft</Link>{" "}
+                  <AppLink href="/content">
+                    Create an internal answer draft
+                  </AppLink>{" "}
                   from verified sources, then link it here.
                 </p>
               )}

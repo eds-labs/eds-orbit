@@ -1,5 +1,5 @@
 "use client";
-import Link from "next/link";
+import { AppLink } from "@/platform/ui/app-link";
 import Image from "next/image";
 import { usd } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
@@ -426,7 +426,9 @@ export function PackageCard({
           </Button>
         )}
         {pkg.status !== "proposed" && (
-          <Link href="/content">{de ? "Entwürfe ansehen" : "View drafts"}</Link>
+          <AppLink href="/content">
+            {de ? "Entwürfe ansehen" : "View drafts"}
+          </AppLink>
         )}
       </div>
     </section>

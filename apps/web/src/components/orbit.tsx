@@ -1,31 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
-  Home,
-  Target,
-  FileText,
-  Images,
-  CalendarDays,
   BookOpen,
   CircleCheck,
-  ChartNoAxesColumn,
-  Brain,
-  Link2,
-  Activity,
-  Settings,
   Menu,
   X,
   Plus,
   LogOut,
   MoreHorizontal,
-  MessageCircle,
   ArrowUpRight,
 } from "lucide-react";
 import {
-  api,
   post,
   useMutation,
   useResource,
@@ -43,43 +31,54 @@ import {
 } from "@/platform/ui/form";
 import { WorkspaceContext } from "./workspace-context";
 import {
-  Overview,
-  Missions,
-  ContentStudio,
-  ApprovalInbox,
-  CalendarView,
-} from "./work";
-import { Knowledge } from "./knowledge";
-import { OrbitChat } from "./chat";
-import { BrandAssetLibrary } from "./advanced";
+  defaultProject,
+  keptSuffix,
+  locate,
+  navOrder,
+  pickerHref,
+  projectHref,
+  rewriteLegacyHref,
+  routeTable,
+  type Route,
+} from "@/platform/shell/routes";
 import {
-  Analytics,
-  Memory,
-  Connectors,
-  Operations,
-  ProjectSettings,
-} from "./management";
-const navigation = [
-  { key: "overview", path: "/", icon: Home },
-  { key: "missions", path: "/missions", icon: Target },
-  { key: "chat", path: "/chat", icon: MessageCircle },
-  { key: "content", path: "/content", icon: FileText },
-  { key: "calendar", path: "/calendar", icon: CalendarDays },
-  { key: "knowledge", path: "/knowledge", icon: BookOpen },
-  { key: "assets", path: "/assets", icon: Images },
-  { key: "approvals", path: "/approvals", icon: CircleCheck },
-  { key: "analytics", path: "/analytics", icon: ChartNoAxesColumn },
-  { key: "memory", path: "/memory", icon: Brain },
-  { key: "connectors", path: "/connectors", icon: Link2 },
-  { key: "operations", path: "/operations", icon: Activity },
-  { key: "settings", path: "/settings", icon: Settings },
-] as const;
-export function Orbit() {
-  const pathname = usePathname();
+  ShellContext,
+  type ShellContextValue,
+} from "@/platform/shell/shell-context";
+import type { WebRegistry } from "@/platform/shell/types";
+import { NotFound } from "@/platform/shell/not-found";
+import {
+  OrganizationPicker,
+  ProjectPicker,
+  projectFields,
+} from "@/platform/shell/pickers";
+
+const LAST_PROJECT = "orbit.project";
+type ModuleStates = { modules: Array<{ id: string; enabled: boolean }> };
+
+const lastProject = () => {
+  try {
+    return localStorage.getItem(LAST_PROJECT);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The web shell (WP1.7): sign-in, organization and project pickers, and the
+ * project pages from the route registry the composition root passes in. The
+ * shell imports no module; it learns them from `registry`.
+ */
+export function Orbit({ registry }: { registry: WebRegistry }) {
+  const pathname = usePathname() || "/";
+  const router = useRouter();
+  const table = useMemo(() => routeTable(registry), [registry]);
+  const place = locate(pathname, table);
   const [locale, setLocale] = useState<Locale>("en"),
-    [projectId, setProjectId] = useState(""),
+    [localeLoaded, setLocaleLoaded] = useState(false),
     [menu, setMenu] = useState(false),
     [newProject, setNewProject] = useState(false),
+    [createdProject, setCreatedProject] = useState(""),
     [revision, setRevision] = useState(0);
   const setup = useResource<{ configured: boolean }>("/setup");
   const identity = useResource<Identity>(setup.data?.configured ? "/me" : null);
@@ -89,18 +88,66 @@ export function Orbit() {
     identity.refresh();
   });
   const signout = useMutation(identity.refresh);
+  const projectId =
+    place.kind === "view" || place.kind === "notFound"
+      ? place.projectId
+      : undefined;
+  const project = projectId
+    ? identity.data?.projects.find((p) => p.id === projectId)
+    : undefined;
+  const moduleStates = useResource<ModuleStates>(
+    project ? `/projects/${encodeURIComponent(project.id)}/modules` : null,
+  );
   useEffect(() => {
-    const lang = localStorage.getItem("orbit.locale");
-    if (lang === "de" || lang === "en") setLocale(lang);
-    setProjectId(localStorage.getItem("orbit.project") || "");
+    try {
+      const lang = localStorage.getItem("orbit.locale");
+      if (lang === "de" || lang === "en") setLocale(lang);
+    } catch {
+      /* Defaults apply without storage. */
+    }
+    setLocaleLoaded(true);
   }, []);
   useEffect(() => {
     document.documentElement.lang = locale;
-    localStorage.setItem("orbit.locale", locale);
-  }, [locale]);
+    // Not before the stored choice is read, or the default would replace it.
+    if (!localeLoaded) return;
+    try {
+      localStorage.setItem("orbit.locale", locale);
+    } catch {
+      /* Defaults apply without storage. */
+    }
+  }, [locale, localeLoaded]);
   useEffect(() => {
     setMenu(false);
   }, [pathname]);
+  useEffect(() => {
+    if (!project) return;
+    try {
+      localStorage.setItem(LAST_PROJECT, project.id);
+    } catch {
+      /* The start page then falls back to the pickers. */
+    }
+  }, [project]);
+  // Start page, legacy paths and module roots lead to a project page.
+  useEffect(() => {
+    const me = identity.data;
+    if (!me) return;
+    if (place.kind === "redirect")
+      router.replace(projectHref(place.projectId, place.route));
+    if (place.kind !== "start" && place.kind !== "legacy") return;
+    const id = defaultProject(me, lastProject());
+    const home = table.routes.find((r) => !r.segments.length)!;
+    router.replace(
+      !id
+        ? pickerHref(me)
+        : place.kind === "start"
+          ? projectHref(id, home)
+          : projectHref(id, place.route) +
+            keptSuffix(window.location.search, window.location.hash),
+    );
+    // `place` is derived from the pathname.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identity.data, pathname, table]);
   useEffect(() => {
     if (!menu) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -139,24 +186,64 @@ export function Orbit() {
       previous?.focus();
     };
   }, [menu]);
-  const nav = navigation.find((n) => n.path === pathname) || navigation[0];
-  const project =
-    identity.data?.projects.find((p) => p.id === projectId) ||
-    identity.data?.projects[0];
-  function changeProject(id: string) {
-    setProjectId(id);
-    localStorage.setItem("orbit.project", id);
-    setRevision((n) => n + 1);
-  }
-  async function createProject(v: FormValues) {
+  const shell = useMemo((): ShellContextValue | null => {
+    if (!project) return null;
+    const states = moduleStates.data?.modules;
+    // Until the states load, or if they fail, every module counts as enabled.
+    const enabled = (id: string) =>
+      states?.find((m) => m.id === id)?.enabled ?? true;
+    const nav = navOrder(table.routes.filter((r) => r.nav));
+    return {
+      table,
+      platformNav: nav.filter((r) => !r.moduleId),
+      modules: registry.modules.map((m) => ({
+        id: m.id,
+        displayName: m.displayName,
+        description: m.description,
+        enabled: enabled(m.id),
+        nav: nav.filter((r) => r.moduleId === m.id),
+      })),
+      homeSections: [...registry.modules]
+        .filter((m) => m.home && enabled(m.id))
+        .sort((a, b) => (a.homeOrder ?? 0) - (b.homeOrder ?? 0))
+        .map((m) => ({ moduleId: m.id, component: m.home! })),
+      hrefOf: (key) => {
+        const route = table.routes.find((r) => r.key === key);
+        return route ? projectHref(project.id, route) : "/";
+      },
+    };
+  }, [project, moduleStates.data, registry, table]);
+  useEffect(() => {
+    const page =
+      place.kind === "organizations"
+        ? t("chooseOrganization")
+        : place.kind === "organization"
+          ? t("chooseProject")
+          : projectId && !project
+            ? t("projectNotFound")
+            : place.kind === "view"
+              ? place.route.nav?.label[locale]
+              : place.kind === "notFound"
+                ? t("notFound")
+                : null;
+    document.title = [page, project?.name, "EDS Orbit"]
+      .filter(Boolean)
+      .join(" · ");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, project?.name, locale]);
+  async function createProject(v: FormValues, workspaceId?: string) {
     const result = await mutation.run(() =>
       post<Project>("/projects", {
         name: str(v, "name"),
         timezone: str(v, "timezone"),
         language: str(v, "language"),
+        ...(workspaceId ? { workspaceId } : {}),
       }),
     );
-    if (result) changeProject(result.id);
+    if (result) {
+      setCreatedProject(result.id);
+      router.push(`/p/${encodeURIComponent(result.id)}`);
+    }
   }
   if (setup.loading || (setup.data?.configured && identity.loading))
     return (
@@ -198,271 +285,341 @@ export function Orbit() {
         <Button onClick={identity.refresh}>{t("retry")}</Button>
       </div>
     );
+  const me = identity.data;
+  const languageControl = (
+    <div className="language-control" aria-label="Interface language">
+      <button
+        lang="en"
+        aria-pressed={locale === "en"}
+        onClick={() => setLocale("en")}
+      >
+        EN
+      </button>
+      <button
+        lang="de"
+        aria-pressed={locale === "de"}
+        onClick={() => setLocale("de")}
+      >
+        DE
+      </button>
+    </div>
+  );
+  const signoutButton = (
+    <button
+      className="signout"
+      disabled={signout.pending}
+      onClick={() => signout.run(() => post("/auth/sign-out", {}))}
+    >
+      <LogOut />
+      {t("signOut")}
+    </button>
+  );
+  // Pages outside a project: pickers and unknown addresses.
+  const frame = (children: ReactNode) => (
+    <div className="picker-page">
+      <header>
+        <Brand />
+        <div className="topbar-actions">
+          {languageControl}
+          {signoutButton}
+        </div>
+      </header>
+      <main id="main" className="picker-main">
+        {signout.error && <Alert kind="error">{signout.error}</Alert>}
+        {children}
+      </main>
+    </div>
+  );
+  if (
+    place.kind === "start" ||
+    place.kind === "legacy" ||
+    place.kind === "redirect" ||
+    (projectId && !project && projectId === createdProject)
+  )
+    return (
+      <div className="boot">
+        <Brand />
+        <Loading label={t("loading")} />
+      </div>
+    );
+  if (place.kind === "organizations")
+    return frame(<OrganizationPicker identity={me} t={t} />);
+  if (place.kind === "organization")
+    return frame(
+      <ProjectPicker
+        identity={me}
+        organizationId={place.organizationId}
+        t={t}
+        create={{
+          onSubmit: createProject,
+          pending: mutation.pending,
+          error: mutation.error,
+        }}
+      />,
+    );
+  if (!project || !shell)
+    return frame(<NotFound t={t} project={Boolean(projectId)} />);
+  const route: Route | null = place.kind === "view" ? place.route : null;
   const role =
-    project?.role ||
-    identity.data.workspaces.find((w) => w.id === project?.workspaceId)?.role ||
+    project.role ||
+    me.workspaces.find((w) => w.id === project.workspaceId)?.role ||
     "viewer";
   const isOwner = role === "owner",
     canEdit = role !== "viewer";
-  const content = !project ? (
-    <div className="onboarding">
-      <h1>
-        {locale === "de" ? "Dein erster Orbit." : "Create your first project."}
-      </h1>
-      <p>
-        {locale === "de"
-          ? "Ein eigener Bereich für Marke, Wissen und Inhalte."
-          : "A separate home for your brand, knowledge and content."}
-      </p>
-      <DataForm
-        fields={projectFields(t)}
-        onSubmit={createProject}
-        pending={mutation.pending}
-        error={mutation.error}
-        submitLabel={t("newProject")}
-        t={t}
-      />
-    </div>
-  ) : (
-    <WorkspaceContext.Provider
-      value={{
-        project,
-        identity: identity.data,
-        locale,
-        t,
-        canEdit,
-        isOwner,
-        revision,
-        refresh: () => setRevision((n) => n + 1),
-      }}
-    >
-      <div key={`${project.id}:${nav.key}`}>
-        {!canEdit && <Alert>{t("viewer")}</Alert>}
-        {nav.key === "overview" ? (
-          <Overview />
-        ) : nav.key === "missions" ? (
-          <Missions />
-        ) : nav.key === "chat" ? (
-          <OrbitChat />
-        ) : nav.key === "content" ? (
-          <ContentStudio />
-        ) : nav.key === "calendar" ? (
-          <CalendarView />
-        ) : nav.key === "knowledge" ? (
-          <Knowledge />
-        ) : nav.key === "assets" ? (
-          <BrandAssetLibrary />
-        ) : nav.key === "approvals" ? (
-          <ApprovalInbox />
-        ) : nav.key === "analytics" ? (
-          <Analytics />
-        ) : nav.key === "memory" ? (
-          <Memory />
-        ) : nav.key === "connectors" ? (
-          <Connectors />
-        ) : nav.key === "operations" ? (
-          <Operations />
-        ) : (
-          <ProjectSettings />
-        )}
-      </div>
-    </WorkspaceContext.Provider>
+  const organization = me.workspaces.find((w) => w.id === project.workspaceId);
+  const moduleOff = Boolean(
+    route?.moduleId &&
+    !shell.modules.find((m) => m.id === route.moduleId)?.enabled,
   );
+  const visibleNav = navOrder(
+    table.routes.filter(
+      (r) =>
+        r.nav &&
+        (!r.moduleId ||
+          shell.modules.find((m) => m.id === r.moduleId)?.enabled),
+    ),
+  );
+  const homeHref = shell.hrefOf("home");
+  function changeProject(id: string) {
+    router.push(
+      projectHref(id, route ?? table.routes.find((r) => !r.segments.length)!),
+    );
+  }
+  const multipleOrganizations = me.workspaces.length > 1;
+  const projectOptions = (prefix: string) =>
+    multipleOrganizations
+      ? me.workspaces.map((w) => (
+          <optgroup key={`${prefix}${w.id}`} label={w.name}>
+            {me.projects
+              .filter((p) => p.workspaceId === w.id)
+              .map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+          </optgroup>
+        ))
+      : me.projects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ));
+  const label = (r: Route) => r.nav?.label[locale] ?? r.key;
   return (
-    <div className="orbit">
-      <a href="#main" className="skip-link">
-        Skip to content
-      </a>
-      {menu && (
-        <button
-          className="nav-scrim"
-          aria-label={t("close")}
-          onClick={() => setMenu(false)}
-        />
-      )}
-      <aside
-        className={cn("sidebar", menu && "sidebar-open")}
-        role={menu ? "dialog" : undefined}
-        aria-modal={menu || undefined}
-        aria-label={menu ? "Workspace navigation" : undefined}
-      >
-        <div className="brand-row">
-          <Brand />
-          <Button
-            className="mobile-only"
-            size="icon"
-            variant="ghost"
+    <ShellContext.Provider value={shell}>
+      <div className="orbit">
+        <a href="#main" className="skip-link">
+          Skip to content
+        </a>
+        {menu && (
+          <button
+            className="nav-scrim"
             aria-label={t("close")}
             onClick={() => setMenu(false)}
-          >
-            <X />
-          </Button>
-        </div>
-        <div className="project-control">
-          <label className="sr-only" htmlFor="project">
-            {t("project")}
-          </label>
-          <select
-            id="project"
-            value={project?.id || ""}
-            onChange={(e) => changeProject(e.target.value)}
-          >
-            {!identity.data.projects.length && (
-              <option value="">{t("newProject")}</option>
-            )}
-            {identity.data.projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <Button
-            size="icon"
-            variant="ghost"
-            aria-label={t("newProject")}
-            disabled={!identity.data.workspaces.some((w) => w.role === "owner")}
-            onClick={() => setNewProject(true)}
-          >
-            <Plus />
-          </Button>
-        </div>
-        <nav aria-label="Workspace">
-          {navigation.map((item) => (
-            <Link
-              key={item.key}
-              href={item.path}
-              className={cn("nav-link", item.key === nav.key && "nav-active")}
-              aria-current={item.key === nav.key ? "page" : undefined}
-            >
-              <item.icon aria-hidden="true" />
-              <span>{t(item.key)}</span>
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-footer">
-          <p>
-            A self-hosted
-            <br />
-            marketing workspace.
-          </p>
-          <span>
-            EDS Orbit <span className="version">0.1 RC</span>
-          </span>
-          <button
-            className="signout"
-            disabled={signout.pending}
-            onClick={() => signout.run(() => post("/auth/sign-out", {}))}
-          >
-            <LogOut />
-            {t("signOut")}
-          </button>
-        </div>
-      </aside>
-      <div className="workspace" inert={menu || undefined}>
-        <header className="topbar">
-          <div className="mobile-brand">
-            <Brand />
-          </div>
-          <Button
-            className="mobile-only"
-            variant="ghost"
-            size="icon"
-            aria-label={t("menu")}
-            onClick={() => setMenu(true)}
-          >
-            <Menu />
-          </Button>
-          <div className="breadcrumb">
-            <span>{project?.name || "EDS Orbit"}</span>
-            <span>/</span>
-            <strong>{t(nav.key)}</strong>
-          </div>
-          <div className="topbar-actions">
-            <div className="language-control" aria-label="Interface language">
-              <button
-                lang="en"
-                aria-pressed={locale === "en"}
-                onClick={() => setLocale("en")}
-              >
-                EN
-              </button>
-              <button
-                lang="de"
-                aria-pressed={locale === "de"}
-                onClick={() => setLocale("de")}
-              >
-                DE
-              </button>
-            </div>
-            <span
-              className="avatar"
-              title={`${identity.data.user.name} · ${role}`}
-            >
-              {identity.data.user.name.slice(0, 1).toUpperCase()}
-            </span>
-          </div>
-        </header>
-        <div className="mobile-project">
-          <label htmlFor="mobile-project-select">{t("project")}</label>
-          <select
-            id="mobile-project-select"
-            value={project?.id || ""}
-            onChange={(event) => changeProject(event.target.value)}
-          >
-            {identity.data.projects.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <main id="main" className="main">
-          {signout.error && <Alert kind="error">{signout.error}</Alert>}
-          {content}
-          <footer className="page-footer">
-            <span>{t("protected")}</span>
-            <span>EDS Orbit · RC</span>
-          </footer>
-        </main>
-      </div>
-      <nav className="mobile-nav" aria-label="Mobile workspace">
-        {[navigation[0], navigation[2], navigation[3], navigation[5]].map(
-          (n) => (
-            <Link
-              key={n.key}
-              href={n.path}
-              aria-current={nav.key === n.key ? "page" : undefined}
-            >
-              <n.icon />
-              <span>
-                {n.key === "content"
-                  ? locale === "de"
-                    ? "Inhalte"
-                    : "Content"
-                  : t(n.key)}
-              </span>
-            </Link>
-          ),
-        )}
-        <button onClick={() => setMenu(true)}>
-          <MoreHorizontal />
-          <span>{locale === "de" ? "Mehr" : "More"}</span>
-        </button>
-      </nav>
-      {newProject && (
-        <Modal title={t("newProject")} onClose={() => setNewProject(false)}>
-          <DataForm
-            fields={projectFields(t)}
-            onSubmit={createProject}
-            pending={mutation.pending}
-            error={mutation.error}
-            submitLabel={t("create")}
-            onCancel={() => setNewProject(false)}
-            t={t}
           />
-        </Modal>
-      )}
-    </div>
+        )}
+        <aside
+          className={cn("sidebar", menu && "sidebar-open")}
+          role={menu ? "dialog" : undefined}
+          aria-modal={menu || undefined}
+          aria-label={menu ? "Workspace navigation" : undefined}
+        >
+          <div className="brand-row">
+            <Brand />
+            <Button
+              className="mobile-only"
+              size="icon"
+              variant="ghost"
+              aria-label={t("close")}
+              onClick={() => setMenu(false)}
+            >
+              <X />
+            </Button>
+          </div>
+          <div className="project-control">
+            <label className="sr-only" htmlFor="project">
+              {t("project")}
+            </label>
+            <select
+              id="project"
+              value={project.id}
+              onChange={(e) => changeProject(e.target.value)}
+            >
+              {projectOptions("")}
+            </select>
+            <Button
+              size="icon"
+              variant="ghost"
+              aria-label={t("newProject")}
+              disabled={!me.workspaces.some((w) => w.role === "owner")}
+              onClick={() => setNewProject(true)}
+            >
+              <Plus />
+            </Button>
+          </div>
+          <Link
+            className="organization-link"
+            href={
+              multipleOrganizations
+                ? "/o"
+                : `/o/${encodeURIComponent(project.workspaceId)}`
+            }
+          >
+            {multipleOrganizations
+              ? `${organization?.name ?? t("organization")} · ${t("switchOrganization")}`
+              : t("projects")}
+          </Link>
+          <nav aria-label="Workspace">
+            {visibleNav.map((item) => {
+              const Icon = item.nav!.icon;
+              const active = item.key === route?.key;
+              return (
+                <Link
+                  key={item.key}
+                  href={projectHref(project.id, item)}
+                  className={cn("nav-link", active && "nav-active")}
+                  aria-current={active ? "page" : undefined}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{label(item)}</span>
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="sidebar-footer">
+            <p>
+              A self-hosted
+              <br />
+              marketing workspace.
+            </p>
+            <span>
+              EDS Orbit <span className="version">0.1 RC</span>
+            </span>
+            {signoutButton}
+          </div>
+        </aside>
+        <div className="workspace" inert={menu || undefined}>
+          <header className="topbar">
+            <div className="mobile-brand">
+              <Brand />
+            </div>
+            <Button
+              className="mobile-only"
+              variant="ghost"
+              size="icon"
+              aria-label={t("menu")}
+              onClick={() => setMenu(true)}
+            >
+              <Menu />
+            </Button>
+            <div className="breadcrumb">
+              {multipleOrganizations && organization && (
+                <>
+                  <span>{organization.name}</span>
+                  <span>/</span>
+                </>
+              )}
+              <span>{project.name}</span>
+              <span>/</span>
+              <strong>{route ? label(route) : t("notFound")}</strong>
+            </div>
+            <div className="topbar-actions">
+              {languageControl}
+              <span className="avatar" title={`${me.user.name} · ${role}`}>
+                {me.user.name.slice(0, 1).toUpperCase()}
+              </span>
+            </div>
+          </header>
+          <div className="mobile-project">
+            <label htmlFor="mobile-project-select">{t("project")}</label>
+            <select
+              id="mobile-project-select"
+              value={project.id}
+              onChange={(event) => changeProject(event.target.value)}
+            >
+              {projectOptions("mobile-")}
+            </select>
+          </div>
+          <main id="main" className="main">
+            {signout.error && <Alert kind="error">{signout.error}</Alert>}
+            <WorkspaceContext.Provider
+              value={{
+                project,
+                identity: me,
+                locale,
+                t,
+                canEdit,
+                isOwner,
+                revision,
+                refresh: () => setRevision((n) => n + 1),
+                href: (path) => rewriteLegacyHref(table, project.id, path),
+              }}
+            >
+              <div key={`${project.id}:${route?.key ?? "not-found"}`}>
+                {!canEdit && route && <Alert>{t("viewer")}</Alert>}
+                {!route ? (
+                  <NotFound t={t} homeHref={homeHref} />
+                ) : moduleOff ? (
+                  <ModuleOff t={t} homeHref={homeHref} />
+                ) : (
+                  <route.component />
+                )}
+              </div>
+            </WorkspaceContext.Provider>
+            <footer className="page-footer">
+              <span>{t("protected")}</span>
+              <span>EDS Orbit · RC</span>
+            </footer>
+          </main>
+        </div>
+        <nav className="mobile-nav" aria-label="Mobile workspace">
+          {visibleNav
+            .filter((n) => n.nav!.mobile)
+            .map((n) => {
+              const Icon = n.nav!.icon;
+              const mobile = n.nav!.mobile!;
+              return (
+                <Link
+                  key={n.key}
+                  href={projectHref(project.id, n)}
+                  aria-current={route?.key === n.key ? "page" : undefined}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{mobile === true ? label(n) : mobile[locale]}</span>
+                </Link>
+              );
+            })}
+          <button onClick={() => setMenu(true)}>
+            <MoreHorizontal />
+            <span>{t("more")}</span>
+          </button>
+        </nav>
+        {newProject && (
+          <Modal title={t("newProject")} onClose={() => setNewProject(false)}>
+            <DataForm
+              fields={projectFields(t)}
+              onSubmit={(v) => createProject(v)}
+              pending={mutation.pending}
+              error={mutation.error}
+              submitLabel={t("create")}
+              onCancel={() => setNewProject(false)}
+              t={t}
+            />
+          </Modal>
+        )}
+      </div>
+    </ShellContext.Provider>
+  );
+}
+function ModuleOff({ t, homeHref }: { t: Text; homeHref: string }) {
+  return (
+    <Alert kind="warning">
+      <strong>{t("moduleOff")}</strong>
+      <p>{t("moduleOffHint")}</p>
+      <Link className="text-link" href={homeHref}>
+        {t("backHome")}
+      </Link>
+    </Alert>
   );
 }
 export function Brand() {
@@ -478,28 +635,6 @@ export function Brand() {
       <span>EDS Orbit</span>
     </Link>
   );
-}
-function projectFields(t: Text): FormField[] {
-  return [
-    { name: "name", label: t("name"), required: true },
-    {
-      name: "timezone",
-      label: t("timezone"),
-      value: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      required: true,
-    },
-    {
-      name: "language",
-      label: t("language"),
-      type: "select",
-      value: "en",
-      options: [
-        { value: "en", label: "English" },
-        { value: "de", label: "Deutsch" },
-      ],
-      required: true,
-    },
-  ];
 }
 function Authentication({
   setup,

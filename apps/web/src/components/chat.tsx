@@ -1,6 +1,7 @@
 "use client";
+import { AppLink } from "@/platform/ui/app-link";
+import { takeAssistantDraft } from "@/platform/shell/assistant-draft";
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import {
   Archive,
@@ -198,6 +199,12 @@ export function OrbitChat() {
   useEffect(() => {
     setOlder({ items: [], next: history.data?.nextCursor ?? null });
   }, [history.data]);
+  // A message typed on the project home opens here for review; never sent
+  // automatically.
+  useEffect(() => {
+    const draft = takeAssistantDraft(project.id);
+    if (draft) setInput(draft);
+  }, [project.id]);
   async function loadOlder() {
     if (!older.next) return;
     try {
@@ -669,10 +676,10 @@ export function OrbitChat() {
                               : card.kind}
                           </Badge>
                           {card.href ? (
-                            <Link href={card.href}>
+                            <AppLink href={card.href}>
                               <ExternalLink aria-hidden="true" />
                               {card.label}
-                            </Link>
+                            </AppLink>
                           ) : (
                             <span>{card.label}</span>
                           )}
@@ -794,15 +801,15 @@ export function OrbitChat() {
                 )}
                 {proposal.missionId && (
                   <div className="chat-links">
-                    <Link href="/missions">
+                    <AppLink href="/missions">
                       {de ? "Mission ansehen" : "View mission"}
-                    </Link>
-                    <Link href="/content">
+                    </AppLink>
+                    <AppLink href="/content">
                       {de ? "Entwürfe ansehen" : "View drafts"}
-                    </Link>
-                    <Link href="/approvals">
+                    </AppLink>
+                    <AppLink href="/approvals">
                       {de ? "Freigaben" : "Approvals"}
-                    </Link>
+                    </AppLink>
                   </div>
                 )}
               </section>
