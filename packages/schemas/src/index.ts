@@ -29,7 +29,6 @@ export const collections = [
   "community_questions",
   "community_groups",
   "postiz_drafts",
-  "autopilot_settings",
   "matomo_schedules",
   "postiz_queue_watch",
   "assignments",

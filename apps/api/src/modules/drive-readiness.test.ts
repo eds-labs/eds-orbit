@@ -72,27 +72,6 @@ describe("Drive readiness from recorded state", () => {
     ).toBe(true);
   });
 
-  it("detects Drive-only assets in enabled autopilot settings", async () => {
-    const settings = (enabled: boolean, assetIds: string[]) =>
-      fakeTx([
-        ...assets,
-        { kind: "autopilot_settings", data: { enabled, assetIds } },
-      ]);
-    expect(
-      await publishingUsesDriveAssets(settings(true, [driveOnly]), scope),
-    ).toBe(true);
-    expect(
-      await publishingUsesDriveAssets(settings(false, [driveOnly]), scope),
-    ).toBe(false);
-    // Assets with inline bytes are published without reading Drive.
-    expect(
-      await publishingUsesDriveAssets(settings(true, [inline]), scope),
-    ).toBe(false);
-    expect(
-      await publishingUsesDriveAssets(settings(true, [foreign]), scope),
-    ).toBe(false);
-  });
-
   it("detects Drive-only assets in running missions only", async () => {
     const mission = (status: string) =>
       fakeTx([
@@ -107,5 +86,16 @@ describe("Drive readiness from recorded state", () => {
       false,
     );
     expect(await publishingUsesDriveAssets(fakeTx(assets), scope)).toBe(false);
+    // Assets with inline bytes or of another project are published without reading Drive.
+    for (const id of [inline, foreign])
+      expect(
+        await publishingUsesDriveAssets(
+          fakeTx([
+            ...assets,
+            { kind: "missions", data: { status: "ready", assetIds: [id] } },
+          ]),
+          scope,
+        ),
+      ).toBe(false);
   });
 });

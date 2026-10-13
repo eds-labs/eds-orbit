@@ -3,7 +3,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ApiError, when } from "@/lib/api";
 import {
   AssignmentTable,
-  AutopilotMigrationView,
   agentsSurface,
   knownData,
   nextKnown,
@@ -12,7 +11,6 @@ import {
   UpcomingPostList,
   AwaitingOwnerDraftList,
   type AssignmentItem,
-  type AutopilotMigration,
   type AwaitingOwnerDraft,
   type UpcomingPost,
 } from "./assignments";
@@ -375,21 +373,21 @@ describe("nextKnown", () => {
 
 describe("agentsSurface", () => {
   const answer = { items: [] };
-  it("keeps the autopilot on any error without an answer, and swaps only on an answer", () => {
+  it("is unavailable on any error without an answer, and swaps only on an answer", () => {
     expect(agentsSurface(null, new ApiError("REQUEST_FAILED", 500))).toBe(
-      "autopilot",
+      "unavailable",
     );
     expect(agentsSurface(null, new ApiError("BAD_GATEWAY", 502))).toBe(
-      "autopilot",
+      "unavailable",
     );
     expect(agentsSurface(null, new ApiError("RATE_LIMITED", 429))).toBe(
-      "autopilot",
+      "unavailable",
     );
     expect(agentsSurface(null, new ApiError("NETWORK_ERROR", 0))).toBe(
-      "autopilot",
+      "unavailable",
     );
     expect(agentsSurface(null, new ApiError("NOT_FOUND", 404))).toBe(
-      "autopilot",
+      "unavailable",
     );
     expect(agentsSurface(answer, null)).toBe("assignments");
     // A confirmed answer kept through a later error stays assignments.
@@ -400,11 +398,15 @@ describe("agentsSurface", () => {
   });
 
   it("keeps the decided surface while the same project reloads, not across projects", () => {
-    let known = nextSurface({ key: "A", surface: "pending" }, "A", "autopilot");
-    expect(known.surface).toBe("autopilot");
+    let known = nextSurface(
+      { key: "A", surface: "pending" },
+      "A",
+      "unavailable",
+    );
+    expect(known.surface).toBe("unavailable");
     // A refresh: no answer and no error yet.
     known = nextSurface(known, "A", "pending");
-    expect(known.surface).toBe("autopilot");
+    expect(known.surface).toBe("unavailable");
     known = nextSurface(known, "A", "assignments");
     expect(known.surface).toBe("assignments");
     known = nextSurface(known, "B", "pending");
@@ -428,72 +430,5 @@ describe("refreshOnConflict", () => {
     ).rejects.toThrow();
     expect(refresh).toHaveBeenCalledOnce();
     expect(await refreshOnConflict(async () => 7, refresh)).toBe(7);
-  });
-});
-
-describe("AutopilotMigrationView", () => {
-  const proposal: NonNullable<AutopilotMigration["proposal"]> = {
-    name: "Autopilot (übernommen)",
-    kind: "standing",
-    contentType: "social",
-    channels: ["x-int", "tg-int"],
-    schedule: { rhythm: "daily", weekdays: [], times: ["10:00"] },
-    topicFrame: "Ein Social-Post pro Kanal und Tag: beta.access",
-    image: true,
-    styleAssetIds: ["asset"],
-    vetoMinutes: 180,
-    monthlyBudgetMicros: 50_000_000,
-  };
-  const view = (state: Partial<AutopilotMigration>, canPropose = true) =>
-    renderToStaticMarkup(
-      <AutopilotMigrationView
-        state={{
-          proposal,
-          channelNames: { "x-int": "Synthetic X" },
-          reason: null,
-          assignment: null,
-          ...state,
-        }}
-        de
-        canPropose={canPropose}
-        pending={false}
-        onPropose={() => {}}
-      />,
-    );
-
-  it("offers the saved autopilot as an assignment to editors", () => {
-    const html = view({});
-    expect(html).toContain("Autopilot als Auftrag übernehmen");
-    expect(html).toContain("Synthetic X, tg-int");
-    expect(html).toContain("Täglich um 10:00");
-    expect(html).toContain("$50.00");
-    expect(html).toContain("Als Auftrag vorschlagen");
-    expect(view({}, false)).not.toContain("Als Auftrag vorschlagen");
-  });
-
-  it("points to the open confirmation and disappears once confirmed", () => {
-    const draft = view({
-      assignment: { id: "a", status: "draft", actionRequestId: "r" },
-    });
-    expect(draft).toContain("Bestätigung ist offen");
-    expect(draft).not.toContain("Als Auftrag vorschlagen");
-    expect(
-      view({
-        assignment: { id: "a", status: "active", actionRequestId: null },
-      }),
-    ).toBe("");
-    expect(view({ proposal: null })).toBe("");
-  });
-
-  it("says why no assignment can be proposed", () => {
-    const html = view({ proposal: null, reason: "NO_FREE_PROJECT_BUDGET" });
-    expect(html).toContain("Monatsbudget");
-    expect(html).not.toContain("Als Auftrag vorschlagen");
-    expect(
-      view({ proposal: null, reason: "ACTIVE_POLICY_REQUIRED" }),
-    ).toContain("keine aktive Richtlinie");
-    expect(view({ proposal: null, reason: "POSTING_TIME_REQUIRED" })).toContain(
-      "Postingzeit",
-    );
   });
 });

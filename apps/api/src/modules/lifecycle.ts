@@ -1,4 +1,3 @@
-import { planAutopilot, nextAutopilotCheckAt } from "./autopilot.ts";
 import { releaseMissedSlots } from "./paused-posts.ts";
 import { prepareFollowup } from "./planning.ts";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
@@ -202,7 +201,7 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
   });
   if (project.paused) return { queued: 0 };
   await releaseMissedSlots(tx, scope, at);
-  // Assignment runs replace the weekly autopilot: both fill the same slots.
+  // Assignment runs plan the project's posts (they replaced the weekly autopilot).
   if (agentsEnabled()) {
     await planAssignmentRuns(tx, scope, at);
     // Runs whose approved posts could not be scheduled after their review (R54).
@@ -211,7 +210,7 @@ export async function sweepProject(tx: DbTx, scope: Scope, at = new Date()) {
     await requeuePostizDrafts(tx, scope);
     // The bot's daily report, once per local day (a paused project sends none).
     await planDailyReport(tx, scope, at);
-  } else await planAutopilot(tx, scope, at);
+  }
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
   // An owner-approved single live draft is the mission's only attempt; its
@@ -327,6 +326,6 @@ export async function nextSweepAt(tx: DbTx, scope: Scope, at = new Date()) {
   if (agentsEnabled()) {
     consider((await nextAssignmentPlanAt(tx, scope, at))?.valueOf());
     consider((await nextDailyReportAt(tx, scope, at))?.valueOf());
-  } else consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
+  }
   return Number.isFinite(next) ? new Date(next) : null;
 }

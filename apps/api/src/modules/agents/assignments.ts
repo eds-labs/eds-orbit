@@ -81,7 +81,7 @@ export type AssignmentFormat = z.infer<typeof assignmentFormat>;
 export const assignmentSchedule = z
   .object({
     rhythm: z.enum(["daily", "weekly", "once"]),
-    // Local weekdays, 0 = Sunday (as in the weekly autopilot); weekly rhythm only.
+    // Local weekdays, 0 = Sunday; weekly rhythm only.
     weekdays: z
       .array(z.number().int().min(0).max(6))
       .max(7)
@@ -445,17 +445,12 @@ export async function proposeAssignment(
   );
 }
 
-/**
- * proposeAssignment inside an open chat transaction (`chatScoped`). `origin`
- * records where a proposal came from, for example the autopilot settings; it
- * is not part of the confirmed content and never changes the hash.
- */
+/** proposeAssignment inside an open chat transaction (`chatScoped`). */
 export async function proposeAssignmentInTx(
   tx: DbTx,
   scope: Scope,
   conversationId: string,
   raw: unknown,
-  origin: Record<string, unknown> | null = null,
 ) {
   requireEditor(scope);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
@@ -465,7 +460,6 @@ export async function proposeAssignmentInTx(
   const row = await create(tx, scope, KIND, {
     ...content,
     conversationId,
-    ...(origin ? { origin } : {}),
     status: "draft",
     confirmation: null,
     actionRequestId: null,
@@ -477,7 +471,6 @@ export async function proposeAssignmentInTx(
   });
   await audit(tx, scope, "assignment.proposed", row.id, {
     assignmentHash: assignmentHash(content),
-    ...(origin ? { origin: origin.kind } : {}),
   });
   return { assignment, actionRequest };
 }

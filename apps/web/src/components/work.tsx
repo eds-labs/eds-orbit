@@ -1,10 +1,5 @@
 "use client";
-import {
-  approveEach,
-  autopilotApprovals,
-  openExceptions,
-  pausedPosts,
-} from "./autopilot-approvals";
+import { openExceptions, pausedPosts } from "./approval-lists";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
 import { approvalItems } from "./draft-cleanup";
 import { DraftCleanup } from "./draft-cleanup-panel";
@@ -73,11 +68,7 @@ import { CreativeRenderer } from "./advanced";
 import { useWorkspace } from "./workspace-context";
 import { ActionRequestInbox } from "./action-request-inbox";
 import { AgentActivityPanel } from "./agent-activity";
-import {
-  AutopilotMigrationCard,
-  UpcomingAssignmentPosts,
-  useAutopilotMigration,
-} from "./assignments";
+import { UpcomingAssignmentPosts } from "./assignments";
 export function useCollection(name: string) {
   const { project, revision } = useWorkspace();
   return useResource<{ items: Entity[] }>(
@@ -1951,7 +1942,7 @@ function PausedPublications() {
       project.timezone,
     );
   return (
-    <section className="panel autopilot-approvals">
+    <section className="panel approval-list">
       <div className="panel-head">
         <div>
           <h2>{de ? "Gestoppte Posts" : "Stopped posts"}</h2>
@@ -1997,7 +1988,7 @@ function PausedPublications() {
         </Alert>
       )}
       {stopped.map((p) => (
-        <article key={p.id} className="autopilot-approval">
+        <article key={p.id} className="approval-item">
           <p className="panel-note">
             {when(p.data.scheduledAt, locale, project.timezone)} ·{" "}
             {title(p.data.contentId)}
@@ -2005,112 +1996,6 @@ function PausedPublications() {
         </article>
       ))}
     </section>
-  );
-}
-function AutopilotApprovals() {
-  const { locale, project, isOwner, refresh } = useWorkspace();
-  const de = locale === "de";
-  const content = useCollection("content"),
-    missions = useCollection("missions");
-  const mutation = useMutation(refresh);
-  const { due: pending, missed } = autopilotApprovals(
-    content.data?.items ?? [],
-    missions.data?.items ?? [],
-  );
-  if (!pending.length && !missed.length) return null;
-  const approve = (c: Entity) =>
-    action(project.id, "approve-and-schedule", {
-      contentId: c.id,
-      version: c.version,
-    });
-  const approveAll = async () => {
-    const failures = await approveEach(pending, approve);
-    if (!failures.length) return;
-    // Approved drafts leave the list even though others failed.
-    refresh();
-    throw new Error(
-      failures
-        .map((failure) => {
-          const c = pending.find((item) => item.id === failure.id)!;
-          return `${when(c.data.scheduledAt, locale, project.timezone)}: ${failure.error}`;
-        })
-        .join(" · "),
-    );
-  };
-  return (
-    <section className="panel autopilot-approvals">
-      <div className="panel-head">
-        <div>
-          <h2>
-            {de
-              ? "Autopilot: Freigabe der Woche"
-              : "Autopilot: this week's approvals"}
-          </h2>
-          <p>
-            {de
-              ? "Diese Posts enthalten Werbetext. Mit der Freigabe bestätigst du den vollständigen Text, und Orbit plant ihn zum angezeigten Termin ein."
-              : "These posts contain marketing copy. Approving confirms the full text and Orbit schedules it for the shown time."}
-          </p>
-        </div>
-        {isOwner && pending.length > 0 && (
-          <Button
-            disabled={mutation.pending}
-            onClick={() => mutation.run(approveAll)}
-          >
-            {de
-              ? `Alle ${pending.length} freigeben`
-              : `Approve all ${pending.length}`}
-          </Button>
-        )}
-      </div>
-      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-      {missed.map((c) => (
-        <article key={c.id} className="autopilot-approval">
-          <p className="panel-note">
-            {when(c.data.scheduledAt, locale, project.timezone)} ·{" "}
-            {value(c, "title")}
-          </p>
-          <Alert kind="warning">
-            {de
-              ? "Termin verstrichen: dieser Entwurf wird nicht mehr eingeplant und gleich automatisch archiviert."
-              : "Slot passed: this draft is no longer scheduled and is archived automatically."}
-          </Alert>
-        </article>
-      ))}
-      {pending.map((c) => (
-        <article key={c.id} className="autopilot-approval">
-          <p className="panel-note">
-            {when(c.data.scheduledAt, locale, project.timezone)} ·{" "}
-            {value(c, "title")}
-          </p>
-          <pre className="autopilot-approval-body">{String(c.data.body)}</pre>
-          {isOwner && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={mutation.pending}
-              onClick={() => mutation.run(() => approve(c))}
-            >
-              {de ? "Freigeben & einplanen" : "Approve & schedule"}
-            </Button>
-          )}
-        </article>
-      ))}
-    </section>
-  );
-}
-/**
- * Orbit Agents replaces the weekly autopilot: only once its route answered do
- * the autopilot approvals give way to the migration card. Without an answer
- * (loading, flag off, or an outage such as a 5xx during a redeploy) the
- * autopilot approvals stay.
- */
-function AutopilotOrMigration() {
-  const migration = useAutopilotMigration();
-  return migration.available ? (
-    <AutopilotMigrationCard migration={migration} />
-  ) : (
-    <AutopilotApprovals />
   );
 }
 export function ApprovalInbox() {
@@ -2141,7 +2026,6 @@ export function ApprovalInbox() {
       />
       <PausedPublications />
       <UpcomingAssignmentPosts />
-      <AutopilotOrMigration />
       <ActionRequestInbox />
       {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
       {openExceptions(exceptions.data?.items ?? []).map((e) => (

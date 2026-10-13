@@ -138,19 +138,18 @@ function useKnownData<T>(key: string, data: T | null, error: ApiError | null) {
 
 /**
  * Which surface a page shows: the assignments (Orbit Agents) only once its
- * route answered; the weekly autopilot on any error without an answer — a
- * 404 (flag off) as much as a 5xx, a 429 or a network failure during a
- * redeploy, so the production autopilot never disappears on an outage;
+ * route answered; `unavailable` on any error without an answer — a 404 (flag
+ * off) as much as a 5xx, a 429 or a network failure during a redeploy;
  * `pending` before either. A confirmed answer kept by `knownData` through a
  * later error stays assignments.
  */
-export type AgentsSurface = "pending" | "autopilot" | "assignments";
+export type AgentsSurface = "pending" | "unavailable" | "assignments";
 export function agentsSurface(
   data: unknown,
   error: ApiError | null,
 ): AgentsSurface {
   if (data !== null && data !== undefined) return "assignments";
-  return error ? "autopilot" : "pending";
+  return error ? "unavailable" : "pending";
 }
 type KnownSurface = { key: string; surface: AgentsSurface };
 /** Keeps the decided surface while the same project reloads; another project starts pending. */
@@ -491,7 +490,7 @@ export function UpcomingPostList({
 }) {
   const locale = de ? "de" : "en";
   return (
-    <section className="panel autopilot-approvals">
+    <section className="panel approval-list">
       <div className="panel-head">
         <div>
           <h2>{de ? "Anstehende Posts" : "Upcoming posts"}</h2>
@@ -504,7 +503,7 @@ export function UpcomingPostList({
       </div>
       {items.map((item) =>
         item.delivery === "postiz_draft" ? (
-          <article key={item.id} className="autopilot-approval">
+          <article key={item.id} className="approval-item">
             <p className="panel-note">
               {when(item.scheduledAt, locale, timezone)} ·{" "}
               {item.channelName ?? item.channel}
@@ -515,11 +514,11 @@ export function UpcomingPostList({
                 {de ? "Entwurf in Postiz" : "Draft in Postiz"}
               </Badge>
             </p>
-            <pre className="autopilot-approval-body">{item.excerpt}</pre>
+            <pre className="approval-item-body">{item.excerpt}</pre>
             <p className="panel-note">{draftNote(item.status, de)}</p>
           </article>
         ) : (
-          <article key={item.id} className="autopilot-approval">
+          <article key={item.id} className="approval-item">
             <p className="panel-note">
               {when(item.scheduledAt, locale, timezone)} ·{" "}
               {item.channelName ?? item.channel}
@@ -534,7 +533,7 @@ export function UpcomingPostList({
                 </>
               )}
             </p>
-            <pre className="autopilot-approval-body">{item.excerpt}</pre>
+            <pre className="approval-item-body">{item.excerpt}</pre>
             {item.vetoDeadline === null ? (
               // Released by the owner: no veto window, Stop works until the handoff.
               <p className="panel-note">
@@ -603,7 +602,7 @@ export function AwaitingOwnerDraftList({
   if (!items.length) return null;
   const locale = de ? "de" : "en";
   return (
-    <section className="panel autopilot-approvals">
+    <section className="panel approval-list">
       <div className="panel-head">
         <div>
           <h2>
@@ -617,7 +616,7 @@ export function AwaitingOwnerDraftList({
         </div>
       </div>
       {items.map((item) => (
-        <article key={item.id} className="autopilot-approval">
+        <article key={item.id} className="approval-item">
           <p className="panel-note">
             {when(item.slotAt, locale, timezone)} ·{" "}
             {item.channelName ?? item.channel}
@@ -629,7 +628,7 @@ export function AwaitingOwnerDraftList({
               </span>
             ))}
           </p>
-          <pre className="autopilot-approval-body">{item.excerpt}</pre>
+          <pre className="approval-item-body">{item.excerpt}</pre>
           {item.delivery === "postiz_draft" && (
             <p className="panel-note">
               {de
@@ -761,191 +760,4 @@ export function UpcomingAssignmentPosts() {
       />
     </>
   );
-}
-
-/** One answer of `GET /assignments/autopilot-migration`. */
-export type AutopilotMigration = {
-  proposal: Omit<AssignmentContent, "id"> | null;
-  // Why saved autopilot settings give no proposal; null without settings.
-  reason:
-    | "POSTING_TIME_REQUIRED"
-    | "ACTIVE_POLICY_REQUIRED"
-    | "NO_FREE_PROJECT_BUDGET"
-    | null;
-  channelNames: Record<string, string>;
-  assignment: {
-    id: string;
-    status: string;
-    actionRequestId: string | null;
-  } | null;
-};
-
-/**
- * The autopilot migration offer. `available` only once the route answered
- * (`agentsSurface`); any error without an answer keeps the autopilot.
- */
-export function useAutopilotMigration() {
-  const { project, revision } = useWorkspace();
-  const resource = useResource<AutopilotMigration>(
-    collectionPath(
-      project.id,
-      `assignments/autopilot-migration?revision=${revision}`,
-    ),
-  );
-  const data = useKnownData(project.id, resource.data, resource.error);
-  const surface = useSurface(project.id, data, resource.error);
-  return {
-    resource,
-    data,
-    surface,
-    available: surface === "assignments",
-    settled: surface !== "pending",
-  };
-}
-
-const MIGRATION_BLOCKED: Record<
-  NonNullable<AutopilotMigration["reason"]>,
-  [string, string]
-> = {
-  POSTING_TIME_REQUIRED: [
-    "None of the autopilot's channels has a posting time any more. Set posting times for its channels under Connectors → Postiz.",
-    "Keiner der Autopilot-Kanäle hat noch eine Postingzeit. Lege unter Verbindungen → Postiz Postingzeiten für seine Kanäle fest.",
-  ],
-  ACTIVE_POLICY_REQUIRED: [
-    "There is no active policy, so Orbit cannot propose an assignment. Activate one under Policy & budget.",
-    "Es gibt keine aktive Richtlinie, daher kann Orbit keinen Auftrag vorschlagen. Aktiviere eine unter Richtlinie & Budget.",
-  ],
-  NO_FREE_PROJECT_BUDGET: [
-    "Confirmed assignments already hold the project's whole monthly budget. Raise it under Policy & budget or end an assignment.",
-    "Bestätigte Aufträge belegen bereits das ganze Monatsbudget des Projekts. Erhöhe es unter Richtlinie & Budget oder beende einen Auftrag.",
-  ],
-};
-
-/**
- * The migration card (spec D5): the saved autopilot settings as a proposed
- * assignment. Proposing creates a draft with an owner confirmation; nothing
- * runs before that. Hidden when there is nothing to offer or the proposed
- * assignment was confirmed.
- */
-export function AutopilotMigrationView({
-  state,
-  de,
-  canPropose,
-  pending,
-  onPropose,
-}: {
-  state: AutopilotMigration;
-  de: boolean;
-  canPropose: boolean;
-  pending: boolean;
-  onPropose: () => void;
-}) {
-  const { proposal, assignment, reason } = state;
-  if (assignment ? assignment.status !== "draft" : !proposal && !reason)
-    return null;
-  return (
-    <section className="panel autopilot-migration">
-      <div className="panel-head">
-        <div>
-          <h2>
-            {de
-              ? "Autopilot als Auftrag übernehmen"
-              : "Take over the autopilot as an assignment"}
-          </h2>
-          <p>
-            {de
-              ? "Aufträge ersetzen den wöchentlichen Autopilot. Orbit schlägt deine gespeicherten Autopilot-Einstellungen als Auftrag vor; er läuft erst, wenn ein Owner ihn bestätigt. Die Autopilot-Einstellungen bleiben unverändert."
-              : "Assignments replace the weekly autopilot. Orbit proposes your saved autopilot settings as an assignment; it runs only after an owner confirms it. The autopilot settings stay unchanged."}
-          </p>
-        </div>
-      </div>
-      {assignment ? (
-        <p className="panel-note">
-          {de
-            ? "Vorschlag erstellt – die Bestätigung ist offen unter"
-            : "Proposal created – its confirmation is open under"}{" "}
-          <Link href="/approvals">{de ? "Freigaben" : "Approvals"}</Link>.
-        </p>
-      ) : !proposal ? (
-        reason && (
-          <Alert kind="warning">{MIGRATION_BLOCKED[reason][de ? 1 : 0]}</Alert>
-        )
-      ) : (
-        proposal && (
-          <>
-            <dl className="detail-grid">
-              <dt>{de ? "Kanäle" : "Channels"}</dt>
-              <dd>
-                {channelText(
-                  {
-                    channels: proposal.channels,
-                    channelNames: state.channelNames,
-                  },
-                  de,
-                )}
-              </dd>
-              <dt>{de ? "Rhythmus" : "Schedule"}</dt>
-              <dd>{scheduleText(proposal.schedule, de)}</dd>
-              <dt>{de ? "Themenrahmen" : "Topic frame"}</dt>
-              <dd>{proposal.topicFrame}</dd>
-              <dt>{de ? "Bild" : "Image"}</dt>
-              <dd>
-                {proposal.image
-                  ? de
-                    ? "Ja, im Stil der Autopilot-Bilder"
-                    : "Yes, in the style of the autopilot images"
-                  : de
-                    ? "Nein"
-                    : "No"}
-              </dd>
-              <dt>{de ? "Budget pro Monat" : "Monthly budget"}</dt>
-              <dd>{usd(proposal.monthlyBudgetMicros)}</dd>
-            </dl>
-            {canPropose && (
-              <div className="form-actions">
-                <Button disabled={pending} onClick={onPropose}>
-                  {de ? "Als Auftrag vorschlagen" : "Propose as an assignment"}
-                </Button>
-              </div>
-            )}
-          </>
-        )
-      )}
-    </section>
-  );
-}
-
-/** The migration card for a loaded offer; proposing reloads the page data. */
-export function AutopilotMigrationCard({
-  migration,
-}: {
-  migration: ReturnType<typeof useAutopilotMigration>;
-}) {
-  const { locale, project, canEdit, refresh } = useWorkspace();
-  const mutation = useMutation(refresh);
-  if (!migration.data) return null;
-  return (
-    <>
-      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
-      <AutopilotMigrationView
-        state={migration.data}
-        de={locale === "de"}
-        canPropose={canEdit}
-        pending={mutation.pending}
-        onPropose={() =>
-          mutation.run(() =>
-            post(
-              collectionPath(project.id, "assignments/autopilot-migration"),
-              {},
-            ),
-          )
-        }
-      />
-    </>
-  );
-}
-
-/** The migration card with its own data, for the assignments tab. */
-export function AutopilotMigrationPanel() {
-  return <AutopilotMigrationCard migration={useAutopilotMigration()} />;
 }

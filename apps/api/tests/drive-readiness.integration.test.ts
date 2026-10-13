@@ -14,7 +14,7 @@ const enabled = Boolean(
 );
 
 // Regression for 2026-10-01: a revoked Drive refresh token left drive_save
-// "ready" while autopilot posts depended on Drive-only assets.
+// "ready" while scheduled posts depended on Drive-only assets.
 describe.skipIf(!enabled)("Drive reconnect readiness on PostgreSQL", () => {
   let db: PrismaClient, auth: PrismaClient, scope: Scope;
   const run = <T>(fn: (tx: any) => Promise<T>) =>
@@ -74,10 +74,10 @@ describe.skipIf(!enabled)("Drive reconnect readiness on PostgreSQL", () => {
       }),
     );
     await run((tx) =>
-      create(tx, scope, "autopilot_settings", {
-        enabled: true,
+      create(tx, scope, "missions", {
+        title: "Running mission with a Drive-only asset",
+        status: "ready",
         channels: ["test-social"],
-        factKeys: ["synthetic"],
         assetIds: [asset.id],
       }),
     );
