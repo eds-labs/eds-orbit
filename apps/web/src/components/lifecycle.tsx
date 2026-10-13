@@ -11,7 +11,7 @@ import {
   dateField,
   options,
   type FormField,
-} from "./form";
+} from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 export function ExperimentControls({
   entity,

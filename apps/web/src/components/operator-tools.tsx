@@ -12,9 +12,9 @@ import {
   libraryAssets,
 } from "@/lib/api";
 import { Alert, Badge, Button, Loading, Modal, Status } from "./ui/primitives";
-import { DataForm, num, options, str } from "./form";
+import { DataForm, num, options, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
-import { ResourceError, useCollection } from "./work";
+import { ResourceError, useCollection } from "@/platform/ui/collection";
 
 export function MatomoImport() {
   const { project, isOwner, refresh } = useWorkspace();

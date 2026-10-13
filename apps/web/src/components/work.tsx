@@ -68,9 +68,16 @@ import {
   dateField,
   type FormField,
   type FormValues,
-} from "./form";
+} from "@/platform/ui/form";
 import { CreativeRenderer } from "./advanced";
 import { useWorkspace } from "./workspace-context";
+import {
+  EntityRows,
+  PageHead,
+  ResourceError,
+  useCollection,
+} from "@/platform/ui/collection";
+import { EvidenceItems } from "@/platform/ui/evidence";
 import { ActionRequestInbox } from "./action-request-inbox";
 import { AgentActivityPanel } from "./agent-activity";
 import {
@@ -78,47 +85,6 @@ import {
   UpcomingAssignmentPosts,
   useAutopilotMigration,
 } from "./assignments";
-export function useCollection(name: string) {
-  const { project, revision } = useWorkspace();
-  return useResource<{ items: Entity[] }>(
-    collectionPath(project.id, `${name}?revision=${revision}`),
-  );
-}
-export function PageHead({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="page-head">
-      <div>
-        <h1>{title}</h1>
-        <p>{description}</p>
-      </div>
-      {children && <div className="page-actions">{children}</div>}
-    </div>
-  );
-}
-export function ResourceError({
-  error,
-  retry,
-}: {
-  error: Error | null;
-  retry: () => void;
-}) {
-  return error ? (
-    <Alert kind="error">
-      <p>{error.message}</p>
-      <Button variant="outline" size="sm" onClick={retry}>
-        Try again
-      </Button>
-    </Alert>
-  ) : null;
-}
 export function Overview() {
   const { project, t, locale, revision, canEdit } = useWorkspace();
   const dashboard = useResource<Dashboard>(
@@ -421,74 +387,6 @@ function ActionReadinessList({
           </ul>
         </div>
       ))}
-    </div>
-  );
-}
-export function EntityRows({
-  items,
-  fields,
-  onSelect,
-}: {
-  items: Entity[];
-  fields: string[];
-  onSelect?: (e: Entity) => void;
-}) {
-  const { locale, project, t } = useWorkspace();
-  return (
-    <div className="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            {fields.map((f) => (
-              <th key={f}>{f.replace(/([A-Z])/g, " $1")}</th>
-            ))}
-            {onSelect && (
-              <th>
-                <span className="sr-only">{t("review")}</span>
-              </th>
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((e) => (
-            <tr key={e.id}>
-              {fields.map((f, i) => (
-                <td key={f}>
-                  {f === "status" ? (
-                    <Status value={e.data.status} />
-                  ) : f === "createdAt" || f === "updatedAt" ? (
-                    when(e[f], locale, project.timezone)
-                  ) : i === 0 && onSelect ? (
-                    <button className="row-button" onClick={() => onSelect(e)}>
-                      {value(
-                        e,
-                        f,
-                        f === "title" && e.kind === "insights"
-                          ? "Performance insight"
-                          : "—",
-                      )}
-                    </button>
-                  ) : (
-                    value(e, f)
-                  )}
-                </td>
-              ))}
-              {onSelect && (
-                <td>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`${t("review")} ${value(e, fields[0])}`}
-                    onClick={() => onSelect(e)}
-                  >
-                    <ArrowRight />
-                  </Button>
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
@@ -1874,57 +1772,6 @@ function PostizDraftSection({ content }: { content: Entity }) {
         {de ? "Als Entwurf an Postiz senden" : "Send to Postiz as draft"}
       </Button>
     </section>
-  );
-}
-export function EvidenceItems({ evidence }: { evidence: Entity }) {
-  const facts = Array.isArray(evidence.data.facts)
-    ? (evidence.data.facts as Record<string, unknown>[])
-    : [];
-  const items = Array.isArray(evidence.data.items)
-    ? (evidence.data.items as Record<string, unknown>[])
-    : [];
-  return (
-    <div className="evidence-items">
-      {facts.map((f, i) => (
-        <div key={String(f.id || i)}>
-          <Badge tone="blue">Fact v{String(f.version || "1")}</Badge>
-          <strong>
-            {String(f.key)}: {String(f.value)}
-          </strong>
-          <small>{String(f.sourceId || "")}</small>
-        </div>
-      ))}
-      {items.map((f, i) => (
-        <div key={String(f.chunkId || i)}>
-          <strong>{String(f.title || "Source passage")}</strong>
-          <p>{String(f.text || "")}</p>
-          <small>
-            {String(f.anchor || "")}
-            {typeof f.canonicalUrl === "string" &&
-              f.canonicalUrl.startsWith("https://") && (
-                <>
-                  {" "}
-                  ·{" "}
-                  <a href={f.canonicalUrl} target="_blank" rel="noreferrer">
-                    Source document
-                  </a>
-                </>
-              )}
-          </small>
-          {Array.isArray(f.reasons) && (
-            <small>
-              {f.reasons.join(" · ")}{" "}
-              {typeof f.score === "number"
-                ? `· relevance ${f.score.toFixed(4)}`
-                : ""}
-            </small>
-          )}
-        </div>
-      ))}
-      {Array.isArray(evidence.data.gaps) && evidence.data.gaps.length > 0 && (
-        <Alert kind="warning">{evidence.data.gaps.join(" · ")}</Alert>
-      )}
-    </div>
   );
 }
 // Posts a project pause stopped; the owner schedules them again in one step.

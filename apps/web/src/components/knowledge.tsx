@@ -49,15 +49,15 @@ import {
   str,
   type FormField,
   type FormValues,
-} from "./form";
+} from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import {
   EntityRows,
-  EvidenceItems,
   PageHead,
   ResourceError,
   useCollection,
-} from "./work";
+} from "@/platform/ui/collection";
+import { EvidenceItems } from "@/platform/ui/evidence";
 type Health = Record<string, unknown>;
 export function Knowledge() {
   const { t, locale, project, revision, canEdit, isOwner } = useWorkspace();

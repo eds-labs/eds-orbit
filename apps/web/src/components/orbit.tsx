@@ -35,7 +35,12 @@ import {
 import { labels, type Locale, type Text } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Alert, Button, Loading, Modal, Badge } from "./ui/primitives";
-import { DataForm, str, type FormField, type FormValues } from "./form";
+import {
+  DataForm,
+  str,
+  type FormField,
+  type FormValues,
+} from "@/platform/ui/form";
 import { WorkspaceContext } from "./workspace-context";
 import {
   Overview,

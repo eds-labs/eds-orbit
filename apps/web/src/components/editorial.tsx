@@ -11,9 +11,13 @@ import {
   Status,
   Badge,
 } from "./ui/primitives";
-import { DataForm, str } from "./form";
+import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
-import { EntityRows, ResourceError, useCollection } from "./work";
+import {
+  EntityRows,
+  ResourceError,
+  useCollection,
+} from "@/platform/ui/collection";
 export type BriefProposal = {
   title: string;
   goal: string;

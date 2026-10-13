@@ -29,9 +29,9 @@ import {
   Loading,
   Status,
 } from "./ui/primitives";
-import { DataForm, str, type FormField } from "./form";
+import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
-import { ResourceError, useCollection } from "./work";
+import { ResourceError, useCollection } from "@/platform/ui/collection";
 
 type MarketingProfileView = {
   id: string;

@@ -9,7 +9,7 @@ import {
   FieldLabel,
   Input,
   Textarea,
-} from "./ui/primitives";
+} from "@/components/ui/primitives";
 import type { Text } from "@/lib/i18n";
 export type FormField = {
   name: string;

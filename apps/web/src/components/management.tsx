@@ -74,7 +74,7 @@ import {
   str,
   type FormField,
   type FormValues,
-} from "./form";
+} from "@/platform/ui/form";
 import {
   BrandApproval,
   MarketingProfileConfiguration,
@@ -83,13 +83,13 @@ import {
   ProjectAdministration,
 } from "./advanced";
 import { useWorkspace } from "./workspace-context";
+import { ContentDetail } from "./work";
 import {
-  ContentDetail,
   EntityRows,
   PageHead,
   ResourceError,
   useCollection,
-} from "./work";
+} from "@/platform/ui/collection";
 export function Analytics() {
   const { t, locale, project, canEdit, refresh } = useWorkspace();
   const metrics = useCollection("metrics"),

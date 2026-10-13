@@ -30,7 +30,7 @@ import {
   Loading,
   Textarea,
 } from "./ui/primitives";
-import { PageHead } from "./work";
+import { PageHead } from "@/platform/ui/collection";
 import { ChatMarkdown } from "./chat-markdown";
 import {
   PackageCard,
