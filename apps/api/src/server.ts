@@ -1,4 +1,10 @@
 import { moduleRegistry } from "./modules/registry.ts";
+import {
+  listModuleStates,
+  moduleSwitchingEnabled,
+  recordDefaultModules,
+  setModuleEnabled,
+} from "./platform/modules/activation.ts";
 import { randomUUID } from "node:crypto";
 import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
 import {
@@ -651,7 +657,51 @@ export async function buildServer(
         },
       },
     });
+    // The registry defaults, recorded as the migration did for existing
+    // projects. Without these rows the same defaults apply.
+    await scoped(project.workspaceId, project.id, (tx) =>
+      recordDefaultModules(
+        tx,
+        {
+          workspaceId: project.workspaceId,
+          projectId: project.id,
+          userId: user.id,
+          role: "owner",
+        },
+        moduleRegistry(),
+      ),
+    );
     return reply.code(201).send(project);
+  });
+  // Module activation per project (WP1.4): readable by every member,
+  // switchable by owners while ORBIT_MODULES is on. Not yet enforced.
+  app.get("/api/projects/:projectId/modules", async (req) => {
+    const { projectId } = req.params as any;
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      switchable: moduleSwitchingEnabled(),
+      modules: await scoped(scope.workspaceId, projectId, (tx) =>
+        listModuleStates(tx, scope, moduleRegistry()),
+      ),
+    };
+  });
+  app.put("/api/projects/:projectId/modules/:moduleId", async (req) => {
+    const { projectId, moduleId } = req.params as any;
+    const scope = await scopeFor(auth, req, projectId, true, true);
+    if (!moduleSwitchingEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const input = z.object({ enabled: z.boolean() }).strict().parse(req.body);
+    return {
+      switchable: true,
+      modules: await scoped(scope.workspaceId, projectId, (tx) =>
+        setModuleEnabled(
+          tx,
+          scope,
+          moduleRegistry(),
+          String(moduleId),
+          input.enabled,
+        ),
+      ),
+    };
   });
   app.get("/api/projects/:projectId/dashboard", async (req) => {
     const { projectId } = req.params as any;

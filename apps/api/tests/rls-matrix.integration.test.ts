@@ -39,6 +39,7 @@ const PROJECT_TABLES = [
   "Outbox",
   "ProjectMarketingProfile",
   "ProjectMarketingProfileVersion",
+  "ProjectModule",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -232,6 +233,15 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           workspaceId: s.workspaceId,
           projectId: s.projectId,
           data: {},
+        },
+      });
+      await tx.projectModule.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          moduleId: "knowledge",
+          enabled: true,
+          moduleVersion: "1.0.0",
         },
       });
       const owner = {

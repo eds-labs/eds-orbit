@@ -45,6 +45,9 @@ export const configSchema = z.object({
   // The review agent's approval stands in for the owner's only when "true"; set after the review
   // eval passed (Approval J). While "false", assignment posts wait for the owner.
   ORBIT_AGENT_REVIEW_AUTHORITY: z.enum(["false", "true"]).default("false"),
+  // Owners may switch modules per project (WP1.4). Activation is recorded but
+  // not yet enforced; every module keeps working while this is "false".
+  ORBIT_MODULES: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

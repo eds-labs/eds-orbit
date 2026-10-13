@@ -43,6 +43,7 @@ export const platformDeclaration: PlatformDeclaration = {
     "WorkspaceMember",
     "Project",
     "ProjectMember",
+    "ProjectModule",
     "Entity",
     "EntityVersion",
     "Outbox",

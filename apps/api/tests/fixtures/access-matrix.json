@@ -398,6 +398,13 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/modules": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/openai-configuration": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1379,6 +1386,13 @@
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/marketing-profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/modules/{moduleId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
