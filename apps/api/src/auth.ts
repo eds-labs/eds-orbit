@@ -8,6 +8,7 @@ import { loadConfig } from "../../../packages/config/src/index.ts";
 import { DomainError } from "./shared.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { projectMembership } from "./modules/member-scope.ts";
+import { CLIENT_IP_HEADER } from "./client-ip.ts";
 export function makeAuth() {
   const config = loadConfig();
   return betterAuth({
@@ -32,8 +33,18 @@ export function makeAuth() {
       useSecureCookies: config.APP_ORIGIN.startsWith("https:"),
       database: { generateId: () => randomUUID() },
       defaultCookieAttributes: { httpOnly: true, sameSite: "lax" },
+      // Only the header the API pins to the resolved client address on every
+      // request (client-ip.ts), never X-Forwarded-For from the caller.
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
     },
     rateLimit: { enabled: true, window: 60, max: 30 },
+    // The client address is for rate limiting only. Sessions keep storing an
+    // empty address, as they did while the proxy forwarded none.
+    databaseHooks: {
+      session: {
+        create: { before: async () => ({ data: { ipAddress: "" } }) },
+      },
+    },
     logger: { disabled: true },
   });
 }

@@ -90,6 +90,14 @@ Stop: the bot's Stop button and Stop on the approvals page ("Anstehende Posts", 
 
 Failure handling: an exception `PUBLISH_PREFLIGHT_BLOCKED` on an assignment post lists the blockers on the publication; with the flag off, posts that were already scheduled end there because the agent review no longer counts. Unknown outcomes (`outcome_unknown` tasks, publications) are reconciled, never resent. To stop everything at once, pause the project (Orbit or `/pause`).
 
+## Client addresses and rate limits
+
+The API rate limits per client address: 600 reads and 100 writes per minute, 20 per minute on `/api/auth/*`, 10 uploads and 3 image generations per minute. Better Auth adds 3 sign-ins per 10 seconds. The API reaches browsers only through the web proxy, so the proxy forwards the browser's address in `X-Orbit-Client-IP`: the right-most `X-Forwarded-For` entry, which Traefik appends for the connection it accepted (Next.js sets it from the socket when Traefik is absent). Entries further left are client-supplied and ignored. A browser-sent `X-Orbit-Client-IP` is not forwarded.
+
+The API keeps Fastify's `trustProxy` off and believes `X-Orbit-Client-IP` only from a loopback or private-network peer (127/8, 10/8, 172.16/12, 192.168/16, ::1, fc00::/7). From any other peer it uses the peer's own address. It then pins the header to the resolved address for the rest of the request, and Better Auth reads only that header (`apps/api/src/client-ip.ts`, `auth.ts`). Sessions do not store the address.
+
+Trust assumptions: (1) the API publishes no host port, so only Orbit containers on the internal Compose networks can reach it; (2) web is reachable only through Traefik, otherwise a client could choose its own bucket by sending `X-Forwarded-For`. If a CDN or a second proxy (for example a proxied Cloudflare record) sits in front of Traefik, the right-most entry is that proxy's address, and all users behind one edge share a bucket again; Traefik must then trust that proxy's ranges (`forwardedHeaders.trustedIPs`) and the web proxy must skip those hops. IPv6 clients are bucketed per address, not per /64.
+
 ## Failure and recovery
 
 Pause before intervention. Unknown publication or Slack handoff must remain unknown until observed; do not create a fresh job to resend it. Known publication IDs are read-polled at most eight times with bounded delay. Postiz group cancellation remains a visible manual provider action, because current group scope cannot be proven safely from the list contract.

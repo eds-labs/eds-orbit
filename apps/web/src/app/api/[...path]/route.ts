@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import type { NextRequest } from "next/server";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,16 @@ const hopHeaders = [
   "content-length",
   "content-encoding",
 ];
+// The browser's address for the API's rate limits (apps/api/src/client-ip.ts).
+// Traefik appends the address it accepted the connection from as the last
+// X-Forwarded-For entry, and Next.js sets the header from the socket when it
+// is missing, so only the right-most entry is trusted: anything left of it
+// came from the client. This assumes web is reachable only through Traefik.
+function clientIp(request: NextRequest) {
+  const hops = request.headers.get("x-forwarded-for")?.split(",");
+  const last = hops?.at(-1)?.trim();
+  return last && isIP(last) ? last : undefined;
+}
 async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
@@ -56,6 +67,9 @@ async function proxy(
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
+    // Set by the proxy only; a value sent by the browser is not on the list.
+    const client = clientIp(request);
+    if (client) headers.set("x-orbit-client-ip", client);
     const upstream = await fetch(target, {
       method: request.method,
       headers,
