@@ -1,20 +1,19 @@
 import { registerModules } from "../../api/src/modules/registry.ts";
-import { registeredJobs } from "../../api/src/platform/modules/contributions.ts";
 import {
-  runScheduledMatomo,
-  nextMatomoRunAt,
-} from "../../api/src/modules/matomo-schedule.ts";
-import {
-  checkPostizQueue,
-  nextPostizQueueCheckAt,
-} from "../../api/src/modules/postiz-queue-watch.ts";
+  registeredJobs,
+  registeredPeriodicTasks,
+  workerStartHooks,
+} from "../../api/src/platform/modules/contributions.ts";
 import {
   saveGeneratedAsset,
   markSyncFailed,
   connectionStatus,
 } from "../../api/src/modules/google-drive.ts";
 import Redis from "ioredis";
-import { sweepProject, nextSweepAt } from "../../api/src/modules/lifecycle.ts";
+import {
+  sweepProject,
+  nextSweepAt,
+} from "../../api/src/platform/jobs/scheduler.ts";
 import { writeFile, rename, unlink, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
@@ -43,11 +42,11 @@ import {
   exception,
   create,
 } from "../../api/src/shared.ts";
-import { registerAgentSpecialists } from "../../api/src/modules/agents/specialists/index.ts";
 // A broken module manifest stops the worker before it takes a job.
 registerModules();
-// Model specialists of the `agent` queue.
-registerAgentSpecialists();
+// Module start-up, such as the specialists of the `agent` queue.
+for (const start of workerStartHooks()) start();
+const periodicTasks = registeredPeriodicTasks();
 const config = loadConfig(),
   url = new URL(config.REDIS_URL);
 const connection = new Redis(config.REDIS_URL, {
@@ -226,12 +225,10 @@ async function processProject(p: DueProject, claimed: Date) {
     p.id,
     async (tx) => {
       await sweepProject(tx, scope);
-      const candidates: (Date | null)[] = [
-        await nextSweepAt(tx, scope),
-        // Not gated by pause, matching runScheduledMatomo.
-        await nextMatomoRunAt(tx, scope),
-        await nextPostizQueueCheckAt(tx, scope),
-      ];
+      const candidates: (Date | null)[] = [await nextSweepAt(tx, scope)];
+      // Periodic tasks are not gated by pause, matching their run below.
+      for (const task of periodicTasks)
+        if (task.nextDueAt) candidates.push(await task.nextDueAt(tx, scope));
       // Crash recovery preserves the intent and never retries an ambiguous external write.
       const running = await tx.entity.findMany({
         where: {
@@ -323,21 +320,19 @@ async function processProject(p: DueProject, claimed: Date) {
       }),
     );
   }
-  // Saved Matomo imports run at most twice a day per project.
-  await runScheduledMatomo(scope).catch(() => {});
-  // Read-only Postiz queue check; its result feeds /api/health/postiz.
-  const postizQueue = await checkPostizQueue(scope).catch(
-    () => ({ checked: false }) as const,
-  );
-  if (postizQueue.checked) {
-    const key = "orbit:postiz-queue:" + config.PUBLISHER_INSTANCE_ID;
+  // Module tasks after dispatch, such as saved Matomo imports and the
+  // read-only Postiz queue check; a published status feeds /api/health.
+  for (const task of periodicTasks) {
+    const result = await task.run(scope).catch(() => undefined);
+    if (!task.health || !result) continue;
+    const key = `orbit:${task.name}:` + config.PUBLISHER_INSTANCE_ID;
     await connection
       .multi()
       .hset(
         key,
         p.id,
         JSON.stringify({
-          status: postizQueue.status,
+          status: result.status,
           checkedAt: new Date().toISOString(),
         }),
       )

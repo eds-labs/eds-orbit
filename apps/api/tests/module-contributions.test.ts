@@ -5,11 +5,16 @@ import {
   registeredActionType,
   registeredHooks,
   registeredJobs,
+  registeredPeriodicTask,
+  registeredPeriodicTasks,
   registeredRetention,
   registeredSchedulers,
   registeredTools,
   unexportedKinds,
+  workerStartHooks,
 } from "../src/platform/modules/contributions.ts";
+import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
+import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
 import { publicEntity } from "../src/platform/shared.ts";
@@ -84,6 +89,19 @@ describe("module contributions", () => {
     expect(registeredRetention()).toEqual([marketingRetention]);
   });
 
+  it("gives the worker its module tasks and start-up through the registry (WP2.1)", () => {
+    // Same order as the worker ran them before: Matomo, then the Postiz check.
+    expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
+      "matomo-schedule",
+      "postiz-queue",
+    ]);
+    // The health key and summary of /api/health/postiz stay the same.
+    expect(registeredPeriodicTask("postiz-queue")?.health?.summarize).toBe(
+      postizQueueHealth,
+    );
+    expect(workerStartHooks()).toEqual([registerAgentSpecialists]);
+  });
+
   it("projects module kinds through the module: asset bytes never leave", () => {
     const view = publicEntity({
       kind: "assets",
@@ -131,5 +149,13 @@ describe("module contributions", () => {
         { alpha: { publicViews: { jobs: (r) => r } } },
       ),
     ).toThrow("alpha projects entity kind jobs it does not own");
+    const task = { name: "check", run: async () => undefined };
+    expect(() =>
+      registerContributions(
+        registry,
+        { periodic: [task] },
+        { alpha: { periodic: [task] } },
+      ),
+    ).toThrow("periodic task check registered twice");
   });
 });

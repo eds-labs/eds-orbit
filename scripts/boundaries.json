@@ -147,7 +147,6 @@
     "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/drive-readiness.ts",
     "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/marketing-profile.ts",
     "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/postiz-assignment.ts",
-    "platform-imports-module: apps/api/src/modules/runtime.ts -> apps/api/src/modules/postiz-queue-watch.ts",
     "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/assignments.ts",
     "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/veto.ts",
     "web-platform-imports-module: apps/web/src/components/action-request-inbox.tsx -> apps/web/src/components/assignment-card.tsx",
@@ -157,9 +156,6 @@
     "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/assignments.tsx",
     "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/lifecycle.tsx",
     "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/slack-connection.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/work.tsx",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/agents/specialists/index.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/matomo-schedule.ts",
-    "worker-imports-module: apps/worker/src/main.ts -> apps/api/src/modules/postiz-queue-watch.ts"
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/work.tsx"
   ]
 }

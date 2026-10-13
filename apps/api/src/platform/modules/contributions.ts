@@ -1,7 +1,11 @@
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
 import type { ActionDefinition } from "../../modules/action-requests.ts";
-import type { JobDef, SchedulerContribution } from "../jobs/types.ts";
+import type {
+  JobDef,
+  PeriodicTask,
+  SchedulerContribution,
+} from "../jobs/types.ts";
 import type {
   ProjectHooks,
   RetentionContribution,
@@ -27,6 +31,10 @@ export type ModuleContributions = {
   hooks?: ProjectHooks;
   /** The module's part of the retention action (WP1.8). */
   retention?: RetentionContribution;
+  /** Per-project work the worker runs after dispatching jobs (WP2.1). */
+  periodic?: readonly PeriodicTask[];
+  /** Called once when the worker starts, after registration (WP2.1). */
+  onWorkerStart?: () => void;
 };
 
 type Registered = {
@@ -36,6 +44,7 @@ type Registered = {
   actionTypes: ReadonlyMap<string, ActionDefinition<any>>;
   jobs: ReadonlyMap<string, JobDef>;
   publicViews: ReadonlyMap<string, (row: any) => any>;
+  periodic: readonly PeriodicTask[];
 };
 let registered: Registered | null = null;
 
@@ -64,7 +73,13 @@ export function registerContributions(
   const actionTypes = new Map<string, ActionDefinition<any>>();
   const jobs = new Map<string, JobDef>();
   const publicViews = new Map<string, (row: any) => any>();
+  const periodic: PeriodicTask[] = [];
   for (const [owner, c] of ordered) {
+    for (const task of c.periodic ?? []) {
+      if (periodic.some((t) => t.name === task.name))
+        problems.push(`periodic task ${task.name} registered twice`);
+      periodic.push(task);
+    }
     for (const tool of c.tools ?? []) {
       if (tools.some((t) => t.name === tool.name))
         problems.push(`tool ${tool.name} registered twice`);
@@ -95,6 +110,7 @@ export function registerContributions(
     actionTypes,
     jobs,
     publicViews,
+    periodic,
   };
 }
 
@@ -147,4 +163,18 @@ export function registeredRetention(): RetentionContribution[] {
 /** Entity kinds the project export leaves out (declared `exported: false`). */
 export function unexportedKinds(): readonly string[] {
   return current().registry.unexportedKinds;
+}
+
+/** Periodic worker tasks: platform first, then modules in registry order. */
+export function registeredPeriodicTasks(): readonly PeriodicTask[] {
+  return current().periodic;
+}
+export function registeredPeriodicTask(name: string) {
+  return current().periodic.find((t) => t.name === name);
+}
+/** Worker start hooks, in the same order. */
+export function workerStartHooks(): Array<() => void> {
+  return [...current().byModule.values()]
+    .map((c) => c.onWorkerStart)
+    .filter((h): h is () => void => Boolean(h));
 }

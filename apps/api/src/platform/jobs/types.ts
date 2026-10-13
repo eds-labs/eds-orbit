@@ -47,3 +47,20 @@ export type SchedulerContribution = {
   /** Earliest future time the sweep could change something without a write. */
   nextDueAt(tx: DbTx, scope: Scope, at: Date): Promise<Date | null>;
 };
+
+/**
+ * Work the worker does for each due project after it dispatched the
+ * project's jobs, outside the sweep transaction (WP2.1). Read-only checks and
+ * self-scheduled imports belong here; they do not stop while the project is
+ * paused.
+ */
+export type PeriodicTask = {
+  /** Unique name; also the Redis key `orbit:<name>:<instance>` of `health`. */
+  name: string;
+  /** Inside the sweep transaction: when the task is next due, for the project's wake-up. */
+  nextDueAt?(tx: DbTx, scope: Scope): Promise<Date | null>;
+  /** Runs the task; errors are swallowed by the worker. A returned status is published. */
+  run(scope: Scope): Promise<{ status: string } | void>;
+  /** Folds the published statuses of all projects into one health state. */
+  health?: { summarize(entries: Record<string, string>, now: Date): string };
+};

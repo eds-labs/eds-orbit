@@ -5,6 +5,8 @@ import { marketingJobs } from "./jobs.ts";
 import { marketingScheduler } from "./scheduler.ts";
 import { marketingHooks } from "./hooks.ts";
 import { marketingRetention } from "./retention.ts";
+import { marketingPeriodicTasks } from "./periodic.ts";
+import { registerAgentSpecialists } from "../agents/specialists/index.ts";
 import { data } from "../../shared.ts";
 
 /**
@@ -19,6 +21,9 @@ export const marketingContributions: ModuleContributions = {
   scheduler: marketingScheduler,
   hooks: marketingHooks,
   retention: marketingRetention,
+  periodic: marketingPeriodicTasks,
+  // The model specialists and executor steps of the `agent` queue.
+  onWorkerStart: registerAgentSpecialists,
   publicViews: {
     // Asset bytes never leave the server through the collection API.
     assets: (row) => {

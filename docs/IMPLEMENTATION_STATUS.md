@@ -1,5 +1,19 @@
 # Implementation status
 
+## Worker through the module registry: WP2.1a (2026-10-13, local)
+
+Branch `claude/wp21a-marketing-move`, the first part of work package WP2.1 (marketing server move). The worker no longer imports module files; behaviour is unchanged.
+
+- New contribution `periodic` (`PeriodicTask`): per-project work the worker runs after dispatching jobs, outside the sweep transaction, with an optional `nextDueAt` for the project's wake-up and an optional published `health` status. Marketing contributes, in the previous order:
+  - `matomo-schedule`: saved Matomo imports.
+  - `postiz-queue`: the read-only queue check. It still publishes to `orbit:postiz-queue:<instance>`, so `/api/health/postiz` is unchanged.
+- New contribution `onWorkerStart`: marketing registers the agent specialists there. The API and the tests do not register them, as before.
+- `runtime.ts` reads a periodic task's health through the registry (`periodicTaskHealth`) instead of importing marketing.
+- The worker takes the sweep from `platform/jobs/scheduler.ts`.
+- Known import-boundary violations: 33 (after WP1.8: 37). No worker → module import is left.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. That includes the Postiz health route test (`auth.integration`) and new registry tests for task order, the health summary, the start hook and duplicate names. The worker process itself was not started locally; the CI browser run starts it through `pnpm dev`.
+
 ## Pause, export and retention hooks: WP1.8 (2026-10-13, local)
 
 Branch `claude/wp18-hooks`, work package WP1.8 of the modularization roadmap (ADR 0009). Project pause, export and retention become platform operations that modules extend. Behaviour is unchanged.
