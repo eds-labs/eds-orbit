@@ -55,6 +55,36 @@ describe("validateRegistry", () => {
     });
   });
 
+  it("lists the kinds the project export leaves out, platform first", () => {
+    const registry = validateRegistry(
+      [
+        module({
+          entityKinds: [
+            { kind: "secret_rows", description: "s", exported: false },
+            { kind: "plain_rows", description: "p" },
+          ],
+        }),
+      ],
+      {
+        entityKinds: [
+          { kind: "jobs", description: "j" },
+          { kind: "tokens", description: "t", exported: false },
+        ],
+        tables: [],
+      },
+    );
+    expect(registry.unexportedKinds).toEqual(["tokens", "secret_rows"]);
+    expect(
+      problems([
+        module({
+          entityKinds: [
+            { kind: "rows", description: "r", exported: true as never },
+          ],
+        }),
+      ])[0],
+    ).toMatch(/exported/);
+  });
+
   it("refuses invalid manifests, duplicate and reserved ids", () => {
     expect(problems([module({ id: "Bad-Id" })])[0]).toMatch(/^Bad-Id: id /);
     expect(problems([module({ version: "1" })])[0]).toMatch(/version/);

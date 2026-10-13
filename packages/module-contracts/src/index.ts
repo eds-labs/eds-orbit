@@ -16,6 +16,8 @@ export type Role = (typeof ROLES)[number];
 export type EntityKindDef = {
   kind: string;
   description: string;
+  /** False for credentials, OAuth state and other rows the project export leaves out. */
+  exported?: false;
 };
 
 /** A permission key, mapped to the existing project roles (AD-07). */
@@ -52,7 +54,13 @@ const serverModuleSchema = z
     dependsOn: z.array(z.string().regex(MODULE_ID)),
     defaultEnabled: z.boolean(),
     entityKinds: z.array(
-      z.object({ kind: kindName, description: z.string().min(1) }).strict(),
+      z
+        .object({
+          kind: kindName,
+          description: z.string().min(1),
+          exported: z.literal(false).optional(),
+        })
+        .strict(),
     ),
     tables: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_]*$/)),
     permissions: z.array(
@@ -85,6 +93,8 @@ export type ValidatedRegistry = {
   kindOwner: ReadonlyMap<string, ModuleId | "platform">;
   /** Table -> owning module id, or "platform". */
   tableOwner: ReadonlyMap<string, ModuleId | "platform">;
+  /** Entity kinds the project export leaves out, platform first. */
+  unexportedKinds: readonly string[];
 };
 
 export class RegistryError extends Error {
@@ -181,5 +191,11 @@ export function validateRegistry(
     }
   }
   if (problems.length) throw new RegistryError(problems);
-  return { modules, order, kindOwner, tableOwner };
+  const unexportedKinds = [
+    ...platform.entityKinds,
+    ...modules.flatMap((m) => m.entityKinds),
+  ]
+    .filter((def) => def.exported === false)
+    .map((def) => def.kind);
+  return { modules, order, kindOwner, tableOwner, unexportedKinds };
 }

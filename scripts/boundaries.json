@@ -144,8 +144,6 @@
     "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/workflow.ts",
     "platform-imports-module: apps/api/src/modules/google-drive.ts -> apps/api/src/modules/assets.ts",
     "platform-imports-module: apps/api/src/modules/google-drive.ts -> apps/api/src/modules/drive-readiness.ts",
-    "platform-imports-module: apps/api/src/modules/pause.ts -> apps/api/src/modules/agents/assignment-runs.ts",
-    "platform-imports-module: apps/api/src/modules/pause.ts -> apps/api/src/modules/agents/notifications.ts",
     "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/drive-readiness.ts",
     "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/marketing-profile.ts",
     "platform-imports-module: apps/api/src/modules/readiness.ts -> apps/api/src/modules/postiz-assignment.ts",

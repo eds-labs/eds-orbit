@@ -18,7 +18,12 @@ export const knowledgeModule: ServerModule = {
       description: "Knowledge sources with rights and sync settings",
     },
     { kind: "facts", description: "Versioned verified facts" },
-    { kind: "evidence", description: "Retrieval evidence packs" },
+    // Evidence is rebuilt from sources and facts; the export leaves it out.
+    {
+      kind: "evidence",
+      description: "Retrieval evidence packs",
+      exported: false,
+    },
     { kind: "revocations", description: "Document revocation tombstones" },
     { kind: "sync_requests", description: "Requested source synchronisations" },
     { kind: "retrieval_runs", description: "Cached hybrid retrieval results" },

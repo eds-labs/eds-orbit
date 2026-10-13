@@ -62,7 +62,8 @@ import {
   listAgentRuns,
   listRunSpans,
 } from "./modules/ai-usage.ts";
-import { pauseProject } from "./modules/pause.ts";
+import { pauseProject } from "./platform/governance/pause.ts";
+import { exportProject } from "./platform/governance/export.ts";
 import {
   blockCalendar,
   unblockCalendar,
@@ -868,26 +869,9 @@ export async function buildServer(
   app.get("/api/projects/:projectId/export", async (req) => {
     const { projectId } = req.params as any,
       scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => ({
-      formatVersion: 1,
-      exportedAt: new Date().toISOString(),
-      entities: (
-        await tx.entity.findMany({
-          where: {
-            projectId,
-            kind: {
-              notIn: [
-                "connectors",
-                "evidence",
-                "drive_connection",
-                "drive_oauth_state",
-                "telegram_connections",
-              ],
-            },
-          },
-        })
-      ).map(publicEntity),
-    }));
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      exportProject(tx, scope),
+    );
   });
   app.get("/api/projects/:projectId/content/:id/export", async (req, reply) => {
     const { projectId, id } = req.params as any,

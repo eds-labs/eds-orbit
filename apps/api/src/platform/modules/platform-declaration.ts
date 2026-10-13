@@ -22,16 +22,23 @@ export const platformDeclaration: PlatformDeclaration = {
     {
       kind: "connectors",
       description: "Encrypted provider credentials and capability states",
+      exported: false,
     },
     {
       kind: "telegram_connections",
       description: "The owner's notification bot",
+      exported: false,
     },
-    { kind: "drive_connection", description: "Google Drive OAuth connection" },
+    {
+      kind: "drive_connection",
+      description: "Google Drive OAuth connection",
+      exported: false,
+    },
     { kind: "drive_storage", description: "Google Drive folder layout" },
     {
       kind: "drive_oauth_state",
       description: "Pending Google Drive OAuth state",
+      exported: false,
     },
   ],
   tables: [

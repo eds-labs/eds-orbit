@@ -139,47 +139,9 @@ export async function stopExperiment(
     stoppedBy: scope.userId,
   });
 }
-export async function retention(
-  tx: DbTx,
-  scope: Scope,
-  days: number,
-  at = new Date(),
-) {
-  if (!Number.isInteger(days) || days < 30 || days > 3650)
-    throw new DomainError("INVALID_RETENTION");
-  const cutoff = new Date(at.valueOf() - days * 86400000);
-  const expired = (await list(tx, scope, "insights")).filter(
-    (x) =>
-      x.updatedAt < cutoff &&
-      !["deleted", "invalidated"].includes(data(x).status),
-  );
-  for (const row of expired)
-    await memoryLifecycle(tx, scope, "insights", row.id, row.version, "delete");
-  const expiredPrefs = (await list(tx, scope, "preferences")).filter(
-    (x) =>
-      data(x).validUntil &&
-      new Date(data(x).validUntil) < cutoff &&
-      data(x).status !== "deleted",
-  );
-  for (const row of expiredPrefs)
-    await memoryLifecycle(
-      tx,
-      scope,
-      "preferences",
-      row.id,
-      row.version,
-      "delete",
-    );
-  await audit(tx, scope, "retention.apply", scope.projectId, {
-    days,
-    insights: expired.length,
-    preferences: expiredPrefs.length,
-  });
-  return {
-    purgedInsights: expired.length,
-    purgedPreferences: expiredPrefs.length,
-  };
-}
+// Retention is a platform operation with module parts (WP1.8); importers
+// keep this path.
+export { retention } from "../platform/governance/retention.ts";
 // The sweep frame moved to the platform scheduler (WP1.6); its marketing and
 // source-sync parts are scheduler contributions. Importers keep this path.
 export { nextSweepAt, sweepProject } from "../platform/jobs/scheduler.ts";

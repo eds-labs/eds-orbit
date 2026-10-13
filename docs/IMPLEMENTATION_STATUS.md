@@ -1,5 +1,25 @@
 # Implementation status
 
+## Pause, export and retention hooks: WP1.8 (2026-10-13, local)
+
+Branch `claude/wp18-hooks`, work package WP1.8 of the modularization roadmap (ADR 0009). Project pause, export and retention become platform operations that modules extend. Behaviour is unchanged.
+
+- **Pause** (`platform/governance/pause.ts`; `modules/pause.ts` re-exports it). The platform bumps the generation, ends waiting chat replies and audits. Modules add steps through `ProjectHooks` in the same transaction and at the same points as before. Marketing (`modules/marketing/hooks.ts`):
+  - `onProjectPause` blocks publications and raises reconciliation exceptions;
+  - `afterProjectPause` notifies the owner's Telegram bot, unless the bot asked for the pause itself;
+  - `onProjectResume` puts held-back assignment tasks back on the queue.
+- **Export** (`platform/governance/export.ts`). Owners declare entity kinds with `exported: false`: the platform for `connectors`, `telegram_connections`, `drive_connection` and `drive_oauth_state`, Knowledge for `evidence`. These are the same five kinds the hard-coded list held.
+- **Retention** (`platform/governance/retention.ts`). The platform validates the period, asks each module's `retention` contribution to purge what expired, and writes one `retention.apply` audit entry. Marketing purges insights and preferences, unchanged (`modules/marketing/retention.ts`).
+- Two platform → marketing imports in `pause.ts` are gone. Known import-boundary violations: 37 (after WP1.7: 39).
+
+**Verification (local, isolated test database).**
+- Full suite: 144 files, 1347 tests.
+- New characterization test `project-operations.characterization.integration.test.ts`: export exclusions, retention result, statuses and audit. It passed before the change and after it.
+- The pause suites (`chat-pause`, `paused-posts`, `telegram`, `agent-notifications`) and the access matrix are unchanged.
+- Mutation checks:
+  - Without the marketing hooks, 5 pause tests fail.
+  - Without `exported: false` on evidence, the export test fails.
+
 ## Web shell and navigation: WP1.7 (2026-10-13, local)
 
 Branch `claude/wp17-web-shell`, work package WP1.7 of the modularization roadmap (ADR 0009, AD-12). The web app gets one URL per page; the views themselves are unchanged.

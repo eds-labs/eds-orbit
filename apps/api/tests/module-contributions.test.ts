@@ -3,10 +3,15 @@ import { validateRegistry } from "../../../packages/module-contracts/src/index.t
 import {
   registerContributions,
   registeredActionType,
+  registeredHooks,
   registeredJobs,
+  registeredRetention,
   registeredSchedulers,
   registeredTools,
+  unexportedKinds,
 } from "../src/platform/modules/contributions.ts";
+import { marketingHooks } from "../src/modules/marketing/hooks.ts";
+import { marketingRetention } from "../src/modules/marketing/retention.ts";
 import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
 
@@ -62,6 +67,21 @@ describe("module contributions", () => {
 
   it("runs the marketing sweep before the platform's source sync, as before", () => {
     expect(registeredSchedulers()).toHaveLength(2);
+  });
+
+  it("leaves the same kinds out of the project export as before (WP1.8)", () => {
+    expect([...unexportedKinds()].sort()).toEqual([
+      "connectors",
+      "drive_connection",
+      "drive_oauth_state",
+      "evidence",
+      "telegram_connections",
+    ]);
+  });
+
+  it("lets marketing extend pause, resume and retention (WP1.8)", () => {
+    expect(registeredHooks()).toEqual([marketingHooks]);
+    expect(registeredRetention()).toEqual([marketingRetention]);
   });
 
   it("projects module kinds through the module: asset bytes never leave", () => {

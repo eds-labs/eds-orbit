@@ -2,6 +2,10 @@ import type { ValidatedRegistry } from "../../../../../packages/module-contracts
 import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
 import type { ActionDefinition } from "../../modules/action-requests.ts";
 import type { JobDef, SchedulerContribution } from "../jobs/types.ts";
+import type {
+  ProjectHooks,
+  RetentionContribution,
+} from "../governance/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -19,6 +23,10 @@ export type ModuleContributions = {
   scheduler?: SchedulerContribution;
   /** Client projections of the module's entity kinds (secrets stripped). */
   publicViews?: Readonly<Record<string, (row: any) => any>>;
+  /** Steps of a project pause and resume (WP1.8). */
+  hooks?: ProjectHooks;
+  /** The module's part of the retention action (WP1.8). */
+  retention?: RetentionContribution;
 };
 
 type Registered = {
@@ -122,4 +130,21 @@ export function registeredSchedulers(): SchedulerContribution[] {
 }
 export function registeredPublicView(kind: string) {
   return current().publicViews.get(kind);
+}
+
+/** Pause and resume hooks: platform first, then modules in registry order. */
+export function registeredHooks(): ProjectHooks[] {
+  return [...current().byModule.values()]
+    .map((c) => c.hooks)
+    .filter((h): h is ProjectHooks => Boolean(h));
+}
+/** Retention contributions, in the same order as the hooks. */
+export function registeredRetention(): RetentionContribution[] {
+  return [...current().byModule.values()]
+    .map((c) => c.retention)
+    .filter((r): r is RetentionContribution => Boolean(r));
+}
+/** Entity kinds the project export leaves out (declared `exported: false`). */
+export function unexportedKinds(): readonly string[] {
+  return current().registry.unexportedKinds;
 }
