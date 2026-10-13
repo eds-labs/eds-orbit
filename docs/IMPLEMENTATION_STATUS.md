@@ -1,5 +1,30 @@
 # Implementation status
 
+## Safety net for the modularization: WP0.2 (2026-10-13, local)
+
+Branch `claude/wp02-safety-net`. This adds tests and a CI guard only; no product code changed. It is work package WP0.2 of `plans/orbit-modularization/07-roadmap.md` (decision baseline: PR #93, ADR 0009).
+
+**RLS matrix (10 tests).**
+- Every public table is classified. A new table fails until it is classified.
+- FORCE RLS is required on all scoped and tenancy tables.
+- The app role has no grants on auth, membership or system tables. The audit log is append-only.
+- Unscoped reads return nothing.
+- Each project sees its own seeded rows in all 18 scoped tables, and nothing of another project in the same or another workspace.
+- Chat rows are private to their user.
+- Cross-project updates and deletes change nothing, and cross-project inserts fail on RLS.
+- Verified by temporarily disabling RLS on `Outbox` in `orbit_test`: 4 of the 10 tests fail, and the insert test then fails too.
+
+**Access matrix.**
+- 198 route, collection and action requests for 5 roles, pinned in `apps/api/tests/fixtures/access-matrix.json`.
+- Invariants: callers without a session get 401 except on 7 public routes; a non-member never reaches a project route; no request is rate-limited, times out or returns a 5xx.
+- Verified by removing `pause` from the owner list: the test reports the editor change.
+
+**Worker queue dispatch.** The 7 queue classes without a dedicated test are pinned with their stop codes. Current behaviour, kept: a missing index generation (`INDEX_UNAVAILABLE`) uses all three attempts before it stops.
+
+**CI.**
+- `tests/setup.ts` fails under `CI=true` without the test database URLs and Redis, so a broken setup can no longer pass with 69 skipped integration files.
+- `pnpm test:migration-profile` now runs in CI.
+
 ## Assignment banners in the brand style (2026-10-12, local)
 
 Review fix round (R79, commit after `60ebd02`): agent review authority does not cover banner posts with publish delivery (they wait for the owner until the review eval has banner cases; Postiz draft delivery unchanged); revisions keep the banner (`previousBanner`); banners stay tied to approved, unchanged background, logo and profile (key, save re-check under the run lock, `bannerState`); uploaded raster logo with verified bytes only; `BANNER_BRAND_OVERFLOW` at proposal and run time; per-banner render failures (`BANNER_RENDER_FAILED`); banners bound to their post and out of the library and pickers; banner claim words revised once, NFKC and script checks (`BANNER_TEXT_UNSAFE`); copies of media-capable channels keep the slot's banner when only the strictest channel refuses it (`BANNER_MEDIA_REFUSED`). DejaVu stays the font.

@@ -1,0 +1,1388 @@
+{
+  "GET /api/google-drive/callback": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "GET /api/health/postiz": {
+    "anonymous": "public",
+    "outsider": "public",
+    "viewer": "public",
+    "editor": "public",
+    "owner": "public"
+  },
+  "GET /api/health/ready": {
+    "anonymous": "public",
+    "outsider": "public",
+    "viewer": "public",
+    "editor": "public",
+    "owner": "public"
+  },
+  "GET /api/me": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/openapi.json": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/action-requests": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agent-activity": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agent-runs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/agent-runs/{runId}/spans": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/ai-cost": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/approvals": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/assets": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/assets/{assetId}/content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/assignment-drafts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/assignment-posts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/assignments": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/assignments/autopilot-migration": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/autopilot_settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/calendar_blocks": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/channel_post_sync": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/channel_posts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/chat/conversations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/chat/conversations/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/chat/runs/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/chat/runs/{id}/events": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/community_groups": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/community_questions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/connector_verifications": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/connectors": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/content/{id}/export": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/dashboard": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/documents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/evidence": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/exceptions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/experiments": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/export": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/facts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/followup_plans": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/google-drive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/google-drive/brand": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "owner": "allowed:409"
+  },
+  "GET /api/projects/{projectId}/google-drive/files": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "owner": "allowed:409"
+  },
+  "GET /api/projects/{projectId}/google-drive/files/{fileId}/content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "owner": "allowed:409"
+  },
+  "GET /api/projects/{projectId}/google-drive/health": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:409",
+    "editor": "allowed:409",
+    "owner": "allowed:409"
+  },
+  "GET /api/projects/{projectId}/google-drive/root-candidates": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:409"
+  },
+  "GET /api/projects/{projectId}/index_evaluations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/indexes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/insights": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/jobs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/knowledge-health": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/knowledge_imports": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/marketing-profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/matomo_schedules": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/members": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/metrics": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/missions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/openai-configuration": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/operations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/policies": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/postiz_drafts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/postiz_queue_watch": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/publications": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/sources": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/telegram": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/unknown_collection": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "GET /api/projects/{projectId}/work_packages": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/setup": {
+    "anonymous": "allowed:200",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /health": {
+    "anonymous": "public",
+    "outsider": "public",
+    "viewer": "public",
+    "editor": "public",
+    "owner": "public"
+  },
+  "PATCH /api/projects/{projectId}/content/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/action-requests/{id}/decide": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/activate-index": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/adapt-content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/add-member": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/analyze": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/approve": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/approve-and-schedule": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/archive-mission": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/archive-old-drafts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:OWNER_REQUIRED",
+    "editor": "forbidden:OWNER_REQUIRED",
+    "owner": "allowed:409"
+  },
+  "POST /api/projects/{projectId}/actions/asset-status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/begin-index": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/brand-approval": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/build-index": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/calendar-block": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/calendar-unblock": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/community-import": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/community-link": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/configure-autopilot": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/configure-matomo-schedule": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/connector": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/connector-health": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/correct-metric": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/editorial-propose-brief": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/embed-document": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/evaluate-experiment": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/evaluate-index": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/import": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/import-matomo": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/import-metrics": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-import-commit": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-import-preview": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/knowledge-import-retry": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/memory-lifecycle": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/openai-configure": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/pause": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/postiz-assign-channels": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/postiz-draft-handoff": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/postiz-draft-resolve": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/postiz-test-execute": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/postiz-test-prepare": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/postiz-test-reconcile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/preference-update": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/preflight": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/project-settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/publish": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/reconcile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/render": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/resolve-exception": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/restore-draft-cleanup": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:OWNER_REQUIRED",
+    "editor": "forbidden:OWNER_REQUIRED",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/resume-live-draft-batch": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/resume-paused-publications": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "POST /api/projects/{projectId}/actions/retention": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/retrieve": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/retry": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/review": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/revoke-document": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/revoke-source": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/rollback-index": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/run-mission": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/slack-configure": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/slack-digest": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:409"
+  },
+  "POST /api/projects/{projectId}/actions/source-pause": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/start-approved-live-draft-batch": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/start-approved-live-draft-once": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/stop-experiment": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/unknown-action": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/withdraw-fact": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/approvals": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/assets": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/assets/upload": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/assets/{assetId}/drive-retry": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:409"
+  },
+  "POST /api/projects/{projectId}/assignment-drafts/{id}/release": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/assignments": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/assignments/autopilot-migration": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:409",
+    "owner": "allowed:409"
+  },
+  "POST /api/projects/{projectId}/assignments/{id}/status": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/autopilot_settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/calendar_blocks": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/channel_post_sync": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/channel_posts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/chat/conversations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:201",
+    "editor": "allowed:201",
+    "owner": "allowed:201"
+  },
+  "POST /api/projects/{projectId}/chat/conversations/{id}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/chat/conversations/{id}/messages": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/chat/packages/{id}/attach-image": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/chat/packages/{id}/cancel": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/chat/packages/{id}/unschedule": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/chat/proposals/{id}/confirm": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/chat/runs/{id}/cancel": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/community_groups": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/community_questions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/connector_verifications": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/connectors": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/content": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/evidence": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/exceptions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/experiments": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/facts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/followup_plans": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/google-drive/connect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:409"
+  },
+  "POST /api/projects/{projectId}/google-drive/disconnect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "POST /api/projects/{projectId}/google-drive/files/{fileId}/import": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:409"
+  },
+  "POST /api/projects/{projectId}/google-drive/upload": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/images/generate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/index_evaluations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/insights": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/jobs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/knowledge_imports": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/matomo_schedules": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/metrics": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/missions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/policies": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/postiz_drafts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/postiz_queue_watch": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/publications": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/publications/{id}/veto": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/sources": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/telegram/connect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/telegram/disconnect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
+  "POST /api/projects/{projectId}/unknown_collection": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/work_packages": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/setup": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/slack/{workspaceId}/{projectId}/interactions": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/telegram/{projectId}/{connectionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "unauthenticated",
+    "viewer": "unauthenticated",
+    "editor": "unauthenticated",
+    "owner": "unauthenticated"
+  },
+  "POST /api/workspaces/{workspaceId}/pause": {
+    "anonymous": "unauthenticated",
+    "outsider": "forbidden:FORBIDDEN",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/google-drive/root": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/marketing-profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  }
+}

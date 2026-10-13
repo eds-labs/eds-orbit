@@ -48,6 +48,14 @@ pnpm test:e2e            # API, web and worker must be running
 pnpm framework:check
 ```
 
+Three safety-net suites guard tenant isolation and access:
+
+- `apps/api/tests/rls-matrix.integration.test.ts` classifies every table, requires FORCE RLS and checks cross-project reads and writes as the restricted app role. A new table fails it until it is classified.
+- `apps/api/tests/access-matrix.integration.test.ts` calls every route, collection and action as anonymous, non-member, viewer, editor and owner, and compares the result with `apps/api/tests/fixtures/access-matrix.json`. After an intended access change, regenerate the fixture with `UPDATE_ACCESS_MATRIX=1 pnpm test access-matrix` and review its diff like any security change.
+- `apps/worker/tests/queue-dispatch.integration.test.ts` checks the wiring of the worker queues that have no dedicated test.
+
+In CI (`CI=true`), the test setup refuses to run without the test database and Redis instead of skipping the integration tests.
+
 Playwright normally uses its installed Chromium. For local testing with an existing Chrome installation, set `PLAYWRIGHT_CHANNEL=chrome`; reports record the actual browser. Integration tests use a separate `orbit_test` database with the same restricted app/auth roles. The restore test creates `orbit_restore_test`, pauses every restored project and never starts a publisher.
 
 ## Hosting and authority
