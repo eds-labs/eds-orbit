@@ -30,6 +30,13 @@ async function signIn(page: Page) {
   return user;
 }
 
+// The load event comes before the shell has rendered and stored the project as
+// the last used one; wait for the home itself.
+async function openHome(page: Page, base: string) {
+  await page.goto(base);
+  await expect(page.getByLabel("Message for Orbit Chat")).toBeVisible();
+}
+
 // Every page of the shell, by its sidebar label and its URL below the project.
 const PAGES: Array<[string, string]> = [
   ["Home", ""],
@@ -134,7 +141,7 @@ test("legacy paths redirect, unknown paths say so", async ({ page }) => {
   test.setTimeout(120_000);
   const user = await signIn(page);
   const base = `/p/${user.projectId}`;
-  await page.goto(base);
+  await openHome(page, base);
   for (const [old, now] of LEGACY) {
     await page.goto(old);
     await expect(page, old).toHaveURL(new RegExp(`${base}${now}$`));
@@ -168,7 +175,7 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
   test.setTimeout(120_000);
   const user = await signIn(page);
   const base = `/p/${user.projectId}`;
-  await page.goto(base);
+  await openHome(page, base);
 
   // The prompt is handed to the chat for review; nothing is sent.
   const text = `Navigation acceptance ${Date.now()}`;
@@ -179,7 +186,7 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
   await expect(page.locator(".chat-message", { hasText: text })).toHaveCount(0);
 
   // Keyboard: the skip link leads to the content, links open with Enter.
-  await page.goto(base);
+  await openHome(page, base);
   await page.keyboard.press("Tab");
   await expect(
     page.getByRole("link", { name: "Skip to content" }),
@@ -193,7 +200,7 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
 
   // 390px: the bottom bar comes from the manifests, no horizontal scrolling.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(base);
+  await openHome(page, base);
   const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
   await expect(mobile.getByRole("link")).toHaveText([
     "Home",
