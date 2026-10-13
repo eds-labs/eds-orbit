@@ -1,7 +1,6 @@
 import { zodTextFormat } from "openai/helpers/zod";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { policy as policySchema } from "../../../../../../packages/schemas/src/index.ts";
 import {
   estimateCost,
   isRejectedRequest,
@@ -17,7 +16,7 @@ import {
   exception,
   update,
 } from "../../../shared.ts";
-import { activePolicy } from "../../policy.ts";
+import { requireSpendMandate } from "../../../platform/ai/spend-mandate.ts";
 import {
   budgetMonthStart,
   markTransmitted,
@@ -493,16 +492,8 @@ export async function runSpecialist(
             where: { id: scope.projectId },
           });
           if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
-          const active = await activePolicy(tx, scope);
-          if (!active) throw new DomainError("POLICY_REQUIRED");
-          const approved = policySchema.parse(
-            Object.fromEntries(
-              Object.entries(data(active)).filter(
-                ([key]) =>
-                  !["active", "activatedAt", "activatedBy"].includes(key),
-              ),
-            ),
-          );
+          const active = await requireSpendMandate(tx, scope);
+          const approved = active.limits;
           const runtime = await runtimeOpenAiConfiguration(tx, scope);
           // Fail closed: the task records one configuration version.
           if ((runtime.routeVersion ?? null) !== routeVersion)

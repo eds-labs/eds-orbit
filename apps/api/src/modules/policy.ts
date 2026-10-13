@@ -1,4 +1,5 @@
 import { hasFactPlaceholder } from "./fact-placeholders.ts";
+import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
 import { calendarConflicts } from "./calendar.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { invalidateContent } from "./content-invalidation.ts";
@@ -39,9 +40,7 @@ import {
   audit,
 } from "../shared.ts";
 export async function activePolicy(tx: DbTx, scope: Scope) {
-  const rows = await list(tx, scope, "policies");
-  const row = rows.find((x) => data(x).active === true);
-  return row ?? null;
+  return activePolicyRecord(tx, scope);
 }
 export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
   const content = await entity(tx, scope, "content", contentId);

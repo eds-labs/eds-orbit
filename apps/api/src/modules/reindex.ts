@@ -1,6 +1,5 @@
 import { scoped } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { policy } from "../../../../packages/schemas/src/index.ts";
 import {
   attachIndexBatch,
   sourceData,
@@ -8,9 +7,12 @@ import {
 } from "../../../../packages/knowledge/src/index.ts";
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
 import { reserve, markTransmitted, settle } from "./budget.ts";
-import { activePolicy } from "./policy.ts";
+import {
+  activeSpendMandateRef,
+  requireSpendMandate,
+} from "../platform/ai/spend-mandate.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
-import { enqueue } from "./workflow.ts";
+import { enqueue } from "../platform/jobs/enqueue.ts";
 import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
 import { data, entity, DomainError } from "../shared.ts";
 /** One bounded batch per durable job. It never activates its own index. */
@@ -80,15 +82,8 @@ async function buildIndexBatchTraced(
         if (!chunk) throw new DomainError("INDEX_CORPUS_CHANGED");
         texts.push(chunk.text);
       }
-      const p = await activePolicy(tx, scope);
-      if (!p) throw new DomainError("POLICY_REQUIRED");
-      const approved = policy.parse(
-        Object.fromEntries(
-          Object.entries(data(p)).filter(
-            ([k]) => !["active", "activatedAt", "activatedBy"].includes(k),
-          ),
-        ),
-      );
+      const p = await requireSpendMandate(tx, scope);
+      const approved = p.limits;
       const ai = await runtimeOpenAiConfiguration(tx, scope);
       const amount = estimateCost(
         index.model,
@@ -124,7 +119,7 @@ async function buildIndexBatchTraced(
     const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       }),
-      p = await activePolicy(tx, scope);
+      p = await activeSpendMandateRef(tx, scope);
     if (
       project.paused ||
       project.generation !== prepared.projectGeneration ||
@@ -192,7 +187,7 @@ async function buildIndexBatchTraced(
     const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       }),
-      p = await activePolicy(tx, scope);
+      p = await activeSpendMandateRef(tx, scope);
     if (
       project.paused ||
       project.generation !== prepared.projectGeneration ||

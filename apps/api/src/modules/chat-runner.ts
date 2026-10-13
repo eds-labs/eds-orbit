@@ -1,7 +1,6 @@
 import type OpenAI from "openai";
 import { ZodError } from "zod";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { policy as policySchema } from "../../../../packages/schemas/src/index.ts";
 import {
   computeCost,
   estimateCost,
@@ -11,7 +10,7 @@ import {
   streamChat,
 } from "../../../../packages/ai/src/index.ts";
 import { data, DomainError } from "../shared.ts";
-import { activePolicy } from "./policy.ts";
+import { requireSpendMandate } from "../platform/ai/spend-mandate.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
 import {
   errorCode as telemetryErrorCode,
@@ -438,16 +437,8 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
             where: { id: runId },
           });
           if (run.status === "canceled") throw new DomainError("CHAT_CANCELED");
-          const p = await activePolicy(tx, scope);
-          if (!p) throw new DomainError("POLICY_REQUIRED");
-          const approved = policySchema.parse(
-            Object.fromEntries(
-              Object.entries(data(p)).filter(
-                ([key]) =>
-                  !["active", "activatedAt", "activatedBy"].includes(key),
-              ),
-            ),
-          );
+          const p = await requireSpendMandate(tx, scope);
+          const approved = p.limits;
           const runtime = await runtimeOpenAiConfiguration(tx, scope);
           // Fail closed before reserving: the run records one configuration version.
           if ((runtime.routeVersion ?? null) !== state.routeVersion)

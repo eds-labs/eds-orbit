@@ -1,9 +1,7 @@
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type {
-  Scope,
-  PolicyInput,
-} from "../../../../../packages/schemas/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError, create, update, data } from "../shared.ts";
+import type { SpendLimits } from "./spend-mandate.ts";
 /**
  * Start of the budget month that contains `at`: the first of the month at
  * 00:00 UTC. Project, assignment and reported month totals all count from it.
@@ -17,7 +15,8 @@ export async function reserve(
   key: string,
   category: string,
   amount: number,
-  policy: PolicyInput,
+  // The spend mandate's limits; a full marketing policy fits as well.
+  policy: SpendLimits,
   now = new Date(),
   runKey = key,
   attribution?: {

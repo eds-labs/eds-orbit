@@ -7,10 +7,12 @@ import {
   type RetrieveInput,
 } from "../../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { policy } from "../../../../packages/schemas/src/index.ts";
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
-import { activePolicy } from "./policy.ts";
+import {
+  activeSpendMandateRef,
+  requireSpendMandate,
+} from "../platform/ai/spend-mandate.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
 import { data, DomainError, create, entity, hash } from "../shared.ts";
 import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
@@ -86,15 +88,8 @@ export async function retrieveHybrid(
       scope.projectId,
       async (tx) => {
         const index = await getActiveIndex(tx, scope),
-          p = await activePolicy(tx, scope);
-        if (!p) throw new DomainError("POLICY_REQUIRED");
-        const approved = policy.parse(
-          Object.fromEntries(
-            Object.entries(data(p)).filter(
-              ([k]) => !["active", "activatedAt", "activatedBy"].includes(k),
-            ),
-          ),
-        );
+          p = await requireSpendMandate(tx, scope);
+        const approved = p.limits;
         const project = await tx.project.findUniqueOrThrow({
           where: { id: scope.projectId },
         });
@@ -181,7 +176,7 @@ export async function retrieveHybrid(
       const project = await tx.project.findUniqueOrThrow({
           where: { id: scope.projectId },
         }),
-        p = await activePolicy(tx, scope);
+        p = await activeSpendMandateRef(tx, scope);
       if (
         project.paused ||
         project.generation !== prepared.projectGeneration ||
