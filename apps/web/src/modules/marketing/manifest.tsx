@@ -8,14 +8,14 @@ import {
 } from "lucide-react";
 import { labels } from "@/lib/i18n";
 import type { Label, WebModule } from "@/platform/shell/types";
-import { BrandAssetLibrary } from "@/components/advanced";
+import { BrandAssetLibrary } from "@/modules/marketing/advanced";
 import { Analytics, Memory } from "@/components/management";
 import {
   CalendarView,
   ContentStudio,
   Missions,
   Overview,
-} from "@/components/work";
+} from "@/modules/marketing/work";
 
 const label = (key: keyof typeof labels.en): Label => ({
   en: labels.en[key],

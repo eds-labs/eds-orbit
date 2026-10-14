@@ -15,8 +15,8 @@ import {
   type CleanupCall,
   type CleanupState,
 } from "./draft-cleanup";
-import { Alert, Button, Modal } from "./ui/primitives";
-import { useWorkspace } from "./workspace-context";
+import { Alert, Button, Modal } from "@/components/ui/primitives";
+import { useWorkspace } from "@/components/workspace-context";
 
 type Role = "owner" | "editor" | "viewer";
 

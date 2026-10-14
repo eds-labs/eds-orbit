@@ -57,7 +57,7 @@ import {
   Modal,
   Status,
   Input,
-} from "./ui/primitives";
+} from "@/components/ui/primitives";
 import {
   DataForm,
   csv,
@@ -70,7 +70,7 @@ import {
   type FormValues,
 } from "@/platform/ui/form";
 import { CreativeRenderer } from "./advanced";
-import { useWorkspace } from "./workspace-context";
+import { useWorkspace } from "@/components/workspace-context";
 import {
   EntityRows,
   PageHead,
@@ -78,7 +78,7 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { EvidenceItems } from "@/platform/ui/evidence";
-import { ActionRequestInbox } from "./action-request-inbox";
+import { ActionRequestInbox } from "@/components/action-request-inbox";
 import { AgentActivityPanel } from "./agent-activity";
 import {
   AutopilotMigrationCard,

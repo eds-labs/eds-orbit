@@ -6,7 +6,7 @@ import {
   DRAFT_STATUSES,
   KEEP_REASONS as API_KEEP_REASONS,
   MISSION_KEEP_REASONS as API_MISSION_KEEP_REASONS,
-} from "../../../api/src/modules/marketing/pipeline/draft-statuses";
+} from "../../../../api/src/modules/marketing/pipeline/draft-statuses";
 import {
   APPROVAL_STATUSES,
   approvalItems,
@@ -25,8 +25,8 @@ import {
   type DraftCleanupSummary,
 } from "./draft-cleanup";
 import { DraftCleanup, DraftCleanupView } from "./draft-cleanup-panel";
-import { Button } from "./ui/primitives";
-import { WorkspaceContext } from "./workspace-context";
+import { Button } from "@/components/ui/primitives";
+import { WorkspaceContext } from "@/components/workspace-context";
 
 const item = (id: string, status: string) =>
   ({ id, version: 1, data: { status } }) as never;

@@ -1,5 +1,19 @@
 # Implementation status
 
+## Marketing and knowledge web components in their module folders: WP2.3a (2026-10-14, local)
+
+Branch `claude/wp23-web-marketing`, the first part of WP2.3 (marketing web module). Files move unchanged apart from import paths:
+
+- To `apps/web/src/modules/marketing/`: 13 marketing components with their 7 tests: `work`, `advanced`, `assignments`, `assignment-card`, `agent-activity`, `editorial`, `calendar-blocks`, `draft-cleanup(-panel)`, `autopilot-approvals`, `chat-package-card`, `lifecycle`, `slack-connection`.
+- To `apps/web/src/modules/knowledge/`: `knowledge.tsx`.
+
+Further notes:
+- Importers use the new `@/modules/...` paths; no re-export is left.
+- `apps/web/src/components/` now holds only platform UI. The boundary zones say so: the folder is web platform, and the module zones are their folders.
+- The 8 known web violations are the same imports under new paths: `chat`, `action-request-inbox` and `management` import marketing. WP2.3b and WP2.3c remove them.
+
+**Verification (local).** Web and API typechecks, web component tests (17 files, 95 tests), a typecheck of the Playwright specs, a web production build (`next build --webpack`) and the boundary check (10 known violations, none new).
+
 ## The assistant as platform code with marketing contributions: WP2.2 (2026-10-14, local)
 
 Branch `claude/wp22-assistant`, work package WP2.2. The assistant (conversations, runs, the tool loop, prompt composition) is platform code; marketing contributes to it. The prompt and the tool definitions are byte-identical.

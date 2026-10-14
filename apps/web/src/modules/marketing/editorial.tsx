@@ -10,9 +10,9 @@ import {
   Modal,
   Status,
   Badge,
-} from "./ui/primitives";
+} from "@/components/ui/primitives";
 import { DataForm, str } from "@/platform/ui/form";
-import { useWorkspace } from "./workspace-context";
+import { useWorkspace } from "@/components/workspace-context";
 import {
   EntityRows,
   ResourceError,

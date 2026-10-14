@@ -1,5 +1,5 @@
 "use client";
-import { FactWithdrawal, IndexManagement } from "./operator-tools";
+import { FactWithdrawal, IndexManagement } from "@/components/operator-tools";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import {
@@ -38,7 +38,7 @@ import {
   Modal,
   Status,
   Tabs,
-} from "./ui/primitives";
+} from "@/components/ui/primitives";
 import {
   DataForm,
   csv,
@@ -50,7 +50,7 @@ import {
   type FormField,
   type FormValues,
 } from "@/platform/ui/form";
-import { useWorkspace } from "./workspace-context";
+import { useWorkspace } from "@/components/workspace-context";
 import {
   EntityRows,
   PageHead,

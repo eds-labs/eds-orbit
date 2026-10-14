@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
 import { action, useMutation, value, when, type Entity } from "@/lib/api";
-import { Alert, Badge, Button, Modal } from "./ui/primitives";
+import { Alert, Badge, Button, Modal } from "@/components/ui/primitives";
 import { DataForm, csv, dateField, iso, str } from "@/platform/ui/form";
-import { useWorkspace } from "./workspace-context";
+import { useWorkspace } from "@/components/workspace-context";
 export function calendarBlockConflicts(block: Entity, content: Entity) {
   const b = block.data,
     c = content.data;

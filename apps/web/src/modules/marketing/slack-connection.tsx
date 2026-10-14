@@ -1,8 +1,8 @@
 "use client";
 import { useState } from "react";
 import { action, useMutation, type Entity } from "@/lib/api";
-import { useWorkspace } from "./workspace-context";
-import { Alert, Button, Modal } from "./ui/primitives";
+import { useWorkspace } from "@/components/workspace-context";
+import { Alert, Button, Modal } from "@/components/ui/primitives";
 import { DataForm, dateField, iso, str } from "@/platform/ui/form";
 export function SlackConfiguration({ onClose }: { onClose: () => void }) {
   const { project, identity, refresh } = useWorkspace();

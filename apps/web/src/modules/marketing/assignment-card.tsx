@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { usd } from "@/lib/api";
-import { Badge, Button } from "./ui/primitives";
+import { Badge, Button } from "@/components/ui/primitives";
 
 /** The assignment content an owner confirms (chat card or approvals inbox). */
 export type AssignmentContent = {

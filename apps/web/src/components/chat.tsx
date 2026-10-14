@@ -37,12 +37,12 @@ import {
   PackageCard,
   packageInProgress,
   type ContentPackage,
-} from "./chat-package-card";
+} from "@/modules/marketing/chat-package-card";
 import {
   AssignmentCard,
   type AssignmentContent,
   type AssignmentRequest,
-} from "./assignment-card";
+} from "@/modules/marketing/assignment-card";
 import { useWorkspace } from "./workspace-context";
 
 type Conversation = { id: string; title: string; updatedAt: string };

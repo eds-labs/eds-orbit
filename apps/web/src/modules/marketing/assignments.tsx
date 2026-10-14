@@ -22,8 +22,8 @@ import {
   statusTone,
   type AssignmentContent,
 } from "./assignment-card";
-import { Alert, Badge, Button, Loading } from "./ui/primitives";
-import { useWorkspace } from "./workspace-context";
+import { Alert, Badge, Button, Loading } from "@/components/ui/primitives";
+import { useWorkspace } from "@/components/workspace-context";
 
 /** One row of `GET /assignments`. */
 export type AssignmentItem = Pick<

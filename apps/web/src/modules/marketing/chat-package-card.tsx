@@ -2,7 +2,7 @@
 import { AppLink } from "@/platform/ui/app-link";
 import Image from "next/image";
 import { usd } from "@/lib/api";
-import { Alert, Badge, Button } from "./ui/primitives";
+import { Alert, Badge, Button } from "@/components/ui/primitives";
 
 export type ContentPackage = {
   id: string;

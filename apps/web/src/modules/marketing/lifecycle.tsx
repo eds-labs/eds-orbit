@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { action, type Entity } from "@/lib/api";
 import { useMutation } from "@/lib/api";
-import { Alert, Button, Modal } from "./ui/primitives";
+import { Alert, Button, Modal } from "@/components/ui/primitives";
 import {
   DataForm,
   str,
@@ -12,7 +12,7 @@ import {
   options,
   type FormField,
 } from "@/platform/ui/form";
-import { useWorkspace } from "./workspace-context";
+import { useWorkspace } from "@/components/workspace-context";
 export function ExperimentControls({
   entity,
   onUpdate,

@@ -3,7 +3,10 @@ import Image from "next/image";
 import { useState } from "react";
 import { collectionPath, post, useResource, usd } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
-import { AssignmentCard, type AssignmentContent } from "./assignment-card";
+import {
+  AssignmentCard,
+  type AssignmentContent,
+} from "@/modules/marketing/assignment-card";
 import { useWorkspace } from "./workspace-context";
 
 const platforms: Record<string, string> = {

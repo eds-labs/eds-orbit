@@ -15,7 +15,7 @@ import {
   Operations,
   ProjectSettings,
 } from "@/components/management";
-import { ApprovalInbox } from "@/components/work";
+import { ApprovalInbox } from "@/modules/marketing/work";
 import { knowledgeWeb } from "./knowledge/manifest";
 import { marketingWeb } from "./marketing/manifest";
 

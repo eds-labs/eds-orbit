@@ -16,8 +16,8 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { ApiError, api, collectionPath, usd, when } from "@/lib/api";
-import { Badge } from "./ui/primitives";
-import { useWorkspace } from "./workspace-context";
+import { Badge } from "@/components/ui/primitives";
+import { useWorkspace } from "@/components/workspace-context";
 
 /** One step of `GET /agent-activity` runs. */
 export type ActivityStep = {

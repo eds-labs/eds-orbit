@@ -9,19 +9,22 @@ import {
   PostizVerification,
   WorkspacePause,
 } from "./operator-tools";
-import { SlackConfiguration, SlackDigest } from "./slack-connection";
+import {
+  SlackConfiguration,
+  SlackDigest,
+} from "@/modules/marketing/slack-connection";
 import {
   Assignments,
   AutopilotMigrationPanel,
   useAssignments,
-} from "./assignments";
+} from "@/modules/marketing/assignments";
 import { TelegramConnection } from "./telegram-connection";
 import {
   ExperimentControls,
   MemoryLifecycleControls,
   RetentionControl,
   MetricCorrection,
-} from "./lifecycle";
+} from "@/modules/marketing/lifecycle";
 import {
   Activity,
   BarChart3,
@@ -81,9 +84,9 @@ import {
   MetricCsvImport,
   PreferenceActions,
   ProjectAdministration,
-} from "./advanced";
+} from "@/modules/marketing/advanced";
 import { useWorkspace } from "./workspace-context";
-import { ContentDetail } from "./work";
+import { ContentDetail } from "@/modules/marketing/work";
 import {
   EntityRows,
   PageHead,

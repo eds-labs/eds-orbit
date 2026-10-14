@@ -1,7 +1,7 @@
 import { BookOpen } from "lucide-react";
 import { labels } from "@/lib/i18n";
 import type { WebModule } from "@/platform/shell/types";
-import { Knowledge } from "@/components/knowledge";
+import { Knowledge } from "@/modules/knowledge/knowledge";
 
 /**
  * Knowledge in the web shell. Transitional (WP1.7): one page; WP3.3 turns

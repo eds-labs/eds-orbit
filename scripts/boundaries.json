@@ -55,27 +55,13 @@
     ],
     "web-platform": [
       "apps/web/src/",
-      "apps/web/src/platform/",
-      "apps/web/src/components/action-request-inbox.tsx",
-      "apps/web/src/components/agent-runs.tsx",
-      "apps/web/src/components/chat-errors.ts",
-      "apps/web/src/components/chat-markdown.tsx",
-      "apps/web/src/components/chat-resume.ts",
-      "apps/web/src/components/chat.tsx",
-      "apps/web/src/components/google-drive.tsx",
-      "apps/web/src/components/management.tsx",
-      "apps/web/src/components/operator-tools.tsx",
-      "apps/web/src/components/orbit.tsx",
-      "apps/web/src/components/telegram-connection.tsx",
-      "apps/web/src/components/ui/",
-      "apps/web/src/components/workspace-context.tsx"
+      "apps/web/src/components/",
+      "apps/web/src/platform/"
     ],
     "web-module:knowledge": [
-      "apps/web/src/modules/knowledge/",
-      "apps/web/src/components/knowledge.tsx"
+      "apps/web/src/modules/knowledge/"
     ],
     "web-module:marketing": [
-      "apps/web/src/components/",
       "apps/web/src/modules/marketing/"
     ],
     "package:ai": [
@@ -121,13 +107,13 @@
   "baseline": [
     "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/assignments.ts",
     "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/veto.ts",
-    "web-platform-imports-module: apps/web/src/components/action-request-inbox.tsx -> apps/web/src/components/assignment-card.tsx",
-    "web-platform-imports-module: apps/web/src/components/chat.tsx -> apps/web/src/components/assignment-card.tsx",
-    "web-platform-imports-module: apps/web/src/components/chat.tsx -> apps/web/src/components/chat-package-card.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/advanced.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/assignments.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/lifecycle.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/slack-connection.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/components/work.tsx"
+    "web-platform-imports-module: apps/web/src/components/action-request-inbox.tsx -> apps/web/src/modules/marketing/assignment-card.tsx",
+    "web-platform-imports-module: apps/web/src/components/chat.tsx -> apps/web/src/modules/marketing/assignment-card.tsx",
+    "web-platform-imports-module: apps/web/src/components/chat.tsx -> apps/web/src/modules/marketing/chat-package-card.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/advanced.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/assignments.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/lifecycle.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/slack-connection.tsx",
+    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/work.tsx"
   ]
 }
