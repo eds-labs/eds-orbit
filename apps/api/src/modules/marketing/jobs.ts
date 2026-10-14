@@ -7,8 +7,14 @@ import {
   reviewContent,
 } from "./pipeline/workflow.ts";
 import { generateMissionLive } from "./pipeline/generation.ts";
-import { dispatchPublication, reconcilePublication } from "../publisher.ts";
-import { dispatchSlackDigest, markSlackOutcomeUnknown } from "../slack.ts";
+import {
+  dispatchPublication,
+  reconcilePublication,
+} from "./publishing/publisher.ts";
+import {
+  dispatchSlackDigest,
+  markSlackOutcomeUnknown,
+} from "./publishing/slack.ts";
 import { evaluateExperiment } from "../lifecycle.ts";
 import { runImageJob } from "../image-requests.ts";
 import { sendNotification } from "../agents/notification-sender.ts";

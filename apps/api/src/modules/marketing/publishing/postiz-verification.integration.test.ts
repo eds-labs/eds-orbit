@@ -13,13 +13,13 @@ import { randomUUID } from "node:crypto";
 // fails fast instead of waiting for the transaction timeout when the caller
 // still holds the project lock.
 const drive = vi.hoisted(() => ({ png: null as Buffer | null, reads: 0 }));
-vi.mock("./marketing/pipeline/content-export.ts", () => ({
+vi.mock("../pipeline/content-export.ts", () => ({
   exportAssetContent: async (
     s: { workspaceId: string; projectId: string },
     asset: Record<string, any>,
   ) => {
     const { scoped: lock } =
-      await import("../../../../packages/db/src/index.ts");
+      await import("../../../../../../packages/db/src/index.ts");
     let timer: NodeJS.Timeout | undefined;
     await Promise.race([
       lock(s.workspaceId, s.projectId, async () => true),
@@ -41,9 +41,9 @@ import {
   scoped,
   closeDatabase,
   type DbTx,
-} from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { create, data, encrypt, entity, update } from "../shared.ts";
+} from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { create, data, encrypt, entity, update } from "../../../shared.ts";
 import {
   executePostizVerification,
   preparePostizVerification,

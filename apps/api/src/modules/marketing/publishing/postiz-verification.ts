@@ -1,19 +1,19 @@
-import { exportAssetContent } from "./content-export.ts";
+import { exportAssetContent } from "../pipeline/content-export.ts";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   authDb,
   scoped,
   type DbTx,
-} from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import {
   createPostizClient,
   ConnectorError,
   postizProviderSettings,
   type FetchLike,
-} from "../../../../packages/connectors/src/index.ts";
+} from "../../../../../../packages/connectors/src/index.ts";
 import {
   audit,
   create,
@@ -26,7 +26,7 @@ import {
   list,
   update,
   credentialKey,
-} from "../shared.ts";
+} from "../../../shared.ts";
 
 export const postizVerificationInput = z
   .object({

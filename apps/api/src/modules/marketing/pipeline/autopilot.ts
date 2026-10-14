@@ -29,8 +29,8 @@ import { assertMissionAssets } from "../../asset-tools.ts";
 import {
   assignedPostizChannels,
   postingTimeFor,
-} from "../../postiz-assignment.ts";
-import { POSTING_TIME, zonedTime } from "../../posting-slots.ts";
+} from "../publishing/postiz-assignment.ts";
+import { POSTING_TIME, zonedTime } from "../publishing/posting-slots.ts";
 import { publishIntent, reviewContent } from "./workflow.ts";
 import {
   agentsEnabled,

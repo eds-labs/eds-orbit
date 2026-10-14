@@ -4,8 +4,8 @@ import {
   PROJECT_OWN,
 } from "../../../platform/tenancy/permissions.ts";
 import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
-import { calendarConflicts } from "../../calendar.ts";
-import { isAssignedPostizChannel } from "../../postiz-assignment.ts";
+import { calendarConflicts } from "../publishing/calendar.ts";
+import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import { profileGuardrailProblems } from "../../marketing-profile.ts";
@@ -13,7 +13,7 @@ import {
   channelLimitExceeded,
   finalPostText,
   resolveChannelRules,
-} from "../../channel-rules.ts";
+} from "../publishing/channel-rules.ts";
 import { channelPostsNear } from "../../agents/channel-posts.ts";
 import { agentReviewAccepted } from "../../agents/agent-review.ts";
 import {

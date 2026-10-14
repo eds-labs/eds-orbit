@@ -5,9 +5,9 @@ import {
   scoped,
   closeDatabase,
   type DbTx,
-} from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { create, data, encrypt, list } from "../shared.ts";
+} from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { create, data, encrypt, list } from "../../../shared.ts";
 import {
   checkPostizQueue,
   nextPostizQueueCheckAt,

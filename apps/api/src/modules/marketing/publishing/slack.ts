@@ -1,18 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
 import { z } from "zod";
 import {
   authDb,
   scoped,
   type DbTx,
-} from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   createSlackClient,
   verifySlackInteraction,
   ConnectorError,
   type FetchLike,
-} from "../../../../packages/connectors/src/index.ts";
+} from "../../../../../../packages/connectors/src/index.ts";
 import {
   data,
   entity,
@@ -27,10 +30,10 @@ import {
   DomainError,
   publicEntity,
   credentialKey,
-} from "../shared.ts";
-import { preflight, approve } from "./policy.ts";
-import { enqueue } from "./workflow.ts";
-import { notify } from "./agents/notifications.ts";
+} from "../../../shared.ts";
+import { preflight, approve } from "../policy/policy.ts";
+import { enqueue } from "../pipeline/workflow.ts";
+import { notify } from "../../agents/notifications.ts";
 
 const slackId = z.string().regex(/^[A-Z][A-Z0-9]{2,39}$/);
 // The optional Slack digest embeds a short approval preview; longer drafts use web review.

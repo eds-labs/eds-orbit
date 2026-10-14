@@ -1,7 +1,14 @@
 import { z } from "zod";
-import { authDb, type DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { audit, data, DomainError, entity, list, update } from "../shared.ts";
+import { authDb, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  audit,
+  data,
+  DomainError,
+  entity,
+  list,
+  update,
+} from "../../../shared.ts";
 import { POSTING_TIME } from "./posting-slots.ts";
 
 export const postizAssignmentInput = z

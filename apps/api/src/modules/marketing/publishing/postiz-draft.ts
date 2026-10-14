@@ -1,12 +1,15 @@
 import { z } from "zod";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   ConnectorError,
   createPostizClient,
   postizProviderSettings,
-} from "../../../../packages/connectors/src/index.ts";
+} from "../../../../../../packages/connectors/src/index.ts";
 import {
   audit,
   create,
@@ -19,12 +22,12 @@ import {
   list,
   update,
   credentialKey,
-} from "../shared.ts";
-import { activePolicy, checkClaims } from "./policy.ts";
+} from "../../../shared.ts";
+import { activePolicy, checkClaims } from "../policy/policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
-import { exportAssetContent } from "./content-export.ts";
-import { afterDraftResolved } from "./agents/draft-delivery.ts";
+import { exportAssetContent } from "../pipeline/content-export.ts";
+import { afterDraftResolved } from "../../agents/draft-delivery.ts";
 
 /**
  * Owner-confirmed handoff of one reviewed Content version to Postiz as a

@@ -1,4 +1,4 @@
-import { postingSlot } from "../../posting-slots.ts";
+import { postingSlot } from "../publishing/posting-slots.ts";
 import { resolveFactPlaceholders } from "../policy/fact-placeholders.ts";
 import { finishMissionRun } from "./planning.ts";
 import { retrieveHybrid } from "../../retrieval.ts";
@@ -41,7 +41,10 @@ import {
 } from "../../openai-configuration.ts";
 import { assertMissionAssets } from "../../asset-tools.ts";
 import { campaignGenerationContext } from "../../marketing-profile.ts";
-import { channelTextLength, resolveChannelRules } from "../../channel-rules.ts";
+import {
+  channelTextLength,
+  resolveChannelRules,
+} from "../publishing/channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
 import { assertMissionDraftOwner } from "../../agents/mission-owner.ts";
 import { assertTaskBudget } from "../../agents/specialists/runner.ts";

@@ -14,11 +14,14 @@ import {
   scoped,
   closeDatabase,
   type DbTx,
-} from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { create, data, list, update } from "../shared.ts";
-import { saveMarketingProfile } from "./marketing-profile.ts";
-import { retrieve, setFact } from "../../../../packages/knowledge/src/index.ts";
+} from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { create, data, list, update } from "../../../shared.ts";
+import { saveMarketingProfile } from "../../marketing-profile.ts";
+import {
+  retrieve,
+  setFact,
+} from "../../../../../../packages/knowledge/src/index.ts";
 import {
   configureSlack,
   queueSlackDigest,
@@ -29,11 +32,11 @@ import {
 // This suite verifies Slack transport and exact approval binding. Semantic live-RAG
 // quality is deliberately simulated here and tested by the separate index/provider suite.
 vi.mock(
-  "../../../../packages/knowledge/src/index.ts",
+  "../../../../../../packages/knowledge/src/index.ts",
   async (importOriginal) => {
     const actual =
       await importOriginal<
-        typeof import("../../../../packages/knowledge/src/index.ts")
+        typeof import("../../../../../../packages/knowledge/src/index.ts")
       >();
     return {
       ...actual,

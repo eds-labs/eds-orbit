@@ -1,7 +1,10 @@
 import { z } from "zod";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
   update,
@@ -11,7 +14,7 @@ import {
   audit,
   exception,
   DomainError,
-} from "../shared.ts";
+} from "../../../shared.ts";
 export const calendarBlock = z
   .object({
     title: z.string().min(1).max(160),

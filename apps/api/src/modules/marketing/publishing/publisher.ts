@@ -1,11 +1,11 @@
-import { exportAssetContent } from "./content-export.ts";
-import { scoped } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import { exportAssetContent } from "../pipeline/content-export.ts";
+import { scoped } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   createPostizClient,
   ConnectorError,
   postizProviderSettings,
-} from "../../../../packages/connectors/src/index.ts";
+} from "../../../../../../packages/connectors/src/index.ts";
 import {
   data,
   list,
@@ -15,12 +15,16 @@ import {
   DomainError,
   exception,
   credentialKey,
-} from "../shared.ts";
-import { preflight } from "./policy.ts";
+} from "../../../shared.ts";
+import { preflight } from "../policy/policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
-import { notify, reportBlockedPost } from "./agents/notifications.ts";
-import { claimPublication, finishPublication, enqueue } from "./workflow.ts";
+import { notify, reportBlockedPost } from "../../agents/notifications.ts";
+import {
+  claimPublication,
+  finishPublication,
+  enqueue,
+} from "../pipeline/workflow.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   const credentials = await scoped(
     scope.workspaceId,

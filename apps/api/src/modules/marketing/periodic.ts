@@ -4,7 +4,7 @@ import {
   checkPostizQueue,
   nextPostizQueueCheckAt,
   postizQueueHealth,
-} from "../postiz-queue-watch.ts";
+} from "./publishing/postiz-queue-watch.ts";
 
 /**
  * Marketing's per-project worker tasks (WP2.1), in the order the worker ran

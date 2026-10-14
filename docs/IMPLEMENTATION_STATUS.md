@@ -1,5 +1,18 @@
 # Implementation status
 
+## Marketing publishing in its module folder: WP2.1d (2026-10-14, local)
+
+Branch `claude/wp21d-publishing`, the fourth part of WP2.1. Nine files and their five co-located tests move unchanged to `apps/api/src/modules/marketing/publishing/`:
+
+`publisher`, `postiz-assignment`, `postiz-draft`, `postiz-verification`, `postiz-queue-watch`, `channel-rules`, `posting-slots`, `calendar` and `slack`.
+
+- The old paths keep one-line re-exports. They still serve the platform importers and `evals/generation/harness.ts` (`resolveChannelRules`).
+- Files in `modules/marketing/` import moved files by their new path.
+- The `content-export` mock in the Postiz verification test follows the move. It still asserts the mocked Drive reads.
+- No logic, route or response changes. The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. API and web typechecks and the boundary check pass.
+
 ## Marketing policy in its module folder: WP2.1c (2026-10-14, local)
 
 Branch `claude/wp21c-policy`, the third part of WP2.1. `policy.ts` (publishing preflight, claims, approvals, modes), `fact-claims.ts` and `fact-placeholders.ts` move unchanged to `apps/api/src/modules/marketing/policy/`, with their two tests.
