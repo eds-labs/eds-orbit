@@ -9,6 +9,7 @@ import { marketingPeriodicTasks } from "./periodic.ts";
 import { marketingActions } from "./actions.ts";
 import { marketingRoutes } from "./routes.ts";
 import { readiness } from "./readiness/readiness.ts";
+import { marketingAssistant } from "./assistant/prompt.ts";
 import { assignedPostizChannels } from "./publishing/postiz-assignment.ts";
 import { data, list } from "../../shared.ts";
 import { registerAgentSpecialists } from "./agents/specialists/index.ts";
@@ -29,6 +30,7 @@ export const marketingContributions: ModuleContributions = {
   actions: marketingActions,
   routes: marketingRoutes,
   readiness,
+  assistant: marketingAssistant,
   // Postiz channels by id, for the owner's decisions on action requests.
   channelDirectory: async (tx, scope) =>
     (await list(tx, scope, "connectors"))

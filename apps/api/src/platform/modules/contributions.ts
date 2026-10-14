@@ -14,6 +14,7 @@ import type {
 } from "../governance/types.ts";
 import type { ActionHandler } from "../http/actions.ts";
 import type { RoutesContribution } from "../http/routes.ts";
+import type { AssistantContribution } from "../assistant/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -47,6 +48,8 @@ export type ModuleContributions = {
   readiness?: ReadinessProvider;
   /** Channels the module manages, by id, for display (WP2.1f). */
   channelDirectory?: ChannelDirectory;
+  /** Prompt fragments, tool features and proposal checks (WP2.2). */
+  assistant?: AssistantContribution;
 };
 
 type Registered = {
@@ -225,4 +228,11 @@ export function registeredChannelDirectories(): ChannelDirectory[] {
   return [...current().byModule.values()]
     .map((c) => c.channelDirectory)
     .filter((d): d is ChannelDirectory => Boolean(d));
+}
+
+/** Assistant contributions: platform first, then modules in registry order. */
+export function registeredAssistants(): AssistantContribution[] {
+  return [...current().byModule.values()]
+    .map((c) => c.assistant)
+    .filter((a): a is AssistantContribution => Boolean(a));
 }
