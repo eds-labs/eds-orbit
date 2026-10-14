@@ -5,7 +5,7 @@ import {
 } from "../../../platform/tenancy/permissions.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, list, update } from "../../../shared.ts";
-import { preflight } from "../../policy.ts";
+import { preflight } from "../policy/policy.ts";
 import { enqueue } from "./workflow.ts";
 
 const stoppedByPause = (row: { data: unknown }) =>

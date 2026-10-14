@@ -1,35 +1,38 @@
 import { hasFactPlaceholder } from "./fact-placeholders.ts";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
-import { calendarConflicts } from "./calendar.ts";
-import { isAssignedPostizChannel } from "./postiz-assignment.ts";
-import { invalidateContent } from "./content-invalidation.ts";
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import { profileGuardrailProblems } from "./marketing-profile.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { activePolicyRecord } from "../../../platform/ai/spend-mandate.ts";
+import { calendarConflicts } from "../../calendar.ts";
+import { isAssignedPostizChannel } from "../../postiz-assignment.ts";
+import { invalidateContent } from "../pipeline/content-invalidation.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import { profileGuardrailProblems } from "../../marketing-profile.ts";
 import {
   channelLimitExceeded,
   finalPostText,
   resolveChannelRules,
-} from "./channel-rules.ts";
-import { channelPostsNear } from "./agents/channel-posts.ts";
-import { agentReviewAccepted } from "./agents/agent-review.ts";
+} from "../../channel-rules.ts";
+import { channelPostsNear } from "../../agents/channel-posts.ts";
+import { agentReviewAccepted } from "../../agents/agent-review.ts";
 import {
   ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
   confirmedDelivery,
-} from "./agents/assignments.ts";
+} from "../../agents/assignments.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,
   draftSimilarity,
-} from "./draft-similarity.ts";
+} from "../pipeline/draft-similarity.ts";
 import {
   policy as policySchema,
   type Scope,
-} from "../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   validateEvidence,
   validateActiveIndexEvaluation,
-} from "../../../../packages/knowledge/src/index.ts";
+} from "../../../../../../packages/knowledge/src/index.ts";
 import {
   data,
   entity,
@@ -39,7 +42,7 @@ import {
   create,
   update,
   audit,
-} from "../shared.ts";
+} from "../../../shared.ts";
 export async function activePolicy(tx: DbTx, scope: Scope) {
   return activePolicyRecord(tx, scope);
 }

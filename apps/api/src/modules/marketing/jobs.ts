@@ -5,8 +5,8 @@ import {
   deterministicDraft,
   publishIntent,
   reviewContent,
-} from "../workflow.ts";
-import { generateMissionLive } from "../generation.ts";
+} from "./pipeline/workflow.ts";
+import { generateMissionLive } from "./pipeline/generation.ts";
 import { dispatchPublication, reconcilePublication } from "../publisher.ts";
 import { dispatchSlackDigest, markSlackOutcomeUnknown } from "../slack.ts";
 import { evaluateExperiment } from "../lifecycle.ts";

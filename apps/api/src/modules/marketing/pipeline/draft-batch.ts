@@ -12,7 +12,7 @@ import {
   list,
   update,
 } from "../../../shared.ts";
-import { activePolicy } from "../../policy.ts";
+import { activePolicy } from "../policy/policy.ts";
 import { assertMissionAssets } from "../../asset-tools.ts";
 import { enqueue } from "./workflow.ts";
 import { assertMissionDraftOwner } from "../../agents/mission-owner.ts";

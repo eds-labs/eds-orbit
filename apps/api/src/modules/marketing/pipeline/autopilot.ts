@@ -19,7 +19,7 @@ import {
   list,
   update,
 } from "../../../shared.ts";
-import { activePolicy } from "../../policy.ts";
+import { activePolicy } from "../policy/policy.ts";
 import {
   assertCampaignContext,
   currentMarketingProfile,

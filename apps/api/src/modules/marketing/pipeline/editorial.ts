@@ -15,7 +15,7 @@ import {
   hash,
   DomainError,
 } from "../../../shared.ts";
-import { checkClaims } from "../../policy.ts";
+import { checkClaims } from "../policy/policy.ts";
 
 const language = z.enum(["en", "de"]);
 function editor(scope: Scope) {

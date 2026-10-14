@@ -28,7 +28,7 @@ import {
   checkClaims,
   activePolicy,
   type VetoWindow,
-} from "../../policy.ts";
+} from "../policy/policy.ts";
 import { assertMissionAssets } from "../../asset-tools.ts";
 import { campaignGenerationContext } from "../../marketing-profile.ts";
 import { missionFactKeys } from "./mission-evidence.ts";

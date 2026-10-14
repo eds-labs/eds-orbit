@@ -1,5 +1,5 @@
 import { postingSlot } from "../../posting-slots.ts";
-import { resolveFactPlaceholders } from "../../fact-placeholders.ts";
+import { resolveFactPlaceholders } from "../policy/fact-placeholders.ts";
 import { finishMissionRun } from "./planning.ts";
 import { retrieveHybrid } from "../../retrieval.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -20,7 +20,7 @@ import {
   activePolicy,
   CLAIM_REPEAT_WINDOW_DAYS,
   withinClaimRepeatWindow,
-} from "../../policy.ts";
+} from "../policy/policy.ts";
 import { externalChannelPosts } from "../../agents/channel-posts.ts";
 import { reserve, settle, markTransmitted } from "../../budget.ts";
 import { errorCode, finishRun, recordSpan, startRun } from "../../telemetry.ts";

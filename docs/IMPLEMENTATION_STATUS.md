@@ -1,5 +1,15 @@
 # Implementation status
 
+## Marketing policy in its module folder: WP2.1c (2026-10-14, local)
+
+Branch `claude/wp21c-policy`, the third part of WP2.1. `policy.ts` (publishing preflight, claims, approvals, modes), `fact-claims.ts` and `fact-placeholders.ts` move unchanged to `apps/api/src/modules/marketing/policy/`, with their two tests.
+
+- The old paths keep one-line re-exports. That covers `evals/generation/harness.ts`, which imports `checkClaims` from the old path.
+- Files already in `modules/marketing/` import moved files by their new path, not through the re-exports.
+- No logic, route or response changes. The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. API and web typechecks and the boundary check pass.
+
 ## Marketing pipeline in its module folder: WP2.1b (2026-10-14, local)
 
 Branch `claude/wp21b-pipeline`, the second part of WP2.1. The 15 pipeline files move unchanged to `apps/api/src/modules/marketing/pipeline/`, with their 6 co-located tests:
