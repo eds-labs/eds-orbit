@@ -1,4 +1,4 @@
-import { DomainError } from "../../shared.ts";
+import { DomainError } from "../../../shared.ts";
 
 export const ASSIGNMENT_MISSION_OWNED = "ASSIGNMENT_MISSION_OWNED";
 

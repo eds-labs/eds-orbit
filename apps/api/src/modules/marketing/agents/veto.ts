@@ -1,12 +1,12 @@
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   authorize,
   PROJECT_WRITE,
-} from "../../platform/tenancy/permissions.ts";
+} from "../../../platform/tenancy/permissions.ts";
 import {
   preference,
   type Scope,
-} from "../../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -14,11 +14,11 @@ import {
   DomainError,
   entity,
   update,
-} from "../../shared.ts";
-import { activePolicy } from "../policy.ts";
-import { errorCode } from "../telemetry.ts";
-import { enqueue, publishIntent } from "../workflow.ts";
-import { postizDraftsEnabled } from "../postiz-draft.ts";
+} from "../../../shared.ts";
+import { activePolicy } from "../policy/policy.ts";
+import { errorCode } from "../../telemetry.ts";
+import { enqueue, publishIntent } from "../pipeline/workflow.ts";
+import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import { agentReviewAccepted } from "./agent-review.ts";
 import { SLOT_STEP_MS, SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import {

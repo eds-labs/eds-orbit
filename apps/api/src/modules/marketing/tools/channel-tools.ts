@@ -1,8 +1,12 @@
 import { z } from "zod";
 import { PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
 import { chatScoped } from "../../chat.ts";
-import { channelHistory } from "../channel-posts.ts";
-import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
+import { channelHistory } from "../agents/channel-posts.ts";
+import {
+  defineTool,
+  dropNullFields,
+  type OrbitTool,
+} from "../../agents/tools/registry.ts";
 
 export const channelTools: readonly OrbitTool[] = [
   defineTool({

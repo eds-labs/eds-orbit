@@ -17,11 +17,11 @@ import {
 } from "./publishing/slack.ts";
 import { evaluateExperiment } from "./analytics/lifecycle.ts";
 import { runImageJob } from "./brand/image-requests.ts";
-import { sendNotification } from "../agents/notification-sender.ts";
+import { sendNotification } from "./agents/notification-sender.ts";
 import {
   deliverPostizDraft,
   markPostizDraftOutcomeUnknown,
-} from "../agents/draft-delivery.ts";
+} from "./agents/draft-delivery.ts";
 import { runAgentTask } from "../agents/specialists/runner.ts";
 
 /**

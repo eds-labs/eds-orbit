@@ -19,7 +19,7 @@ import {
 import { preflight } from "../policy/policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
-import { notify, reportBlockedPost } from "../../agents/notifications.ts";
+import { notify, reportBlockedPost } from "../agents/notifications.ts";
 import {
   claimPublication,
   finishPublication,

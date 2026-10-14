@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outputIssues } from "./runner.ts";
+import { outputIssues } from "../../../agents/specialists/runner.ts";
 import {
   STRATEGY_TEXT_LIMITS,
   strategyOutput,
@@ -30,7 +30,9 @@ describe("strategy output", () => {
 
   it("tells the model every text limit it is checked against", () => {
     for (const [field, max] of Object.entries(STRATEGY_TEXT_LIMITS))
-      expect(strategySpecialist.instructions).toContain(`${field} at most ${max}`);
+      expect(strategySpecialist.instructions).toContain(
+        `${field} at most ${max}`,
+      );
   });
 
   it("refuses an empty or over-long text", () => {

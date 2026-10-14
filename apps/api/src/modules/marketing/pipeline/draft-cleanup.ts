@@ -7,8 +7,8 @@ import { z } from "zod";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, list, update } from "../../../shared.ts";
-import { TERMINAL_RUN } from "../../agents/assignment-runs.ts";
-import { awaitsScheduling } from "../../agents/veto.ts";
+import { TERMINAL_RUN } from "../agents/assignment-runs.ts";
+import { awaitsScheduling } from "../agents/veto.ts";
 import {
   DRAFT_STATUSES,
   KEEP_REASONS,

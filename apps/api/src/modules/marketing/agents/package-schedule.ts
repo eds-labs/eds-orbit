@@ -2,9 +2,9 @@ import { z } from "zod";
 import {
   authorize,
   PROJECT_WRITE,
-} from "../../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+} from "../../../platform/tenancy/permissions.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   data,
@@ -12,17 +12,17 @@ import {
   entity,
   list,
   update,
-} from "../../shared.ts";
-import { chatScoped } from "../chat.ts";
+} from "../../../shared.ts";
+import { chatScoped } from "../../chat.ts";
 import {
   cancelActionRequest,
   consumeActionRequest,
   createActionRequest,
   type RequestedBy,
-} from "../action-requests.ts";
-import { activePolicy, approve, packageFor } from "../policy.ts";
-import { publishIntent, reviewContent } from "../workflow.ts";
-import { invalidateContent } from "../content-invalidation.ts";
+} from "../../action-requests.ts";
+import { activePolicy, approve, packageFor } from "../policy/policy.ts";
+import { publishIntent, reviewContent } from "../pipeline/workflow.ts";
+import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import {
   assertPackageDraft,
   contentPackagesEnabled,

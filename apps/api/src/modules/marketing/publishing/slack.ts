@@ -33,7 +33,7 @@ import {
 } from "../../../shared.ts";
 import { preflight, approve } from "../policy/policy.ts";
 import { enqueue } from "../pipeline/workflow.ts";
-import { notify } from "../../agents/notifications.ts";
+import { notify } from "../agents/notifications.ts";
 
 const slackId = z.string().regex(/^[A-Z][A-Z0-9]{2,39}$/);
 // The optional Slack digest embeds a short approval preview; longer drafts use web review.

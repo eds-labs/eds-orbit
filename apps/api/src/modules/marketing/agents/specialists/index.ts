@@ -2,7 +2,10 @@ import { analyticsSpecialist } from "./analytics.ts";
 import { copywriterStep } from "./copywriter.ts";
 import { researchSpecialist } from "./research.ts";
 import { reviewStep } from "./review.ts";
-import { registerSpecialist, registerStepHandler } from "./runner.ts";
+import {
+  registerSpecialist,
+  registerStepHandler,
+} from "../../../agents/specialists/runner.ts";
 import { strategySpecialist } from "./strategy.ts";
 import { visualStep } from "./visual.ts";
 

@@ -1,10 +1,13 @@
 import { z } from "zod";
-import { channelTools } from "../tools/channel-tools.ts";
+import { channelTools } from "../../tools/channel-tools.ts";
 import {
   agentMetricsSummary,
   agentPostizAnalytics,
-} from "../tools/agent-tools.ts";
-import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
+} from "../../tools/agent-tools.ts";
+import {
+  DEFAULT_SPECIALIST_LIMITS,
+  type Specialist,
+} from "../../../agents/specialists/types.ts";
 
 const finding = z
   .object({

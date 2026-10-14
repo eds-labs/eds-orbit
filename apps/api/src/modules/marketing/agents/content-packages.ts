@@ -2,13 +2,13 @@ import { z } from "zod";
 import {
   authorize,
   PROJECT_WRITE,
-} from "../../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import { loadConfig } from "../../../../../packages/config/src/index.ts";
+} from "../../../platform/tenancy/permissions.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import { loadConfig } from "../../../../../../packages/config/src/index.ts";
 import {
   marketingProfile,
   type Scope,
-} from "../../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
   data,
@@ -18,26 +18,29 @@ import {
   hash,
   list,
   update,
-} from "../../shared.ts";
-import { chatScoped, conversation, validateDraftMission } from "../chat.ts";
+} from "../../../shared.ts";
+import { chatScoped, conversation, validateDraftMission } from "../../chat.ts";
 import {
   cancelActionRequest,
   createActionRequest,
   decideActionRequest,
-} from "../action-requests.ts";
-import { currentImageTerms, imageRequestBrief } from "../image-generation.ts";
-import { proposeImageRequest } from "../image-requests.ts";
-import { markMissionArchived } from "../mission-archive.ts";
+} from "../../action-requests.ts";
+import {
+  currentImageTerms,
+  imageRequestBrief,
+} from "../brand/image-generation.ts";
+import { proposeImageRequest } from "../brand/image-requests.ts";
+import { markMissionArchived } from "../pipeline/mission-archive.ts";
 import {
   currentMarketingProfile,
   officialTargetLink,
-} from "../marketing-profile.ts";
-import { activePolicy } from "../policy.ts";
-import { resolveChannelRules } from "../channel-rules.ts";
-import { assignedPostizChannels } from "../postiz-assignment.ts";
-import { zonedTime } from "../posting-slots.ts";
-import { enqueue, reviewContent } from "../workflow.ts";
-import { invalidateContent } from "../content-invalidation.ts";
+} from "../brand/marketing-profile.ts";
+import { activePolicy } from "../policy/policy.ts";
+import { resolveChannelRules } from "../publishing/channel-rules.ts";
+import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import { zonedTime } from "../publishing/posting-slots.ts";
+import { enqueue, reviewContent } from "../pipeline/workflow.ts";
+import { invalidateContent } from "../pipeline/content-invalidation.ts";
 
 /**
  * Content packages: one chat request becomes one draft-only mission per

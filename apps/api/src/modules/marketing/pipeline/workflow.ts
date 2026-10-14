@@ -3,8 +3,8 @@ import {
   authorize,
   PROJECT_OWN,
 } from "../../../platform/tenancy/permissions.ts";
-import { assertMissionDraftOwner } from "../../agents/mission-owner.ts";
-import { reportBlockedPost } from "../../agents/notifications.ts";
+import { assertMissionDraftOwner } from "../agents/mission-owner.ts";
+import { reportBlockedPost } from "../agents/notifications.ts";
 import { randomUUID } from "node:crypto";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";

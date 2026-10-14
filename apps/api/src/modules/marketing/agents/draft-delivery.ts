@@ -1,5 +1,5 @@
-import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -8,8 +8,8 @@ import {
   entity,
   exception,
   update,
-} from "../../shared.ts";
-import { preflight } from "../policy.ts";
+} from "../../../shared.ts";
+import { preflight } from "../policy/policy.ts";
 import {
   draftSend,
   draftTarget,
@@ -18,9 +18,9 @@ import {
   sendDraftHandoff,
   type DraftDeps,
   type DraftSend,
-} from "../postiz-draft.ts";
-import { errorCode } from "../telemetry.ts";
-import { enqueue } from "../workflow.ts";
+} from "../publishing/postiz-draft.ts";
+import { errorCode } from "../../telemetry.ts";
+import { enqueue } from "../pipeline/workflow.ts";
 import { agentReviewAccepted, confirmedHash } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import {

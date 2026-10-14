@@ -1,7 +1,7 @@
 import { z } from "zod";
-import { createPostizClient } from "../../../../../packages/connectors/src/index.ts";
-import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { createPostizClient } from "../../../../../../packages/connectors/src/index.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
   data,
@@ -10,8 +10,8 @@ import {
   list,
   update,
   credentialKey,
-} from "../../shared.ts";
-import { assignedPostizChannels } from "../postiz-assignment.ts";
+} from "../../../shared.ts";
+import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 
 /**
  * What was already posted on the assigned channels, read from Postiz so that

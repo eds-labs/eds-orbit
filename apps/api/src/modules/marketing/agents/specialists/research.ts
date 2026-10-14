@@ -1,10 +1,10 @@
 import { z } from "zod";
-import { agentKnowledgeSearch } from "../tools/agent-tools.ts";
+import { agentKnowledgeSearch } from "../../tools/agent-tools.ts";
 import {
   DEFAULT_SPECIALIST_LIMITS,
   normalizeSourceUrl,
   type Specialist,
-} from "./types.ts";
+} from "../../../agents/specialists/types.ts";
 
 const text = (max: number) =>
   z.string().refine((value) => value.length > 0 && value.length <= max);

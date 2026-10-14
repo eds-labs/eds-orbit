@@ -6,9 +6,9 @@ import {
   currentImageTerms,
   imageRequestPayload,
 } from "./brand/image-generation.ts";
-import * as packages from "../agents/content-packages.ts";
-import * as schedule from "../agents/package-schedule.ts";
-import * as assignments from "../agents/assignments.ts";
+import * as packages from "./agents/content-packages.ts";
+import * as schedule from "./agents/package-schedule.ts";
+import * as assignments from "./agents/assignments.ts";
 
 /**
  * The action request types marketing contributes (ADR 0008, WP1.6). Moved

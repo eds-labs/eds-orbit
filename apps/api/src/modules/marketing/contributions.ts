@@ -1,12 +1,12 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
-import { chatTools } from "../agents/tools/index.ts";
+import { chatTools } from "./tools/index.ts";
 import { marketingActionTypes } from "./action-types.ts";
 import { marketingJobs } from "./jobs.ts";
 import { marketingScheduler } from "./scheduler.ts";
 import { marketingHooks } from "./hooks.ts";
 import { marketingRetention } from "./retention.ts";
 import { marketingPeriodicTasks } from "./periodic.ts";
-import { registerAgentSpecialists } from "../agents/specialists/index.ts";
+import { registerAgentSpecialists } from "./agents/specialists/index.ts";
 import { data } from "../../shared.ts";
 
 /**

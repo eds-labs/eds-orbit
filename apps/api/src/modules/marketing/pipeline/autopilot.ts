@@ -38,9 +38,9 @@ import {
   freeAssignmentBudget,
   proposeAssignmentInTx,
   type AssignmentInput,
-} from "../../agents/assignments.ts";
-import { channelNames } from "../../agents/assignment-overview.ts";
-import { confirmationCard } from "../../agents/tools/assignment-tools.ts";
+} from "../agents/assignments.ts";
+import { channelNames } from "../agents/assignment-overview.ts";
+import { confirmationCard } from "../tools/assignment-tools.ts";
 import { chatScoped } from "../../chat.ts";
 
 /**

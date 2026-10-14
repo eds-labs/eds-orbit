@@ -1,9 +1,9 @@
-import { loadConfig } from "../../../../../packages/config/src/index.ts";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { data, hash } from "../../shared.ts";
-import { activePolicy } from "../policy.ts";
-import { linkedTelegramConnection } from "../telegram.ts";
+import { loadConfig } from "../../../../../../packages/config/src/index.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { data, hash } from "../../../shared.ts";
+import { activePolicy } from "../policy/policy.ts";
+import { linkedTelegramConnection } from "../../telegram.ts";
 import { agentsEnabled, assignmentHash } from "./assignments.ts";
 
 /**

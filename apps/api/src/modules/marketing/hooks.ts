@@ -1,7 +1,7 @@
 import type { ProjectHooks } from "../../platform/governance/types.ts";
 import { list, data, update, exception } from "../../shared.ts";
-import { resumeAgentTasks } from "../agents/assignment-runs.ts";
-import { notify } from "../agents/notifications.ts";
+import { resumeAgentTasks } from "./agents/assignment-runs.ts";
+import { notify } from "./agents/notifications.ts";
 
 /**
  * Marketing's part of a project pause and resume (WP1.8), moved unchanged

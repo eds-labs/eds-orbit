@@ -1,21 +1,21 @@
 import { z } from "zod";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   marketingProfile,
   type Scope,
-} from "../../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   BANNER_TEXT_LIMITS,
   BANNER_TEXT_MAX,
   bannerChromeOverflow,
   bannerTextOverflow,
   type BannerText,
-} from "../../../../../packages/creative/src/index.ts";
-import { data, DomainError } from "../../shared.ts";
+} from "../../../../../../packages/creative/src/index.ts";
+import { data, DomainError } from "../../../shared.ts";
 import {
   currentMarketingProfile,
   PROHIBITED_LANGUAGE,
-} from "../marketing-profile.ts";
+} from "../brand/marketing-profile.ts";
 
 /**
  * Assignment banners in the brand style (R78). An assignment with `banner`

@@ -14,12 +14,12 @@ import {
   finalPostText,
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
-import { channelPostsNear } from "../../agents/channel-posts.ts";
-import { agentReviewAccepted } from "../../agents/agent-review.ts";
+import { channelPostsNear } from "../agents/channel-posts.ts";
+import { agentReviewAccepted } from "../agents/agent-review.ts";
 import {
   ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
   confirmedDelivery,
-} from "../../agents/assignments.ts";
+} from "../agents/assignments.ts";
 import { factClaimMatches } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,

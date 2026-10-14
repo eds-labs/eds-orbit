@@ -15,7 +15,7 @@ import {
 import { activePolicy } from "../policy/policy.ts";
 import { assertMissionAssets } from "../brand/asset-tools.ts";
 import { enqueue } from "./workflow.ts";
-import { assertMissionDraftOwner } from "../../agents/mission-owner.ts";
+import { assertMissionDraftOwner } from "../agents/mission-owner.ts";
 
 /**
  * Owner-approved batch of paid internal drafts for one confirmed Chat

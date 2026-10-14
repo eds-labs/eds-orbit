@@ -1,15 +1,18 @@
 import { z } from "zod";
-import { authorize, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { audit, data, DomainError, entity, update } from "../../shared.ts";
-import { activePolicy, approve, packageFor } from "../policy.ts";
-import { publishIntent, reviewContent } from "../workflow.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { audit, data, DomainError, entity, update } from "../../../shared.ts";
+import { activePolicy, approve, packageFor } from "../policy/policy.ts";
+import { publishIntent, reviewContent } from "../pipeline/workflow.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
 import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
-import { postizDraftsEnabled } from "../postiz-draft.ts";
+import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import {
   draftDelivery,
   moveDraft,

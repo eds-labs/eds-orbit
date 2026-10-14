@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hash } from "../../shared.ts";
+import { hash } from "../../../shared.ts";
 import { assignmentHash, assignmentInput } from "./assignments.ts";
 import {
   FORMAT_HASHTAGS,

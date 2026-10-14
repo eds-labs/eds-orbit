@@ -1,7 +1,11 @@
 import { z } from "zod";
 import { PROJECT_WRITE } from "../../../platform/tenancy/permissions.ts";
 import { createProposal } from "../../chat.ts";
-import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
+import {
+  defineTool,
+  dropNullFields,
+  type OrbitTool,
+} from "../../agents/tools/registry.ts";
 
 // Model-facing shape of today's propose_campaign; createProposal still runs
 // proposeInput and missionSchema on the result.

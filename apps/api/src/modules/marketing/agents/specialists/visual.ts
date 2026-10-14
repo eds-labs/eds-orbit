@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
-import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
-import { loadConfig } from "../../../../../../packages/config/src/index.ts";
-import type { ImageReference } from "../../../../../../packages/ai/src/index.ts";
-import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  scoped,
+  type DbTx,
+} from "../../../../../../../packages/db/src/index.ts";
+import { loadConfig } from "../../../../../../../packages/config/src/index.ts";
+import type { ImageReference } from "../../../../../../../packages/ai/src/index.ts";
+import type { Scope } from "../../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -11,19 +14,19 @@ import {
   entity,
   hash,
   update,
-} from "../../../shared.ts";
-import { assetBytes } from "../../assets.ts";
+} from "../../../../shared.ts";
+import { assetBytes } from "../../../assets.ts";
 import {
   channelLimitExceeded,
   resolveChannelRules,
-} from "../../channel-rules.ts";
-import { invalidateContent } from "../../content-invalidation.ts";
-import { driveContent } from "../../google-drive.ts";
+} from "../../publishing/channel-rules.ts";
+import { invalidateContent } from "../../pipeline/content-invalidation.ts";
+import { driveContent } from "../../../google-drive.ts";
 import {
   currentImageTerms,
   generateAssignmentImage,
-} from "../../image-generation.ts";
-import { renderRasterBanner } from "../../../../../../packages/creative/src/index.ts";
+} from "../../brand/image-generation.ts";
+import { renderRasterBanner } from "../../../../../../../packages/creative/src/index.ts";
 import { assignmentHash } from "../assignments.ts";
 import {
   approvedBannerLogo,
@@ -35,9 +38,15 @@ import {
   footerDomain,
   parsedBanner,
 } from "../banner.ts";
-import { errorCode } from "../../telemetry.ts";
-import { assertTaskBudget, runBudgetKey } from "./runner.ts";
-import type { AgentTask, StepHandler } from "./types.ts";
+import { errorCode } from "../../../telemetry.ts";
+import {
+  assertTaskBudget,
+  runBudgetKey,
+} from "../../../agents/specialists/runner.ts";
+import type {
+  AgentTask,
+  StepHandler,
+} from "../../../agents/specialists/types.ts";
 
 /**
  * Visual step of an assignment run (Orbit Agents, spec §5, §6, §8): one image

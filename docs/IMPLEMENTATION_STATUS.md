@@ -1,5 +1,19 @@
 # Implementation status
 
+## Marketing agents and tools in the module folder: WP2.1f-1 (2026-10-14, local)
+
+Branch `claude/wp21f1-agents`, the first of three parts of WP2.1f. Files move unchanged apart from import paths:
+
+- The Orbit Agents files go to `apps/api/src/modules/marketing/agents/`: assignments, runs, veto, notifications, content packages, scheduling, banners and the rest, 20 files with 3 tests.
+- The specialists go to `apps/api/src/modules/marketing/agents/specialists/`: analytics, research, strategy, copywriter, visual, review and `index`.
+- The marketing assistant tools go to `apps/api/src/modules/marketing/tools/`: read, proposal, package, assignment, channel and agent tools, plus `index`.
+- The platform parts stay where they are for now: the runtime shims, the tool registry, and the specialist runner core and types. WP2.1f-3 splits the runner and removes its marketing imports.
+- The old paths keep one-line re-exports. They serve the worker and eval tests and the platform importers, including the two lazy `import()` calls in `chat.ts`.
+- The `scheduling` mock in `assignment-veto` follows the move.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1350 tests, including the offline agent and operator evals. API and web typechecks and the boundary check pass.
+
 ## Marketing brand and analytics in their module folders: WP2.1e (2026-10-14, local)
 
 Branch `claude/wp21e-brand-analytics`, the fifth part of WP2.1. Files move unchanged apart from import paths:

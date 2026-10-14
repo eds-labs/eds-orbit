@@ -1,14 +1,14 @@
 import { z } from "zod";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { data, list } from "../../shared.ts";
-import { assignedPostizChannels } from "../postiz-assignment.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { data, list } from "../../../shared.ts";
+import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
 import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
-import { assignmentMonthSpend } from "./specialists/runner.ts";
-import { assignmentCardOf } from "./tools/assignment-tools.ts";
+import { assignmentMonthSpend } from "../../agents/specialists/runner.ts";
+import { assignmentCardOf } from "../tools/assignment-tools.ts";
 import { assignmentPost, draftDelivery, withdrawable } from "./veto.ts";
 
 /**

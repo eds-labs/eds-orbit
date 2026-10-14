@@ -1,7 +1,7 @@
 import { z } from "zod";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { data, list } from "../../shared.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { data, list } from "../../../shared.ts";
 
 /**
  * What the project recently drafted or published per channel, so the operator

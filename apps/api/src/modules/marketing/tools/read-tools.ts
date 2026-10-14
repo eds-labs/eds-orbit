@@ -6,7 +6,7 @@ import {
   dropNullFields,
   type OrbitTool,
   type ToolContext,
-} from "./registry.ts";
+} from "../../agents/tools/registry.ts";
 
 // Model-facing shapes only; runReadTool's own zod inputs stay authoritative
 // and enforce the string lengths strict mode cannot express.

@@ -8,15 +8,15 @@ import { releaseMissedSlots } from "./pipeline/paused-posts.ts";
 import { prepareFollowup } from "./pipeline/planning.ts";
 import { analyze } from "./pipeline/workflow.ts";
 import { evaluateExperiment } from "./analytics/lifecycle.ts";
-import { advanceContentPackages } from "../agents/content-packages.ts";
-import { agentsEnabled } from "../agents/assignments.ts";
-import { nextDailyReportAt, planDailyReport } from "../agents/notifications.ts";
-import { scheduleUnscheduledRuns } from "../agents/veto.ts";
-import { requeuePostizDrafts } from "../agents/draft-delivery.ts";
+import { advanceContentPackages } from "./agents/content-packages.ts";
+import { agentsEnabled } from "./agents/assignments.ts";
+import { nextDailyReportAt, planDailyReport } from "./agents/notifications.ts";
+import { scheduleUnscheduledRuns } from "./agents/veto.ts";
+import { requeuePostizDrafts } from "./agents/draft-delivery.ts";
 import {
   nextAssignmentPlanAt,
   planAssignmentRuns,
-} from "../agents/assignment-runs.ts";
+} from "./agents/assignment-runs.ts";
 
 // Marketing's part of the per-project sweep (WP1.6), moved unchanged from
 // lifecycle.sweepProject; the platform checks the pause before it runs.

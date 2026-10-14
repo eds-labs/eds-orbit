@@ -5,11 +5,11 @@ import {
 } from "../../../platform/tenancy/permissions.ts";
 import { chatScoped } from "../../chat.ts";
 import type { AssignmentCard, ChatCard } from "../../chat-tools.ts";
-import { zonedTime } from "../../posting-slots.ts";
+import { zonedTime } from "../publishing/posting-slots.ts";
 import { data, DomainError, entity, list } from "../../../shared.ts";
-import { runsMatching } from "../assignment-runs.ts";
-import { runDeliverables } from "../veto.ts";
-import { assignmentMonthSpend } from "../specialists/runner.ts";
+import { runsMatching } from "../agents/assignment-runs.ts";
+import { runDeliverables } from "../agents/veto.ts";
+import { assignmentMonthSpend } from "../../agents/specialists/runner.ts";
 import {
   CLEARABLE,
   deliveryOf,
@@ -17,8 +17,12 @@ import {
   proposeAssignment,
   setAssignmentStatus,
   updateAssignment,
-} from "../assignments.ts";
-import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
+} from "../agents/assignments.ts";
+import {
+  defineTool,
+  dropNullFields,
+  type OrbitTool,
+} from "../../agents/tools/registry.ts";
 
 /**
  * Orbit Core's tools for assignments. Every server ruling (OWNER_REQUIRED,

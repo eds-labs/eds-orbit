@@ -1,14 +1,14 @@
 import { z } from "zod";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { data, DomainError, list } from "../../shared.ts";
-import { activePolicy } from "../policy.ts";
-import { calendarConflicts } from "../calendar.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { data, DomainError, list } from "../../../shared.ts";
+import { activePolicy } from "../policy/policy.ts";
+import { calendarConflicts } from "../publishing/calendar.ts";
 import {
   assignedPostizChannels,
   postingTimeFor,
-} from "../postiz-assignment.ts";
-import { zonedTime } from "../posting-slots.ts";
+} from "../publishing/postiz-assignment.ts";
+import { zonedTime } from "../publishing/posting-slots.ts";
 
 /**
  * Read-only slot overview for scheduling package posts (Orbit Core J3.0).

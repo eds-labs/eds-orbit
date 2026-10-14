@@ -7,12 +7,16 @@ import {
   conversationPackages,
   requestContentPackage,
   reviseDeliverable,
-} from "../content-packages.ts";
+} from "../agents/content-packages.ts";
 import { chatScoped } from "../../chat.ts";
-import { recentContent } from "../content-history.ts";
-import { channelSlots } from "../scheduling.ts";
-import { proposeSchedule } from "../package-schedule.ts";
-import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
+import { recentContent } from "../agents/content-history.ts";
+import { channelSlots } from "../agents/scheduling.ts";
+import { proposeSchedule } from "../agents/package-schedule.ts";
+import {
+  defineTool,
+  dropNullFields,
+  type OrbitTool,
+} from "../../agents/tools/registry.ts";
 
 export const packageTools: readonly OrbitTool[] = [
   defineTool({

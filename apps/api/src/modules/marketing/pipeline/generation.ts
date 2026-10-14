@@ -21,7 +21,7 @@ import {
   CLAIM_REPEAT_WINDOW_DAYS,
   withinClaimRepeatWindow,
 } from "../policy/policy.ts";
-import { externalChannelPosts } from "../../agents/channel-posts.ts";
+import { externalChannelPosts } from "../agents/channel-posts.ts";
 import { reserve, settle, markTransmitted } from "../../budget.ts";
 import { errorCode, finishRun, recordSpan, startRun } from "../../telemetry.ts";
 import {
@@ -46,13 +46,13 @@ import {
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
-import { assertMissionDraftOwner } from "../../agents/mission-owner.ts";
+import { assertMissionDraftOwner } from "../agents/mission-owner.ts";
 import { assertTaskBudget } from "../../agents/specialists/runner.ts";
 import {
   BANNER_TEXT_LIMITS,
   bannerTemplateOf,
   parsedBanner,
-} from "../../agents/banner.ts";
+} from "../agents/banner.ts";
 import type { BannerText } from "../../../../../../packages/creative/src/index.ts";
 import {
   batchCostUsedMicros,

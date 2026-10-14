@@ -1,8 +1,8 @@
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { create, data, entity, hash } from "../../shared.ts";
-import { resolveChannelRules } from "../channel-rules.ts";
-import { activePolicy } from "../policy.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { create, data, entity, hash } from "../../../shared.ts";
+import { resolveChannelRules } from "../publishing/channel-rules.ts";
+import { activePolicy } from "../policy/policy.ts";
 
 /**
  * One post per slot across channels (R76). An assignment with

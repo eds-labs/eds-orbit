@@ -3,13 +3,13 @@ import {
   authorize,
   PROJECT_OWN,
   PROJECT_WRITE,
-} from "../../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
-import { loadConfig } from "../../../../../packages/config/src/index.ts";
+} from "../../../platform/tenancy/permissions.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import { loadConfig } from "../../../../../../packages/config/src/index.ts";
 import {
   marketingProfile,
   type Scope,
-} from "../../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -19,21 +19,21 @@ import {
   hash,
   list,
   update,
-} from "../../shared.ts";
-import { chatScoped, conversation } from "../chat.ts";
+} from "../../../shared.ts";
+import { chatScoped, conversation } from "../../chat.ts";
 import {
   cancelActionRequest,
   createActionRequest,
-} from "../action-requests.ts";
-import { currentMarketingProfile } from "../marketing-profile.ts";
+} from "../../action-requests.ts";
+import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import {
   channelTextLength,
   finalPostText,
   resolveChannelRules,
-} from "../channel-rules.ts";
+} from "../publishing/channel-rules.ts";
 import { lengthRange } from "./post-format.ts";
-import { activePolicy } from "../policy.ts";
-import { postizDraftsEnabled } from "../postiz-draft.ts";
+import { activePolicy } from "../policy/policy.ts";
+import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import { cancelAssignmentRuns } from "./assignment-runs.ts";
 import { assertBannerReady, assignmentBanner } from "./banner.ts";
 import { notify } from "./notifications.ts";

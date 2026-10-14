@@ -2,8 +2,8 @@ import { z } from "zod";
 import {
   authorize,
   PROJECT_WRITE,
-} from "../../platform/tenancy/permissions.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+} from "../../../platform/tenancy/permissions.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   data,
@@ -11,11 +11,14 @@ import {
   entity,
   list,
   update,
-} from "../../shared.ts";
-import { chatScoped } from "../chat.ts";
-import { channelLimitExceeded, resolveChannelRules } from "../channel-rules.ts";
-import { invalidateContent } from "../content-invalidation.ts";
-import { reviewContent } from "../workflow.ts";
+} from "../../../shared.ts";
+import { chatScoped } from "../../chat.ts";
+import {
+  channelLimitExceeded,
+  resolveChannelRules,
+} from "../publishing/channel-rules.ts";
+import { invalidateContent } from "../pipeline/content-invalidation.ts";
+import { reviewContent } from "../pipeline/workflow.ts";
 import {
   assertPackageDraft,
   contentPackagesEnabled,

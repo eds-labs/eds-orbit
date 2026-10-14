@@ -13,10 +13,14 @@ import {
   update,
   credentialKey,
 } from "../../../shared.ts";
-import { assignedPostizChannels } from "../../postiz-assignment.ts";
-import { runBudgetKey } from "../specialists/runner.ts";
+import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import { runBudgetKey } from "../../agents/specialists/runner.ts";
 import { readTools } from "./read-tools.ts";
-import { defineTool, dropNullFields, type OrbitTool } from "./registry.ts";
+import {
+  defineTool,
+  dropNullFields,
+  type OrbitTool,
+} from "../../agents/tools/registry.ts";
 
 /**
  * Tools only the Analytics and Research specialists receive (spec §5). They

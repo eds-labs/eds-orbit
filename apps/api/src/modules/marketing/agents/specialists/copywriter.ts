@@ -1,8 +1,11 @@
-import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import {
+  scoped,
+  type DbTx,
+} from "../../../../../../../packages/db/src/index.ts";
 import {
   marketingProfile,
   type Scope,
-} from "../../../../../../packages/schemas/src/index.ts";
+} from "../../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -11,18 +14,18 @@ import {
   entity,
   hash,
   update,
-} from "../../../shared.ts";
-import { validateDraftMission } from "../../chat.ts";
-import { resolveChannelRules } from "../../channel-rules.ts";
-import { exportContentBundle } from "../../content-export.ts";
-import { generateMissionLive } from "../../generation.ts";
-import { saveDraftDocument } from "../../google-drive.ts";
+} from "../../../../shared.ts";
+import { validateDraftMission } from "../../../chat.ts";
+import { resolveChannelRules } from "../../publishing/channel-rules.ts";
+import { exportContentBundle } from "../../pipeline/content-export.ts";
+import { generateMissionLive } from "../../pipeline/generation.ts";
+import { saveDraftDocument } from "../../../google-drive.ts";
 import {
   currentMarketingProfile,
   officialTargetLink,
-} from "../../marketing-profile.ts";
-import { activePolicy } from "../../policy.ts";
-import { errorCode } from "../../telemetry.ts";
+} from "../../brand/marketing-profile.ts";
+import { activePolicy } from "../../policy/policy.ts";
+import { errorCode } from "../../../telemetry.ts";
 import { listUsableFacts } from "../content-packages.ts";
 import {
   confirmedDelivery,
@@ -35,8 +38,11 @@ import {
   runBudgetKey,
   taskBudgetLeft,
   taskReservations,
-} from "./runner.ts";
-import type { AgentTask, StepHandler } from "./types.ts";
+} from "../../../agents/specialists/runner.ts";
+import type {
+  AgentTask,
+  StepHandler,
+} from "../../../agents/specialists/types.ts";
 import { attachRunImage, composeRunBanners } from "./visual.ts";
 
 /**

@@ -27,7 +27,7 @@ import { activePolicy, checkClaims } from "../policy/policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
 import { exportAssetContent } from "../pipeline/content-export.ts";
-import { afterDraftResolved } from "../../agents/draft-delivery.ts";
+import { afterDraftResolved } from "../agents/draft-delivery.ts";
 
 /**
  * Owner-confirmed handoff of one reviewed Content version to Postiz as a

@@ -1,9 +1,12 @@
 import { z } from "zod";
-import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import {
+  scoped,
+  type DbTx,
+} from "../../../../../../../packages/db/src/index.ts";
 import {
   marketingProfile,
   type Scope,
-} from "../../../../../../packages/schemas/src/index.ts";
+} from "../../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   data,
@@ -11,11 +14,11 @@ import {
   entity,
   hash,
   update,
-} from "../../../shared.ts";
-import { invalidateContent } from "../../content-invalidation.ts";
-import { currentMarketingProfile } from "../../marketing-profile.ts";
-import { checkClaims, preflight } from "../../policy.ts";
-import { errorCode } from "../../telemetry.ts";
+} from "../../../../shared.ts";
+import { invalidateContent } from "../../pipeline/content-invalidation.ts";
+import { currentMarketingProfile } from "../../brand/marketing-profile.ts";
+import { checkClaims, preflight } from "../../policy/policy.ts";
+import { errorCode } from "../../../telemetry.ts";
 import {
   bodyLinkProblems,
   confirmedHash,
@@ -48,13 +51,16 @@ import {
 import { attachOwnBanner, bannerState, mediaRefusal } from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
-import { ASSIGNMENT_BUDGET_EXHAUSTED, runSpecialist } from "./runner.ts";
+import {
+  ASSIGNMENT_BUDGET_EXHAUSTED,
+  runSpecialist,
+} from "../../../agents/specialists/runner.ts";
 import {
   DEFAULT_SPECIALIST_LIMITS,
   type AgentTask,
   type Specialist,
   type StepHandler,
-} from "./types.ts";
+} from "../../../agents/specialists/types.ts";
 
 /**
  * Review step of an assignment run (Orbit Agents, spec §5/§6, R45). Every
