@@ -44,8 +44,8 @@ export const defaultOutputTokens: Record<TaskClass, number> = {
   chat_operator: 3000,
   draft_social: 1800,
   draft_blog: 1800,
-  agent_strategy: 1800,
-  agent_research: 1800,
+  agent_strategy: 3000,
+  agent_research: 3000,
   agent_analytics: 1800,
   agent_review: 1800,
 };
