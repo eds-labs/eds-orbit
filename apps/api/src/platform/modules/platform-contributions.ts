@@ -1,4 +1,5 @@
 import type { ModuleContributions } from "./contributions.ts";
+import { platformActions } from "../http/platform-actions.ts";
 import { sourceSyncScheduler } from "../knowledge/source-sync.ts";
 import { runChatJob } from "../../modules/chat-runner.ts";
 import { stopChatRunForPause } from "../../modules/chat.ts";
@@ -8,6 +9,7 @@ import { runIndexEvaluation } from "../../modules/index-evaluation.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
+  actions: platformActions,
   scheduler: sourceSyncScheduler,
   jobs: [
     {

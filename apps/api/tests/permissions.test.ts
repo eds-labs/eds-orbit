@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   actionPermissions,
@@ -9,6 +8,7 @@ import {
   PROJECT_READ,
   PROJECT_WRITE,
 } from "../src/platform/tenancy/permissions.ts";
+import { registeredActionNames } from "../src/platform/modules/contributions.ts";
 import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
 import { marketingActionPermissions } from "../src/modules/marketing/permissions.ts";
 import { moduleRegistry } from "../src/modules/registry.ts";
@@ -63,19 +63,9 @@ describe("permission catalogue", () => {
     });
   });
 
-  it("gives every dispatcher action exactly one module's permission", () => {
-    const source = readFileSync(
-      new URL("../src/server.ts", import.meta.url),
-      "utf8",
-    );
-    const block = source.slice(
-      source.indexOf('"/api/projects/:projectId/actions/:action"'),
-    );
-    const dispatched = new Set(
-      [...block.matchAll(/action\s*[!=]==\s*"([a-z][a-z0-9-]*)"/g)].map(
-        (m) => m[1]!,
-      ),
-    );
+  it("gives every registered action exactly one module's permission", () => {
+    // The registered handlers (WP2.1f; before, the server.ts if-chain).
+    const dispatched = new Set(registeredActionNames());
     const catalogues = [
       platformActionPermissions,
       knowledgeActionPermissions,

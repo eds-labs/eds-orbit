@@ -10,6 +10,7 @@ import type {
   ProjectHooks,
   RetentionContribution,
 } from "../governance/types.ts";
+import type { ActionHandler } from "../http/actions.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -35,6 +36,8 @@ export type ModuleContributions = {
   periodic?: readonly PeriodicTask[];
   /** Called once when the worker starts, after registration (WP2.1). */
   onWorkerStart?: () => void;
+  /** Handlers of POST /api/projects/:id/actions/:name, by name (WP2.1f). */
+  actions?: Readonly<Record<string, ActionHandler>>;
 };
 
 type Registered = {
@@ -45,6 +48,7 @@ type Registered = {
   jobs: ReadonlyMap<string, JobDef>;
   publicViews: ReadonlyMap<string, (row: any) => any>;
   periodic: readonly PeriodicTask[];
+  actions: ReadonlyMap<string, ActionHandler>;
 };
 let registered: Registered | null = null;
 
@@ -74,7 +78,12 @@ export function registerContributions(
   const jobs = new Map<string, JobDef>();
   const publicViews = new Map<string, (row: any) => any>();
   const periodic: PeriodicTask[] = [];
+  const actions = new Map<string, ActionHandler>();
   for (const [owner, c] of ordered) {
+    for (const [name, handler] of Object.entries(c.actions ?? {})) {
+      if (actions.has(name)) problems.push(`action ${name} registered twice`);
+      actions.set(name, handler);
+    }
     for (const task of c.periodic ?? []) {
       if (periodic.some((t) => t.name === task.name))
         problems.push(`periodic task ${task.name} registered twice`);
@@ -111,6 +120,7 @@ export function registerContributions(
     jobs,
     publicViews,
     periodic,
+    actions,
   };
 }
 
@@ -177,4 +187,13 @@ export function workerStartHooks(): Array<() => void> {
   return [...current().byModule.values()]
     .map((c) => c.onWorkerStart)
     .filter((h): h is () => void => Boolean(h));
+}
+
+/** The handler of a project action, or undefined for an unknown name. */
+export function registeredAction(name: string): ActionHandler | undefined {
+  return current().actions.get(name);
+}
+/** Every registered action name. */
+export function registeredActionNames(): string[] {
+  return [...current().actions.keys()];
 }

@@ -12,6 +12,7 @@ import {
   marketingCollectionPermissions,
 } from "./modules/marketing/permissions.ts";
 import { moduleRegistry, registerModules } from "./modules/registry.ts";
+import { registeredAction } from "./platform/modules/contributions.ts";
 import {
   listModuleStates,
   moduleSwitchingEnabled,
@@ -19,42 +20,10 @@ import {
   setModuleEnabled,
 } from "./platform/modules/activation.ts";
 import { randomUUID } from "node:crypto";
-import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
 import {
-  approveAndSchedule,
   autopilotMigration,
-  configureAutopilot,
   proposeAutopilotAssignment,
 } from "./modules/autopilot.ts";
-import { resumePausedPublications } from "./modules/paused-posts.ts";
-import { archiveMission } from "./modules/mission-archive.ts";
-import {
-  archiveOldDrafts,
-  restoreDraftCleanup,
-} from "./modules/draft-cleanup.ts";
-import {
-  proposeBrief,
-  briefProposalInput,
-  importCommunityQuestions,
-  communityImportInput,
-  linkCommunityGroup,
-  communityLinkInput,
-  adaptContent,
-  contentAdaptationInput,
-} from "./modules/editorial.ts";
-import { matomoImportInput, importMatomoReport } from "./modules/matomo.ts";
-import { withdrawFact } from "../../../packages/knowledge/src/index.ts";
-import {
-  queueIndexEvaluation,
-  indexEvaluationRequest,
-} from "./modules/index-evaluation.ts";
-import {
-  preparePostizVerification,
-  executePostizVerification,
-  reconcilePostizVerification,
-  postizVerificationInput,
-  postizVerificationApproval,
-} from "./modules/postiz-verification.ts";
 import {
   agentRunsQuery,
   aiCostQuery,
@@ -64,17 +33,7 @@ import {
 } from "./modules/ai-usage.ts";
 import { pauseProject } from "./platform/governance/pause.ts";
 import { exportProject } from "./platform/governance/export.ts";
-import {
-  blockCalendar,
-  unblockCalendar,
-  calendarBlock,
-} from "./modules/calendar.ts";
-import {
-  listIndexGenerations,
-  beginIndexBuild,
-  activateIndexGeneration,
-  rollbackIndexGeneration,
-} from "../../../packages/knowledge/src/index.ts";
+import { listIndexGenerations } from "../../../packages/knowledge/src/index.ts";
 import {
   runtimeHealth,
   closeRuntime,
@@ -114,38 +73,16 @@ import {
 } from "./modules/agents/owner-release.ts";
 import { vetoPublication } from "./modules/agents/veto.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
-import {
-  configureSlack,
-  queueSlackDigest,
-  handleSlackInteraction,
-  slackConfiguration,
-} from "./modules/slack.ts";
+import { handleSlackInteraction } from "./modules/slack.ts";
 import { readiness } from "./modules/readiness.ts";
-import {
-  assignPostizChannels,
-  postizAssignmentInput,
-  postizHealthStatus,
-} from "./modules/postiz-assignment.ts";
-import {
-  publicOpenAiConfiguration,
-  saveOpenAiConfiguration,
-} from "./modules/openai-configuration.ts";
+import { publicOpenAiConfiguration } from "./modules/openai-configuration.ts";
 import {
   assetBytes,
   brandAssetUploadInput,
   normalizeBrandAsset,
 } from "./modules/assets.ts";
 import { exportContentBundle } from "./modules/content-export.ts";
-import {
-  MAX_BATCH_DRAFTS,
-  resumeLiveDraftBatch,
-  startApprovedLiveDraftBatch,
-} from "./modules/draft-batch.ts";
 import { withGenerationProvenance } from "./modules/content-provenance.ts";
-import {
-  handoffPostizDraft,
-  resolvePostizDraft,
-} from "./modules/postiz-draft.ts";
 import { generateProjectImage } from "./modules/image-generation.ts";
 import {
   beginConnect,
@@ -162,13 +99,6 @@ import {
   brandAssets,
   saveGeneratedAsset,
 } from "./modules/google-drive.ts";
-import {
-  correctMetric,
-  memoryLifecycle,
-  evaluateExperiment,
-  stopExperiment,
-  retention,
-} from "./modules/lifecycle.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -178,13 +108,7 @@ import { authDb, scoped, jsonSafe } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import {
-  ingest,
-  retrieve,
   setFact,
-  revokeSource,
-  setSourceRights,
-  revokeDocument,
-  extractDocument,
   KnowledgeError,
 } from "../../../packages/knowledge/src/index.ts";
 import {
@@ -205,12 +129,8 @@ import {
   DomainError,
   constantEqual,
   audit,
-  encrypt,
-  decrypt,
-  exception,
-  hash,
 } from "./shared.ts";
-import { activePolicy, approve, preflight } from "./modules/policy.ts";
+import { activePolicy } from "./modules/policy.ts";
 import { invalidateContent } from "./modules/content-invalidation.ts";
 import {
   currentMarketingProfile,
@@ -219,19 +139,6 @@ import {
   assertContentCampaignContext,
 } from "./modules/marketing-profile.ts";
 import {
-  planMission,
-  startApprovedLiveDraftOnce,
-  publishIntent,
-  analyze,
-  reviewContent,
-  enqueue,
-} from "./modules/workflow.ts";
-import { queueDocumentEmbedding } from "./modules/ingestion.ts";
-import {
-  createPostizClient,
-  normalizePostizBaseUrl,
-  createMatomoClient,
-  importAdsCsv,
   ConnectorError,
   type FetchLike,
 } from "../../../packages/connectors/src/index.ts";
@@ -242,7 +149,6 @@ import {
   telegramEnabled,
   telegramStatus,
 } from "./modules/telegram.ts";
-import { renderProjectAsset } from "./modules/render-asset.ts";
 const factSchema = z
   .object({
     id: schemas.id.optional(),
@@ -266,13 +172,6 @@ const factSchema = z
     resolveConflictIds: z.array(schemas.id).max(50).optional(),
   })
   .strict();
-import { retrieveHybrid } from "./modules/retrieval.ts";
-import {
-  commitKnowledgeImport,
-  importPreview,
-  knowledgeImportInput,
-  retryKnowledgeImport,
-} from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
 import { agentActivity } from "./modules/agents/agent-activity.ts";
 const object = z.record(z.string(), z.unknown());
@@ -1571,764 +1470,13 @@ export async function buildServer(
       actionPermission(action),
     );
     const input = object.parse(req.body);
-    if (action === "retrieve" && input.useEmbeddings === true) {
-      return retrieveHybrid(scope, {
-        query: z.string().min(1).max(2000).parse(input.query),
-        language: z.enum(["en", "de"]).default("en").parse(input.language),
-        purpose: z
-          .enum(["public", "internal"])
-          .default("public")
-          .parse(input.purpose),
-        at: input.at ? new Date(z.iso.datetime().parse(input.at)) : new Date(),
-        factKeys: z.array(z.string()).max(20).optional().parse(input.factKeys),
-        sourceIds: z
-          .array(schemas.id)
-          .max(30)
-          .optional()
-          .parse(input.sourceIds),
-      });
-    }
-    if (action === "openai-configure")
-      return scoped(scope.workspaceId, projectId, async (tx) => {
-        const result = await saveOpenAiConfiguration(tx, scope, input);
-        await audit(
-          tx,
-          scope,
-          "openai_configuration.update",
-          "openai_configuration",
-          {
-            configured: result.configured,
-            source: result.source,
-            modelCount: result.verifiedModels.length,
-          },
-        );
-        return result;
-      });
-    if (action === "render") return renderProjectAsset(scope, input);
-    if (action === "knowledge-import-preview")
-      return importPreview(knowledgeImportInput.parse(input));
-    if (action === "import-matomo")
-      return importMatomoReport(scope, matomoImportInput.parse(input));
-    if (action === "postiz-draft-handoff")
-      return handoffPostizDraft(scope, input);
-    // Preparation may read a Drive asset, which needs the project lock that a
-    // shared transaction would already hold.
-    if (action === "postiz-test-prepare")
-      return preparePostizVerification(
-        scope,
-        postizVerificationInput.parse(input),
-      );
-    if (action === "postiz-test-execute")
-      return executePostizVerification(
-        scope,
-        postizVerificationApproval.parse(input),
-      );
-    if (action === "postiz-test-reconcile")
-      return reconcilePostizVerification(
-        scope,
-        schemas.id.parse(input.verificationId),
-      );
-    if (action === "add-member") {
-      const i = z
-        .object({
-          email: z.email(),
-          name: z.string().min(1).max(100),
-          password: z.string().min(12).max(128),
-          role: z.enum(["owner", "editor", "viewer"]),
-        })
-        .strict()
-        .parse(input);
-      let user = await authDb.user.findUnique({ where: { email: i.email } });
-      if (!user) {
-        const result = await auth.api.signUpEmail({
-          body: { email: i.email, name: i.name, password: i.password },
-        });
-        user = result.user as any;
-      }
-      const userId = user!.id;
-      await authDb.$transaction(async (tx) => {
-        await tx.workspaceMember.upsert({
-          where: {
-            workspaceId_userId: { workspaceId: scope.workspaceId, userId },
-          },
-          create: { workspaceId: scope.workspaceId, userId, role: "viewer" },
-          update: {},
-        });
-        await tx.projectMember.upsert({
-          where: { projectId_userId: { projectId, userId } },
-          create: {
-            workspaceId: scope.workspaceId,
-            projectId,
-            userId,
-            role: i.role,
-          },
-          update: { role: i.role },
-        });
-      });
-      return { added: true };
-    }
-    if (action === "project-settings") {
-      const i = z
-        .object({
-          name: z.string().min(1).max(100),
-          timezone: z.string(),
-          language: z.enum(["en", "de"]),
-        })
-        .strict()
-        .parse(input);
-      new Intl.DateTimeFormat("en", { timeZone: i.timezone });
-      return authDb.project.update({ where: { id: projectId }, data: i });
-    }
-    if (action === "connector-health") {
-      const c = await scoped(scope.workspaceId, projectId, (tx) =>
-          entity(tx, scope, "connectors", schemas.id.parse(input.connectorId)),
-        ),
-        d = data(c);
-      let result: Record<string, unknown>;
-      const options = {
-        baseUrl: d.baseUrl,
-        token: decrypt(d.encryptedCredential, config.CREDENTIAL_KEY),
-      };
-      if (d.provider === "postiz") {
-        const client = createPostizClient(options);
-        const channels = await client.listIntegrations();
-        const checkedAt = new Date().toISOString();
-        let groups: Awaited<ReturnType<typeof client.listGroups>> = [];
-        try {
-          groups = await client.listGroups();
-        } catch (error) {
-          if (!(error instanceof ConnectorError && error.status === 404))
-            throw error;
-        }
-        const connection = {
-          connected: true,
-          provider: "postiz",
-          baseUrl: client.baseUrl,
-          channelCount: channels.length,
-          checkedAt,
-          error: null,
-        };
-        result = {
-          status: postizHealthStatus(d),
-          capabilities: client.capabilities,
-          channels,
-          groups,
-          baseUrl: client.baseUrl,
-          connection,
-          lastSuccessfulConnection: checkedAt,
-        };
-      } else if (d.provider === "matomo") {
-        const client = createMatomoClient({
-          ...options,
-          allowedSiteIds: [Number(d.siteId)],
-        });
-        await client.report({
-          siteId: Number(d.siteId),
-          method: "Goals.getGoals",
-          period: "day",
-          date: new Date().toISOString().slice(0, 10),
-          siteTimezone: "UTC",
-        });
-        result = { status: "read_verified", capabilities: client.capabilities };
-      } else
-        throw new DomainError("SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION");
-      return scoped(scope.workspaceId, projectId, async (tx) => {
-        const current = await entity(tx, scope, "connectors", c.id);
-        if (current.version !== c.version)
-          throw new DomainError("CONNECTOR_CHANGED");
-        return publicEntity(
-          await update(tx, scope, current, {
-            ...d,
-            ...result,
-            verifiedAt: new Date().toISOString(),
-          }),
-        );
-      });
-    }
-    return scoped(scope.workspaceId, projectId, async (tx) => {
-      if (action === "postiz-assign-channels")
-        return publicEntity(
-          await assignPostizChannels(
-            tx,
-            scope,
-            postizAssignmentInput.parse(input),
-          ),
-        );
-      if (action === "knowledge-import-commit")
-        return commitKnowledgeImport(
-          tx,
-          scope,
-          knowledgeImportInput.parse(input),
-        );
-      if (action === "knowledge-import-retry")
-        return retryKnowledgeImport(
-          tx,
-          scope,
-          schemas.id.parse(input.importId),
-          knowledgeImportInput.parse(input.payload),
-        );
-      if (action === "editorial-propose-brief")
-        return proposeBrief(briefProposalInput.parse(input));
-      if (action === "community-import")
-        return importCommunityQuestions(
-          tx,
-          scope,
-          communityImportInput.parse(input),
-        );
-      if (action === "community-link")
-        return linkCommunityGroup(tx, scope, communityLinkInput.parse(input));
-      if (action === "adapt-content")
-        return adaptContent(tx, scope, contentAdaptationInput.parse(input));
-      if (action === "withdraw-fact")
-        return withdrawFact(
-          tx,
-          scope,
-          schemas.id.parse(input.factId),
-          z.number().int().positive().parse(input.version),
-        );
-      if (action === "evaluate-index")
-        return queueIndexEvaluation(
-          tx,
-          scope,
-          indexEvaluationRequest.parse(input),
-        );
-      if (action === "calendar-block")
-        return blockCalendar(tx, scope, calendarBlock.parse(input));
-      if (action === "calendar-unblock")
-        return unblockCalendar(
-          tx,
-          scope,
-          schemas.id.parse(input.blockId),
-          z.number().int().positive().parse(input.version),
-        );
-      if (action === "begin-index")
-        return beginIndexBuild(
-          tx,
-          scope,
-          z.string().max(200).parse(input.profile),
-        );
-      if (action === "build-index") {
-        const indexId = schemas.id.parse(input.indexId);
-        const index = await tx.knowledgeIndex.findFirst({
-          where: { id: indexId, projectId },
-        });
-        if (!index || index.state !== "building")
-          throw new DomainError("INDEX_NOT_BUILDING");
-        const count = await tx.chunkEmbedding.count({
-          where: {
-            projectId,
-            profile: index.profile,
-            indexGeneration: index.generation,
-          },
-        });
-        return enqueue(
-          tx,
-          scope,
-          "reindex",
-          index.id,
-          "reindex:" + index.id + ":" + count,
-        );
-      }
-      if (action === "activate-index")
-        return activateIndexGeneration(
-          tx,
-          scope,
-          schemas.id.parse(input.indexId),
-        );
-      if (action === "rollback-index")
-        return rollbackIndexGeneration(
-          tx,
-          scope,
-          schemas.id.parse(input.indexId),
-        );
-      if (action === "slack-configure")
-        return configureSlack(tx, scope, slackConfiguration.parse(input));
-      if (action === "slack-digest") return queueSlackDigest(tx, scope);
-      if (action === "correct-metric") {
-        const i = z
-          .object({
-            metricId: schemas.id,
-            version: z.number().int(),
-            values: schemas.metric,
-            reason: z.string().min(5).max(500),
-          })
-          .strict()
-          .parse(input);
-        return correctMetric(
-          tx,
-          scope,
-          i.metricId,
-          i.version,
-          i.values,
-          i.reason,
-        );
-      }
-      if (action === "memory-lifecycle") {
-        const i = z
-          .object({
-            kind: z.enum(["preferences", "insights"]),
-            id: schemas.id,
-            version: z.number().int(),
-            operation: z.enum(["disable", "delete"]),
-          })
-          .strict()
-          .parse(input);
-        return memoryLifecycle(tx, scope, i.kind, i.id, i.version, i.operation);
-      }
-      if (action === "retention")
-        return retention(
-          tx,
-          scope,
-          z.number().int().min(30).max(3650).parse(input.days),
-        );
-      if (action === "evaluate-experiment")
-        return evaluateExperiment(
-          tx,
-          scope,
-          schemas.id.parse(input.experimentId),
-        );
-      if (action === "stop-experiment") {
-        const i = z
-          .object({
-            experimentId: schemas.id,
-            version: z.number().int(),
-            reason: z.string().min(5).max(500),
-          })
-          .strict()
-          .parse(input);
-        return stopExperiment(tx, scope, i.experimentId, i.version, i.reason);
-      }
-      if (action === "import") {
-        const source = await entity(
-          tx,
-          scope,
-          "sources",
-          schemas.id.parse(input.sourceId),
-        );
-        if (input.url) {
-          const url = z.url().parse(input.url);
-          const request = await create(tx, scope, "sync_requests", {
-            sourceId: source.id,
-            url,
-            expectedGeneration: data(source).generation,
-            language: input.language ?? "en",
-          });
-          return enqueue(
-            tx,
-            scope,
-            "ingestion",
-            request.id,
-            "sync:" + request.id,
-          );
-        }
-        const parsed = z
-          .object({
-            sourceId: schemas.id,
-            externalId: z.string().min(1).max(300),
-            title: z.string().min(1).max(300),
-            text: z.string().max(1000000).optional(),
-            base64: z.string().max(1400000).optional(),
-            mimeType: z.enum([
-              "text/plain",
-              "text/markdown",
-              "text/html",
-              "application/pdf",
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ]),
-            language: z.enum(["en", "de"]),
-          })
-          .strict()
-          .parse(input);
-        const extracted = await extractDocument(
-          parsed.base64
-            ? Buffer.from(parsed.base64, "base64")
-            : Buffer.from(parsed.text ?? ""),
-          parsed.mimeType,
-        );
-        return ingest(tx, scope, {
-          sourceId: source.id,
-          externalId: parsed.externalId,
-          title: parsed.title,
-          text: extracted.text,
-          mimeType: parsed.mimeType,
-          language: parsed.language,
-          expectedGeneration: data(source).generation,
-        });
-      }
-      if (action === "retrieve")
-        return retrieve(tx, scope, {
-          query: z.string().min(1).max(2000).parse(input.query),
-          language: z.enum(["en", "de"]).default("en").parse(input.language),
-          purpose: z
-            .enum(["public", "internal"])
-            .default("public")
-            .parse(input.purpose),
-          at: input.at
-            ? new Date(z.iso.datetime().parse(input.at))
-            : new Date(),
-          factKeys: z
-            .array(z.string())
-            .max(20)
-            .optional()
-            .parse(input.factKeys),
-          sourceIds: z
-            .array(schemas.id)
-            .max(30)
-            .optional()
-            .parse(input.sourceIds),
-        });
-      if (action === "revoke-source")
-        return revokeSource(tx, scope, schemas.id.parse(input.sourceId));
-      if (action === "source-pause")
-        return setSourceRights(tx, scope, schemas.id.parse(input.sourceId), {
-          paused: z.boolean().parse(input.paused),
-        });
-      if (action === "revoke-document")
-        return revokeDocument(
-          tx,
-          scope,
-          schemas.id.parse(input.documentId),
-          typeof input.versionId === "string" ? input.versionId : undefined,
-        );
-      if (action === "preference-update") {
-        const i = z
-          .object({
-            preferenceId: schemas.id,
-            version: z.number().int(),
-            status: z.enum(["confirmed", "disabled"]),
-            rule: z.string().min(1).max(2000).optional(),
-          })
-          .strict()
-          .parse(input);
-        const p = await entity(tx, scope, "preferences", i.preferenceId);
-        if (p.version !== i.version)
-          throw new DomainError("VERSION_CONFLICT", 409);
-        return update(tx, scope, p, {
-          ...data(p),
-          status: i.status,
-          rule: i.rule ?? data(p).rule,
-          confirmedBy: scope.userId,
-        });
-      }
-      if (action === "import-metrics") {
-        const i = z
-          .object({
-            csv: z.string().max(1000000),
-            source: z.string().max(100).default("csv"),
-            accountId: z.string().max(100).default("manual"),
-            currency: z.string().regex(/^[A-Z]{3}$/),
-            timezone: z.string(),
-            columns: z.object({
-              date: z.string(),
-              campaignId: z.string(),
-              impressions: z.string().optional(),
-              clicks: z.string().optional(),
-              spend: z.string().optional(),
-              conversions: z.string().optional(),
-            }),
-          })
-          .strict()
-          .parse(input);
-        const previous = await list(tx, scope, "metrics");
-        const result = importAdsCsv(i.csv, {
-          ...i,
-          projectId,
-          existing: new Map(
-            previous.map((x) => [data(x).externalId, data(x).contentHash]),
-          ),
-        });
-        for (const row of result.rows) {
-          const micros =
-            row.spendMinor === null ? null : BigInt(row.spendMinor) * 10000n;
-          if (micros !== null && micros > BigInt(Number.MAX_SAFE_INTEGER))
-            throw new DomainError("MONEY_OUT_OF_RANGE");
-          await create(tx, scope, "metrics", {
-            ...row,
-            externalId: row.key,
-            campaign: row.campaignId,
-            sampleSize: row.impressions ?? row.clicks ?? 0,
-            sessions: null,
-            costMicros:
-              row.spendMinor === null
-                ? null
-                : Number(BigInt(row.spendMinor) * 10000n),
-            periodStart: row.date + "T00:00:00.000Z",
-            periodEnd: row.date + "T23:59:59.999Z",
-            dateInterpretation: "source-local-calendar-day",
-            synthetic: false,
-          });
-        }
-        return result;
-      }
-      if (action === "brand-approval") {
-        const i = z
-          .object({
-            brandName: z.literal("EDS Labs"),
-            confirmUsageRights: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return publicEntity(
-          await create(tx, scope, "assets", {
-            type: "original_logo",
-            brandName: i.brandName,
-            usageApproved: true,
-            assetStatus: "approved",
-            sha256:
-              "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
-            approvedBy: scope.userId,
-            source: "EDS Labs local original",
-            license: "Brand rights reserved",
-          }),
-        );
-      }
-      if (action === "asset-status") {
-        const i = z
-          .object({
-            assetId: schemas.id,
-            version: z.number().int().positive(),
-            assetStatus: z.enum(["approved", "reference", "outdated"]),
-            confirmUsageRights: z.boolean().optional(),
-          })
-          .strict()
-          .parse(input);
-        const asset = await entity(tx, scope, "assets", i.assetId);
-        if (asset.version !== i.version)
-          throw new DomainError("VERSION_CONFLICT", 409);
-        if (i.assetStatus === "approved" && i.confirmUsageRights !== true)
-          throw new DomainError("ASSET_RIGHTS_CONFIRMATION_REQUIRED", 409);
-        const updated = await update(tx, scope, asset, {
-          ...data(asset),
-          assetStatus: i.assetStatus,
-          usageApproved:
-            i.assetStatus === "approved"
-              ? i.confirmUsageRights === true
-              : false,
-          assetStatusUpdatedBy: scope.userId,
-          assetStatusUpdatedAt: new Date().toISOString(),
-        });
-        await audit(tx, scope, "asset.status_update", asset.id, {
-          from: data(asset).assetStatus,
-          to: i.assetStatus,
-          usageApproved: data(updated).usageApproved,
-        });
-        return publicEntity(updated);
-      }
-      if (action === "embed-document") {
-        const i = z
-          .object({
-            documentId: schemas.id,
-            confirmEmbeddingMayBeSentToOpenAI: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return queueDocumentEmbedding(tx, scope, i.documentId);
-      }
-      if (action === "reconcile") {
-        const pub = await entity(
-          tx,
-          scope,
-          "publications",
-          schemas.id.parse(input.publicationId),
-        );
-        return enqueue(
-          tx,
-          scope,
-          "reconciliation",
-          pub.id,
-          "reconcile-manual:" + pub.id + ":" + pub.version,
-        );
-      }
-      if (action === "configure-matomo-schedule")
-        return configureMatomoSchedule(tx, scope, input);
-      if (action === "configure-autopilot")
-        return configureAutopilot(tx, scope, input);
-      if (action === "approve-and-schedule")
-        return approveAndSchedule(tx, scope, input);
-      if (action === "resume-paused-publications")
-        return resumePausedPublications(tx, scope);
-      if (action === "archive-mission") return archiveMission(tx, scope, input);
-      if (action === "archive-old-drafts")
-        return archiveOldDrafts(tx, scope, input);
-      if (action === "restore-draft-cleanup")
-        return restoreDraftCleanup(tx, scope, input);
-      if (action === "run-mission")
-        return planMission(tx, scope, schemas.id.parse(input.missionId));
-      if (action === "start-approved-live-draft-once") {
-        const i = z
-          .object({
-            missionId: schemas.id,
-            version: z.number().int().positive(),
-            confirmPaidInternalDraft: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return startApprovedLiveDraftOnce(tx, scope, i.missionId, i.version);
-      }
-      if (action === "postiz-draft-resolve")
-        return resolvePostizDraft(tx, scope, input);
-      if (action === "start-approved-live-draft-batch") {
-        const i = z
-          .object({
-            missionId: schemas.id,
-            version: z.number().int().positive(),
-            confirmPaidInternalDrafts: z
-              .number()
-              .int()
-              .min(2)
-              .max(MAX_BATCH_DRAFTS),
-          })
-          .strict()
-          .parse(input);
-        const mission = await entity(tx, scope, "missions", i.missionId);
-        if (data(mission).maxContents !== i.confirmPaidInternalDrafts)
-          throw new DomainError("BATCH_CONFIRMATION_STALE", 409);
-        return startApprovedLiveDraftBatch(tx, scope, i.missionId, i.version);
-      }
-      if (action === "resume-live-draft-batch") {
-        const i = z
-          .object({
-            missionId: schemas.id,
-            version: z.number().int().positive(),
-            confirmPaidInternalDraft: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return resumeLiveDraftBatch(tx, scope, i.missionId, i.version);
-      }
-      if (action === "review")
-        return reviewContent(
-          tx,
-          scope,
-          schemas.id.parse(input.contentId),
-          z.number().int().parse(input.version),
-          input.humanConfirm === true,
-        );
-      if (action === "preflight") {
-        const p = await preflight(
-          tx,
-          scope,
-          schemas.id.parse(input.contentId),
-          { test: config.EXECUTION_MODE === "test" },
-        );
-        return {
-          allowed: p.allowed,
-          blockers: p.blockers,
-          packageHash: p.packageHash,
-          contentVersion: p.content.version,
-        };
-      }
-      if (action === "approve")
-        return approve(
-          tx,
-          scope,
-          z
-            .object({
-              contentId: schemas.id,
-              version: z.number().int(),
-              packageHash: z.string().length(64),
-            })
-            .strict()
-            .parse(input),
-        );
-      if (action === "publish")
-        return publishIntent(
-          tx,
-          scope,
-          z
-            .object({
-              contentId: schemas.id,
-              version: z.number().int(),
-              scheduledAt: z.iso.datetime().optional(),
-            })
-            .strict()
-            .parse(input),
-        );
-      if (action === "analyze")
-        return analyze(tx, scope, z.string().optional().parse(input.campaign));
-      if (action === "pause")
-        return pauseProject(tx, scope, z.boolean().parse(input.paused));
-      if (action === "retry") {
-        const job = await entity(
-          tx,
-          scope,
-          "jobs",
-          schemas.id.parse(input.jobId),
-        );
-        if (
-          !["failed", "blocked_dependency"].includes(data(job).status) ||
-          data(job).attempts >= data(job).maxAttempts
-        )
-          throw new DomainError("RETRY_NOT_ALLOWED");
-        if (data(job).topic === "publishing") {
-          const p = await entity(
-            tx,
-            scope,
-            "publications",
-            data(job).resourceId,
-          );
-          if (
-            [
-              "sending",
-              "outcome_unknown",
-              "published",
-              "published_test",
-            ].includes(data(p).status)
-          )
-            throw new DomainError("RECONCILIATION_REQUIRED");
-        }
-        await update(tx, scope, job, { ...data(job), status: "queued" });
-        await tx.outbox.create({
-          data: {
-            workspaceId: scope.workspaceId,
-            projectId,
-            topic: data(job).topic,
-            entityId: job.id,
-            payload: { jobId: job.id },
-          },
-        });
-        return { queued: true };
-      }
-      if (action === "connector") {
-        const c = z
-          .object({
-            provider: z.enum(["postiz", "matomo", "slack"]),
-            baseUrl: z.url().optional(),
-            credential: z.string().min(10).max(1000),
-            siteId: z.string().max(100).optional(),
-            channelId: z.string().max(100).optional(),
-          })
-          .strict()
-          .parse(input);
-        if (c.baseUrl && new URL(c.baseUrl).protocol !== "https:")
-          throw new DomainError("HTTPS_REQUIRED");
-        const { credential, ...metadata } = c;
-        if (metadata.provider === "postiz" && metadata.baseUrl)
-          metadata.baseUrl = normalizePostizBaseUrl(metadata.baseUrl);
-        return publicEntity(
-          await create(tx, scope, "connectors", {
-            ...metadata,
-            encryptedCredential: encrypt(credential, config.CREDENTIAL_KEY),
-            status: "configured",
-            capabilities: [],
-          }),
-        );
-      }
-      if (action === "resolve-exception") {
-        const e = await entity(
-          tx,
-          scope,
-          "exceptions",
-          schemas.id.parse(input.exceptionId),
-        );
-        return update(tx, scope, e, {
-          ...data(e),
-          status: "resolved",
-          resolvedBy: scope.userId,
-        });
-      }
-      throw new DomainError("ACTION_NOT_SUPPORTED", 400);
-    });
+    // Handlers come from the platform and the modules (WP2.1f).
+    const handler = registeredAction(action);
+    if (!handler) throw new DomainError("ACTION_NOT_SUPPORTED", 400);
+    const ctx = { scope, input, config, auth };
+    return handler.transaction === "own"
+      ? handler.run(ctx)
+      : scoped(scope.workspaceId, projectId, (tx) => handler.run(tx, ctx));
   });
   app.get("/api/openapi.json", async (req) => {
     await userFor(auth, req);

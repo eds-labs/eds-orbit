@@ -6,6 +6,7 @@ import { collections } from "../../../packages/schemas/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
+import { registeredActionNames } from "../src/platform/modules/contributions.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 // Rerun with UPDATE_ACCESS_MATRIX=1 to rewrite the expectation after an
@@ -47,25 +48,12 @@ const PRE_AUTH_VALIDATION = [
 ];
 
 /**
- * The action names the dispatcher knows, read from its source: the owner
- * list, the self-checked list and every `action === "…"` branch. An unknown
- * name is probed too.
+ * The action names the dispatcher knows: every handler the platform and the
+ * modules registered (WP2.1f; before, read from the server.ts if-chain). An
+ * unknown name is probed too.
  */
 function dispatcherActions() {
-  const source = readFileSync(
-    new URL("../src/server.ts", import.meta.url),
-    "utf8",
-  );
-  const start = source.indexOf('"/api/projects/:projectId/actions/:action"');
-  expect(start).toBeGreaterThan(0);
-  const block = source.slice(start);
-  const names = new Set<string>(["unknown-action"]);
-  for (const list of block.matchAll(/=\s*\[([^\]]*)\]\.includes\(action\)/g))
-    for (const name of list[1]!.matchAll(/"([a-z][a-z0-9-]*)"/g))
-      names.add(name[1]!);
-  for (const match of block.matchAll(/action\s*[!=]==\s*"([a-z][a-z0-9-]*)"/g))
-    names.add(match[1]!);
-  return [...names].sort();
+  return [...registeredActionNames(), "unknown-action"].sort();
 }
 
 /** What a response says about access, without details a test setup can change. */

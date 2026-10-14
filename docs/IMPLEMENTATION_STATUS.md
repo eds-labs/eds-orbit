@@ -1,5 +1,24 @@
 # Implementation status
 
+## Project actions as module contributions: WP2.1f-2 (2026-10-14, local)
+
+Branch `claude/wp21f2-actions`, the second part of WP2.1f. The if-chain of `POST /api/projects/:projectId/actions/:action` in `server.ts` (65 actions, about 760 lines) is replaced by handlers that the platform and the modules register.
+
+- **`platform/http/actions.ts`:** `ActionHandler` comes in two kinds. `sharedTransaction` runs in the project transaction the route opens. `ownTransaction` covers handlers that open their own transactions or none: provider calls, Drive reads that need the project lock, hybrid retrieval. Twelve actions keep `ownTransaction`, as before.
+- **Handler bodies, moved unchanged:**
+  - Platform (`platform/http/platform-actions.ts`): `add-member`, `project-settings`, `openai-configure`, `connector`, `pause`, `retention`, `resolve-exception`.
+  - Knowledge (`modules/knowledge/actions.ts`): 15 actions. They still call the knowledge services where they live today (WP3.3 moves them).
+  - Marketing (`modules/marketing/actions.ts`): the rest. That includes `connector-health`, whose Postiz and Matomo checks stay with marketing until the connections registry (WP2.5), although its permission is a platform one.
+- **The route** keeps its order: permission check, body parse, then lookup. An unknown name still gets `400 ACTION_NOT_SUPPORTED`.
+- **`server.ts`** shrinks by 864 lines (77 imports fewer).
+- **Tests:**
+  - The access matrix and the permission catalogue test now take the action names from the registry instead of parsing `server.ts`. The access matrix fixture is unchanged.
+  - New registry tests pin the 65 names, one permission per action and the twelve `ownTransaction` actions.
+  - Mutation check: switching `postiz-test-prepare` to the shared transaction fails that pin.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1352 tests. API and web typechecks and the boundary check pass.
+
 ## Marketing agents and tools in the module folder: WP2.1f-1 (2026-10-14, local)
 
 Branch `claude/wp21f1-agents`, the first of three parts of WP2.1f. Files move unchanged apart from import paths:

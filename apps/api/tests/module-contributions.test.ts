@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import {
   registerContributions,
+  registeredAction,
+  registeredActionNames,
   registeredActionType,
   registeredHooks,
   registeredJobs,
@@ -13,6 +15,9 @@ import {
   unexportedKinds,
   workerStartHooks,
 } from "../src/platform/modules/contributions.ts";
+import { platformActionPermissions } from "../src/platform/tenancy/permissions.ts";
+import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
+import { marketingActionPermissions } from "../src/modules/marketing/permissions.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
@@ -102,6 +107,108 @@ describe("module contributions", () => {
     expect(workerStartHooks()).toEqual([registerAgentSpecialists]);
   });
 
+  it("dispatches exactly the actions of the former server.ts if-chain (WP2.1f)", () => {
+    expect(registeredActionNames().sort()).toEqual([
+      "activate-index",
+      "adapt-content",
+      "add-member",
+      "analyze",
+      "approve",
+      "approve-and-schedule",
+      "archive-mission",
+      "archive-old-drafts",
+      "asset-status",
+      "begin-index",
+      "brand-approval",
+      "build-index",
+      "calendar-block",
+      "calendar-unblock",
+      "community-import",
+      "community-link",
+      "configure-autopilot",
+      "configure-matomo-schedule",
+      "connector",
+      "connector-health",
+      "correct-metric",
+      "editorial-propose-brief",
+      "embed-document",
+      "evaluate-experiment",
+      "evaluate-index",
+      "import",
+      "import-matomo",
+      "import-metrics",
+      "knowledge-import-commit",
+      "knowledge-import-preview",
+      "knowledge-import-retry",
+      "memory-lifecycle",
+      "openai-configure",
+      "pause",
+      "postiz-assign-channels",
+      "postiz-draft-handoff",
+      "postiz-draft-resolve",
+      "postiz-test-execute",
+      "postiz-test-prepare",
+      "postiz-test-reconcile",
+      "preference-update",
+      "preflight",
+      "project-settings",
+      "publish",
+      "reconcile",
+      "render",
+      "resolve-exception",
+      "restore-draft-cleanup",
+      "resume-live-draft-batch",
+      "resume-paused-publications",
+      "retention",
+      "retrieve",
+      "retry",
+      "review",
+      "revoke-document",
+      "revoke-source",
+      "rollback-index",
+      "run-mission",
+      "slack-configure",
+      "slack-digest",
+      "source-pause",
+      "start-approved-live-draft-batch",
+      "start-approved-live-draft-once",
+      "stop-experiment",
+      "withdraw-fact",
+    ]);
+    // Each action has exactly one permission, declared by one catalogue.
+    const catalogues = [
+      platformActionPermissions,
+      knowledgeActionPermissions,
+      marketingActionPermissions,
+    ];
+    for (const name of registeredActionNames())
+      expect(catalogues.filter((c) => c[name]).length, name).toBe(1);
+    expect(catalogues.flatMap((c) => Object.keys(c)).sort()).toEqual(
+      registeredActionNames().sort(),
+    );
+  });
+
+  it("keeps the actions that opened their own transactions outside the shared one", () => {
+    expect(
+      registeredActionNames()
+        .filter((name) => registeredAction(name)!.transaction === "own")
+        .sort(),
+    ).toEqual([
+      "add-member",
+      "connector-health",
+      "import-matomo",
+      "knowledge-import-preview",
+      "openai-configure",
+      "postiz-draft-handoff",
+      "postiz-test-execute",
+      "postiz-test-prepare",
+      "postiz-test-reconcile",
+      "project-settings",
+      "render",
+      "retrieve",
+    ]);
+  });
+
   it("projects module kinds through the module: asset bytes never leave", () => {
     const view = publicEntity({
       kind: "assets",
@@ -157,5 +264,16 @@ describe("module contributions", () => {
         { alpha: { periodic: [task] } },
       ),
     ).toThrow("periodic task check registered twice");
+    const action = {
+      transaction: "own" as const,
+      run: async () => undefined,
+    };
+    expect(() =>
+      registerContributions(
+        registry,
+        { actions: { same: action } },
+        { alpha: { actions: { same: action } } },
+      ),
+    ).toThrow("action same registered twice");
   });
 });

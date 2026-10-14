@@ -7,6 +7,7 @@ import { platformDeclaration } from "../platform/modules/platform-declaration.ts
 import { knowledgeModule } from "./knowledge/manifest.ts";
 import { marketingModule } from "./marketing/manifest.ts";
 import { marketingContributions } from "./marketing/contributions.ts";
+import { knowledgeContributions } from "./knowledge/contributions.ts";
 import { registerContributions } from "../platform/modules/contributions.ts";
 import { platformContributions } from "../platform/modules/platform-contributions.ts";
 
@@ -33,6 +34,7 @@ export function moduleRegistry(): ValidatedRegistry {
 export function registerModules(): ValidatedRegistry {
   const registry = moduleRegistry();
   registerContributions(registry, platformContributions, {
+    knowledge: knowledgeContributions,
     marketing: marketingContributions,
   });
   return registry;
