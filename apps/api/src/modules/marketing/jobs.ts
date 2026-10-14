@@ -17,7 +17,7 @@ import {
 } from "./publishing/slack.ts";
 import { evaluateExperiment } from "./analytics/lifecycle.ts";
 import { runImageJob } from "./brand/image-requests.ts";
-import { sendNotification } from "./agents/notification-sender.ts";
+import { sendNotification } from "./agents/notification-messages.ts";
 import {
   deliverPostizDraft,
   markPostizDraftOutcomeUnknown,
