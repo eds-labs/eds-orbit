@@ -15,7 +15,7 @@ import {
   hash,
   update,
 } from "../../../../shared.ts";
-import { validateDraftMission } from "../../../chat.ts";
+import { validateDraftMission } from "../../assistant/proposals.ts";
 import { resolveChannelRules } from "../../publishing/channel-rules.ts";
 import { exportContentBundle } from "../../pipeline/content-export.ts";
 import { generateMissionLive } from "../../pipeline/generation.ts";

@@ -54,6 +54,7 @@ import {
 import { cancelContentPackage } from "./agents/content-packages.ts";
 import { attachPackageImage } from "./agents/package-image.ts";
 import { cancelPackageSchedule } from "./agents/package-schedule.ts";
+import { confirmProposal } from "./assistant/proposals.ts";
 
 /**
  * Marketing's HTTP routes (WP2.1f), moved unchanged from server.ts and
@@ -373,4 +374,14 @@ export const marketingRoutes: RoutesContribution = ({ app, auth }) => {
       });
     });
   });
+
+  // A user confirms a campaign proposal into a draft-only mission (WP2.2).
+  app.post(
+    "/api/projects/:projectId/chat/proposals/:id/confirm",
+    async (req) => {
+      const { projectId, id } = req.params as { projectId: string; id: string };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
+      return confirmProposal(scope, z.uuid().parse(id), req.body);
+    },
+  );
 };

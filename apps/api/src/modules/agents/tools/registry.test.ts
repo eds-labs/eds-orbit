@@ -243,7 +243,7 @@ describe("read tools", () => {
 });
 
 const proposals = vi.hoisted(() => ({ raw: [] as unknown[] }));
-vi.mock("../../chat.ts", () => ({
+vi.mock("../../marketing/assistant/proposals.ts", () => ({
   createProposal: vi.fn(
     async (_scope: unknown, _conversationId: string, raw: unknown) => {
       proposals.raw.push(raw);

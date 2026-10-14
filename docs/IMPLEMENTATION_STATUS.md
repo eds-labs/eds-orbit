@@ -1,5 +1,25 @@
 # Implementation status
 
+## The assistant as platform code with marketing contributions: WP2.2 (2026-10-14, local)
+
+Branch `claude/wp22-assistant`, work package WP2.2. The assistant (conversations, runs, the tool loop, prompt composition) is platform code; marketing contributes to it. The prompt and the tool definitions are byte-identical.
+
+- **Prompt composition.** The chat runner takes tool features, prompt fragments and proposal validation codes from registered `assistant` contributions (`platform/assistant/types.ts`). It adds the tool search line itself.
+  - Marketing contributes its prompt unchanged (`modules/marketing/assistant/prompt.ts`): the operator persona and rules, the package fragment, and the assignment fragment or the "not available" fragment.
+  - The base prompt interleaves marketing, knowledge and platform rules. Splitting it by owner would change the prompt, so that waits for an evaluated prompt change (plans `03` §6.4).
+- **Cards and read tools.** The card shapes move to `platform/assistant/cards.ts`. The read tool implementations (`project_status`, `knowledge_search`, `approved_assets`, `analytics_memory`) move unchanged to `modules/marketing/assistant/chat-tools.ts`. `knowledge_search` goes to the knowledge services in WP3.2; module sections of `project_status` come with the platform home.
+- **Proposals.** `validateDraftMission`, `createProposal` and `confirmProposal` move unchanged to `modules/marketing/assistant/proposals.ts`. Marketing registers `POST /chat/proposals/:id/confirm` at the same path. The `ChatProposal` table stays the platform's assistant storage.
+- **Conversation read.** The conversation read adds marketing's packages and assignments through a registered `conversationSections` contribution instead of two lazy imports. The response fields keep their order.
+- **Imports.** `chat.ts` enqueues chat jobs through the platform's `enqueue`.
+- **Boundaries.** The known import-boundary violations drop from 22 to 10. The 2 left on the server are `telegram.ts` (WP2.5); the 8 web ones belong to WP2.3.
+
+**Verification (local, isolated test database).**
+- Full suite: 145 files, 1354 tests.
+- `assistant-request.characterization` is unchanged: the hashes for every role and flag combination, and the full text of the smallest and the largest owner setup. Mutation check: one extra space in the prompt fails both tests.
+- The OpenAPI document (sorted keys) is identical.
+- API and web typechecks pass.
+- The Playwright `chat.spec.ts` runs in CI.
+
 ## Orbit Agents runner in the marketing module: WP2.1f-3c (2026-10-14, local)
 
 Branch `claude/wp21f3c-runner`. The specialist runner (`runner.ts`) and its types move from `modules/agents/specialists/` to `modules/marketing/agents/specialists/`. The boundary checker no longer counts them as platform. The old paths re-export.

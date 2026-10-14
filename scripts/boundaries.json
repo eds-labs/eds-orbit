@@ -119,18 +119,6 @@
     "package:knowledge"
   ],
   "baseline": [
-    "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/assignments.ts",
-    "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/content-packages.ts",
-    "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/asset-tools.ts",
-    "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/marketing-profile.ts",
-    "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/postiz-assignment.ts",
-    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/agents/assignment-overview.ts",
-    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/agents/content-packages.ts",
-    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/asset-tools.ts",
-    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/marketing-profile.ts",
-    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/policy.ts",
-    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/postiz-assignment.ts",
-    "platform-imports-module: apps/api/src/modules/chat.ts -> apps/api/src/modules/workflow.ts",
     "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/assignments.ts",
     "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/veto.ts",
     "web-platform-imports-module: apps/web/src/components/action-request-inbox.tsx -> apps/web/src/components/assignment-card.tsx",

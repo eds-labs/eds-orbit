@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PROJECT_WRITE } from "../../../platform/tenancy/permissions.ts";
-import { createProposal } from "../../chat.ts";
+import { createProposal } from "../assistant/proposals.ts";
 import {
   defineTool,
   dropNullFields,

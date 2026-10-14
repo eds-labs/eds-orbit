@@ -46,7 +46,6 @@ import {
   sendMessage,
   getRun,
   cancelRun,
-  confirmProposal,
 } from "./modules/chat.ts";
 import {
   decideActionRequest,
@@ -1002,14 +1001,6 @@ export async function buildServer(
     const scope = await scopeFor(auth, req, projectId);
     return cancelRun(scope, z.uuid().parse(id));
   });
-  app.post(
-    "/api/projects/:projectId/chat/proposals/:id/confirm",
-    async (req) => {
-      const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-      return confirmProposal(scope, z.uuid().parse(id), req.body);
-    },
-  );
   // Owners' open decisions (image requests from editors' packages and others).
   app.get("/api/projects/:projectId/action-requests", async (req) => {
     const { projectId } = req.params as { projectId: string };

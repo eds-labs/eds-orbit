@@ -1,3 +1,5 @@
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { ToolFeature } from "../../modules/agents/tools/registry.ts";
 
 /**
@@ -13,3 +15,14 @@ export type AssistantContribution = {
   /** Proposal tools whose invalid input returns to the model with its fields. */
   validationCodes?: Readonly<Record<string, string>>;
 };
+
+/**
+ * Extra fields of one conversation a module adds to the conversation read
+ * (WP2.2), such as its content packages and assignments, keyed by field.
+ */
+export type ConversationSections = (
+  tx: DbTx,
+  scope: Scope,
+  conversationId: string,
+  messages: ReadonlyArray<{ cards: unknown[] }>,
+) => Promise<Record<string, unknown>>;

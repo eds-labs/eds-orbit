@@ -14,7 +14,10 @@ import type {
 } from "../governance/types.ts";
 import type { ActionHandler } from "../http/actions.ts";
 import type { RoutesContribution } from "../http/routes.ts";
-import type { AssistantContribution } from "../assistant/types.ts";
+import type {
+  AssistantContribution,
+  ConversationSections,
+} from "../assistant/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -50,6 +53,8 @@ export type ModuleContributions = {
   channelDirectory?: ChannelDirectory;
   /** Prompt fragments, tool features and proposal checks (WP2.2). */
   assistant?: AssistantContribution;
+  /** Fields a conversation read adds for the module (WP2.2). */
+  conversationSections?: ConversationSections;
 };
 
 type Registered = {
@@ -235,4 +240,11 @@ export function registeredAssistants(): AssistantContribution[] {
   return [...current().byModule.values()]
     .map((c) => c.assistant)
     .filter((a): a is AssistantContribution => Boolean(a));
+}
+
+/** Conversation sections: platform first, then modules in registry order. */
+export function registeredConversationSections(): ConversationSections[] {
+  return [...current().byModule.values()]
+    .map((c) => c.conversationSections)
+    .filter((s): s is ConversationSections => Boolean(s));
 }

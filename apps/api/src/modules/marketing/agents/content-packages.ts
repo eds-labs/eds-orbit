@@ -19,7 +19,8 @@ import {
   list,
   update,
 } from "../../../shared.ts";
-import { chatScoped, conversation, validateDraftMission } from "../../chat.ts";
+import { chatScoped, conversation } from "../../chat.ts";
+import { validateDraftMission } from "../assistant/proposals.ts";
 import {
   cancelActionRequest,
   createActionRequest,
