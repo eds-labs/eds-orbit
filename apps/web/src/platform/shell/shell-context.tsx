@@ -2,6 +2,10 @@
 import { createContext, useContext, type ComponentType } from "react";
 import type { Route, RouteTable } from "./routes";
 import type { Label } from "./types";
+import type {
+  ActionRequestRenderer,
+  ChatExtension,
+} from "@/platform/assistant/extensions";
 
 /** A module as the shell shows it in the open project. */
 export type ShellModule = {
@@ -23,6 +27,10 @@ export type ShellContextValue = {
   homeSections: ReadonlyArray<{ moduleId: string; component: ComponentType }>;
   /** The URL of a page in the open project. */
   hrefOf: (key: string) => string;
+  /** Chat parts of the modules, in registry order (WP2.3). */
+  chat: readonly ChatExtension[];
+  /** Inbox views of action request types, by type (WP2.3). */
+  actionRequests: Readonly<Record<string, ActionRequestRenderer>>;
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

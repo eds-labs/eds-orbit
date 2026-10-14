@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { labels } from "@/lib/i18n";
 import type { Label, WebModule } from "@/platform/shell/types";
+import { assignmentConfirmRenderer, marketingChat } from "./chat-extension";
 import { BrandAssetLibrary } from "@/modules/marketing/advanced";
 import { Analytics, Memory } from "@/components/management";
 import {
@@ -39,6 +40,8 @@ export const marketingWeb: WebModule = {
   },
   home: MarketingHome,
   homeOrder: 10,
+  chat: marketingChat,
+  actionRequests: { "assignment.confirm": assignmentConfirmRenderer },
   views: [
     {
       key: "missions",

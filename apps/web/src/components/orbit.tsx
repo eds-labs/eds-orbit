@@ -211,6 +211,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         const route = table.routes.find((r) => r.key === key);
         return route ? projectHref(project.id, route) : "/";
       },
+      chat: registry.modules.flatMap((m) => (m.chat ? [m.chat] : [])),
+      actionRequests: Object.assign(
+        {},
+        ...registry.modules.map((m) => m.actionRequests ?? {}),
+      ),
     };
   }, [project, moduleStates.data, registry, table]);
   useEffect(() => {

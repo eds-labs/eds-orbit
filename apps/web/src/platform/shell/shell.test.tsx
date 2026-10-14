@@ -53,6 +53,8 @@ function shell(enabled: Record<string, boolean>): ShellContextValue {
         project.id,
         table.routes.find((r) => r.key === key)!,
       ),
+    chat: [],
+    actionRequests: {},
   };
 }
 

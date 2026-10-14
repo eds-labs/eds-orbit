@@ -1,7 +1,7 @@
 "use client";
 import { AppLink } from "@/platform/ui/app-link";
 import { takeAssistantDraft } from "@/platform/shell/assistant-draft";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import {
   Archive,
@@ -33,16 +33,8 @@ import {
 } from "./ui/primitives";
 import { PageHead } from "@/platform/ui/collection";
 import { ChatMarkdown } from "./chat-markdown";
-import {
-  PackageCard,
-  packageInProgress,
-  type ContentPackage,
-} from "@/modules/marketing/chat-package-card";
-import {
-  AssignmentCard,
-  type AssignmentContent,
-  type AssignmentRequest,
-} from "@/modules/marketing/assignment-card";
+import { ShellContext } from "@/platform/shell/shell-context";
+import type { ChatHost } from "@/platform/assistant/extensions";
 import { useWorkspace } from "./workspace-context";
 
 type Conversation = { id: string; title: string; updatedAt: string };
@@ -53,13 +45,8 @@ type Card = {
   status?: string;
   resourceId?: string;
   version?: number;
-  // Assignment cards carry the content they showed (R16).
-  assignment?: AssignmentContent;
-};
-// Live state of an assignment a card names, read by its ID.
-type LiveAssignment = AssignmentContent & {
-  status: string;
-  actionRequest: (AssignmentRequest & { expiresAt: string }) | null;
+  // Module cards carry their content by value, e.g. assignments (R16).
+  assignment?: Record<string, any>;
 };
 type Message = {
   id: string;
@@ -105,14 +92,13 @@ type Proposal = {
     assets: { id: string }[];
   };
 };
+// Modules add fields such as packages and assignments (WP2.2).
 type Detail = {
   conversation: Conversation;
   messages: Message[];
   runs: Run[];
   proposals: Proposal[];
-  packages?: ContentPackage[];
-  assignments?: LiveAssignment[];
-};
+} & Record<string, any>;
 const terminal = new Set(["succeeded", "blocked", "failed", "canceled"]);
 
 function statusLabel(status: string, de: boolean) {
@@ -334,169 +320,38 @@ export function OrbitChat() {
       setPending(false);
     }
   }
-  async function startPackage(pkg: ContentPackage) {
-    if (!canEdit || !pkg.actionRequest) return;
-    setPending(true);
-    setError("");
-    try {
-      await post(
-        collectionPath(
-          project.id,
-          `action-requests/${pkg.actionRequest.id}/decide`,
-        ),
-        {
-          version: pkg.actionRequest.version,
-          packageHash: pkg.actionRequest.packageHash,
-          decision: "approve",
-        },
-      );
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Start failed");
-    } finally {
-      setPending(false);
-    }
-  }
-  // Owners confirm the generated image's usage rights with the existing asset decision.
-  async function approveImageRights(pkg: ContentPackage) {
-    if (!isOwner || !pkg.image?.assetId || !pkg.image.assetVersion) return;
-    setPending(true);
-    setError("");
-    try {
-      await action(project.id, "asset-status", {
-        assetId: pkg.image.assetId,
-        version: pkg.image.assetVersion,
-        assetStatus: "approved",
-        confirmUsageRights: true,
-      });
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Approval failed");
-    } finally {
-      setPending(false);
-    }
-  }
-  async function attachImage(pkg: ContentPackage, deliverableKeys: string[]) {
-    if (!canEdit) return;
-    setPending(true);
-    setError("");
-    try {
-      await post(`${base}/packages/${pkg.id}/attach-image`, {
-        deliverableKeys,
-      });
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Attaching failed");
-    } finally {
-      setPending(false);
-    }
-  }
-  // Stops a post before the handoff; a handed-over post is reported, never retracted.
-  async function unschedule(pkg: ContentPackage, deliverableKey: string) {
-    if (!canEdit) return;
-    setPending(true);
-    setError("");
-    try {
-      const result = await post<{ result: string }>(
-        `${base}/packages/${pkg.id}/unschedule`,
-        { deliverableKey },
-      );
-      if (result.result === "not_retractable")
-        setError(
-          de
-            ? "Der Beitrag wurde bereits übergeben und kann nicht zurückgeholt werden."
-            : "The post was already handed over and cannot be taken back.",
-        );
-      else if (result.result === "handoff_in_progress")
-        setError(
-          de
-            ? "Der Beitrag wird gerade übergeben; das Ergebnis wird abgeglichen."
-            : "The post is being handed over right now; the result will be reconciled.",
-        );
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Cancel failed");
-    } finally {
-      setPending(false);
-    }
-  }
-  // The owner decides the exact assignment.confirm request the card shows.
-  async function decideAssignment(
-    request: AssignmentRequest,
-    decision: "approve" | "reject",
-    imageRightsConsent = false,
-  ) {
-    if (!isOwner) return;
-    setPending(true);
-    setError("");
-    try {
-      await post(
-        collectionPath(project.id, `action-requests/${request.id}/decide`),
-        {
-          version: request.version,
-          packageHash: request.packageHash,
-          decision,
-          ...(decision === "approve" ? { imageRightsConsent } : {}),
-        },
-      );
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Decision failed");
-    } finally {
-      setPending(false);
-    }
-  }
-  function assignmentCard(card: Card, key: string) {
-    const shown = card.assignment!;
-    const live = detail.data?.assignments?.find(
-      (assignment) => assignment.id === shown.id,
-    );
-    // Only the request this card was made for decides its content.
-    const own =
-      live?.actionRequest && live.actionRequest.id === shown.actionRequestId
-        ? live.actionRequest
-        : null;
-    return (
-      <AssignmentCard
-        key={key}
-        assignment={{
-          ...shown,
-          channelNames: shown.channelNames ?? live?.channelNames,
-        }}
-        status={live?.status ?? shown.status ?? "draft"}
-        request={own}
-        expiresAt={own?.expiresAt}
-        de={de}
-        canDecide={isOwner}
-        pending={pending}
-        superseded={
-          Boolean(live?.actionRequest) &&
-          !own &&
-          live?.actionRequest?.status === "pending"
-        }
-        onConfirm={(request, consent) =>
-          void decideAssignment(request, "approve", consent)
-        }
-        onReject={(request) => void decideAssignment(request, "reject")}
-      />
-    );
-  }
-  async function cancelPackage(pkg: ContentPackage) {
-    if (!canEdit) return;
-    setPending(true);
-    setError("");
-    try {
-      await post(`${base}/packages/${pkg.id}/cancel`, {});
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Cancel failed");
-    } finally {
-      setPending(false);
-    }
-  }
+  // Module chat parts (WP2.3): message cards, sections below the messages.
+  const extensions = useContext(ShellContext)?.chat ?? [];
+  const moduleCards: Record<
+    string,
+    NonNullable<(typeof extensions)[number]["messageCards"]>[string]
+  > = Object.assign(
+    {},
+    ...extensions.map((extension) => extension.messageCards ?? {}),
+  );
+  const host: ChatHost = {
+    conversation: detail.data,
+    pending,
+    de,
+    async run(task, failure) {
+      setPending(true);
+      setError("");
+      try {
+        const message = await task();
+        if (message) setError(message);
+        refresh();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : failure);
+      } finally {
+        setPending(false);
+      }
+    },
+  };
   useEffect(() => {
     if (
-      !detail.data?.packages?.some(packageInProgress) &&
+      !extensions.some((extension) =>
+        Boolean(detail.data && extension.busy?.(detail.data)),
+      ) &&
       !detail.data?.proposals.some(
         (proposal) =>
           proposal.status === "confirmed" &&
@@ -645,16 +500,21 @@ export function OrbitChat() {
                   )}
                 </div>
                 {message.cards
-                  ?.filter(
-                    (card) => card.kind === "assignment" && card.assignment,
-                  )
-                  .map((card, index) =>
-                    assignmentCard(card, `${message.id}-assignment-${index}`),
-                  )}
-                {message.cards?.some((card) => card.kind !== "assignment") && (
+                  ?.filter((card) => moduleCards[card.kind])
+                  .map((card, index) => {
+                    const Render = moduleCards[card.kind]!;
+                    return (
+                      <Render
+                        key={`${message.id}-${card.kind}-${index}`}
+                        card={card}
+                        host={host}
+                      />
+                    );
+                  })}
+                {message.cards?.some((card) => !moduleCards[card.kind]) && (
                   <div className="chat-cards">
                     {message.cards
-                      .filter((card) => card.kind !== "assignment")
+                      .filter((card) => !moduleCards[card.kind])
                       .map((card, index) => (
                         <div
                           className="chat-card"
@@ -721,21 +581,11 @@ export function OrbitChat() {
                   {chatErrorText(stream.errorCode, de)}
                 </Alert>
               )}
-            {(detail.data?.packages ?? []).map((pkg) => (
-              <PackageCard
-                key={pkg.id}
-                pkg={pkg}
-                de={de}
-                canStart={canEdit}
-                pending={pending}
-                onStart={startPackage}
-                onCancel={cancelPackage}
-                canApproveRights={isOwner}
-                onApproveRights={approveImageRights}
-                onAttachImage={attachImage}
-                onUnschedule={unschedule}
-              />
-            ))}
+            {extensions.map((extension, index) =>
+              extension.afterMessages ? (
+                <extension.afterMessages key={index} host={host} />
+              ) : null,
+            )}
             {proposals.map((proposal) => (
               <section key={proposal.id} className="chat-proposal">
                 <div className="chat-proposal-head">

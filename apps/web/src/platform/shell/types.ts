@@ -1,5 +1,9 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
+import type {
+  ActionRequestRenderer,
+  ChatExtension,
+} from "@/platform/assistant/extensions";
 
 // The web side of the module contract (plans/orbit-modularization/03 §10).
 // It lives in the web app rather than packages/module-contracts because it
@@ -39,6 +43,10 @@ export type WebModule = {
   /** A section of the project home, ordered by homeOrder. */
   home?: ComponentType;
   homeOrder?: number;
+  /** Message cards and sections of the platform chat (WP2.3). */
+  chat?: ChatExtension;
+  /** The approvals inbox view of the module's action request types (WP2.3). */
+  actionRequests?: Readonly<Record<string, ActionRequestRenderer>>;
 };
 
 /** Everything the shell can show, assembled by the composition root. */

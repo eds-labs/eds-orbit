@@ -1,5 +1,21 @@
 # Implementation status
 
+## Chat and inbox parts as module contributions: WP2.3c (2026-10-14, local)
+
+Branch `claude/wp23c-cards`. The platform chat and the approvals inbox no longer import marketing components.
+
+- **Decide hook.** `platform/assistant/decide.ts` (`useDecideActionRequest`) replaces the three decide calls: start a package, decide an assignment in the chat, decide in the inbox. The request bodies are unchanged; `imageRightsConsent` is sent only when given, as before. A test pins the four body shapes.
+- **Chat extensions.** Web module manifests can contribute chat parts (`platform/assistant/extensions.ts`):
+  - message card renderers by kind;
+  - a section below the messages;
+  - a `busy` check that keeps the conversation refreshing.
+- **Inbox renderers.** Manifests can contribute inbox renderers by action type.
+- **Marketing's contribution** (`modules/marketing/chat-extension.tsx`) moves the package handlers (start, cancel, image rights, attach image, unschedule) and the assignment card logic out of `chat.tsx` unchanged. It registers the `assignment` card, the package section, the package `busy` check and the `assignment.confirm` inbox view.
+- **`chat.tsx`** lends a `ChatHost` (conversation, pending state, `run` with the same pending, error and refresh handling as the former handlers). It is 150 lines shorter.
+- **Boundaries.** Known web violations drop from 8 to 5; all 5 left are in `management.tsx` (WP2.3b).
+
+**Verification (local).** Web component tests (18 files, 87 tests, including the new hook and extension tests), web and API typechecks, a typecheck of the Playwright specs, a web production build and the boundary check (7 known violations, none new). The package and assignment cards in the chat are covered by Playwright `chat.spec.ts` in CI.
+
 ## Marketing and knowledge web components in their module folders: WP2.3a (2026-10-14, local)
 
 Branch `claude/wp23-web-marketing`, the first part of WP2.3 (marketing web module). Files move unchanged apart from import paths:
