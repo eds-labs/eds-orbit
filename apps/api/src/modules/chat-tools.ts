@@ -6,7 +6,7 @@ import {
   validateEvidence,
 } from "../../../../packages/knowledge/src/index.ts";
 import { assetTools } from "./asset-tools.ts";
-import { readiness } from "./readiness.ts";
+import { projectReadiness } from "../platform/governance/readiness.ts";
 import { assignedPostizChannels } from "./postiz-assignment.ts";
 import { data, DomainError, list } from "../shared.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
@@ -123,7 +123,7 @@ export async function runReadTool(
           title: clipped(data(c).title, 120),
           status: data(c).status,
         }));
-      const state = await readiness(tx, scope);
+      const state = await projectReadiness(tx, scope);
       const profileRow = await currentMarketingProfile(tx, scope);
       const profile = profileRow
         ? marketingProfile.parse(profileRow.data)

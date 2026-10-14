@@ -5,6 +5,8 @@ import {
   registeredAction,
   registeredActionNames,
   registeredActionType,
+  registeredChannelDirectories,
+  registeredReadiness,
   registeredHooks,
   registeredJobs,
   registeredPeriodicTask,
@@ -19,6 +21,7 @@ import {
 import { platformActionPermissions } from "../src/platform/tenancy/permissions.ts";
 import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
 import { marketingActionPermissions } from "../src/modules/marketing/permissions.ts";
+import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
 import { marketingRoutes } from "../src/modules/marketing/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
@@ -211,6 +214,11 @@ describe("module contributions", () => {
     ]);
   });
 
+  it("reads readiness and channel names through marketing's contributions (WP2.1f)", () => {
+    expect(registeredReadiness()).toBe(readiness);
+    expect(registeredChannelDirectories()).toHaveLength(1);
+  });
+
   it("lets marketing register its own HTTP routes (WP2.1f)", () => {
     expect(registeredRoutes()).toEqual([marketingRoutes]);
   });
@@ -281,5 +289,13 @@ describe("module contributions", () => {
         { alpha: { actions: { same: action } } },
       ),
     ).toThrow("action same registered twice");
+    const provider = async () => ({ state: "x", blockers: [] });
+    expect(() =>
+      registerContributions(
+        registry,
+        { readiness: provider },
+        { alpha: { readiness: provider } },
+      ),
+    ).toThrow("more than one readiness provider");
   });
 });

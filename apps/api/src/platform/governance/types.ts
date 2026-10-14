@@ -44,3 +44,25 @@ export type RetentionContribution = (
   audit: Record<string, number>;
   result: Record<string, number>;
 }>;
+
+/**
+ * The project's go-live readiness as the dashboard, the assistant's
+ * project status and the policy activation read it (WP2.1f). Marketing
+ * computes it today; the platform reads it through one registered provider.
+ */
+export type ProjectReadiness = {
+  state: string;
+  blockers: string[];
+  actions?: unknown;
+  capabilities?: unknown;
+};
+export type ReadinessProvider = (
+  tx: DbTx,
+  scope: Scope,
+) => Promise<ProjectReadiness>;
+
+/** Display names of the channels a module manages, for decisions on requests. */
+export type ChannelDirectory = (
+  tx: DbTx,
+  scope: Scope,
+) => Promise<Array<{ id: string } & Record<string, unknown>>>;

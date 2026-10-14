@@ -7,7 +7,9 @@ import type {
   SchedulerContribution,
 } from "../jobs/types.ts";
 import type {
+  ChannelDirectory,
   ProjectHooks,
+  ReadinessProvider,
   RetentionContribution,
 } from "../governance/types.ts";
 import type { ActionHandler } from "../http/actions.ts";
@@ -41,6 +43,10 @@ export type ModuleContributions = {
   actions?: Readonly<Record<string, ActionHandler>>;
   /** HTTP routes at their existing absolute paths (WP2.1f). */
   routes?: RoutesContribution;
+  /** The project's go-live readiness; at most one module provides it (WP2.1f). */
+  readiness?: ReadinessProvider;
+  /** Channels the module manages, by id, for display (WP2.1f). */
+  channelDirectory?: ChannelDirectory;
 };
 
 type Registered = {
@@ -76,6 +82,8 @@ export function registerContributions(
   for (const id of Object.keys(modules))
     if (!registry.order.includes(id))
       problems.push(`contributions for unknown module ${id}`);
+  if (ordered.filter(([, c]) => c.readiness).length > 1)
+    problems.push("more than one readiness provider");
   const tools: OrbitTool[] = [];
   const actionTypes = new Map<string, ActionDefinition<any>>();
   const jobs = new Map<string, JobDef>();
@@ -206,4 +214,15 @@ export function registeredRoutes(): RoutesContribution[] {
   return [...current().byModule.values()]
     .map((c) => c.routes)
     .filter((r): r is RoutesContribution => Boolean(r));
+}
+
+/** The registered readiness provider, if any. */
+export function registeredReadiness(): ReadinessProvider | undefined {
+  return [...current().byModule.values()].find((c) => c.readiness)?.readiness;
+}
+/** Channel directories: platform first, then modules in registry order. */
+export function registeredChannelDirectories(): ChannelDirectory[] {
+  return [...current().byModule.values()]
+    .map((c) => c.channelDirectory)
+    .filter((d): d is ChannelDirectory => Boolean(d));
 }

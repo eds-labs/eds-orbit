@@ -1,17 +1,17 @@
-import { validateActiveIndexEvaluation } from "../../../../packages/knowledge/src/index.ts";
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { data, list } from "../shared.ts";
-import { isAssignedPostizChannel } from "./postiz-assignment.ts";
-import { publicOpenAiConfiguration } from "./openai-configuration.ts";
-import { currentMarketingProfile } from "./marketing-profile.ts";
+import { validateActiveIndexEvaluation } from "../../../../../../packages/knowledge/src/index.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { data, list } from "../../../shared.ts";
+import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
+import { publicOpenAiConfiguration } from "../../openai-configuration.ts";
+import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import { actionReadiness } from "./action-readiness.ts";
-import { loadConfig } from "../../../../packages/config/src/index.ts";
-import { imagePriceConfigured } from "../../../../packages/ai/src/index.ts";
+import { loadConfig } from "../../../../../../packages/config/src/index.ts";
+import { imagePriceConfigured } from "../../../../../../packages/ai/src/index.ts";
 import {
   driveReconnectRequired,
   publishingUsesDriveAssets,
-} from "./drive-readiness.ts";
+} from "../brand/drive-readiness.ts";
 export async function readiness(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },

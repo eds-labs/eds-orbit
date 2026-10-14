@@ -2,17 +2,8 @@ import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
 
-/**
- * Drive readiness from recorded state only. A rejected OAuth refresh is
- * persisted on the connection by the Drive adapter, so dashboards report it
- * without calling Google on every load.
- */
-export function driveReconnectRequired(
-  connection: { data: unknown } | null | undefined,
-) {
-  const value = data(connection);
-  return Boolean(value.encryptedRefreshToken && value.lastRefreshFailedAt);
-}
+// Connection state belongs to the platform's Drive connection (WP2.1f).
+export { driveReconnectRequired } from "../../google-drive.ts";
 
 /** Inline bytes are kept locally; only Drive-referenced assets need Drive. */
 export function isDriveOnlyAsset(asset: Record<string, any>) {

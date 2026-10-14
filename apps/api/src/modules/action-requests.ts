@@ -16,9 +16,11 @@ import {
   list,
   update,
 } from "../shared.ts";
-import { assignedPostizChannels } from "./postiz-assignment.ts";
 import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
-import { registeredActionType } from "../platform/modules/contributions.ts";
+import {
+  registeredActionType,
+  registeredChannelDirectories,
+} from "../platform/modules/contributions.ts";
 
 /**
  * Generic action requests (ADR 0008), stored as Entity(kind="action_requests").
@@ -232,9 +234,12 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
   });
   // A decision names the channel as the owner knows it, not by its ID.
   const channels = new Map<string, Record<string, unknown>>(
-    (await list(tx, scope, "connectors"))
-      .filter((row) => data(row).provider === "postiz")
-      .flatMap((row) => assignedPostizChannels(data(row)))
+    (
+      await Promise.all(
+        registeredChannelDirectories().map((directory) => directory(tx, scope)),
+      )
+    )
+      .flat()
       .map((channel: any) => [channel.id, channel]),
   );
   const items = [];

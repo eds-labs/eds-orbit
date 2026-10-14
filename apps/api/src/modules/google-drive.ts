@@ -15,7 +15,6 @@ import {
   list,
   update,
 } from "../shared.ts";
-import { driveReconnectRequired } from "./drive-readiness.ts";
 
 const scopeUrl = "https://www.googleapis.com/auth/drive";
 const folderMime = "application/vnd.google-apps.folder";
@@ -905,4 +904,16 @@ export async function markSyncFailed(scope: Scope, assetId: string) {
       ).toISOString(),
     });
   });
+}
+
+/**
+ * Drive readiness from recorded state only. A rejected OAuth refresh is
+ * persisted on the connection by the Drive adapter, so dashboards report it
+ * without calling Google on every load.
+ */
+export function driveReconnectRequired(
+  connection: { data: unknown } | null | undefined,
+) {
+  const value = data(connection);
+  return Boolean(value.encryptedRefreshToken && value.lastRefreshFailedAt);
 }

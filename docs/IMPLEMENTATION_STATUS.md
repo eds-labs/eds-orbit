@@ -1,5 +1,23 @@
 # Implementation status
 
+## Readiness, channel names and Drive state without platform imports of marketing: WP2.1f-3b (2026-10-14, local)
+
+Branch `claude/wp21f3b-contributors`. Six known platform → marketing imports are resolved, so the baseline drops from 33 to 27. Behaviour is unchanged.
+
+- **Readiness.**
+  - `readiness.ts` and `action-readiness.ts` (with its test) move to `modules/marketing/readiness/`. They are marketing's go-live readiness: policy, publisher, channels and Drive-backed posts.
+  - Marketing registers them as the readiness provider (`readiness` contribution, at most one).
+  - The dashboard, the assistant's project status and the policy activation read it through `platform/governance/readiness.ts` (`projectReadiness`).
+  - Splitting readiness by owner would reorder the blockers. That is left for the platform home.
+- **Channel names.** The owner's decision list (`listActionRequests`) gets channel names from registered channel directories. Marketing contributes the Postiz one. Before, the list imported Postiz code.
+- **Drive state.** `driveReconnectRequired` moves to the platform's Drive connection (`google-drive.ts`); marketing's `drive-readiness` re-exports it.
+- **Assets.** `assets.ts` (bytes, normalization) is classified as platform in the boundary checker, as planned (`04` §2.1, later `platform/files`). It imports nothing from marketing.
+
+**Verification (local, isolated test database).**
+- Full suite: 145 files, 1354 tests. API and web typechecks pass.
+- Boundary check: 27 known violations, none new.
+- Mutation check: without the channel directory, the action request and package schedule tests fail on the channel names.
+
 ## Marketing routes as a module contribution: WP2.1f-3a (2026-10-14, local)
 
 Branch `claude/wp21f3-routes`, the third part of WP2.1f. The marketing module now registers its own HTTP routes (`routes` contribution, `platform/http/routes.ts`). There are 21 routes, moved unchanged from `server.ts` and registered at the same paths:

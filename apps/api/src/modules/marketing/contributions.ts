@@ -8,8 +8,10 @@ import { marketingRetention } from "./retention.ts";
 import { marketingPeriodicTasks } from "./periodic.ts";
 import { marketingActions } from "./actions.ts";
 import { marketingRoutes } from "./routes.ts";
+import { readiness } from "./readiness/readiness.ts";
+import { assignedPostizChannels } from "./publishing/postiz-assignment.ts";
+import { data, list } from "../../shared.ts";
 import { registerAgentSpecialists } from "./agents/specialists/index.ts";
-import { data } from "../../shared.ts";
 
 /**
  * What the marketing module plugs into the platform (WP1.6). Transitional:
@@ -26,6 +28,12 @@ export const marketingContributions: ModuleContributions = {
   periodic: marketingPeriodicTasks,
   actions: marketingActions,
   routes: marketingRoutes,
+  readiness,
+  // Postiz channels by id, for the owner's decisions on action requests.
+  channelDirectory: async (tx, scope) =>
+    (await list(tx, scope, "connectors"))
+      .filter((row) => data(row).provider === "postiz")
+      .flatMap((row) => assignedPostizChannels(data(row))),
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
   publicViews: {

@@ -54,7 +54,7 @@ import {
 } from "./modules/action-requests.ts";
 import { agentsEnabled } from "./modules/agents/assignments.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
-import { readiness } from "./modules/readiness.ts";
+import { projectReadiness } from "./platform/governance/readiness.ts";
 import { publicOpenAiConfiguration } from "./modules/openai-configuration.ts";
 import {
   beginConnect,
@@ -591,7 +591,7 @@ export async function buildServer(
       counts.connectedConnectors = (await list(tx, scope, "connectors")).filter(
         (c) => ["read_verified", "write_verified"].includes(data(c).status),
       ).length;
-      const capabilityReadiness = await readiness(tx, scope);
+      const capabilityReadiness = await projectReadiness(tx, scope);
       return {
         project,
         counts,
@@ -1124,7 +1124,7 @@ export async function buildServer(
         parsed.mode === "autopilot" &&
         config.EXECUTION_MODE === "live"
       ) {
-        const state = await readiness(tx, scope);
+        const state = await projectReadiness(tx, scope);
         if (state.blockers.length)
           throw new DomainError(
             "LIVE_ACTIVATION_BLOCKED:" + state.blockers.join(","),
