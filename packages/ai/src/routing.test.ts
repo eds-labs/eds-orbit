@@ -56,15 +56,16 @@ describe("resolveRoute", () => {
       verifiedModels: ["f", "s", "q", "e"],
       modelRoutes: { fast: "f", standard: "s", quality: "q", escalation: "e" },
     };
-    for (const taskClass of [
-      "agent_strategy",
-      "agent_research",
-      "agent_analytics",
-    ] as const)
+    // Strategy and research plan or list whole posts and need more room.
+    for (const taskClass of ["agent_strategy", "agent_research"] as const)
       expect(resolveRoute(taskClass, runtime)).toEqual({
         model: "s",
-        maxOutputTokens: 1800,
+        maxOutputTokens: 3000,
       });
+    expect(resolveRoute("agent_analytics", runtime)).toEqual({
+      model: "s",
+      maxOutputTokens: 1800,
+    });
     expect(resolveRoute("agent_review", runtime)).toEqual({
       model: "q",
       maxOutputTokens: 1800,
