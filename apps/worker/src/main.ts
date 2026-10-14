@@ -1,9 +1,12 @@
 import { registerModules } from "../../api/src/modules/registry.ts";
 import {
+  ownerEnabled,
+  registeredJobOwner,
   registeredJobs,
   registeredPeriodicTasks,
   workerStartHooks,
 } from "../../api/src/platform/modules/contributions.ts";
+import { enabledModules } from "../../api/src/platform/modules/enforcement.ts";
 import {
   saveGeneratedAsset,
   markSyncFailed,
@@ -46,7 +49,6 @@ import {
 registerModules();
 // Module start-up, such as the specialists of the `agent` queue.
 for (const start of workerStartHooks()) start();
-const periodicTasks = registeredPeriodicTasks();
 const config = loadConfig(),
   url = new URL(config.REDIS_URL);
 const connection = new Redis(config.REDIS_URL, {
@@ -144,6 +146,21 @@ const workers = classes.map(
             await def.onBlockedByPause?.(tx, d);
             return null;
           }
+          // A disabled module's jobs stop like paused ones (WP2.4); the
+          // existing retry action restarts them once the module is on.
+          if (
+            !ownerEnabled(
+              registeredJobOwner(topic),
+              await enabledModules(tx, scope),
+            )
+          ) {
+            await update(tx, scope, job, {
+              ...d,
+              status: "blocked_dependency",
+              error: "MODULE_DISABLED",
+            });
+            return null;
+          }
           return update(tx, scope, job, {
             ...d,
             status: "running",
@@ -220,10 +237,14 @@ async function processProject(p: DueProject, claimed: Date) {
     role: "owner",
   };
   const at = new Date();
-  const { events, candidates } = await scoped(
+  const { events, candidates, periodicTasks } = await scoped(
     p.workspaceId,
     p.id,
     async (tx) => {
+      // Periodic tasks of enabled modules only (WP2.4).
+      const periodicTasks = registeredPeriodicTasks(
+        await enabledModules(tx, scope),
+      );
       await sweepProject(tx, scope);
       const candidates: (Date | null)[] = [await nextSweepAt(tx, scope)];
       // Periodic tasks are not gated by pause, matching their run below.
@@ -297,7 +318,7 @@ async function processProject(p: DueProject, claimed: Date) {
         select: { availableAt: true },
       });
       candidates.push(upcoming?.availableAt ?? null);
-      return { events, candidates };
+      return { events, candidates, periodicTasks };
     },
   );
   let redispatch = events.length === OUTBOX_BATCH;

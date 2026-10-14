@@ -9,6 +9,7 @@ import {
   pickerHref,
   projectHref,
   rewriteLegacyHref,
+  routeEnabled,
   routeTable,
 } from "./routes";
 import type { WebRegistry } from "./types";
@@ -195,6 +196,16 @@ describe("Web route registry", () => {
         { ...base, platform: [view("home", ""), view("x", "a/b")] },
       ],
       [
+        'unknown module "marketing"',
+        {
+          ...base,
+          platform: [
+            view("home", ""),
+            { ...view("a", "a"), requiresModule: "marketing" },
+          ],
+        },
+      ],
+      [
         "legacy path /x used",
         {
           ...base,
@@ -208,5 +219,24 @@ describe("Web route registry", () => {
     ];
     for (const [message, registry] of broken)
       expect(() => routeTable(registry), message).toThrow(message);
+  });
+
+  it("hides the pages of a disabled module and the pages that need it", () => {
+    const shown = (off: string[]) =>
+      table.routes
+        .filter((r) => routeEnabled(r, (id) => !off.includes(id)))
+        .map((r) => r.key);
+    const all = shown([]);
+    expect(all).toHaveLength(table.routes.length);
+    const withoutMarketing = shown(["marketing"]);
+    expect(withoutMarketing).not.toContain("approvals");
+    expect(withoutMarketing).toContain("home");
+    expect(withoutMarketing).toContain("knowledge");
+    expect(
+      withoutMarketing.some(
+        (key) =>
+          table.routes.find((r) => r.key === key)!.moduleId === "marketing",
+      ),
+    ).toBe(false);
   });
 });

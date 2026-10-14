@@ -14,8 +14,14 @@ import {
 import { moduleRegistry, registerModules } from "./modules/registry.ts";
 import {
   registeredAction,
-  registeredRoutes,
+  registeredActionOwner,
+  registeredRegistry,
+  registeredRoutesByOwner,
 } from "./platform/modules/contributions.ts";
+import {
+  assertModuleEnabled,
+  assertModuleEnabledFor,
+} from "./platform/modules/enforcement.ts";
 import {
   listModuleStates,
   moduleSwitchingEnabled,
@@ -168,6 +174,9 @@ function actionPermission(action: string) {
     PROJECT_WRITE
   );
 }
+/** The module (or "platform") that owns a collection's entity kind. */
+const collectionOwner = (collection: string) =>
+  registeredRegistry().kindOwner.get(collection);
 /** The permission a generic collection write needs. */
 function collectionWritePermission(collection: string) {
   const owned: Record<string, ReturnType<typeof actionPermission>> = {
@@ -711,7 +720,22 @@ export async function buildServer(
   });
 
   // Module routes at their existing paths (WP2.1f).
-  for (const routes of registeredRoutes()) routes({ app, auth, config });
+  // A disabled module's project routes answer 404 MODULE_DISABLED after the
+  // membership check (WP2.4); public webhooks keep their own checks.
+  for (const [owner, routes] of registeredRoutesByOwner())
+    await app.register(async (child) => {
+      child.addHook("preHandler", async (req) => {
+        if (!moduleSwitchingEnabled()) return;
+        if (!req.routeOptions.url?.startsWith("/api/projects/:projectId/"))
+          return;
+        const { projectId } = req.params as { projectId: string };
+        await assertModuleEnabledFor(
+          await scopeFor(auth, req, projectId),
+          owner,
+        );
+      });
+      routes({ app: child, auth, config });
+    });
 
   app.post("/api/workspaces/:workspaceId/pause", async (req) => {
     const user = await userFor(auth, req),
@@ -1031,13 +1055,16 @@ export async function buildServer(
     const { projectId, collection } = req.params as any;
     schemas.collection.parse(collection);
     const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => ({
-      items: (await list(tx, scope, collection))
-        // Composed assignment banners are bound to their post (R78): no library entry.
-        .filter((row) => collection !== "assets" || !data(row).boundTo)
-        .slice(0, 500)
-        .map(publicEntity),
-    }));
+    return scoped(scope.workspaceId, projectId, async (tx) => {
+      await assertModuleEnabled(tx, scope, collectionOwner(collection));
+      return {
+        items: (await list(tx, scope, collection))
+          // Composed assignment banners are bound to their post (R78): no library entry.
+          .filter((row) => collection !== "assets" || !data(row).boundTo)
+          .slice(0, 500)
+          .map(publicEntity),
+      };
+    });
   });
   app.post("/api/projects/:projectId/:collection", async (req, reply) => {
     const { projectId, collection } = req.params as any;
@@ -1048,6 +1075,7 @@ export async function buildServer(
       collectionWritePermission(collection),
     );
     const result = await scoped(scope.workspaceId, projectId, async (tx) => {
+      await assertModuleEnabled(tx, scope, collectionOwner(collection));
       if (collection === "facts")
         return setFact(tx, scope, factSchema.parse(req.body));
       let parsed: Record<string, any>;
@@ -1142,9 +1170,16 @@ export async function buildServer(
     const handler = registeredAction(action);
     if (!handler) throw new DomainError("ACTION_NOT_SUPPORTED", 400);
     const ctx = { scope, input, config, auth };
-    return handler.transaction === "own"
-      ? handler.run(ctx)
-      : scoped(scope.workspaceId, projectId, (tx) => handler.run(tx, ctx));
+    // A disabled module's actions answer 404 MODULE_DISABLED (WP2.4).
+    const owner = registeredActionOwner(action);
+    if (handler.transaction === "own") {
+      await assertModuleEnabledFor(scope, owner);
+      return handler.run(ctx);
+    }
+    return scoped(scope.workspaceId, projectId, async (tx) => {
+      await assertModuleEnabled(tx, scope, owner);
+      return handler.run(tx, ctx);
+    });
   });
   app.get("/api/openapi.json", async (req) => {
     await userFor(auth, req);

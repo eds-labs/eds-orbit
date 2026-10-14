@@ -1,5 +1,30 @@
 # Implementation status
 
+## Module activation enforced behind ORBIT_MODULES: WP2.4 (2026-10-14, local)
+
+Branch `claude/wp24-enforcement`. With `ORBIT_MODULES=true`, a module an owner turns off is hidden and blocked everywhere, and nothing is deleted. With the flag off (the default) nothing changes. Behaviour, risk analysis, rollback and rollout: `docs/MODULE_ACTIVATION.md`.
+
+- **API.**
+  - Module routes under `/api/projects/:projectId/…` get a guard per owning module, after the membership check.
+  - Actions and generic collections check the owner of the action or kind.
+  - A disabled module answers `404 MODULE_DISABLED`.
+- **Assistant.** Tools, prompt fragments and conversation sections of a disabled module are left out. When no enabled module gives instructions, a short platform prompt is used.
+- **Jobs.**
+  - The sweep skips a disabled module's scheduler and periodic tasks.
+  - The worker stops such a module's job before claiming it: `blocked_dependency` with `MODULE_DISABLED`, which the existing `retry` action restarts. This deliberately deviates from the planned `skipped_module_disabled`.
+- **Contributions registry.** It records the owner of every tool, action, job and periodic task, and the getters take the set of enabled modules.
+- **Web.**
+  - New tab **Settings → Modules**: state, dependencies, owner toggle with confirmation, and the dependency errors in plain words.
+  - The shell takes navigation, home sections, chat parts, inbox views, settings sections and connector providers only from enabled modules.
+  - Module pages show a notice. A platform page can name a module it needs (`requiresModule`): approvals needs marketing.
+  - The page remounts on a switch, so section hooks keep their order.
+
+**Verification (local).**
+- Full suite with the flag off: 151 files and 1370 tests, including the new suites `module-enforcement` (API) and `module-disabled` (worker), and web tests for the Modules tab and the route gate. All of them are mutation-checked.
+- Prompt snapshots unchanged. The OpenAPI document is unchanged.
+- Typechecks, source and boundary check (2 known violations, both `telegram.ts`, WP2.5), and a web production build.
+- Visual check against a synthetic mock API: turning marketing off hides its navigation, home section, settings tabs, connector providers and the approvals page; turning it on restores them.
+
 ## Settings, connectors and tools split by owner: WP2.3b (2026-10-14, local)
 
 Branch `claude/wp23b-settings`, the last part of WP2.3. The web platform imports no module component anymore; the known web boundary violations drop from 5 to 0. Pages, order and texts are unchanged.

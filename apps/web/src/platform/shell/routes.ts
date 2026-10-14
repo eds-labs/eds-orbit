@@ -36,6 +36,8 @@ export function routeTable(registry: WebRegistry): RouteTable {
   const add = (view: ViewDef, moduleId: string | null) => {
     if (view.path && !SEGMENT.test(view.path))
       problems.push(`${view.key}: invalid path "${view.path}"`);
+    if (view.requiresModule && !moduleIds.includes(view.requiresModule))
+      problems.push(`${view.key}: unknown module "${view.requiresModule}"`);
     routes.push({
       ...view,
       moduleId,
@@ -78,6 +80,18 @@ export function routeTable(registry: WebRegistry): RouteTable {
   if (problems.length)
     throw new Error(`WEB_ROUTES_INVALID: ${problems.join("; ")}`);
   return { routes, legacy, moduleIds };
+}
+
+/**
+ * Whether a route is shown (WP2.4): a module page needs its module, a
+ * platform page its requiresModule, if any.
+ */
+export function routeEnabled(
+  route: Route,
+  enabled: (moduleId: string) => boolean,
+): boolean {
+  const gate = route.moduleId ?? route.requiresModule;
+  return !gate || enabled(gate);
 }
 
 /** Where a route lives in a project. */

@@ -31,6 +31,11 @@ export type ViewDef = {
   nav?: NavEntry;
   /** Paths from before WP1.7 that redirect here, such as "/missions". */
   legacyPaths?: readonly string[];
+  /**
+   * A platform page that only works while this module is on (WP2.4), such
+   * as the approvals inbox that still lists marketing's items.
+   */
+  requiresModule?: string;
 };
 
 /**

@@ -37,6 +37,7 @@ import {
   navOrder,
   pickerHref,
   projectHref,
+  routeEnabled,
   rewriteLegacyHref,
   routeTable,
   type Route,
@@ -95,8 +96,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const project = projectId
     ? identity.data?.projects.find((p) => p.id === projectId)
     : undefined;
+  // Refetched with the workspace revision, so a module switch shows at once.
   const moduleStates = useResource<ModuleStates>(
-    project ? `/projects/${encodeURIComponent(project.id)}/modules` : null,
+    project
+      ? `/projects/${encodeURIComponent(project.id)}/modules?revision=${revision}`
+      : null,
   );
   useEffect(() => {
     try {
@@ -193,9 +197,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     const enabled = (id: string) =>
       states?.find((m) => m.id === id)?.enabled ?? true;
     const nav = navOrder(table.routes.filter((r) => r.nav));
+    const active = registry.modules.filter((m) => enabled(m.id));
     return {
       table,
-      platformNav: nav.filter((r) => !r.moduleId),
+      platformNav: nav.filter((r) => !r.moduleId && routeEnabled(r, enabled)),
       modules: registry.modules.map((m) => ({
         id: m.id,
         displayName: m.displayName,
@@ -211,18 +216,17 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         const route = table.routes.find((r) => r.key === key);
         return route ? projectHref(project.id, route) : "/";
       },
-      chat: registry.modules.flatMap((m) => (m.chat ? [m.chat] : [])),
+      // Contributions of enabled modules only (WP2.4).
+      chat: active.flatMap((m) => (m.chat ? [m.chat] : [])),
       actionRequests: Object.assign(
         {},
-        ...registry.modules.map((m) => m.actionRequests ?? {}),
+        ...active.map((m) => m.actionRequests ?? {}),
       ),
-      settings: registry.modules.flatMap((m) => m.settings ?? []),
-      setupLinks: registry.modules.flatMap((m) => m.setupLinks ?? []),
+      settings: active.flatMap((m) => m.settings ?? []),
+      setupLinks: active.flatMap((m) => m.setupLinks ?? []),
       connectors: {
-        providers: registry.modules.flatMap(
-          (m) => m.connectors?.providers ?? [],
-        ),
-        extras: registry.modules.flatMap((m) => m.connectors?.extras ?? []),
+        providers: active.flatMap((m) => m.connectors?.providers ?? []),
+        extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
     };
   }, [project, moduleStates.data, registry, table]);
@@ -380,17 +384,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const isOwner = role === "owner",
     canEdit = role !== "viewer";
   const organization = me.workspaces.find((w) => w.id === project.workspaceId);
-  const moduleOff = Boolean(
-    route?.moduleId &&
-    !shell.modules.find((m) => m.id === route.moduleId)?.enabled,
-  );
+  // A page of a module, or a platform page that needs one (WP2.4).
+  const isOn = (id: string) =>
+    Boolean(shell.modules.find((m) => m.id === id)?.enabled);
+  const moduleOff = Boolean(route && !routeEnabled(route, isOn));
   const visibleNav = navOrder(
-    table.routes.filter(
-      (r) =>
-        r.nav &&
-        (!r.moduleId ||
-          shell.modules.find((m) => m.id === r.moduleId)?.enabled),
-    ),
+    table.routes.filter((r) => r.nav && routeEnabled(r, isOn)),
   );
   const homeHref = shell.hrefOf("home");
   function changeProject(id: string) {
@@ -568,7 +567,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                 href: (path) => rewriteLegacyHref(table, project.id, path),
               }}
             >
-              <div key={`${project.id}:${route?.key ?? "not-found"}`}>
+              {/* Remounts when modules switch: module sections bring hooks. */}
+              <div
+                key={`${project.id}:${route?.key ?? "not-found"}:${shell.modules
+                  .filter((m) => m.enabled)
+                  .map((m) => m.id)
+                  .join(",")}`}
+              >
                 {!canEdit && route && <Alert>{t("viewer")}</Alert>}
                 {!route ? (
                   <NotFound t={t} homeHref={homeHref} />

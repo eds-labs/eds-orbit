@@ -1,6 +1,7 @@
 "use client";
 import { ShellContext } from "@/platform/shell/shell-context";
 import { RetentionControl } from "./retention-control";
+import { ModuleSettings } from "./module-settings";
 import { ProjectAdministration } from "./project-administration";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
@@ -457,6 +458,7 @@ export function ProjectSettings() {
       label: { en: "Integrations", de: "Integrationen" },
       order: 40,
     },
+    { key: "modules", label: { en: "Modules", de: "Module" }, order: 50 },
   ];
   for (const { section, shown } of modules) {
     if (!shown) continue;
@@ -592,6 +594,7 @@ export function ProjectSettings() {
       )}
       {tab === "project" && <ProjectAdministration />}
       {tab === "policy" && <RetentionControl />}
+      {tab === "modules" && <ModuleSettings />}
       {tab === "integrations" && <GoogleDriveSettings />}
       {tab === "integrations" && (
         <section className="panel">

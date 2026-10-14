@@ -54,6 +54,7 @@ export const webRegistry: WebRegistry = {
       key: "approvals",
       path: "approvals",
       component: ApprovalInbox,
+      requiresModule: "marketing",
       nav: { label: label("approvals"), icon: CircleCheck, order: 70 },
       legacyPaths: ["/approvals"],
     },
