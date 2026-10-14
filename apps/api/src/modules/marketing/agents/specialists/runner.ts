@@ -1,6 +1,6 @@
 import { zodTextFormat } from "openai/helpers/zod";
-import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { scoped, type DbTx } from "../../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../../packages/schemas/src/index.ts";
 import {
   estimateCost,
   isRejectedRequest,
@@ -8,35 +8,35 @@ import {
   respond,
   webSearchFee,
   webSearchInputTokens,
-} from "../../../../../../packages/ai/src/index.ts";
+} from "../../../../../../../packages/ai/src/index.ts";
 import {
   data,
   DomainError,
   entity,
   exception,
   update,
-} from "../../../shared.ts";
-import { requireSpendMandate } from "../../../platform/ai/spend-mandate.ts";
+} from "../../../../shared.ts";
+import { requireSpendMandate } from "../../../../platform/ai/spend-mandate.ts";
 import {
   budgetMonthStart,
   markTransmitted,
   reserve,
   settle,
-} from "../../budget.ts";
+} from "../../../budget.ts";
 import {
   errorCode as telemetryErrorCode,
   finishRun,
   hashText,
   recordSpan,
   startRun,
-} from "../../telemetry.ts";
+} from "../../../telemetry.ts";
 import {
   openAiConfigurationVersion,
   runtimeOpenAiConfiguration,
-} from "../../openai-configuration.ts";
-import { legacyResponsesRuntime } from "../runtime/legacy-responses.ts";
-import type { BudgetedModel, ToolHost } from "../runtime/port.ts";
-import { findTool, responsesTool } from "../tools/registry.ts";
+} from "../../../openai-configuration.ts";
+import { legacyResponsesRuntime } from "../../../agents/runtime/legacy-responses.ts";
+import type { BudgetedModel, ToolHost } from "../../../agents/runtime/port.ts";
+import { findTool, responsesTool } from "../../../agents/tools/registry.ts";
 import {
   cancelAssignmentRuns,
   requeueAgentTask,

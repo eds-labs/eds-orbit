@@ -4,7 +4,7 @@ import {
   DEFAULT_SPECIALIST_LIMITS,
   normalizeSourceUrl,
   type Specialist,
-} from "../../../agents/specialists/types.ts";
+} from "./types.ts";
 
 const text = (max: number) =>
   z.string().refine((value) => value.length > 0 && value.length <= max);

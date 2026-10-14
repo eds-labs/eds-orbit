@@ -54,13 +54,13 @@ import { notify } from "../notifications.ts";
 import {
   ASSIGNMENT_BUDGET_EXHAUSTED,
   runSpecialist,
-} from "../../../agents/specialists/runner.ts";
+} from "./runner.ts";
 import {
   DEFAULT_SPECIALIST_LIMITS,
   type AgentTask,
   type Specialist,
   type StepHandler,
-} from "../../../agents/specialists/types.ts";
+} from "./types.ts";
 
 /**
  * Review step of an assignment run (Orbit Agents, spec §5/§6, R45). Every

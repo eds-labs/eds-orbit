@@ -1,9 +1,9 @@
 import type { z } from "zod";
-import type { DbTx } from "../../../../../../packages/db/src/index.ts";
-import type { TaskClass } from "../../../../../../packages/ai/src/routing.ts";
-import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import type { DbTx } from "../../../../../../../packages/db/src/index.ts";
+import type { TaskClass } from "../../../../../../../packages/ai/src/routing.ts";
+import type { Scope } from "../../../../../../../packages/schemas/src/index.ts";
 import type { StepRole } from "../assignment-runs.ts";
-import type { OrbitTool } from "../tools/registry.ts";
+import type { OrbitTool } from "../../../agents/tools/registry.ts";
 
 /** Bounds of one specialist task; exceeding any of them fails it with `AGENT_LIMIT`. */
 export type SpecialistLimits = {

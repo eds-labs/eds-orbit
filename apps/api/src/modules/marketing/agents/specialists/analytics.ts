@@ -7,7 +7,7 @@ import {
 import {
   DEFAULT_SPECIALIST_LIMITS,
   type Specialist,
-} from "../../../agents/specialists/types.ts";
+} from "./types.ts";
 
 const finding = z
   .object({

@@ -42,11 +42,11 @@ import { errorCode } from "../../../telemetry.ts";
 import {
   assertTaskBudget,
   runBudgetKey,
-} from "../../../agents/specialists/runner.ts";
+} from "./runner.ts";
 import type {
   AgentTask,
   StepHandler,
-} from "../../../agents/specialists/types.ts";
+} from "./types.ts";
 
 /**
  * Visual step of an assignment run (Orbit Agents, spec §5, §6, §8): one image

@@ -41,9 +41,7 @@
       "apps/api/src/modules/telegram.ts",
       "apps/api/src/modules/telemetry.ts",
       "apps/api/src/modules/agents/runtime/",
-      "apps/api/src/modules/agents/tools/registry.ts",
-      "apps/api/src/modules/agents/specialists/runner.ts",
-      "apps/api/src/modules/agents/specialists/types.ts"
+      "apps/api/src/modules/agents/tools/registry.ts"
     ],
     "module:knowledge": [
       "apps/api/src/modules/knowledge/",
@@ -122,11 +120,6 @@
     "package:knowledge"
   ],
   "baseline": [
-    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/assignment-runs.ts",
-    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/assignments.ts",
-    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/notifications.ts",
-    "platform-imports-module: apps/api/src/modules/agents/specialists/runner.ts -> apps/api/src/modules/agents/veto.ts",
-    "platform-imports-module: apps/api/src/modules/agents/specialists/types.ts -> apps/api/src/modules/agents/assignment-runs.ts",
     "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/assignments.ts",
     "platform-imports-module: apps/api/src/modules/chat-runner.ts -> apps/api/src/modules/agents/content-packages.ts",
     "platform-imports-module: apps/api/src/modules/chat-tools.ts -> apps/api/src/modules/asset-tools.ts",

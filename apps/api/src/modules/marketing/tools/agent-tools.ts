@@ -14,7 +14,7 @@ import {
   credentialKey,
 } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
-import { runBudgetKey } from "../../agents/specialists/runner.ts";
+import { runBudgetKey } from "../agents/specialists/runner.ts";
 import { readTools } from "./read-tools.ts";
 import {
   defineTool,

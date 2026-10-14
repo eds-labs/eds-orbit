@@ -38,11 +38,11 @@ import {
   runBudgetKey,
   taskBudgetLeft,
   taskReservations,
-} from "../../../agents/specialists/runner.ts";
+} from "./runner.ts";
 import type {
   AgentTask,
   StepHandler,
-} from "../../../agents/specialists/types.ts";
+} from "./types.ts";
 import { attachRunImage, composeRunBanners } from "./visual.ts";
 
 /**

@@ -1,5 +1,22 @@
 # Implementation status
 
+## Orbit Agents runner in the marketing module: WP2.1f-3c (2026-10-14, local)
+
+Branch `claude/wp21f3c-runner`. The specialist runner (`runner.ts`) and its types move from `modules/agents/specialists/` to `modules/marketing/agents/specialists/`. The boundary checker no longer counts them as platform. The old paths re-export.
+
+- **Why the runner moves whole.** Plan `04` sketched a platform "runner core". Its generic parts are already in the platform: the runtime port, the budgeted model and the Responses runtime, all in `agents/runtime` since WP1.1. What the runner still holds is Orbit Agents logic:
+  - claiming and recovering `agent_tasks`;
+  - budgets per assignment run;
+  - assignment refusal and exhaustion;
+  - the veto schedule and notifications.
+
+  Those entity kinds are marketing's (`04` §2.3).
+- **When to extract a core.** A generic agent core for a second module (Support AI, WP5.6) is worth extracting when that module needs it. This is a deliberate deviation from the plan's sketch.
+- **Unchanged.** No code changed beyond import paths. The review eval's prompt hash (`evals/agents/code-version.ts`) is unchanged; the offline review eval passes.
+- **Boundary violations.** Five known platform → marketing imports are resolved, so the baseline drops from 27 to 22. The 14 remaining platform → marketing imports are in `chat`, `chat-runner` and `chat-tools` (WP2.2) and in `telegram` (WP2.5).
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1354 tests, including the offline agent and operator evals. API and web typechecks pass. Boundary check: 22 known violations, none new.
+
 ## Readiness, channel names and Drive state without platform imports of marketing: WP2.1f-3b (2026-10-14, local)
 
 Branch `claude/wp21f3b-contributors`. Six known platform → marketing imports are resolved, so the baseline drops from 33 to 27. Behaviour is unchanged.

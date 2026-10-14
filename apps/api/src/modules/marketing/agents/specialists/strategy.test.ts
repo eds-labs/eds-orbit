@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outputIssues } from "../../../agents/specialists/runner.ts";
+import { outputIssues } from "./runner.ts";
 import {
   STRATEGY_TEXT_LIMITS,
   strategyOutput,

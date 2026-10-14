@@ -9,7 +9,7 @@ import { zonedTime } from "../publishing/posting-slots.ts";
 import { data, DomainError, entity, list } from "../../../shared.ts";
 import { runsMatching } from "../agents/assignment-runs.ts";
 import { runDeliverables } from "../agents/veto.ts";
-import { assignmentMonthSpend } from "../../agents/specialists/runner.ts";
+import { assignmentMonthSpend } from "../agents/specialists/runner.ts";
 import {
   CLEARABLE,
   deliveryOf,

@@ -5,7 +5,7 @@ import { reviewStep } from "./review.ts";
 import {
   registerSpecialist,
   registerStepHandler,
-} from "../../../agents/specialists/runner.ts";
+} from "./runner.ts";
 import { strategySpecialist } from "./strategy.ts";
 import { visualStep } from "./visual.ts";
 

@@ -22,7 +22,7 @@ import {
   deliverPostizDraft,
   markPostizDraftOutcomeUnknown,
 } from "./agents/draft-delivery.ts";
-import { runAgentTask } from "../agents/specialists/runner.ts";
+import { runAgentTask } from "./agents/specialists/runner.ts";
 
 /**
  * The marketing module's worker queues (WP1.6). The handlers and the per-queue
