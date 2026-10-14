@@ -58,5 +58,9 @@ describe("output issues", () => {
   it("tells an empty or non-JSON answer apart", () => {
     expect(outputIssues("", strategyOutput)).toBe("empty");
     expect(outputIssues("Here is the plan", strategyOutput)).toBe("not_json");
+    // Production uLiquid, 2026-10-14: the research answer failed as not JSON.
+    expect(outputIssues('{"findings":[{"lead":"cut', strategyOutput)).toBe(
+      "truncated_json",
+    );
   });
 });

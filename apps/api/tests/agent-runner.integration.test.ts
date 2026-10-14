@@ -279,7 +279,7 @@ describe.skipIf(!enabled)("Specialist runner", () => {
     const [request] = mocked.requests;
     expect(request.route).toEqual({
       model: "synthetic-model",
-      maxOutputTokens: 1800,
+      maxOutputTokens: 3000,
     });
     expect(request.instructions).toContain("Echo the step you were given.");
     expect(request.tools.map((tool: any) => tool.name)).toEqual([
