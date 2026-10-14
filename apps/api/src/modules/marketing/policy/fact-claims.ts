@@ -1,3 +1,15 @@
+// Words that turn a clause into its opposite ("isn't" splits into "isn" and "t").
+const NEGATIONS = new Set([
+  "not",
+  "no",
+  "never",
+  "without",
+  "isn",
+  "aren",
+  "doesn",
+  "don",
+  "t",
+]);
 /** Accept a literal fact rendering or a bounded natural sentence with its value and subject. */
 export function factClaimMatches(
   text: string,
@@ -51,12 +63,46 @@ export function factClaimMatches(
     "uliquid",
     "uliq",
     "desk",
+    // Words that join the subject and the value without adding a claim;
+    // "s" is the possessive ("Desk's").
+    "s",
+    "of",
+    "for",
+    "to",
+    "in",
+    "on",
+    "with",
+    "by",
+    "and",
+    "its",
+    "their",
+    "your",
   ]);
+  // A negation that belongs to the subject ("no_profit_guarantee") is not one.
+  const negated = [...claimTokens].some(
+    (token) => NEGATIONS.has(token) && !keyTokens.includes(token),
+  );
+  // A true or false fact is stated as a plain clause: false needs a
+  // negation, true must not have one, and the bare word is not required.
+  const polarity = value.toLocaleLowerCase();
+  if (polarity === "true" || polarity === "false") {
+    if (
+      [...claimTokens].some(
+        (token) => token && !allowed.has(token) && !NEGATIONS.has(token),
+      )
+    )
+      return false;
+    return polarity === "false" ? negated : !negated;
+  }
   if ([...claimTokens].some((token) => token && !allowed.has(token)))
     return false;
-  const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Hyphens, underscores and spaces inside the value are interchangeable.
+  const pattern = value
+    .split(/[-_\s]+/)
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("[-_\\s]+");
   if (
-    !new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(
+    !new RegExp(`(?<![\\p{L}\\p{N}])${pattern}(?![\\p{L}\\p{N}])`, "iu").test(
       text,
     )
   )
