@@ -12,7 +12,7 @@ Branch `claude/wp25b-notifications`, the second part of WP2.5. The owner's bot n
 - **Marketing.**
   - It registers its 15 kinds (`NOTIFY_KINDS`) with a renderer as `notifications` (`notification-messages.ts`, renamed from `notification-sender.ts`).
   - A preview's image is read by a loader the platform calls outside the transaction, as before.
-  - `notify` in `agents/notifications.ts` stays as a typed wrapper, so the 10 callers are unchanged.
+  - `notify` in `agents/notifications.ts` stays as a typed wrapper, so its callers are unchanged.
   - The daily report planning and `reportBlockedPost` stay in marketing.
 - **Registry.** Kinds must match `[a-z_]+` and be unique across owners. Job keys `notify:<kind>:<ref>` and every text are unchanged, so jobs queued before the deploy are sent as before.
 - **Module activation.** With `ORBIT_MODULES` on, a notice of a disabled module is skipped as `MODULE_DISABLED`. The job is no longer blocked by the worker, because its queue class belongs to the platform.
