@@ -37,7 +37,6 @@
       "apps/api/src/modules/reindex.ts",
       "apps/api/src/modules/retrieval.ts",
       "apps/api/src/modules/runtime.ts",
-      "apps/api/src/modules/telegram.ts",
       "apps/api/src/modules/telemetry.ts",
       "apps/api/src/modules/agents/runtime/",
       "apps/api/src/modules/agents/tools/registry.ts"
@@ -104,8 +103,5 @@
     "package:db",
     "package:knowledge"
   ],
-  "baseline": [
-    "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/assignments.ts",
-    "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/veto.ts"
-  ]
+  "baseline": []
 }

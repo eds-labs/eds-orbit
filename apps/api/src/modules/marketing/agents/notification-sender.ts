@@ -19,9 +19,9 @@ import { exportAssetContent } from "../pipeline/content-export.ts";
 import { zonedTime } from "../publishing/posting-slots.ts";
 import {
   linkedTelegramConnection,
-  stopCallbackData,
   telegramSender,
-} from "../../telegram.ts";
+} from "../../../platform/connections/telegram.ts";
+import { stopCallbackData } from "./telegram-stop.ts";
 import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
 import {
   dailyReportTime,

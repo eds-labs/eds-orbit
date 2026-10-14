@@ -1,5 +1,26 @@
 # Implementation status
 
+## Telegram transport on the platform, buttons routed by prefix: WP2.5a (2026-10-14, local)
+
+Branch `claude/wp25a-telegram-callbacks`, the first part of WP2.5. The owner's Telegram bot becomes platform code: `modules/telegram.ts` moves to `platform/connections/telegram.ts`. The known import-boundary violations drop from 2 to **0**.
+
+- **Callback router.** `callback_data` is dispatched by its prefix to the handler that the platform or a module registers as `telegram.callbacks` (`platform/connections/types.ts`).
+  - The platform registers `pause:`, the `/pause` confirmation.
+  - Marketing registers `stop:`, the veto of an assignment post (`modules/marketing/agents/telegram-stop.ts`).
+  - Prefixes must be short lowercase words and unique; the registry refuses anything else.
+  - Unknown or unverifiable data is answered and audited as before.
+- **Unchanged formats.** Both data formats, the MAC key and every answer text are byte-identical, so buttons that are already sent keep working. A test pins the Stop format against an independent computation.
+- **The bot's switch.** Today it is Orbit Agents (`ORBIT_AGENTS`). Marketing now contributes it (`telegram.enabled`), so the platform no longer reads a marketing flag.
+- **Module activation (WP2.4).** With `ORBIT_MODULES` on, a button of a disabled module is rejected like an invalid one; `/pause` keeps working.
+- **Signing helpers.** The platform exports `callbackMac`, `compactUuid` and `expandUuid`, so modules sign their callback data the same way.
+
+**Verification (local).**
+- Full suite: 151 files and 1373 tests.
+  - New registry tests: assignment of `pause`/`stop`, prefix rules, the switch.
+  - New Telegram integration tests: the Stop format pin, and Stop ignored while marketing is off while `/pause` still works.
+  - Both are mutation-checked.
+- The OpenAPI document is unchanged. Typecheck and source check pass, and the boundary check reports 0 known violations.
+
 ## Module activation enforced behind ORBIT_MODULES: WP2.4 (2026-10-14, local)
 
 Branch `claude/wp24-enforcement`. With `ORBIT_MODULES=true`, a module an owner turns off is hidden and blocked everywhere, and nothing is deleted. With the flag off (the default) nothing changes. Behaviour, risk analysis, rollback and rollout: `docs/MODULE_ACTIVATION.md`.

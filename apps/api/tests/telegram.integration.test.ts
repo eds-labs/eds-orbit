@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import {
   afterAll,
   afterEach,
@@ -19,10 +19,10 @@ import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
 import { buildServer } from "../src/server.ts";
 import { create, data, entity, list, update } from "../src/shared.ts";
-import {
-  linkedTelegramConnection,
-  stopCallbackData,
-} from "../src/modules/telegram.ts";
+import { linkedTelegramConnection } from "../src/platform/connections/telegram.ts";
+import { stopCallbackData } from "../src/modules/marketing/agents/telegram-stop.ts";
+import { setModuleEnabled } from "../src/platform/modules/activation.ts";
+import { moduleRegistry } from "../src/modules/registry.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -558,6 +558,57 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
     const [row] = await rows("publications");
     expect(data(row).status).toBe("scheduled_remote");
     expect(row!.version).toBe(pub.version);
+  });
+
+  it("keeps the Stop data format of buttons already sent (WP2.5a)", () => {
+    // Computed independently of the code under test: the format before WP2.5a.
+    const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+    const key = createHmac("sha256", process.env.AUTH_SECRET!)
+      .update("orbit-telegram-callback-v1")
+      .digest();
+    const mac = createHmac("sha256", key)
+      .update(`${id}:3`)
+      .digest()
+      .subarray(0, 16)
+      .toString("base64url");
+    const compact = Buffer.from(id.replace(/-/g, ""), "hex").toString(
+      "base64url",
+    );
+    expect(stopCallbackData(id.toUpperCase(), 3)).toBe(
+      `stop:${compact}.3.${mac}`,
+    );
+  });
+
+  it("ignores Stop while marketing is off, but still pauses (WP2.5a)", async () => {
+    const c = await linked();
+    const pub = await publication();
+    process.env.ORBIT_MODULES = "true";
+    try {
+      await run((tx) =>
+        setModuleEnabled(tx, owner, moduleRegistry(), "marketing", false),
+      );
+      await post(
+        c.connectionId,
+        c.secret,
+        click(stopCallbackData(pub.id, pub.version)),
+      );
+      expect(data((await rows("publications"))[0]).status).toBe(
+        "intent_created",
+      );
+      expect(lastAnswer()).toMatch(/ungültig/i);
+      expect(
+        (await audits("telegram.callback_rejected")).map((a) => a.metadata),
+      ).toEqual([{ action: "stop" }]);
+
+      // The platform's own button keeps working.
+      await post(c.connectionId, c.secret, message("/pause"));
+      const button =
+        sent("sendMessage").at(-1)!.body.reply_markup.inline_keyboard[0][0];
+      await post(c.connectionId, c.secret, click(button.callback_data));
+      expect(await paused()).toBe(true);
+    } finally {
+      delete process.env.ORBIT_MODULES;
+    }
   });
 
   it("pauses the project only after confirmation", async () => {

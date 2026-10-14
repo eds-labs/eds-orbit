@@ -14,7 +14,9 @@ import {
   registeredRetention,
   registeredRoutes,
   registeredSchedulers,
+  registeredTelegramCallback,
   registeredTools,
+  telegramContributorEnabled,
   unexportedKinds,
   workerStartHooks,
 } from "../src/platform/modules/contributions.ts";
@@ -29,6 +31,8 @@ import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
 import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
+import { pauseCallback } from "../src/platform/connections/telegram.ts";
+import { stopCallback } from "../src/modules/marketing/agents/telegram-stop.ts";
 
 /** The platform registries filled from module contributions (WP1.6). */
 describe("module contributions", () => {
@@ -219,6 +223,28 @@ describe("module contributions", () => {
     expect(registeredChannelDirectories()).toHaveLength(1);
   });
 
+  it("routes Telegram buttons by prefix; the bot runs with Orbit Agents (WP2.5a)", () => {
+    expect(registeredTelegramCallback("pause")).toEqual({
+      owner: "platform",
+      handle: pauseCallback,
+    });
+    expect(registeredTelegramCallback("stop")).toEqual({
+      owner: "marketing",
+      handle: stopCallback,
+    });
+    expect(registeredTelegramCallback("other")).toBeUndefined();
+    const before = process.env.ORBIT_AGENTS;
+    try {
+      process.env.ORBIT_AGENTS = "true";
+      expect(telegramContributorEnabled()).toBe(true);
+      process.env.ORBIT_AGENTS = "false";
+      expect(telegramContributorEnabled()).toBe(false);
+    } finally {
+      if (before === undefined) delete process.env.ORBIT_AGENTS;
+      else process.env.ORBIT_AGENTS = before;
+    }
+  });
+
   it("lets marketing register its own HTTP routes (WP2.1f)", () => {
     expect(registeredRoutes()).toEqual([marketingRoutes]);
   });
@@ -297,5 +323,20 @@ describe("module contributions", () => {
         { alpha: { readiness: provider } },
       ),
     ).toThrow("more than one readiness provider");
+    const press = async () => null;
+    expect(() =>
+      registerContributions(
+        registry,
+        { telegram: { callbacks: { pause: press } } },
+        { alpha: { telegram: { callbacks: { pause: press } } } },
+      ),
+    ).toThrow("Telegram callback pause registered twice");
+    expect(() =>
+      registerContributions(
+        registry,
+        {},
+        { alpha: { telegram: { callbacks: { "Stop:": press } } } },
+      ),
+    ).toThrow("invalid Telegram callback prefix Stop:");
   });
 });

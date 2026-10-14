@@ -26,10 +26,15 @@ import {
   update,
   credentialKey,
 } from "../../shared.ts";
-import { agentsEnabled } from "../../modules/agents/assignments.ts";
-import { vetoPublication } from "../../modules/agents/veto.ts";
-import { actorScope } from "../../modules/member-scope.ts";
-import { pauseProject } from "../../modules/pause.ts";
+import { actorScope } from "../tenancy/member-scope.ts";
+import { pauseProject } from "../governance/pause.ts";
+import {
+  ownerEnabled,
+  registeredTelegramCallback,
+  telegramContributorEnabled,
+} from "../modules/contributions.ts";
+import { enabledModules } from "../modules/enforcement.ts";
+import type { TelegramCallback } from "./types.ts";
 
 /**
  * The owner's private Orbit Telegram bot (Orbit Agents, spec §10).
@@ -50,11 +55,14 @@ import { pauseProject } from "../../modules/pause.ts";
  *
  * Webhook: the secret header is compared in constant time; a wrong one is
  * answered 401 and audited. Updates from any chat or user other than the
- * bound ones are ignored and audited. Stop (`stop:<token>`) withdraws an
- * assignment post before handoff (spec §9); `/pause` asks for an inline
+ * bound ones are ignored and audited. `/pause` asks for an inline
  * confirmation (`pause:<token>`) first. Resuming is only possible in Orbit.
- * Callback tokens are HMACs under a key derived from AUTH_SECRET; repeated
- * clicks give the same result.
+ *
+ * Buttons (WP2.5a): `callback_data` is routed by its prefix to the handler
+ * the platform or a module registered (`telegram.callbacks`); marketing's
+ * Stop (`stop:<token>`) withdraws an assignment post before handoff (spec
+ * §9). Callback tokens are HMACs under a key derived from AUTH_SECRET;
+ * repeated clicks give the same result.
  */
 const KIND = "telegram_connections";
 const LINK_CODE_MS = 10 * 60000;
@@ -74,9 +82,12 @@ function owner(scope: Scope) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
 }
 
-/** Bot routes and the webhook exist only with Orbit Agents on. */
+/**
+ * Bot routes and the webhook exist only while a contributor turns the bot
+ * on; today marketing does, with Orbit Agents on.
+ */
 export function telegramEnabled() {
-  return agentsEnabled();
+  return telegramContributorEnabled();
 }
 
 /**
@@ -320,48 +331,29 @@ const callbackKey = () =>
   createHmac("sha256", loadConfig().AUTH_SECRET)
     .update("orbit-telegram-callback-v1")
     .digest();
-// 128-bit MAC keeps `stop:` and `pause:` data within Telegram's 64 bytes.
-const mac = (message: string) =>
+/**
+ * The 128-bit MAC of a callback message (22 base64url characters), which
+ * keeps signed data within Telegram's 64 bytes. Modules sign their own
+ * callback data with it; each signs a message format of its own, so a
+ * token of one kind never verifies as another.
+ */
+export const callbackMac = (message: string) =>
   createHmac("sha256", callbackKey())
     .update(message)
     .digest()
     .subarray(0, 16)
     .toString("base64url");
-const compactId = (uuid: string) =>
+const mac = callbackMac;
+/** A UUID as 22 base64url characters, for callback data. */
+export const compactUuid = (uuid: string) =>
   Buffer.from(uuid.replace(/-/g, ""), "hex").toString("base64url");
-function expandId(compact: string) {
+/** The UUID of `compactUuid`, or null for anything else. */
+export function expandUuid(compact: string) {
   const hex = Buffer.from(compact, "base64url").toString("hex");
-  if (hex.length !== 32 || compactId(hex) !== compact) return null;
+  if (hex.length !== 32 || compactUuid(hex) !== compact) return null;
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/**
- * Callback data for the Stop button of a preview (Task 13): the publication
- * and its version, signed with HMAC(`publicationId:version`). At most 64 bytes.
- */
-export function stopCallbackData(publicationId: string, version: number) {
-  if (
-    !UUID.test(publicationId) ||
-    !Number.isSafeInteger(version) ||
-    version < 1 ||
-    version > 999_999_999
-  )
-    throw new DomainError("INVALID_PUBLICATION");
-  const id = publicationId.toLowerCase();
-  return `stop:${compactId(id)}.${version}.${mac(`${id}:${version}`)}`;
-}
-function readStop(value: string) {
-  const match =
-    /^stop:([A-Za-z0-9_-]{22})\.([1-9]\d{0,8})\.([A-Za-z0-9_-]{22})$/.exec(
-      value,
-    );
-  const id = match ? expandId(match[1]!) : null;
-  if (!match || !id) return null;
-  const version = Number(match[2]);
-  return constantEqual(match[3]!, mac(`${id}:${version}`))
-    ? { publicationId: id, version }
-    : null;
-}
 /** Confirmation of `/pause`: HMAC(`pause:projectId:nonce`); the nonce carries its time. */
 function pauseCallbackData(projectId: string, now = Date.now()) {
   const nonce = `${Math.floor(now / 1000).toString(36)}.${randomBytes(9).toString("base64url")}`;
@@ -431,11 +423,6 @@ const TEXT = {
   ownerOnly: "Nur der Owner kann pausieren.",
   noAccess: "Keine Berechtigung mehr für dieses Projekt.",
   invalid: "Ungültige Aktion.",
-  stopped: "Gestoppt. Der Beitrag geht nicht raus.",
-  handedOver:
-    "Schon an Postiz übergeben. Entfernen ist nur noch in Postiz möglich.",
-  notFound: "Beitrag nicht gefunden.",
-  changed: "Beitrag wurde geändert. Bitte in Orbit stoppen.",
 };
 
 // A link code sent on its own: one base64url word (the code is 12 characters).
@@ -656,77 +643,26 @@ export async function handleTelegramWebhook(
       const answer = (text: string) =>
         replies.push({ kind: "answer", id: callback.id, text });
       const value = callback.data ?? "";
-      if (value.startsWith("stop:")) {
-        const stop = readStop(value);
-        if (!stop) {
+      // Routed by prefix to the platform's or a module's handler (WP2.5a).
+      const prefix = /^([a-z]{1,16}):/.exec(value)?.[1];
+      const handler = prefix ? registeredTelegramCallback(prefix) : undefined;
+      if (prefix && handler) {
+        // A disabled module's buttons do nothing (WP2.4).
+        const result = ownerEnabled(
+          handler.owner,
+          await enabledModules(tx, actor),
+        )
+          ? await handler.handle(tx, actor, value, { connectionId: row.id })
+          : null;
+        if (!result) {
           await audit(tx, actor, "telegram.callback_rejected", row.id, {
-            action: "stop",
+            action: prefix,
           });
           answer(TEXT.invalid);
           return done("callback_rejected");
         }
-        try {
-          const { result } = await vetoPublication(
-            tx,
-            actor,
-            stop.publicationId,
-            stop.version,
-            "telegram",
-          );
-          answer(
-            result === "vetoed"
-              ? TEXT.stopped
-              : result === "already_handed_over"
-                ? TEXT.handedOver
-                : TEXT.notFound,
-          );
-          return done("stop_" + result);
-        } catch (error) {
-          if (
-            error instanceof DomainError &&
-            error.code === "VERSION_CONFLICT"
-          ) {
-            answer(TEXT.changed);
-            return done("stop_version_conflict");
-          }
-          if (error instanceof DomainError && error.status === 403) {
-            answer(TEXT.noAccess);
-            return done("stop_forbidden");
-          }
-          throw error;
-        }
-      }
-      if (value.startsWith("pause:")) {
-        const pause = readPause(value, system.projectId);
-        if (!pause) {
-          await audit(tx, actor, "telegram.callback_rejected", row.id, {
-            action: "pause",
-          });
-          answer(TEXT.invalid);
-          return done("callback_rejected");
-        }
-        const current = await tx.project.findUniqueOrThrow({
-          where: { id: system.projectId },
-        });
-        if (current.paused) {
-          answer(TEXT.alreadyPaused);
-          return done("already_paused");
-        }
-        if (pause === "expired") {
-          answer(TEXT.pauseExpired);
-          return done("pause_expired");
-        }
-        if (actor.role !== "owner") {
-          answer(TEXT.ownerOnly);
-          return done("pause_forbidden");
-        }
-        // The bot confirms the pause itself; no second notice.
-        await pauseProject(tx, actor, true, { notify: false });
-        await audit(tx, actor, "telegram.pause", row.id, {
-          nonce: pause.nonce,
-        });
-        answer(TEXT.paused);
-        return done("paused");
+        answer(result.answer);
+        return done(result.handled);
       }
       await audit(tx, actor, "telegram.callback_rejected", row.id, {
         action: "unknown",
@@ -755,3 +691,32 @@ export async function handleTelegramWebhook(
     }
   return { status: outcome.status, handled: outcome.handled };
 }
+
+/**
+ * The platform's `pause:` button: confirms `/pause` within 10 minutes.
+ * Only an owner pauses; resuming is only possible in Orbit.
+ */
+export const pauseCallback: TelegramCallback = async (
+  tx,
+  actor,
+  value,
+  { connectionId },
+) => {
+  const pause = readPause(value, actor.projectId);
+  if (!pause) return null;
+  const current = await tx.project.findUniqueOrThrow({
+    where: { id: actor.projectId },
+  });
+  if (current.paused)
+    return { handled: "already_paused", answer: TEXT.alreadyPaused };
+  if (pause === "expired")
+    return { handled: "pause_expired", answer: TEXT.pauseExpired };
+  if (actor.role !== "owner")
+    return { handled: "pause_forbidden", answer: TEXT.ownerOnly };
+  // The bot confirms the pause itself; no second notice.
+  await pauseProject(tx, actor, true, { notify: false });
+  await audit(tx, actor, "telegram.pause", connectionId, {
+    nonce: pause.nonce,
+  });
+  return { handled: "paused", answer: TEXT.paused };
+};

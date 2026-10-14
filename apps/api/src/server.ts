@@ -118,7 +118,7 @@ import {
   handleTelegramWebhook,
   telegramEnabled,
   telegramStatus,
-} from "./modules/telegram.ts";
+} from "./platform/connections/telegram.ts";
 const factSchema = z
   .object({
     id: schemas.id.optional(),

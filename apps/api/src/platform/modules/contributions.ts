@@ -18,6 +18,10 @@ import type {
   AssistantContribution,
   ConversationSections,
 } from "../assistant/types.ts";
+import type {
+  TelegramCallback,
+  TelegramContribution,
+} from "../connections/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -55,7 +59,12 @@ export type ModuleContributions = {
   assistant?: AssistantContribution;
   /** Fields a conversation read adds for the module (WP2.2). */
   conversationSections?: ConversationSections;
+  /** Button callbacks of the owner's Telegram bot and its switch (WP2.5a). */
+  telegram?: TelegramContribution;
 };
+
+// A callback_data prefix: short, so signed data stays within 64 bytes.
+const CALLBACK_PREFIX = /^[a-z]{1,16}$/;
 
 type Registered = {
   registry: ValidatedRegistry;
@@ -66,6 +75,10 @@ type Registered = {
   publicViews: ReadonlyMap<string, (row: any) => any>;
   periodic: readonly PeriodicTask[];
   actions: ReadonlyMap<string, ActionHandler>;
+  telegramCallbacks: ReadonlyMap<
+    string,
+    { owner: string; handle: TelegramCallback }
+  >;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
     tools: ReadonlyMap<string, string>;
@@ -105,6 +118,10 @@ export function registerContributions(
   const publicViews = new Map<string, (row: any) => any>();
   const periodic: PeriodicTask[] = [];
   const actions = new Map<string, ActionHandler>();
+  const telegramCallbacks = new Map<
+    string,
+    { owner: string; handle: TelegramCallback }
+  >();
   const owners = {
     tools: new Map<string, string>(),
     actions: new Map<string, string>(),
@@ -117,6 +134,15 @@ export function registerContributions(
       owners.actions.set(name, owner);
     for (const job of c.jobs ?? []) owners.jobs.set(job.queueClass, owner);
     for (const task of c.periodic ?? []) owners.periodic.set(task.name, owner);
+    for (const [prefix, handle] of Object.entries(
+      c.telegram?.callbacks ?? {},
+    )) {
+      if (!CALLBACK_PREFIX.test(prefix))
+        problems.push(`invalid Telegram callback prefix ${prefix}`);
+      if (telegramCallbacks.has(prefix))
+        problems.push(`Telegram callback ${prefix} registered twice`);
+      telegramCallbacks.set(prefix, { owner, handle });
+    }
     for (const [name, handler] of Object.entries(c.actions ?? {})) {
       if (actions.has(name)) problems.push(`action ${name} registered twice`);
       actions.set(name, handler);
@@ -158,6 +184,7 @@ export function registerContributions(
     publicViews,
     periodic,
     actions,
+    telegramCallbacks,
     owners,
   };
 }
@@ -317,4 +344,18 @@ export function registeredConversationSections(
   enabled?: ReadonlySet<string>,
 ): ConversationSections[] {
   return fromOwners((c) => c.conversationSections, enabled);
+}
+
+/**
+ * The handler of a Telegram button by its callback_data prefix, with its
+ * owner for the activation check, or undefined for an unknown prefix.
+ */
+export function registeredTelegramCallback(prefix: string) {
+  return current().telegramCallbacks.get(prefix);
+}
+/** Whether the owner's Telegram bot is on: one contributor says so. */
+export function telegramContributorEnabled(): boolean {
+  return [...current().byModule.values()].some(
+    (c) => c.telegram?.enabled?.() === true,
+  );
 }

@@ -93,7 +93,7 @@ import { registerAgentSpecialists } from "../src/modules/agents/specialists/inde
 import { pauseProject } from "../src/modules/pause.ts";
 import { dispatchPublication } from "../src/modules/publisher.ts";
 import { claimPublication } from "../src/modules/workflow.ts";
-import { stopCallbackData } from "../src/modules/telegram.ts";
+import { stopCallbackData } from "../src/modules/marketing/agents/telegram-stop.ts";
 import {
   nextDailyReportAt,
   notify,

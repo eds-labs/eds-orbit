@@ -6,11 +6,14 @@ import { stopChatRunForPause } from "../../modules/chat.ts";
 import { embedDocument, syncSource } from "../../modules/ingestion.ts";
 import { buildIndexBatch } from "../../modules/reindex.ts";
 import { runIndexEvaluation } from "../../modules/index-evaluation.ts";
+import { pauseCallback } from "../connections/telegram.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
   actions: platformActions,
   scheduler: sourceSyncScheduler,
+  // The bot's `/pause` confirmation; modules add their own buttons.
+  telegram: { callbacks: { pause: pauseCallback } },
   jobs: [
     {
       queueClass: "chat",
