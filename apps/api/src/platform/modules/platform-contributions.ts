@@ -7,6 +7,7 @@ import { embedDocument, syncSource } from "../../modules/ingestion.ts";
 import { buildIndexBatch } from "../../modules/reindex.ts";
 import { runIndexEvaluation } from "../../modules/index-evaluation.ts";
 import { pauseCallback } from "../connections/telegram.ts";
+import { sendNotification } from "../notifications/sender.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
@@ -39,6 +40,18 @@ export const platformContributions: ModuleContributions = {
       queueClass: "reindex",
       handler: ({ scope, job, jobId }) =>
         buildIndexBatch(scope, job.resourceId, jobId).then(() => undefined),
+    },
+    {
+      // Previews, notices and the daily report for the owner's Telegram bot
+      // (WP2.5b). Records its own outcome on the job; a failed delivery is
+      // an exception, never a retry loop.
+      queueClass: "telegram_notification",
+      // A message to the owner's own bot publishes nothing; a pause notice must still reach him.
+      runWhilePaused: true,
+      // A notification with its retries runs nearly as long as a specialist task.
+      leaseMs: 180000,
+      handler: ({ scope, jobId }) =>
+        sendNotification(scope, jobId).then(() => undefined),
     },
     {
       queueClass: "index_evaluation",

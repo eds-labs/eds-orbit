@@ -22,6 +22,10 @@ import type {
   TelegramCallback,
   TelegramContribution,
 } from "../connections/types.ts";
+import type {
+  NotificationContribution,
+  NotificationRender,
+} from "../notifications/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -61,10 +65,14 @@ export type ModuleContributions = {
   conversationSections?: ConversationSections;
   /** Button callbacks of the owner's Telegram bot and its switch (WP2.5a). */
   telegram?: TelegramContribution;
+  /** Notification kinds for the owner's bot and their rendering (WP2.5b). */
+  notifications?: NotificationContribution;
 };
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
 const CALLBACK_PREFIX = /^[a-z]{1,16}$/;
+// A notification kind, as the job key `notify:<kind>:<ref>` carries it.
+const NOTIFY_KIND = /^[a-z_]{1,40}$/;
 
 type Registered = {
   registry: ValidatedRegistry;
@@ -78,6 +86,10 @@ type Registered = {
   telegramCallbacks: ReadonlyMap<
     string,
     { owner: string; handle: TelegramCallback }
+  >;
+  notifications: ReadonlyMap<
+    string,
+    { owner: string; render: NotificationRender }
   >;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
@@ -122,6 +134,10 @@ export function registerContributions(
     string,
     { owner: string; handle: TelegramCallback }
   >();
+  const notifications = new Map<
+    string,
+    { owner: string; render: NotificationRender }
+  >();
   const owners = {
     tools: new Map<string, string>(),
     actions: new Map<string, string>(),
@@ -142,6 +158,13 @@ export function registerContributions(
       if (telegramCallbacks.has(prefix))
         problems.push(`Telegram callback ${prefix} registered twice`);
       telegramCallbacks.set(prefix, { owner, handle });
+    }
+    for (const kind of c.notifications?.kinds ?? []) {
+      if (!NOTIFY_KIND.test(kind))
+        problems.push(`invalid notification kind ${kind}`);
+      if (notifications.has(kind))
+        problems.push(`notification kind ${kind} registered twice`);
+      notifications.set(kind, { owner, render: c.notifications!.render });
     }
     for (const [name, handler] of Object.entries(c.actions ?? {})) {
       if (actions.has(name)) problems.push(`action ${name} registered twice`);
@@ -185,6 +208,7 @@ export function registerContributions(
     periodic,
     actions,
     telegramCallbacks,
+    notifications,
     owners,
   };
 }
@@ -358,4 +382,12 @@ export function telegramContributorEnabled(): boolean {
   return [...current().byModule.values()].some(
     (c) => c.telegram?.enabled?.() === true,
   );
+}
+
+/**
+ * A notification kind with its owner and renderer, or undefined for a kind
+ * no one registered (WP2.5b).
+ */
+export function registeredNotification(kind: string) {
+  return current().notifications.get(kind);
 }

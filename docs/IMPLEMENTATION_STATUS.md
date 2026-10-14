@@ -1,5 +1,29 @@
 # Implementation status
 
+## Notifications as a platform transport with module kinds: WP2.5b (2026-10-14, local)
+
+Branch `claude/wp25b-notifications`, the second part of WP2.5. The owner's bot notifications are split by owner.
+
+- **Platform (`platform/notifications`).**
+  - `notify(tx, scope, kind, ref)` queues the job. It throws for an unregistered kind.
+  - `telegramLinked` checks for a bound bot.
+  - The sender moves without changes: retries and backoff, `retry_after`, photo fallback, the `TELEGRAM_DELIVERY_FAILED` exception and the recorded outcome.
+  - The `telegram_notification` queue class is now platform-owned, still with `runWhilePaused` and a 180-second lease.
+- **Marketing.**
+  - It registers its 15 kinds (`NOTIFY_KINDS`) with a renderer as `notifications` (`notification-messages.ts`, renamed from `notification-sender.ts`).
+  - A preview's image is read by a loader the platform calls outside the transaction, as before.
+  - `notify` in `agents/notifications.ts` stays as a typed wrapper, so the 10 callers are unchanged.
+  - The daily report planning and `reportBlockedPost` stay in marketing.
+- **Registry.** Kinds must match `[a-z_]+` and be unique across owners. Job keys `notify:<kind>:<ref>` and every text are unchanged, so jobs queued before the deploy are sent as before.
+- **Module activation.** With `ORBIT_MODULES` on, a notice of a disabled module is skipped as `MODULE_DISABLED`. The job is no longer blocked by the worker, because its queue class belongs to the platform.
+
+**Verification (local).**
+- Full suite: 151 files and 1375 tests. It includes every notification suite (`agent-notifications`, `assignment-postiz-drafts`, `assignment-shared-posts`) and the new tests below.
+  - Kind registration and owner of the queue class.
+  - Duplicate and invalid kinds.
+  - The skip of a disabled module's notice, which is mutation-checked.
+- The OpenAPI document is unchanged. Typecheck and source check pass; boundaries: 0 known violations.
+
 ## Telegram transport on the platform, buttons routed by prefix: WP2.5a (2026-10-14, local)
 
 Branch `claude/wp25a-telegram-callbacks`, the first part of WP2.5. The owner's Telegram bot becomes platform code: `modules/telegram.ts` moves to `platform/connections/telegram.ts`. The known import-boundary violations drop from 2 to **0**.

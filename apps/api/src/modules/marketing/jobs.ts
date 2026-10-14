@@ -17,7 +17,6 @@ import {
 } from "./publishing/slack.ts";
 import { evaluateExperiment } from "./analytics/lifecycle.ts";
 import { runImageJob } from "./brand/image-requests.ts";
-import { sendNotification } from "./agents/notification-messages.ts";
 import {
   deliverPostizDraft,
   markPostizDraftOutcomeUnknown,
@@ -136,18 +135,6 @@ export const marketingJobs: JobDef[] = [
     leaseMs: 180000,
     handler: ({ scope, job }) =>
       runAgentTask(scope, job.resourceId).then(() => undefined),
-  },
-  {
-    // Previews, notices and the daily report for the owner's Telegram bot.
-    // Records its own outcome on the job; a failed delivery is an exception,
-    // never a retry loop.
-    queueClass: "telegram_notification",
-    // A message to the owner's own bot publishes nothing; a pause notice must still reach him.
-    runWhilePaused: true,
-    // A notification with its retries runs nearly as long as a specialist task.
-    leaseMs: 180000,
-    handler: ({ scope, jobId }) =>
-      sendNotification(scope, jobId).then(() => undefined),
   },
   {
     // Approved assignment posts sent to Postiz as drafts only (delivery

@@ -77,7 +77,7 @@ import { preflight } from "../src/modules/policy.ts";
 import { releaseAssignmentDraft } from "../src/modules/agents/owner-release.ts";
 import { reviewStep } from "../src/modules/agents/specialists/review.ts";
 import { runProblems } from "../src/modules/agents/assignment-runs.ts";
-import { sendNotification } from "../src/modules/agents/notification-sender.ts";
+import { sendNotification } from "../src/platform/notifications/sender.ts";
 import { planDailyReport } from "../src/modules/agents/notifications.ts";
 import {
   createPackageProject,

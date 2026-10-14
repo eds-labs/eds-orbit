@@ -14,6 +14,8 @@ Enforcement is active only with `ORBIT_MODULES=true`. With the flag off (the def
 | Assistant | its tools, prompt fragments and conversation sections are left out |
 | Worker jobs of its queue classes | the job stops as `blocked_dependency` with error `MODULE_DISABLED`, like a job a project pause blocks; it is not retried automatically |
 | Scheduler contribution and periodic tasks | not called |
+| Notifications of its kinds (WP2.5b) | the platform's `telegram_notification` job is recorded as `skipped` with reason `MODULE_DISABLED`; nothing is sent |
+| Telegram buttons of its callbacks (WP2.5a) | rejected like an invalid button (`telegram.callback_rejected`) |
 | Web | navigation, home section, chat parts, inbox views, settings sections and connector providers are hidden; module pages show a notice |
 
 Not affected:

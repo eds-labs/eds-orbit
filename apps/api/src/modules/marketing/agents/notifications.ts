@@ -1,20 +1,21 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit } from "../../../shared.ts";
-import { enqueue } from "../pipeline/workflow.ts";
+import {
+  notify as platformNotify,
+  telegramLinked,
+} from "../../../platform/notifications/notify.ts";
 import { zonedTime } from "../publishing/posting-slots.ts";
 import { agentsEnabled } from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
 
 /**
- * Messages for the owner's private Telegram bot (Orbit Agents, spec §10):
- * previews, notices and the daily report. `notify` only queues a
- * `telegram_notification` job; it runs inside the transaction of the state
- * change it reports, so the notice commits with it or not at all. The sender
- * (`notification-sender.ts`) renders the message when the job runs and reads
- * the state again then. This file is kept free of the bot module so that the
- * places that report something (pause, review, runner, publisher) can import
- * it without a cycle.
+ * Marketing's messages for the owner's private Telegram bot (Orbit Agents,
+ * spec §10): previews, notices and the daily report. The platform queues and
+ * sends them (`platform/notifications`, WP2.5b); marketing registers these
+ * kinds and renders them (`notification-messages.ts`). This file is kept
+ * free of the renderers so that the places that report something (pause,
+ * review, runner, publisher) can import it without a cycle.
  *
  * A notification never changes publishing rights: it is a message about a
  * state, and the veto deadline applies whether or not it arrives.
@@ -54,41 +55,13 @@ export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 /** Local time of the daily report; the project has no setting for it yet. */
 export const DAILY_REPORT_TIME = "20:00";
 
-/** A bound bot exists. Whether its owner is still an owner is checked when sending. */
-async function botLinked(tx: DbTx, scope: Scope) {
-  return Boolean(
-    await tx.entity.findFirst({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        kind: "telegram_connections",
-        data: { path: ["status"], equals: "linked" },
-      },
-      select: { id: true },
-    }),
-  );
-}
-
 /**
- * Queues one message. The idempotency key `notify:<kind>:<ref>` makes
- * repeated calls one job; `ref` must therefore name the event, not only the
- * thing (a second pause or a second exhaustion is a new event). A no-op with
- * Orbit Agents off, and without a bound bot (nothing to deliver to).
+ * Queues one message (see `platform/notifications/notify.ts`): one job per
+ * `notify:<kind>:<ref>`, so `ref` must name the event. A no-op with Orbit
+ * Agents off, and without a bound bot.
  */
-export async function notify(
-  tx: DbTx,
-  scope: Scope,
-  kind: NotifyKind,
-  ref: string,
-) {
-  if (!agentsEnabled() || !(await botLinked(tx, scope))) return null;
-  return enqueue(
-    tx,
-    scope,
-    "telegram_notification",
-    ref,
-    `notify:${kind}:${ref}`,
-  );
+export function notify(tx: DbTx, scope: Scope, kind: NotifyKind, ref: string) {
+  return platformNotify(tx, scope, kind, ref);
 }
 
 /** The project's local report time of a local date (`YYYY-MM-DD`). */
@@ -120,7 +93,7 @@ export async function nextDailyReportAt(
   scope: Scope,
   at = new Date(),
 ) {
-  if (!agentsEnabled() || !(await botLinked(tx, scope))) return null;
+  if (!agentsEnabled() || !(await telegramLinked(tx, scope))) return null;
   const project = await tx.project.findUniqueOrThrow({
     where: { id: scope.projectId },
   });

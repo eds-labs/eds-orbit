@@ -16,6 +16,7 @@ import { data, list } from "../../shared.ts";
 import { registerAgentSpecialists } from "./agents/specialists/index.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { stopCallback } from "./agents/telegram-stop.ts";
+import { marketingNotifications } from "./agents/notification-messages.ts";
 
 /**
  * What the marketing module plugs into the platform (WP1.6). Transitional:
@@ -42,6 +43,8 @@ export const marketingContributions: ModuleContributions = {
       .flatMap((row) => assignedPostizChannels(data(row))),
   // The owner's bot runs with Orbit Agents; its previews carry Stop (WP2.5a).
   telegram: { enabled: agentsEnabled, callbacks: { stop: stopCallback } },
+  // Previews, notices and the daily report the bot sends (WP2.5b).
+  notifications: marketingNotifications,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
   publicViews: {

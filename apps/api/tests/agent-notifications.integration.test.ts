@@ -93,13 +93,15 @@ import { registerAgentSpecialists } from "../src/modules/agents/specialists/inde
 import { pauseProject } from "../src/modules/pause.ts";
 import { dispatchPublication } from "../src/modules/publisher.ts";
 import { claimPublication } from "../src/modules/workflow.ts";
+import { setModuleEnabled } from "../src/platform/modules/activation.ts";
+import { moduleRegistry } from "../src/modules/registry.ts";
 import { stopCallbackData } from "../src/modules/marketing/agents/telegram-stop.ts";
 import {
   nextDailyReportAt,
   notify,
   planDailyReport,
 } from "../src/modules/agents/notifications.ts";
-import { sendNotification } from "../src/modules/agents/notification-sender.ts";
+import { sendNotification } from "../src/platform/notifications/sender.ts";
 import { createPackageProject, X } from "./support/package-project.ts";
 import {
   assignmentRun,
@@ -441,6 +443,42 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
     });
     expect(sleeps).toEqual([]);
     expect(await exceptions()).toEqual([]);
+  });
+
+  it("skips a notice of a module that is off (WP2.5b)", async () => {
+    await linkBot();
+    const pub = await post();
+    await queue("preview", pub.id);
+    const job = (await jobOf("preview", pub.id))!;
+    process.env.ORBIT_MODULES = "true";
+    try {
+      await h.run((tx) =>
+        setModuleEnabled(
+          tx,
+          project.owner,
+          moduleRegistry(),
+          "marketing",
+          false,
+        ),
+      );
+      await send(job.id);
+      expect(calls).toHaveLength(0);
+      expect((await jobOf("preview", pub.id))!.notification).toMatchObject({
+        outcome: "skipped",
+        reason: "MODULE_DISABLED",
+      });
+    } finally {
+      await h.run((tx) =>
+        setModuleEnabled(
+          tx,
+          project.owner,
+          moduleRegistry(),
+          "marketing",
+          true,
+        ),
+      );
+      delete process.env.ORBIT_MODULES;
+    }
   });
 
   it("does nothing while Orbit Agents is off", async () => {

@@ -8,7 +8,9 @@ import {
   registeredChannelDirectories,
   registeredReadiness,
   registeredHooks,
+  registeredJobOwner,
   registeredJobs,
+  registeredNotification,
   registeredPeriodicTask,
   registeredPeriodicTasks,
   registeredRetention,
@@ -33,6 +35,8 @@ import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
 import { pauseCallback } from "../src/platform/connections/telegram.ts";
 import { stopCallback } from "../src/modules/marketing/agents/telegram-stop.ts";
+import { NOTIFY_KINDS } from "../src/modules/marketing/agents/notifications.ts";
+import { marketingNotifications } from "../src/modules/marketing/agents/notification-messages.ts";
 
 /** The platform registries filled from module contributions (WP1.6). */
 describe("module contributions", () => {
@@ -245,6 +249,20 @@ describe("module contributions", () => {
     }
   });
 
+  it("sends marketing's notification kinds through the platform (WP2.5b)", () => {
+    for (const kind of NOTIFY_KINDS)
+      expect(registeredNotification(kind)).toEqual({
+        owner: "marketing",
+        render: marketingNotifications.render,
+      });
+    expect(registeredNotification("unknown")).toBeUndefined();
+    expect(registeredJobOwner("telegram_notification")).toBe("platform");
+    expect(registeredJobs().get("telegram_notification")).toMatchObject({
+      runWhilePaused: true,
+      leaseMs: 180000,
+    });
+  });
+
   it("lets marketing register its own HTTP routes (WP2.1f)", () => {
     expect(registeredRoutes()).toEqual([marketingRoutes]);
   });
@@ -338,5 +356,15 @@ describe("module contributions", () => {
         { alpha: { telegram: { callbacks: { "Stop:": press } } } },
       ),
     ).toThrow("invalid Telegram callback prefix Stop:");
+    const render = async () => ({ skip: "x" });
+    expect(() =>
+      registerContributions(
+        registry,
+        { notifications: { kinds: ["same"], render } },
+        { alpha: { notifications: { kinds: ["same", "Bad-Kind"], render } } },
+      ),
+    ).toThrow(
+      "notification kind same registered twice; invalid notification kind Bad-Kind",
+    );
   });
 });
