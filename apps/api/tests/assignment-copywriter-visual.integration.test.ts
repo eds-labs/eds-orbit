@@ -35,24 +35,27 @@ vi.mock("../src/modules/google-drive.ts", async (importOriginal) => {
     await importOriginal<typeof import("../src/modules/google-drive.ts")>();
   return { ...actual, saveDraftDocument: provider.saveDraftDocument };
 });
-vi.mock("../src/modules/content-invalidation.ts", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("../src/modules/content-invalidation.ts")
-    >();
-  return {
-    ...actual,
-    invalidateContent: async (
-      ...args: Parameters<typeof actual.invalidateContent>
-    ) => {
-      if (provider.failInvalidation) {
-        provider.failInvalidation = false;
-        throw new Error("ATTACH_FAILED_FOR_TEST");
-      }
-      return actual.invalidateContent(...args);
-    },
-  };
-});
+vi.mock(
+  "../src/modules/marketing/pipeline/content-invalidation.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/modules/marketing/pipeline/content-invalidation.ts")
+      >();
+    return {
+      ...actual,
+      invalidateContent: async (
+        ...args: Parameters<typeof actual.invalidateContent>
+      ) => {
+        if (provider.failInvalidation) {
+          provider.failInvalidation = false;
+          throw new Error("ATTACH_FAILED_FOR_TEST");
+        }
+        return actual.invalidateContent(...args);
+      },
+    };
+  },
+);
 import { createHash } from "node:crypto";
 import {
   closeDatabase,

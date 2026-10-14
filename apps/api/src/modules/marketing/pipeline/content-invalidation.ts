@@ -1,6 +1,6 @@
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { data, list, update } from "../shared.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { data, list, update } from "../../../shared.ts";
 
 /** Blocks derived publication work when its content source changes. */
 export async function invalidateContent(tx: DbTx, scope: Scope, id: string) {

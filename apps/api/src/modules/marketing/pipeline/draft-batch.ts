@@ -1,11 +1,21 @@
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { audit, data, DomainError, entity, list, update } from "../shared.ts";
-import { activePolicy } from "./policy.ts";
-import { assertMissionAssets } from "./asset-tools.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  audit,
+  data,
+  DomainError,
+  entity,
+  list,
+  update,
+} from "../../../shared.ts";
+import { activePolicy } from "../../policy.ts";
+import { assertMissionAssets } from "../../asset-tools.ts";
 import { enqueue } from "./workflow.ts";
-import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
+import { assertMissionDraftOwner } from "../../agents/mission-owner.ts";
 
 /**
  * Owner-approved batch of paid internal drafts for one confirmed Chat

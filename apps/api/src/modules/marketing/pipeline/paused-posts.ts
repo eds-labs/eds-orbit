@@ -1,8 +1,11 @@
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { audit, data, DomainError, list, update } from "../shared.ts";
-import { preflight } from "./policy.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { audit, data, DomainError, list, update } from "../../../shared.ts";
+import { preflight } from "../../policy.ts";
 import { enqueue } from "./workflow.ts";
 
 const stoppedByPause = (row: { data: unknown }) =>

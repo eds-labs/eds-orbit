@@ -1,14 +1,17 @@
 import { finishMissionRun } from "./planning.ts";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { assertMissionDraftOwner } from "./agents/mission-owner.ts";
-import { reportBlockedPost } from "./agents/notifications.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { assertMissionDraftOwner } from "../../agents/mission-owner.ts";
+import { reportBlockedPost } from "../../agents/notifications.ts";
 import { randomUUID } from "node:crypto";
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   retrieve,
   validateEvidence,
-} from "../../../../packages/knowledge/src/index.ts";
+} from "../../../../../../packages/knowledge/src/index.ts";
 import {
   create,
   update,
@@ -19,17 +22,17 @@ import {
   DomainError,
   audit,
   exception,
-} from "../shared.ts";
+} from "../../../shared.ts";
 import {
   preflight,
   checkClaims,
   activePolicy,
   type VetoWindow,
-} from "./policy.ts";
-import { assertMissionAssets } from "./asset-tools.ts";
-import { campaignGenerationContext } from "./marketing-profile.ts";
+} from "../../policy.ts";
+import { assertMissionAssets } from "../../asset-tools.ts";
+import { campaignGenerationContext } from "../../marketing-profile.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
-import { enqueue } from "../platform/jobs/enqueue.ts";
+import { enqueue } from "../../../platform/jobs/enqueue.ts";
 // The job helper moved to the platform (WP1.1); importers of workflow keep working.
 export { enqueue };
 export async function planMission(tx: DbTx, scope: Scope, missionId: string) {

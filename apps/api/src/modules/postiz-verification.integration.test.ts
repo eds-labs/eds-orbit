@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 // fails fast instead of waiting for the transaction timeout when the caller
 // still holds the project lock.
 const drive = vi.hoisted(() => ({ png: null as Buffer | null, reads: 0 }));
-vi.mock("./content-export.ts", () => ({
+vi.mock("./marketing/pipeline/content-export.ts", () => ({
   exportAssetContent: async (
     s: { workspaceId: string; projectId: string },
     asset: Record<string, any>,

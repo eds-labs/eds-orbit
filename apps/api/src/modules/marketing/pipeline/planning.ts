@@ -1,5 +1,5 @@
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   data,
   create,
@@ -9,7 +9,7 @@ import {
   hash,
   DomainError,
   exception,
-} from "../shared.ts";
+} from "../../../shared.ts";
 /** Each completed run consumes one finite owner-granted work package, even when it reuses content. */
 export async function finishMissionRun(
   tx: DbTx,

@@ -1,5 +1,17 @@
 # Implementation status
 
+## Marketing pipeline in its module folder: WP2.1b (2026-10-14, local)
+
+Branch `claude/wp21b-pipeline`, the second part of WP2.1. The 15 pipeline files move unchanged to `apps/api/src/modules/marketing/pipeline/`, with their 6 co-located tests:
+
+`workflow`, `generation`, `editorial`, `planning`, `draft-batch`, `draft-cleanup`, `draft-similarity`, `draft-statuses`, `content-export`, `content-invalidation`, `content-provenance`, `mission-archive`, `mission-evidence`, `paused-posts`, `autopilot`.
+
+- Every old path keeps a one-line re-export, so importers are unchanged. Later parts switch the importers and remove the re-exports.
+- Two tests mock the moved modules: `assignment-copywriter-visual` mocks `content-invalidation` and `postiz-verification` mocks `content-export`. They now mock the new path. That mock also reaches importers that still use the old path, and both tests assert the mocked behaviour.
+- No logic, route or response changes. The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. Typecheck and boundary check pass.
+
 ## Worker through the module registry: WP2.1a (2026-10-13, local)
 
 Branch `claude/wp21a-marketing-move`, the first part of work package WP2.1 (marketing server move). The worker no longer imports module files; behaviour is unchanged.

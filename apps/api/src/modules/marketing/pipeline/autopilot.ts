@@ -3,12 +3,12 @@ import {
   authorize,
   PROJECT_OWN,
   PROJECT_WRITE,
-} from "../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../packages/db/src/index.ts";
+} from "../../../platform/tenancy/permissions.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   marketingProfile,
   type Scope,
-} from "../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -18,16 +18,19 @@ import {
   exception,
   list,
   update,
-} from "../shared.ts";
-import { activePolicy } from "./policy.ts";
+} from "../../../shared.ts";
+import { activePolicy } from "../../policy.ts";
 import {
   assertCampaignContext,
   currentMarketingProfile,
   officialTargetLink,
-} from "./marketing-profile.ts";
-import { assertMissionAssets } from "./asset-tools.ts";
-import { assignedPostizChannels, postingTimeFor } from "./postiz-assignment.ts";
-import { POSTING_TIME, zonedTime } from "./posting-slots.ts";
+} from "../../marketing-profile.ts";
+import { assertMissionAssets } from "../../asset-tools.ts";
+import {
+  assignedPostizChannels,
+  postingTimeFor,
+} from "../../postiz-assignment.ts";
+import { POSTING_TIME, zonedTime } from "../../posting-slots.ts";
 import { publishIntent, reviewContent } from "./workflow.ts";
 import {
   agentsEnabled,
@@ -35,10 +38,10 @@ import {
   freeAssignmentBudget,
   proposeAssignmentInTx,
   type AssignmentInput,
-} from "./agents/assignments.ts";
-import { channelNames } from "./agents/assignment-overview.ts";
-import { confirmationCard } from "./agents/tools/assignment-tools.ts";
-import { chatScoped } from "./chat.ts";
+} from "../../agents/assignments.ts";
+import { channelNames } from "../../agents/assignment-overview.ts";
+import { confirmationCard } from "../../agents/tools/assignment-tools.ts";
+import { chatScoped } from "../../chat.ts";
 
 /**
  * Weekly autopilot: at the configured weekday and time Orbit plans one post

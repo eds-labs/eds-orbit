@@ -5,10 +5,13 @@ import {
   scoped,
   closeDatabase,
   type DbTx,
-} from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { create, data, list, update } from "../shared.ts";
-import { retrieve, setFact } from "../../../../packages/knowledge/src/index.ts";
+} from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { create, data, list, update } from "../../../shared.ts";
+import {
+  retrieve,
+  setFact,
+} from "../../../../../../packages/knowledge/src/index.ts";
 import {
   adaptContent,
   importCommunityQuestions,

@@ -1,7 +1,10 @@
 import { z } from "zod";
-import { authorize, PROJECT_WRITE } from "../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import {
+  authorize,
+  PROJECT_WRITE,
+} from "../../../platform/tenancy/permissions.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
   data,
@@ -11,8 +14,8 @@ import {
   audit,
   hash,
   DomainError,
-} from "../shared.ts";
-import { checkClaims } from "./policy.ts";
+} from "../../../shared.ts";
+import { checkClaims } from "../../policy.ts";
 
 const language = z.enum(["en", "de"]);
 function editor(scope: Scope) {
