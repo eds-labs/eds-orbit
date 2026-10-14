@@ -21,7 +21,7 @@ import {
   resolveChannelRules,
 } from "../../publishing/channel-rules.ts";
 import { invalidateContent } from "../../pipeline/content-invalidation.ts";
-import { driveContent } from "../../../google-drive.ts";
+import { driveContent } from "../../../../platform/connections/google-drive.ts";
 import {
   currentImageTerms,
   generateAssignmentImage,

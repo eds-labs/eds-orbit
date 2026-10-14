@@ -34,6 +34,7 @@ import { preflight, approve } from "../policy/policy.ts";
 import { enqueue } from "../pipeline/workflow.ts";
 import { notify } from "../agents/notifications.ts";
 import { decryptCredential } from "../../../platform/connections/connections.ts";
+import { assertModuleEnabled } from "../../../platform/modules/enforcement.ts";
 
 const slackId = z.string().regex(/^[A-Z][A-Z0-9]{2,39}$/);
 // The optional Slack digest embeds a short approval preview; longer drafts use web review.
@@ -486,6 +487,8 @@ export async function handleSlackInteraction(input: SlackInbound) {
       },
     );
     const actorScope = { ...scope, userId: mappedUser! };
+    // Only after the signature: a disabled module's buttons do nothing (WP2.4).
+    await assertModuleEnabled(tx, scope, "marketing");
     const action = await entity(
         tx,
         actorScope,

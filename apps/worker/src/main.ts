@@ -7,11 +7,6 @@ import {
   workerStartHooks,
 } from "../../api/src/platform/modules/contributions.ts";
 import { enabledModules } from "../../api/src/platform/modules/enforcement.ts";
-import {
-  saveGeneratedAsset,
-  markSyncFailed,
-  connectionStatus,
-} from "../../api/src/modules/google-drive.ts";
 import Redis from "ioredis";
 import {
   sweepProject,
@@ -90,10 +85,6 @@ const workspaces = workspaceAllowlist(
 );
 let stopping = false;
 const projectFailures = new Map<string, number>();
-const driveRetryChecks = new Map<
-  string,
-  { at: number; enabled: boolean; nextRetryAt: number | null }
->();
 const PUMP_INTERVAL_MS = 1500,
   PUMP_BATCH = 100,
   PUMP_CONCURRENCY = 4,
@@ -103,8 +94,7 @@ const PUMP_INTERVAL_MS = 1500,
   FAILURE_RETRY_MS = 5_000,
   // A pass holds the marker this long; a crashed pass is retried after it.
   PROCESSING_LEASE_MS = 60_000,
-  LEASE_GRACE_MS = 1_000,
-  DRIVE_CHECK_MS = 30_000;
+  LEASE_GRACE_MS = 1_000;
 const workers = classes.map(
   (topic) =>
     new Worker(
@@ -345,7 +335,8 @@ async function processProject(p: DueProject, claimed: Date) {
   // read-only Postiz queue check; a published status feeds /api/health.
   for (const task of periodicTasks) {
     const result = await task.run(scope).catch(() => undefined);
-    if (!task.health || !result) continue;
+    if (result?.wakeAt) candidates.push(result.wakeAt);
+    if (!task.health || !result?.status) continue;
     const key = `orbit:${task.name}:` + config.PUBLISHER_INSTANCE_ID;
     await connection
       .multi()
@@ -361,53 +352,6 @@ async function processProject(p: DueProject, claimed: Date) {
       .exec()
       .catch(() => {});
   }
-  let drive = driveRetryChecks.get(p.id);
-  if (!drive || Date.now() - drive.at > DRIVE_CHECK_MS) {
-    // Gate the check itself, not only enabled projects, so disabled Drive costs no transaction per tick.
-    drive = {
-      at: Date.now(),
-      enabled: (await connectionStatus(scope)).enabled,
-      nextRetryAt: null,
-    };
-    driveRetryChecks.set(p.id, drive);
-    if (drive.enabled) {
-      const failed = await scoped(p.workspaceId, p.id, (tx) =>
-        tx.entity.findMany({
-          where: {
-            projectId: p.id,
-            kind: "assets",
-            data: { path: ["driveSyncStatus"], equals: "FAILED" },
-          },
-          take: 30,
-          orderBy: { updatedAt: "asc" },
-        }),
-      );
-      const pending = failed.filter(
-        (row) =>
-          data(row).driveSyncStatus === "FAILED" &&
-          Number(data(row).driveRetryAttempts ?? 0) < 5,
-      );
-      const due = pending.filter(
-        (row) => Date.parse(data(row).driveRetryAt ?? "") <= Date.now(),
-      );
-      for (const asset of due.slice(0, 3)) {
-        try {
-          await saveGeneratedAsset(scope, asset.id);
-        } catch {
-          await markSyncFailed(scope, asset.id);
-        }
-      }
-      const retryTimes = pending
-        .filter((row) => !due.slice(0, 3).includes(row))
-        .map((row) => Date.parse(data(row).driveRetryAt ?? ""))
-        .filter(Number.isFinite);
-      if (retryTimes.length) drive.nextRetryAt = Math.min(...retryTimes);
-    }
-  }
-  if (drive.enabled && drive.nextRetryAt !== null)
-    candidates.push(
-      new Date(Math.max(drive.nextRetryAt, drive.at + DRIVE_CHECK_MS)),
-    );
   const next = redispatch
     ? new Date()
     : earliestDue(at, MAX_IDLE_MS, candidates);

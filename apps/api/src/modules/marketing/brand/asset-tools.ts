@@ -6,11 +6,8 @@ import {
 import { readFile } from "node:fs/promises";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { assetBytes } from "../../assets.ts";
-import {
-  driveContent,
-  importDriveFile,
-  saveGeneratedAsset,
-} from "../../google-drive.ts";
+import { driveContent } from "../../../platform/connections/google-drive.ts";
+import { importDriveFile, saveGeneratedAsset } from "./drive-assets.ts";
 import { data, DomainError, publicEntity } from "../../../shared.ts";
 
 /**

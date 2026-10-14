@@ -8,11 +8,10 @@ import {
 import { renderRasterTemplate } from "../../../../../../packages/creative/src/index.ts";
 import { assetBytes } from "../../assets.ts";
 import {
-  driveContent,
   connectionStatus,
-  saveGeneratedAsset,
-  markSyncFailed,
-} from "../../google-drive.ts";
+  driveContent,
+} from "../../../platform/connections/google-drive.ts";
+import { markSyncFailed, saveGeneratedAsset } from "./drive-assets.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
 import {
   create,

@@ -20,18 +20,21 @@ import {
 } from "../src/modules/image-requests.ts";
 
 const drive = vi.hoisted(() => ({ enabled: false, uploads: 0 }));
-vi.mock("../src/modules/google-drive.ts", async (original) => {
-  const real =
-    await original<typeof import("../src/modules/google-drive.ts")>();
-  return {
-    ...real,
-    connectionStatus: vi.fn(async () => ({ enabled: drive.enabled })),
-    saveGeneratedAsset: vi.fn(async () => {
-      drive.uploads++;
-      throw new Error("DRIVE_UPLOAD_FAILED");
-    }),
-  };
-});
+vi.mock("../src/platform/connections/google-drive.ts", async (original) => ({
+  ...(await original<
+    typeof import("../src/platform/connections/google-drive.ts")
+  >()),
+  connectionStatus: vi.fn(async () => ({ enabled: drive.enabled })),
+}));
+vi.mock("../src/modules/marketing/brand/drive-assets.ts", async (original) => ({
+  ...(await original<
+    typeof import("../src/modules/marketing/brand/drive-assets.ts")
+  >()),
+  saveGeneratedAsset: vi.fn(async () => {
+    drive.uploads++;
+    throw new Error("DRIVE_UPLOAD_FAILED");
+  }),
+}));
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,

@@ -71,10 +71,7 @@ import {
   rootCandidates,
   browseDrive,
   driveContent,
-  importDriveFile,
-  uploadUserRaster,
-  brandAssets,
-} from "./modules/google-drive.ts";
+} from "./platform/connections/google-drive.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -864,10 +861,6 @@ export async function buildServer(
     const { projectId } = req.params as { projectId: string };
     return browseDrive(await scopeFor(auth, req, projectId), req.query);
   });
-  app.get("/api/projects/:projectId/google-drive/brand", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    return { files: await brandAssets(await scopeFor(auth, req, projectId)) };
-  });
   app.get(
     "/api/projects/:projectId/google-drive/files/:fileId/content",
     async (req, reply) => {
@@ -884,45 +877,6 @@ export async function buildServer(
         .header("X-Content-Type-Options", "nosniff")
         .type(content.mime)
         .send(content.bytes);
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/google-drive/files/:fileId/import",
-    async (req, reply) => {
-      const { projectId, fileId } = req.params as {
-        projectId: string;
-        fileId: string;
-      };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      const { type } = z
-        .object({
-          type: z
-            .enum([
-              "logo",
-              "photo",
-              "background",
-              "banner",
-              "icon",
-              "document",
-              "other",
-            ])
-            .default("photo"),
-        })
-        .parse(req.body ?? {});
-      return reply
-        .code(201)
-        .send(publicEntity(await importDriveFile(scope, fileId, type)));
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/google-drive/upload",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (req, reply) => {
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      return reply
-        .code(201)
-        .send(publicEntity(await uploadUserRaster(scope, req.body)));
     },
   );
   app.get("/api/projects/:projectId/chat/conversations", async (req) => {

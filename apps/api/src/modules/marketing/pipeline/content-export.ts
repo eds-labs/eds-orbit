@@ -4,7 +4,7 @@ import { validateEvidence } from "../../../../../../packages/knowledge/src/index
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, DomainError, entity } from "../../../shared.ts";
 import { assetBytes } from "../../assets.ts";
-import { driveContent } from "../../google-drive.ts";
+import { driveContent } from "../../../platform/connections/google-drive.ts";
 
 /**
  * Resolve the approved PNG attached to exported content. Drive-imported assets

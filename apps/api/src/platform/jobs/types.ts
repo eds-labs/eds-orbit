@@ -59,8 +59,11 @@ export type PeriodicTask = {
   name: string;
   /** Inside the sweep transaction: when the task is next due, for the project's wake-up. */
   nextDueAt?(tx: DbTx, scope: Scope): Promise<Date | null>;
-  /** Runs the task; errors are swallowed by the worker. A returned status is published. */
-  run(scope: Scope): Promise<{ status: string } | void>;
+  /**
+   * Runs the task; errors are swallowed by the worker. A returned status is
+   * published; a returned `wakeAt` wakes the project again then (WP2.5d).
+   */
+  run(scope: Scope): Promise<{ status?: string; wakeAt?: Date } | void>;
   /** Folds the published statuses of all projects into one health state. */
   health?: { summarize(entries: Record<string, string>, now: Date): string };
 };

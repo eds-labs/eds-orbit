@@ -22,7 +22,13 @@ import {
   brandAssetUploadInput,
   normalizeBrandAsset,
 } from "../assets.ts";
-import { driveContent, saveGeneratedAsset } from "../google-drive.ts";
+import { driveContent } from "../../platform/connections/google-drive.ts";
+import {
+  brandAssets,
+  importDriveFile,
+  saveGeneratedAsset,
+  uploadUserRaster,
+} from "./brand/drive-assets.ts";
 import { exportContentBundle } from "./pipeline/content-export.ts";
 import { invalidateContent } from "./pipeline/content-invalidation.ts";
 import { withGenerationProvenance } from "./pipeline/content-provenance.ts";
@@ -382,6 +388,52 @@ export const marketingRoutes: RoutesContribution = ({ app, auth }) => {
       const { projectId, id } = req.params as { projectId: string; id: string };
       const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       return confirmProposal(scope, z.uuid().parse(id), req.body);
+    },
+  );
+
+  // Brand assets from and into the project's Drive (WP2.5d), moved unchanged
+  // from server.ts; the Drive connection itself stays with the platform.
+  app.get("/api/projects/:projectId/google-drive/brand", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return { files: await brandAssets(await scopeFor(auth, req, projectId)) };
+  });
+  app.post(
+    "/api/projects/:projectId/google-drive/files/:fileId/import",
+    async (req, reply) => {
+      const { projectId, fileId } = req.params as {
+        projectId: string;
+        fileId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      const { type } = z
+        .object({
+          type: z
+            .enum([
+              "logo",
+              "photo",
+              "background",
+              "banner",
+              "icon",
+              "document",
+              "other",
+            ])
+            .default("photo"),
+        })
+        .parse(req.body ?? {});
+      return reply
+        .code(201)
+        .send(publicEntity(await importDriveFile(scope, fileId, type)));
+    },
+  );
+  app.post(
+    "/api/projects/:projectId/google-drive/upload",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      const { projectId } = req.params as { projectId: string };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      return reply
+        .code(201)
+        .send(publicEntity(await uploadUserRaster(scope, req.body)));
     },
   );
 };

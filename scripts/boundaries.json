@@ -28,7 +28,6 @@
       "apps/api/src/modules/budget.ts",
       "apps/api/src/modules/chat-runner.ts",
       "apps/api/src/modules/chat.ts",
-      "apps/api/src/modules/google-drive.ts",
       "apps/api/src/modules/index-evaluation.ts",
       "apps/api/src/modules/ingestion.ts",
       "apps/api/src/modules/member-scope.ts",

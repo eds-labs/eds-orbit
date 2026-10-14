@@ -8,10 +8,12 @@ import {
   nextPostizQueueCheckAt,
   postizQueueHealth,
 } from "./publishing/postiz-queue-watch.ts";
+import { driveAssetRetry } from "./brand/drive-retry.ts";
 
 /**
  * Marketing's per-project worker tasks (WP2.1), in the order the worker ran
- * them before: saved Matomo imports, then the read-only Postiz queue check.
+ * them before: saved Matomo imports, the read-only Postiz queue check, then
+ * the Drive retry of generated images (WP2.5d).
  */
 export const marketingPeriodicTasks: readonly PeriodicTask[] = [
   {
@@ -32,4 +34,5 @@ export const marketingPeriodicTasks: readonly PeriodicTask[] = [
     },
     health: { summarize: postizQueueHealth },
   },
+  driveAssetRetry,
 ];

@@ -19,7 +19,7 @@ import { validateDraftMission } from "../../assistant/proposals.ts";
 import { resolveChannelRules } from "../../publishing/channel-rules.ts";
 import { exportContentBundle } from "../../pipeline/content-export.ts";
 import { generateMissionLive } from "../../pipeline/generation.ts";
-import { saveDraftDocument } from "../../../google-drive.ts";
+import { saveDraftDocument } from "../../brand/drive-assets.ts";
 import {
   currentMarketingProfile,
   officialTargetLink,

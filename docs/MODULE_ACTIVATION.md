@@ -16,6 +16,7 @@ Enforcement is active only with `ORBIT_MODULES=true`. With the flag off (the def
 | Scheduler contribution and periodic tasks | not called |
 | Notifications of its kinds (WP2.5b) | the platform's `telegram_notification` job is recorded as `skipped` with reason `MODULE_DISABLED`; nothing is sent |
 | Telegram buttons of its callbacks (WP2.5a) | rejected like an invalid button (`telegram.callback_rejected`) |
+| Signed Slack interactions (marketing, WP2.5d) | `404 MODULE_DISABLED` after the signature and identity checks; nothing is consumed, so the button works again once the module is on |
 | Web | navigation, home section, chat parts, inbox views, settings sections and connector providers are hidden; module pages show a notice |
 
 Not affected:

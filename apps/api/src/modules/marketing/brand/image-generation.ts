@@ -24,11 +24,8 @@ import { currentMarketingProfile } from "./marketing-profile.ts";
 import { runtimeOpenAiConfiguration } from "../../openai-configuration.ts";
 import { recordSpan, startRun, tracedRun } from "../../telemetry.ts";
 import { normalizeGeneratedPng } from "../../assets.ts";
-import {
-  connectionStatus,
-  markSyncFailed,
-  saveGeneratedAsset,
-} from "../../google-drive.ts";
+import { connectionStatus } from "../../../platform/connections/google-drive.ts";
+import { markSyncFailed, saveGeneratedAsset } from "./drive-assets.ts";
 
 export const imageGenerationInput = z
   .object({

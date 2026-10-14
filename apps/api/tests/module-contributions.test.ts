@@ -110,10 +110,12 @@ describe("module contributions", () => {
   });
 
   it("gives the worker its module tasks and start-up through the registry (WP2.1)", () => {
-    // Same order as the worker ran them before: Matomo, then the Postiz check.
+    // Same order as the worker ran them before: Matomo, the Postiz check,
+    // then the Drive retry of generated images (a task since WP2.5d).
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
       "matomo-schedule",
       "postiz-queue",
+      "drive-asset-retry",
     ]);
     // The health key and summary of /api/health/postiz stay the same.
     expect(registeredPeriodicTask("postiz-queue")?.health?.summarize).toBe(

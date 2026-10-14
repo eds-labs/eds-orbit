@@ -18,6 +18,8 @@ import {
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { create, data, list, update } from "../../../shared.ts";
 import { saveMarketingProfile } from "../brand/marketing-profile.ts";
+import { setModuleEnabled } from "../../../platform/modules/activation.ts";
+import { moduleRegistry } from "../../registry.ts";
 import {
   retrieve,
   setFact,
@@ -210,6 +212,49 @@ describe.skipIf(!enabled)(
         ).paused,
       ).toBe(true);
     });
+    it("ignores a signed interaction while marketing is off (WP2.5d)", async () => {
+      vi.stubEnv("EXECUTION_MODE", "live");
+      vi.stubEnv("ENABLE_EXTERNAL_WRITES", "true");
+      const message = await queued();
+      const fetch = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ ok: true, channel: "C1234", ts: "1789640000.1" }),
+          ),
+      );
+      await dispatchSlackDigest(scope, message.id, { fetch });
+      const action = (await run((tx) => list(tx, scope, "slack_actions"))).find(
+        (x) => data(x).type === "pause",
+      )!;
+      vi.stubEnv("ORBIT_MODULES", "true");
+      await run((tx) =>
+        setModuleEnabled(tx, scope, moduleRegistry(), "marketing", false),
+      );
+      // An unsigned request still learns nothing about the module.
+      await expect(
+        handleSlackInteraction({ ...signed(action.id), signature: "v0=bad" }),
+      ).rejects.not.toThrow("MODULE_DISABLED");
+      await expect(handleSlackInteraction(signed(action.id))).rejects.toThrow(
+        "MODULE_DISABLED",
+      );
+      const paused = async () =>
+        (
+          await authDb.project.findUniqueOrThrow({
+            where: { id: scope.projectId },
+          })
+        ).paused;
+      expect(await paused()).toBe(false);
+      // Nothing was consumed: once marketing is on, the button works.
+      await run((tx) =>
+        setModuleEnabled(tx, scope, moduleRegistry(), "marketing", true),
+      );
+      expect(await handleSlackInteraction(signed(action.id))).toMatchObject({
+        accepted: true,
+        action: "pause",
+      });
+      expect(await paused()).toBe(true);
+    });
+
     it("keeps network ambiguity and recovered interrupted sends unknown without retry", async () => {
       vi.stubEnv("EXECUTION_MODE", "live");
       vi.stubEnv("ENABLE_EXTERNAL_WRITES", "true");

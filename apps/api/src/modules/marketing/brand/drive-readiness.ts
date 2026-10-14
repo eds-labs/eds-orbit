@@ -3,7 +3,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
 
 // Connection state belongs to the platform's Drive connection (WP2.1f).
-export { driveReconnectRequired } from "../../google-drive.ts";
+export { driveReconnectRequired } from "../../../platform/connections/google-drive.ts";
 
 /** Inline bytes are kept locally; only Drive-referenced assets need Drive. */
 export function isDriveOnlyAsset(asset: Record<string, any>) {

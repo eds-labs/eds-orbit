@@ -1,5 +1,30 @@
 # Implementation status
 
+## Google Drive on the platform, brand assets in marketing, Slack checked: WP2.5d (2026-10-14, local)
+
+Branch `claude/wp25d-drive-slack`, the last part of WP2.5.
+
+- **Google Drive.** `modules/google-drive.ts` moves to `platform/connections/google-drive.ts` (a rename-only commit first; the shim is gone).
+  - **Platform:** OAuth connect and callback, the connection status and health, disconnect, the storage root, browsing and `driveContent`.
+  - **Marketing (`modules/marketing/brand/drive-assets.ts`):** the six brand-asset functions, moved unchanged. They are `importDriveFile`, `brandAssets`, `saveGeneratedAsset`, `saveDraftDocument`, `uploadUserRaster` and `markSyncFailed` (plan 04: they stay marketing until Q-06).
+  - The platform exports the Drive access they build on under descriptive names (`driveStorage`, `driveAccessToken`, `driveContains`, `ensureDriveFolder`, …). The access token never leaves the server.
+- **Routes.** The three brand-asset routes move from `server.ts` into marketing's routes at the same paths, so the WP2.4 guard covers them: `GET …/google-drive/brand`, `POST …/google-drive/files/:fileId/import` and `POST …/google-drive/upload` (with its rate limit).
+- **Drive retry of generated images.** It moves from the worker's pass into the marketing periodic task `drive-asset-retry`, unchanged; a mechanical diff shows only the return of its wake-up.
+  - `PeriodicTask.run` may now return `wakeAt`, which the worker adds to the project's wake-up, so the timing stays the same.
+  - The worker no longer imports marketing.
+  - Two deliberate differences, both platform rules for periodic tasks:
+    - a failing Drive status check no longer fails the whole project pass;
+    - with `ORBIT_MODULES` on and marketing off, no retry runs.
+- **Slack.** Its inbound route already belonged to marketing (WP2.1f). A signed interaction is now refused with `MODULE_DISABLED` while marketing is off, only after signature and identity mapping. Nothing is consumed, so the same button works once marketing is on again.
+
+**Verification (local).**
+- Full suite: 153 files and 1384 tests.
+- New tests:
+  - the Drive retry: no Drive, due versus later assets, the attempt limit, the 30-second throttle, `markSyncFailed` after a failed save, and the wake-up;
+  - the Slack interaction while marketing is off (mutation-checked).
+- The Drive mocks of three suites follow the new paths. The periodic task order now includes the retry.
+- The OpenAPI document is unchanged. Typecheck and source check pass; boundaries: 0 known violations.
+
 ## Connections registry: WP2.5c (2026-10-14, local)
 
 Branch `claude/wp25c-connections`, the third part of WP2.5. The platform owns the credential vault and capability states; marketing contributes the providers.

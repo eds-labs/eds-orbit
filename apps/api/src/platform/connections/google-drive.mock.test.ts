@@ -17,15 +17,18 @@ vi.mock("../../../../../packages/db/src/index.ts", async (importOriginal) => ({
     fn: (tx: any) => Promise<unknown>,
   ) => fn(tx),
 }));
-vi.mock("../../../../../packages/config/src/index.ts", async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  loadConfig: () => ({
-    GOOGLE_DRIVE_CLIENT_ID: "test-client",
-    GOOGLE_DRIVE_CLIENT_SECRET: "test-secret",
-    CREDENTIAL_KEY: "a".repeat(64),
-    APP_ORIGIN: "http://localhost:4310",
+vi.mock(
+  "../../../../../packages/config/src/index.ts",
+  async (importOriginal) => ({
+    ...(await importOriginal<object>()),
+    loadConfig: () => ({
+      GOOGLE_DRIVE_CLIENT_ID: "test-client",
+      GOOGLE_DRIVE_CLIENT_SECRET: "test-secret",
+      CREDENTIAL_KEY: "a".repeat(64),
+      APP_ORIGIN: "http://localhost:4310",
+    }),
   }),
-}));
+);
 const tx = {
   entity: {
     findMany: async ({ where }: any) =>
@@ -124,12 +127,14 @@ import {
   driveContent,
   finishConnect,
   rootCandidates,
-  saveGeneratedAsset,
-  saveDraftDocument,
-  markSyncFailed,
   testDriveConnection,
-  uploadUserRaster,
 } from "./google-drive.ts";
+import {
+  markSyncFailed,
+  saveDraftDocument,
+  saveGeneratedAsset,
+  uploadUserRaster,
+} from "../../modules/marketing/brand/drive-assets.ts";
 import {
   encodeWebp,
   renderRasterTemplate,
