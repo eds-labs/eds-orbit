@@ -125,7 +125,15 @@ test("pickers, project home and every page have their own URL", async ({
       "page",
     );
     await expect(page.getByText("Page not found")).toHaveCount(0);
-    await page.reload();
+  }
+  // Deep links survive a reload: one platform page and one module page.
+  // Not every page: the whole suite shares one client address and the API's
+  // read limit (600 per minute).
+  for (const [name, path] of [
+    ["Settings", "/settings"],
+    ["Calendar", "/marketing/calendar"],
+  ]) {
+    await page.goto(`${base}${path}`);
     await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute(
       "aria-current",
       "page",
