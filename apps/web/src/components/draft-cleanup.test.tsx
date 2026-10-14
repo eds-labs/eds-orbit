@@ -6,7 +6,7 @@ import {
   DRAFT_STATUSES,
   KEEP_REASONS as API_KEEP_REASONS,
   MISSION_KEEP_REASONS as API_MISSION_KEEP_REASONS,
-} from "../../../api/src/modules/draft-statuses";
+} from "../../../api/src/modules/marketing/pipeline/draft-statuses";
 import {
   APPROVAL_STATUSES,
   approvalItems,
