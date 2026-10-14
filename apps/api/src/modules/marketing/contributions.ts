@@ -7,6 +7,7 @@ import { marketingHooks } from "./hooks.ts";
 import { marketingRetention } from "./retention.ts";
 import { marketingPeriodicTasks } from "./periodic.ts";
 import { marketingActions } from "./actions.ts";
+import { marketingRoutes } from "./routes.ts";
 import { registerAgentSpecialists } from "./agents/specialists/index.ts";
 import { data } from "../../shared.ts";
 
@@ -24,6 +25,7 @@ export const marketingContributions: ModuleContributions = {
   retention: marketingRetention,
   periodic: marketingPeriodicTasks,
   actions: marketingActions,
+  routes: marketingRoutes,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
   publicViews: {

@@ -1,5 +1,26 @@
 # Implementation status
 
+## Marketing routes as a module contribution: WP2.1f-3a (2026-10-14, local)
+
+Branch `claude/wp21f3-routes`, the third part of WP2.1f. The marketing module now registers its own HTTP routes (`routes` contribution, `platform/http/routes.ts`). There are 21 routes, moved unchanged from `server.ts` and registered at the same paths:
+
+- Slack interactions
+- content export and `PATCH content/:id`
+- the marketing profile
+- the ten Orbit Agents routes
+- brand asset upload and content, Drive retry, image generation
+- the three content package controls
+
+Further notes:
+- The platform hooks apply to these routes as before: origin check, rate limits, error mapping, and the Orbit Agents gate on the matched route pattern.
+- Some routes stay in `server.ts` for now: dashboard, operations, Google Drive connection, chat, action requests and the generic collections. Some of them become the platform home and connections work (WP2.5, Phase 4).
+- `server.ts` is down to 1165 lines; it was 2340 before WP2.1f.
+- The OpenAPI document generated with sorted keys is identical before and after: 68 paths, the same definitions.
+- The access matrix is unchanged.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1352 tests. API and web typechecks and the boundary check pass.
+
 ## Project actions as module contributions: WP2.1f-2 (2026-10-14, local)
 
 Branch `claude/wp21f2-actions`, the second part of WP2.1f. The if-chain of `POST /api/projects/:projectId/actions/:action` in `server.ts` (65 actions, about 760 lines) is replaced by handlers that the platform and the modules register.

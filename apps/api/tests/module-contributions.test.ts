@@ -10,6 +10,7 @@ import {
   registeredPeriodicTask,
   registeredPeriodicTasks,
   registeredRetention,
+  registeredRoutes,
   registeredSchedulers,
   registeredTools,
   unexportedKinds,
@@ -18,6 +19,7 @@ import {
 import { platformActionPermissions } from "../src/platform/tenancy/permissions.ts";
 import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions.ts";
 import { marketingActionPermissions } from "../src/modules/marketing/permissions.ts";
+import { marketingRoutes } from "../src/modules/marketing/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
@@ -207,6 +209,10 @@ describe("module contributions", () => {
       "render",
       "retrieve",
     ]);
+  });
+
+  it("lets marketing register its own HTTP routes (WP2.1f)", () => {
+    expect(registeredRoutes()).toEqual([marketingRoutes]);
   });
 
   it("projects module kinds through the module: asset bytes never leave", () => {

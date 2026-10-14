@@ -12,7 +12,10 @@ import {
   marketingCollectionPermissions,
 } from "./modules/marketing/permissions.ts";
 import { moduleRegistry, registerModules } from "./modules/registry.ts";
-import { registeredAction } from "./platform/modules/contributions.ts";
+import {
+  registeredAction,
+  registeredRoutes,
+} from "./platform/modules/contributions.ts";
 import {
   listModuleStates,
   moduleSwitchingEnabled,
@@ -20,10 +23,6 @@ import {
   setModuleEnabled,
 } from "./platform/modules/activation.ts";
 import { randomUUID } from "node:crypto";
-import {
-  autopilotMigration,
-  proposeAutopilotAssignment,
-} from "./modules/autopilot.ts";
 import {
   agentRunsQuery,
   aiCostQuery,
@@ -53,37 +52,10 @@ import {
   decideActionRequest,
   listActionRequests,
 } from "./modules/action-requests.ts";
-import { cancelContentPackage } from "./modules/agents/content-packages.ts";
-import { attachPackageImage } from "./modules/agents/package-image.ts";
-import { cancelPackageSchedule } from "./modules/agents/package-schedule.ts";
-import {
-  agentsEnabled,
-  setAssignmentStatus,
-} from "./modules/agents/assignments.ts";
-import {
-  assignmentStatusInput,
-  draftsAwaitingOwner,
-  listAssignments,
-  upcomingAssignmentPosts,
-  vetoInput,
-} from "./modules/agents/assignment-overview.ts";
-import {
-  releaseAssignmentDraft,
-  releaseInput,
-} from "./modules/agents/owner-release.ts";
-import { vetoPublication } from "./modules/agents/veto.ts";
+import { agentsEnabled } from "./modules/agents/assignments.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
-import { handleSlackInteraction } from "./modules/slack.ts";
 import { readiness } from "./modules/readiness.ts";
 import { publicOpenAiConfiguration } from "./modules/openai-configuration.ts";
-import {
-  assetBytes,
-  brandAssetUploadInput,
-  normalizeBrandAsset,
-} from "./modules/assets.ts";
-import { exportContentBundle } from "./modules/content-export.ts";
-import { withGenerationProvenance } from "./modules/content-provenance.ts";
-import { generateProjectImage } from "./modules/image-generation.ts";
 import {
   beginConnect,
   finishConnect,
@@ -97,7 +69,6 @@ import {
   importDriveFile,
   uploadUserRaster,
   brandAssets,
-  saveGeneratedAsset,
 } from "./modules/google-drive.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
@@ -131,17 +102,11 @@ import {
   audit,
 } from "./shared.ts";
 import { activePolicy } from "./modules/policy.ts";
-import { invalidateContent } from "./modules/content-invalidation.ts";
 import {
-  currentMarketingProfile,
-  saveMarketingProfile,
   assertCampaignContext,
   assertContentCampaignContext,
 } from "./modules/marketing-profile.ts";
-import {
-  ConnectorError,
-  type FetchLike,
-} from "../../../packages/connectors/src/index.ts";
+import { type FetchLike } from "../../../packages/connectors/src/index.ts";
 import {
   connectTelegram,
   disconnectTelegram,
@@ -173,7 +138,6 @@ const factSchema = z
   })
   .strict();
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
-import { agentActivity } from "./modules/agents/agent-activity.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
 const AGENT_ROUTES = new Set([
@@ -348,32 +312,6 @@ export async function buildServer(
       error: { code, message: code.replaceAll("_", " ").slice(0, 200) },
     });
   });
-  app.post(
-    "/api/slack/:workspaceId/:projectId/interactions",
-    async (req, reply) => {
-      const params = z
-        .object({ workspaceId: schemas.id, projectId: schemas.id })
-        .parse(req.params);
-      try {
-        await handleSlackInteraction({
-          ...params,
-          rawBody: z.string().max(1000000).parse(req.body),
-          timestamp: z.string().parse(req.headers["x-slack-request-timestamp"]),
-          signature: z.string().parse(req.headers["x-slack-signature"]),
-        });
-        return reply.code(200).send("");
-      } catch (error) {
-        if (error instanceof ConnectorError) {
-          if (error.code === "SLACK_REPLAY") return reply.code(200).send("");
-          throw new DomainError(
-            error.code,
-            error.code === "SLACK_PAYLOAD_INVALID" ? 400 : 403,
-          );
-        }
-        throw error;
-      }
-    },
-  );
   // Orbit Telegram bot webhook (Orbit Agents): public, authenticated only by
   // the per-connection secret header and the bound chat (spec §10).
   app.post(
@@ -772,18 +710,9 @@ export async function buildServer(
       exportProject(tx, scope),
     );
   });
-  app.get("/api/projects/:projectId/content/:id/export", async (req, reply) => {
-    const { projectId, id } = req.params as any,
-      scope = await scopeFor(auth, req, projectId);
-    const bundle = await exportContentBundle(scope, id);
-    return reply
-      .header("Content-Type", "application/json")
-      .header(
-        "Content-Disposition",
-        'attachment; filename="orbit-article-bundle.json"',
-      )
-      .send(bundle);
-  });
+
+  // Module routes at their existing paths (WP2.1f).
+  for (const routes of registeredRoutes()) routes({ app, auth, config });
 
   app.post("/api/workspaces/:workspaceId/pause", async (req) => {
     const user = await userFor(auth, req),
@@ -834,21 +763,6 @@ export async function buildServer(
       items: await listIndexGenerations(tx, scope),
     }));
   });
-  app.get("/api/projects/:projectId/marketing-profile", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => {
-      const profile = await currentMarketingProfile(tx, scope);
-      return profile ? jsonSafe(profile) : null;
-    });
-  });
-  app.put("/api/projects/:projectId/marketing-profile", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-    return scoped(scope.workspaceId, projectId, async (tx) =>
-      jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
-    );
-  });
   // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
   app.get("/api/projects/:projectId/telegram", async (req) => {
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
@@ -875,122 +789,6 @@ export async function buildServer(
       { fetch: options?.telegramFetch },
     );
   });
-  // Orbit Agents for the web: assignments and their upcoming posts (404 while off).
-  app.get("/api/projects/:projectId/assignments", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, (tx) =>
-      listAssignments(tx, scope),
-    );
-  });
-  // Pause and end are an editor's; resuming is the owner's (setAssignmentStatus).
-  app.post("/api/projects/:projectId/assignments/:id/status", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-    const input = assignmentStatusInput.parse(req.body);
-    const saved = await scoped(scope.workspaceId, projectId, (tx) =>
-      setAssignmentStatus(
-        tx,
-        scope,
-        z.uuid().parse(id),
-        input.status,
-        input.version,
-      ),
-    );
-    return { id: saved.id, version: saved.version, status: data(saved).status };
-  });
-  // The saved weekly autopilot as a draft assignment (spec D5, migration card).
-  app.get(
-    "/api/projects/:projectId/assignments/autopilot-migration",
-    async (req) => {
-      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId);
-      return scoped(scope.workspaceId, projectId, (tx) =>
-        autopilotMigration(tx, scope),
-      );
-    },
-  );
-  // Proposes it through the normal proposal path; an owner confirms it like any other.
-  app.post(
-    "/api/projects/:projectId/assignments/autopilot-migration",
-    async (req) => {
-      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-      const { assignment, actionRequest, conversationId } =
-        await proposeAutopilotAssignment(scope);
-      return {
-        assignmentId: assignment.id,
-        actionRequestId: actionRequest.id,
-        conversationId,
-      };
-    },
-  );
-  app.get("/api/projects/:projectId/assignment-posts", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return {
-      items: await scoped(scope.workspaceId, projectId, (tx) =>
-        upcomingAssignmentPosts(tx, scope),
-      ),
-    };
-  });
-  // What the agents work on, what comes next and whether anything needs attention (overview).
-  app.get("/api/projects/:projectId/agent-activity", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, (tx) =>
-      agentActivity(tx, scope),
-    );
-  });
-  // Stop in Orbit (spec §10 fallback): the same veto as the bot's Stop button.
-  app.post("/api/projects/:projectId/publications/:id/veto", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-    const input = vetoInput.parse(req.body);
-    return scoped(scope.workspaceId, projectId, (tx) =>
-      vetoPublication(
-        tx,
-        scope,
-        z.uuid().parse(id),
-        input.version,
-        "orbit",
-        input.reason,
-      ),
-    );
-  });
-  // Assignment drafts left for the owner (R70): the list, and the owner's release of one.
-  app.get("/api/projects/:projectId/assignment-drafts", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return {
-      items: await scoped(scope.workspaceId, projectId, (tx) =>
-        draftsAwaitingOwner(tx, scope),
-      ),
-    };
-  });
-  app.post(
-    "/api/projects/:projectId/assignment-drafts/:id/release",
-    async (req) => {
-      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-      const { projectId, id } = req.params as {
-        projectId: string;
-        id: string;
-      };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      const input = releaseInput.parse(req.body);
-      return scoped(scope.workspaceId, projectId, (tx) =>
-        releaseAssignmentDraft(tx, scope, z.uuid().parse(id), input.version),
-      );
-    },
-  );
   app.get("/api/projects/:projectId/google-drive", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return connectionStatus(await scopeFor(auth, req, projectId));
@@ -1093,21 +891,6 @@ export async function buildServer(
     },
   );
   app.post(
-    "/api/projects/:projectId/assets/:assetId/drive-retry",
-    async (req, reply) => {
-      const { projectId, assetId } = req.params as {
-        projectId: string;
-        assetId: string;
-      };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      return reply.send(
-        publicEntity(
-          await saveGeneratedAsset(scope, schemas.id.parse(assetId)),
-        ),
-      );
-    },
-  );
-  app.post(
     "/api/projects/:projectId/google-drive/upload",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (req, reply) => {
@@ -1116,66 +899,6 @@ export async function buildServer(
       return reply
         .code(201)
         .send(publicEntity(await uploadUserRaster(scope, req.body)));
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/assets/upload",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (req, reply) => {
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      const normalized = await normalizeBrandAsset(
-        brandAssetUploadInput.parse(req.body),
-      );
-      const row = await scoped(scope.workspaceId, projectId, async (tx) => {
-        const asset = await create(tx, scope, "assets", {
-          ...normalized,
-          assetStatus: "reference",
-          usageApproved: false,
-          uploadedBy: scope.userId,
-          uploadedAt: new Date().toISOString(),
-        });
-        await audit(tx, scope, "asset.upload", asset.id, {
-          type: normalized.type,
-          sha256: normalized.sha256,
-          bytes: normalized.bytes,
-        });
-        return asset;
-      });
-      return reply.code(201).send(publicEntity(row));
-    },
-  );
-  app.get(
-    "/api/projects/:projectId/assets/:assetId/content",
-    async (req, reply) => {
-      const { projectId, assetId } = req.params as {
-        projectId: string;
-        assetId: string;
-      };
-      const scope = await scopeFor(auth, req, projectId);
-      const assetData = await scoped(scope.workspaceId, projectId, async (tx) =>
-        data(await entity(tx, scope, "assets", schemas.id.parse(assetId))),
-      );
-      const content =
-        assetData.driveFileId && !assetData.base64
-          ? await driveContent(scope, assetData.driveFileId)
-          : assetBytes(assetData);
-      return reply
-        .header("Content-Security-Policy", "default-src 'none'; sandbox")
-        .header("X-Content-Type-Options", "nosniff")
-        .type(content.mime)
-        .send(content.bytes);
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/images/generate",
-    { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } },
-    async (req, reply) => {
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-      return reply.send(
-        publicEntity(await generateProjectImage(scope, req.body)),
-      );
     },
   );
   app.get("/api/projects/:projectId/chat/conversations", async (req) => {
@@ -1285,30 +1008,6 @@ export async function buildServer(
       const { projectId, id } = req.params as { projectId: string; id: string };
       const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       return confirmProposal(scope, z.uuid().parse(id), req.body);
-    },
-  );
-  // Stops what has not started; the requester only.
-  app.post("/api/projects/:projectId/chat/packages/:id/cancel", async (req) => {
-    const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-    return cancelContentPackage(scope, z.uuid().parse(id));
-  });
-  // Attaches the package's rights-approved image to chosen drafts; the requester only.
-  app.post(
-    "/api/projects/:projectId/chat/packages/:id/attach-image",
-    async (req) => {
-      const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-      return attachPackageImage(scope, z.uuid().parse(id), req.body);
-    },
-  );
-  // Cancels a package post's schedule before the handoff; the requester or an owner.
-  app.post(
-    "/api/projects/:projectId/chat/packages/:id/unschedule",
-    async (req) => {
-      const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-      return cancelPackageSchedule(scope, z.uuid().parse(id), req.body);
     },
   );
   // Owners' open decisions (image requests from editors' packages and others).
@@ -1436,28 +1135,6 @@ export async function buildServer(
       return row;
     });
     return reply.code(201).send(jsonSafe(result));
-  });
-  app.patch("/api/projects/:projectId/content/:id", async (req) => {
-    const { projectId, id } = req.params as any,
-      scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
-    const input = z
-      .object({ version: z.number().int(), data: schemas.content })
-      .strict()
-      .parse(req.body);
-    return scoped(scope.workspaceId, projectId, async (tx) => {
-      const row = await entity(tx, scope, "content", id);
-      if (row.version !== input.version)
-        throw new DomainError("VERSION_CONFLICT", 409);
-      await entity(tx, scope, "evidence", input.data.evidenceId);
-      await assertContentCampaignContext(tx, scope, input.data);
-      await invalidateContent(tx, scope, id);
-      return update(tx, scope, row, {
-        ...withGenerationProvenance(data(row), input.data),
-        status: "draft",
-        origin: data(row).origin,
-        synthetic: data(row).synthetic ?? false,
-      });
-    });
   });
   app.post("/api/projects/:projectId/actions/:action", async (req) => {
     const { projectId, action } = req.params as any;

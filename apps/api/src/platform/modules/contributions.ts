@@ -11,6 +11,7 @@ import type {
   RetentionContribution,
 } from "../governance/types.ts";
 import type { ActionHandler } from "../http/actions.ts";
+import type { RoutesContribution } from "../http/routes.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -38,6 +39,8 @@ export type ModuleContributions = {
   onWorkerStart?: () => void;
   /** Handlers of POST /api/projects/:id/actions/:name, by name (WP2.1f). */
   actions?: Readonly<Record<string, ActionHandler>>;
+  /** HTTP routes at their existing absolute paths (WP2.1f). */
+  routes?: RoutesContribution;
 };
 
 type Registered = {
@@ -196,4 +199,11 @@ export function registeredAction(name: string): ActionHandler | undefined {
 /** Every registered action name. */
 export function registeredActionNames(): string[] {
   return [...current().actions.keys()];
+}
+
+/** Route registrations: platform first, then modules in registry order. */
+export function registeredRoutes(): RoutesContribution[] {
+  return [...current().byModule.values()]
+    .map((c) => c.routes)
+    .filter((r): r is RoutesContribution => Boolean(r));
 }
