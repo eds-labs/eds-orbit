@@ -51,10 +51,7 @@ import {
 import { attachOwnBanner, bannerState, mediaRefusal } from "./visual.ts";
 import { reviseAssignmentDraft, saveDraftToDrive } from "./copywriter.ts";
 import { notify } from "../notifications.ts";
-import {
-  ASSIGNMENT_BUDGET_EXHAUSTED,
-  runSpecialist,
-} from "./runner.ts";
+import { ASSIGNMENT_BUDGET_EXHAUSTED, runSpecialist } from "./runner.ts";
 import {
   DEFAULT_SPECIALIST_LIMITS,
   type AgentTask,

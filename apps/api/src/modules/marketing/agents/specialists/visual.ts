@@ -39,14 +39,8 @@ import {
   parsedBanner,
 } from "../banner.ts";
 import { errorCode } from "../../../telemetry.ts";
-import {
-  assertTaskBudget,
-  runBudgetKey,
-} from "./runner.ts";
-import type {
-  AgentTask,
-  StepHandler,
-} from "./types.ts";
+import { assertTaskBudget, runBudgetKey } from "./runner.ts";
+import type { AgentTask, StepHandler } from "./types.ts";
 
 /**
  * Visual step of an assignment run (Orbit Agents, spec §5, §6, §8): one image

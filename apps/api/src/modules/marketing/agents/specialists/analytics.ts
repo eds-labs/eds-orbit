@@ -4,10 +4,7 @@ import {
   agentMetricsSummary,
   agentPostizAnalytics,
 } from "../../tools/agent-tools.ts";
-import {
-  DEFAULT_SPECIALIST_LIMITS,
-  type Specialist,
-} from "./types.ts";
+import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
 
 const finding = z
   .object({

@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
-import { runReadTool, validateReadToolResult } from "../../chat-tools.ts";
+import {
+  runReadTool,
+  validateReadToolResult,
+} from "../assistant/chat-tools.ts";
 import {
   defineTool,
   dropNullFields,

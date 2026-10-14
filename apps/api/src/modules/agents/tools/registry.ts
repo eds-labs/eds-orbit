@@ -8,7 +8,7 @@ import type { PermissionDef } from "../../../../../../packages/module-contracts/
 import { can } from "../../../platform/tenancy/permissions.ts";
 import { zodResponsesFunction } from "openai/helpers/zod";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import type { ChatCard } from "../../chat-tools.ts";
+import type { ChatCard } from "../../../platform/assistant/cards.ts";
 
 export type ToolRole = Scope["role"];
 export type ToolNamespace =

@@ -1,5 +1,8 @@
 import { zodTextFormat } from "openai/helpers/zod";
-import { scoped, type DbTx } from "../../../../../../../packages/db/src/index.ts";
+import {
+  scoped,
+  type DbTx,
+} from "../../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../../packages/schemas/src/index.ts";
 import {
   estimateCost,
@@ -369,7 +372,10 @@ function outputJsonSchema(specialist: Specialist) {
 }
 
 /** Where a final answer fails its schema: paths, issue codes and string lengths, never its text. */
-export function outputIssues(answer: string, schema: Specialist["outputSchema"]) {
+export function outputIssues(
+  answer: string,
+  schema: Specialist["outputSchema"],
+) {
   let value: unknown;
   try {
     value = JSON.parse(answer);

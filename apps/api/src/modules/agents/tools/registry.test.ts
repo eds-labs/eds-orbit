@@ -175,7 +175,7 @@ describe("tool registry", () => {
 
 import { vi } from "vitest";
 const read = vi.hoisted(() => ({ calls: [] as unknown[][] }));
-vi.mock("../../chat-tools.ts", () => ({
+vi.mock("../../marketing/assistant/chat-tools.ts", () => ({
   runReadTool: vi.fn(async (...args: unknown[]) => {
     read.calls.push(args);
     return { result: { ok: true }, cards: [] };

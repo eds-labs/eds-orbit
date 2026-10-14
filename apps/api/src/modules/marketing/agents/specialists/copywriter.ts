@@ -39,10 +39,7 @@ import {
   taskBudgetLeft,
   taskReservations,
 } from "./runner.ts";
-import type {
-  AgentTask,
-  StepHandler,
-} from "./types.ts";
+import type { AgentTask, StepHandler } from "./types.ts";
 import { attachRunImage, composeRunBanners } from "./visual.ts";
 
 /**

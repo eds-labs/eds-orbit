@@ -3,7 +3,10 @@ import { PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
 import { createPostizClient } from "../../../../../../packages/connectors/src/index.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { runReadTool, validateReadToolResult } from "../../chat-tools.ts";
+import {
+  runReadTool,
+  validateReadToolResult,
+} from "../assistant/chat-tools.ts";
 import {
   create,
   data,

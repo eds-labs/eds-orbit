@@ -6,10 +6,7 @@ import { listUsableFacts } from "../content-packages.ts";
 import { sharedBriefSlots } from "../shared-posts.ts";
 import { data } from "../../../../shared.ts";
 import { errorCode } from "../../../telemetry.ts";
-import {
-  DEFAULT_SPECIALIST_LIMITS,
-  type Specialist,
-} from "./types.ts";
+import { DEFAULT_SPECIALIST_LIMITS, type Specialist } from "./types.ts";
 
 // The history and fact base are embedded in the task input; the runner fails a call whose context is larger than its limit.
 export const STRATEGY_HISTORY_DAYS = 14;

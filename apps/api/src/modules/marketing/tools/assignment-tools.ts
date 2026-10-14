@@ -4,7 +4,7 @@ import {
   PROJECT_WRITE,
 } from "../../../platform/tenancy/permissions.ts";
 import { chatScoped } from "../../chat.ts";
-import type { AssignmentCard, ChatCard } from "../../chat-tools.ts";
+import type { AssignmentCard, ChatCard } from "../assistant/chat-tools.ts";
 import { zonedTime } from "../publishing/posting-slots.ts";
 import { data, DomainError, entity, list } from "../../../shared.ts";
 import { runsMatching } from "../agents/assignment-runs.ts";

@@ -25,7 +25,7 @@ import {
 } from "./openai-configuration.ts";
 import { chatScoped, getRun } from "./chat.ts";
 import { actorScope } from "./member-scope.ts";
-import { type ChatCard } from "./chat-tools.ts";
+import type { ChatCard } from "../platform/assistant/cards.ts";
 import {
   registeredAssistants,
   registeredTools,
