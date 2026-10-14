@@ -374,7 +374,9 @@ export function outputIssues(answer: string, schema: Specialist["outputSchema"])
   try {
     value = JSON.parse(answer);
   } catch {
-    return answer.trim() ? "not_json" : "empty";
+    // An answer cut off at the output token limit starts as JSON.
+    const start = answer.trim();
+    return !start ? "empty" : /^[{[]/.test(start) ? "truncated_json" : "not_json";
   }
   const result = schema.safeParse(value);
   if (result.success) return "valid";
