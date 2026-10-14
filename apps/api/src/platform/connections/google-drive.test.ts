@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { publicEntity, encrypt, decrypt } from "../shared.ts";
-import { imageGenerationInput } from "./image-generation.ts";
-import { assetTools } from "./asset-tools.ts";
+import { publicEntity, encrypt, decrypt } from "../../shared.ts";
+import { imageGenerationInput } from "../../modules/image-generation.ts";
+import { assetTools } from "../../modules/asset-tools.ts";
 
 const key = "a".repeat(64);
 describe("Google Drive credential and generation boundaries", () => {

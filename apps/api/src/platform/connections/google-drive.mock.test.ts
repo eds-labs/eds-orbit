@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { encrypt, data } from "../shared.ts";
+import { encrypt, data } from "../../shared.ts";
 
 const state = vi.hoisted(() => ({
   rows: [] as any[],
@@ -9,7 +9,7 @@ const state = vi.hoisted(() => ({
   failUpload: false,
   tokenFailure: null as null | { status: number; body?: unknown },
 }));
-vi.mock("../../../../packages/db/src/index.ts", async (importOriginal) => ({
+vi.mock("../../../../../packages/db/src/index.ts", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   scoped: async (
     _workspaceId: string,
@@ -17,7 +17,7 @@ vi.mock("../../../../packages/db/src/index.ts", async (importOriginal) => ({
     fn: (tx: any) => Promise<unknown>,
   ) => fn(tx),
 }));
-vi.mock("../../../../packages/config/src/index.ts", async (importOriginal) => ({
+vi.mock("../../../../../packages/config/src/index.ts", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   loadConfig: () => ({
     GOOGLE_DRIVE_CLIENT_ID: "test-client",
@@ -133,7 +133,7 @@ import {
 import {
   encodeWebp,
   renderRasterTemplate,
-} from "../../../../packages/creative/src/index.ts";
+} from "../../../../../packages/creative/src/index.ts";
 
 describe("Google Drive adapter with synthetic HTTP and scoped records", () => {
   beforeEach(() => {
