@@ -1,31 +1,34 @@
 import { createHash } from "node:crypto";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
 import { z } from "zod";
-import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   generateImage,
   generateImageWithReferences,
   imageGenerationConfigurationSchema,
   imagePriceConfigured,
   type ImageReference,
-} from "../../../../packages/ai/src/index.ts";
+} from "../../../../../../packages/ai/src/index.ts";
 import {
   marketingProfile,
   policy,
   type Scope,
-} from "../../../../packages/schemas/src/index.ts";
-import { audit, create, DomainError, data } from "../shared.ts";
-import { reserve, markTransmitted, settle } from "./budget.ts";
-import { activePolicy } from "./policy.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
+import { audit, create, DomainError, data } from "../../../shared.ts";
+import { reserve, markTransmitted, settle } from "../../budget.ts";
+import { activePolicy } from "../policy/policy.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
-import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
-import { normalizeGeneratedPng } from "./assets.ts";
+import { runtimeOpenAiConfiguration } from "../../openai-configuration.ts";
+import { recordSpan, startRun, tracedRun } from "../../telemetry.ts";
+import { normalizeGeneratedPng } from "../../assets.ts";
 import {
   connectionStatus,
   markSyncFailed,
   saveGeneratedAsset,
-} from "./google-drive.ts";
+} from "../../google-drive.ts";
 
 export const imageGenerationInput = z
   .object({

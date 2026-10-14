@@ -15,8 +15,8 @@ import {
   dispatchSlackDigest,
   markSlackOutcomeUnknown,
 } from "./publishing/slack.ts";
-import { evaluateExperiment } from "../lifecycle.ts";
-import { runImageJob } from "../image-requests.ts";
+import { evaluateExperiment } from "./analytics/lifecycle.ts";
+import { runImageJob } from "./brand/image-requests.ts";
 import { sendNotification } from "../agents/notification-sender.ts";
 import {
   deliverPostizDraft,

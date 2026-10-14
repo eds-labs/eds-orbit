@@ -1,5 +1,19 @@
 # Implementation status
 
+## Marketing brand and analytics in their module folders: WP2.1e (2026-10-14, local)
+
+Branch `claude/wp21e-brand-analytics`, the fifth part of WP2.1. Files move unchanged apart from import paths:
+
+- To `apps/api/src/modules/marketing/brand/`: `marketing-profile`, `image-generation`, `image-requests`, `render-asset`, `asset-tools`, `drive-readiness` (with its test).
+- To `apps/api/src/modules/marketing/analytics/`: `matomo` (with its test), `matomo-schedule` and `lifecycle`. `lifecycle` is now only marketing memory, metrics and experiments, plus re-exports of the platform scheduler and retention. It leaves the platform zone of the boundary checker.
+
+Further notes:
+- The old paths keep one-line re-exports. They serve `evals/generation/harness.ts`, `evals/operator/offline.test.ts`, the worker's `due-marker` test and the platform importers.
+- `asset-tools` reads the built-in EDS logo by a path relative to its own file. That path is adjusted. A new integration test reads the logo, and it fails with the old path.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1350 tests. API and web typechecks and the boundary check pass.
+
 ## Marketing publishing in its module folder: WP2.1d (2026-10-14, local)
 
 Branch `claude/wp21d-publishing`, the fourth part of WP2.1. Nine files and their five co-located tests move unchanged to `apps/api/src/modules/marketing/publishing/`:

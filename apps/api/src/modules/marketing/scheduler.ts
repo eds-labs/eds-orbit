@@ -7,7 +7,7 @@ import { planAutopilot, nextAutopilotCheckAt } from "./pipeline/autopilot.ts";
 import { releaseMissedSlots } from "./pipeline/paused-posts.ts";
 import { prepareFollowup } from "./pipeline/planning.ts";
 import { analyze } from "./pipeline/workflow.ts";
-import { evaluateExperiment } from "../lifecycle.ts";
+import { evaluateExperiment } from "./analytics/lifecycle.ts";
 import { advanceContentPackages } from "../agents/content-packages.ts";
 import { agentsEnabled } from "../agents/assignments.ts";
 import { nextDailyReportAt, planDailyReport } from "../agents/notifications.ts";

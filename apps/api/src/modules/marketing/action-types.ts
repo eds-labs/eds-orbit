@@ -2,7 +2,10 @@ import { z } from "zod";
 import type { ActionDefinition } from "../action-requests.ts";
 import { DomainError, data, update } from "../../shared.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
-import { currentImageTerms, imageRequestPayload } from "../image-generation.ts";
+import {
+  currentImageTerms,
+  imageRequestPayload,
+} from "./brand/image-generation.ts";
 import * as packages from "../agents/content-packages.ts";
 import * as schedule from "../agents/package-schedule.ts";
 import * as assignments from "../agents/assignments.ts";

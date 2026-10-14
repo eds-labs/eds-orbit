@@ -1,14 +1,17 @@
-import { scoped } from "../../../../packages/db/src/index.ts";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
+import { scoped } from "../../../../../../packages/db/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
 import { readFile } from "node:fs/promises";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { assetBytes } from "./assets.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { assetBytes } from "../../assets.ts";
 import {
   driveContent,
   importDriveFile,
   saveGeneratedAsset,
-} from "./google-drive.ts";
-import { data, DomainError, publicEntity } from "../shared.ts";
+} from "../../google-drive.ts";
+import { data, DomainError, publicEntity } from "../../../shared.ts";
 
 /**
  * A composed assignment banner (R78) is bound to its run and draft: its
@@ -70,7 +73,7 @@ export const assetTools = {
         ? {
             bytes: await readFile(
               new URL(
-                "../../../../packages/creative/assets/logo-layer-stack-mark.svg",
+                "../../../../../../packages/creative/assets/logo-layer-stack-mark.svg",
                 import.meta.url,
               ),
             ),
@@ -116,7 +119,7 @@ export const assetTools = {
 };
 
 export async function assertMissionAssets(
-  tx: import("../../../../packages/db/src/index.ts").DbTx,
+  tx: import("../../../../../../packages/db/src/index.ts").DbTx,
   scope: Scope,
   ids: string[],
 ) {

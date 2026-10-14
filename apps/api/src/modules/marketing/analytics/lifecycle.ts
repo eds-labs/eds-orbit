@@ -1,5 +1,5 @@
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   update,
   entity,
@@ -8,7 +8,7 @@ import {
   hash,
   DomainError,
   audit,
-} from "../shared.ts";
+} from "../../../shared.ts";
 
 export async function correctMetric(
   tx: DbTx,
@@ -141,7 +141,7 @@ export async function stopExperiment(
 }
 // Retention is a platform operation with module parts (WP1.8); importers
 // keep this path.
-export { retention } from "../platform/governance/retention.ts";
+export { retention } from "../../../platform/governance/retention.ts";
 // The sweep frame moved to the platform scheduler (WP1.6); its marketing and
 // source-sync parts are scheduler contributions. Importers keep this path.
-export { nextSweepAt, sweepProject } from "../platform/jobs/scheduler.ts";
+export { nextSweepAt, sweepProject } from "../../../platform/jobs/scheduler.ts";

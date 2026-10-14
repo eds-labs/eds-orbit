@@ -1,20 +1,26 @@
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { scoped } from "../../../../packages/db/src/index.ts";
+import { scoped } from "../../../../../../packages/db/src/index.ts";
 import {
   marketingProfile,
   type Scope,
-} from "../../../../packages/schemas/src/index.ts";
-import { renderRasterTemplate } from "../../../../packages/creative/src/index.ts";
-import { assetBytes } from "./assets.ts";
+} from "../../../../../../packages/schemas/src/index.ts";
+import { renderRasterTemplate } from "../../../../../../packages/creative/src/index.ts";
+import { assetBytes } from "../../assets.ts";
 import {
   driveContent,
   connectionStatus,
   saveGeneratedAsset,
   markSyncFailed,
-} from "./google-drive.ts";
+} from "../../google-drive.ts";
 import { currentMarketingProfile } from "./marketing-profile.ts";
-import { create, data, DomainError, entity, publicEntity } from "../shared.ts";
+import {
+  create,
+  data,
+  DomainError,
+  entity,
+  publicEntity,
+} from "../../../shared.ts";
 
 const inputSchema = z
   .object({

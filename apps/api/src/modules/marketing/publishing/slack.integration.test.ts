@@ -17,7 +17,7 @@ import {
 } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { create, data, list, update } from "../../../shared.ts";
-import { saveMarketingProfile } from "../../marketing-profile.ts";
+import { saveMarketingProfile } from "../brand/marketing-profile.ts";
 import {
   retrieve,
   setFact,

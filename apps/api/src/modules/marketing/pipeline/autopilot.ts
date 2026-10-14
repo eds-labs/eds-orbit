@@ -24,8 +24,8 @@ import {
   assertCampaignContext,
   currentMarketingProfile,
   officialTargetLink,
-} from "../../marketing-profile.ts";
-import { assertMissionAssets } from "../../asset-tools.ts";
+} from "../brand/marketing-profile.ts";
+import { assertMissionAssets } from "../brand/asset-tools.ts";
 import {
   assignedPostizChannels,
   postingTimeFor,

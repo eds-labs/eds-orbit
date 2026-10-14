@@ -1,11 +1,14 @@
 import { z } from "zod";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import {
   createMatomoClient,
   type MatomoReportInput,
-} from "../../../../packages/connectors/src/matomo.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+} from "../../../../../../packages/connectors/src/matomo.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
   entity,
@@ -16,7 +19,7 @@ import {
   audit,
   DomainError,
   credentialKey,
-} from "../shared.ts";
+} from "../../../shared.ts";
 import { correctMetric } from "./lifecycle.ts";
 
 const isoDate = z

@@ -1,5 +1,8 @@
 import type { PeriodicTask } from "../../platform/jobs/types.ts";
-import { nextMatomoRunAt, runScheduledMatomo } from "../matomo-schedule.ts";
+import {
+  nextMatomoRunAt,
+  runScheduledMatomo,
+} from "./analytics/matomo-schedule.ts";
 import {
   checkPostizQueue,
   nextPostizQueueCheckAt,

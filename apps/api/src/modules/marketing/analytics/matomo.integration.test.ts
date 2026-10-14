@@ -13,12 +13,12 @@ import {
   scoped,
   closeDatabase,
   type PrismaClient,
-} from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { create, data, encrypt, update } from "../shared.ts";
-import { analyze } from "./workflow.ts";
+} from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { create, data, encrypt, update } from "../../../shared.ts";
+import { analyze } from "../pipeline/workflow.ts";
 const transport = vi.hoisted(() => ({ report: vi.fn() }));
-vi.mock("../../../../packages/connectors/src/matomo.ts", () => ({
+vi.mock("../../../../../../packages/connectors/src/matomo.ts", () => ({
   createMatomoClient: () => ({ report: transport.report }),
 }));
 import {

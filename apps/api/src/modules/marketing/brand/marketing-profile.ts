@@ -1,12 +1,22 @@
-import type { DbTx } from "../../../../packages/db/src/index.ts";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { marketingProfile } from "../../../../packages/schemas/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { data, entity, list, update, audit, DomainError } from "../shared.ts";
-import { invalidateContent } from "./content-invalidation.ts";
-import { resolveChannelRules } from "./channel-rules.ts";
-import { validateEvidence } from "../../../../packages/knowledge/src/index.ts";
-import { factClaimMatches } from "./fact-claims.ts";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { marketingProfile } from "../../../../../../packages/schemas/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  data,
+  entity,
+  list,
+  update,
+  audit,
+  DomainError,
+} from "../../../shared.ts";
+import { invalidateContent } from "../pipeline/content-invalidation.ts";
+import { resolveChannelRules } from "../publishing/channel-rules.ts";
+import { validateEvidence } from "../../../../../../packages/knowledge/src/index.ts";
+import { factClaimMatches } from "../policy/fact-claims.ts";
 
 export type MarketingProfile = ReturnType<typeof marketingProfile.parse>;
 

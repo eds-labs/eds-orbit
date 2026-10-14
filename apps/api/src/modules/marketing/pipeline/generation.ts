@@ -39,8 +39,8 @@ import {
   openAiConfigurationVersion,
   runtimeOpenAiConfiguration,
 } from "../../openai-configuration.ts";
-import { assertMissionAssets } from "../../asset-tools.ts";
-import { campaignGenerationContext } from "../../marketing-profile.ts";
+import { assertMissionAssets } from "../brand/asset-tools.ts";
+import { campaignGenerationContext } from "../brand/marketing-profile.ts";
 import {
   channelTextLength,
   resolveChannelRules,

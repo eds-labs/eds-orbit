@@ -1,7 +1,10 @@
 import { z } from "zod";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   audit,
   create,
@@ -11,7 +14,7 @@ import {
   exception,
   list,
   update,
-} from "../shared.ts";
+} from "../../../shared.ts";
 import { importMatomoReport } from "./matomo.ts";
 
 /**

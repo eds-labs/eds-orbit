@@ -1,6 +1,6 @@
 import type { RetentionContribution } from "../../platform/governance/types.ts";
 import { list, data } from "../../shared.ts";
-import { memoryLifecycle } from "../lifecycle.ts";
+import { memoryLifecycle } from "./analytics/lifecycle.ts";
 
 /**
  * Marketing memory past the retention period (WP1.8, moved unchanged from

@@ -29,8 +29,8 @@ import {
   activePolicy,
   type VetoWindow,
 } from "../policy/policy.ts";
-import { assertMissionAssets } from "../../asset-tools.ts";
-import { campaignGenerationContext } from "../../marketing-profile.ts";
+import { assertMissionAssets } from "../brand/asset-tools.ts";
+import { campaignGenerationContext } from "../brand/marketing-profile.ts";
 import { missionFactKeys } from "./mission-evidence.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
 // The job helper moved to the platform (WP1.1); importers of workflow keep working.

@@ -1,21 +1,24 @@
-import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { generateImage } from "../../../../packages/ai/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { data, DomainError } from "../shared.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { generateImage } from "../../../../../../packages/ai/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import { data, DomainError } from "../../../shared.ts";
 import {
   consumeActionRequest,
   createActionRequest,
   executableActionRequest,
   type RequestedBy,
-} from "./action-requests.ts";
+} from "../../action-requests.ts";
 import {
   currentImageTerms,
   generateProjectImage,
   imageRequestBrief,
   imageRequestPayload,
 } from "./image-generation.ts";
-import { actorScope } from "./member-scope.ts";
+import { actorScope } from "../../member-scope.ts";
 
 /** Creates a pending image request bound to the image model and ceiling configured now. */
 export async function proposeImageRequest(

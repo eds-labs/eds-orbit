@@ -8,7 +8,7 @@ import { calendarConflicts } from "../publishing/calendar.ts";
 import { isAssignedPostizChannel } from "../publishing/postiz-assignment.ts";
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
-import { profileGuardrailProblems } from "../../marketing-profile.ts";
+import { profileGuardrailProblems } from "../brand/marketing-profile.ts";
 import {
   channelLimitExceeded,
   finalPostText,
