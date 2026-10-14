@@ -8,6 +8,8 @@ import {
   registeredChannelDirectories,
   registeredReadiness,
   registeredHooks,
+  registeredConnectionProvider,
+  registeredConnectionProviderIds,
   registeredJobOwner,
   registeredJobs,
   registeredNotification,
@@ -263,6 +265,18 @@ describe("module contributions", () => {
     });
   });
 
+  it("offers marketing's connection providers in their former order (WP2.5c)", () => {
+    expect(registeredConnectionProviderIds()).toEqual([
+      "postiz",
+      "matomo",
+      "slack",
+    ]);
+    for (const id of registeredConnectionProviderIds())
+      expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
+    expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
+    expect(registeredConnectionProvider("github")).toBeUndefined();
+  });
+
   it("lets marketing register its own HTTP routes (WP2.1f)", () => {
     expect(registeredRoutes()).toEqual([marketingRoutes]);
   });
@@ -356,6 +370,13 @@ describe("module contributions", () => {
         { alpha: { telegram: { callbacks: { "Stop:": press } } } },
       ),
     ).toThrow("invalid Telegram callback prefix Stop:");
+    expect(() =>
+      registerContributions(
+        registry,
+        { connections: { providers: { same: {} } } },
+        { alpha: { connections: { providers: { same: {} } } } },
+      ),
+    ).toThrow("connection provider same registered twice");
     const render = async () => ({ skip: "x" });
     expect(() =>
       registerContributions(

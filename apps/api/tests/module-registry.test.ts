@@ -20,18 +20,29 @@ function sources(dir: string): string[] {
  */
 function usedKinds() {
   const kinds = new Set<string>();
-  for (const file of [
+  const files = [
     ...sources("apps/api/src"),
     ...sources("apps/worker/src"),
     ...sources("packages/knowledge/src"),
-  ]) {
+  ];
+  // Exported kind constants, such as CONNECTION_KIND, are used elsewhere.
+  const exported = new Map(
+    files.flatMap((file) =>
+      [
+        ...readFileSync(file, "utf8").matchAll(
+          /\bexport const ([A-Z_]+) = "([a-z_]+)";/g,
+        ),
+      ].map((m) => [m[1]!, m[2]!] as const),
+    ),
+  );
+  for (const file of files) {
     const text = readFileSync(file, "utf8");
-    const constants = new Map(
-      [...text.matchAll(/\bconst ([A-Z_]+) = "([a-z_]+)";/g)].map((m) => [
-        m[1]!,
-        m[2]!,
-      ]),
-    );
+    const constants = new Map([
+      ...exported,
+      ...[...text.matchAll(/\bconst ([A-Z_]+) = "([a-z_]+)";/g)].map(
+        (m) => [m[1]!, m[2]!] as const,
+      ),
+    ]);
     for (const m of text.matchAll(
       /\b(?:create|list|entity)\(\s*\w+\s*,\s*[^,()]+,\s*("([a-z_]+)"|([A-Z_]+))\s*[,)]/g,
     ))

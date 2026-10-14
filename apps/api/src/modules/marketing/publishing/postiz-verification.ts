@@ -18,15 +18,17 @@ import {
   audit,
   create,
   data,
-  decrypt,
   DomainError,
   entity,
   exception,
   hash,
   list,
   update,
-  credentialKey,
 } from "../../../shared.ts";
+import {
+  connectionVerified,
+  decryptCredential,
+} from "../../../platform/connections/connections.ts";
 
 export const postizVerificationInput = z
   .object({
@@ -158,7 +160,7 @@ export async function preparePostizVerification(
       c = data(row);
     if (
       c.provider !== "postiz" ||
-      !["read_verified", "write_verified"].includes(c.status) ||
+      !connectionVerified(c.status) ||
       !process.env.PUBLISHER_INSTANCE_ID
     )
       throw new DomainError("POSTIZ_READ_VERIFICATION_REQUIRED", 409);
@@ -251,7 +253,7 @@ export async function executePostizVerification(
     const { c } = await connector(tx, s, d);
     if (!isAssignedPostizChannel(c, d.integrationId))
       throw new DomainError("POSTIZ_ACCOUNT_NOT_ASSIGNED", 409);
-    const token = decrypt(c.encryptedCredential, credentialKey());
+    const token = decryptCredential(c);
     const assetBytes = d.asset
       ? (await approvedAsset(tx, s, d.asset.assetId, file, d.asset)).bytes
       : null;
@@ -411,7 +413,7 @@ export async function reconcilePostizVerification(
     const { c } = await connector(tx, s, d);
     return {
       packet: d,
-      token: decrypt(c.encryptedCredential, credentialKey()),
+      token: decryptCredential(c),
     };
   });
   if ("done" in prepared) return prepared.done;

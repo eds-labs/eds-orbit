@@ -12,11 +12,13 @@ import { readiness } from "./readiness/readiness.ts";
 import { marketingAssistant } from "./assistant/prompt.ts";
 import { marketingConversationSections } from "./assistant/conversation.ts";
 import { assignedPostizChannels } from "./publishing/postiz-assignment.ts";
-import { data, list } from "../../shared.ts";
+import { data } from "../../shared.ts";
+import { connectionsOf } from "../../platform/connections/connections.ts";
 import { registerAgentSpecialists } from "./agents/specialists/index.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { stopCallback } from "./agents/telegram-stop.ts";
 import { marketingNotifications } from "./agents/notification-messages.ts";
+import { marketingConnections } from "./publishing/connection-providers.ts";
 
 /**
  * What the marketing module plugs into the platform (WP1.6). Transitional:
@@ -38,13 +40,15 @@ export const marketingContributions: ModuleContributions = {
   conversationSections: marketingConversationSections,
   // Postiz channels by id, for the owner's decisions on action requests.
   channelDirectory: async (tx, scope) =>
-    (await list(tx, scope, "connectors"))
-      .filter((row) => data(row).provider === "postiz")
-      .flatMap((row) => assignedPostizChannels(data(row))),
+    (await connectionsOf(tx, scope, "postiz")).flatMap((row) =>
+      assignedPostizChannels(data(row)),
+    ),
   // The owner's bot runs with Orbit Agents; its previews carry Stop (WP2.5a).
   telegram: { enabled: agentsEnabled, callbacks: { stop: stopCallback } },
   // Previews, notices and the daily report the bot sends (WP2.5b).
   notifications: marketingNotifications,
+  // Postiz, Matomo and Slack connections and their checks (WP2.5c).
+  connections: marketingConnections,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
   publicViews: {

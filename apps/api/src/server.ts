@@ -143,6 +143,7 @@ const factSchema = z
   })
   .strict();
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
+import { connectionVerified } from "./platform/connections/connections.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
 const AGENT_ROUTES = new Set([
@@ -597,7 +598,7 @@ export async function buildServer(
         (f) => data(f).status === "verified",
       ).length;
       counts.connectedConnectors = (await list(tx, scope, "connectors")).filter(
-        (c) => ["read_verified", "write_verified"].includes(data(c).status),
+        (c) => connectionVerified(data(c).status),
       ).length;
       const capabilityReadiness = await projectReadiness(tx, scope);
       return {

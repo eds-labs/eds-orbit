@@ -6,6 +6,7 @@ import {
   hasXLongPosts,
   postingTimeFor,
 } from "./postiz-assignment.ts";
+import { connectionVerified } from "../../../platform/connections/connections.ts";
 
 type CountingMethod = "conservative_x_weighted" | "utf16_units";
 export type ChannelRules = {
@@ -38,8 +39,7 @@ export async function resolveChannelRules(
   const matches = (await list(tx, scope, "connectors"))
     .filter(
       (row) =>
-        data(row).provider === "postiz" &&
-        ["read_verified", "write_verified"].includes(data(row).status),
+        data(row).provider === "postiz" && connectionVerified(data(row).status),
     )
     .flatMap((row) =>
       assignedPostizChannels(data(row))

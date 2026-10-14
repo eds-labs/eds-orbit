@@ -14,20 +14,22 @@ import {
   audit,
   create,
   data,
-  decrypt,
   DomainError,
   entity,
   exception,
   hash,
   list,
   update,
-  credentialKey,
 } from "../../../shared.ts";
 import { activePolicy, checkClaims } from "../policy/policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
 import { exportAssetContent } from "../pipeline/content-export.ts";
 import { afterDraftResolved } from "../agents/draft-delivery.ts";
+import {
+  connectionVerified,
+  decryptCredential,
+} from "../../../platform/connections/connections.ts";
 
 /**
  * Owner-confirmed handoff of one reviewed Content version to Postiz as a
@@ -147,8 +149,7 @@ export async function draftTarget(
   if (done) return { done };
   const connector = (await list(tx, scope, "connectors")).find(
     (row) =>
-      data(row).provider === "postiz" &&
-      ["read_verified", "write_verified"].includes(data(row).status),
+      data(row).provider === "postiz" && connectionVerified(data(row).status),
   );
   if (!connector) throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
   const k = data(connector);
@@ -227,7 +228,7 @@ export async function draftSend(
   const c = target.c;
   return {
     baseUrl: k.baseUrl as string,
-    token: decrypt(k.encryptedCredential, credentialKey()),
+    token: decryptCredential(k),
     integrationId: target.integration.id as string,
     identifier: target.integration.identifier as string,
     text: finalPostText(c.body, c.targetUrl),

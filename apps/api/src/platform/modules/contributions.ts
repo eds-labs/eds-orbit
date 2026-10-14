@@ -23,6 +23,10 @@ import type {
   TelegramContribution,
 } from "../connections/types.ts";
 import type {
+  ConnectionProvider,
+  ConnectionsContribution,
+} from "../connections/connections.ts";
+import type {
   NotificationContribution,
   NotificationRender,
 } from "../notifications/types.ts";
@@ -67,6 +71,8 @@ export type ModuleContributions = {
   telegram?: TelegramContribution;
   /** Notification kinds for the owner's bot and their rendering (WP2.5b). */
   notifications?: NotificationContribution;
+  /** Connection providers: form fields, normalization, check (WP2.5c). */
+  connections?: ConnectionsContribution;
 };
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
@@ -90,6 +96,10 @@ type Registered = {
   notifications: ReadonlyMap<
     string,
     { owner: string; render: NotificationRender }
+  >;
+  connectionProviders: ReadonlyMap<
+    string,
+    ConnectionProvider & { owner: string }
   >;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
@@ -138,6 +148,10 @@ export function registerContributions(
     string,
     { owner: string; render: NotificationRender }
   >();
+  const connectionProviders = new Map<
+    string,
+    ConnectionProvider & { owner: string }
+  >();
   const owners = {
     tools: new Map<string, string>(),
     actions: new Map<string, string>(),
@@ -165,6 +179,13 @@ export function registerContributions(
       if (notifications.has(kind))
         problems.push(`notification kind ${kind} registered twice`);
       notifications.set(kind, { owner, render: c.notifications!.render });
+    }
+    for (const [id, provider] of Object.entries(
+      c.connections?.providers ?? {},
+    )) {
+      if (connectionProviders.has(id))
+        problems.push(`connection provider ${id} registered twice`);
+      connectionProviders.set(id, { ...provider, owner });
     }
     for (const [name, handler] of Object.entries(c.actions ?? {})) {
       if (actions.has(name)) problems.push(`action ${name} registered twice`);
@@ -209,6 +230,7 @@ export function registerContributions(
     actions,
     telegramCallbacks,
     notifications,
+    connectionProviders,
     owners,
   };
 }
@@ -390,4 +412,13 @@ export function telegramContributorEnabled(): boolean {
  */
 export function registeredNotification(kind: string) {
   return current().notifications.get(kind);
+}
+
+/** A connection provider with its owner, or undefined (WP2.5c). */
+export function registeredConnectionProvider(id: string) {
+  return current().connectionProviders.get(id);
+}
+/** Every connection provider id: platform first, then registry order. */
+export function registeredConnectionProviderIds(): string[] {
+  return [...current().connectionProviders.keys()];
 }

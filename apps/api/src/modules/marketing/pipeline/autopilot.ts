@@ -42,6 +42,7 @@ import {
 import { channelNames } from "../agents/assignment-overview.ts";
 import { confirmationCard } from "../tools/assignment-tools.ts";
 import { chatScoped } from "../../chat.ts";
+import { connectionVerified } from "../../../platform/connections/connections.ts";
 
 /**
  * Weekly autopilot: at the configured weekday and time Orbit plans one post
@@ -99,8 +100,7 @@ export async function nextAutopilotCheckAt(tx: DbTx, scope: Scope) {
 async function channelContext(tx: DbTx, scope: Scope) {
   const connector = (await list(tx, scope, "connectors")).find(
     (row) =>
-      data(row).provider === "postiz" &&
-      ["read_verified", "write_verified"].includes(data(row).status),
+      data(row).provider === "postiz" && connectionVerified(data(row).status),
   );
   if (!connector) throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
   return data(connector);
@@ -445,8 +445,7 @@ async function autopilotProposal(
   const channels = settings.channels.slice(0, ASSIGNMENT_CHANNELS);
   const connector = (await list(tx, scope, "connectors")).find(
     (item) =>
-      data(item).provider === "postiz" &&
-      ["read_verified", "write_verified"].includes(data(item).status),
+      data(item).provider === "postiz" && connectionVerified(data(item).status),
   );
   const times = connector
     ? channels

@@ -24,6 +24,7 @@ import {
   dropNullFields,
   type OrbitTool,
 } from "../../agents/tools/registry.ts";
+import { connectionVerified } from "../../../platform/connections/connections.ts";
 
 /**
  * Tools only the Analytics and Research specialists receive (spec §5). They
@@ -232,7 +233,7 @@ async function postizState(scope: Scope, taskId: string, now: Date) {
     const connector = (await list(tx, scope, "connectors")).find(
       (candidate) =>
         data(candidate).provider === "postiz" &&
-        ["read_verified", "write_verified"].includes(data(candidate).status),
+        connectionVerified(data(candidate).status),
     );
     if (!connector) throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
     const fresh = new Map<string, Answer>();

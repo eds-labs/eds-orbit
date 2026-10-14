@@ -1,5 +1,31 @@
 # Implementation status
 
+## Connections registry: WP2.5c (2026-10-14, local)
+
+Branch `claude/wp25c-connections`, the third part of WP2.5. The platform owns the credential vault and capability states; marketing contributes the providers.
+
+- **Platform (`platform/connections/connections.ts`).**
+  - `CONNECTION_KIND`, `connectionVerified(status)`, `connectionsOf(tx, scope, provider)` and `decryptCredential(connection)`.
+  - The types of a connection provider (`normalize`, `check`, `checkUnsupported`).
+- **Actions.** `connector` (create) and `connector-health` (check) are platform actions that dispatch to the provider:
+  - the provider list of `connector` comes from the registry, in the former order (postiz, matomo, slack);
+  - `connector-health` moved from marketing; the provider call still runs outside any transaction, with the version check `CONNECTOR_CHANGED` before writing.
+- **Marketing (`publishing/connection-providers.ts`).** Postiz (base URL normalization and the channel and group check), Matomo (the site report check) and Slack (`SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION`), moved unchanged.
+- **Call sites.** 22 hand-written decryptions and `read_verified`/`write_verified` checks in marketing and `server.ts` now use the helpers.
+  - Stored formats are unchanged: `connectors` rows, `encryptedCredential` with AES-256-GCM.
+  - The capability transitions (Postiz write verification, assignment health) stay marketing semantics. A generic `setCapability` was not needed.
+- **Module activation (WP2.4).** With `ORBIT_MODULES` on, creating or checking a connection of a disabled module's provider answers `404 MODULE_DISABLED`.
+
+**Verification (local).**
+- New suite `connections.integration.test.ts`. The two actions had no integration test until now.
+  - It covers encrypted storage that never returns the credential, Postiz normalization, unknown provider and non-HTTPS, the Postiz check with a missing groups API, the Matomo check for its site, the refused Slack check and the disabled module.
+  - Provider clients are mocked.
+  - The first four tests also pass against the code before WP2.5c (characterization).
+  - The module check is mutation-checked.
+- Registry tests: provider order and owner, duplicate providers.
+- `module-registry.test.ts` now also resolves exported kind constants.
+- Full suite: 152 files and 1381 tests. The OpenAPI document is unchanged. Typecheck and source check pass; boundaries: 0 known violations.
+
 ## Notifications as a platform transport with module kinds: WP2.5b (2026-10-14, local)
 
 Branch `claude/wp25b-notifications`, the second part of WP2.5. The owner's bot notifications are split by owner.

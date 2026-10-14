@@ -12,6 +12,7 @@ import {
   driveReconnectRequired,
   publishingUsesDriveAssets,
 } from "../brand/drive-readiness.ts";
+import { connectionVerified } from "../../../platform/connections/connections.ts";
 export async function readiness(tx: DbTx, scope: Scope) {
   const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
@@ -104,8 +105,7 @@ export async function readiness(tx: DbTx, scope: Scope) {
   const config = loadConfig();
   const postizConnector = connectors.find((c) => data(c).provider === "postiz");
   const postiz =
-    postizConnector &&
-    ["read_verified", "write_verified"].includes(data(postizConnector).status);
+    postizConnector && connectionVerified(data(postizConnector).status);
   const assignedChannels: string[] = postizConnector
     ? (data(postizConnector).assignedIntegrationIds ?? [])
     : [];

@@ -21,6 +21,7 @@ import {
   credentialKey,
 } from "../../../shared.ts";
 import { correctMetric } from "./lifecycle.ts";
+import { connectionVerified } from "../../../platform/connections/connections.ts";
 
 const isoDate = z
   .string()
@@ -328,7 +329,7 @@ export async function importMatomoReport(
   const c = data(connector);
   if (
     c.provider !== "matomo" ||
-    !["read_verified", "write_verified"].includes(c.status) ||
+    !connectionVerified(c.status) ||
     Number(c.siteId) !== input.siteId
   )
     throw new DomainError("MATOMO_CONNECTOR_SCOPE", 403);

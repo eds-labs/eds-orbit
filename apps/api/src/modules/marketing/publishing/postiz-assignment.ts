@@ -10,6 +10,7 @@ import {
   update,
 } from "../../../shared.ts";
 import { POSTING_TIME } from "./posting-slots.ts";
+import { connectionVerified } from "../../../platform/connections/connections.ts";
 
 export const postizAssignmentInput = z
   .object({
@@ -89,8 +90,7 @@ export async function assertAssignedSocialChannels(
 ) {
   const connectors = (await list(tx, scope, "connectors")).filter(
     (row) =>
-      data(row).provider === "postiz" &&
-      ["read_verified", "write_verified"].includes(data(row).status),
+      data(row).provider === "postiz" && connectionVerified(data(row).status),
   );
   const assigned = new Set(
     connectors.flatMap((row) =>
@@ -130,10 +130,7 @@ export async function assignPostizChannels(
   if (row.version !== input.version)
     throw new DomainError("VERSION_CONFLICT", 409);
   const connector = data(row);
-  if (
-    connector.provider !== "postiz" ||
-    !["read_verified", "write_verified"].includes(connector.status)
-  )
+  if (connector.provider !== "postiz" || !connectionVerified(connector.status))
     throw new DomainError("POSTIZ_READ_VERIFICATION_REQUIRED", 409);
   const available = new Set(
     (Array.isArray(connector.channels) ? connector.channels : [])

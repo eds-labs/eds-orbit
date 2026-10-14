@@ -2,16 +2,12 @@ import { z } from "zod";
 import { createPostizClient } from "../../../../../../packages/connectors/src/index.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import {
-  create,
-  data,
-  decrypt,
-  DomainError,
-  list,
-  update,
-  credentialKey,
-} from "../../../shared.ts";
+import { create, data, DomainError, list, update } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
+import {
+  connectionVerified,
+  decryptCredential,
+} from "../../../platform/connections/connections.ts";
 
 /**
  * What was already posted on the assigned channels, read from Postiz so that
@@ -116,7 +112,7 @@ export async function syncChannelPosts(
       const connector = (await list(tx, scope, "connectors")).find(
         (row) =>
           data(row).provider === "postiz" &&
-          ["read_verified", "write_verified"].includes(data(row).status),
+          connectionVerified(data(row).status),
       );
       if (!connector) return null;
       const channelIds = assignedPostizChannels(data(connector)).map(
@@ -174,7 +170,7 @@ export async function syncChannelPosts(
       client ??
       createPostizClient({
         baseUrl: claimed.baseUrl,
-        token: decrypt(claimed.encryptedCredential, credentialKey()),
+        token: decryptCredential(claimed),
       });
     for (const [from, to] of windows)
       for (const post of await source.listPosts({

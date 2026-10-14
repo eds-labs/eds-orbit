@@ -16,6 +16,7 @@ import {
   update,
 } from "../../../shared.ts";
 import { importMatomoReport } from "./matomo.ts";
+import { connectionVerified } from "../../../platform/connections/connections.ts";
 
 /**
  * Saved Matomo import settings. The worker reads yesterday's and today's
@@ -66,7 +67,7 @@ export async function configureMatomoSchedule(
   );
   if (
     connector.provider !== "matomo" ||
-    !["read_verified", "write_verified"].includes(connector.status) ||
+    !connectionVerified(connector.status) ||
     Number(connector.siteId) !== input.siteId
   )
     throw new DomainError("MATOMO_CONNECTOR_SCOPE", 403);

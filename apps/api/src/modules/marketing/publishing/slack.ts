@@ -23,7 +23,6 @@ import {
   create,
   update,
   encrypt,
-  decrypt,
   hash,
   audit,
   exception,
@@ -34,6 +33,7 @@ import {
 import { preflight, approve } from "../policy/policy.ts";
 import { enqueue } from "../pipeline/workflow.ts";
 import { notify } from "../agents/notifications.ts";
+import { decryptCredential } from "../../../platform/connections/connections.ts";
 
 const slackId = z.string().regex(/^[A-Z][A-Z0-9]{2,39}$/);
 // The optional Slack digest embeds a short approval preview; longer drafts use web review.
@@ -80,9 +80,7 @@ function owner(scope: Scope) {
 }
 function credentials(c: ReturnType<typeof data>) {
   try {
-    return privateCredentials.parse(
-      JSON.parse(decrypt(c.encryptedCredential, credentialKey())),
-    );
+    return privateCredentials.parse(JSON.parse(decryptCredential(c)));
   } catch {
     throw new DomainError("SLACK_CREDENTIAL_CONFIGURATION_REQUIRED", 409);
   }

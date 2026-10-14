@@ -1,12 +1,6 @@
 import { z } from "zod";
-import { scoped } from "../../../../../packages/db/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
-import {
-  ConnectorError,
-  createMatomoClient,
-  createPostizClient,
-  importAdsCsv,
-} from "../../../../../packages/connectors/src/index.ts";
+import { importAdsCsv } from "../../../../../packages/connectors/src/index.ts";
 import {
   ownTransaction,
   sharedTransaction,
@@ -17,7 +11,6 @@ import {
   audit,
   create,
   data,
-  decrypt,
   DomainError,
   entity,
   list,
@@ -47,7 +40,6 @@ import {
 import {
   assignPostizChannels,
   postizAssignmentInput,
-  postizHealthStatus,
 } from "./publishing/postiz-assignment.ts";
 import {
   blockCalendar,
@@ -119,74 +111,6 @@ export const marketingActions: Record<string, ActionHandler> = {
   "postiz-test-reconcile": ownTransaction(({ scope, input }) =>
     reconcilePostizVerification(scope, schemas.id.parse(input.verificationId)),
   ),
-  // Transitional: Postiz and Matomo checks behind a platform permission;
-  // the connections registry (WP2.5) separates credentials from providers.
-  "connector-health": ownTransaction(async ({ scope, input, config }) => {
-    const c = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-        entity(tx, scope, "connectors", schemas.id.parse(input.connectorId)),
-      ),
-      d = data(c);
-    let result: Record<string, unknown>;
-    const options = {
-      baseUrl: d.baseUrl,
-      token: decrypt(d.encryptedCredential, config.CREDENTIAL_KEY),
-    };
-    if (d.provider === "postiz") {
-      const client = createPostizClient(options);
-      const channels = await client.listIntegrations();
-      const checkedAt = new Date().toISOString();
-      let groups: Awaited<ReturnType<typeof client.listGroups>> = [];
-      try {
-        groups = await client.listGroups();
-      } catch (error) {
-        if (!(error instanceof ConnectorError && error.status === 404))
-          throw error;
-      }
-      const connection = {
-        connected: true,
-        provider: "postiz",
-        baseUrl: client.baseUrl,
-        channelCount: channels.length,
-        checkedAt,
-        error: null,
-      };
-      result = {
-        status: postizHealthStatus(d),
-        capabilities: client.capabilities,
-        channels,
-        groups,
-        baseUrl: client.baseUrl,
-        connection,
-        lastSuccessfulConnection: checkedAt,
-      };
-    } else if (d.provider === "matomo") {
-      const client = createMatomoClient({
-        ...options,
-        allowedSiteIds: [Number(d.siteId)],
-      });
-      await client.report({
-        siteId: Number(d.siteId),
-        method: "Goals.getGoals",
-        period: "day",
-        date: new Date().toISOString().slice(0, 10),
-        siteTimezone: "UTC",
-      });
-      result = { status: "read_verified", capabilities: client.capabilities };
-    } else throw new DomainError("SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION");
-    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-      const current = await entity(tx, scope, "connectors", c.id);
-      if (current.version !== c.version)
-        throw new DomainError("CONNECTOR_CHANGED");
-      return publicEntity(
-        await update(tx, scope, current, {
-          ...d,
-          ...result,
-          verifiedAt: new Date().toISOString(),
-        }),
-      );
-    });
-  }),
-
   "postiz-assign-channels": sharedTransaction(async (tx, { scope, input }) =>
     publicEntity(
       await assignPostizChannels(tx, scope, postizAssignmentInput.parse(input)),
