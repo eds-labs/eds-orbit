@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import type {
   ActionRequestRenderer,
@@ -33,6 +33,46 @@ export type ViewDef = {
   legacyPaths?: readonly string[];
 };
 
+/**
+ * A section of the project settings (WP2.3b). Sections join the tab they
+ * name; a module section shows above the platform's content of that tab.
+ */
+export type SettingsSection = {
+  tab: { key: string; label: Label; order: number };
+  /** Position among the modules' sections of the tab. */
+  order: number;
+  /**
+   * A hook, called on every render of the settings page in registry order:
+   * the content, or null while the section is hidden. `label` overrides the
+   * tab's label; `notice` shows above every tab (e.g. a load error).
+   */
+  useSection(): {
+    content: ReactNode;
+    label?: Label;
+    notice?: ReactNode;
+  } | null;
+};
+
+/** A connection provider a module manages on the connectors page (WP2.3b). */
+export type ConnectorProvider = {
+  id: string;
+  name: string;
+  description: string;
+  capability: string;
+  /** A note shown whether or not the provider is configured. */
+  note?: string;
+  /** Details shown below the state of a configured connector. */
+  Details?: ComponentType<{ connector: Record<string, any> }>;
+  /** Owner actions beside "Configure" for a configured connector. */
+  Actions?: ComponentType<{ connector: Record<string, any> }>;
+  /** Label of the capability check; null for providers without one. */
+  checkLabel: string | null;
+  /** Extra fields of the generic credential form. */
+  fields?: ReadonlyArray<{ name: string; label: string; required: boolean }>;
+  /** Replaces the generic credential form. */
+  Configure?: ComponentType<{ onClose(): void }>;
+};
+
 /** The web manifest of a module, mounted at /p/:projectId/<id>. */
 export type WebModule = {
   /** Same id as the server module (GET /api/projects/:id/modules). */
@@ -47,6 +87,16 @@ export type WebModule = {
   chat?: ChatExtension;
   /** The approvals inbox view of the module's action request types (WP2.3). */
   actionRequests?: Readonly<Record<string, ActionRequestRenderer>>;
+  /** Sections of the project settings (WP2.3b). */
+  settings?: readonly SettingsSection[];
+  /** Setup links of the settings overview, before the platform's own. */
+  setupLinks?: readonly ComponentType[];
+  /** Providers and extra cards of the connectors page (WP2.3b). */
+  connectors?: {
+    providers?: readonly ConnectorProvider[];
+    /** Cards shown after the platform's own connections. */
+    extras?: readonly ComponentType[];
+  };
 };
 
 /** Everything the shell can show, assembled by the composition root. */

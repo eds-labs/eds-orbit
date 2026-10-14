@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, type ComponentType } from "react";
 import type { Route, RouteTable } from "./routes";
-import type { Label } from "./types";
+import type { ConnectorProvider, Label, SettingsSection } from "./types";
 import type {
   ActionRequestRenderer,
   ChatExtension,
@@ -31,6 +31,15 @@ export type ShellContextValue = {
   chat: readonly ChatExtension[];
   /** Inbox views of action request types, by type (WP2.3). */
   actionRequests: Readonly<Record<string, ActionRequestRenderer>>;
+  /** Settings sections of the modules, in registry order (WP2.3b). */
+  settings: readonly SettingsSection[];
+  /** Setup links of the modules for the settings overview (WP2.3b). */
+  setupLinks: readonly ComponentType[];
+  /** Connector providers and extra cards of the modules (WP2.3b). */
+  connectors: {
+    providers: readonly ConnectorProvider[];
+    extras: readonly ComponentType[];
+  };
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

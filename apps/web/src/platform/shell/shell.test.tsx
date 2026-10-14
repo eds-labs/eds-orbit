@@ -55,6 +55,9 @@ function shell(enabled: Record<string, boolean>): ShellContextValue {
       ),
     chat: [],
     actionRequests: {},
+    settings: [],
+    setupLinks: [],
+    connectors: { providers: [], extras: [] },
   };
 }
 

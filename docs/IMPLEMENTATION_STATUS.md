@@ -1,5 +1,34 @@
 # Implementation status
 
+## Settings, connectors and tools split by owner: WP2.3b (2026-10-14, local)
+
+Branch `claude/wp23b-settings`, the last part of WP2.3. The web platform imports no module component anymore; the known web boundary violations drop from 5 to 0. Pages, order and texts are unchanged.
+
+- **`management.tsx`** shrinks from 2227 to about 900 lines. Moved unchanged:
+  - `Analytics` and `Memory` → `modules/marketing/insights.tsx`;
+  - `PolicyEditor`, `AutopilotSettings` and `PostizChannelAssignment` → their own marketing files;
+  - `RecordDetail` → `platform/ui/record-detail.tsx`. Its kind-specific actions (preferences, experiments, memory, metric correction) become a slot that marketing fills (`record-actions.tsx`).
+- **`operator-tools.tsx`** split by owner:
+  - Matomo import and schedule, and Postiz verification → marketing;
+  - index management and fact withdrawal → knowledge;
+  - workspace pause stays in the platform.
+- **`advanced.tsx` / `lifecycle.tsx`.** `ProjectAdministration` and `RetentionControl` move to the platform, as planned in `04` §5.
+- **Project settings.** Modules contribute settings sections (`settings`): marketing contributes "Assignments"/"Autopilot", "Policy & budget" and "Brand".
+  - The platform keeps "Project", "Policy & budget" (retention) and "Integrations".
+  - Module sections show above the platform content of a tab, as the policy did above the retention.
+  - Section hooks run in fixed registry order, so the assignments list is still loaded once.
+  - The overview's "Set budget and routine boundaries" is a contributed setup link that opens the policy editor through a portal, outside the link list's styles.
+- **Connectors page.** Modules contribute providers (`connectors.providers`) with details, actions, a check label, extra form fields or their own configuration dialog, plus extra cards. Marketing contributes Postiz, Matomo and Slack, and the blog and newsletter cards. The platform renders the generic frame in the same order: providers, Telegram, extras.
+
+**Verification (local).**
+- Web component tests: 19 files, 89 tests, including a test that pins the contributed tabs and providers.
+- Web and API typechecks, a typecheck of the Playwright specs, a web production build, and the boundary check (2 known violations, both `telegram.ts`, WP2.5).
+- Visual check against a synthetic mock API:
+  - the connectors page: order, Postiz details and actions, the Matomo site ID field, the Slack dialog;
+  - the settings tabs and their order, the policy editor dialog (styled, in `body`), the policy and brand tabs;
+  - the analytics and memory pages.
+- `Operations` is unchanged text for text.
+
 ## Chat and inbox parts as module contributions: WP2.3c (2026-10-14, local)
 
 Branch `claude/wp23c-cards`. The platform chat and the approvals inbox no longer import marketing components.

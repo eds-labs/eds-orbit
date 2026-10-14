@@ -216,6 +216,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         {},
         ...registry.modules.map((m) => m.actionRequests ?? {}),
       ),
+      settings: registry.modules.flatMap((m) => m.settings ?? []),
+      setupLinks: registry.modules.flatMap((m) => m.setupLinks ?? []),
+      connectors: {
+        providers: registry.modules.flatMap(
+          (m) => m.connectors?.providers ?? [],
+        ),
+        extras: registry.modules.flatMap((m) => m.connectors?.extras ?? []),
+      },
     };
   }, [project, moduleStates.data, registry, table]);
   useEffect(() => {

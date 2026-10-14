@@ -9,8 +9,13 @@ import {
 import { labels } from "@/lib/i18n";
 import type { Label, WebModule } from "@/platform/shell/types";
 import { assignmentConfirmRenderer, marketingChat } from "./chat-extension";
+import { marketingSettings, PolicySetupLink } from "./settings-sections";
+import {
+  marketingConnectorExtras,
+  marketingConnectorProviders,
+} from "./connectors";
 import { BrandAssetLibrary } from "@/modules/marketing/advanced";
-import { Analytics, Memory } from "@/components/management";
+import { Analytics, Memory } from "./insights";
 import {
   CalendarView,
   ContentStudio,
@@ -42,6 +47,12 @@ export const marketingWeb: WebModule = {
   homeOrder: 10,
   chat: marketingChat,
   actionRequests: { "assignment.confirm": assignmentConfirmRenderer },
+  settings: marketingSettings,
+  setupLinks: [PolicySetupLink],
+  connectors: {
+    providers: marketingConnectorProviders,
+    extras: marketingConnectorExtras,
+  },
   views: [
     {
       key: "missions",

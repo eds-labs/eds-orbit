@@ -1,5 +1,6 @@
 "use client";
-import { FactWithdrawal, IndexManagement } from "@/components/operator-tools";
+import { FactWithdrawal } from "./fact-withdrawal";
+import { IndexManagement } from "./index-management";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 import {

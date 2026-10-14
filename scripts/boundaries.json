@@ -106,11 +106,6 @@
   ],
   "baseline": [
     "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/assignments.ts",
-    "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/veto.ts",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/advanced.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/assignments.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/lifecycle.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/slack-connection.tsx",
-    "web-platform-imports-module: apps/web/src/components/management.tsx -> apps/web/src/modules/marketing/work.tsx"
+    "platform-imports-module: apps/api/src/modules/telegram.ts -> apps/api/src/modules/agents/veto.ts"
   ]
 }
