@@ -1,4 +1,5 @@
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
+import type { ImpactHandler } from "../../../../../packages/knowledge/src/index.ts";
 import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
 import type { ActionDefinition } from "../../modules/action-requests.ts";
 import type {
@@ -73,6 +74,11 @@ export type ModuleContributions = {
   notifications?: NotificationContribution;
   /** Connection providers: form fields, normalization, check (WP2.5c). */
   connections?: ConnectionsContribution;
+  /**
+   * Invalidates the module's records that depend on changed knowledge, in the
+   * engine's transaction (WP3.1). Runs regardless of module activation.
+   */
+  knowledgeImpact?: ImpactHandler;
 };
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
@@ -309,6 +315,17 @@ export function registeredSchedulers(
 }
 export function registeredPublicView(kind: string) {
   return current().publicViews.get(kind);
+}
+
+/**
+ * Knowledge impact handlers: platform first, then modules in registry order.
+ * Never filtered by activation: they protect data integrity, not features
+ * (plans/orbit-modularization/05 §4).
+ */
+export function registeredImpactHandlers(): readonly ImpactHandler[] {
+  return [...current().byModule.values()]
+    .map((c) => c.knowledgeImpact)
+    .filter((h): h is ImpactHandler => Boolean(h));
 }
 
 /** Pause and resume hooks: platform first, then modules in registry order. */

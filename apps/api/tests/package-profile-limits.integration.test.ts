@@ -5,7 +5,7 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import { data, entity } from "../src/shared.ts";
-import { setFact } from "../../../packages/knowledge/src/index.ts";
+import { setFact } from "../src/platform/knowledge/engine.ts";
 import { deterministicDraft } from "../src/modules/workflow.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { createConversation } from "../src/modules/chat.ts";

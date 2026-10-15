@@ -18,7 +18,7 @@ import {
   ingest,
   setFact,
   setSourceRights,
-} from "../../../packages/knowledge/src/index.ts";
+} from "../src/platform/knowledge/engine.ts";
 
 const mocked = vi.hoisted(() => ({
   calls: 0,

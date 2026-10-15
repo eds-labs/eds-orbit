@@ -26,7 +26,7 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { ingest, setFact } from "../../../packages/knowledge/src/index.ts";
+import { ingest, setFact } from "../src/platform/knowledge/engine.ts";
 import { create, data, entity, list, update } from "../src/shared.ts";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { createConversation, getConversation } from "../src/modules/chat.ts";

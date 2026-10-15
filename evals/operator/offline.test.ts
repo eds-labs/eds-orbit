@@ -10,7 +10,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { closeDatabase, scoped } from "../../packages/db/src/index.ts";
 import type { Scope } from "../../packages/schemas/src/index.ts";
-import { ingest } from "../../packages/knowledge/src/index.ts";
+import { ingest } from "../../apps/api/src/platform/knowledge/engine.ts";
 
 // Offline only: the model is replaced by recorded steps; no network call is made.
 const replay = vi.hoisted(() => ({

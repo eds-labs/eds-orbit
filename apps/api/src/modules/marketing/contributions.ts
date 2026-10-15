@@ -19,6 +19,7 @@ import { agentsEnabled } from "./agents/assignments.ts";
 import { stopCallback } from "./agents/telegram-stop.ts";
 import { marketingNotifications } from "./agents/notification-messages.ts";
 import { marketingConnections } from "./publishing/connection-providers.ts";
+import { invalidateMarketingForKnowledge } from "./pipeline/knowledge-impact.ts";
 
 /**
  * What the marketing module plugs into the platform (WP1.6). Transitional:
@@ -49,6 +50,9 @@ export const marketingContributions: ModuleContributions = {
   notifications: marketingNotifications,
   // Postiz, Matomo and Slack connections and their checks (WP2.5c).
   connections: marketingConnections,
+  // Content, approvals, publications, insights and jobs on revoked or
+  // changed knowledge (WP3.1).
+  knowledgeImpact: invalidateMarketingForKnowledge,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
   publicViews: {

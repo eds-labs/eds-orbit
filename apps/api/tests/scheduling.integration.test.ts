@@ -17,11 +17,8 @@ import {
   type PrismaClient,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import {
-  ingest,
-  retrieve,
-  setFact,
-} from "../../../packages/knowledge/src/index.ts";
+import { retrieve } from "../../../packages/knowledge/src/index.ts";
+import { ingest, setFact } from "../src/platform/knowledge/engine.ts";
 import { create, data } from "../src/shared.ts";
 import { preflight } from "../src/modules/policy.ts";
 import {

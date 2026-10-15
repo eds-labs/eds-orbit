@@ -21,7 +21,9 @@ import {
   type EvidenceItem,
   type FactData,
   type FactInput,
+  type ImpactHandler,
   type IngestInput,
+  type KnowledgeImpact,
   type RetrieveInput,
   type Scope,
   type SourceData,
@@ -98,31 +100,27 @@ async function audit(
     },
   });
 }
+/**
+ * Invalidates the evidence that depends on a source or fact, then lets every
+ * impact handler invalidate its own dependent records in the same
+ * transaction. Handlers run even when no evidence was affected: records can
+ * reference the source directly. `contentIds` keeps its historic name in the
+ * result; it is the union of what the handlers report.
+ */
 async function invalidate(
   tx: DbTx,
   s: Scope,
+  handlers: readonly ImpactHandler[],
   sourceId: string,
   reason: string,
   factId?: string,
   purge = false,
 ) {
-  const all = await tx.entity.findMany({
-    where: {
-      ...where(s),
-      kind: {
-        in: [
-          "evidence",
-          "content",
-          "approvals",
-          "publications",
-          "insights",
-          "jobs",
-        ],
-      },
-    },
+  const evidence = await tx.entity.findMany({
+    where: { ...where(s), kind: "evidence" },
   });
   const evidenceIds = new Set<string>();
-  for (const e of all.filter((e) => e.kind === "evidence")) {
+  for (const e of evidence) {
     const d = e.data as unknown as EvidenceData;
     if (
       d.items?.some((i) => i.sourceId === sourceId) ||
@@ -143,141 +141,26 @@ async function invalidate(
         });
     }
   }
-  const contentIds = new Set(
-    all
-      .filter(
-        (e) =>
-          e.kind === "content" &&
-          evidenceIds.has(
-            String((e.data as Record<string, unknown>).evidenceId),
-          ),
-      )
-      .map((e) => e.id),
-  );
-  for (const e of all.filter((e) => e.kind !== "evidence")) {
-    const d = e.data as Record<string, unknown>;
-    const related =
-      d.sourceId === sourceId ||
-      d.resourceId === sourceId ||
-      contentIds.has(String(d.resourceId)) ||
-      evidenceIds.has(String(d.resourceId)) ||
-      evidenceIds.has(String(d.evidenceId)) ||
-      contentIds.has(e.id) ||
-      contentIds.has(String(d.contentId)) ||
-      (Array.isArray(d.sourceIds) && d.sourceIds.includes(sourceId));
-    if (!related) continue;
-    let status =
-      e.kind === "content"
-        ? "needs_review"
-        : e.kind === "approvals"
-          ? "invalidated"
-          : e.kind === "insights"
-            ? "retracted"
-            : "blocked_dependency";
-    const needsRemoteReconcile =
-      e.kind === "publications" &&
-      [
-        "sending",
-        "outcome_unknown",
-        "scheduled_remote",
-        "published",
-        "reconciliation_required",
-        "cancellation_required",
-      ].includes(String(d.status));
-    const terminalReceipt =
-      e.kind === "publications" &&
-      [
-        "published_test",
-        "published",
-        "cancelled",
-        "canceled",
-        "deleted",
-      ].includes(String(d.status));
-    if (
-      e.kind === "publications" &&
-      [
-        "sending",
-        "outcome_unknown",
-        "scheduled_remote",
-        "published",
-        "reconciliation_required",
-        "cancellation_required",
-      ].includes(String(d.status))
-    )
-      status = "reconciliation_required";
-    if (terminalReceipt) status = String(d.status);
-    if (
-      e.kind === "jobs" &&
-      ["completed", "cancelled", "canceled"].includes(String(d.status))
-    )
-      status = String(d.status);
-    await revise(tx, s, e.id, {
-      ...d,
-      status,
-      invalidationReason: reason,
-      dependencyInvalidated: true,
-      ...(needsRemoteReconcile ? { reconciliationStatus: "required" } : {}),
-      ...(purge && ["content", "insights"].includes(e.kind)
-        ? {
-            text: "",
-            body: "",
-            title: "Removed source dependency",
-            claims: [],
-            sources: [],
-            outline: [],
-            description: "",
-            altText: "",
-            subject: "",
-            previewText: "",
-            summary: "",
-            rationale: "",
-          }
-        : {}),
-    });
-    if (purge && ["content", "insights"].includes(e.kind))
-      await tx.entityVersion.deleteMany({
-        where: { ...where(s), entityId: e.id },
-      });
-    if (needsRemoteReconcile) {
-      const idempotencyKey =
-        "knowledge-reconcile:" + e.id + ":" + (e.version + 1);
-      const existing = await tx.entity.findFirst({
-        where: {
-          ...where(s),
-          kind: "jobs",
-          data: { path: ["idempotencyKey"], equals: idempotencyKey },
-        },
-      });
-      if (!existing) {
-        const job = await tx.entity.create({
-          data: {
-            ...where(s),
-            kind: "jobs",
-            data: {
-              topic: "reconciliation",
-              resourceId: e.id,
-              status: "queued",
-              attempts: 0,
-              maxAttempts: 3,
-              idempotencyKey,
-              reason,
-            },
-          },
-        });
-        await tx.outbox.create({
-          data: {
-            ...where(s),
-            topic: "reconciliation",
-            entityId: job.id,
-            payload: { jobId: job.id },
-          },
-        });
-      }
-    }
+  const impact: KnowledgeImpact = {
+    sourceId,
+    reason,
+    ...(factId ? { factId } : {}),
+    purge,
+    evidenceIds: [...evidenceIds],
+  };
+  const contentIds = new Set<string>();
+  for (const handle of handlers) {
+    const result = await handle(tx, s, impact);
+    for (const id of result?.contentIds ?? []) contentIds.add(id);
   }
   return { evidenceIds: [...evidenceIds], contentIds: [...contentIds] };
 }
-export async function ingest(tx: DbTx, s: Scope, input: IngestInput) {
+export async function ingest(
+  tx: DbTx,
+  s: Scope,
+  handlers: readonly ImpactHandler[],
+  input: IngestInput,
+) {
   const { data: source } = await getSource(tx, s, input.sourceId);
   const expected = input.expectedGeneration ?? source.generation;
   if (expected !== source.generation)
@@ -474,7 +357,13 @@ export async function ingest(tx: DbTx, s: Scope, input: IngestInput) {
       canonicalUrl: input.canonicalUrl ?? doc.canonicalUrl,
     },
   });
-  const impact = await invalidate(tx, s, input.sourceId, "source_changed");
+  const impact = await invalidate(
+    tx,
+    s,
+    handlers,
+    input.sourceId,
+    "source_changed",
+  );
   await tx.entity.update({
     where: { id: input.sourceId },
     data: {
@@ -498,7 +387,12 @@ export async function ingest(tx: DbTx, s: Scope, input: IngestInput) {
     impact,
   };
 }
-export async function setFact(tx: DbTx, s: Scope, input: FactInput) {
+export async function setFact(
+  tx: DbTx,
+  s: Scope,
+  handlers: readonly ImpactHandler[],
+  input: FactInput,
+) {
   const { data: source } = await getSource(tx, s, input.sourceId);
   if (source.authority === "generated")
     throw new KnowledgeError("GENERATED_CONTENT_NOT_AUTHORITY");
@@ -580,7 +474,14 @@ export async function setFact(tx: DbTx, s: Scope, input: FactInput) {
     )
       throw new KnowledgeError("INVALID_SUPERSESSION");
     await revise(tx, s, old.id, { ...prior, status: "superseded" });
-    await invalidate(tx, s, prior.sourceId, "fact_superseded", old.id);
+    await invalidate(
+      tx,
+      s,
+      handlers,
+      prior.sourceId,
+      "fact_superseded",
+      old.id,
+    );
   }
   const data = {
     ...input,
@@ -598,6 +499,7 @@ export async function setFact(tx: DbTx, s: Scope, input: FactInput) {
     await invalidate(
       tx,
       s,
+      handlers,
       (old.data as unknown as FactData).sourceId,
       "fact_conflict",
       old.id,
@@ -610,7 +512,7 @@ export async function setFact(tx: DbTx, s: Scope, input: FactInput) {
     : await tx.entity.create({
         data: { ...where(s), kind: "facts", data: json(data) },
       });
-  await invalidate(tx, s, input.sourceId, "fact_changed", fact.id);
+  await invalidate(tx, s, handlers, input.sourceId, "fact_changed", fact.id);
   await audit(tx, s, "fact.versioned", fact.id, {
     version: fact.version,
     status: data.status,
@@ -935,6 +837,7 @@ export async function validateEvidence(
 export async function withdrawFact(
   tx: DbTx,
   s: Scope,
+  handlers: readonly ImpactHandler[],
   id: string,
   expectedVersion: number,
 ) {
@@ -957,11 +860,23 @@ export async function withdrawFact(
     revokedAt: new Date().toISOString(),
     revokedBy: s.userId,
   });
-  const impact = await invalidate(tx, s, d.sourceId, "fact_revoked", id);
+  const impact = await invalidate(
+    tx,
+    s,
+    handlers,
+    d.sourceId,
+    "fact_revoked",
+    id,
+  );
   await audit(tx, s, "fact.withdrawn", id, { version: revoked.version });
   return { fact: revoked, unchanged: false, impact };
 }
-export async function revokeSource(tx: DbTx, s: Scope, sourceId: string) {
+export async function revokeSource(
+  tx: DbTx,
+  s: Scope,
+  handlers: readonly ImpactHandler[],
+  sourceId: string,
+) {
   const source = await tx.entity.findFirst({
     where: { ...where(s), id: sourceId, kind: "sources" },
   });
@@ -979,6 +894,7 @@ export async function revokeSource(tx: DbTx, s: Scope, sourceId: string) {
   const impact = await invalidate(
     tx,
     s,
+    handlers,
     sourceId,
     "source_revoked",
     undefined,
@@ -1012,6 +928,7 @@ export async function revokeSource(tx: DbTx, s: Scope, sourceId: string) {
 export async function setSourceRights(
   tx: DbTx,
   s: Scope,
+  handlers: readonly ImpactHandler[],
   id: string,
   changes: { publicUse?: boolean; modelUse?: boolean; paused?: boolean },
 ) {
@@ -1036,7 +953,13 @@ export async function setSourceRights(
     generation: old.generation + 1,
   };
   await revise(tx, s, id, next);
-  const impact = await invalidate(tx, s, id, "source_permissions_changed");
+  const impact = await invalidate(
+    tx,
+    s,
+    handlers,
+    id,
+    "source_permissions_changed",
+  );
   await audit(tx, s, "knowledge.rights_changed", id, {
     generation: next.generation,
   });
@@ -1050,6 +973,7 @@ export async function setSourceRights(
 export async function revokeDocument(
   tx: DbTx,
   s: Scope,
+  handlers: readonly ImpactHandler[],
   documentId: string,
   versionId?: string,
 ) {
@@ -1073,6 +997,7 @@ export async function revokeDocument(
   const impact = await invalidate(
     tx,
     s,
+    handlers,
     source.id,
     "document_revoked",
     undefined,

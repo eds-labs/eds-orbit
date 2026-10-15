@@ -1,7 +1,6 @@
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
-  ingest,
   fetchApprovedDocument,
   extractDocument,
   sourceData,
@@ -9,6 +8,7 @@ import {
   EMBEDDING_PROFILE,
   assertActiveEmbeddingProfile,
 } from "../../../../packages/knowledge/src/index.ts";
+import { ingest } from "../platform/knowledge/engine.ts";
 import { entity, data, DomainError } from "../shared.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
 import {

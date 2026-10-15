@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { DbTx } from "../../../../packages/db/src/index.ts";
 import { extractDocument, MIME } from "../../../../packages/knowledge/src/extract.ts";
-import { ingest, setFact } from "../../../../packages/knowledge/src/index.ts";
+import { ingest, setFact } from "../platform/knowledge/engine.ts";
 import { create, data, entity, update } from "../shared.ts";
 import { id, type Scope } from "../../../../packages/schemas/src/index.ts";
 

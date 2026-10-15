@@ -5,14 +5,16 @@ import {
   activateIndexGeneration,
   beginIndexBuild,
   extractDocument,
-  ingest,
   retrieve,
+  rollbackIndexGeneration,
+} from "../../../../../packages/knowledge/src/index.ts";
+import {
+  ingest,
   revokeDocument,
   revokeSource,
-  rollbackIndexGeneration,
   setSourceRights,
   withdrawFact,
-} from "../../../../../packages/knowledge/src/index.ts";
+} from "../../platform/knowledge/engine.ts";
 import {
   ownTransaction,
   sharedTransaction,

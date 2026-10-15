@@ -4,13 +4,16 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { createClient, scoped } from "../packages/db/src/index.js";
+import { retrieve, getActiveIndex } from "../packages/knowledge/src/index.js";
 import {
   ingest,
   revokeDocument,
   revokeSource,
-  retrieve,
-  getActiveIndex,
-} from "../packages/knowledge/src/index.js";
+} from "../apps/api/src/platform/knowledge/engine.ts";
+import { registerModules } from "../apps/api/src/modules/registry.ts";
+// A composition root like the API: knowledge changes need the registered
+// impact handlers (WP3.1).
+registerModules();
 const required = (name: string) => {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required`);
