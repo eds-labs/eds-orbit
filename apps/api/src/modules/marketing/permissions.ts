@@ -7,13 +7,11 @@ import {
 export const marketingActionPermissions = actionPermissions("marketing", {
   owner: [
     "approve",
-    "approve-and-schedule",
     "archive-mission",
     "asset-status",
     "brand-approval",
     "calendar-block",
     "calendar-unblock",
-    "configure-autopilot",
     "configure-matomo-schedule",
     "correct-metric",
     "import-matomo",

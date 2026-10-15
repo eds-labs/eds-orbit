@@ -227,7 +227,7 @@ describe.skipIf(!enabled)("Project sweep (characterization)", () => {
   });
 
   it.each([
-    ["Orbit Agents off (weekly autopilot path)", "false"],
+    ["Orbit Agents off (no planner)", "false"],
     ["Orbit Agents on (assignment path)", "true"],
   ])("%s", async (_name, agents) => {
     process.env.ORBIT_AGENTS = agents;

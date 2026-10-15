@@ -14,7 +14,6 @@ import {
 } from "../../../packages/db/src/index.ts";
 import { create, data, list, update } from "../src/shared.ts";
 import { sweepProject, nextSweepAt } from "../src/modules/lifecycle.ts";
-import { configureAutopilot } from "../src/modules/autopilot.ts";
 import {
   buildWorkPlan,
   nextAssignmentPlanAt,
@@ -959,60 +958,17 @@ describe.skipIf(!enabled)("Assignment runs, work plans and slots", () => {
   });
 
   describe("sweep", () => {
-    it("plans runs from the sweep and leaves the autopilot alone while on", async () => {
+    it("plans runs from the sweep while on", async () => {
       await makeAssignment();
-      await run(async (tx) => {
-        await tx.project.update({
-          where: { id: project.owner.projectId },
-          data: { mode: "autopilot" },
-        });
-        await configureAutopilot(tx, project.owner, {
-          enabled: true,
-          channels: [X],
-          factKeys: ["beta.access"],
-          assetIds: [],
-          planWeekday: new Date().getDay(),
-          planTime: "00:00",
-        });
-      });
-      const checked = async () =>
-        data(
-          (await run((tx) => list(tx, project.owner, "autopilot_settings")))[0],
-        ).lastPlanCheckAt;
       await run((tx) => sweepProject(tx, worker(), MORNING));
       expect((await runs()).map((r: any) => r.date)).toEqual(["2026-10-20"]);
-      expect(await checked()).toBeUndefined();
-      expect(
-        (await run((tx) => list(tx, project.owner, "missions"))).filter(
-          (m) => data(m).autopilot === true,
-        ),
-      ).toEqual([]);
     });
 
-    it("keeps planning the autopilot and no runs while off", async () => {
+    it("plans no runs while off", async () => {
       await makeAssignment();
       delete process.env.ORBIT_AGENTS;
-      await run(async (tx) => {
-        await tx.project.update({
-          where: { id: project.owner.projectId },
-          data: { mode: "autopilot" },
-        });
-        await configureAutopilot(tx, project.owner, {
-          enabled: true,
-          channels: [X],
-          factKeys: ["beta.access"],
-          assetIds: [],
-          planWeekday: new Date().getDay(),
-          planTime: "00:00",
-        });
-      });
       await run((tx) => sweepProject(tx, worker(), MORNING));
       expect(await runs()).toEqual([]);
-      expect(
-        data(
-          (await run((tx) => list(tx, project.owner, "autopilot_settings")))[0],
-        ).lastPlanCheckAt,
-      ).toBe(MORNING.toISOString());
     });
 
     it("wakes the sweep when the next run is due", async () => {

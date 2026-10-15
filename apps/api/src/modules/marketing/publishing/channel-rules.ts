@@ -85,11 +85,17 @@ export async function resolveChannelRules(
   }
 }
 
-/** The exact plain text passed to Postiz, including an otherwise missing target URL. */
+const CLOSING_HASHTAGS = /\n\n((?:#[\p{L}\p{N}_]+[ \t]*)+)$/u;
+
+/**
+ * The exact plain text passed to Postiz, including an otherwise missing target
+ * URL: after the call to action, before a closing hashtag line, at the same length.
+ */
 export function finalPostText(body: string, targetUrl?: string | null) {
-  return (
-    body + (targetUrl && !body.includes(targetUrl) ? "\n" + targetUrl : "")
-  );
+  if (!targetUrl || body.includes(targetUrl)) return body;
+  const tags = body.match(CLOSING_HASHTAGS);
+  if (!tags) return body + "\n" + targetUrl;
+  return `${body.slice(0, tags.index)}\n${targetUrl}\n\n${tags[1]}`;
 }
 
 /** X uses weighted Unicode and 23-character URLs. Add the URL allowance to raw text so trailing punctuation and unparsed links cannot undercount. */
