@@ -1,5 +1,26 @@
 # Implementation status
 
+## Product words of the fact checks from the profile: WP3.4 (2026-10-15, local)
+
+Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. Behaviour for uLiquid is unchanged.
+
+- **Profile field.** `marketingProfile.brandTerms` is new and optional: lower-case words of the product name, 1–20, each 2–40 letters or digits.
+- **Fact matcher.** `factClaimMatches(text, fact, brandTerms)` allows the profile's words instead of the built-in `uliquid`, `uliq` and `desk`.
+- **Presale check.** `presaleLivePattern(profileTerms)` accepts up to two of the profile's words between "live" and "presale".
+- **Without the field (every profile today).** `LEGACY_BRAND_TERMS` applies and the presale regex stays verbatim (pinned by a test), so no check changes and no profile save is needed.
+- **Loading.** `checkClaims` reads the terms once, and only when it checks a fact claim.
+- **Follow-up.** A field in the profile editor; until then the profile API sets it.
+
+**Verification (local).**
+- New tests:
+  - the matcher with a profile's own words, which rejects uLiquid's words there;
+  - `brandTermsOf`;
+  - the legacy presale regex is pinned verbatim; the generated one matches and rejects as expected;
+  - the schema keeps an absent field absent and rejects invalid terms.
+- `fact-claims`, `claim-repeat`, `safety`, `official-target-link` and `content-packages` are green; the OpenAPI document is unchanged.
+
+**Rollback.** Revert; there is no schema migration or data change (the profile field is optional and unused).
+
 ## Knowledge module, server and web: WP3.3 (2026-10-15, local)
 
 Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. With `ORBIT_MODULES=false` the product is unchanged; the knowledge views gain URLs.
