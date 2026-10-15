@@ -11,7 +11,7 @@ import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { data, DomainError, list } from "../../../shared.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import { marketingProfile } from "../../../../../../packages/schemas/src/index.ts";
-import { retrieveHybrid } from "../../retrieval.ts";
+import { retrieveHybrid } from "../../../platform/knowledge/services.ts";
 
 // The card shapes are the platform's (WP2.2); kept here for importers.
 export type {

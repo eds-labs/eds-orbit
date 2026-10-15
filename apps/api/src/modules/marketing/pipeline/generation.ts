@@ -1,7 +1,7 @@
 import { postingSlot } from "../publishing/posting-slots.ts";
 import { resolveFactPlaceholders } from "../policy/fact-placeholders.ts";
 import { finishMissionRun } from "./planning.ts";
-import { retrieveHybrid } from "../../retrieval.ts";
+import { retrieveHybrid } from "../../../platform/knowledge/services.ts";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {

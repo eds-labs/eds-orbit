@@ -1,21 +1,21 @@
 import { z } from "zod";
-import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
-import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   assertIndexCorpusCurrent,
   evaluateIndexGeneration,
-} from "../../../../packages/knowledge/src/index.ts";
-import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
-import { create, data, entity, update, DomainError } from "../shared.ts";
+} from "../../../../../packages/knowledge/src/index.ts";
+import { embed, estimateCost } from "../../../../../packages/ai/src/index.ts";
+import { create, data, entity, update, DomainError } from "../../shared.ts";
 import {
   activeSpendMandateRef,
   requireSpendMandate,
-} from "../platform/ai/spend-mandate.ts";
-import { reserve, markTransmitted, settle } from "./budget.ts";
-import { enqueue } from "../platform/jobs/enqueue.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
-import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
+} from "../ai/spend-mandate.ts";
+import { reserve, markTransmitted, settle } from "../../modules/budget.ts";
+import { enqueue } from "../jobs/enqueue.ts";
+import { runtimeOpenAiConfiguration } from "../../modules/openai-configuration.ts";
+import { recordSpan, startRun, tracedRun } from "../../modules/telemetry.ts";
 export const indexEvaluationRequest = z
   .object({
     indexId: z.uuid(),

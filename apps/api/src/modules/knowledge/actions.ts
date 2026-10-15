@@ -23,12 +23,12 @@ import {
 } from "../../platform/http/actions.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
 import { create, data, DomainError, entity } from "../../shared.ts";
-import { retrieveHybrid } from "../retrieval.ts";
+import { retrieveHybrid } from "../../platform/knowledge/retrieval.ts";
 import {
   queueIndexEvaluation,
   indexEvaluationRequest,
-} from "../index-evaluation.ts";
-import { queueDocumentEmbedding } from "../ingestion.ts";
+} from "../../platform/knowledge/index-evaluation.ts";
+import { queueDocumentEmbedding } from "../../platform/knowledge/ingestion.ts";
 import {
   commitKnowledgeImport,
   importPreview,

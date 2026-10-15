@@ -1,20 +1,20 @@
-import { scoped } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import { scoped } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   attachIndexBatch,
   sourceData,
   assertIndexCorpusCurrent,
-} from "../../../../packages/knowledge/src/index.ts";
-import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
-import { reserve, markTransmitted, settle } from "./budget.ts";
+} from "../../../../../packages/knowledge/src/index.ts";
+import { embed, estimateCost } from "../../../../../packages/ai/src/index.ts";
+import { reserve, markTransmitted, settle } from "../../modules/budget.ts";
 import {
   activeSpendMandateRef,
   requireSpendMandate,
-} from "../platform/ai/spend-mandate.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
-import { enqueue } from "../platform/jobs/enqueue.ts";
-import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
-import { data, entity, DomainError } from "../shared.ts";
+} from "../ai/spend-mandate.ts";
+import { runtimeOpenAiConfiguration } from "../../modules/openai-configuration.ts";
+import { enqueue } from "../jobs/enqueue.ts";
+import { recordSpan, startRun, tracedRun } from "../../modules/telemetry.ts";
+import { data, entity, DomainError } from "../../shared.ts";
 /** One bounded batch per durable job. It never activates its own index. */
 export async function buildIndexBatch(
   scope: Scope,
