@@ -148,7 +148,6 @@ const AGENT_ROUTES = new Set([
   "/api/projects/:projectId/telegram/disconnect",
   "/api/projects/:projectId/assignments",
   "/api/projects/:projectId/assignments/:id/status",
-  "/api/projects/:projectId/assignments/autopilot-migration",
   "/api/projects/:projectId/assignment-posts",
   "/api/projects/:projectId/agent-activity",
   "/api/projects/:projectId/publications/:id/veto",

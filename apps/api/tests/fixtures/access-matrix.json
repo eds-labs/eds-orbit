@@ -118,20 +118,6 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
-  "GET /api/projects/{projectId}/assignments/autopilot-migration": {
-    "anonymous": "unauthenticated",
-    "outsider": "not_found",
-    "viewer": "allowed:200",
-    "editor": "allowed:200",
-    "owner": "allowed:200"
-  },
-  "GET /api/projects/{projectId}/autopilot_settings": {
-    "anonymous": "unauthenticated",
-    "outsider": "not_found",
-    "viewer": "allowed:200",
-    "editor": "allowed:200",
-    "owner": "allowed:200"
-  },
   "GET /api/projects/{projectId}/calendar_blocks": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -552,13 +538,6 @@
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
   },
-  "POST /api/projects/{projectId}/actions/approve-and-schedule": {
-    "anonymous": "unauthenticated",
-    "outsider": "not_found",
-    "viewer": "forbidden:FORBIDDEN",
-    "editor": "forbidden:FORBIDDEN",
-    "owner": "allowed:400"
-  },
   "POST /api/projects/{projectId}/actions/archive-mission": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -627,13 +606,6 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
-    "owner": "allowed:400"
-  },
-  "POST /api/projects/{projectId}/actions/configure-autopilot": {
-    "anonymous": "unauthenticated",
-    "outsider": "not_found",
-    "viewer": "forbidden:FORBIDDEN",
-    "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/configure-matomo-schedule": {
@@ -1021,26 +993,12 @@
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
-  "POST /api/projects/{projectId}/assignments/autopilot-migration": {
-    "anonymous": "unauthenticated",
-    "outsider": "not_found",
-    "viewer": "forbidden:FORBIDDEN",
-    "editor": "allowed:409",
-    "owner": "allowed:409"
-  },
   "POST /api/projects/{projectId}/assignments/{id}/status": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
     "owner": "allowed:400"
-  },
-  "POST /api/projects/{projectId}/autopilot_settings": {
-    "anonymous": "unauthenticated",
-    "outsider": "not_found",
-    "viewer": "forbidden:FORBIDDEN",
-    "editor": "forbidden:COLLECTION_NOT_WRITABLE",
-    "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/calendar_blocks": {
     "anonymous": "unauthenticated",

@@ -3,7 +3,6 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { SchedulerContribution } from "../../platform/jobs/types.ts";
 import { data, DomainError, exception, list, update } from "../../shared.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
-import { planAutopilot, nextAutopilotCheckAt } from "./pipeline/autopilot.ts";
 import { releaseMissedSlots } from "./pipeline/paused-posts.ts";
 import { prepareFollowup } from "./pipeline/planning.ts";
 import { analyze } from "./pipeline/workflow.ts";
@@ -23,7 +22,7 @@ import {
 /** Bounded sweep: an owner-created mission is never extended or regenerated past its quota. */
 async function marketingSweep(tx: DbTx, scope: Scope, at: Date) {
   await releaseMissedSlots(tx, scope, at);
-  // Assignment runs replace the weekly autopilot: both fill the same slots.
+  // Assignment runs plan the project's posts (they replaced the weekly autopilot).
   if (agentsEnabled()) {
     await planAssignmentRuns(tx, scope, at);
     // Runs whose approved posts could not be scheduled after their review (R54).
@@ -32,7 +31,7 @@ async function marketingSweep(tx: DbTx, scope: Scope, at: Date) {
     await requeuePostizDrafts(tx, scope);
     // The bot's daily report, once per local day (a paused project sends none).
     await planDailyReport(tx, scope, at);
-  } else await planAutopilot(tx, scope, at);
+  }
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
   // An owner-approved single live draft is the mission's only attempt; its
@@ -108,7 +107,7 @@ async function marketingNextDueAt(tx: DbTx, scope: Scope, at: Date) {
   if (agentsEnabled()) {
     consider((await nextAssignmentPlanAt(tx, scope, at))?.valueOf());
     consider((await nextDailyReportAt(tx, scope, at))?.valueOf());
-  } else consider((await nextAutopilotCheckAt(tx, scope))?.valueOf());
+  }
   return Number.isFinite(next) ? new Date(next) : null;
 }
 

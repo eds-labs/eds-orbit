@@ -24,6 +24,29 @@ Branch `claude/plattform-umbau-fortschritt-05c734`, the first work package of Ph
 
 **Rollback.** Redeploy the previous image; there is no schema or data change.
 
+## Banner copy no longer a claim: R83 (2026-10-15, local)
+
+Branch `claude/banner-claims`. The uLiquid 17:00 draft of 2026-10-15 was rejected with `CLAIM_NOT_IN_CONTENT`, because the model had recorded the banner copy as a style claim. The generation (`packages/ai`) now drops a style claim with no fact or chunk that is not in the body and consists only of banner fields, and the banner instruction says the banner copy is no claim. Details: ruling R83. Verification: AI package tests (a new test with the production case), and the banner, copywriter and agent-review suites.
+
+## Modular platform in production: WP2.6 Step A (2026-10-15)
+
+On Mario's Approval A, release PR #125 was merged into `main` at 13:05 CEST (merge commit `930511e`). The new version was live at 13:10, and migration `202610130001_platform_project_module` ran. `ORBIT_MODULES` stays `false`. Runbook: `docs/deployment/MODULAR_PLATFORM_ROLLOUT.md`.
+
+Post-deploy checks:
+1. `/api/health/ready` ok (database ok, worker ready); `/api/health/postiz` ok.
+2. uLiquid home and navigation: 13 entries; Knowledge, Marketing and Platform sections.
+3. Settings → Modules: Knowledge and Marketing on, switching not enabled.
+4. Settings tabs as before; the assignment "uLiquid Beta" is active (Postiz drafts, 10:00/17:00).
+5. Connectors: Postiz, Matomo, Slack, Telegram (linked), blog, newsletter, in the former order.
+6. Operations: worker heartbeat, outbox 0, 14 queue classes, AI runs with costs.
+7. Telegram: the bot answered a text message with its help text (13:18).
+
+Checks 8 and 9 (the next run's drafts and the daily report) follow. The 17:00 rejection of that day predates the deploy and is fixed by R83.
+
+## Weekly autopilot removed (2026-10-13, local)
+
+Branch `claude/remove-old-agent-tests-e6b039` (PR #90), merged with the modular platform (#125), not deployed. Production has run on standing assignments since 2026-10-09 (`ORBIT_AGENTS=true`), so the weekly autopilot that the flag-off path kept as a fallback is gone: `marketing/pipeline/autopilot.ts` and its shim (planner, settings, one-click `approve-and-schedule`, migration proposal), the `configure-autopilot` and `approve-and-schedule` actions and permissions, the `…/assignments/autopilot-migration` routes, the `autopilot_settings` collection and its manifest kind (old rows stay in the database and in the project export), the autopilot settings tab (`autopilot-settings.tsx`), the autopilot approvals panel and the migration card, the Phase 0 rollout queries, and their tests (`autopilot.test.ts`, `autopilot-coexistence`, `autopilot-migration`, `rollout-phase0`, planner cases in `paid`, `official-target-link`, `assignment-runs`, `assignment-routes`, `drive-readiness`, `due-marker`, the web migration card). With `ORBIT_AGENTS` off the sweep now plans no posts (sweep characterization case renamed, snapshot unchanged). Kept: the project and policy mode `autopilot` (autonomy mode, unrelated), and the code that reads missions the autopilot planned earlier (slot occupancy, missed-slot archive, draft cleanup, content history, generation context). No schema migration. Rollback: revert the merge commit. Details: [OPERATIONS.md](OPERATIONS.md#orbit-agents).
+
 ## Google Drive on the platform, brand assets in marketing, Slack checked: WP2.5d (2026-10-14, local)
 
 Branch `claude/wp25d-drive-slack`, the last part of WP2.5.

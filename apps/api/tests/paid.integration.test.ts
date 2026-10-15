@@ -87,7 +87,6 @@ import { GenerationOutputError } from "../../../packages/ai/src/index.ts";
 import { APIError } from "openai";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { postingSlot } from "../src/modules/posting-slots.ts";
-import { configureAutopilot, planAutopilot } from "../src/modules/autopilot.ts";
 import { missionFactKeys } from "../src/modules/mission-evidence.ts";
 import { retrieveHybrid } from "../src/modules/retrieval.ts";
 import {
@@ -1136,92 +1135,6 @@ describe.skipIf(!enabled)(
         expect(data(content).scheduledAt).toBe(expected.toISOString());
       else expect(data(content).scheduledAt).toBeUndefined();
     });
-    it("autopilot plans one post per channel and day at its own slot, once", async () => {
-      await setCampaign("product");
-      await run(async (tx) => {
-        await setFact(tx, s, {
-          key: "product.target",
-          value: "Users remain in control of their accounts.",
-          valueType: "text",
-          language: "en",
-          sourceId,
-          validFrom: new Date(Date.now() - 3600000).toISOString(),
-          status: "verified",
-          publicUse: true,
-          modelUse: true,
-        });
-        const connector = await tx.entity.findFirstOrThrow({
-          where: { projectId: s.projectId, kind: "connectors" },
-        });
-        await update(tx, s, connector, {
-          ...data(connector),
-          postingTimes: { test: "17:00" },
-        });
-      });
-      const settings = {
-        enabled: true,
-        channels: ["test"],
-        factKeys: ["product.target"],
-        assetIds: [],
-        planWeekday: 0,
-        planTime: "12:00",
-      };
-      // Observe mode never plans, even when enabled.
-      await run((tx) => configureAutopilot(tx, s, settings));
-      expect(await run((tx) => planAutopilot(tx, s))).toEqual({ planned: 0 });
-      await run(async (tx) => {
-        await tx.project.update({
-          where: { id: s.projectId },
-          data: { mode: "autopilot" },
-        });
-        const row = await tx.entity.findFirstOrThrow({
-          where: { projectId: s.projectId, kind: "autopilot_settings" },
-        });
-        await update(tx, s, row, { ...data(row), lastPlanCheckAt: null });
-      });
-      const now = new Date();
-      const first = await run((tx) => planAutopilot(tx, s, now));
-      const missions = await run((tx) =>
-        tx.entity.findMany({
-          where: {
-            projectId: s.projectId,
-            kind: "missions",
-            data: { path: ["autopilot"], equals: true },
-          },
-        }),
-      );
-      expect(first.planned).toBe(missions.length);
-      expect(missions.length).toBeGreaterThan(0);
-      const slots = missions.map((m) => data(m).autopilotSlot);
-      expect(new Set(slots).size).toBe(slots.length);
-      const project = await run((tx) =>
-        tx.project.findUniqueOrThrow({ where: { id: s.projectId } }),
-      );
-      for (const m of missions) {
-        const d = data(m);
-        expect(Date.parse(d.plannedSlotAt)).toBeGreaterThan(now.valueOf());
-        expect(
-          new Intl.DateTimeFormat("en", {
-            hour: "2-digit",
-            minute: "2-digit",
-            hourCycle: "h23",
-            timeZone: project.timezone,
-          }).format(new Date(d.plannedSlotAt)),
-        ).toBe("17:00");
-        expect(d.allowedActions).toContain("publish_live");
-        expect(missionFactKeys(d)).toEqual(["product.target", "official.link"]);
-      }
-      // A later sweep plans nothing new for the same days.
-      await run(async (tx) => {
-        const row = await tx.entity.findFirstOrThrow({
-          where: { projectId: s.projectId, kind: "autopilot_settings" },
-        });
-        await update(tx, s, row, { ...data(row), lastPlanCheckAt: null });
-      });
-      expect(await run((tx) => planAutopilot(tx, s, now))).toEqual({
-        planned: 0,
-      });
-    });
     it("autopilot shows each draft the channel's recent posts so a later day does not repeat one", async () => {
       // Production uLiquid, 2026-10-06: the X drafts for 6 and 11 October were
       // identical; each day is its own mission and saw no other draft.
@@ -1346,43 +1259,6 @@ describe.skipIf(!enabled)(
         provider.generate.mock.calls.at(-1)![0].goal,
       );
       expect(revisionGoal.packageDrafts).toBeUndefined();
-    });
-    it("autopilot skips days before its start date", async () => {
-      await setCampaign("product");
-      await run(async (tx) => {
-        await setFact(tx, s, {
-          key: "product.target",
-          value: "Users remain in control of their accounts.",
-          valueType: "text",
-          language: "en",
-          sourceId,
-          validFrom: new Date(Date.now() - 3600000).toISOString(),
-          status: "verified",
-          publicUse: true,
-          modelUse: true,
-        });
-        const connector = await tx.entity.findFirstOrThrow({
-          where: { projectId: s.projectId, kind: "connectors" },
-        });
-        await update(tx, s, connector, {
-          ...data(connector),
-          postingTimes: { test: "17:00" },
-        });
-        await tx.project.update({
-          where: { id: s.projectId },
-          data: { mode: "autopilot" },
-        });
-        await configureAutopilot(tx, s, {
-          enabled: true,
-          channels: ["test"],
-          factKeys: ["product.target"],
-          assetIds: [],
-          planWeekday: 0,
-          planTime: "12:00",
-          startDate: "2099-01-01",
-        });
-      });
-      expect(await run((tx) => planAutopilot(tx, s))).toEqual({ planned: 0 });
     });
     it("rejects a stale profile before any paid query or text call", async () => {
       await setCampaign("product");

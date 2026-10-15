@@ -232,6 +232,42 @@ describe("banner copy in drafts (R78)", () => {
     expect(result.output.banner).toEqual(banner);
   });
 
+  it("drops a style claim that is only the banner copy (R83)", async () => {
+    const cta = { text: "Explore Desk", kind: "style" };
+    const fact = { text: "Beta access is open", kind: "fact", factId: "f1" };
+    create.mockResolvedValue({
+      ...answer,
+      output_text: JSON.stringify({
+        title: "t",
+        body: "Beta access is open. Explore Desk",
+        claims: [
+          fact,
+          cta,
+          // The banner copy as the model recorded it in production.
+          {
+            text: "START FREE. / BUILD YOUR WORKFLOW. / Markets. Paper trading. Bots. / Explore Desk",
+            kind: "style",
+          },
+          { text: "Markets. Paper trading. Bots.", kind: "style" },
+          // Not only banner copy, or not a style claim: kept for the checks.
+          { text: "Start free. / Trade without limits", kind: "style" },
+          { text: "Build your workflow", kind: "fact", factId: "f2" },
+        ],
+        banner,
+      }),
+    });
+    const result = await generate({ ...params, banner: true });
+    expect(result.output.claims).toEqual([
+      fact,
+      cta,
+      { text: "Start free. / Trade without limits", kind: "style" },
+      { text: "Build your workflow", kind: "fact", factId: "f2" },
+    ]);
+    expect(create.mock.calls[0]![0].instructions).toContain(
+      "never record banner text in the claims ledger",
+    );
+  });
+
   it("refuses an answer without the banner it asked for, at the known cost", async () => {
     await expect(generate({ ...params, banner: true })).rejects.toBeInstanceOf(
       GenerationOutputError,

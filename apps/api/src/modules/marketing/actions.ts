@@ -61,10 +61,6 @@ import {
   linkCommunityGroup,
   proposeBrief,
 } from "./pipeline/editorial.ts";
-import {
-  approveAndSchedule,
-  configureAutopilot,
-} from "./pipeline/autopilot.ts";
 import { resumePausedPublications } from "./pipeline/paused-posts.ts";
 import { archiveMission } from "./pipeline/mission-archive.ts";
 import {
@@ -321,12 +317,6 @@ export const marketingActions: Record<string, ActionHandler> = {
   }),
   "configure-matomo-schedule": sharedTransaction((tx, { scope, input }) =>
     configureMatomoSchedule(tx, scope, input),
-  ),
-  "configure-autopilot": sharedTransaction((tx, { scope, input }) =>
-    configureAutopilot(tx, scope, input),
-  ),
-  "approve-and-schedule": sharedTransaction((tx, { scope, input }) =>
-    approveAndSchedule(tx, scope, input),
   ),
   "resume-paused-publications": sharedTransaction((tx, { scope }) =>
     resumePausedPublications(tx, scope),
