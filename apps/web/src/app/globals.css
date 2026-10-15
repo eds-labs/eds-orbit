@@ -3763,3 +3763,181 @@ svg.agent-graph {
     padding-right: 16px;
   }
 }
+/* Web shell (WP1.7): pickers, project home, not-found. */
+.organization-link {
+  display: block;
+  margin: -14px 8px 18px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.organization-link:hover {
+  color: var(--primary);
+}
+.page-head h2 {
+  font-size: 24px;
+}
+.picker-page {
+  min-height: 100vh;
+  padding: 32px 5vw;
+  background:
+    radial-gradient(at 0% 20%, #dff2ffb0, transparent 50%),
+    radial-gradient(at 100% 70%, #e1faff9c, transparent 50%), var(--background);
+}
+.picker-page > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.picker-page .signout {
+  margin: 0;
+}
+.picker-main {
+  max-width: 640px;
+  margin: 60px auto;
+}
+.picker > h1 {
+  margin-top: 8px;
+}
+.picker > p {
+  margin: 10px 0 28px;
+  color: var(--muted-foreground);
+  font-size: 16px;
+}
+.picker-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.picker-list a {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+}
+.picker-list a:hover,
+.picker-list a:focus-visible {
+  border-color: var(--primary);
+}
+.picker-list .picker-label {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.picker-list small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.picker-list svg {
+  flex-shrink: 0;
+  color: #5091c5;
+}
+.picker-create {
+  margin-top: 36px;
+}
+.picker-create > h2 {
+  font-size: 18px;
+  margin-bottom: 14px;
+}
+.not-found {
+  max-width: 560px;
+  margin: 40px auto;
+}
+.assistant-prompt {
+  padding: 0 21px 18px;
+  margin-bottom: 18px;
+}
+.assistant-prompt .panel-head {
+  padding: 18px 0 12px;
+}
+.assistant-prompt .panel-head h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.assistant-prompt-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 12px;
+}
+.assistant-prompt-actions p {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.module-tiles {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 28px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+.module-tile {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 18px 21px;
+  min-width: 0;
+}
+.module-tile h3 {
+  font-size: 16px;
+}
+.module-tile > p {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  margin: 4px 0 12px;
+}
+.module-tile ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.module-tile a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  background: #ffffff90;
+}
+.module-tile a:hover,
+.module-tile a:focus-visible {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.module-tile a svg {
+  width: 15px;
+  height: 15px;
+}
+@media (max-width: 760px) {
+  .picker-page {
+    padding: 20px 16px;
+  }
+  .picker-main {
+    margin: 32px auto;
+  }
+  .assistant-prompt-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .module-tiles {
+    grid-template-columns: 1fr;
+  }
+}

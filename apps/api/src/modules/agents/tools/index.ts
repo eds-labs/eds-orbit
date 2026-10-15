@@ -1,14 +1,2 @@
-import { assignmentTools } from "./assignment-tools.ts";
-import { channelTools } from "./channel-tools.ts";
-import { packageTools } from "./package-tools.ts";
-import { proposalTools } from "./proposal-tools.ts";
-import { readTools } from "./read-tools.ts";
-
-/** Ordered tool set of Orbit Chat; the order is part of the cached prompt prefix. */
-export const chatTools = [
-  ...readTools,
-  ...proposalTools,
-  ...packageTools,
-  ...assignmentTools,
-  ...channelTools,
-] as const;
+// Moved to marketing/tools/index.ts (WP2.1f); importers keep this path.
+export * from "../../marketing/tools/index.ts";

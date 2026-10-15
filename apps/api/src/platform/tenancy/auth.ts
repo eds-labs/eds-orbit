@@ -1,0 +1,93 @@
+import { randomUUID } from "node:crypto";
+import { betterAuth } from "better-auth";
+import { prismaAdapter } from "better-auth/adapters/prisma";
+import { fromNodeHeaders } from "better-auth/node";
+import type { FastifyRequest } from "fastify";
+import { authDb } from "../../../../../packages/db/src/index.ts";
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
+import { DomainError } from "../shared.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { projectMembership } from "./member-scope.ts";
+import { authorize, PROJECT_READ } from "./permissions.ts";
+import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
+import { CLIENT_IP_HEADER } from "../../client-ip.ts";
+export function makeAuth() {
+  const config = loadConfig();
+  return betterAuth({
+    database: prismaAdapter(authDb, { provider: "postgresql" }),
+    secret: config.AUTH_SECRET,
+    baseURL: config.APP_ORIGIN,
+    basePath: "/api/auth",
+    trustedOrigins: [config.APP_ORIGIN],
+    emailAndPassword: {
+      enabled: true,
+      minPasswordLength: 12,
+      maxPasswordLength: 128,
+      autoSignIn: false,
+    },
+    session: {
+      expiresIn: 8 * 3600,
+      updateAge: 1800,
+      cookieCache: { enabled: false },
+    },
+    advanced: {
+      cookiePrefix: "orbit",
+      useSecureCookies: config.APP_ORIGIN.startsWith("https:"),
+      database: { generateId: () => randomUUID() },
+      defaultCookieAttributes: { httpOnly: true, sameSite: "lax" },
+      // Only the header the API pins to the resolved client address on every
+      // request (client-ip.ts), never X-Forwarded-For from the caller.
+      ipAddress: { ipAddressHeaders: [CLIENT_IP_HEADER] },
+    },
+    rateLimit: { enabled: true, window: 60, max: 30 },
+    // The client address is for rate limiting only. Sessions keep storing an
+    // empty address, as they did while the proxy forwarded none.
+    databaseHooks: {
+      session: {
+        create: { before: async () => ({ data: { ipAddress: "" } }) },
+      },
+    },
+    logger: { disabled: true },
+  });
+}
+export type Auth = ReturnType<typeof makeAuth>;
+// A session renewed while checking a request must reach the browser too, or
+// its cookie ends 8 hours after sign-in although the session slides.
+const renewedCookies = new WeakMap<FastifyRequest, string[]>();
+export async function userFor(auth: Auth, req: FastifyRequest) {
+  const { headers, response: session } = await auth.api.getSession({
+    headers: fromNodeHeaders(req.headers),
+    returnHeaders: true,
+  });
+  const cookies = headers?.getSetCookie() ?? [];
+  if (cookies.length) renewedCookies.set(req, cookies);
+  if (!session) throw new DomainError("UNAUTHENTICATED", 401);
+  return session.user;
+}
+export function renewedSessionCookies(req: FastifyRequest) {
+  return renewedCookies.get(req) ?? [];
+}
+/**
+ * The caller's scope in a project: NOT_FOUND (404) without membership,
+ * FORBIDDEN (403) when the project role lacks `required`.
+ */
+export async function scopeFor(
+  auth: Auth,
+  req: FastifyRequest,
+  projectId: string,
+  required: PermissionDef = PROJECT_READ,
+): Promise<Scope> {
+  const user = await userFor(auth, req);
+  const membership = await projectMembership(projectId, user.id);
+  if (!membership) throw new DomainError("NOT_FOUND", 404);
+  const role = membership.role;
+  if (!role) throw new DomainError("FORBIDDEN", 403);
+  authorize({ role }, required);
+  return {
+    workspaceId: membership.workspaceId,
+    projectId,
+    userId: user.id,
+    role,
+  };
+}
+export { fromNodeHeaders };

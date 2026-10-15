@@ -36,3 +36,13 @@ One schema source per tool, strict calls, and a clean path to tool search and a 
 - With the flag off, or on a model before `gpt-5.4`, every offered tool is loaded as before and no route lookup is added.
 - Not yet verified against the live API: enabling it in production needs one small paid check with the configured chat model, approved by Mario.
 - Since the S1 runtime port (rebased 2026-10-06, ADR 0005) the turn loop that answers searches is `agents/runtime/legacy-responses.ts`; the search itself and its span stay in `chat-runner.ts` (`ToolHost.search()`).
+
+## Addendum 2026-10-13: central Orbit MCP gateway (non-goal lifted)
+
+Mario lifted the "Orbit MCP server" non-goal of decision 5 on 2026-10-13 and asked for a central MCP gateway for ChatGPT, ChatGPT dots and other MCP clients. The design is accepted with [ADR 0009](0009-modular-platform.md) (decisions AD-20 to AD-23); the details are in [`plans/orbit-modularization/09-mcp-gateway.md`](../../plans/orbit-modularization/09-mcp-gateway.md).
+
+- **Rejected as before.** Decision 5 still holds for *hosted* MCP used by Orbit's own agents, because it would bypass RLS scope, role checks and the budget journal.
+- **Why the gateway is consistent with decision 5.** It is the opposite direction: external clients call Orbit. Every call runs inside Orbit under the token's user, the project's RLS scope, the permission catalogue, module activation and the budget journal.
+- **Exposure.** The gateway adapts this registry; it never defines its own tools. A tool is exposed only with an explicit `exposure.mcp` flag. Read (`R0`) and proposal (`P`) tools come first. Every consequential action is an `ActionRequest` decided in Orbit (ADR 0008), and hard floors are never exposed.
+- **Placement and authentication.** An own `mcp` service built from the same image, served under `https://orbit.eds-labs.io/mcp`. Orbit is the OAuth 2.1 authorization server, with CIMD first, PKCE S256 and resource-bound tokens.
+- **Prerequisites.** Nothing is implemented yet. The gateway is roadmap Track M (WP-M1 to WP-M6), and it starts after the permission catalogue, the open registries, module activation and the knowledge services exist.

@@ -8,6 +8,12 @@ A connector translates one documented provider contract. It does not grant permi
 - Use `http.ts`'s `HttpOptions`, injectable `FetchLike`, `jsonTransport`/`boundedFetch` and `ConnectorError`. Production transport requires HTTPS, validates and pins public DNS, rejects redirects/private targets, and bounds time/request/response size. Keep the fixed provider endpoint or validated allowlisted origin; never let a model select arbitrary destinations.
 - Validate inputs and provider responses with explicit schemas. Report capability flags truthfully. Treat an accepted receipt separately from a reconciled published result, retaining the account and remote object ID.
 - Put authorization, credential decryption, policy/mandate checks, durable intent creation, preflight and reconciliation in the API modules and worker, following `publisher.ts`, `postiz-verification.ts`, `slack.ts` or `matomo.ts`. Models receive no credentials or connector tool access. UI requests a validated action; it never calls a provider directly.
+- Register the provider with the module that owns its semantics (WP2.5c), as `connections.providers.<id>` in the module's contributions; marketing's are in `modules/marketing/publishing/connection-providers.ts`. A provider may:
+  - normalize its fields (`normalize`);
+  - check a connection with the plain credential and return the fields to record, such as its `status` and `capabilities` (`check`);
+  - name the error code for a check it cannot run (`checkUnsupported`).
+
+  The platform (`platform/connections/connections.ts`) owns storage, encryption and capability states. The generic actions `connector` (create) and `connector-health` (check) find the provider through the registry. Module code reads credentials only through `decryptCredential` and tests verification with `connectionVerified`.
 
 ## Side-effect contract
 

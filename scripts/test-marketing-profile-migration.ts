@@ -179,6 +179,36 @@ try {
       );
       if (applied.rowCount !== 1)
         throw new Error("Marketing profile migration was not recorded");
+      // Module activation (WP1.4): the legacy project keeps both modules,
+      // recorded explicitly, under forced RLS and without a delete grant.
+      const modules = await verify.query(
+        `SELECT "moduleId", enabled, "changedBy" FROM "ProjectModule" WHERE "projectId"=$1 ORDER BY "moduleId"`,
+        [projectId],
+      );
+      if (
+        JSON.stringify(modules.rows) !==
+        JSON.stringify([
+          { moduleId: "knowledge", enabled: true, changedBy: "migration" },
+          { moduleId: "marketing", enabled: true, changedBy: "migration" },
+        ])
+      )
+        throw new Error("Module activation backfill missing");
+      const moduleTable = await verify.query(
+        `SELECT relforcerowsecurity FROM pg_class WHERE relname='ProjectModule'`,
+      );
+      if (moduleTable.rows[0]?.relforcerowsecurity !== true)
+        throw new Error("Module activation forced RLS missing");
+      const moduleGrants = await verify.query(
+        `SELECT has_table_privilege('orbit_app','"ProjectModule"','UPDATE') AS write, has_table_privilege('orbit_app','"ProjectModule"','DELETE') AS remove`,
+      );
+      if (moduleGrants.rows[0]?.write !== true || moduleGrants.rows[0]?.remove !== false)
+        throw new Error("Module activation grants wrong");
+      const moduleApplied = await verify.query(
+        `SELECT 1 FROM "_prisma_migrations" WHERE migration_name=$1 AND finished_at IS NOT NULL`,
+        ["202610130001_platform_project_module"],
+      );
+      if (moduleApplied.rowCount !== 1)
+        throw new Error("Module activation migration was not recorded");
     } finally {
       await verify.end();
     }
@@ -186,7 +216,7 @@ try {
     if (migratorConnected) await migrator.end();
   }
   console.log(
-    "CP07 passed: forward migration preserved legacy data and enforced profile/chat RLS, chat user cascade and grants in a disposable local database.",
+    "CP07 passed: forward migration preserved legacy data, backfilled module activation and enforced profile/chat/module RLS, chat user cascade and grants in a disposable local database.",
   );
 } finally {
   if (adminConnected) {

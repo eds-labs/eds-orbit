@@ -1,10 +1,11 @@
 "use client";
 import Image from "next/image";
-import { useState } from "react";
-import { collectionPath, post, useResource, usd } from "@/lib/api";
+import { useContext, useState } from "react";
+import { collectionPath, useResource, usd } from "@/lib/api";
 import { Alert, Badge, Button } from "./ui/primitives";
-import { AssignmentCard, type AssignmentContent } from "./assignment-card";
 import { useWorkspace } from "./workspace-context";
+import { useDecideActionRequest } from "@/platform/assistant/decide";
+import { ShellContext } from "@/platform/shell/shell-context";
 
 const platforms: Record<string, string> = {
   x: "X",
@@ -51,7 +52,7 @@ type ActionRequestItem = {
     assetId?: string | null;
     packageGoal?: string | null;
     // `assignment.confirm`: the exact assignment the owner confirms.
-    assignment?: AssignmentContent;
+    assignment?: Record<string, any>;
   };
 };
 
@@ -64,6 +65,9 @@ export function ActionRequestInbox() {
   );
   const [pending, setPending] = useState("");
   const [error, setError] = useState("");
+  const decideRequest = useDecideActionRequest();
+  // Views modules contribute for their action types (WP2.3).
+  const renderers = useContext(ShellContext)?.actionRequests ?? {};
   async function decide(
     item: ActionRequestItem,
     decision: "approve" | "reject",
@@ -72,15 +76,7 @@ export function ActionRequestInbox() {
     setPending(item.id);
     setError("");
     try {
-      await post(
-        collectionPath(project.id, `action-requests/${item.id}/decide`),
-        {
-          version: item.version,
-          packageHash: item.packageHash,
-          decision,
-          ...(imageRightsConsent === undefined ? {} : { imageRightsConsent }),
-        },
-      );
+      await decideRequest(item, decision, imageRightsConsent);
       requests.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Decision failed");
@@ -97,19 +93,15 @@ export function ActionRequestInbox() {
     >
       <h2>{de ? "Offene Freigaben" : "Open decisions"}</h2>
       {error && <Alert kind="error">{error}</Alert>}
-      {items.map((item) =>
-        item.actionType === "assignment.confirm" && item.summary.assignment ? (
-          <AssignmentCard
+      {items.map((item) => {
+        const view = renderers[item.actionType];
+        return view?.accepts(item) ? (
+          <view.component
             key={item.id}
-            assignment={item.summary.assignment}
-            status="draft"
-            request={{ ...item, status: "pending" }}
-            expiresAt={item.expiresAt}
+            item={item}
             de={de}
-            canDecide
             pending={Boolean(pending)}
-            onConfirm={(_, consent) => decide(item, "approve", consent)}
-            onReject={() => decide(item, "reject")}
+            decide={(decision, consent) => void decide(item, decision, consent)}
           />
         ) : (
           <article key={item.id} className="action-request">
@@ -213,8 +205,8 @@ export function ActionRequestInbox() {
               </Button>
             </div>
           </article>
-        ),
-      )}
+        );
+      })}
     </section>
   );
 }

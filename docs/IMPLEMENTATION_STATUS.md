@@ -2,7 +2,440 @@
 
 ## Weekly autopilot removed (2026-10-13, local)
 
-Branch `claude/remove-old-agent-tests-e6b039`, not pushed or deployed. Production has run on standing assignments since 2026-10-09 (`ORBIT_AGENTS=true`), so the weekly autopilot that the flag-off path kept as a fallback is gone: `autopilot.ts` (planner, settings, one-click `approve-and-schedule`, migration proposal), the `configure-autopilot` and `approve-and-schedule` actions, the `…/assignments/autopilot-migration` routes, the `autopilot_settings` collection, the autopilot tab, the autopilot approvals panel and the migration card, the Phase 0 rollout queries, and their tests (`autopilot.test.ts`, `autopilot-coexistence`, `autopilot-migration`, `rollout-phase0`, planner cases in `paid`, `official-target-link`, `assignment-runs`, `assignment-routes`, `drive-readiness`, `due-marker`, web migration card). With `ORBIT_AGENTS` off the sweep now plans no posts. Kept: the project and policy mode `autopilot` (autonomy mode, unrelated), and the code that reads missions the autopilot planned earlier (slot occupancy, missed-slot archive, draft cleanup, content history, generation context). No schema migration; saved `autopilot_settings` rows stay unused in the database. Rollback: revert the commit (the settings are unchanged, but the planner only runs with the flag off). Details: [OPERATIONS.md](OPERATIONS.md#orbit-agents).
+Branch `claude/remove-old-agent-tests-e6b039` (PR #90), merged with the modular platform (#125), not deployed. Production has run on standing assignments since 2026-10-09 (`ORBIT_AGENTS=true`), so the weekly autopilot that the flag-off path kept as a fallback is gone: `marketing/pipeline/autopilot.ts` and its shim (planner, settings, one-click `approve-and-schedule`, migration proposal), the `configure-autopilot` and `approve-and-schedule` actions and permissions, the `…/assignments/autopilot-migration` routes, the `autopilot_settings` collection and its manifest kind (old rows stay in the database and in the project export), the autopilot settings tab (`autopilot-settings.tsx`), the autopilot approvals panel and the migration card, the Phase 0 rollout queries, and their tests (`autopilot.test.ts`, `autopilot-coexistence`, `autopilot-migration`, `rollout-phase0`, planner cases in `paid`, `official-target-link`, `assignment-runs`, `assignment-routes`, `drive-readiness`, `due-marker`, the web migration card). With `ORBIT_AGENTS` off the sweep now plans no posts (sweep characterization case renamed, snapshot unchanged). Kept: the project and policy mode `autopilot` (autonomy mode, unrelated), and the code that reads missions the autopilot planned earlier (slot occupancy, missed-slot archive, draft cleanup, content history, generation context). No schema migration. Rollback: revert the merge commit. Details: [OPERATIONS.md](OPERATIONS.md#orbit-agents).
+
+## Google Drive on the platform, brand assets in marketing, Slack checked: WP2.5d (2026-10-14, local)
+
+Branch `claude/wp25d-drive-slack`, the last part of WP2.5.
+
+- **Google Drive.** `modules/google-drive.ts` moves to `platform/connections/google-drive.ts` (a rename-only commit first; the shim is gone).
+  - **Platform:** OAuth connect and callback, the connection status and health, disconnect, the storage root, browsing and `driveContent`.
+  - **Marketing (`modules/marketing/brand/drive-assets.ts`):** the six brand-asset functions, moved unchanged. They are `importDriveFile`, `brandAssets`, `saveGeneratedAsset`, `saveDraftDocument`, `uploadUserRaster` and `markSyncFailed` (plan 04: they stay marketing until Q-06).
+  - The platform exports the Drive access they build on under descriptive names (`driveStorage`, `driveAccessToken`, `driveContains`, `ensureDriveFolder`, …). The access token never leaves the server.
+- **Routes.** The three brand-asset routes move from `server.ts` into marketing's routes at the same paths, so the WP2.4 guard covers them: `GET …/google-drive/brand`, `POST …/google-drive/files/:fileId/import` and `POST …/google-drive/upload` (with its rate limit).
+- **Drive retry of generated images.** It moves from the worker's pass into the marketing periodic task `drive-asset-retry`, unchanged; a mechanical diff shows only the return of its wake-up.
+  - `PeriodicTask.run` may now return `wakeAt`, which the worker adds to the project's wake-up, so the timing stays the same.
+  - The worker no longer imports marketing.
+  - Two deliberate differences, both platform rules for periodic tasks:
+    - a failing Drive status check no longer fails the whole project pass;
+    - with `ORBIT_MODULES` on and marketing off, no retry runs.
+- **Slack.** Its inbound route already belonged to marketing (WP2.1f). A signed interaction is now refused with `MODULE_DISABLED` while marketing is off, only after signature and identity mapping. Nothing is consumed, so the same button works once marketing is on again.
+
+**Verification (local).**
+- Full suite: 153 files and 1384 tests.
+- New tests:
+  - the Drive retry: no Drive, due versus later assets, the attempt limit, the 30-second throttle, `markSyncFailed` after a failed save, and the wake-up;
+  - the Slack interaction while marketing is off (mutation-checked).
+- The Drive mocks of three suites follow the new paths. The periodic task order now includes the retry.
+- The OpenAPI document is unchanged. Typecheck and source check pass; boundaries: 0 known violations.
+
+## Connections registry: WP2.5c (2026-10-14, local)
+
+Branch `claude/wp25c-connections`, the third part of WP2.5. The platform owns the credential vault and capability states; marketing contributes the providers.
+
+- **Platform (`platform/connections/connections.ts`).**
+  - `CONNECTION_KIND`, `connectionVerified(status)`, `connectionsOf(tx, scope, provider)` and `decryptCredential(connection)`.
+  - The types of a connection provider (`normalize`, `check`, `checkUnsupported`).
+- **Actions.** `connector` (create) and `connector-health` (check) are platform actions that dispatch to the provider:
+  - the provider list of `connector` comes from the registry, in the former order (postiz, matomo, slack);
+  - `connector-health` moved from marketing; the provider call still runs outside any transaction, with the version check `CONNECTOR_CHANGED` before writing.
+- **Marketing (`publishing/connection-providers.ts`).** Postiz (base URL normalization and the channel and group check), Matomo (the site report check) and Slack (`SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION`), moved unchanged.
+- **Call sites.** 22 hand-written decryptions and `read_verified`/`write_verified` checks in marketing and `server.ts` now use the helpers.
+  - Stored formats are unchanged: `connectors` rows, `encryptedCredential` with AES-256-GCM.
+  - The capability transitions (Postiz write verification, assignment health) stay marketing semantics. A generic `setCapability` was not needed.
+- **Module activation (WP2.4).** With `ORBIT_MODULES` on, creating or checking a connection of a disabled module's provider answers `404 MODULE_DISABLED`.
+
+**Verification (local).**
+- New suite `connections.integration.test.ts`. The two actions had no integration test until now.
+  - It covers encrypted storage that never returns the credential, Postiz normalization, unknown provider and non-HTTPS, the Postiz check with a missing groups API, the Matomo check for its site, the refused Slack check and the disabled module.
+  - Provider clients are mocked.
+  - The first four tests also pass against the code before WP2.5c (characterization).
+  - The module check is mutation-checked.
+- Registry tests: provider order and owner, duplicate providers.
+- `module-registry.test.ts` now also resolves exported kind constants.
+- Full suite: 152 files and 1381 tests. The OpenAPI document is unchanged. Typecheck and source check pass; boundaries: 0 known violations.
+
+## Notifications as a platform transport with module kinds: WP2.5b (2026-10-14, local)
+
+Branch `claude/wp25b-notifications`, the second part of WP2.5. The owner's bot notifications are split by owner.
+
+- **Platform (`platform/notifications`).**
+  - `notify(tx, scope, kind, ref)` queues the job. It throws for an unregistered kind.
+  - `telegramLinked` checks for a bound bot.
+  - The sender moves without changes: retries and backoff, `retry_after`, photo fallback, the `TELEGRAM_DELIVERY_FAILED` exception and the recorded outcome.
+  - The `telegram_notification` queue class is now platform-owned, still with `runWhilePaused` and a 180-second lease.
+- **Marketing.**
+  - It registers its 15 kinds (`NOTIFY_KINDS`) with a renderer as `notifications` (`notification-messages.ts`, renamed from `notification-sender.ts`).
+  - A preview's image is read by a loader the platform calls outside the transaction, as before.
+  - `notify` in `agents/notifications.ts` stays as a typed wrapper, so its callers are unchanged.
+  - The daily report planning and `reportBlockedPost` stay in marketing.
+- **Registry.** Kinds must match `[a-z_]+` and be unique across owners. Job keys `notify:<kind>:<ref>` and every text are unchanged, so jobs queued before the deploy are sent as before.
+- **Module activation.** With `ORBIT_MODULES` on, a notice of a disabled module is skipped as `MODULE_DISABLED`. The job is no longer blocked by the worker, because its queue class belongs to the platform.
+
+**Verification (local).**
+- Full suite: 151 files and 1375 tests. It includes every notification suite (`agent-notifications`, `assignment-postiz-drafts`, `assignment-shared-posts`) and the new tests below.
+  - Kind registration and owner of the queue class.
+  - Duplicate and invalid kinds.
+  - The skip of a disabled module's notice, which is mutation-checked.
+- The OpenAPI document is unchanged. Typecheck and source check pass; boundaries: 0 known violations.
+
+## Telegram transport on the platform, buttons routed by prefix: WP2.5a (2026-10-14, local)
+
+Branch `claude/wp25a-telegram-callbacks`, the first part of WP2.5. The owner's Telegram bot becomes platform code: `modules/telegram.ts` moves to `platform/connections/telegram.ts`. The known import-boundary violations drop from 2 to **0**.
+
+- **Callback router.** `callback_data` is dispatched by its prefix to the handler that the platform or a module registers as `telegram.callbacks` (`platform/connections/types.ts`).
+  - The platform registers `pause:`, the `/pause` confirmation.
+  - Marketing registers `stop:`, the veto of an assignment post (`modules/marketing/agents/telegram-stop.ts`).
+  - Prefixes must be short lowercase words and unique; the registry refuses anything else.
+  - Unknown or unverifiable data is answered and audited as before.
+- **Unchanged formats.** Both data formats, the MAC key and every answer text are byte-identical, so buttons that are already sent keep working. A test pins the Stop format against an independent computation.
+- **The bot's switch.** Today it is Orbit Agents (`ORBIT_AGENTS`). Marketing now contributes it (`telegram.enabled`), so the platform no longer reads a marketing flag.
+- **Module activation (WP2.4).** With `ORBIT_MODULES` on, a button of a disabled module is rejected like an invalid one; `/pause` keeps working.
+- **Signing helpers.** The platform exports `callbackMac`, `compactUuid` and `expandUuid`, so modules sign their callback data the same way.
+
+**Verification (local).**
+- Full suite: 151 files and 1373 tests.
+  - New registry tests: assignment of `pause`/`stop`, prefix rules, the switch.
+  - New Telegram integration tests: the Stop format pin, and Stop ignored while marketing is off while `/pause` still works.
+  - Both are mutation-checked.
+- The OpenAPI document is unchanged. Typecheck and source check pass, and the boundary check reports 0 known violations.
+
+## Module activation enforced behind ORBIT_MODULES: WP2.4 (2026-10-14, local)
+
+Branch `claude/wp24-enforcement`. With `ORBIT_MODULES=true`, a module an owner turns off is hidden and blocked everywhere, and nothing is deleted. With the flag off (the default) nothing changes. Behaviour, risk analysis, rollback and rollout: `docs/MODULE_ACTIVATION.md`.
+
+- **API.**
+  - Module routes under `/api/projects/:projectId/…` get a guard per owning module, after the membership check.
+  - Actions and generic collections check the owner of the action or kind.
+  - A disabled module answers `404 MODULE_DISABLED`.
+- **Assistant.** Tools, prompt fragments and conversation sections of a disabled module are left out. When no enabled module gives instructions, a short platform prompt is used.
+- **Jobs.**
+  - The sweep skips a disabled module's scheduler and periodic tasks.
+  - The worker stops such a module's job before claiming it: `blocked_dependency` with `MODULE_DISABLED`, which the existing `retry` action restarts. This deliberately deviates from the planned `skipped_module_disabled`.
+- **Contributions registry.** It records the owner of every tool, action, job and periodic task, and the getters take the set of enabled modules.
+- **Web.**
+  - New tab **Settings → Modules**: state, dependencies, owner toggle with confirmation, and the dependency errors in plain words.
+  - The shell takes navigation, home sections, chat parts, inbox views, settings sections and connector providers only from enabled modules.
+  - Module pages show a notice. A platform page can name a module it needs (`requiresModule`): approvals needs marketing.
+  - The page remounts on a switch, so section hooks keep their order.
+
+**Verification (local).**
+- Full suite with the flag off: 151 files and 1370 tests, including the new suites `module-enforcement` (API) and `module-disabled` (worker), and web tests for the Modules tab and the route gate. All of them are mutation-checked.
+- Prompt snapshots unchanged. The OpenAPI document is unchanged.
+- Typechecks, source and boundary check (2 known violations, both `telegram.ts`, WP2.5), and a web production build.
+- Visual check against a synthetic mock API: turning marketing off hides its navigation, home section, settings tabs, connector providers and the approvals page; turning it on restores them.
+
+## Settings, connectors and tools split by owner: WP2.3b (2026-10-14, local)
+
+Branch `claude/wp23b-settings`, the last part of WP2.3. The web platform imports no module component anymore; the known web boundary violations drop from 5 to 0. Pages, order and texts are unchanged.
+
+- **`management.tsx`** shrinks from 2227 to about 900 lines. Moved unchanged:
+  - `Analytics` and `Memory` → `modules/marketing/insights.tsx`;
+  - `PolicyEditor`, `AutopilotSettings` and `PostizChannelAssignment` → their own marketing files;
+  - `RecordDetail` → `platform/ui/record-detail.tsx`. Its kind-specific actions (preferences, experiments, memory, metric correction) become a slot that marketing fills (`record-actions.tsx`).
+- **`operator-tools.tsx`** split by owner:
+  - Matomo import and schedule, and Postiz verification → marketing;
+  - index management and fact withdrawal → knowledge;
+  - workspace pause stays in the platform.
+- **`advanced.tsx` / `lifecycle.tsx`.** `ProjectAdministration` and `RetentionControl` move to the platform, as planned in `04` §5.
+- **Project settings.** Modules contribute settings sections (`settings`): marketing contributes "Assignments"/"Autopilot", "Policy & budget" and "Brand".
+  - The platform keeps "Project", "Policy & budget" (retention) and "Integrations".
+  - Module sections show above the platform content of a tab, as the policy did above the retention.
+  - Section hooks run in fixed registry order, so the assignments list is still loaded once.
+  - The overview's "Set budget and routine boundaries" is a contributed setup link that opens the policy editor through a portal, outside the link list's styles.
+- **Connectors page.** Modules contribute providers (`connectors.providers`) with details, actions, a check label, extra form fields or their own configuration dialog, plus extra cards. Marketing contributes Postiz, Matomo and Slack, and the blog and newsletter cards. The platform renders the generic frame in the same order: providers, Telegram, extras.
+
+**Verification (local).**
+- Web component tests: 19 files, 89 tests, including a test that pins the contributed tabs and providers.
+- Web and API typechecks, a typecheck of the Playwright specs, a web production build, and the boundary check (2 known violations, both `telegram.ts`, WP2.5).
+- Visual check against a synthetic mock API:
+  - the connectors page: order, Postiz details and actions, the Matomo site ID field, the Slack dialog;
+  - the settings tabs and their order, the policy editor dialog (styled, in `body`), the policy and brand tabs;
+  - the analytics and memory pages.
+- `Operations` is unchanged text for text.
+
+## Chat and inbox parts as module contributions: WP2.3c (2026-10-14, local)
+
+Branch `claude/wp23c-cards`. The platform chat and the approvals inbox no longer import marketing components.
+
+- **Decide hook.** `platform/assistant/decide.ts` (`useDecideActionRequest`) replaces the three decide calls: start a package, decide an assignment in the chat, decide in the inbox. The request bodies are unchanged; `imageRightsConsent` is sent only when given, as before. A test pins the four body shapes.
+- **Chat extensions.** Web module manifests can contribute chat parts (`platform/assistant/extensions.ts`):
+  - message card renderers by kind;
+  - a section below the messages;
+  - a `busy` check that keeps the conversation refreshing.
+- **Inbox renderers.** Manifests can contribute inbox renderers by action type.
+- **Marketing's contribution** (`modules/marketing/chat-extension.tsx`) moves the package handlers (start, cancel, image rights, attach image, unschedule) and the assignment card logic out of `chat.tsx` unchanged. It registers the `assignment` card, the package section, the package `busy` check and the `assignment.confirm` inbox view.
+- **`chat.tsx`** lends a `ChatHost` (conversation, pending state, `run` with the same pending, error and refresh handling as the former handlers). It is 150 lines shorter.
+- **Boundaries.** Known web violations drop from 8 to 5; all 5 left are in `management.tsx` (WP2.3b).
+
+**Verification (local).** Web component tests (18 files, 87 tests, including the new hook and extension tests), web and API typechecks, a typecheck of the Playwright specs, a web production build and the boundary check (7 known violations, none new). The package and assignment cards in the chat are covered by Playwright `chat.spec.ts` in CI.
+
+## Marketing and knowledge web components in their module folders: WP2.3a (2026-10-14, local)
+
+Branch `claude/wp23-web-marketing`, the first part of WP2.3 (marketing web module). Files move unchanged apart from import paths:
+
+- To `apps/web/src/modules/marketing/`: 13 marketing components with their 7 tests: `work`, `advanced`, `assignments`, `assignment-card`, `agent-activity`, `editorial`, `calendar-blocks`, `draft-cleanup(-panel)`, `autopilot-approvals`, `chat-package-card`, `lifecycle`, `slack-connection`.
+- To `apps/web/src/modules/knowledge/`: `knowledge.tsx`.
+
+Further notes:
+- Importers use the new `@/modules/...` paths; no re-export is left.
+- `apps/web/src/components/` now holds only platform UI. The boundary zones say so: the folder is web platform, and the module zones are their folders.
+- The 8 known web violations are the same imports under new paths: `chat`, `action-request-inbox` and `management` import marketing. WP2.3b and WP2.3c remove them.
+
+**Verification (local).** Web and API typechecks, web component tests (17 files, 95 tests), a typecheck of the Playwright specs, a web production build (`next build --webpack`) and the boundary check (10 known violations, none new).
+
+## The assistant as platform code with marketing contributions: WP2.2 (2026-10-14, local)
+
+Branch `claude/wp22-assistant`, work package WP2.2. The assistant (conversations, runs, the tool loop, prompt composition) is platform code; marketing contributes to it. The prompt and the tool definitions are byte-identical.
+
+- **Prompt composition.** The chat runner takes tool features, prompt fragments and proposal validation codes from registered `assistant` contributions (`platform/assistant/types.ts`). It adds the tool search line itself.
+  - Marketing contributes its prompt unchanged (`modules/marketing/assistant/prompt.ts`): the operator persona and rules, the package fragment, and the assignment fragment or the "not available" fragment.
+  - The base prompt interleaves marketing, knowledge and platform rules. Splitting it by owner would change the prompt, so that waits for an evaluated prompt change (plans `03` §6.4).
+- **Cards and read tools.** The card shapes move to `platform/assistant/cards.ts`. The read tool implementations (`project_status`, `knowledge_search`, `approved_assets`, `analytics_memory`) move unchanged to `modules/marketing/assistant/chat-tools.ts`. `knowledge_search` goes to the knowledge services in WP3.2; module sections of `project_status` come with the platform home.
+- **Proposals.** `validateDraftMission`, `createProposal` and `confirmProposal` move unchanged to `modules/marketing/assistant/proposals.ts`. Marketing registers `POST /chat/proposals/:id/confirm` at the same path. The `ChatProposal` table stays the platform's assistant storage.
+- **Conversation read.** The conversation read adds marketing's packages and assignments through a registered `conversationSections` contribution instead of two lazy imports. The response fields keep their order.
+- **Imports.** `chat.ts` enqueues chat jobs through the platform's `enqueue`.
+- **Boundaries.** The known import-boundary violations drop from 22 to 10. The 2 left on the server are `telegram.ts` (WP2.5); the 8 web ones belong to WP2.3.
+
+**Verification (local, isolated test database).**
+- Full suite: 145 files, 1354 tests.
+- `assistant-request.characterization` is unchanged: the hashes for every role and flag combination, and the full text of the smallest and the largest owner setup. Mutation check: one extra space in the prompt fails both tests.
+- The OpenAPI document (sorted keys) is identical.
+- API and web typechecks pass.
+- The Playwright `chat.spec.ts` runs in CI.
+
+## Orbit Agents runner in the marketing module: WP2.1f-3c (2026-10-14, local)
+
+Branch `claude/wp21f3c-runner`. The specialist runner (`runner.ts`) and its types move from `modules/agents/specialists/` to `modules/marketing/agents/specialists/`. The boundary checker no longer counts them as platform. The old paths re-export.
+
+- **Why the runner moves whole.** Plan `04` sketched a platform "runner core". Its generic parts are already in the platform: the runtime port, the budgeted model and the Responses runtime, all in `agents/runtime` since WP1.1. What the runner still holds is Orbit Agents logic:
+  - claiming and recovering `agent_tasks`;
+  - budgets per assignment run;
+  - assignment refusal and exhaustion;
+  - the veto schedule and notifications.
+
+  Those entity kinds are marketing's (`04` §2.3).
+- **When to extract a core.** A generic agent core for a second module (Support AI, WP5.6) is worth extracting when that module needs it. This is a deliberate deviation from the plan's sketch.
+- **Unchanged.** No code changed beyond import paths. The review eval's prompt hash (`evals/agents/code-version.ts`) is unchanged; the offline review eval passes.
+- **Boundary violations.** Five known platform → marketing imports are resolved, so the baseline drops from 27 to 22. The 14 remaining platform → marketing imports are in `chat`, `chat-runner` and `chat-tools` (WP2.2) and in `telegram` (WP2.5).
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1354 tests, including the offline agent and operator evals. API and web typechecks pass. Boundary check: 22 known violations, none new.
+
+## Readiness, channel names and Drive state without platform imports of marketing: WP2.1f-3b (2026-10-14, local)
+
+Branch `claude/wp21f3b-contributors`. Six known platform → marketing imports are resolved, so the baseline drops from 33 to 27. Behaviour is unchanged.
+
+- **Readiness.**
+  - `readiness.ts` and `action-readiness.ts` (with its test) move to `modules/marketing/readiness/`. They are marketing's go-live readiness: policy, publisher, channels and Drive-backed posts.
+  - Marketing registers them as the readiness provider (`readiness` contribution, at most one).
+  - The dashboard, the assistant's project status and the policy activation read it through `platform/governance/readiness.ts` (`projectReadiness`).
+  - Splitting readiness by owner would reorder the blockers. That is left for the platform home.
+- **Channel names.** The owner's decision list (`listActionRequests`) gets channel names from registered channel directories. Marketing contributes the Postiz one. Before, the list imported Postiz code.
+- **Drive state.** `driveReconnectRequired` moves to the platform's Drive connection (`google-drive.ts`); marketing's `drive-readiness` re-exports it.
+- **Assets.** `assets.ts` (bytes, normalization) is classified as platform in the boundary checker, as planned (`04` §2.1, later `platform/files`). It imports nothing from marketing.
+
+**Verification (local, isolated test database).**
+- Full suite: 145 files, 1354 tests. API and web typechecks pass.
+- Boundary check: 27 known violations, none new.
+- Mutation check: without the channel directory, the action request and package schedule tests fail on the channel names.
+
+## Marketing routes as a module contribution: WP2.1f-3a (2026-10-14, local)
+
+Branch `claude/wp21f3-routes`, the third part of WP2.1f. The marketing module now registers its own HTTP routes (`routes` contribution, `platform/http/routes.ts`). There are 21 routes, moved unchanged from `server.ts` and registered at the same paths:
+
+- Slack interactions
+- content export and `PATCH content/:id`
+- the marketing profile
+- the ten Orbit Agents routes
+- brand asset upload and content, Drive retry, image generation
+- the three content package controls
+
+Further notes:
+- The platform hooks apply to these routes as before: origin check, rate limits, error mapping, and the Orbit Agents gate on the matched route pattern.
+- Some routes stay in `server.ts` for now: dashboard, operations, Google Drive connection, chat, action requests and the generic collections. Some of them become the platform home and connections work (WP2.5, Phase 4).
+- `server.ts` is down to 1165 lines; it was 2340 before WP2.1f.
+- The OpenAPI document generated with sorted keys is identical before and after: 68 paths, the same definitions.
+- The access matrix is unchanged.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1352 tests. API and web typechecks and the boundary check pass.
+
+## Project actions as module contributions: WP2.1f-2 (2026-10-14, local)
+
+Branch `claude/wp21f2-actions`, the second part of WP2.1f. The if-chain of `POST /api/projects/:projectId/actions/:action` in `server.ts` (65 actions, about 760 lines) is replaced by handlers that the platform and the modules register.
+
+- **`platform/http/actions.ts`:** `ActionHandler` comes in two kinds. `sharedTransaction` runs in the project transaction the route opens. `ownTransaction` covers handlers that open their own transactions or none: provider calls, Drive reads that need the project lock, hybrid retrieval. Twelve actions keep `ownTransaction`, as before.
+- **Handler bodies, moved unchanged:**
+  - Platform (`platform/http/platform-actions.ts`): `add-member`, `project-settings`, `openai-configure`, `connector`, `pause`, `retention`, `resolve-exception`.
+  - Knowledge (`modules/knowledge/actions.ts`): 15 actions. They still call the knowledge services where they live today (WP3.3 moves them).
+  - Marketing (`modules/marketing/actions.ts`): the rest. That includes `connector-health`, whose Postiz and Matomo checks stay with marketing until the connections registry (WP2.5), although its permission is a platform one.
+- **The route** keeps its order: permission check, body parse, then lookup. An unknown name still gets `400 ACTION_NOT_SUPPORTED`.
+- **`server.ts`** shrinks by 864 lines (77 imports fewer).
+- **Tests:**
+  - The access matrix and the permission catalogue test now take the action names from the registry instead of parsing `server.ts`. The access matrix fixture is unchanged.
+  - New registry tests pin the 65 names, one permission per action and the twelve `ownTransaction` actions.
+  - Mutation check: switching `postiz-test-prepare` to the shared transaction fails that pin.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1352 tests. API and web typechecks and the boundary check pass.
+
+## Marketing agents and tools in the module folder: WP2.1f-1 (2026-10-14, local)
+
+Branch `claude/wp21f1-agents`, the first of three parts of WP2.1f. Files move unchanged apart from import paths:
+
+- The Orbit Agents files go to `apps/api/src/modules/marketing/agents/`: assignments, runs, veto, notifications, content packages, scheduling, banners and the rest, 20 files with 3 tests.
+- The specialists go to `apps/api/src/modules/marketing/agents/specialists/`: analytics, research, strategy, copywriter, visual, review and `index`.
+- The marketing assistant tools go to `apps/api/src/modules/marketing/tools/`: read, proposal, package, assignment, channel and agent tools, plus `index`.
+- The platform parts stay where they are for now: the runtime shims, the tool registry, and the specialist runner core and types. WP2.1f-3 splits the runner and removes its marketing imports.
+- The old paths keep one-line re-exports. They serve the worker and eval tests and the platform importers, including the two lazy `import()` calls in `chat.ts`.
+- The `scheduling` mock in `assignment-veto` follows the move.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1350 tests, including the offline agent and operator evals. API and web typechecks and the boundary check pass.
+
+## Marketing brand and analytics in their module folders: WP2.1e (2026-10-14, local)
+
+Branch `claude/wp21e-brand-analytics`, the fifth part of WP2.1. Files move unchanged apart from import paths:
+
+- To `apps/api/src/modules/marketing/brand/`: `marketing-profile`, `image-generation`, `image-requests`, `render-asset`, `asset-tools`, `drive-readiness` (with its test).
+- To `apps/api/src/modules/marketing/analytics/`: `matomo` (with its test), `matomo-schedule` and `lifecycle`. `lifecycle` is now only marketing memory, metrics and experiments, plus re-exports of the platform scheduler and retention. It leaves the platform zone of the boundary checker.
+
+Further notes:
+- The old paths keep one-line re-exports. They serve `evals/generation/harness.ts`, `evals/operator/offline.test.ts`, the worker's `due-marker` test and the platform importers.
+- `asset-tools` reads the built-in EDS logo by a path relative to its own file. That path is adjusted. A new integration test reads the logo, and it fails with the old path.
+- The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 145 files, 1350 tests. API and web typechecks and the boundary check pass.
+
+## Marketing publishing in its module folder: WP2.1d (2026-10-14, local)
+
+Branch `claude/wp21d-publishing`, the fourth part of WP2.1. Nine files and their five co-located tests move unchanged to `apps/api/src/modules/marketing/publishing/`:
+
+`publisher`, `postiz-assignment`, `postiz-draft`, `postiz-verification`, `postiz-queue-watch`, `channel-rules`, `posting-slots`, `calendar` and `slack`.
+
+- The old paths keep one-line re-exports. They still serve the platform importers and `evals/generation/harness.ts` (`resolveChannelRules`).
+- Files in `modules/marketing/` import moved files by their new path.
+- The `content-export` mock in the Postiz verification test follows the move. It still asserts the mocked Drive reads.
+- No logic, route or response changes. The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. API and web typechecks and the boundary check pass.
+
+## Marketing policy in its module folder: WP2.1c (2026-10-14, local)
+
+Branch `claude/wp21c-policy`, the third part of WP2.1. `policy.ts` (publishing preflight, claims, approvals, modes), `fact-claims.ts` and `fact-placeholders.ts` move unchanged to `apps/api/src/modules/marketing/policy/`, with their two tests.
+
+- The old paths keep one-line re-exports. That covers `evals/generation/harness.ts`, which imports `checkClaims` from the old path.
+- Files already in `modules/marketing/` import moved files by their new path, not through the re-exports.
+- No logic, route or response changes. The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. API and web typechecks and the boundary check pass.
+
+## Marketing pipeline in its module folder: WP2.1b (2026-10-14, local)
+
+Branch `claude/wp21b-pipeline`, the second part of WP2.1. The 15 pipeline files move unchanged to `apps/api/src/modules/marketing/pipeline/`, with their 6 co-located tests:
+
+`workflow`, `generation`, `editorial`, `planning`, `draft-batch`, `draft-cleanup`, `draft-similarity`, `draft-statuses`, `content-export`, `content-invalidation`, `content-provenance`, `mission-archive`, `mission-evidence`, `paused-posts`, `autopilot`.
+
+- Every old path keeps a one-line re-export, so importers are unchanged. Later parts switch the importers and remove the re-exports.
+- Two tests mock the moved modules: `assignment-copywriter-visual` mocks `content-invalidation` and `postiz-verification` mocks `content-export`. They now mock the new path. That mock also reaches importers that still use the old path, and both tests assert the mocked behaviour.
+- No logic, route or response changes. The import-boundary baseline is unchanged at 33.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. Typecheck and boundary check pass.
+
+## Worker through the module registry: WP2.1a (2026-10-13, local)
+
+Branch `claude/wp21a-marketing-move`, the first part of work package WP2.1 (marketing server move). The worker no longer imports module files; behaviour is unchanged.
+
+- New contribution `periodic` (`PeriodicTask`): per-project work the worker runs after dispatching jobs, outside the sweep transaction, with an optional `nextDueAt` for the project's wake-up and an optional published `health` status. Marketing contributes, in the previous order:
+  - `matomo-schedule`: saved Matomo imports.
+  - `postiz-queue`: the read-only queue check. It still publishes to `orbit:postiz-queue:<instance>`, so `/api/health/postiz` is unchanged.
+- New contribution `onWorkerStart`: marketing registers the agent specialists there. The API and the tests do not register them, as before.
+- `runtime.ts` reads a periodic task's health through the registry (`periodicTaskHealth`) instead of importing marketing.
+- The worker takes the sweep from `platform/jobs/scheduler.ts`.
+- Known import-boundary violations: 33 (after WP1.8: 37). No worker → module import is left.
+
+**Verification (local, isolated test database).** Full suite: 144 files, 1349 tests. That includes the Postiz health route test (`auth.integration`) and new registry tests for task order, the health summary, the start hook and duplicate names. The worker process itself was not started locally; the CI browser run starts it through `pnpm dev`.
+
+## Pause, export and retention hooks: WP1.8 (2026-10-13, local)
+
+Branch `claude/wp18-hooks`, work package WP1.8 of the modularization roadmap (ADR 0009). Project pause, export and retention become platform operations that modules extend. Behaviour is unchanged.
+
+- **Pause** (`platform/governance/pause.ts`; `modules/pause.ts` re-exports it). The platform bumps the generation, ends waiting chat replies and audits. Modules add steps through `ProjectHooks` in the same transaction and at the same points as before. Marketing (`modules/marketing/hooks.ts`):
+  - `onProjectPause` blocks publications and raises reconciliation exceptions;
+  - `afterProjectPause` notifies the owner's Telegram bot, unless the bot asked for the pause itself;
+  - `onProjectResume` puts held-back assignment tasks back on the queue.
+- **Export** (`platform/governance/export.ts`). Owners declare entity kinds with `exported: false`: the platform for `connectors`, `telegram_connections`, `drive_connection` and `drive_oauth_state`, Knowledge for `evidence`. These are the same five kinds the hard-coded list held.
+- **Retention** (`platform/governance/retention.ts`). The platform validates the period, asks each module's `retention` contribution to purge what expired, and writes one `retention.apply` audit entry. Marketing purges insights and preferences, unchanged (`modules/marketing/retention.ts`).
+- Two platform → marketing imports in `pause.ts` are gone. Known import-boundary violations: 37 (after WP1.7: 39).
+
+**Verification (local, isolated test database).**
+- Full suite: 144 files, 1347 tests.
+- New characterization test `project-operations.characterization.integration.test.ts`: export exclusions, retention result, statuses and audit. It passed before the change and after it.
+- The pause suites (`chat-pause`, `paused-posts`, `telegram`, `agent-notifications`) and the access matrix are unchanged.
+- Mutation checks:
+  - Without the marketing hooks, 5 pause tests fail.
+  - Without `exported: false` on evidence, the export test fails.
+
+## Web shell and navigation: WP1.7 (2026-10-13, local)
+
+Branch `claude/wp17-web-shell`, work package WP1.7 of the modularization roadmap (ADR 0009, AD-12). The web app gets one URL per page; the views themselves are unchanged.
+
+**URL scheme.**
+- `/` opens the last used project, else the only one, else a picker.
+- `/o` lists organizations (server: workspaces), `/o/:orgId` their projects; owners create projects there.
+- `/p/:projectId` is the project home; platform pages are `/p/:projectId/{assistant,approvals,connectors,operations,settings}`, module pages `/p/:projectId/knowledge` and `/p/:projectId/marketing/{missions,content,calendar,assets,analytics,memory}`. A module root opens its first page.
+- The 13 paths from before (`/missions`, `/chat`, `/settings`, …) redirect into the last used project and keep query and hash, so bookmarks, the Telegram "In Orbit öffnen" link (`/approvals`) and the Google Drive callback (`/settings?googleDrive=…`) keep working. In-app links and the API's chat card links are rewritten to the open project.
+- Unknown addresses show "Page not found"; a project the user cannot open shows "Project not available". Before, both silently showed the Overview.
+- Switching the project keeps the page and changes the URL.
+
+**Structure.**
+- `apps/web/src/platform/ui/`: the shared view helpers and the form kit, formerly in `work.tsx` and `components/form.tsx`. This removes the `advanced.tsx` ⇄ `work.tsx` import cycle.
+- `apps/web/src/platform/shell/`: route table (`routes.ts`, checked for conflicts at start), shell context, project home, pickers, not-found view.
+- `apps/web/src/modules/{knowledge,marketing}/manifest.tsx`: web manifests (views, navigation entries, legacy paths, home section). They point to today's components; WP2.3 and WP3.3 move the components.
+- `apps/web/src/modules/registry.ts`: the web composition root. The shell (`components/orbit.tsx`) imports no module; import-boundary violations drop from 45 to 39.
+- Navigation and the project home hide modules that `GET /api/projects/:id/modules` reports as off; until that answer arrives, or if it fails, all modules count as on. A page of a module that is off shows a notice. The server does not enforce activation yet (WP2.4).
+- Project home: the assistant prompt (the text opens in Orbit Chat for review; nothing is sent automatically), one tile per module with its pages, then the marketing overview.
+- The mobile bottom bar comes from the manifests (`mobile` flag), in the old order.
+- The stored language choice is no longer overwritten by the default during the first render.
+
+**Verification (local).** Web typecheck, unit and component tests (16 files, 83 tests), import-boundary check and a production build of the web app (`next build --webpack`; Turbopack refuses the symlinked `node_modules` of this worktree). Manual check against a synthetic mock API: pickers, home, project switch, a project with marketing off, legacy redirect with query and hash, both not-found pages, 375 px without horizontal scroll, German labels. The Playwright suite (new `navigation.spec.ts`, updated `workspace.spec.ts` and `chat.spec.ts`) runs in CI; a local run needs an isolated browser database that was not set up here.
+
+## Safety net for the modularization: WP0.2 (2026-10-13, local)
+
+Branch `claude/wp02-safety-net`. This adds tests and a CI guard only; no product code changed. It is work package WP0.2 of `plans/orbit-modularization/07-roadmap.md` (decision baseline: PR #93, ADR 0009).
+
+**RLS matrix (10 tests).**
+- Every public table is classified. A new table fails until it is classified.
+- FORCE RLS is required on all scoped and tenancy tables.
+- The app role has no grants on auth, membership or system tables. The audit log is append-only.
+- Unscoped reads return nothing.
+- Each project sees its own seeded rows in all 18 scoped tables, and nothing of another project in the same or another workspace.
+- Chat rows are private to their user.
+- Cross-project updates and deletes change nothing, and cross-project inserts fail on RLS.
+- Verified by temporarily disabling RLS on `Outbox` in `orbit_test`: 4 of the 10 tests fail, and the insert test then fails too.
+
+**Access matrix.**
+- 198 route, collection and action requests for 5 roles, pinned in `apps/api/tests/fixtures/access-matrix.json`.
+- Invariants: callers without a session get 401 except on 7 public routes; a non-member never reaches a project route; no request is rate-limited, times out or returns a 5xx.
+- Verified by removing `pause` from the owner list: the test reports the editor change.
+
+**Worker queue dispatch.** The 7 queue classes without a dedicated test are pinned with their stop codes. Current behaviour, kept: a missing index generation (`INDEX_UNAVAILABLE`) uses all three attempts before it stops.
+
+**CI.**
+- `tests/setup.ts` fails under `CI=true` without the test database URLs and Redis, so a broken setup can no longer pass with 69 skipped integration files.
+- `pnpm test:migration-profile` now runs in CI.
+
+## Modular Orbit Platform: decision baseline (2026-10-13, docs only)
+
+Mario accepted the modularization plan in `plans/orbit-modularization/` (documents 01–09) as the decision baseline. This was work package WP0.1, recorded in [ADR 0009](adr/0009-modular-platform.md).
+
+The plan covers:
+
+- Orbit Platform plus statically registered modules, with Marketing and Knowledge first;
+- an own Support module with no Chatwoot dependency;
+- a central MCP gateway under `https://orbit.eds-labs.io/mcp`. ADR 0007 has an addendum lifting the MCP non-goal.
+
+No code, schema or deployment change was made. The next work package is WP0.2, the safety net: RLS and route × role matrices, worker smoke tests and a CI guard against silently skipped integration tests. Pre-existing findings are being fixed separately: F-01 in PR #91 and F-02 in PR #92.
 
 ## Assignment banners in the brand style (2026-10-12, local)
 
@@ -30,7 +463,7 @@ Built on branch `claude/orbit-agents-spec` from the [Orbit Agents design](superp
 - Telegram bot: owner connection with encrypted token and one-time link code, webhook with secret header, previews with Stop, notices (including failed steps, dropped deliverables, blocked posts and drafts waiting for the owner's release, R70/R71), `/pause`, daily report at 20:00 local time; worker queue `telegram_notification`; delivery failures as `TELEGRAM_DELIVERY_FAILED` on the approvals page.
 - Owner release (R70): drafts left for the owner (review left them, no bot, or agent review authority off) are listed under "Wartet auf deine Freigabe" on the approvals page; "Freigeben" (owner only) records the owner review, lets the mission publish exactly that post and schedules it at the run slot without a veto window (or the next free slot that day; else `SLOT_UNAVAILABLE`). `run_status` reports posts, drops, drafts waiting for the owner and stops from the run's scheduling and publications.
 - Web: settings tab "Aufträge", the confirmation card with consent (chat and inbox), Telegram under Connections, "Anstehende Posts" with Stop and "Wartet auf deine Freigabe" with "Freigeben" on the approvals page.
-- Autopilot replacement (task 15): with the flag on the sweep plans assignment runs instead of the weekly autopilot; once the Orbit Agents route answers (an outage keeps the autopilot), the autopilot tab and its approvals panel give way to a migration card that proposes the saved autopilot settings as a draft assignment (`…/assignments/autopilot-migration`), confirmed like any other. The settings stay unchanged, so a flag-off restores the autopilot. (Removed on 2026-10-13, see the top section.)
+- Autopilot replacement (task 15): with the flag on the sweep plans assignment runs instead of the weekly autopilot; once the Orbit Agents route answers (an outage keeps the autopilot), the autopilot tab and its approvals panel give way to a migration card that proposes the saved autopilot settings as a draft assignment (`…/assignments/autopilot-migration`), confirmed like any other. The settings stay unchanged, so a flag-off restores the autopilot.
 - Migration `202610090001_agent_run_kind` (additive). New config `ORBIT_AGENTS`, `ORBIT_IMAGE_REFERENCES`, `ORBIT_AGENT_REVIEW_AUTHORITY` (all default `false`, passed through `docker-compose.yml`; the last is the gate of the review agent's authority, set only after Approval J).
 - Verification on 2026-10-09 (Node 24.18.0, local PostgreSQL and Redis): lint, typecheck, 998 tests in 109 files, production build, Coolify compose check and secret scan pass. Offline only: recorded model outputs and fake Telegram and Postiz; no paid call was made.
 - Open before live use: the live run of the review eval set (`evals/agents/review-v2.json`, Approval J, OA10 PASS_LIVE on 2026-10-10 in run 3 at $0.075 after the harness was given a brief the drafts follow — the diagnosis showed runs 1–2 rejected good drafts for a mismatched test brief; `ORBIT_AGENT_REVIEW_AUTHORITY` is turned on by Mario in Coolify; history: run 1 on `review-v1` on 2026-10-09 FAILED at $0.08: no bad case approved, but 7 of 8 good cases rejected after a `revise` for one sentence without a backing fact; per Mario's decision, invitations, questions and calls to action that state nothing about the product, brand or offer need no fact, which the review prompt and `review-v2` now follow; run 2 on `review-v2` on 2026-10-10 FAILED at $0.12: no bad case approved, but only 3 of 8 good cases approved (`good-needs`, `good-reply`, `good-your-team`, `good-tag` rejected after a round-1 `revise`, `good-question-planning` in round 1), diagnosis pending; the runner `pnpm eval:agent-review` exists with dry run, 2 USD ceiling, round 2 after a revision and a confirmation bound to the review prompt, plus a diagnostic mode (`ORBIT_EVAL_DIAGNOSE=good`: good cases only, 0.5 USD ceiling, the model's reasons written only to `.runtime/`, never a gate result) and an optional key from the macOS keychain, see `evals/agents/README.md`, and Mario runs it with his key), the live check of reference images (`ORBIT_IMAGE_REFERENCES`), the web search fee default of 10,000 micros per call and the reserved search content of 8,000 input tokens per search (both to be confirmed by Mario), the joint test round (spec §13). Follow-up for Mario: report assignments need a delivery (findings to the bot and a chat card) before `report` is accepted again (R70, I6). Deferred by rulings: the model-written style description (a deterministic one is used, R40), a daily report while the project is paused (none is sent), a paused and resumed day is not re-planned (R55).

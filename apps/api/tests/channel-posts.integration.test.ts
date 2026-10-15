@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { PROJECT_READ } from "../src/platform/tenancy/permissions.ts";
 import {
   closeDatabase,
   scoped,
@@ -350,7 +351,7 @@ describe.skipIf(!enabled)("Channel history from Postiz", () => {
       risk: "R0_read",
       feature: "agents",
       deferLoading: true,
-      roles: ["viewer", "editor", "owner"],
+      permission: PROJECT_READ,
     });
     // With a credential on file a sync would claim the marker first; the tool must not.
     const staleAttempt = hoursAgo(5);

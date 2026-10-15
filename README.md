@@ -48,6 +48,14 @@ pnpm test:e2e            # API, web and worker must be running
 pnpm framework:check
 ```
 
+Three safety-net suites guard tenant isolation and access:
+
+- `apps/api/tests/rls-matrix.integration.test.ts` classifies every table, requires FORCE RLS and checks cross-project reads and writes as the restricted app role. A new table fails it until it is classified.
+- `apps/api/tests/access-matrix.integration.test.ts` calls every route, collection and action as anonymous, non-member, viewer, editor and owner, and compares the result with `apps/api/tests/fixtures/access-matrix.json`. After an intended access change, regenerate the fixture with `UPDATE_ACCESS_MATRIX=1 pnpm test access-matrix` and review its diff like any security change.
+- `apps/worker/tests/queue-dispatch.integration.test.ts` checks the wiring of the worker queues that have no dedicated test.
+
+In CI (`CI=true`), the test setup refuses to run without the test database and Redis instead of skipping the integration tests.
+
 Playwright normally uses its installed Chromium. For local testing with an existing Chrome installation, set `PLAYWRIGHT_CHANNEL=chrome`; reports record the actual browser. Integration tests use a separate `orbit_test` database with the same restricted app/auth roles. The restore test creates `orbit_restore_test`, pauses every restored project and never starts a publisher.
 
 ## Hosting and authority
@@ -61,5 +69,16 @@ Provider states distinguish configured credentials, verified reads, verified wri
 `apps/web` contains the Next.js UI, `apps/api` the Fastify control plane, `apps/worker` the BullMQ executors, and `packages/knowledge`/`packages/db` the PostgreSQL knowledge layer. Shared contracts, AI routing, connector adapters and branded creative rendering live under `packages`.
 
 Adapter authors should follow [connector development](docs/CONNECTOR_DEVELOPMENT.md) and the actual provider capability matrix.
+
+`pnpm lint` also checks import boundaries for the planned modular platform (`scripts/boundaries.mjs`). `scripts/boundaries.json` maps every source file to its target zone: platform, a module such as marketing or knowledge, the worker, the web shell or a web module, or a package. The rules forbid these imports:
+
+- the platform importing a module;
+- the worker importing a module;
+- the web shell importing a web module;
+- one module importing another, except through a declared dependency's `contract.ts`;
+- packages importing apps;
+- the web app importing server code.
+
+Only violations missing from the recorded baseline fail the check. When a violation is removed, refresh the baseline with `node scripts/source-check.mjs --update-boundaries`. `--boundary-report` prints imports between zones.
 
 Codex Project Framework1.1.0 was merged missing-only; provenance is in [framework baseline](docs/FRAMEWORK_BASELINE.md). The complete controlling specification is retained in `docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md`. Original EDS Labs marks remain reserved brand assets. The repository is private; no open-source license grant has been assumed. See [license status](LICENSE-STATUS.md). Operational inventory and acceptance evidence require review before any public release.

@@ -21,26 +21,29 @@ const provider = vi.hoisted(() => ({
   liveIndex: false,
   createPost: vi.fn(),
 }));
-vi.mock("../src/modules/agents/scheduling.ts", async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import("../src/modules/agents/scheduling.ts")
-    >();
-  return {
-    ...actual,
-    slotContext: async (...args: Parameters<typeof actual.slotContext>) => {
-      const failure = provider.slotFailure;
-      if (failure && failure.after > 0) failure.after--;
-      else if (failure) {
-        provider.slotFailure = null;
-        // A real Postgres error: it aborts the surrounding transaction.
-        if (failure.kind === "sql") await args[0].$queryRaw`SELECT 1/0`;
-        throw new Error("synthetic scheduling outage");
-      }
-      return actual.slotContext(...args);
-    },
-  };
-});
+vi.mock(
+  "../src/modules/marketing/agents/scheduling.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/modules/marketing/agents/scheduling.ts")
+      >();
+    return {
+      ...actual,
+      slotContext: async (...args: Parameters<typeof actual.slotContext>) => {
+        const failure = provider.slotFailure;
+        if (failure && failure.after > 0) failure.after--;
+        else if (failure) {
+          provider.slotFailure = null;
+          // A real Postgres error: it aborts the surrounding transaction.
+          if (failure.kind === "sql") await args[0].$queryRaw`SELECT 1/0`;
+          throw new Error("synthetic scheduling outage");
+        }
+        return actual.slotContext(...args);
+      },
+    };
+  },
+);
 vi.mock("../../../packages/knowledge/src/index.ts", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -108,6 +111,9 @@ import {
   update,
 } from "../src/shared.ts";
 import { sweepProject } from "../src/modules/lifecycle.ts";
+// Loaded here, after vi.mock, so the sweep's marketing contribution uses the
+// mocked slot lookup (see tests/setup.ts).
+import "../src/modules/registry.ts";
 import {
   freeAssignmentBudget,
   setAssignmentStatus,
