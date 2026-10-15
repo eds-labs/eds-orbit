@@ -16,7 +16,11 @@ import {
 import { invalidateContent } from "../pipeline/content-invalidation.ts";
 import { resolveChannelRules } from "../publishing/channel-rules.ts";
 import { validateEvidence } from "../../../../../../packages/knowledge/src/index.ts";
-import { factClaimMatches } from "../policy/fact-claims.ts";
+import {
+  brandTermsOf,
+  factClaimMatches,
+  presaleLivePattern,
+} from "../policy/fact-claims.ts";
 
 export type MarketingProfile = ReturnType<typeof marketingProfile.parse>;
 
@@ -281,6 +285,7 @@ async function supportedFactClaims(
   scope: Scope,
   content: Record<string, any>,
   at: Date,
+  brandTerms: readonly string[],
 ) {
   if (
     !content.evidenceId ||
@@ -324,7 +329,7 @@ async function supportedFactClaims(
         !Number.isFinite(Date.parse(fact.validFrom)) ||
         Date.parse(fact.validFrom) > at.valueOf() ||
         (fact.validUntil && Date.parse(fact.validUntil) <= at.valueOf()) ||
-        !factClaimMatches(claim.text, fact)
+        !factClaimMatches(claim.text, fact, brandTerms)
       )
         continue;
       supported.push({ claim, fact, source });
@@ -335,8 +340,6 @@ async function supportedFactClaims(
   return supported;
 }
 
-const presaleLive =
-  /\b(?:presale\s+(?:is\s+)?(?:(?:now|currently|officially)\s+)?live|(?:(?:now|currently|officially)\s+)?live\s+(?:(?:uliq|uliquid)(?:\s+desk)?\s+)?presale|presale[.\s]+status:\s*live)\b/gi;
 const moneyMention =
   /(?:€|\$|\b(?:USD|EUR)\b)\s*\d+(?:[.,]\d+)?|\b\d+(?:[.,]\d+)?\s*(?:€|\$|\b(?:USD|EUR)\b)/giu;
 
@@ -404,6 +407,8 @@ export async function profileGuardrailProblems(
     );
   else if (ctas[0] !== data(context.mission).targetAction)
     problems.push("MISSION_PRIMARY_CTA_REQUIRED");
+  // The profile's product words, else uLiquid's built-in ones (WP3.4).
+  const presaleLive = presaleLivePattern(context.profileData.brandTerms);
   const presaleStatements = [...body.matchAll(presaleLive)];
   const remainingStatusText = body.replace(presaleLive, "");
   if (
@@ -415,7 +420,13 @@ export async function profileGuardrailProblems(
   const prices = [...body.matchAll(moneyMention)];
   const supported =
     presaleStatements.length || prices.length
-      ? await supportedFactClaims(tx, scope, content, at)
+      ? await supportedFactClaims(
+          tx,
+          scope,
+          content,
+          at,
+          brandTermsOf(context.profileData),
+        )
       : [];
   if (prices.some((match) => !supportedPriceMention(match[0], supported)))
     problems.push("UNSUPPORTED_PRICE_CLAIM");

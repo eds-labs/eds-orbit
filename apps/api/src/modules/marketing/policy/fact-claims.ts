@@ -1,3 +1,54 @@
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+
+/**
+ * Product words a fact sentence may contain without adding a claim, for a
+ * marketing profile without its own `brandTerms` (WP3.4): uLiquid's, which
+ * were built into the matcher before.
+ */
+export const LEGACY_BRAND_TERMS: readonly string[] = [
+  "uliquid",
+  "uliq",
+  "desk",
+];
+
+/** The profile's brand terms, else the legacy list. */
+export function brandTermsOf(profile: unknown): readonly string[] {
+  const terms = (profile as { brandTerms?: unknown } | null)?.brandTerms;
+  return Array.isArray(terms) && terms.length
+    ? terms.map((term) => String(term).toLocaleLowerCase())
+    : LEGACY_BRAND_TERMS;
+}
+
+/** The project's brand terms, read from its marketing profile. */
+export async function loadBrandTerms(tx: DbTx, scope: Scope) {
+  const profile = await tx.projectMarketingProfile.findFirst({
+    where: { workspaceId: scope.workspaceId, projectId: scope.projectId },
+    select: { data: true },
+  });
+  return brandTermsOf(profile?.data ?? null);
+}
+
+// The presale status pattern from before WP3.4, kept verbatim for profiles
+// without brandTerms so their checks cannot change.
+const LEGACY_PRESALE_LIVE =
+  /\b(?:presale\s+(?:is\s+)?(?:(?:now|currently|officially)\s+)?live|(?:(?:now|currently|officially)\s+)?live\s+(?:(?:uliq|uliquid)(?:\s+desk)?\s+)?presale|presale[.\s]+status:\s*live)\b/gi;
+
+/**
+ * A "presale is live" statement: the legacy pattern without profile terms;
+ * with them, up to two product words may stand between "live" and "presale".
+ */
+export function presaleLivePattern(profileTerms?: readonly string[]): RegExp {
+  if (!profileTerms?.length) return new RegExp(LEGACY_PRESALE_LIVE);
+  const terms = profileTerms
+    .map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  return new RegExp(
+    String.raw`\b(?:presale\s+(?:is\s+)?(?:(?:now|currently|officially)\s+)?live|(?:(?:now|currently|officially)\s+)?live\s+(?:(?:${terms})\s+){0,2}presale|presale[.\s]+status:\s*live)\b`,
+    "gi",
+  );
+}
+
 // Words that turn a clause into its opposite ("isn't" splits into "isn" and "t").
 const NEGATIONS = new Set([
   "not",
@@ -14,6 +65,7 @@ const NEGATIONS = new Set([
 export function factClaimMatches(
   text: string,
   fact: Record<string, any>,
+  brandTerms: readonly string[] = LEGACY_BRAND_TERMS,
 ): boolean {
   const value = String(fact.value?.amount ?? fact.value ?? "").trim();
   const key = String(fact.key ?? "").trim();
@@ -60,9 +112,8 @@ export function factClaimMatches(
     "now",
     "currently",
     "officially",
-    "uliquid",
-    "uliq",
-    "desk",
+    // The product's own name (the profile's brandTerms).
+    ...brandTerms,
     // Words that join the subject and the value without adding a claim;
     // "s" is the possessive ("Desk's").
     "s",
