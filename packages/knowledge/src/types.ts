@@ -1,4 +1,27 @@
+import type { DbTx } from "@orbit/db";
 export type Scope = { workspaceId: string; projectId: string; userId: string };
+/** What a knowledge change invalidated, as impact handlers receive it. */
+export type KnowledgeImpact = {
+  sourceId: string;
+  reason: string;
+  factId?: string;
+  /** True when the source or document was purged, not only invalidated. */
+  purge: boolean;
+  /** Evidence packs the engine marked invalidated (or purged). */
+  evidenceIds: readonly string[];
+};
+/** Dependent records a handler invalidated, reported in the engine's result. */
+export type ImpactResult = { contentIds?: readonly string[] };
+/**
+ * Reacts to a knowledge change inside the caller's transaction (WP3.1). The
+ * engine never writes another module's records; modules register a handler
+ * and the platform passes every registered handler into each engine call.
+ */
+export type ImpactHandler = (
+  tx: DbTx,
+  s: Scope,
+  impact: KnowledgeImpact,
+) => Promise<ImpactResult | void>;
 export const RETRIEVER_VERSION = "hybrid-rrf-v1";
 export const EMBEDDING_PROFILE = "openai:text-embedding-3-small:1536:chunk-v1";
 export const CHUNK_VERSION = "structure-v1";

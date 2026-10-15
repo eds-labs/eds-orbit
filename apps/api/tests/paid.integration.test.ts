@@ -15,18 +15,20 @@ import {
   type PrismaClient,
 } from "../../../packages/db/src/index.ts";
 import {
-  ingest,
   retrieve,
-  setFact,
-  withdrawFact,
-  setSourceRights,
-  revokeSource,
   beginIndexBuild,
   EMBEDDING_PROFILE,
   getActiveIndex,
   activateIndexGeneration,
   validateActiveIndexEvaluation,
 } from "../../../packages/knowledge/src/index.ts";
+import {
+  ingest,
+  setFact,
+  withdrawFact,
+  setSourceRights,
+  revokeSource,
+} from "../src/platform/knowledge/engine.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, encrypt, entity, list, update } from "../src/shared.ts";
 import {

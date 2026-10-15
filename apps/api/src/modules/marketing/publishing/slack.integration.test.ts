@@ -20,10 +20,8 @@ import { create, data, list, update } from "../../../shared.ts";
 import { saveMarketingProfile } from "../brand/marketing-profile.ts";
 import { setModuleEnabled } from "../../../platform/modules/activation.ts";
 import { moduleRegistry } from "../../registry.ts";
-import {
-  retrieve,
-  setFact,
-} from "../../../../../../packages/knowledge/src/index.ts";
+import { retrieve } from "../../../../../../packages/knowledge/src/index.ts";
+import { setFact } from "../../../platform/knowledge/engine.ts";
 import {
   configureSlack,
   queueSlackDigest,

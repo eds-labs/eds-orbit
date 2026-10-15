@@ -14,7 +14,7 @@ import {
   setFact,
   setSourceRights,
   withdrawFact,
-} from "../../../packages/knowledge/src/index.ts";
+} from "../src/platform/knowledge/engine.ts";
 import { create } from "../src/shared.ts";
 
 const enabled = Boolean(

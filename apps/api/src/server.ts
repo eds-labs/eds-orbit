@@ -80,10 +80,8 @@ import { z } from "zod";
 import { authDb, scoped, jsonSafe } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
-import {
-  setFact,
-  KnowledgeError,
-} from "../../../packages/knowledge/src/index.ts";
+import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
+import { setFact } from "./platform/knowledge/engine.ts";
 import {
   makeAuth,
   renewedSessionCookies,

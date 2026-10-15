@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import {
   registerContributions,
@@ -8,6 +8,7 @@ import {
   registeredChannelDirectories,
   registeredReadiness,
   registeredHooks,
+  registeredImpactHandlers,
   registeredConnectionProvider,
   registeredConnectionProviderIds,
   registeredJobOwner,
@@ -39,6 +40,7 @@ import { pauseCallback } from "../src/platform/connections/telegram.ts";
 import { stopCallback } from "../src/modules/marketing/agents/telegram-stop.ts";
 import { NOTIFY_KINDS } from "../src/modules/marketing/agents/notifications.ts";
 import { marketingNotifications } from "../src/modules/marketing/agents/notification-messages.ts";
+import { invalidateMarketingForKnowledge } from "../src/modules/marketing/pipeline/knowledge-impact.ts";
 
 /** The platform registries filled from module contributions (WP1.6). */
 describe("module contributions", () => {
@@ -109,6 +111,25 @@ describe("module contributions", () => {
     expect(registeredRetention()).toEqual([marketingRetention]);
   });
 
+  it("binds marketing's knowledge impact handler for every project (WP3.1)", () => {
+    // No activation parameter: a revocation must also reach content of a
+    // project whose marketing module is switched off (plans 05 §4).
+    expect(registeredImpactHandlers.length).toBe(0);
+    expect(registeredImpactHandlers()).toEqual([
+      invalidateMarketingForKnowledge,
+    ]);
+  });
+  it("fails closed when no module registered its impact handler (WP3.1)", async () => {
+    vi.resetModules();
+    const fresh = await import("../src/platform/modules/contributions.ts");
+    expect(() => fresh.registeredImpactHandlers()).toThrow(
+      "MODULE_CONTRIBUTIONS_NOT_REGISTERED",
+    );
+    const engine = await import("../src/platform/knowledge/engine.ts");
+    expect(() =>
+      engine.revokeSource({} as never, {} as never, "source"),
+    ).toThrow("MODULE_CONTRIBUTIONS_NOT_REGISTERED");
+  });
   it("gives the worker its module tasks and start-up through the registry (WP2.1)", () => {
     // Same order as the worker ran them before: Matomo, the Postiz check,
     // then the Drive retry of generated images (a task since WP2.5d).

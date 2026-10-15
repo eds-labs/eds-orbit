@@ -8,10 +8,8 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import {
-  getActiveIndex,
-  ingest,
-} from "../../../packages/knowledge/src/index.ts";
+import { getActiveIndex } from "../../../packages/knowledge/src/index.ts";
+import { ingest } from "../src/platform/knowledge/engine.ts";
 import { audit, create } from "../src/shared.ts";
 import { enqueue } from "../src/modules/workflow.ts";
 

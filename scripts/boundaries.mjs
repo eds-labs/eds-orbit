@@ -178,6 +178,24 @@ export function checkBoundaries(files, config, { exists, packages }) {
   };
 }
 
+/**
+ * String literals a zone must not contain (`config.forbiddenLiterals`), as
+ * sorted ids "forbidden-literal: file -> \"literal\"". Keeps the knowledge
+ * engine from naming another module's entity kinds (WP3.1).
+ */
+export function checkForbiddenLiterals(files, config) {
+  const found = [];
+  for (const [file, source] of Object.entries(files)) {
+    const zone = classify(file, config.zones);
+    for (const literal of config.forbiddenLiterals?.[zone] ?? []) {
+      const escaped = literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (new RegExp(`(["'\`])${escaped}\\1`).test(source))
+        found.push(`forbidden-literal: ${file} -> "${literal}"`);
+    }
+  }
+  return found.sort();
+}
+
 /** New violations (not in the baseline) and resolved ones (baseline only). */
 export function compareBaseline(violations, baseline) {
   const known = new Set(baseline);
@@ -206,10 +224,17 @@ export function checkRepository(root) {
       return false;
     }
   };
-  const result = checkBoundaries(files, config, {
+  const imports = checkBoundaries(files, config, {
     exists,
     packages: workspacePackages(root),
   });
+  const result = {
+    ...imports,
+    violations: [
+      ...imports.violations,
+      ...checkForbiddenLiterals(files, config),
+    ].sort(),
+  };
   return { config, ...result, ...compareBaseline(result.violations, config.baseline) };
 }
 

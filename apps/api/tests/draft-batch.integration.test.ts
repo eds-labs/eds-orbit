@@ -15,7 +15,7 @@ import {
   type DbTx,
   type PrismaClient,
 } from "../../../packages/db/src/index.ts";
-import { ingest } from "../../../packages/knowledge/src/index.ts";
+import { ingest } from "../src/platform/knowledge/engine.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, data, update } from "../src/shared.ts";
 const provider = vi.hoisted(() => ({

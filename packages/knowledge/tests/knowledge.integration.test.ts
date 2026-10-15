@@ -4,19 +4,26 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createClient, scoped, type PrismaClient } from "@orbit/db";
 import {
-  ingest,
   retrieve,
+  validateEvidence,
+  attachEmbeddings,
+  EMBEDDING_PROFILE,
+  type ImpactHandler,
+  type KnowledgeImpact,
+  type Scope,
+  type EvidenceData,
+} from "../src/index.js";
+import * as engine from "../src/index.js";
+// The cascade tests below predate WP3.1: they run the engine as the API
+// does, with every registered impact handler (marketing's included).
+import {
+  ingest,
   setFact,
   revokeSource,
   withdrawFact,
   setSourceRights,
   revokeDocument,
-  validateEvidence,
-  attachEmbeddings,
-  EMBEDDING_PROFILE,
-  type Scope,
-  type EvidenceData,
-} from "../src/index.js";
+} from "../../../apps/api/src/platform/knowledge/engine.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
@@ -925,6 +932,114 @@ suite("PostgreSQL pgvector knowledge / nonprivileged RLS", () => {
     await expect(run(a, (tx) => ingest(tx, a, data))).rejects.toThrow(
       "SOURCE_UNAVAILABLE",
     );
+  });
+  it("passes affected evidence to every impact handler in order", async () => {
+    const src = await source();
+    await run(a, (tx) => ingest(tx, a, input(src.id, "HANDLER311 source")));
+    const evidence = await run(a, (tx) =>
+      retrieve(tx, a, { query: "HANDLER311", purpose: "public", at }),
+    );
+    const calls: Array<[string, KnowledgeImpact]> = [];
+    const record =
+      (name: string): ImpactHandler =>
+      async (_tx, _s, impact) => {
+        calls.push([name, impact]);
+      };
+    await run(a, (tx) =>
+      engine.revokeSource(tx, a, [record("first"), record("second")], src.id),
+    );
+    expect(calls).toEqual([
+      [
+        "first",
+        {
+          sourceId: src.id,
+          reason: "source_revoked",
+          purge: true,
+          evidenceIds: [evidence.id],
+        },
+      ],
+      [
+        "second",
+        {
+          sourceId: src.id,
+          reason: "source_revoked",
+          purge: true,
+          evidenceIds: [evidence.id],
+        },
+      ],
+    ]);
+  });
+  it("reports the content ids impact handlers return", async () => {
+    const src = await source();
+    const result = await run(a, (tx) =>
+      engine.setSourceRights(
+        tx,
+        a,
+        [
+          async () => ({ contentIds: ["a"] }),
+          async () => undefined,
+          async () => ({ contentIds: ["a", "b"] }),
+        ],
+        src.id,
+        { publicUse: false },
+      ),
+    );
+    expect(result.impact).toEqual({ evidenceIds: [], contentIds: ["a", "b"] });
+  });
+  it("calls impact handlers even when no evidence is affected", async () => {
+    const src = await source();
+    const seen: KnowledgeImpact[] = [];
+    await run(a, (tx) =>
+      engine.setSourceRights(
+        tx,
+        a,
+        [
+          async (_tx, _s, impact) => {
+            seen.push(impact);
+          },
+        ],
+        src.id,
+        { publicUse: false },
+      ),
+    );
+    expect(seen).toEqual([
+      {
+        sourceId: src.id,
+        reason: "source_permissions_changed",
+        purge: false,
+        evidenceIds: [],
+      },
+    ]);
+  });
+  it("rolls back evidence when an impact handler throws", async () => {
+    const src = await source();
+    await run(a, (tx) => ingest(tx, a, input(src.id, "ROLLBACK417 source")));
+    const evidence = await run(a, (tx) =>
+      retrieve(tx, a, { query: "ROLLBACK417", purpose: "public", at }),
+    );
+    const before = await run(a, (tx) =>
+      tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+    );
+    await expect(
+      run(a, (tx) =>
+        engine.setSourceRights(
+          tx,
+          a,
+          [
+            async () => {
+              throw new Error("HANDLER_FAILED");
+            },
+          ],
+          src.id,
+          { publicUse: false },
+        ),
+      ),
+    ).rejects.toThrow("HANDLER_FAILED");
+    const after = await run(a, (tx) =>
+      tx.entity.findUniqueOrThrow({ where: { id: evidence.id } }),
+    );
+    expect(after.version).toBe(before.version);
+    expect((after.data as unknown as EvidenceData).status).toBe("ready");
   });
   it("pause/resume cannot revive an old ingestion or embedding job", async () => {
     const src = await source();

@@ -8,10 +8,8 @@ import {
 } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { create, data, list, update } from "../../../shared.ts";
-import {
-  retrieve,
-  setFact,
-} from "../../../../../../packages/knowledge/src/index.ts";
+import { retrieve } from "../../../../../../packages/knowledge/src/index.ts";
+import { setFact } from "../../../platform/knowledge/engine.ts";
 import {
   adaptContent,
   importCommunityQuestions,

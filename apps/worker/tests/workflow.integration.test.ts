@@ -25,7 +25,7 @@ import {
   ingest,
   setFact,
   revokeSource,
-} from "../../../packages/knowledge/src/index.ts";
+} from "../../api/src/platform/knowledge/engine.ts";
 const enabled = Boolean(process.env.TEST_DATABASE_URL && process.env.REDIS_URL);
 describe.skipIf(!enabled)("Durable real Redis worker lifecycle", () => {
   let db: PrismaClient,

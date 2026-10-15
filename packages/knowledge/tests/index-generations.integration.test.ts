@@ -10,15 +10,19 @@ import {
   getActiveIndex,
   assertActiveEmbeddingProfile,
   listIndexGenerations,
-  ingest,
   retrieve,
   validateEvidence,
-  revokeSource,
   EMBEDDING_PROFILE,
   type Scope,
   type EvidenceData,
   type IndexEvaluationInput,
 } from "../src/index.js";
+// Changing operations run as the API runs them, with the registered impact
+// handlers (WP3.1).
+import {
+  ingest,
+  revokeSource,
+} from "../../../apps/api/src/platform/knowledge/engine.ts";
 const suite =
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL
     ? describe
