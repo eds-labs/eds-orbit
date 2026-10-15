@@ -1,5 +1,26 @@
 # Implementation status
 
+## Knowledge services and the K-1 fact rule: WP3.2 (2026-10-15, local)
+
+Branch `claude/wp32-knowledge-services` (stacked on WP3.1). Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`.
+
+- **Orchestration moved.** `retrieval.ts`, `ingestion.ts`, `reindex.ts` and `index-evaluation.ts` move unchanged from the flat api modules to `apps/api/src/platform/knowledge/`; only import paths change. `services.ts` is the facade (retrieve, retrieveHybrid, validateEvidence, getActiveIndex, the six bound changing operations).
+- **One `knowledge_search`.** The search moves verbatim from marketing's `runReadTool` to `platform/knowledge/search.ts`. `knowledgeSearchTool()` is the only definition.
+  - The chat and the specialists pass their budget keys, which are unchanged: `chat:<runId>:knowledge:<n>` with `chat:<runId>`, and `agent:<taskId>:knowledge:<n>` with `assignment-run:<runId>`.
+  - Name, description, schema and position in the tool list are unchanged, so the prompt is the same.
+  - The card check is now `checkToolResult` in `platform/assistant/cards.ts`.
+- **K-1 (behaviour change, decided by Mario).** `platform/knowledge/facts.ts` applies the engine's full rules to package facts. Marketing's `usableFacts`/`listUsableFacts` delegate to it, with the profile's content language.
+  - The production check before the switch (`scripts/rollout/k1-usable-facts-diff.sql`, read-only) showed every uLiquid fact `unchanged`.
+  - Two test fixtures created facts without `sourceGeneration`, which `setFact` always records. They now set it.
+
+**Verification (local).**
+- New tests:
+  - `knowledge-search-tool.test.ts`: same model-facing tool for both variants, both budget-key sets, the specialist variant refused outside a task.
+  - The K-1 test now pins the shipped rule to the SQL's K-1 side.
+- Typecheck and source check pass; boundaries: 0 known violations.
+
+**Rollback.** Revert; there is no schema or data change.
+
 ## Knowledge invalidation through impact handlers: WP3.1 (2026-10-15, local)
 
 Branch `claude/plattform-umbau-fortschritt-05c734`, the first work package of Phase 3 (plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`). Risk class high: a missed invalidation would make revoked evidence publishable. Behaviour is unchanged.

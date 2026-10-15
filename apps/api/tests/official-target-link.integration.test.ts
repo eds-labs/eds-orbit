@@ -71,6 +71,7 @@ describe.skipIf(!enabled)("Official target link within the policy", () => {
           valueType: "url",
           language: "en",
           sourceId: project.sourceId,
+          sourceGeneration: 1,
           validFrom: new Date(Date.now() - 3600000).toISOString(),
           validUntil: new Date(Date.now() + 30 * 86400000).toISOString(),
           status: "verified",

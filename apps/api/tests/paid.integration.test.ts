@@ -88,16 +88,16 @@ import { APIError } from "openai";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
 import { postingSlot } from "../src/modules/posting-slots.ts";
 import { missionFactKeys } from "../src/modules/mission-evidence.ts";
-import { retrieveHybrid } from "../src/modules/retrieval.ts";
+import { retrieveHybrid } from "../src/platform/knowledge/retrieval.ts";
 import {
   embedDocument,
   queueDocumentEmbedding,
-} from "../src/modules/ingestion.ts";
-import { buildIndexBatch } from "../src/modules/reindex.ts";
+} from "../src/platform/knowledge/ingestion.ts";
+import { buildIndexBatch } from "../src/platform/knowledge/reindex.ts";
 import {
   queueIndexEvaluation,
   runIndexEvaluation,
-} from "../src/modules/index-evaluation.ts";
+} from "../src/platform/knowledge/index-evaluation.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );

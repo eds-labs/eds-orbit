@@ -1,5 +1,5 @@
-import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   fetchApprovedDocument,
   extractDocument,
@@ -7,18 +7,18 @@ import {
   attachEmbeddingBatch,
   EMBEDDING_PROFILE,
   assertActiveEmbeddingProfile,
-} from "../../../../packages/knowledge/src/index.ts";
-import { ingest } from "../platform/knowledge/engine.ts";
-import { entity, data, DomainError } from "../shared.ts";
-import { reserve, settle, markTransmitted } from "./budget.ts";
+} from "../../../../../packages/knowledge/src/index.ts";
+import { ingest } from "./engine.ts";
+import { entity, data, DomainError } from "../../shared.ts";
+import { reserve, settle, markTransmitted } from "../../modules/budget.ts";
 import {
   activeSpendMandateRef,
   requireSpendMandate,
-} from "../platform/ai/spend-mandate.ts";
-import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
-import { enqueue } from "../platform/jobs/enqueue.ts";
-import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
+} from "../ai/spend-mandate.ts";
+import { embed, estimateCost } from "../../../../../packages/ai/src/index.ts";
+import { runtimeOpenAiConfiguration } from "../../modules/openai-configuration.ts";
+import { enqueue } from "../jobs/enqueue.ts";
+import { recordSpan, startRun, tracedRun } from "../../modules/telemetry.ts";
 function assertEmbeddingDocumentFresh(
   version: {
     fetchedAt: Date;

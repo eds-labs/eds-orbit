@@ -1,21 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { scoped } from "../../../../packages/db/src/index.ts";
+import { scoped } from "../../../../../packages/db/src/index.ts";
 import {
   retrieve,
   getActiveIndex,
   validateEvidence,
   type RetrieveInput,
-} from "../../../../packages/knowledge/src/index.ts";
-import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
-import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
+} from "../../../../../packages/knowledge/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { embed, estimateCost } from "../../../../../packages/ai/src/index.ts";
+import { runtimeOpenAiConfiguration } from "../../modules/openai-configuration.ts";
 import {
   activeSpendMandateRef,
   requireSpendMandate,
-} from "../platform/ai/spend-mandate.ts";
-import { reserve, settle, markTransmitted } from "./budget.ts";
-import { data, DomainError, create, entity, hash } from "../shared.ts";
-import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
+} from "../ai/spend-mandate.ts";
+import { reserve, settle, markTransmitted } from "../../modules/budget.ts";
+import { data, DomainError, create, entity, hash } from "../../shared.ts";
+import { recordSpan, startRun, tracedRun } from "../../modules/telemetry.ts";
 /**
  * `trace` is set by a caller that owns an agent run (generation): the query
  * reservation and embedding span then join that run and no retrieval run is

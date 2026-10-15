@@ -3,9 +3,9 @@ import { platformActions } from "../http/platform-actions.ts";
 import { sourceSyncScheduler } from "../knowledge/source-sync.ts";
 import { runChatJob } from "../../modules/chat-runner.ts";
 import { stopChatRunForPause } from "../../modules/chat.ts";
-import { embedDocument, syncSource } from "../../modules/ingestion.ts";
-import { buildIndexBatch } from "../../modules/reindex.ts";
-import { runIndexEvaluation } from "../../modules/index-evaluation.ts";
+import { embedDocument, syncSource } from "../knowledge/ingestion.ts";
+import { buildIndexBatch } from "../knowledge/reindex.ts";
+import { runIndexEvaluation } from "../knowledge/index-evaluation.ts";
 import { pauseCallback } from "../connections/telegram.ts";
 import { sendNotification } from "../notifications/sender.ts";
 

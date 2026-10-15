@@ -187,6 +187,30 @@ vi.mock("../../marketing/assistant/chat-tools.ts", () => ({
     }),
   ),
 }));
+const searches = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("../../../platform/knowledge/search.ts", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../../../platform/knowledge/search.ts")
+  >()),
+  knowledgeSearch: vi.fn(async (...args: unknown[]) => {
+    searches.calls.push(args);
+    return {
+      result: {
+        status: "ready",
+        retrieval: {
+          mode: "hybrid",
+          indexProfile: "p",
+          indexGeneration: 1,
+          evidenceId: "00000000-0000-4000-8000-000000000001",
+        },
+        facts: [],
+        passages: [],
+        gaps: [],
+      },
+      cards: [],
+    };
+  }),
+}));
 import { readTools } from "./read-tools.ts";
 
 describe("read tools", () => {
@@ -217,6 +241,7 @@ describe("read tools", () => {
   });
   it("treats null optional fields like omitted ones and passes trusted keys only to knowledge_search", async () => {
     read.calls.length = 0;
+    searches.calls.length = 0;
     const byName = Object.fromEntries(readTools.map((t) => [t.name, t]));
     await byName.knowledge_search!.execute(context(3), {
       query: "presale",
@@ -225,19 +250,21 @@ describe("read tools", () => {
     await byName.approved_assets!.execute(context(4), { query: null });
     await byName.analytics_memory!.execute(context(5), { campaign: null });
     await byName.project_status!.execute(context(6), {});
-    expect(read.calls).toEqual([
+    // knowledge_search runs through the platform search (WP3.2).
+    expect(searches.calls).toEqual([
       [
         scope,
-        "knowledge_search",
         { query: "presale" },
         {
           retrievalJobKey: "chat:run-1:knowledge:3",
           budgetRunKey: "chat:run-1",
         },
       ],
-      [scope, "approved_assets", {}, undefined],
-      [scope, "analytics_memory", {}, undefined],
-      [scope, "project_status", {}, undefined],
+    ]);
+    expect(read.calls).toEqual([
+      [scope, "approved_assets", {}],
+      [scope, "analytics_memory", {}],
+      [scope, "project_status", {}],
     ]);
   });
 });

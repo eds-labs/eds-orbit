@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 // Cards the assistant returns with a reply (WP2.2). Moved unchanged from
 // chat-tools.ts; a card type registry (plans 03 §6.4) replaces the closed
 // union when a second module contributes cards.
@@ -55,3 +57,33 @@ export type ChatCard = {
   version?: number;
   assignment?: AssignmentCard;
 };
+
+const cardSchema = z
+  .object({
+    kind: z.enum(["source", "asset", "link", "status"]),
+    label: z.string().max(160),
+    href: z.string().max(600).optional(),
+    status: z.string().max(80).optional(),
+    resourceId: z.uuid().optional(),
+    version: z.number().int().optional(),
+  })
+  .strict();
+
+/**
+ * Checks a read tool's result and cards before they reach a model: the
+ * tool's own schema, at most 20 known cards and 12 000 bytes together.
+ */
+export function checkToolResult<T extends z.ZodType>(
+  schema: T,
+  result: unknown,
+  cards: unknown,
+) {
+  const parsed = schema.parse(result);
+  const checkedCards = z.array(cardSchema).max(20).parse(cards);
+  if (
+    Buffer.byteLength(JSON.stringify({ result: parsed, cards: checkedCards })) >
+    12000
+  )
+    throw new Error("CHAT_TOOL_RESULT_LIMIT");
+  return { result: parsed, cards: checkedCards };
+}

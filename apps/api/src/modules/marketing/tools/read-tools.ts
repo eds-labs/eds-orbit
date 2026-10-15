@@ -10,6 +10,7 @@ import {
   type OrbitTool,
   type ToolContext,
 } from "../../agents/tools/registry.ts";
+import { knowledgeSearchTool } from "../../../platform/knowledge/search-tool.ts";
 
 // Model-facing shapes only; runReadTool's own zod inputs stay authoritative
 // and enforce the string lengths strict mode cannot express.
@@ -29,17 +30,7 @@ function readTool(
     permission: PROJECT_READ,
     deferLoading,
     async execute(context: ToolContext, args: unknown) {
-      const read = await runReadTool(
-        context.scope,
-        name,
-        dropNullFields(args),
-        name === "knowledge_search"
-          ? {
-              retrievalJobKey: `chat:${context.runId}:knowledge:${context.callIndex}`,
-              budgetRunKey: `chat:${context.runId}`,
-            }
-          : undefined,
-      );
+      const read = await runReadTool(context.scope, name, dropNullFields(args));
       const checked = validateReadToolResult(name, read.result, read.cards);
       return { output: checked.result, cards: checked.cards };
     },
@@ -53,17 +44,13 @@ export const readTools: readonly OrbitTool[] = [
     "Read the current project, policy, open approvals, blockers, and available channels.",
     z.object({}).strict(),
   ),
-  readTool(
-    "knowledge_search",
-    "knowledge",
-    "Find current model-authorized public Verified Facts and Knowledge with source references. When an exact Verified Fact key is known, pass factKeys to avoid unrelated fact context.",
-    z
-      .object({
-        query: z.string(),
-        factKeys: z.array(z.string()).max(8).nullable(),
-      })
-      .strict(),
-  ),
+  // The chat reserves a search's query embedding under its run.
+  knowledgeSearchTool({
+    budget: (context) => ({
+      retrievalJobKey: `chat:${context.runId}:knowledge:${context.callIndex}`,
+      budgetRunKey: `chat:${context.runId}`,
+    }),
+  }),
   readTool(
     "approved_assets",
     "assets",
