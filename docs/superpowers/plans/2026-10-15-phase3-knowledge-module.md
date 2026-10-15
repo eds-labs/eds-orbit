@@ -162,9 +162,61 @@ Risk class medium. Tasks 1 and 2 are pure moves with unchanged behaviour. Task 3
 - [ ] Commit `feat(knowledge): usableFacts with the engine's full rules (WP3.2, K-1)`.
 - [ ] **After Mario's K-1 decision:** switch `content-packages.ts` to the facade in a separate commit, run `content-packages`, `package-fact-duplicates`, `package-profile-limits`, `specialists-*`, and record the decision in `docs/PRODUCT_DECISIONS.md`.
 
-## WP3.3–WP3.5 (outline; detailed plan per WP before it starts)
+## WP3.3 Knowledge module (detailed)
 
-**WP3.3 Knowledge module server and web (4–6 PT).** Knowledge actions and routes move into `modules/knowledge` contributions (`server.ts` knowledge parts, `knowledge-import.ts`); web routes `/p/:id/knowledge/{overview,sources,…,inspector}` replace the nine local tabs; `EvidenceItems` moves to `web/platform/ui/evidence.tsx`; the "Marketing Memory" card becomes a marketing contribution. Acceptance: disabling knowledge is refused while marketing is enabled; the assistant can still search with both disabled; Playwright knowledge flows green.
+Risk class medium. With `ORBIT_MODULES=false` (production) the product is unchanged: same API paths and responses, same tabs and labels, same tool list. New: deep-linkable knowledge views. With the flag on, the knowledge module can be switched off once marketing is off, and the assistant keeps `knowledge_search`.
+
+**What already exists (Phases 1–2).** The knowledge actions (`modules/knowledge/actions.ts`), the permission keys, the dependency rule (`MODULE_REQUIRED`, `MODULE_DEPENDENCY_DISABLED`), the web folder `apps/web/src/modules/knowledge/` with `IndexManagement` and `FactWithdrawal`, and `EvidenceItems` in `platform/ui/evidence.tsx`.
+
+**Deliberate deviations from `05` §8, to keep the product unchanged.**
+- All nine tabs stay, each one a URL view; "conflicts" and "impact" are not merged away.
+- Detail URLs with ids (`sources/:sourceId`, …) need path parameters in the shell and are a follow-up.
+- The settings panel and the home tile are also follow-ups.
+- The static "Marketing Memory" principle card is text without a code dependency, so it stays.
+
+### Task 1: Knowledge routes and import in the module
+
+**Files:**
+- Create: `apps/api/src/modules/knowledge/routes.ts`: `GET …/knowledge-health`, `GET …/documents` and `GET …/indexes`, moved verbatim from `server.ts` (same permission checks, same responses).
+- Move: `apps/api/src/modules/knowledge-import.ts` → `apps/api/src/modules/knowledge/import.ts` (imports fixed; zone entry in `scripts/boundaries.json` dropped).
+- Modify: `modules/knowledge/contributions.ts` (`routes: knowledgeRoutes`), `server.ts` (routes removed).
+- Test: `module-contributions.test.ts` (knowledge registers its routes), `module-enforcement.integration.test.ts` (new scenario, Task 2).
+
+- [ ] Move, typecheck, run `core`, `knowledge-import`, `module-contributions`; OpenAPI regenerates without diff.
+
+### Task 2: `knowledge_search` stays with the assistant when modules are off
+
+**Interfaces:**
+- `OrbitTool.alwaysOffered?: true`: a platform tool that a module lists to keep its position. It is registered with owner `"platform"`, so activation never filters it.
+- `assistantKnowledgeSearch` in `platform/knowledge/search-tool.ts` (the chat variant, keys unchanged). Marketing's read tools list it at its current position.
+
+- [ ] **Failing scenario** in `module-enforcement.integration.test.ts`, "switches knowledge off after marketing, keeps the assistant's search":
+  - with the flag on, marketing off and then knowledge off (both 200), `GET /knowledge-health`, `GET /documents`, `GET /sources` and `POST /actions/retrieve` answer 404 `MODULE_DISABLED`;
+  - `registeredTools(enabled)` has exactly `knowledge_search`;
+  - knowledge on again first (marketing cannot go on before it: `MODULE_DEPENDENCY_DISABLED`), then marketing, restores the snapshot.
+- [ ] Implement; "offers the chat tools unchanged and in their order" stays green.
+
+### Task 3: Knowledge views with URLs
+
+**Interfaces:**
+- `ViewDef.navKey?: string`: the navigation entry that a URL-only view highlights. `routeTable` refuses an unknown key or one from another owner. The sidebar and the mobile bar compare `route.navKey ?? route.key`.
+- `knowledgeWeb.views`:
+  - `knowledge` (path `""`, nav, legacy `/knowledge`, the Overview tab);
+  - `knowledge-<tab>` for `sources`, `facts`, `import`, `conflicts`, `library`, `health`, `inspector`, `impact`, each at path `<tab>` with `navKey: "knowledge"`.
+- `Knowledge({ tab })`: the tab bar keeps role `tab`, its labels and its keyboard handling. Choosing a tab navigates to its URL with `router.push(shell.hrefOf(viewKey))`. The page remounts per view (`key={tab}`), so an open editor closes as before.
+
+- [ ] Failing `routes.test.ts` cases:
+  - `locate("/p/x/knowledge/facts")` resolves to `knowledge-facts`;
+  - an unknown `navKey` is refused;
+  - a `navKey` that names another owner's view is refused.
+- [ ] Implement; web typecheck; `shell.test.tsx` and the web unit tests green; `next build --webpack` passes.
+
+### Task 4: Docs and checks
+
+- [ ] `IMPLEMENTATION_STATUS.md`, `MODULE_ACTIVATION.md` (knowledge can be switched off after marketing; the assistant keeps the search), `KNOWLEDGE_ARCHITECTURE.md` (routes and views).
+- [ ] Full suite, `tsc`, web typecheck, source check, OpenAPI unchanged.
+
+## WP3.4–WP3.5 (outline; detailed plan per WP before it starts)
 
 **WP3.4 Marketing fact consumers (2–3 PT).** `fact-claims.ts`, `fact-placeholders.ts`, `mission-evidence.ts` are already under `modules/marketing/policy|pipeline`; remaining work is the tenant vocabulary (`fact-claims.ts:51-53`) read from the marketing profile with the in-code default when the field is absent, so no profile save is needed (a save would invalidate pending packages, see 12.10). Acceptance: `fact-claims`, `claim-repeat`, `safety` unchanged.
 

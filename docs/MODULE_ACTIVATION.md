@@ -29,6 +29,8 @@ Not affected:
 
 The dependency rules of WP1.4 still apply: knowledge cannot be turned off while marketing is on, and marketing cannot be turned on while knowledge is off.
 
+With marketing off, knowledge can be turned off too (WP3.3). Its routes (`knowledge-health`, `documents`, `indexes`), its actions and its collections (`sources`, `facts`, …) then answer `404 MODULE_DISABLED`. The knowledge services stay, because they belong to the platform: the assistant keeps `knowledge_search` (a platform tool, `alwaysOffered`) and can still search the existing sources.
+
 Owners switch modules in **Settings → Modules**. Disabling asks for confirmation; every change is audited (`module.enabled`, `module.disabled`).
 
 ## Risk analysis
