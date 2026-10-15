@@ -1,0 +1,907 @@
+import { postingSlot } from "../publishing/posting-slots.ts";
+import { resolveFactPlaceholders } from "../policy/fact-placeholders.ts";
+import { finishMissionRun } from "./planning.ts";
+import { retrieveHybrid } from "../../retrieval.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  retrieve,
+  validateEvidence,
+} from "../../../../../../packages/knowledge/src/index.ts";
+import {
+  draftTaskClass,
+  generate,
+  GenerationOutputError,
+  isRejectedRequest,
+  resolveRoute,
+  estimateCost,
+} from "../../../../../../packages/ai/src/index.ts";
+import {
+  activePolicy,
+  CLAIM_REPEAT_WINDOW_DAYS,
+  withinClaimRepeatWindow,
+} from "../policy/policy.ts";
+import { externalChannelPosts } from "../agents/channel-posts.ts";
+import { reserve, settle, markTransmitted } from "../../budget.ts";
+import { errorCode, finishRun, recordSpan, startRun } from "../../telemetry.ts";
+import {
+  data,
+  entity,
+  create,
+  update,
+  DomainError,
+  audit,
+  hash,
+  list,
+} from "../../../shared.ts";
+import { policy } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  openAiConfigurationVersion,
+  runtimeOpenAiConfiguration,
+} from "../../openai-configuration.ts";
+import { assertMissionAssets } from "../brand/asset-tools.ts";
+import { campaignGenerationContext } from "../brand/marketing-profile.ts";
+import {
+  channelTextLength,
+  resolveChannelRules,
+} from "../publishing/channel-rules.ts";
+import { missionFactKeys } from "./mission-evidence.ts";
+import { assertMissionDraftOwner } from "../agents/mission-owner.ts";
+import { assertTaskBudget } from "../agents/specialists/runner.ts";
+import {
+  BANNER_TEXT_LIMITS,
+  bannerTemplateOf,
+  parsedBanner,
+} from "../agents/banner.ts";
+import type { BannerText } from "../../../../../../packages/creative/src/index.ts";
+import {
+  batchCostUsedMicros,
+  enqueueNextBatchRun,
+  MAX_BATCH_DRAFTS,
+} from "./draft-batch.ts";
+type GenerationContract = {
+  goal: string;
+  audience: string;
+  product: string;
+  language: string;
+  channel: string;
+  contentType: string;
+  allowedTopics: string[];
+  channelConstraints: {
+    approvedChannels: string[];
+    approvedContentTypes: string[];
+    providerIdentifier: string | null;
+    characterLimit: number | null;
+    countingMethod: "conservative_x_weighted" | "utf16_units" | null;
+    appendedTargetUrl: string | null;
+    reservedCharacters: number;
+    bodyCharacterBudget: number | null;
+  };
+  missionId: string;
+  missionVersion: number;
+  projectGeneration: number;
+  policyId: string;
+  policyVersion: number;
+  costCeilingMicros: number;
+  evidenceId: string;
+  sourceIds: string[];
+  approvedAssetIds: string[];
+  campaign: Awaited<ReturnType<typeof campaignGenerationContext>> | null;
+  planContext: unknown;
+  batch: {
+    run: number;
+    size: number;
+    previousDrafts: { title: string; claims: string[] }[];
+  } | null;
+  // Present only for a package revision of one existing draft.
+  revision?: {
+    instruction: string;
+    previousBody: string;
+    // The banner copy of the revised draft (R78): kept unless the instruction concerns it.
+    previousBanner?: BannerText;
+  };
+  // Present only for an autopilot day: the channel's posts around its slot.
+  recentChannelPosts?: { title: string; claims: string[] }[];
+  // Present only for a package or assignment run mission: its drafts for the other channels.
+  packageDrafts?: { channel: string; title: string; body: string }[];
+  // Present only for an assignment run mission: the strategy brief of its slot.
+  brief?: {
+    topic: string;
+    angle: string;
+    cta: string;
+    notARepeatBecause: string;
+  };
+  // Present only for an assignment with a format (R77): length, hashtags, paragraphs and link of the post.
+  format?: {
+    minChars: number;
+    maxChars: number;
+    hashtags: { min: number; max: number };
+    paragraphs: boolean;
+    cta?: string;
+  };
+  // Present only for an assignment with a banner (R78): the banner copy's template and length guide.
+  banner?: {
+    template: "brand_landscape";
+    limits: Readonly<Record<keyof BannerText, number>>;
+  };
+  // Present only for a shared text (R76): every channel it goes out on, unchanged.
+  sharedChannels?: {
+    channel: string;
+    providerIdentifier: string | null;
+    characterLimit: number | null;
+  }[];
+};
+/** The draft a revision changes; it must still be the version the user asked to revise. */
+async function revisionContext(
+  tx: DbTx,
+  scope: Scope,
+  revisionOf: { contentId: string; version: number; instruction: string },
+  withBanner = false,
+) {
+  const parent = await entity(tx, scope, "content", revisionOf.contentId);
+  if (parent.version !== revisionOf.version)
+    throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+  const previousBanner = withBanner ? parsedBanner(data(parent).banner) : null;
+  return {
+    instruction: revisionOf.instruction,
+    previousBody: String(data(parent).body ?? ""),
+    ...(previousBanner ? { previousBanner } : {}),
+  };
+}
+
+/**
+ * Each autopilot day is its own mission, so the batch's previous drafts never
+ * reach it; without this a later day repeated an earlier post word for word.
+ */
+export async function recentChannelPosts(
+  tx: DbTx,
+  scope: Scope,
+  missionId: string,
+  channel: string | string[],
+  slot: number,
+) {
+  // A shared text (R76) avoids the recent posts of every channel it goes to.
+  const channels = Array.isArray(channel) ? channel : [channel];
+  const at = (row: Awaited<ReturnType<typeof list>>[number]) =>
+    Date.parse(String(data(row).scheduledAt ?? "")) || row.createdAt.valueOf();
+  const own = (await list(tx, scope, "content"))
+    .filter(
+      (row) =>
+        channels.includes(data(row).channel) &&
+        data(row).missionId !== missionId &&
+        data(row).status !== "archived" &&
+        withinClaimRepeatWindow(at(row), slot),
+    )
+    .map((row) => ({
+      at: at(row),
+      title: String(data(row).title ?? ""),
+      claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
+    }));
+  // Posts made outside Orbit count as well (channel history from Postiz).
+  const external: Array<{ at: number; title: string; claims: string[] }> = [];
+  for (const one of channels)
+    external.push(
+      ...(await externalChannelPosts(
+        tx,
+        scope,
+        one,
+        slot,
+        CLAIM_REPEAT_WINDOW_DAYS,
+      )),
+    );
+  return [...own, ...external]
+    .sort((a, b) => Math.abs(a.at - slot) - Math.abs(b.at - slot))
+    .slice(0, MAX_BATCH_DRAFTS * channels.length)
+    .map(({ title, claims }) => ({ title, claims }));
+}
+
+/**
+ * A package's channels are separate missions, so each would otherwise write
+ * without the others and the X and Telegram posts came out word for word.
+ * The missions of one assignment run share `assignmentRunId` the same way.
+ */
+async function packageDrafts(
+  tx: DbTx,
+  scope: Scope,
+  group: { field: "packageId" | "assignmentRunId"; id: string },
+  missionId: string,
+) {
+  const siblings = new Set(
+    (await list(tx, scope, "missions"))
+      .filter((m) => data(m)[group.field] === group.id && m.id !== missionId)
+      .map((m) => m.id),
+  );
+  return (await list(tx, scope, "content"))
+    .filter(
+      (row) =>
+        siblings.has(String(data(row).missionId)) &&
+        data(row).status !== "archived",
+    )
+    .slice(0, MAX_BATCH_DRAFTS)
+    .map((row) => ({
+      channel: String(data(row).channel ?? ""),
+      title: String(data(row).title ?? ""),
+      body: String(data(row).body ?? "").slice(0, 1000),
+    }));
+}
+
+/** The rules of every channel a shared assignment text goes out on (R76), one after the other in the transaction. */
+async function sharedChannelRules(
+  tx: DbTx,
+  scope: Scope,
+  m: Record<string, any>,
+) {
+  const shared: NonNullable<GenerationContract["sharedChannels"]> = [];
+  for (const channel of m.sharedChannels as string[]) {
+    const rules = await resolveChannelRules(
+      tx,
+      scope,
+      channel,
+      m.contentType,
+      missionHasMedia(m),
+    );
+    shared.push({
+      channel,
+      providerIdentifier: rules.providerIdentifier,
+      characterLimit: rules.characterLimit,
+    });
+  }
+  return shared;
+}
+
+/** Channel limits for attached media apply to approved assets and to a planned package image. */
+export function missionHasMedia(m: Record<string, any>) {
+  return Boolean(m.assetIds?.length) || m.mediaPlanned === true;
+}
+
+export async function generateMissionLive(
+  scope: Scope,
+  missionId: string,
+  jobId: string,
+) {
+  const trace: { runId: string | null } = { runId: null };
+  try {
+    const content = await generateMissionDraft(scope, missionId, jobId, trace);
+    await finishRun(scope, trace.runId, "succeeded");
+    return content;
+  } catch (error) {
+    await finishRun(scope, trace.runId, "failed", errorCode(error));
+    throw error;
+  }
+}
+// `trace.runId` is opened after the preconditions pass, so refused jobs leave no run.
+async function generateMissionDraft(
+  scope: Scope,
+  missionId: string,
+  jobId: string,
+  trace: { runId: string | null },
+) {
+  const saved = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    tx.entity.findFirst({
+      where: {
+        projectId: scope.projectId,
+        kind: "content",
+        data: { path: ["jobId"], equals: jobId },
+      },
+    }),
+  );
+  if (saved) return saved;
+  let routeVersion: number | null = null;
+  const initial = await scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => {
+      const mission = await entity(tx, scope, "missions", missionId),
+        m = data(mission);
+      // Only the assignment's copywriter task drafts its missions (R37).
+      assertMissionDraftOwner(m, jobId);
+      const project = await tx.project.findUniqueOrThrow({
+        where: { id: scope.projectId },
+      });
+      if (project.paused) throw new DomainError("PROJECT_PAUSED");
+      if (m.status !== "ready") throw new DomainError("MISSION_NOT_READY");
+      if ((m.completedRuns ?? 0) >= m.maxContents)
+        throw new DomainError("MISSION_RUN_QUOTA");
+      if (new Date(m.startAt) > new Date() || new Date(m.endAt) <= new Date())
+        throw new DomainError("MISSION_NOT_ACTIVE");
+      if (
+        (await tx.entity.count({
+          where: {
+            projectId: scope.projectId,
+            kind: "content",
+            data: { path: ["missionId"], equals: missionId },
+          },
+        })) >= m.maxContents
+      )
+        throw new DomainError("MISSION_CONTENT_QUOTA");
+      const reservation = await tx.budgetReservation.findFirst({
+        where: {
+          projectId: scope.projectId,
+          key: scope.projectId + ":" + jobId,
+        },
+      });
+      if (reservation) throw new DomainError("RESERVATION_ALREADY_USED");
+      if (m.campaignType || m.profileVersion)
+        await campaignGenerationContext(
+          tx,
+          scope,
+          m,
+          m.channels[(m.completedRuns ?? 0) % m.channels.length],
+        );
+      const currentPolicy = await activePolicy(tx, scope);
+      if (!currentPolicy) throw new DomainError("POLICY_REQUIRED");
+      const activeScope = data(currentPolicy);
+      const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
+      if (
+        !activeScope.channels?.includes(channel) ||
+        !activeScope.contentTypes?.includes(m.contentType)
+      )
+        throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+      if (
+        m.targetUrl &&
+        !activeScope.allowedOrigins?.includes(new URL(m.targetUrl).origin)
+      )
+        throw new DomainError("LINK_NOT_ALLOWED", 409);
+      const configuration = await runtimeOpenAiConfiguration(tx, scope);
+      resolveRoute(draftTaskClass(m.contentType), configuration);
+      routeVersion = configuration.routeVersion ?? null;
+      return mission;
+    },
+  );
+  const taskClass = draftTaskClass(data(initial).contentType);
+  trace.runId = await startRun(scope, {
+    kind: "generation",
+    agentName: "orbit_generator",
+    taskClass,
+    subjectType: "job",
+    subjectId: jobId,
+    missionId,
+    routeVersion,
+  });
+  const retrieved = await retrieveHybrid(
+    scope,
+    {
+      query: data(initial).goal,
+      sourceIds: data(initial).sourceIds,
+      factKeys: missionFactKeys(data(initial)),
+      language: data(initial).language,
+      purpose: "public",
+      forModel: true,
+      at: new Date(),
+    },
+    "mission:" + jobId,
+    // A content package shares one run key, so one per-run limit covers all its drafts.
+    data(initial).budgetRunKey ?? undefined,
+    { agentRunId: trace.runId, missionId, taskClass },
+  );
+  const prepared = await scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => {
+      const mission = await entity(tx, scope, "missions", missionId),
+        m = data(mission);
+      if (new Date(m.endAt) <= new Date())
+        throw new DomainError("MISSION_EXPIRED");
+      const project = await tx.project.findUniqueOrThrow({
+        where: { id: scope.projectId },
+      });
+      if (project.paused) throw new DomainError("PROJECT_PAUSED");
+      await assertMissionAssets(tx, scope, m.assetIds ?? []);
+      const count = await tx.entity.count({
+        where: {
+          projectId: scope.projectId,
+          kind: "content",
+          data: { path: ["missionId"], equals: missionId },
+        },
+      });
+      if (count >= m.maxContents)
+        throw new DomainError("MISSION_CONTENT_QUOTA");
+      if (mission.version !== initial.version)
+        throw new DomainError("MISSION_CHANGED");
+      const evidence = await entity(tx, scope, "evidence", retrieved.id);
+      if (!(await validateEvidence(tx, scope, evidence.id, new Date())).valid)
+        throw new DomainError("EVIDENCE_INVALID");
+      if (data(evidence).status !== "ready")
+        throw new DomainError("INSUFFICIENT_MODEL_APPROVED_EVIDENCE");
+      const ai = await runtimeOpenAiConfiguration(tx, scope);
+      // Fail closed: the run records the configuration version that routed it.
+      if ((ai.routeVersion ?? null) !== routeVersion)
+        throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+      const modelRoute = resolveRoute(draftTaskClass(m.contentType), ai);
+      const p = await activePolicy(tx, scope);
+      if (!p) throw new DomainError("POLICY_REQUIRED");
+      const parsed = policy.parse(
+        Object.fromEntries(
+          Object.entries(data(p)).filter(
+            ([k]) => !["active", "activatedAt", "activatedBy"].includes(k),
+          ),
+        ),
+      );
+      const channel = m.channels[(m.completedRuns ?? 0) % m.channels.length];
+      if (
+        !parsed.channels.includes(channel) ||
+        !parsed.contentTypes.includes(m.contentType)
+      )
+        throw new DomainError("SCOPE_NOT_ALLOWED", 409);
+      if (
+        m.targetUrl &&
+        !parsed.allowedOrigins.includes(new URL(m.targetUrl).origin)
+      )
+        throw new DomainError("LINK_NOT_ALLOWED", 409);
+      const campaignContext =
+        m.campaignType || m.profileVersion
+          ? await campaignGenerationContext(tx, scope, m, channel)
+          : null;
+      const channelRules = await resolveChannelRules(
+        tx,
+        scope,
+        channel,
+        m.contentType,
+        missionHasMedia(m),
+      );
+      const targetUrl =
+        campaignContext?.officialTargetUrl ?? m.targetUrl ?? null;
+      const reservedCharacters = targetUrl
+        ? (channelTextLength("\n" + targetUrl, channelRules) ?? 0)
+        : 0;
+      if (
+        channelRules.characterLimit !== null &&
+        reservedCharacters > channelRules.characterLimit
+      )
+        throw new DomainError("CHANNEL_LIMIT_EXCEEDED", 409);
+      const revision = m.revisionOf
+        ? await revisionContext(
+            tx,
+            scope,
+            m.revisionOf,
+            Boolean(m.assignmentRunId && bannerTemplateOf(m)),
+          )
+        : null;
+      const contract: GenerationContract = {
+        ...(revision ? { revision } : {}),
+        goal: m.goal,
+        audience: m.audience,
+        product: campaignContext?.product ?? m.product,
+        language: m.language,
+        channel,
+        contentType: m.contentType,
+        allowedTopics: m.allowedTopics ?? [],
+        channelConstraints: {
+          approvedChannels: parsed.channels,
+          approvedContentTypes: parsed.contentTypes,
+          providerIdentifier: channelRules.providerIdentifier,
+          characterLimit: channelRules.characterLimit,
+          countingMethod: channelRules.countingMethod,
+          appendedTargetUrl: targetUrl,
+          reservedCharacters,
+          bodyCharacterBudget:
+            channelRules.characterLimit === null
+              ? null
+              : channelRules.characterLimit - reservedCharacters,
+        },
+        missionId,
+        missionVersion: mission.version,
+        projectGeneration: project.generation,
+        policyId: p.id,
+        policyVersion: p.version,
+        costCeilingMicros: parsed.perRunBudgetMicros,
+        evidenceId: evidence.id,
+        sourceIds: m.sourceIds,
+        approvedAssetIds: m.assetIds ?? [],
+        campaign: campaignContext,
+        batch: m.batch
+          ? {
+              run: (m.completedRuns ?? 0) + 1,
+              size: m.batch.size,
+              previousDrafts: (await list(tx, scope, "content"))
+                .filter((row) => data(row).missionId === missionId)
+                .slice(0, MAX_BATCH_DRAFTS)
+                .map((row) => ({
+                  title: String(data(row).title ?? ""),
+                  claims: (data(row).claims ?? []).map((claim: any) =>
+                    String(claim.text),
+                  ),
+                })),
+            }
+          : null,
+        // A revision rewrites its own previous draft (revision.previousBody).
+        ...((typeof m.packageId === "string" ||
+          typeof m.assignmentRunId === "string") &&
+        !m.revisionOf
+          ? {
+              packageDrafts: await packageDrafts(
+                tx,
+                scope,
+                typeof m.packageId === "string"
+                  ? { field: "packageId", id: m.packageId }
+                  : { field: "assignmentRunId", id: m.assignmentRunId },
+                missionId,
+              ),
+            }
+          : {}),
+        ...(m.assignmentRunId && m.brief
+          ? {
+              brief: {
+                topic: String(m.brief.topic),
+                angle: String(m.brief.angle),
+                cta: String(m.brief.cta),
+                notARepeatBecause: String(m.brief.notARepeatBecause),
+              },
+            }
+          : {}),
+        ...(m.assignmentRunId && m.format
+          ? {
+              format: {
+                minChars: Number(m.format.minChars),
+                maxChars: Number(m.format.maxChars),
+                hashtags: {
+                  min: Number(m.format.hashtags?.min ?? 0),
+                  max: Number(m.format.hashtags?.max ?? 0),
+                },
+                paragraphs: m.format.paragraphs === true,
+                ...(m.format.cta ? { cta: String(m.format.cta) } : {}),
+              },
+            }
+          : {}),
+        ...(m.assignmentRunId && bannerTemplateOf(m)
+          ? {
+              banner: {
+                template: bannerTemplateOf(m)!,
+                limits: BANNER_TEXT_LIMITS,
+              },
+            }
+          : {}),
+        ...(m.assignmentRunId &&
+        Array.isArray(m.sharedChannels) &&
+        m.sharedChannels.length > 1
+          ? {
+              sharedChannels: await sharedChannelRules(tx, scope, m),
+            }
+          : {}),
+        ...(m.autopilot === true || m.assignmentRunId
+          ? {
+              recentChannelPosts: await recentChannelPosts(
+                tx,
+                scope,
+                missionId,
+                Array.isArray(m.sharedChannels) && m.sharedChannels.length > 1
+                  ? (m.sharedChannels as string[])
+                  : channel,
+                Date.parse(m.plannedSlotAt ?? "") || Date.now(),
+              ),
+            }
+          : {}),
+        planContext: m.planContext
+          ? {
+              ...m.planContext,
+              insights: (m.planContext.insights ?? []).slice(0, 5),
+              preferences: (m.planContext.preferences ?? []).slice(0, 20),
+            }
+          : null,
+      };
+      const goal = JSON.stringify(contract);
+      const cost = estimateCost(
+        modelRoute.model,
+        Buffer.byteLength(JSON.stringify({ goal, evidence: data(evidence) })) +
+          4000,
+        modelRoute.maxOutputTokens,
+        ai,
+      );
+      if (m.chatProposalId || m.packageId || m.assignmentRunId) {
+        const query = await tx.budgetReservation.findFirst({
+          where: {
+            projectId: scope.projectId,
+            key: scope.projectId + ":query:mission:" + jobId,
+          },
+        });
+        const queryCost = query
+          ? Number(
+              query.state === "settled"
+                ? query.settledMicros
+                : query.amountMicros,
+            )
+          : 0;
+        if (
+          !Number.isSafeInteger(m.chatCostCeilingMicros) ||
+          queryCost + cost > m.chatCostCeilingMicros
+        )
+          throw new DomainError("CHAT_PROPOSAL_COST_EXCEEDED", 409);
+      }
+      // A draft of an assignment run also fits what is left of the run's pool
+      // and the assignment's month now (R75): other steps reserve meanwhile.
+      if (typeof m.agentTaskId === "string" && m.assignmentRunId) {
+        const task = data(
+          await entity(tx, scope, "agent_tasks", m.agentTaskId),
+        );
+        await assertTaskBudget(
+          tx,
+          scope,
+          {
+            id: m.agentTaskId,
+            assignmentId: String(task.assignmentId),
+            runId: String(task.runId),
+            stepKey: String(task.stepKey),
+          },
+          cost,
+        );
+      }
+      if (
+        m.batch &&
+        (await batchCostUsedMicros(tx, scope, missionId)) + cost >
+          m.batch.costCeilingMicros
+      )
+        throw new DomainError("BATCH_BUDGET_EXHAUSTED", 409);
+      const reservation = await reserve(
+        tx,
+        scope,
+        jobId,
+        "text",
+        cost,
+        parsed,
+        new Date(),
+        m.budgetRunKey ?? "mission:" + jobId,
+        {
+          agentRunId: trace.runId,
+          taskClass,
+          model: modelRoute.model,
+          missionId,
+        },
+      );
+      return {
+        mission,
+        goal,
+        evidence,
+        modelRoute,
+        reservationId: reservation.id,
+        ai,
+        projectGeneration: project.generation,
+        policyId: p.id,
+        policyVersion: p.version,
+        campaignContext,
+        channelRules,
+      };
+    },
+  );
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const project = await tx.project.findUniqueOrThrow({
+      where: { id: scope.projectId },
+    });
+    const mission = await entity(tx, scope, "missions", missionId);
+    const current = await activePolicy(tx, scope);
+    const valid = await validateEvidence(
+      tx,
+      scope,
+      prepared.evidence.id,
+      new Date(),
+    );
+    const currentCampaignContext = prepared.campaignContext
+      ? await campaignGenerationContext(
+          tx,
+          scope,
+          data(mission),
+          prepared.campaignContext.targetChannel,
+        )
+      : null;
+    if (
+      project.paused ||
+      // The call must go out under the configuration that routed and priced it.
+      (await openAiConfigurationVersion(tx, scope)) !== routeVersion ||
+      project.generation !== prepared.projectGeneration ||
+      mission.version !== prepared.mission.version ||
+      current?.id !== prepared.policyId ||
+      current?.version !== prepared.policyVersion ||
+      Date.now() < Date.parse(data(current).startAt) ||
+      Date.now() >= Date.parse(data(current).endAt) ||
+      !valid.valid ||
+      (data(mission).revisionOf &&
+        (await entity(tx, scope, "content", data(mission).revisionOf.contentId))
+          .version !== data(mission).revisionOf.version) ||
+      hash(currentCampaignContext) !== hash(prepared.campaignContext) ||
+      hash(
+        await resolveChannelRules(
+          tx,
+          scope,
+          data(mission).channels[
+            (data(mission).completedRuns ?? 0) % data(mission).channels.length
+          ],
+          data(mission).contentType,
+          missionHasMedia(data(mission)),
+        ),
+      ) !== hash(prepared.channelRules)
+    )
+      throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+    await markTransmitted(tx, scope, prepared.reservationId);
+  });
+  let outcome: Awaited<ReturnType<typeof generate>>;
+  const callStartedAt = new Date();
+  try {
+    outcome = await generate({
+      task: "draft",
+      goal: prepared.goal,
+      evidence: data(prepared.evidence),
+      route: prepared.modelRoute,
+      reservationId: prepared.reservationId,
+      runtime: prepared.ai,
+      // Banner copy for an assignment with a banner (R78); otherwise the request is unchanged.
+      ...(data(prepared.mission).assignmentRunId &&
+      bannerTemplateOf(data(prepared.mission))
+        ? { banner: true }
+        : {}),
+    });
+  } catch (error) {
+    // A completed response with unusable output has a known cost.
+    if (error instanceof GenerationOutputError) {
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        settle(tx, scope, prepared.reservationId, error.costMicros),
+      );
+      // Telemetry only after the settlement committed.
+      await recordSpan(scope, trace.runId, {
+        type: "model_call",
+        name: "responses.create",
+        model: error.usage.model,
+        status: "failed",
+        errorCode: error.code,
+        startedAt: callStartedAt,
+        durationMs: Date.now() - callStartedAt.valueOf(),
+        usage: error.usage,
+        costMicros: error.costMicros,
+        budgetReservationId: prepared.reservationId,
+        providerResponseId: error.responseId,
+      });
+      throw new DomainError(error.code);
+    }
+    // A request the provider refused was not processed and costs nothing.
+    if (isRejectedRequest(error)) {
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        settle(tx, scope, prepared.reservationId, 0),
+      );
+      await recordSpan(scope, trace.runId, {
+        type: "model_call",
+        name: "responses.create",
+        model: prepared.modelRoute.model,
+        status: "failed",
+        errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
+        startedAt: callStartedAt,
+        durationMs: Date.now() - callStartedAt.valueOf(),
+        costMicros: 0,
+        budgetReservationId: prepared.reservationId,
+      });
+      throw new DomainError("MODEL_REQUEST_NOT_ACCEPTED");
+    }
+    await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      settle(tx, scope, prepared.reservationId, null),
+    );
+    // Telemetry only after the settlement committed.
+    await recordSpan(scope, trace.runId, {
+      type: "model_call",
+      name: "responses.create",
+      model: prepared.modelRoute.model,
+      status: "unknown",
+      errorCode: "MODEL_OUTCOME_OR_COST_UNKNOWN",
+      startedAt: callStartedAt,
+      durationMs: Date.now() - callStartedAt.valueOf(),
+      budgetReservationId: prepared.reservationId,
+    });
+    throw new DomainError("MODEL_OUTCOME_OR_COST_UNKNOWN");
+  }
+  await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    settle(tx, scope, prepared.reservationId, outcome.usage.costMicros),
+  );
+  await recordSpan(scope, trace.runId, {
+    type: "model_call",
+    name: "responses.create",
+    model: outcome.usage.model,
+    status: "succeeded",
+    startedAt: callStartedAt,
+    durationMs: Date.now() - callStartedAt.valueOf(),
+    usage: outcome.usage,
+    costMicros: outcome.usage.costMicros,
+    budgetReservationId: prepared.reservationId,
+    providerResponseId: outcome.responseId,
+  });
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const project = await tx.project.findUniqueOrThrow({
+        where: { id: scope.projectId },
+      }),
+      mission = await entity(tx, scope, "missions", missionId),
+      currentPolicy = await activePolicy(tx, scope);
+    const evidenceCheck = await validateEvidence(
+      tx,
+      scope,
+      prepared.evidence.id,
+      new Date(),
+    );
+    const currentCampaignContext = prepared.campaignContext
+      ? await campaignGenerationContext(
+          tx,
+          scope,
+          data(mission),
+          prepared.campaignContext.targetChannel,
+        )
+      : null;
+    if (
+      project.paused ||
+      project.generation !== prepared.projectGeneration ||
+      mission.version !== prepared.mission.version ||
+      currentPolicy?.id !== prepared.policyId ||
+      currentPolicy?.version !== prepared.policyVersion ||
+      Date.now() < Date.parse(data(currentPolicy).startAt) ||
+      Date.now() >= Date.parse(data(currentPolicy).endAt) ||
+      Date.now() >= Date.parse(data(mission).endAt) ||
+      !evidenceCheck.valid ||
+      hash(currentCampaignContext) !== hash(prepared.campaignContext) ||
+      hash(
+        await resolveChannelRules(
+          tx,
+          scope,
+          data(mission).channels[
+            (data(mission).completedRuns ?? 0) % data(mission).channels.length
+          ],
+          data(mission).contentType,
+          missionHasMedia(data(mission)),
+        ),
+      ) !== hash(prepared.channelRules)
+    )
+      throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+    const m = data(mission);
+    await assertMissionAssets(tx, scope, m.assetIds ?? []);
+    // Each run of a series gets its own day at the channel's posting time.
+    const planned = Date.parse(m.plannedSlotAt ?? "");
+    const scheduledAt = Number.isFinite(planned)
+      ? new Date(planned)
+      : prepared.channelRules.postingTime
+        ? postingSlot(
+            m.startAt,
+            prepared.channelRules.postingTime,
+            project.timezone,
+            m.completedRuns ?? 0,
+          )
+        : null;
+    const content = await create(tx, scope, "content", {
+      ...(scheduledAt && scheduledAt < new Date(m.endAt)
+        ? { scheduledAt: scheduledAt.toISOString() }
+        : {}),
+      ...resolveFactPlaceholders(
+        outcome.output,
+        data(prepared.evidence).facts ?? [],
+      ),
+      type: m.contentType,
+      language: m.language,
+      channel: m.channels[(m.completedRuns ?? 0) % m.channels.length],
+      missionId,
+      campaignType: m.campaignType,
+      profileVersion: m.profileVersion,
+      ...(prepared.campaignContext
+        ? { targetUrl: prepared.campaignContext.officialTargetUrl }
+        : {}),
+      ...(m.assetIds?.length
+        ? { assetId: m.assetIds[(m.completedRuns ?? 0) % m.assetIds.length] }
+        : {}),
+      // An assignment run's draft stays linked to its run and brief (review, image, history).
+      ...(m.assignmentRunId
+        ? {
+            assignmentId: m.assignmentId,
+            assignmentRunId: m.assignmentRunId,
+            briefKey: m.briefKey,
+            // The delivery confirmed when the mission was made (R73, I1).
+            ...(m.delivery ? { delivery: m.delivery } : {}),
+          }
+        : {}),
+      evidenceId: prepared.evidence.id,
+      risk: "routine",
+      status: "draft",
+      synthetic: false,
+      origin: "generated_derived",
+      model: outcome.usage.model,
+      usage: outcome.usage,
+      jobId,
+    });
+    const finished = await finishMissionRun(tx, scope, missionId, content.id);
+    await enqueueNextBatchRun(tx, scope, finished, jobId);
+    await audit(tx, scope, "generation.completed", content.id, {
+      model: outcome.usage.model,
+      reservationId: prepared.reservationId,
+    });
+    return content;
+  });
+}

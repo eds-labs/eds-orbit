@@ -1,5 +1,5 @@
 import Redis from "ioredis";
-import { postizQueueHealth } from "./postiz-queue-watch.ts";
+import { registeredPeriodicTask } from "../platform/modules/contributions.ts";
 let redis: Redis | undefined;
 function client() {
   if (!redis) {
@@ -14,19 +14,26 @@ function client() {
   }
   return redis;
 }
-/** Aggregated worker queue check results; "unknown" when no fresh check exists. */
-export async function postizQueueState() {
+/**
+ * The health a periodic worker task published (WP2.1), folded over all
+ * projects; "unknown" when no fresh result exists.
+ */
+export async function periodicTaskHealth(name: string) {
+  const summarize = registeredPeriodicTask(name)?.health?.summarize;
+  if (!summarize) return "unknown";
   try {
-    return postizQueueHealth(
+    return summarize(
       await client().hgetall(
-        "orbit:postiz-queue:" + process.env.PUBLISHER_INSTANCE_ID,
+        `orbit:${name}:` + process.env.PUBLISHER_INSTANCE_ID,
       ),
       new Date(),
     );
   } catch {
-    return "unknown" as const;
+    return "unknown";
   }
 }
+/** Aggregated worker queue check results; "unknown" when no fresh check exists. */
+export const postizQueueState = () => periodicTaskHealth("postiz-queue");
 export async function runtimeHealth() {
   try {
     const raw = await client().get(

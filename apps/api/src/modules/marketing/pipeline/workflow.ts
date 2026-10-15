@@ -1,0 +1,693 @@
+import { finishMissionRun } from "./planning.ts";
+import {
+  authorize,
+  PROJECT_OWN,
+} from "../../../platform/tenancy/permissions.ts";
+import { assertMissionDraftOwner } from "../agents/mission-owner.ts";
+import { reportBlockedPost } from "../agents/notifications.ts";
+import { randomUUID } from "node:crypto";
+import type { DbTx } from "../../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  retrieve,
+  validateEvidence,
+} from "../../../../../../packages/knowledge/src/index.ts";
+import {
+  create,
+  update,
+  entity,
+  data,
+  list,
+  hash,
+  DomainError,
+  audit,
+  exception,
+} from "../../../shared.ts";
+import {
+  preflight,
+  checkClaims,
+  activePolicy,
+  type VetoWindow,
+} from "../policy/policy.ts";
+import { assertMissionAssets } from "../brand/asset-tools.ts";
+import { campaignGenerationContext } from "../brand/marketing-profile.ts";
+import { missionFactKeys } from "./mission-evidence.ts";
+import { enqueue } from "../../../platform/jobs/enqueue.ts";
+// The job helper moved to the platform (WP1.1); importers of workflow keep working.
+export { enqueue };
+export async function planMission(tx: DbTx, scope: Scope, missionId: string) {
+  const m = await entity(tx, scope, "missions", missionId);
+  assertMissionDraftOwner(data(m));
+  await assertMissionAssets(tx, scope, data(m).assetIds ?? []);
+  if (["completed", "awaiting_followup"].includes(data(m).status)) return m;
+  // An approved draft batch queues its own single-attempt runs.
+  if (data(m).batch) throw new DomainError("MISSION_BATCH_ACTIVE", 409);
+  const pending = (await list(tx, scope, "jobs")).find(
+    (job) =>
+      data(job).topic === "generation" &&
+      data(job).resourceId === missionId &&
+      ["queued", "running", "retry_scheduled"].includes(data(job).status),
+  );
+  if (pending) return pending;
+  if (new Date(data(m).startAt) > new Date())
+    throw new DomainError("MISSION_NOT_ACTIVE");
+  if (new Date(data(m).endAt) <= new Date())
+    throw new DomainError("MISSION_EXPIRED");
+  return enqueue(
+    tx,
+    scope,
+    "generation",
+    missionId,
+    "mission:" + missionId + ":" + m.version,
+  );
+}
+export async function startApprovedLiveDraftOnce(
+  tx: DbTx,
+  scope: Scope,
+  missionId: string,
+  expectedVersion: number,
+) {
+  authorize(scope, PROJECT_OWN, "FORBIDDEN");
+  assertMissionDraftOwner(data(await entity(tx, scope, "missions", missionId)));
+  if (
+    process.env.EXECUTION_MODE !== "test" ||
+    process.env.ENABLE_EXTERNAL_WRITES !== "false"
+  )
+    throw new DomainError("SAFE_DRAFT_MODE_REQUIRED", 409);
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  if (project.paused || project.mode !== "observe")
+    throw new DomainError("OBSERVE_PROJECT_REQUIRED", 409);
+  await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${missionId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
+  const mission = await entity(tx, scope, "missions", missionId);
+  const m = data(mission);
+  if (mission.version !== expectedVersion)
+    throw new DomainError("VERSION_CONFLICT", 409);
+  if (
+    m.status !== "ready" ||
+    m.maxContents !== 1 ||
+    (m.completedRuns ?? 0) !== 0 ||
+    !Array.isArray(m.allowedActions) ||
+    m.allowedActions.length !== 1 ||
+    m.allowedActions[0] !== "draft"
+  )
+    throw new DomainError("MISSION_NOT_READY", 409);
+  const now = new Date();
+  if (new Date(m.endAt) <= now) throw new DomainError("MISSION_EXPIRED", 409);
+  await tx.$executeRaw`SELECT set_config('app.user_id',${scope.userId},true)`;
+  const proposals = await tx.chatProposal.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      userId: scope.userId,
+      missionId,
+      status: "confirmed",
+    },
+  });
+  if (proposals.length !== 1 || !proposals[0]?.jobId)
+    throw new DomainError("CONFIRMED_PROPOSAL_REQUIRED", 409);
+  const job = await entity(tx, scope, "jobs", proposals[0].jobId);
+  const j = data(job);
+  const fresh = j.status === "queued" && j.attempts === 0 && !j.liveDraftOnce;
+  const recoverable =
+    j.status === "blocked_dependency" &&
+    j.attempts === 1 &&
+    j.error === "INSUFFICIENT_EVIDENCE" &&
+    !j.liveDraftOnce;
+  if (
+    j.topic !== "generation" ||
+    j.resourceId !== missionId ||
+    j.actorId !== scope.userId ||
+    (!fresh && !recoverable)
+  )
+    throw new DomainError("JOB_NOT_QUEUED", 409);
+  if (fresh && new Date(m.startAt) <= now)
+    throw new DomainError("MISSION_ALREADY_ACTIVE", 409);
+  if (recoverable && new Date(m.startAt) > now)
+    throw new DomainError("MISSION_NOT_ACTIVE", 409);
+  if (recoverable) {
+    const otherJobs = (await list(tx, scope, "jobs")).filter(
+      (row) =>
+        row.id !== job.id &&
+        data(row).topic === "generation" &&
+        data(row).resourceId === missionId,
+    );
+    if (otherJobs.length)
+      throw new DomainError("MISSION_JOB_ALREADY_EXISTS", 409);
+  }
+  const events = await tx.outbox.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      topic: "generation",
+      entityId: job.id,
+      dispatchedAt: null,
+    },
+  });
+  if (events.length !== (fresh ? 1 : 0))
+    throw new DomainError("OUTBOX_NOT_UNIQUE", 409);
+  if (recoverable) {
+    const delivered = await tx.outbox.count({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        topic: "generation",
+        entityId: job.id,
+        dispatchedAt: { not: null },
+      },
+    });
+    if (delivered !== 1) throw new DomainError("OUTBOX_NOT_UNIQUE", 409);
+  }
+  const existingContent = await tx.entity.count({
+    where: {
+      projectId: scope.projectId,
+      kind: "content",
+      data: { path: ["missionId"], equals: missionId },
+    },
+  });
+  if (existingContent) throw new DomainError("MISSION_CONTENT_QUOTA", 409);
+  const existingReservation = await tx.budgetReservation.findFirst({
+    where: { projectId: scope.projectId, key: scope.projectId + ":" + job.id },
+  });
+  if (existingReservation)
+    throw new DomainError("RESERVATION_ALREADY_USED", 409);
+  const policy = await activePolicy(tx, scope);
+  if (!policy) throw new DomainError("PAID_MANDATE_REQUIRED", 409);
+  const p = data(policy);
+  if (
+    !p.approvedPaidTests ||
+    !p.perRunBudgetMicros ||
+    p.perRunBudgetMicros > 10_000_000 ||
+    now < new Date(p.startAt) ||
+    now >= new Date(p.endAt) ||
+    !p.dailyBudgetMicros ||
+    !p.monthlyBudgetMicros ||
+    !m.channels.every((channel: string) => p.channels?.includes(channel)) ||
+    !p.contentTypes?.includes(m.contentType)
+  )
+    throw new DomainError("PAID_MANDATE_REQUIRED", 409);
+  await assertMissionAssets(tx, scope, m.assetIds ?? []);
+  if (recoverable) {
+    const next = await enqueue(
+      tx,
+      scope,
+      "generation",
+      missionId,
+      "mission:" + missionId + ":evidence-recovery:" + job.id,
+      now,
+    );
+    await update(tx, scope, next, {
+      ...data(next),
+      maxAttempts: 1,
+      liveDraftOnce: true,
+      approvedBy: scope.userId,
+      recoveryOfJobId: job.id,
+    });
+    await audit(
+      tx,
+      scope,
+      "mission.live_draft_once_recovery_approved",
+      missionId,
+      {
+        jobId: next.id,
+        blockedJobId: job.id,
+        missionVersion: mission.version,
+        maxAttempts: 1,
+      },
+    );
+    return {
+      missionId,
+      jobId: next.id,
+      blockedJobId: job.id,
+      startAt: now.toISOString(),
+      maxAttempts: 1,
+    };
+  }
+  const updatedMission = await update(tx, scope, mission, {
+    ...m,
+    startAt: now.toISOString(),
+  });
+  await update(tx, scope, job, {
+    ...j,
+    maxAttempts: 1,
+    liveDraftOnce: true,
+    approvedBy: scope.userId,
+    availableAt: now.toISOString(),
+  });
+  await tx.outbox.update({
+    where: { id: events[0]!.id },
+    data: { availableAt: now },
+  });
+  await audit(tx, scope, "mission.live_draft_once_approved", missionId, {
+    jobId: job.id,
+    missionVersion: updatedMission.version,
+    maxAttempts: 1,
+  });
+  return {
+    missionId,
+    jobId: job.id,
+    startAt: now.toISOString(),
+    maxAttempts: 1,
+  };
+}
+export async function deterministicDraft(
+  tx: DbTx,
+  scope: Scope,
+  missionId: string,
+  jobId?: string,
+) {
+  if (jobId) {
+    const saved = (await list(tx, scope, "content")).find(
+      (c) => data(c).jobId === jobId,
+    );
+    if (saved) return [saved];
+  }
+  const m = await entity(tx, scope, "missions", missionId),
+    v = data(m);
+  const campaign =
+    v.campaignType || v.profileVersion
+      ? await campaignGenerationContext(
+          tx,
+          scope,
+          v,
+          v.channels[(v.completedRuns ?? 0) % v.channels.length],
+        )
+      : null;
+  await assertMissionAssets(tx, scope, v.assetIds ?? []);
+  if (new Date(v.endAt) <= new Date()) throw new DomainError("MISSION_EXPIRED");
+  if (new Date(v.startAt) > new Date())
+    throw new DomainError("MISSION_NOT_ACTIVE");
+  if ((v.completedRuns ?? 0) >= v.maxContents) return [];
+  const channel = v.channels[(v.completedRuns ?? 0) % v.channels.length];
+  const existing = (await list(tx, scope, "content")).filter(
+    (x) => data(x).missionId === missionId,
+  );
+  if (existing.length >= v.maxContents) return existing;
+  const evidence = await retrieve(tx, scope, {
+    query: v.goal,
+    sourceIds: v.sourceIds,
+    factKeys: missionFactKeys(v),
+    purpose: "public",
+    language: v.language,
+    at: new Date(),
+  });
+  const e = data(evidence as any);
+  const evidenceId = (evidence as any).id;
+  if (!evidenceId || e.status === "insufficient_evidence") {
+    await exception(tx, scope, "INSUFFICIENT_EVIDENCE", missionId);
+    throw new DomainError("INSUFFICIENT_EVIDENCE");
+  }
+  const facts = await list(tx, scope, "facts");
+  const fact = facts.find(
+    (f) => JSON.stringify(e).includes(f.id) && data(f).status === "verified",
+  );
+  let body: string, claims: any[];
+  if (fact) {
+    const f = data(fact);
+    body = `${f.key}: ${typeof f.value === "object" ? JSON.stringify(f.value) : f.value}${f.currency ? " " + f.currency : f.unit ? " " + f.unit : ""}`;
+    claims = [{ kind: "fact", text: body, factId: fact.id }];
+  } else {
+    const items = e.items ?? [];
+    const first = items[0];
+    const chunkId = first?.chunkId ?? first?.id;
+    const chunk = chunkId
+      ? await tx.knowledgeChunk.findFirst({
+          where: { id: chunkId, projectId: scope.projectId },
+        })
+      : null;
+    if (!chunk) throw new DomainError("INSUFFICIENT_EVIDENCE");
+    body = chunk.text.slice(0, 260);
+    claims = [{ kind: "quote", text: body, chunkId: chunk.id }];
+  }
+  body = `${body}\n${v.targetAction}`;
+  claims.push({ kind: "style", text: v.targetAction });
+  const duplicate = (await list(tx, scope, "content")).find(
+    (x) => data(x).body === body && data(x).channel === channel,
+  );
+  if (
+    duplicate &&
+    (await validateEvidence(tx, scope, data(duplicate).evidenceId, new Date()))
+      .valid
+  ) {
+    await finishMissionRun(
+      tx,
+      scope,
+      missionId,
+      duplicate.id,
+      new Date(),
+      true,
+    );
+    return [];
+  }
+  const content = await create(tx, scope, "content", {
+    title: v.title,
+    body,
+    type: v.contentType,
+    language: v.language,
+    channel,
+    missionId,
+    ...(v.assetIds?.length
+      ? { assetId: v.assetIds[(v.completedRuns ?? 0) % v.assetIds.length] }
+      : {}),
+    campaignType: v.campaignType,
+    profileVersion: v.profileVersion,
+    ...(campaign ? { targetUrl: campaign.officialTargetUrl } : {}),
+    evidenceId,
+    claims,
+    risk: "routine",
+    status: "draft",
+    synthetic: true,
+    origin: "generated_derived",
+    executionMode: "test",
+    generationMethod: "deterministic_extract_test",
+    ...(jobId ? { jobId } : {}),
+    outline: [],
+    sources: [],
+    slug: v.title.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+  });
+  await finishMissionRun(tx, scope, missionId, content.id);
+  await audit(tx, scope, "mission.test_draft", content.id, {
+    missionId,
+    evidenceId,
+  });
+  return [content];
+}
+function localDay(at: Date, timezone: string) {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: timezone,
+  }).format(at);
+}
+/**
+ * Creates the publication of one exact post and its publisher job at the
+ * slot. With `vetoDeadline` (assignment posts, spec §9) the publication
+ * carries a veto window: it belongs to the content's assignment run, the
+ * deadline lies between now and the slot, and claimPublication hands it over
+ * only after the deadline without a stop (R4).
+ */
+export async function publishIntent(
+  tx: DbTx,
+  scope: Scope,
+  input: {
+    contentId: string;
+    version: number;
+    scheduledAt?: string;
+    vetoDeadline?: string;
+  },
+) {
+  const c = await entity(tx, scope, "content", input.contentId);
+  if (c.version !== input.version)
+    throw new DomainError("VERSION_CONFLICT", 409);
+  const effectiveSchedule = input.scheduledAt ?? data(c).scheduledAt;
+  const at = effectiveSchedule ? new Date(effectiveSchedule) : new Date();
+  if (!Number.isFinite(at.valueOf()) || at.valueOf() < Date.now() - 1000)
+    throw new DomainError("INVALID_SCHEDULE");
+  if (input.scheduledAt && data(c).scheduledAt !== input.scheduledAt)
+    throw new DomainError("SAVE_SCHEDULE_BEFORE_APPROVAL", 409);
+  let veto: VetoWindow | undefined;
+  if (input.vetoDeadline !== undefined) {
+    const deadline = Date.parse(input.vetoDeadline);
+    if (typeof data(c).assignmentRunId !== "string")
+      throw new DomainError("VETO_WINDOW_NOT_ALLOWED", 409);
+    if (
+      !Number.isFinite(deadline) ||
+      deadline < Date.now() - 1000 ||
+      deadline > at.valueOf()
+    )
+      throw new DomainError("INVALID_VETO_DEADLINE", 409);
+    veto = {
+      deadline: new Date(deadline).toISOString(),
+      vetoedAt: null,
+      assignmentRunId: data(c).assignmentRunId,
+      handoff: false,
+    };
+  }
+  const test = process.env.EXECUTION_MODE !== "live";
+  const p = await preflight(tx, scope, c.id, { test, at, veto });
+  if (!p.allowed) throw new DomainError(p.blockers.join(","), 409);
+  const key = hash({
+    contentId: c.id,
+    version: c.version,
+    packageHash: p.packageHash,
+    test,
+    // Publications without a veto window keep their existing keys.
+    ...(veto ? { vetoDeadline: veto.deadline } : {}),
+  });
+  const all = await list(tx, scope, "publications"),
+    old = all.find((x) => data(x).idempotencyKey === key);
+  if (old) return old;
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  const active = all.filter(
+    (x) =>
+      !["canceled", "failed", "blocked_dependency"].includes(data(x).status) &&
+      data(x).channel === data(c).channel,
+  );
+  if (
+    active.filter(
+      (x) =>
+        localDay(new Date(data(x).scheduledAt), project.timezone) ===
+        localDay(at, project.timezone),
+    ).length >= p.policyInput!.maxPerDay
+  )
+    throw new DomainError("CHANNEL_DAILY_QUOTA", 409);
+  if (
+    active.some(
+      (x) =>
+        Math.abs(new Date(data(x).scheduledAt).valueOf() - at.valueOf()) <
+        p.policyInput!.minIntervalMinutes * 60000,
+    )
+  )
+    throw new DomainError("CHANNEL_SPACING", 409);
+  const pub = await create(tx, scope, "publications", {
+    contentId: c.id,
+    contentVersion: c.version,
+    evidenceId: data(c).evidenceId,
+    channel: data(c).channel,
+    status: "intent_created",
+    packageHash: p.packageHash,
+    idempotencyKey: key,
+    scheduledAt: at.toISOString(),
+    test,
+    remoteId: null,
+    ...(veto
+      ? {
+          vetoDeadline: veto.deadline,
+          vetoedAt: null,
+          assignmentId: data(c).assignmentId,
+          assignmentRunId: veto.assignmentRunId,
+        }
+      : {}),
+  });
+  await enqueue(tx, scope, "publishing", pub.id, "publish:" + pub.id, at);
+  await audit(tx, scope, "publish.intent", pub.id, {
+    test,
+    packageHash: p.packageHash,
+  });
+  return pub;
+}
+/**
+ * The veto window at handoff (R4): a publication with a window goes out only
+ * after its deadline and without a stop; content whose only review is the
+ * agent's never goes out without a window. Owner-reviewed publications
+ * without a window are unaffected.
+ */
+async function vetoWindowBlocker(
+  tx: DbTx,
+  scope: Scope,
+  pub: Record<string, any>,
+) {
+  if (pub.vetoedAt) return "VETOED";
+  if (pub.vetoDeadline !== undefined && pub.vetoDeadline !== null) {
+    const deadline = Date.parse(String(pub.vetoDeadline));
+    return Number.isFinite(deadline) && deadline <= Date.now()
+      ? null
+      : "VETO_WINDOW_OPEN";
+  }
+  const c = data(await entity(tx, scope, "content", pub.contentId));
+  const agentReviewedOnly =
+    c.agentReview != null && c.humanReviewedBodyHash !== hash(c.body);
+  return agentReviewedOnly ? "VETO_DEADLINE_REQUIRED" : null;
+}
+export async function claimPublication(tx: DbTx, scope: Scope, pubId: string) {
+  const pub = await entity(tx, scope, "publications", pubId),
+    v = data(pub);
+  if (
+    [
+      "published",
+      "published_test",
+      "canceled",
+      "blocked_dependency",
+      "outcome_unknown",
+      "sending",
+    ].includes(v.status)
+  )
+    return { send: false, pub };
+  if (new Date(v.scheduledAt) > new Date()) throw new DomainError("NOT_DUE");
+  const vetoBlocker = await vetoWindowBlocker(tx, scope, v);
+  if (vetoBlocker) {
+    const blocked = await update(tx, scope, pub, {
+      ...v,
+      status: "blocked_dependency",
+      blockers: [vetoBlocker],
+    });
+    await exception(tx, scope, "PUBLISH_PREFLIGHT_BLOCKED", pub.id);
+    await reportBlockedPost(tx, scope, pub.id, v, [vetoBlocker]);
+    return { send: false, pub: blocked };
+  }
+  const p = await preflight(tx, scope, v.contentId, {
+    test: v.test,
+    ...(v.vetoDeadline && v.assignmentRunId
+      ? {
+          veto: {
+            deadline: v.vetoDeadline,
+            vetoedAt: v.vetoedAt ?? null,
+            assignmentRunId: v.assignmentRunId,
+            handoff: true,
+          },
+        }
+      : {}),
+  });
+  if (!p.allowed || p.packageHash !== v.packageHash) {
+    const blockers = p.blockers.length ? p.blockers : ["PACKAGE_CHANGED"];
+    const blocked = await update(tx, scope, pub, {
+      ...v,
+      status: "blocked_dependency",
+      blockers,
+    });
+    await exception(tx, scope, "PUBLISH_PREFLIGHT_BLOCKED", pub.id);
+    // The owner was promised this post (preview or release): he hears that it stopped (I4).
+    await reportBlockedPost(tx, scope, pub.id, v, blockers);
+    return { send: false, pub: blocked };
+  }
+  const claimed = await update(tx, scope, pub, {
+    ...v,
+    status: "sending",
+    handoffAt: new Date().toISOString(),
+    fence: randomUUID(),
+  });
+  for (const a of await list(tx, scope, "approvals"))
+    if (data(a).packageHash === v.packageHash && data(a).status === "approved")
+      await update(tx, scope, a, {
+        ...data(a),
+        status: "consumed",
+        publicationId: pub.id,
+      });
+  return { send: true, pub: claimed, content: p.content };
+}
+export async function finishPublication(
+  tx: DbTx,
+  scope: Scope,
+  pubId: string,
+  fence: string,
+  result: {
+    status: "published" | "published_test" | "outcome_unknown" | "failed";
+    remoteId?: string;
+  },
+) {
+  const pub = await entity(tx, scope, "publications", pubId);
+  if (data(pub).fence !== fence) throw new DomainError("STALE_FENCE", 409);
+  if (data(pub).status !== "sending") return pub;
+  const done = await update(tx, scope, pub, {
+    ...data(pub),
+    ...result,
+    completedAt: new Date().toISOString(),
+  });
+  await audit(tx, scope, "publish." + result.status, pubId, {
+    remoteId: result.remoteId ?? null,
+  });
+  if (result.status === "outcome_unknown")
+    await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pubId);
+  return done;
+}
+export async function analyze(tx: DbTx, scope: Scope, campaign?: string) {
+  const rows = (await list(tx, scope, "metrics")).filter(
+    (x) => !campaign || data(x).campaign === campaign,
+  );
+  if (!rows.length) throw new DomainError("NO_METRICS");
+  const dimensions = new Set(
+    rows.map((x) =>
+      JSON.stringify([
+        data(x).source,
+        data(x).currency ?? null,
+        data(x).accountId ?? null,
+        data(x).timezone ?? null,
+      ]),
+    ),
+  );
+  if (dimensions.size > 1)
+    throw new DomainError("METRIC_DIMENSIONS_MUST_MATCH");
+  const sources = [...new Set(rows.map((x) => data(x).source))];
+  if (sources.length > 1 && !campaign)
+    throw new DomainError("SELECT_SINGLE_SOURCE_CAMPAIGN");
+  const sum = (k: string) =>
+    rows.some((x) => data(x)[k] === null)
+      ? null
+      : rows.reduce((n, x) => n + Number(data(x)[k] ?? 0), 0);
+  const sample = rows.reduce((n, x) => n + data(x).sampleSize, 0),
+    snapshot = hash(rows.map((x) => ({ id: x.id, version: x.version })));
+  const previous = (await list(tx, scope, "insights")).find(
+    (x) => data(x).snapshot === snapshot,
+  );
+  if (previous) return previous;
+  const insight = await create(tx, scope, "insights", {
+    kind: "performance",
+    status: sample < 30 ? "hypothesis" : "observed",
+    campaign: campaign ?? null,
+    snapshot,
+    metricIds: rows.map((x) => x.id),
+    sources,
+    currency: data(rows[0]!).currency ?? null,
+    accountId: data(rows[0]!).accountId ?? null,
+    timezone: data(rows[0]!).timezone ?? null,
+    denominator: sample,
+    clicks: sum("clicks"),
+    sessions: sum("sessions"),
+    conversions: sum("conversions"),
+    costMicros: sum("costMicros"),
+    limitations: [
+      "Observational data does not establish causation",
+      ...[
+        ...new Set(
+          rows.flatMap((r) =>
+            Array.isArray(data(r).limitations) ? data(r).limitations : [],
+          ),
+        ),
+      ].slice(0, 30),
+      ...(sample < 30 ? ["Insufficient sample; no winner declared"] : []),
+    ],
+    validUntil: new Date(Date.now() + 30 * 86400000).toISOString(),
+    recommendation:
+      "Review the existing mission using this observation; do not increase channel quota, budget or audience.",
+  });
+  await audit(tx, scope, "analytics.insight", insight.id, { snapshot });
+  return insight;
+}
+export async function reviewContent(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  version: number,
+  humanConfirm = false,
+) {
+  let c = await entity(tx, scope, "content", id);
+  if (c.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
+  if (humanConfirm) {
+    authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+    c = await update(tx, scope, c, {
+      ...data(c),
+      humanReviewedBodyHash: hash(data(c).body),
+    });
+  }
+  const result = await checkClaims(tx, scope, id);
+  return update(tx, scope, c, {
+    ...data(c),
+    status: result.valid ? "reviewed" : "needs_review",
+    review: result,
+    reviewedBy: scope.userId,
+  });
+}

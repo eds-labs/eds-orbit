@@ -1,41 +1,34 @@
+import {
+  PROJECT_OWN,
+  PROJECT_WRITE,
+  platformActionPermissions,
+} from "./platform/tenancy/permissions.ts";
+import {
+  knowledgeActionPermissions,
+  knowledgeCollectionPermissions,
+} from "./modules/knowledge/permissions.ts";
+import {
+  marketingActionPermissions,
+  marketingCollectionPermissions,
+} from "./modules/marketing/permissions.ts";
+import { moduleRegistry, registerModules } from "./modules/registry.ts";
+import {
+  registeredAction,
+  registeredActionOwner,
+  registeredRegistry,
+  registeredRoutesByOwner,
+} from "./platform/modules/contributions.ts";
+import {
+  assertModuleEnabled,
+  assertModuleEnabledFor,
+} from "./platform/modules/enforcement.ts";
+import {
+  listModuleStates,
+  moduleSwitchingEnabled,
+  recordDefaultModules,
+  setModuleEnabled,
+} from "./platform/modules/activation.ts";
 import { randomUUID } from "node:crypto";
-import { configureMatomoSchedule } from "./modules/matomo-schedule.ts";
-import {
-  approveAndSchedule,
-  autopilotMigration,
-  configureAutopilot,
-  proposeAutopilotAssignment,
-} from "./modules/autopilot.ts";
-import { resumePausedPublications } from "./modules/paused-posts.ts";
-import { archiveMission } from "./modules/mission-archive.ts";
-import { addProjectMember } from "./modules/project-members.ts";
-import {
-  archiveOldDrafts,
-  restoreDraftCleanup,
-} from "./modules/draft-cleanup.ts";
-import {
-  proposeBrief,
-  briefProposalInput,
-  importCommunityQuestions,
-  communityImportInput,
-  linkCommunityGroup,
-  communityLinkInput,
-  adaptContent,
-  contentAdaptationInput,
-} from "./modules/editorial.ts";
-import { matomoImportInput, importMatomoReport } from "./modules/matomo.ts";
-import { withdrawFact } from "../../../packages/knowledge/src/index.ts";
-import {
-  queueIndexEvaluation,
-  indexEvaluationRequest,
-} from "./modules/index-evaluation.ts";
-import {
-  preparePostizVerification,
-  executePostizVerification,
-  reconcilePostizVerification,
-  postizVerificationInput,
-  postizVerificationApproval,
-} from "./modules/postiz-verification.ts";
 import {
   agentRunsQuery,
   aiCostQuery,
@@ -43,18 +36,9 @@ import {
   listAgentRuns,
   listRunSpans,
 } from "./modules/ai-usage.ts";
-import { pauseProject } from "./modules/pause.ts";
-import {
-  blockCalendar,
-  unblockCalendar,
-  calendarBlock,
-} from "./modules/calendar.ts";
-import {
-  listIndexGenerations,
-  beginIndexBuild,
-  activateIndexGeneration,
-  rollbackIndexGeneration,
-} from "../../../packages/knowledge/src/index.ts";
+import { pauseProject } from "./platform/governance/pause.ts";
+import { exportProject } from "./platform/governance/export.ts";
+import { listIndexGenerations } from "../../../packages/knowledge/src/index.ts";
 import {
   runtimeHealth,
   closeRuntime,
@@ -68,65 +52,15 @@ import {
   sendMessage,
   getRun,
   cancelRun,
-  confirmProposal,
 } from "./modules/chat.ts";
 import {
   decideActionRequest,
   listActionRequests,
 } from "./modules/action-requests.ts";
-import { cancelContentPackage } from "./modules/agents/content-packages.ts";
-import { attachPackageImage } from "./modules/agents/package-image.ts";
-import { cancelPackageSchedule } from "./modules/agents/package-schedule.ts";
-import {
-  agentsEnabled,
-  setAssignmentStatus,
-} from "./modules/agents/assignments.ts";
-import {
-  assignmentStatusInput,
-  draftsAwaitingOwner,
-  listAssignments,
-  upcomingAssignmentPosts,
-  vetoInput,
-} from "./modules/agents/assignment-overview.ts";
-import {
-  releaseAssignmentDraft,
-  releaseInput,
-} from "./modules/agents/owner-release.ts";
-import { vetoPublication } from "./modules/agents/veto.ts";
+import { agentsEnabled } from "./modules/agents/assignments.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
-import {
-  configureSlack,
-  queueSlackDigest,
-  handleSlackInteraction,
-  slackConfiguration,
-} from "./modules/slack.ts";
-import { readiness } from "./modules/readiness.ts";
-import {
-  assignPostizChannels,
-  postizAssignmentInput,
-  postizHealthStatus,
-} from "./modules/postiz-assignment.ts";
-import {
-  publicOpenAiConfiguration,
-  saveOpenAiConfiguration,
-} from "./modules/openai-configuration.ts";
-import {
-  assetBytes,
-  brandAssetUploadInput,
-  normalizeBrandAsset,
-} from "./modules/assets.ts";
-import { exportContentBundle } from "./modules/content-export.ts";
-import {
-  MAX_BATCH_DRAFTS,
-  resumeLiveDraftBatch,
-  startApprovedLiveDraftBatch,
-} from "./modules/draft-batch.ts";
-import { withGenerationProvenance } from "./modules/content-provenance.ts";
-import {
-  handoffPostizDraft,
-  resolvePostizDraft,
-} from "./modules/postiz-draft.ts";
-import { generateProjectImage } from "./modules/image-generation.ts";
+import { projectReadiness } from "./platform/governance/readiness.ts";
+import { publicOpenAiConfiguration } from "./modules/openai-configuration.ts";
 import {
   beginConnect,
   finishConnect,
@@ -137,18 +71,7 @@ import {
   rootCandidates,
   browseDrive,
   driveContent,
-  importDriveFile,
-  uploadUserRaster,
-  brandAssets,
-  saveGeneratedAsset,
-} from "./modules/google-drive.ts";
-import {
-  correctMetric,
-  memoryLifecycle,
-  evaluateExperiment,
-  stopExperiment,
-  retention,
-} from "./modules/lifecycle.ts";
+} from "./platform/connections/google-drive.ts";
 import Fastify from "fastify";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -158,13 +81,7 @@ import { authDb, scoped, jsonSafe } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import {
-  ingest,
-  retrieve,
   setFact,
-  revokeSource,
-  setSourceRights,
-  revokeDocument,
-  extractDocument,
   KnowledgeError,
 } from "../../../packages/knowledge/src/index.ts";
 import {
@@ -174,6 +91,7 @@ import {
   userFor,
   fromNodeHeaders,
 } from "./auth.ts";
+import { clientIp, pinClientIpHeader } from "./client-ip.ts";
 import {
   data,
   create,
@@ -184,44 +102,20 @@ import {
   DomainError,
   constantEqual,
   audit,
-  encrypt,
-  decrypt,
-  exception,
-  hash,
 } from "./shared.ts";
-import { activePolicy, approve, preflight } from "./modules/policy.ts";
-import { invalidateContent } from "./modules/content-invalidation.ts";
+import { activePolicy } from "./modules/policy.ts";
 import {
-  currentMarketingProfile,
-  saveMarketingProfile,
   assertCampaignContext,
   assertContentCampaignContext,
 } from "./modules/marketing-profile.ts";
-import {
-  planMission,
-  startApprovedLiveDraftOnce,
-  publishIntent,
-  analyze,
-  reviewContent,
-  enqueue,
-} from "./modules/workflow.ts";
-import { queueDocumentEmbedding } from "./modules/ingestion.ts";
-import {
-  createPostizClient,
-  normalizePostizBaseUrl,
-  createMatomoClient,
-  importAdsCsv,
-  ConnectorError,
-  type FetchLike,
-} from "../../../packages/connectors/src/index.ts";
+import { type FetchLike } from "../../../packages/connectors/src/index.ts";
 import {
   connectTelegram,
   disconnectTelegram,
   handleTelegramWebhook,
   telegramEnabled,
   telegramStatus,
-} from "./modules/telegram.ts";
-import { renderProjectAsset } from "./modules/render-asset.ts";
+} from "./platform/connections/telegram.ts";
 const factSchema = z
   .object({
     id: schemas.id.optional(),
@@ -245,15 +139,8 @@ const factSchema = z
     resolveConflictIds: z.array(schemas.id).max(50).optional(),
   })
   .strict();
-import { retrieveHybrid } from "./modules/retrieval.ts";
-import {
-  commitKnowledgeImport,
-  importPreview,
-  knowledgeImportInput,
-  retryKnowledgeImport,
-} from "./modules/knowledge-import.ts";
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
-import { agentActivity } from "./modules/agents/agent-activity.ts";
+import { connectionVerified } from "./platform/connections/connections.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
 const AGENT_ROUTES = new Set([
@@ -276,14 +163,38 @@ const UUID_SEGMENT =
 const TELEGRAM_WEBHOOK_PATH = new RegExp(
   `^/api/telegram/${UUID_SEGMENT}/${UUID_SEGMENT}$`,
 );
+/** The permission an action needs; an unknown action needs the writer level. */
+function actionPermission(action: string) {
+  return (
+    platformActionPermissions[action] ??
+    knowledgeActionPermissions[action] ??
+    marketingActionPermissions[action] ??
+    PROJECT_WRITE
+  );
+}
+/** The module (or "platform") that owns a collection's entity kind. */
+const collectionOwner = (collection: string) =>
+  registeredRegistry().kindOwner.get(collection);
+/** The permission a generic collection write needs. */
+function collectionWritePermission(collection: string) {
+  const owned: Record<string, ReturnType<typeof actionPermission>> = {
+    ...knowledgeCollectionPermissions,
+    ...marketingCollectionPermissions,
+  };
+  return owned[collection] ?? PROJECT_WRITE;
+}
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
   options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
 ) {
+  // A broken module manifest stops the API before it serves anything.
+  registerModules();
   const config = loadConfig(),
     auth = makeAuth();
   const app = Fastify({
     bodyLimit: 1500000,
+    // req.ip stays the TCP peer; the forwarded client address is resolved by
+    // clientIp(), which trusts it only from the internal web hop.
     trustProxy: false,
     // Never trust or echo client-supplied request ids.
     genReqId: () => randomUUID(),
@@ -314,11 +225,14 @@ export async function buildServer(
       directives: { defaultSrc: ["'none'"], frameAncestors: ["'none'"] },
     },
   });
+  // Before any hook or handler reads the header (Better Auth included).
+  app.addHook("onRequest", async (req) => pinClientIpHeader(req));
   await app.register(rateLimit, {
     max: (req) => (["GET", "HEAD"].includes(req.method) ? 600 : 100),
     timeWindow: "1 minute",
     keyGenerator: (req) =>
-      req.ip + (["GET", "HEAD"].includes(req.method) ? ":read" : ":write"),
+      clientIp(req) +
+      (["GET", "HEAD"].includes(req.method) ? ":read" : ":write"),
   });
   await app.register(swagger, {
     openapi: {
@@ -404,32 +318,6 @@ export async function buildServer(
       error: { code, message: code.replaceAll("_", " ").slice(0, 200) },
     });
   });
-  app.post(
-    "/api/slack/:workspaceId/:projectId/interactions",
-    async (req, reply) => {
-      const params = z
-        .object({ workspaceId: schemas.id, projectId: schemas.id })
-        .parse(req.params);
-      try {
-        await handleSlackInteraction({
-          ...params,
-          rawBody: z.string().max(1000000).parse(req.body),
-          timestamp: z.string().parse(req.headers["x-slack-request-timestamp"]),
-          signature: z.string().parse(req.headers["x-slack-signature"]),
-        });
-        return reply.code(200).send("");
-      } catch (error) {
-        if (error instanceof ConnectorError) {
-          if (error.code === "SLACK_REPLAY") return reply.code(200).send("");
-          throw new DomainError(
-            error.code,
-            error.code === "SLACK_PAYLOAD_INVALID" ? 400 : 403,
-          );
-        }
-        throw error;
-      }
-    },
-  );
   // Orbit Telegram bot webhook (Orbit Agents): public, authenticated only by
   // the per-connection secret header and the bound chat (spec §10).
   app.post(
@@ -528,7 +416,7 @@ export async function buildServer(
         max: 20,
         timeWindow: "1 minute",
         keyGenerator: (req: import("fastify").FastifyRequest) =>
-          req.ip + ":" + req.method + ":" + req.url.split("?")[0],
+          clientIp(req) + ":" + req.method + ":" + req.url.split("?")[0],
       },
     },
     handler: async (req, reply) => {
@@ -643,7 +531,51 @@ export async function buildServer(
         },
       },
     });
+    // The registry defaults, recorded as the migration did for existing
+    // projects. Without these rows the same defaults apply.
+    await scoped(project.workspaceId, project.id, (tx) =>
+      recordDefaultModules(
+        tx,
+        {
+          workspaceId: project.workspaceId,
+          projectId: project.id,
+          userId: user.id,
+          role: "owner",
+        },
+        moduleRegistry(),
+      ),
+    );
     return reply.code(201).send(project);
+  });
+  // Module activation per project (WP1.4): readable by every member,
+  // switchable by owners while ORBIT_MODULES is on. Not yet enforced.
+  app.get("/api/projects/:projectId/modules", async (req) => {
+    const { projectId } = req.params as any;
+    const scope = await scopeFor(auth, req, projectId);
+    return {
+      switchable: moduleSwitchingEnabled(),
+      modules: await scoped(scope.workspaceId, projectId, (tx) =>
+        listModuleStates(tx, scope, moduleRegistry()),
+      ),
+    };
+  });
+  app.put("/api/projects/:projectId/modules/:moduleId", async (req) => {
+    const { projectId, moduleId } = req.params as any;
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    if (!moduleSwitchingEnabled()) throw new DomainError("NOT_FOUND", 404);
+    const input = z.object({ enabled: z.boolean() }).strict().parse(req.body);
+    return {
+      switchable: true,
+      modules: await scoped(scope.workspaceId, projectId, (tx) =>
+        setModuleEnabled(
+          tx,
+          scope,
+          moduleRegistry(),
+          String(moduleId),
+          input.enabled,
+        ),
+      ),
+    };
   });
   app.get("/api/projects/:projectId/dashboard", async (req) => {
     const { projectId } = req.params as any;
@@ -663,9 +595,9 @@ export async function buildServer(
         (f) => data(f).status === "verified",
       ).length;
       counts.connectedConnectors = (await list(tx, scope, "connectors")).filter(
-        (c) => ["read_verified", "write_verified"].includes(data(c).status),
+        (c) => connectionVerified(data(c).status),
       ).length;
-      const capabilityReadiness = await readiness(tx, scope);
+      const capabilityReadiness = await projectReadiness(tx, scope);
       return {
         project,
         counts,
@@ -704,7 +636,7 @@ export async function buildServer(
   });
   app.get("/api/projects/:projectId/agent-runs", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return listAgentRuns(scope, agentRunsQuery.parse(req.query));
   });
   app.get("/api/projects/:projectId/agent-runs/:runId/spans", async (req) => {
@@ -712,17 +644,17 @@ export async function buildServer(
       projectId: string;
       runId: string;
     };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return { items: await listRunSpans(scope, z.uuid().parse(runId)) };
   });
   app.get("/api/projects/:projectId/ai-cost", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return aiCostSummary(scope, aiCostQuery.parse(req.query));
   });
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, false, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, async (tx) =>
       publicOpenAiConfiguration(
         await tx.entity.findFirst({
@@ -780,39 +712,28 @@ export async function buildServer(
   app.get("/api/projects/:projectId/export", async (req) => {
     const { projectId } = req.params as any,
       scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => ({
-      formatVersion: 1,
-      exportedAt: new Date().toISOString(),
-      entities: (
-        await tx.entity.findMany({
-          where: {
-            projectId,
-            kind: {
-              notIn: [
-                "connectors",
-                "evidence",
-                "drive_connection",
-                "drive_oauth_state",
-                "telegram_connections",
-              ],
-            },
-          },
-        })
-      ).map(publicEntity),
-    }));
+    return scoped(scope.workspaceId, projectId, (tx) =>
+      exportProject(tx, scope),
+    );
   });
-  app.get("/api/projects/:projectId/content/:id/export", async (req, reply) => {
-    const { projectId, id } = req.params as any,
-      scope = await scopeFor(auth, req, projectId);
-    const bundle = await exportContentBundle(scope, id);
-    return reply
-      .header("Content-Type", "application/json")
-      .header(
-        "Content-Disposition",
-        'attachment; filename="orbit-article-bundle.json"',
-      )
-      .send(bundle);
-  });
+
+  // Module routes at their existing paths (WP2.1f).
+  // A disabled module's project routes answer 404 MODULE_DISABLED after the
+  // membership check (WP2.4); public webhooks keep their own checks.
+  for (const [owner, routes] of registeredRoutesByOwner())
+    await app.register(async (child) => {
+      child.addHook("preHandler", async (req) => {
+        if (!moduleSwitchingEnabled()) return;
+        if (!req.routeOptions.url?.startsWith("/api/projects/:projectId/"))
+          return;
+        const { projectId } = req.params as { projectId: string };
+        await assertModuleEnabledFor(
+          await scopeFor(auth, req, projectId),
+          owner,
+        );
+      });
+      routes({ app: child, auth, config });
+    });
 
   app.post("/api/workspaces/:workspaceId/pause", async (req) => {
     const user = await userFor(auth, req),
@@ -848,7 +769,7 @@ export async function buildServer(
   });
   app.get("/api/projects/:projectId/members", async (req) => {
     const { projectId } = req.params as any;
-    await scopeFor(auth, req, projectId, false, true);
+    await scopeFor(auth, req, projectId, PROJECT_OWN);
     return {
       items: await authDb.projectMember.findMany({
         where: { projectId },
@@ -858,31 +779,16 @@ export async function buildServer(
   });
   app.get("/api/projects/:projectId/indexes", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, false, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, async (tx) => ({
       items: await listIndexGenerations(tx, scope),
     }));
-  });
-  app.get("/api/projects/:projectId/marketing-profile", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => {
-      const profile = await currentMarketingProfile(tx, scope);
-      return profile ? jsonSafe(profile) : null;
-    });
-  });
-  app.put("/api/projects/:projectId/marketing-profile", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
-    return scoped(scope.workspaceId, projectId, async (tx) =>
-      jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
-    );
   });
   // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
   app.get("/api/projects/:projectId/telegram", async (req) => {
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return scoped(scope.workspaceId, projectId, (tx) =>
       telegramStatus(tx, scope),
     );
@@ -891,7 +797,7 @@ export async function buildServer(
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return connectTelegram(
-      await scopeFor(auth, req, projectId, true, true),
+      await scopeFor(auth, req, projectId, PROJECT_OWN),
       req.body,
       { fetch: options?.telegramFetch },
     );
@@ -900,140 +806,24 @@ export async function buildServer(
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
     const { projectId } = req.params as { projectId: string };
     return disconnectTelegram(
-      await scopeFor(auth, req, projectId, true, true),
+      await scopeFor(auth, req, projectId, PROJECT_OWN),
       { fetch: options?.telegramFetch },
     );
   });
-  // Orbit Agents for the web: assignments and their upcoming posts (404 while off).
-  app.get("/api/projects/:projectId/assignments", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, (tx) =>
-      listAssignments(tx, scope),
-    );
-  });
-  // Pause and end are an editor's; resuming is the owner's (setAssignmentStatus).
-  app.post("/api/projects/:projectId/assignments/:id/status", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, true);
-    const input = assignmentStatusInput.parse(req.body);
-    const saved = await scoped(scope.workspaceId, projectId, (tx) =>
-      setAssignmentStatus(
-        tx,
-        scope,
-        z.uuid().parse(id),
-        input.status,
-        input.version,
-      ),
-    );
-    return { id: saved.id, version: saved.version, status: data(saved).status };
-  });
-  // The saved weekly autopilot as a draft assignment (spec D5, migration card).
-  app.get(
-    "/api/projects/:projectId/assignments/autopilot-migration",
-    async (req) => {
-      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId);
-      return scoped(scope.workspaceId, projectId, (tx) =>
-        autopilotMigration(tx, scope),
-      );
-    },
-  );
-  // Proposes it through the normal proposal path; an owner confirms it like any other.
-  app.post(
-    "/api/projects/:projectId/assignments/autopilot-migration",
-    async (req) => {
-      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true);
-      const { assignment, actionRequest, conversationId } =
-        await proposeAutopilotAssignment(scope);
-      return {
-        assignmentId: assignment.id,
-        actionRequestId: actionRequest.id,
-        conversationId,
-      };
-    },
-  );
-  app.get("/api/projects/:projectId/assignment-posts", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return {
-      items: await scoped(scope.workspaceId, projectId, (tx) =>
-        upcomingAssignmentPosts(tx, scope),
-      ),
-    };
-  });
-  // What the agents work on, what comes next and whether anything needs attention (overview).
-  app.get("/api/projects/:projectId/agent-activity", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, (tx) =>
-      agentActivity(tx, scope),
-    );
-  });
-  // Stop in Orbit (spec §10 fallback): the same veto as the bot's Stop button.
-  app.post("/api/projects/:projectId/publications/:id/veto", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, true);
-    const input = vetoInput.parse(req.body);
-    return scoped(scope.workspaceId, projectId, (tx) =>
-      vetoPublication(
-        tx,
-        scope,
-        z.uuid().parse(id),
-        input.version,
-        "orbit",
-        input.reason,
-      ),
-    );
-  });
-  // Assignment drafts left for the owner (R70): the list, and the owner's release of one.
-  app.get("/api/projects/:projectId/assignment-drafts", async (req) => {
-    if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId);
-    return {
-      items: await scoped(scope.workspaceId, projectId, (tx) =>
-        draftsAwaitingOwner(tx, scope),
-      ),
-    };
-  });
-  app.post(
-    "/api/projects/:projectId/assignment-drafts/:id/release",
-    async (req) => {
-      if (!agentsEnabled()) throw new DomainError("NOT_FOUND", 404);
-      const { projectId, id } = req.params as {
-        projectId: string;
-        id: string;
-      };
-      const scope = await scopeFor(auth, req, projectId, true, true);
-      const input = releaseInput.parse(req.body);
-      return scoped(scope.workspaceId, projectId, (tx) =>
-        releaseAssignmentDraft(tx, scope, z.uuid().parse(id), input.version),
-      );
-    },
-  );
   app.get("/api/projects/:projectId/google-drive", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return connectionStatus(await scopeFor(auth, req, projectId));
   });
   app.post("/api/projects/:projectId/google-drive/connect", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    return beginConnect(await scopeFor(auth, req, projectId, true, true));
+    return beginConnect(await scopeFor(auth, req, projectId, PROJECT_OWN));
   });
   app.get("/api/google-drive/callback", async (req, reply) => {
     const { code, state } = z
       .object({ code: z.string().min(1), state: z.string().min(40) })
       .parse(req.query);
     const projectId = z.uuid().parse(state.split(".")[0]);
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     const ready = await finishConnect(scope, state, code);
     return reply.redirect(
       `${config.APP_ORIGIN}/settings?googleDrive=${ready ? "ready" : "choose-root"}`,
@@ -1047,7 +837,7 @@ export async function buildServer(
         .object({ pageToken: z.string().max(500).optional() })
         .parse(req.query);
       return rootCandidates(
-        await scopeFor(auth, req, projectId, true, true),
+        await scopeFor(auth, req, projectId, PROJECT_OWN),
         pageToken,
       );
     },
@@ -1058,22 +848,18 @@ export async function buildServer(
   });
   app.post("/api/projects/:projectId/google-drive/disconnect", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    await disconnect(await scopeFor(auth, req, projectId, true, true));
+    await disconnect(await scopeFor(auth, req, projectId, PROJECT_OWN));
     return { connected: false };
   });
   app.put("/api/projects/:projectId/google-drive/root", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     await configureRoot(scope, req.body);
     return connectionStatus(scope);
   });
   app.get("/api/projects/:projectId/google-drive/files", async (req) => {
     const { projectId } = req.params as { projectId: string };
     return browseDrive(await scopeFor(auth, req, projectId), req.query);
-  });
-  app.get("/api/projects/:projectId/google-drive/brand", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    return { files: await brandAssets(await scopeFor(auth, req, projectId)) };
   });
   app.get(
     "/api/projects/:projectId/google-drive/files/:fileId/content",
@@ -1091,120 +877,6 @@ export async function buildServer(
         .header("X-Content-Type-Options", "nosniff")
         .type(content.mime)
         .send(content.bytes);
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/google-drive/files/:fileId/import",
-    async (req, reply) => {
-      const { projectId, fileId } = req.params as {
-        projectId: string;
-        fileId: string;
-      };
-      const scope = await scopeFor(auth, req, projectId, true, true);
-      const { type } = z
-        .object({
-          type: z
-            .enum([
-              "logo",
-              "photo",
-              "background",
-              "banner",
-              "icon",
-              "document",
-              "other",
-            ])
-            .default("photo"),
-        })
-        .parse(req.body ?? {});
-      return reply
-        .code(201)
-        .send(publicEntity(await importDriveFile(scope, fileId, type)));
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/assets/:assetId/drive-retry",
-    async (req, reply) => {
-      const { projectId, assetId } = req.params as {
-        projectId: string;
-        assetId: string;
-      };
-      const scope = await scopeFor(auth, req, projectId, true, true);
-      return reply.send(
-        publicEntity(
-          await saveGeneratedAsset(scope, schemas.id.parse(assetId)),
-        ),
-      );
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/google-drive/upload",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (req, reply) => {
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true, true);
-      return reply
-        .code(201)
-        .send(publicEntity(await uploadUserRaster(scope, req.body)));
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/assets/upload",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (req, reply) => {
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true, true);
-      const normalized = await normalizeBrandAsset(
-        brandAssetUploadInput.parse(req.body),
-      );
-      const row = await scoped(scope.workspaceId, projectId, async (tx) => {
-        const asset = await create(tx, scope, "assets", {
-          ...normalized,
-          assetStatus: "reference",
-          usageApproved: false,
-          uploadedBy: scope.userId,
-          uploadedAt: new Date().toISOString(),
-        });
-        await audit(tx, scope, "asset.upload", asset.id, {
-          type: normalized.type,
-          sha256: normalized.sha256,
-          bytes: normalized.bytes,
-        });
-        return asset;
-      });
-      return reply.code(201).send(publicEntity(row));
-    },
-  );
-  app.get(
-    "/api/projects/:projectId/assets/:assetId/content",
-    async (req, reply) => {
-      const { projectId, assetId } = req.params as {
-        projectId: string;
-        assetId: string;
-      };
-      const scope = await scopeFor(auth, req, projectId);
-      const assetData = await scoped(scope.workspaceId, projectId, async (tx) =>
-        data(await entity(tx, scope, "assets", schemas.id.parse(assetId))),
-      );
-      const content =
-        assetData.driveFileId && !assetData.base64
-          ? await driveContent(scope, assetData.driveFileId)
-          : assetBytes(assetData);
-      return reply
-        .header("Content-Security-Policy", "default-src 'none'; sandbox")
-        .header("X-Content-Type-Options", "nosniff")
-        .type(content.mime)
-        .send(content.bytes);
-    },
-  );
-  app.post(
-    "/api/projects/:projectId/images/generate",
-    { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } },
-    async (req, reply) => {
-      const { projectId } = req.params as { projectId: string };
-      const scope = await scopeFor(auth, req, projectId, true, true);
-      return reply.send(
-        publicEntity(await generateProjectImage(scope, req.body)),
-      );
     },
   );
   app.get("/api/projects/:projectId/chat/conversations", async (req) => {
@@ -1308,42 +980,10 @@ export async function buildServer(
     const scope = await scopeFor(auth, req, projectId);
     return cancelRun(scope, z.uuid().parse(id));
   });
-  app.post(
-    "/api/projects/:projectId/chat/proposals/:id/confirm",
-    async (req) => {
-      const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
-      return confirmProposal(scope, z.uuid().parse(id), req.body);
-    },
-  );
-  // Stops what has not started; the requester only.
-  app.post("/api/projects/:projectId/chat/packages/:id/cancel", async (req) => {
-    const { projectId, id } = req.params as { projectId: string; id: string };
-    const scope = await scopeFor(auth, req, projectId, true);
-    return cancelContentPackage(scope, z.uuid().parse(id));
-  });
-  // Attaches the package's rights-approved image to chosen drafts; the requester only.
-  app.post(
-    "/api/projects/:projectId/chat/packages/:id/attach-image",
-    async (req) => {
-      const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
-      return attachPackageImage(scope, z.uuid().parse(id), req.body);
-    },
-  );
-  // Cancels a package post's schedule before the handoff; the requester or an owner.
-  app.post(
-    "/api/projects/:projectId/chat/packages/:id/unschedule",
-    async (req) => {
-      const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
-      return cancelPackageSchedule(scope, z.uuid().parse(id), req.body);
-    },
-  );
   // Owners' open decisions (image requests from editors' packages and others).
   app.get("/api/projects/:projectId/action-requests", async (req) => {
     const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, true, true);
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
     return {
       items: await scoped(scope.workspaceId, projectId, (tx) =>
         listActionRequests(tx, scope),
@@ -1355,7 +995,7 @@ export async function buildServer(
     "/api/projects/:projectId/action-requests/:id/decide",
     async (req) => {
       const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, true);
+      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
       const decided = await scoped(scope.workspaceId, projectId, (tx) =>
         decideActionRequest(tx, scope, z.uuid().parse(id), req.body),
       );
@@ -1370,21 +1010,27 @@ export async function buildServer(
     const { projectId, collection } = req.params as any;
     schemas.collection.parse(collection);
     const scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => ({
-      items: (await list(tx, scope, collection))
-        // Composed assignment banners are bound to their post (R78): no library entry.
-        .filter((row) => collection !== "assets" || !data(row).boundTo)
-        .slice(0, 500)
-        .map(publicEntity),
-    }));
+    return scoped(scope.workspaceId, projectId, async (tx) => {
+      await assertModuleEnabled(tx, scope, collectionOwner(collection));
+      return {
+        items: (await list(tx, scope, collection))
+          // Composed assignment banners are bound to their post (R78): no library entry.
+          .filter((row) => collection !== "assets" || !data(row).boundTo)
+          .slice(0, 500)
+          .map(publicEntity),
+      };
+    });
   });
   app.post("/api/projects/:projectId/:collection", async (req, reply) => {
     const { projectId, collection } = req.params as any;
-    const owner = ["sources", "facts", "policies", "preferences"].includes(
-      collection,
+    const scope = await scopeFor(
+      auth,
+      req,
+      projectId,
+      collectionWritePermission(collection),
     );
-    const scope = await scopeFor(auth, req, projectId, true, owner);
     const result = await scoped(scope.workspaceId, projectId, async (tx) => {
+      await assertModuleEnabled(tx, scope, collectionOwner(collection));
       if (collection === "facts")
         return setFact(tx, scope, factSchema.parse(req.body));
       let parsed: Record<string, any>;
@@ -1452,7 +1098,7 @@ export async function buildServer(
         parsed.mode === "autopilot" &&
         config.EXECUTION_MODE === "live"
       ) {
-        const state = await readiness(tx, scope);
+        const state = await projectReadiness(tx, scope);
         if (state.blockers.length)
           throw new DomainError(
             "LIVE_ACTIVATION_BLOCKED:" + state.blockers.join(","),
@@ -1464,816 +1110,30 @@ export async function buildServer(
     });
     return reply.code(201).send(jsonSafe(result));
   });
-  app.patch("/api/projects/:projectId/content/:id", async (req) => {
-    const { projectId, id } = req.params as any,
-      scope = await scopeFor(auth, req, projectId, true);
-    const input = z
-      .object({ version: z.number().int(), data: schemas.content })
-      .strict()
-      .parse(req.body);
-    return scoped(scope.workspaceId, projectId, async (tx) => {
-      const row = await entity(tx, scope, "content", id);
-      if (row.version !== input.version)
-        throw new DomainError("VERSION_CONFLICT", 409);
-      await entity(tx, scope, "evidence", input.data.evidenceId);
-      await assertContentCampaignContext(tx, scope, input.data);
-      await invalidateContent(tx, scope, id);
-      return update(tx, scope, row, {
-        ...withGenerationProvenance(data(row), input.data),
-        status: "draft",
-        origin: data(row).origin,
-        synthetic: data(row).synthetic ?? false,
-      });
-    });
-  });
   app.post("/api/projects/:projectId/actions/:action", async (req) => {
     const { projectId, action } = req.params as any;
-    const owner = [
-      "withdraw-fact",
-      "import-matomo",
-      "evaluate-index",
-      "postiz-test-prepare",
-      "postiz-test-execute",
-      "postiz-draft-handoff",
-      "postiz-draft-resolve",
-      "archive-mission",
-      "configure-autopilot",
-      "configure-matomo-schedule",
-      "approve-and-schedule",
-      "resume-paused-publications",
-      "postiz-test-reconcile",
-      "calendar-block",
-      "calendar-unblock",
-      "approve",
-      "pause",
-      "revoke-source",
-      "source-pause",
-      "revoke-document",
-      "preference-update",
-      "project-settings",
-      "add-member",
-      "brand-approval",
-      "asset-status",
-      "connector",
-      "connector-health",
-      "postiz-assign-channels",
-      "resolve-exception",
-      "slack-configure",
-      "slack-digest",
-      "begin-index",
-      "build-index",
-      "activate-index",
-      "rollback-index",
-      "correct-metric",
-      "memory-lifecycle",
-      "retention",
-      "stop-experiment",
-      "openai-configure",
-      "embed-document",
-      "start-approved-live-draft-once",
-      "start-approved-live-draft-batch",
-      "resume-live-draft-batch",
-      "knowledge-import-commit",
-      "knowledge-import-retry",
-    ].includes(action);
-    // These check the owner role themselves, so editors and viewers alike
-    // get OWNER_REQUIRED instead of the generic FORBIDDEN. Skipping the
-    // generic write gate is safe for them only: they are not in `owner`
-    // above, are dispatched solely inside the scoped transaction below, and
-    // archiveOldDrafts/restoreDraftCleanup refuse every non-owner as their
-    // first statement, before reading or writing anything. Scope still
-    // requires a project membership (NOT_FOUND otherwise).
-    const ownerChecked = [
-      "archive-old-drafts",
-      "restore-draft-cleanup",
-    ].includes(action);
+    // Every action declares its permission in the owning module's catalogue;
+    // an unknown name needs the writer level, as before (WP1.5).
     const scope = await scopeFor(
       auth,
       req,
       projectId,
-      action !== "retrieve" && action !== "preflight" && !ownerChecked,
-      owner,
+      actionPermission(action),
     );
     const input = object.parse(req.body);
-    if (action === "retrieve" && input.useEmbeddings === true) {
-      return retrieveHybrid(scope, {
-        query: z.string().min(1).max(2000).parse(input.query),
-        language: z.enum(["en", "de"]).default("en").parse(input.language),
-        purpose: z
-          .enum(["public", "internal"])
-          .default("public")
-          .parse(input.purpose),
-        at: input.at ? new Date(z.iso.datetime().parse(input.at)) : new Date(),
-        factKeys: z.array(z.string()).max(20).optional().parse(input.factKeys),
-        sourceIds: z
-          .array(schemas.id)
-          .max(30)
-          .optional()
-          .parse(input.sourceIds),
-      });
-    }
-    if (action === "openai-configure")
-      return scoped(scope.workspaceId, projectId, async (tx) => {
-        const result = await saveOpenAiConfiguration(tx, scope, input);
-        await audit(
-          tx,
-          scope,
-          "openai_configuration.update",
-          "openai_configuration",
-          {
-            configured: result.configured,
-            source: result.source,
-            modelCount: result.verifiedModels.length,
-          },
-        );
-        return result;
-      });
-    if (action === "render") return renderProjectAsset(scope, input);
-    if (action === "knowledge-import-preview")
-      return importPreview(knowledgeImportInput.parse(input));
-    if (action === "import-matomo")
-      return importMatomoReport(scope, matomoImportInput.parse(input));
-    if (action === "postiz-draft-handoff")
-      return handoffPostizDraft(scope, input);
-    // Preparation may read a Drive asset, which needs the project lock that a
-    // shared transaction would already hold.
-    if (action === "postiz-test-prepare")
-      return preparePostizVerification(
-        scope,
-        postizVerificationInput.parse(input),
-      );
-    if (action === "postiz-test-execute")
-      return executePostizVerification(
-        scope,
-        postizVerificationApproval.parse(input),
-      );
-    if (action === "postiz-test-reconcile")
-      return reconcilePostizVerification(
-        scope,
-        schemas.id.parse(input.verificationId),
-      );
-    if (action === "add-member") return addProjectMember(auth, scope, input);
-    if (action === "project-settings") {
-      const i = z
-        .object({
-          name: z.string().min(1).max(100),
-          timezone: z.string(),
-          language: z.enum(["en", "de"]),
-        })
-        .strict()
-        .parse(input);
-      new Intl.DateTimeFormat("en", { timeZone: i.timezone });
-      return authDb.project.update({ where: { id: projectId }, data: i });
-    }
-    if (action === "connector-health") {
-      const c = await scoped(scope.workspaceId, projectId, (tx) =>
-          entity(tx, scope, "connectors", schemas.id.parse(input.connectorId)),
-        ),
-        d = data(c);
-      let result: Record<string, unknown>;
-      const options = {
-        baseUrl: d.baseUrl,
-        token: decrypt(d.encryptedCredential, config.CREDENTIAL_KEY),
-      };
-      if (d.provider === "postiz") {
-        const client = createPostizClient(options);
-        const channels = await client.listIntegrations();
-        const checkedAt = new Date().toISOString();
-        let groups: Awaited<ReturnType<typeof client.listGroups>> = [];
-        try {
-          groups = await client.listGroups();
-        } catch (error) {
-          if (!(error instanceof ConnectorError && error.status === 404))
-            throw error;
-        }
-        const connection = {
-          connected: true,
-          provider: "postiz",
-          baseUrl: client.baseUrl,
-          channelCount: channels.length,
-          checkedAt,
-          error: null,
-        };
-        result = {
-          status: postizHealthStatus(d),
-          capabilities: client.capabilities,
-          channels,
-          groups,
-          baseUrl: client.baseUrl,
-          connection,
-          lastSuccessfulConnection: checkedAt,
-        };
-      } else if (d.provider === "matomo") {
-        const client = createMatomoClient({
-          ...options,
-          allowedSiteIds: [Number(d.siteId)],
-        });
-        await client.report({
-          siteId: Number(d.siteId),
-          method: "Goals.getGoals",
-          period: "day",
-          date: new Date().toISOString().slice(0, 10),
-          siteTimezone: "UTC",
-        });
-        result = { status: "read_verified", capabilities: client.capabilities };
-      } else
-        throw new DomainError("SLACK_DELIVERY_TEST_REQUIRES_AUTHORIZATION");
-      return scoped(scope.workspaceId, projectId, async (tx) => {
-        const current = await entity(tx, scope, "connectors", c.id);
-        if (current.version !== c.version)
-          throw new DomainError("CONNECTOR_CHANGED");
-        return publicEntity(
-          await update(tx, scope, current, {
-            ...d,
-            ...result,
-            verifiedAt: new Date().toISOString(),
-          }),
-        );
-      });
+    // Handlers come from the platform and the modules (WP2.1f).
+    const handler = registeredAction(action);
+    if (!handler) throw new DomainError("ACTION_NOT_SUPPORTED", 400);
+    const ctx = { scope, input, config, auth };
+    // A disabled module's actions answer 404 MODULE_DISABLED (WP2.4).
+    const owner = registeredActionOwner(action);
+    if (handler.transaction === "own") {
+      await assertModuleEnabledFor(scope, owner);
+      return handler.run(ctx);
     }
     return scoped(scope.workspaceId, projectId, async (tx) => {
-      if (action === "postiz-assign-channels")
-        return publicEntity(
-          await assignPostizChannels(
-            tx,
-            scope,
-            postizAssignmentInput.parse(input),
-          ),
-        );
-      if (action === "knowledge-import-commit")
-        return commitKnowledgeImport(
-          tx,
-          scope,
-          knowledgeImportInput.parse(input),
-        );
-      if (action === "knowledge-import-retry")
-        return retryKnowledgeImport(
-          tx,
-          scope,
-          schemas.id.parse(input.importId),
-          knowledgeImportInput.parse(input.payload),
-        );
-      if (action === "editorial-propose-brief")
-        return proposeBrief(briefProposalInput.parse(input));
-      if (action === "community-import")
-        return importCommunityQuestions(
-          tx,
-          scope,
-          communityImportInput.parse(input),
-        );
-      if (action === "community-link")
-        return linkCommunityGroup(tx, scope, communityLinkInput.parse(input));
-      if (action === "adapt-content")
-        return adaptContent(tx, scope, contentAdaptationInput.parse(input));
-      if (action === "withdraw-fact")
-        return withdrawFact(
-          tx,
-          scope,
-          schemas.id.parse(input.factId),
-          z.number().int().positive().parse(input.version),
-        );
-      if (action === "evaluate-index")
-        return queueIndexEvaluation(
-          tx,
-          scope,
-          indexEvaluationRequest.parse(input),
-        );
-      if (action === "calendar-block")
-        return blockCalendar(tx, scope, calendarBlock.parse(input));
-      if (action === "calendar-unblock")
-        return unblockCalendar(
-          tx,
-          scope,
-          schemas.id.parse(input.blockId),
-          z.number().int().positive().parse(input.version),
-        );
-      if (action === "begin-index")
-        return beginIndexBuild(
-          tx,
-          scope,
-          z.string().max(200).parse(input.profile),
-        );
-      if (action === "build-index") {
-        const indexId = schemas.id.parse(input.indexId);
-        const index = await tx.knowledgeIndex.findFirst({
-          where: { id: indexId, projectId },
-        });
-        if (!index || index.state !== "building")
-          throw new DomainError("INDEX_NOT_BUILDING");
-        const count = await tx.chunkEmbedding.count({
-          where: {
-            projectId,
-            profile: index.profile,
-            indexGeneration: index.generation,
-          },
-        });
-        return enqueue(
-          tx,
-          scope,
-          "reindex",
-          index.id,
-          "reindex:" + index.id + ":" + count,
-        );
-      }
-      if (action === "activate-index")
-        return activateIndexGeneration(
-          tx,
-          scope,
-          schemas.id.parse(input.indexId),
-        );
-      if (action === "rollback-index")
-        return rollbackIndexGeneration(
-          tx,
-          scope,
-          schemas.id.parse(input.indexId),
-        );
-      if (action === "slack-configure")
-        return configureSlack(tx, scope, slackConfiguration.parse(input));
-      if (action === "slack-digest") return queueSlackDigest(tx, scope);
-      if (action === "correct-metric") {
-        const i = z
-          .object({
-            metricId: schemas.id,
-            version: z.number().int(),
-            values: schemas.metric,
-            reason: z.string().min(5).max(500),
-          })
-          .strict()
-          .parse(input);
-        return correctMetric(
-          tx,
-          scope,
-          i.metricId,
-          i.version,
-          i.values,
-          i.reason,
-        );
-      }
-      if (action === "memory-lifecycle") {
-        const i = z
-          .object({
-            kind: z.enum(["preferences", "insights"]),
-            id: schemas.id,
-            version: z.number().int(),
-            operation: z.enum(["disable", "delete"]),
-          })
-          .strict()
-          .parse(input);
-        return memoryLifecycle(tx, scope, i.kind, i.id, i.version, i.operation);
-      }
-      if (action === "retention")
-        return retention(
-          tx,
-          scope,
-          z.number().int().min(30).max(3650).parse(input.days),
-        );
-      if (action === "evaluate-experiment")
-        return evaluateExperiment(
-          tx,
-          scope,
-          schemas.id.parse(input.experimentId),
-        );
-      if (action === "stop-experiment") {
-        const i = z
-          .object({
-            experimentId: schemas.id,
-            version: z.number().int(),
-            reason: z.string().min(5).max(500),
-          })
-          .strict()
-          .parse(input);
-        return stopExperiment(tx, scope, i.experimentId, i.version, i.reason);
-      }
-      if (action === "import") {
-        const source = await entity(
-          tx,
-          scope,
-          "sources",
-          schemas.id.parse(input.sourceId),
-        );
-        if (input.url) {
-          const url = z.url().parse(input.url);
-          const request = await create(tx, scope, "sync_requests", {
-            sourceId: source.id,
-            url,
-            expectedGeneration: data(source).generation,
-            language: input.language ?? "en",
-          });
-          return enqueue(
-            tx,
-            scope,
-            "ingestion",
-            request.id,
-            "sync:" + request.id,
-          );
-        }
-        const parsed = z
-          .object({
-            sourceId: schemas.id,
-            externalId: z.string().min(1).max(300),
-            title: z.string().min(1).max(300),
-            text: z.string().max(1000000).optional(),
-            base64: z.string().max(1400000).optional(),
-            mimeType: z.enum([
-              "text/plain",
-              "text/markdown",
-              "text/html",
-              "application/pdf",
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            ]),
-            language: z.enum(["en", "de"]),
-          })
-          .strict()
-          .parse(input);
-        const extracted = await extractDocument(
-          parsed.base64
-            ? Buffer.from(parsed.base64, "base64")
-            : Buffer.from(parsed.text ?? ""),
-          parsed.mimeType,
-        );
-        return ingest(tx, scope, {
-          sourceId: source.id,
-          externalId: parsed.externalId,
-          title: parsed.title,
-          text: extracted.text,
-          mimeType: parsed.mimeType,
-          language: parsed.language,
-          expectedGeneration: data(source).generation,
-        });
-      }
-      if (action === "retrieve")
-        return retrieve(tx, scope, {
-          query: z.string().min(1).max(2000).parse(input.query),
-          language: z.enum(["en", "de"]).default("en").parse(input.language),
-          purpose: z
-            .enum(["public", "internal"])
-            .default("public")
-            .parse(input.purpose),
-          at: input.at
-            ? new Date(z.iso.datetime().parse(input.at))
-            : new Date(),
-          factKeys: z
-            .array(z.string())
-            .max(20)
-            .optional()
-            .parse(input.factKeys),
-          sourceIds: z
-            .array(schemas.id)
-            .max(30)
-            .optional()
-            .parse(input.sourceIds),
-        });
-      if (action === "revoke-source")
-        return revokeSource(tx, scope, schemas.id.parse(input.sourceId));
-      if (action === "source-pause")
-        return setSourceRights(tx, scope, schemas.id.parse(input.sourceId), {
-          paused: z.boolean().parse(input.paused),
-        });
-      if (action === "revoke-document")
-        return revokeDocument(
-          tx,
-          scope,
-          schemas.id.parse(input.documentId),
-          typeof input.versionId === "string" ? input.versionId : undefined,
-        );
-      if (action === "preference-update") {
-        const i = z
-          .object({
-            preferenceId: schemas.id,
-            version: z.number().int(),
-            status: z.enum(["confirmed", "disabled"]),
-            rule: z.string().min(1).max(2000).optional(),
-          })
-          .strict()
-          .parse(input);
-        const p = await entity(tx, scope, "preferences", i.preferenceId);
-        if (p.version !== i.version)
-          throw new DomainError("VERSION_CONFLICT", 409);
-        return update(tx, scope, p, {
-          ...data(p),
-          status: i.status,
-          rule: i.rule ?? data(p).rule,
-          confirmedBy: scope.userId,
-        });
-      }
-      if (action === "import-metrics") {
-        const i = z
-          .object({
-            csv: z.string().max(1000000),
-            source: z.string().max(100).default("csv"),
-            accountId: z.string().max(100).default("manual"),
-            currency: z.string().regex(/^[A-Z]{3}$/),
-            timezone: z.string(),
-            columns: z.object({
-              date: z.string(),
-              campaignId: z.string(),
-              impressions: z.string().optional(),
-              clicks: z.string().optional(),
-              spend: z.string().optional(),
-              conversions: z.string().optional(),
-            }),
-          })
-          .strict()
-          .parse(input);
-        const previous = await list(tx, scope, "metrics");
-        const result = importAdsCsv(i.csv, {
-          ...i,
-          projectId,
-          existing: new Map(
-            previous.map((x) => [data(x).externalId, data(x).contentHash]),
-          ),
-        });
-        for (const row of result.rows) {
-          const micros =
-            row.spendMinor === null ? null : BigInt(row.spendMinor) * 10000n;
-          if (micros !== null && micros > BigInt(Number.MAX_SAFE_INTEGER))
-            throw new DomainError("MONEY_OUT_OF_RANGE");
-          await create(tx, scope, "metrics", {
-            ...row,
-            externalId: row.key,
-            campaign: row.campaignId,
-            sampleSize: row.impressions ?? row.clicks ?? 0,
-            sessions: null,
-            costMicros:
-              row.spendMinor === null
-                ? null
-                : Number(BigInt(row.spendMinor) * 10000n),
-            periodStart: row.date + "T00:00:00.000Z",
-            periodEnd: row.date + "T23:59:59.999Z",
-            dateInterpretation: "source-local-calendar-day",
-            synthetic: false,
-          });
-        }
-        return result;
-      }
-      if (action === "brand-approval") {
-        const i = z
-          .object({
-            brandName: z.literal("EDS Labs"),
-            confirmUsageRights: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return publicEntity(
-          await create(tx, scope, "assets", {
-            type: "original_logo",
-            brandName: i.brandName,
-            usageApproved: true,
-            assetStatus: "approved",
-            sha256:
-              "a652f47968922890004e279004986a01ec968ffead1f3fb1a70af5c3e37f423c",
-            approvedBy: scope.userId,
-            source: "EDS Labs local original",
-            license: "Brand rights reserved",
-          }),
-        );
-      }
-      if (action === "asset-status") {
-        const i = z
-          .object({
-            assetId: schemas.id,
-            version: z.number().int().positive(),
-            assetStatus: z.enum(["approved", "reference", "outdated"]),
-            confirmUsageRights: z.boolean().optional(),
-          })
-          .strict()
-          .parse(input);
-        const asset = await entity(tx, scope, "assets", i.assetId);
-        if (asset.version !== i.version)
-          throw new DomainError("VERSION_CONFLICT", 409);
-        if (i.assetStatus === "approved" && i.confirmUsageRights !== true)
-          throw new DomainError("ASSET_RIGHTS_CONFIRMATION_REQUIRED", 409);
-        const updated = await update(tx, scope, asset, {
-          ...data(asset),
-          assetStatus: i.assetStatus,
-          usageApproved:
-            i.assetStatus === "approved"
-              ? i.confirmUsageRights === true
-              : false,
-          assetStatusUpdatedBy: scope.userId,
-          assetStatusUpdatedAt: new Date().toISOString(),
-        });
-        await audit(tx, scope, "asset.status_update", asset.id, {
-          from: data(asset).assetStatus,
-          to: i.assetStatus,
-          usageApproved: data(updated).usageApproved,
-        });
-        return publicEntity(updated);
-      }
-      if (action === "embed-document") {
-        const i = z
-          .object({
-            documentId: schemas.id,
-            confirmEmbeddingMayBeSentToOpenAI: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return queueDocumentEmbedding(tx, scope, i.documentId);
-      }
-      if (action === "reconcile") {
-        const pub = await entity(
-          tx,
-          scope,
-          "publications",
-          schemas.id.parse(input.publicationId),
-        );
-        return enqueue(
-          tx,
-          scope,
-          "reconciliation",
-          pub.id,
-          "reconcile-manual:" + pub.id + ":" + pub.version,
-        );
-      }
-      if (action === "configure-matomo-schedule")
-        return configureMatomoSchedule(tx, scope, input);
-      if (action === "configure-autopilot")
-        return configureAutopilot(tx, scope, input);
-      if (action === "approve-and-schedule")
-        return approveAndSchedule(tx, scope, input);
-      if (action === "resume-paused-publications")
-        return resumePausedPublications(tx, scope);
-      if (action === "archive-mission") return archiveMission(tx, scope, input);
-      if (action === "archive-old-drafts")
-        return archiveOldDrafts(tx, scope, input);
-      if (action === "restore-draft-cleanup")
-        return restoreDraftCleanup(tx, scope, input);
-      if (action === "run-mission")
-        return planMission(tx, scope, schemas.id.parse(input.missionId));
-      if (action === "start-approved-live-draft-once") {
-        const i = z
-          .object({
-            missionId: schemas.id,
-            version: z.number().int().positive(),
-            confirmPaidInternalDraft: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return startApprovedLiveDraftOnce(tx, scope, i.missionId, i.version);
-      }
-      if (action === "postiz-draft-resolve")
-        return resolvePostizDraft(tx, scope, input);
-      if (action === "start-approved-live-draft-batch") {
-        const i = z
-          .object({
-            missionId: schemas.id,
-            version: z.number().int().positive(),
-            confirmPaidInternalDrafts: z
-              .number()
-              .int()
-              .min(2)
-              .max(MAX_BATCH_DRAFTS),
-          })
-          .strict()
-          .parse(input);
-        const mission = await entity(tx, scope, "missions", i.missionId);
-        if (data(mission).maxContents !== i.confirmPaidInternalDrafts)
-          throw new DomainError("BATCH_CONFIRMATION_STALE", 409);
-        return startApprovedLiveDraftBatch(tx, scope, i.missionId, i.version);
-      }
-      if (action === "resume-live-draft-batch") {
-        const i = z
-          .object({
-            missionId: schemas.id,
-            version: z.number().int().positive(),
-            confirmPaidInternalDraft: z.literal(true),
-          })
-          .strict()
-          .parse(input);
-        return resumeLiveDraftBatch(tx, scope, i.missionId, i.version);
-      }
-      if (action === "review")
-        return reviewContent(
-          tx,
-          scope,
-          schemas.id.parse(input.contentId),
-          z.number().int().parse(input.version),
-          input.humanConfirm === true,
-        );
-      if (action === "preflight") {
-        const p = await preflight(
-          tx,
-          scope,
-          schemas.id.parse(input.contentId),
-          { test: config.EXECUTION_MODE === "test" },
-        );
-        return {
-          allowed: p.allowed,
-          blockers: p.blockers,
-          packageHash: p.packageHash,
-          contentVersion: p.content.version,
-        };
-      }
-      if (action === "approve")
-        return approve(
-          tx,
-          scope,
-          z
-            .object({
-              contentId: schemas.id,
-              version: z.number().int(),
-              packageHash: z.string().length(64),
-            })
-            .strict()
-            .parse(input),
-        );
-      if (action === "publish")
-        return publishIntent(
-          tx,
-          scope,
-          z
-            .object({
-              contentId: schemas.id,
-              version: z.number().int(),
-              scheduledAt: z.iso.datetime().optional(),
-            })
-            .strict()
-            .parse(input),
-        );
-      if (action === "analyze")
-        return analyze(tx, scope, z.string().optional().parse(input.campaign));
-      if (action === "pause")
-        return pauseProject(tx, scope, z.boolean().parse(input.paused));
-      if (action === "retry") {
-        const job = await entity(
-          tx,
-          scope,
-          "jobs",
-          schemas.id.parse(input.jobId),
-        );
-        if (
-          !["failed", "blocked_dependency"].includes(data(job).status) ||
-          data(job).attempts >= data(job).maxAttempts
-        )
-          throw new DomainError("RETRY_NOT_ALLOWED");
-        if (data(job).topic === "publishing") {
-          const p = await entity(
-            tx,
-            scope,
-            "publications",
-            data(job).resourceId,
-          );
-          if (
-            [
-              "sending",
-              "outcome_unknown",
-              "published",
-              "published_test",
-            ].includes(data(p).status)
-          )
-            throw new DomainError("RECONCILIATION_REQUIRED");
-        }
-        await update(tx, scope, job, { ...data(job), status: "queued" });
-        await tx.outbox.create({
-          data: {
-            workspaceId: scope.workspaceId,
-            projectId,
-            topic: data(job).topic,
-            entityId: job.id,
-            payload: { jobId: job.id },
-          },
-        });
-        return { queued: true };
-      }
-      if (action === "connector") {
-        const c = z
-          .object({
-            provider: z.enum(["postiz", "matomo", "slack"]),
-            baseUrl: z.url().optional(),
-            credential: z.string().min(10).max(1000),
-            siteId: z.string().max(100).optional(),
-            channelId: z.string().max(100).optional(),
-          })
-          .strict()
-          .parse(input);
-        if (c.baseUrl && new URL(c.baseUrl).protocol !== "https:")
-          throw new DomainError("HTTPS_REQUIRED");
-        const { credential, ...metadata } = c;
-        if (metadata.provider === "postiz" && metadata.baseUrl)
-          metadata.baseUrl = normalizePostizBaseUrl(metadata.baseUrl);
-        return publicEntity(
-          await create(tx, scope, "connectors", {
-            ...metadata,
-            encryptedCredential: encrypt(credential, config.CREDENTIAL_KEY),
-            status: "configured",
-            capabilities: [],
-          }),
-        );
-      }
-      if (action === "resolve-exception") {
-        const e = await entity(
-          tx,
-          scope,
-          "exceptions",
-          schemas.id.parse(input.exceptionId),
-        );
-        return update(tx, scope, e, {
-          ...data(e),
-          status: "resolved",
-          resolvedBy: scope.userId,
-        });
-      }
-      throw new DomainError("ACTION_NOT_SUPPORTED", 400);
+      await assertModuleEnabled(tx, scope, owner);
+      return handler.run(tx, ctx);
     });
   });
   app.get("/api/openapi.json", async (req) => {

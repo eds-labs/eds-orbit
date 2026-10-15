@@ -1,25 +1,2 @@
-export function missionFactKeys(mission: Record<string, unknown>) {
-  // Confirmed Chat proposals, content packages, planned autopilot slots and
-  // assignment briefs (Orbit Agents) carry exact keys.
-  if (
-    typeof mission.chatProposalId !== "string" &&
-    typeof mission.packageId !== "string" &&
-    typeof mission.assignmentRunId !== "string" &&
-    mission.autopilot !== true
-  )
-    return undefined;
-  const confirmed = Array.isArray(mission.factKeys)
-    ? mission.factKeys.filter(
-        (key): key is string => typeof key === "string" && key.length > 0,
-      )
-    : [];
-  if (confirmed.length) return [...new Set(confirmed)];
-  const topics = mission.allowedTopics;
-  if (!Array.isArray(topics)) return undefined;
-  const keys = topics.filter(
-    (topic): topic is string =>
-      typeof topic === "string" &&
-      /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)+$/.test(topic),
-  );
-  return keys.length ? [...new Set(keys)] : undefined;
-}
+// Moved to marketing/pipeline/mission-evidence.ts (WP2.1b); importers keep this path.
+export * from "./marketing/pipeline/mission-evidence.ts";

@@ -229,10 +229,12 @@ import {
   sendMessage,
   getConversation,
   getRun,
-  createProposal,
-  confirmProposal,
   chatScoped,
 } from "../src/modules/chat.ts";
+import {
+  createProposal,
+  confirmProposal,
+} from "../src/modules/marketing/assistant/proposals.ts";
 import { runChat, runChatJob } from "../src/modules/chat-runner.ts";
 import { activePolicy } from "../src/modules/policy.ts";
 import { reserve } from "../src/modules/budget.ts";

@@ -11,6 +11,8 @@ export type WorkspaceContextValue = {
   isOwner: boolean;
   revision: number;
   refresh: () => void;
+  /** Rewrites an in-app path from before WP1.7 into the open project. */
+  href: (path: string) => string;
 };
 export const WorkspaceContext = createContext<WorkspaceContextValue | null>(
   null,

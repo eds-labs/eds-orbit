@@ -3,7 +3,7 @@ import { useState } from "react";
 import { api, post, useMutation, useResource } from "@/lib/api";
 import { useWorkspace } from "./workspace-context";
 import { Alert, Button, Empty, Modal } from "./ui/primitives";
-import { DataForm, str } from "./form";
+import { DataForm, str } from "@/platform/ui/form";
 import { FolderOpen, RefreshCw } from "lucide-react";
 
 type Status = {

@@ -86,7 +86,7 @@ import {
   listAssignments,
   upcomingAssignmentPosts,
 } from "../src/modules/agents/assignment-overview.ts";
-import { sendNotification } from "../src/modules/agents/notification-sender.ts";
+import { sendNotification } from "../src/platform/notifications/sender.ts";
 import {
   notify,
   planDailyReport,

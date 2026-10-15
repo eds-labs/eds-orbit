@@ -1,15 +1,19 @@
 import { z } from "zod";
+import { authorize, PROJECT_OWN } from "../platform/tenancy/permissions.ts";
 import { scoped, type DbTx } from "../../../../packages/db/src/index.ts";
-import { policy, type Scope } from "../../../../packages/schemas/src/index.ts";
+import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   assertIndexCorpusCurrent,
   evaluateIndexGeneration,
 } from "../../../../packages/knowledge/src/index.ts";
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
 import { create, data, entity, update, DomainError } from "../shared.ts";
-import { activePolicy } from "./policy.ts";
+import {
+  activeSpendMandateRef,
+  requireSpendMandate,
+} from "../platform/ai/spend-mandate.ts";
 import { reserve, markTransmitted, settle } from "./budget.ts";
-import { enqueue } from "./workflow.ts";
+import { enqueue } from "../platform/jobs/enqueue.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
 import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
 export const indexEvaluationRequest = z
@@ -44,7 +48,7 @@ export async function queueIndexEvaluation(
   s: Scope,
   raw: z.input<typeof indexEvaluationRequest>,
 ) {
-  if (s.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
+  authorize(s, PROJECT_OWN, "OWNER_REQUIRED");
   const input = indexEvaluationRequest.parse(raw);
   if (
     new Set(input.cases.map((c) => c.id)).size !== input.cases.length ||
@@ -126,15 +130,8 @@ async function runIndexEvaluationBatch(
       where: { id: s.projectId },
     });
     if (project.paused) throw new DomainError("PROJECT_PAUSED");
-    const p = await activePolicy(tx, s);
-    if (!p) throw new DomainError("POLICY_REQUIRED");
-    const approved = policy.parse(
-      Object.fromEntries(
-        Object.entries(data(p)).filter(
-          ([k]) => !["active", "activatedAt", "activatedBy"].includes(k),
-        ),
-      ),
-    );
+    const p = await requireSpendMandate(tx, s);
+    const approved = p.limits;
     const cases = r.cases.slice(r.batch * 32, (r.batch + 1) * 32);
     if (!cases.length) throw new DomainError("EVALUATION_BATCH_INVALID");
     const ai = await runtimeOpenAiConfiguration(tx, s);
@@ -211,7 +208,7 @@ async function runIndexEvaluationBatch(
     const project = await tx.project.findUniqueOrThrow({
         where: { id: s.projectId },
       }),
-      p = await activePolicy(tx, s);
+      p = await activeSpendMandateRef(tx, s);
     if (
       project.paused ||
       project.generation !== prepared.projectGeneration ||
