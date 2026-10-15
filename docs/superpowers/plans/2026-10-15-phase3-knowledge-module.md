@@ -104,9 +104,64 @@ Risk analysis: the cascade moves verbatim; the danger is a call path that runs t
 
 ---
 
-## WP3.2–WP3.5 (outline; detailed plan per WP before it starts)
+## WP3.2 Knowledge services (detailed)
 
-**WP3.2 Knowledge services (3–5 PT).** Move `retrieval.ts`, `ingestion.ts`, `reindex.ts`, `index-evaluation.ts` into `apps/api/src/platform/knowledge/` behind shims; one `knowledge_search` tool definition with an assistant and a specialist budget context (same budget keys as today, asserted by test); `usableFacts` in the facade. **Decision gate K-1:** before switching `listUsableFacts` to the full rules, run a read-only SQL (`scripts/rollout/`) against production and show Mario which facts the uLiquid assignment would lose; ship the switch only after his decision.
+Risk class medium. Tasks 1 and 2 are pure moves with unchanged behaviour. Task 3 (K-1) changes behaviour and ships only after Mario's decision. Rollback: revert; there is no schema change.
+
+**Decision gate K-1 (before Task 3 switches anything).**
+- Mario runs `scripts/rollout/k1-usable-facts-diff.sql` read-only against the uLiquid project (command in the file header; `--csv` makes the output easy to share).
+- `change = lost` lists the facts the assignment would no longer get, each with its reasons. `gained` lists keys a conflict blocks today that the full rules would resolve.
+- Mario decides: switch, switch after fixing the listed facts (for example re-verifying a fact against the current source generation), or not switch.
+
+### Task 1: Move the orchestration into `platform/knowledge`
+
+**Files:**
+- Move (rename-only commit first, then fix imports): `apps/api/src/modules/{retrieval,ingestion,reindex,index-evaluation}.ts` → `apps/api/src/platform/knowledge/{retrieval,ingestion,reindex,index-evaluation}.ts`
+- Create: `apps/api/src/platform/knowledge/services.ts`. This is the facade that re-exports `retrieve`, `validateEvidence`, `getActiveIndex` from the engine, `retrieveHybrid` from `retrieval.ts` and the six bound operations from `engine.ts`.
+- Modify: every importer (`grep -rln "modules/(retrieval|ingestion|reindex|index-evaluation)"`), `platform-contributions.ts`, `scripts/boundaries.json` (drop the four flat-file entries from the platform zone)
+- No shims: the flat files are platform-zoned already, so all importers switch in the same PR (as WP2.5d did for Drive).
+
+- [ ] Rename commit; then import fixes; `tsc --noEmit` clean.
+- [ ] Full suite green; `node scripts/source-check.mjs` 0 violations; OpenAPI document unchanged (`scripts/openapi.ts`, diff `packages/schemas/openapi.json`).
+- [ ] Commit `refactor(knowledge): orchestration moves to platform/knowledge (WP3.2)`.
+
+### Task 2: One `knowledge_search` definition, two budget contexts
+
+**Files:**
+- Create: `apps/api/src/platform/knowledge/search-tool.ts`
+- Modify: `modules/marketing/tools/read-tools.ts` (the chat variant comes from the factory), `modules/marketing/tools/agent-tools.ts` (the specialist variant comes from the factory), `modules/marketing/assistant/chat-tools.ts:150-200` (the `knowledge_search` branch of `runReadTool` moves into the platform tool)
+- Test: `apps/api/tests/knowledge-search-tool.test.ts`; existing `chat-runner`, `tool-search`, `specialists-analytics-research`, `specialist-strategy`, `module-contributions`
+
+**Interfaces:**
+- Produces: `knowledgeSearchTool(variant: "assistant" | "specialist"): OrbitTool`, with the same name, description, parameters, risk and permission for both. The variants differ only in budget keys, `feature` (`"agents"` for the specialist variant) and `deferLoading` (false for the specialist variant).
+- Budget keys stay exactly as today:
+  - assistant: `retrievalJobKey = chat:<runId>:knowledge:<callIndex>`, `budgetRunKey = chat:<runId>`;
+  - specialist: `retrievalJobKey = agent:<taskId>:knowledge:<callIndex>`, `budgetRunKey = assignment-run:<runId>`.
+
+- [ ] **Failing test** `knowledge-search-tool.test.ts`: with `retrieveHybrid` mocked, the assistant variant called with `{ runId: "r1", callIndex: 2 }` passes `("chat:r1:knowledge:2", "chat:r1")`. The specialist variant with `agentTask { taskId: "t1", runId: "r1" }` and `callIndex 0` passes `("agent:t1:knowledge:0", "assignment-run:r1")`. Without `agentTask`, the specialist variant throws `AGENT_TOOL_NOT_ALLOWED`. Both variants expose identical `parameters` JSON schemas.
+- [ ] Implement; `module-contributions` "offers the chat tools unchanged and in their order" must stay green. The tool stays in marketing's tool list at its current position: registering it as a platform tool would reorder the prompt's tool list, which invariant I1–I7 forbids. "Always loaded when marketing is off" moves to WP3.3 together with an explicit tool order.
+- [ ] Full suite; commit `refactor(knowledge): one knowledge_search definition for assistant and specialists (WP3.2)`.
+
+### Task 3: `usableFacts` in the facade (K-1)
+
+**Files:**
+- Create: `apps/api/src/platform/knowledge/facts.ts`
+- Modify (only after the K-1 decision): `modules/marketing/agents/content-packages.ts:81-125` (`usableFact`, `usableFacts`, `listUsableFacts` delegate to the facade; the marketing call sites in `strategy.ts:137`, `copywriter.ts:137` and `content-packages.ts:166,1024` keep their signatures)
+- Test: `apps/api/tests/k1-usable-facts-diff.integration.test.ts` (extend), `content-packages`, `package-fact-duplicates`, `package-profile-limits`
+
+**Interfaces:**
+- Produces: `usableFacts(tx: DbTx, scope: Scope, input: { at: Date; language: "en" | "de"; market?: string; keys?: readonly string[] }): Promise<FactRow[]>`.
+  - Without `keys` it lists every usable key, sorted, leaving out conflicting keys.
+  - With `keys` it throws `FACTS_REQUIRED`, `FACT_NOT_USABLE` or `FACT_CONFLICT` exactly as today.
+  - The rules are the SQL's K-1 side: today's rule, plus source active with a valid policy, not generated, public, not embargoed, model use, fact from the current source generation, the language, and market `global` by default.
+  - Marketing passes the profile's `contentLanguage`.
+
+- [ ] **Failing test** (extend the K-1 test): on the same fixture, `usableFacts(tx, scope, { at, language: "en" })` returns exactly the keys and fact ids the SQL reports as `k1_state = usable`. The SQL is the oracle, so the reviewed diff and the shipped rule cannot drift apart.
+- [ ] Implement `facts.ts`; run the test → PASS.
+- [ ] Commit `feat(knowledge): usableFacts with the engine's full rules (WP3.2, K-1)`.
+- [ ] **After Mario's K-1 decision:** switch `content-packages.ts` to the facade in a separate commit, run `content-packages`, `package-fact-duplicates`, `package-profile-limits`, `specialists-*`, and record the decision in `docs/PRODUCT_DECISIONS.md`.
+
+## WP3.3–WP3.5 (outline; detailed plan per WP before it starts)
 
 **WP3.3 Knowledge module server and web (4–6 PT).** Knowledge actions and routes move into `modules/knowledge` contributions (`server.ts` knowledge parts, `knowledge-import.ts`); web routes `/p/:id/knowledge/{overview,sources,…,inspector}` replace the nine local tabs; `EvidenceItems` moves to `web/platform/ui/evidence.tsx`; the "Marketing Memory" card becomes a marketing contribution. Acceptance: disabling knowledge is refused while marketing is enabled; the assistant can still search with both disabled; Playwright knowledge flows green.
 
