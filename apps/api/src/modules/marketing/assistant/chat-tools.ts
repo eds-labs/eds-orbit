@@ -1,17 +1,17 @@
 import { z } from "zod";
 import { scoped } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import {
-  retrieve,
-  validateEvidence,
-} from "../../../../../../packages/knowledge/src/index.ts";
 import { assetTools } from "../brand/asset-tools.ts";
 import { projectReadiness } from "../../../platform/governance/readiness.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { data, DomainError, list } from "../../../shared.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import { marketingProfile } from "../../../../../../packages/schemas/src/index.ts";
-import { retrieveHybrid } from "../../../platform/knowledge/services.ts";
+import {
+  knowledgeSearch,
+  knowledgeSearchResult,
+} from "../../../platform/knowledge/search.ts";
+import { checkToolResult } from "../../../platform/assistant/cards.ts";
 
 // The card shapes are the platform's (WP2.2); kept here for importers.
 export type {
@@ -20,12 +20,6 @@ export type {
 } from "../../../platform/assistant/cards.ts";
 import type { ChatCard } from "../../../platform/assistant/cards.ts";
 
-const query = z
-  .object({
-    query: z.string().trim().min(1).max(2000),
-    factKeys: z.array(z.string().trim().min(1).max(160)).max(8).optional(),
-  })
-  .strict();
 const noArgs = z.object({}).strict();
 const assetQuery = z
   .object({ query: z.string().trim().max(120).default("") })
@@ -147,124 +141,7 @@ export async function runReadTool(
       };
     });
   }
-  if (name === "knowledge_search") {
-    const input = query.parse(raw);
-    const language = await scoped(
-      scope.workspaceId,
-      scope.projectId,
-      async (tx) => {
-        const project = await tx.project.findUniqueOrThrow({
-          where: { id: scope.projectId },
-        });
-        return project.language;
-      },
-    );
-    const request = {
-      query: input.query,
-      ...(input.factKeys?.length ? { factKeys: input.factKeys } : {}),
-      language,
-      purpose: "public" as const,
-      forModel: true,
-      at: new Date(),
-      topK: 6,
-    };
-    const evidence = trusted
-      ? await retrieveHybrid(
-          scope,
-          request,
-          trusted.retrievalJobKey,
-          trusted.budgetRunKey,
-        )
-      : await scoped(scope.workspaceId, scope.projectId, (tx) =>
-          retrieve(tx, scope, request),
-        );
-    return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-      const value = data(evidence);
-      if (
-        value.purpose !== "public" ||
-        value.forModel !== true ||
-        !["ready", "insufficient_evidence"].includes(value.status)
-      )
-        throw new DomainError("CHAT_EVIDENCE_CHANGED");
-      const validation = await validateEvidence(
-        tx,
-        scope,
-        evidence.id,
-        new Date(),
-      );
-      if (
-        validation.reasons.some(
-          (reason) =>
-            reason !== "evidence_not_public_ready" &&
-            reason !== "insufficient_evidence",
-        )
-      )
-        throw new DomainError("CHAT_EVIDENCE_CHANGED");
-      const facts = Array.isArray(value.facts) ? value.facts.slice(0, 8) : [];
-      const items = Array.isArray(value.items) ? value.items.slice(0, 6) : [];
-      const sourceIds = [
-        ...new Set(
-          [
-            ...facts.map((f: any) => f.sourceId),
-            ...items.map((i: any) => i.sourceId),
-          ].filter(Boolean),
-        ),
-      ];
-      const sources = await tx.entity.findMany({
-        where: {
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-          kind: "sources",
-          id: { in: sourceIds },
-        },
-      });
-      const cards: ChatCard[] = [
-        {
-          kind: "status",
-          label:
-            value.mode === "hybrid"
-              ? `Hybrid knowledge retrieval · index ${value.indexGeneration}`
-              : `Knowledge retrieval: lexical_degraded · index ${value.indexGeneration}`,
-          status: value.mode,
-        },
-        ...sources.map((source): ChatCard => ({
-          kind: "source",
-          label: clipped(data(source).name, 120),
-          href: "/knowledge",
-          status: "verified",
-          resourceId: source.id,
-          version: source.version,
-        })),
-      ];
-      return {
-        result: {
-          status: value.status,
-          retrieval: {
-            mode: value.mode,
-            indexProfile: value.indexProfile,
-            indexGeneration: value.indexGeneration,
-            evidenceId: evidence.id,
-          },
-          facts: facts.map((f: any) => ({
-            id: f.id,
-            version: f.version,
-            key: clipped(f.key, 160),
-            value: clipped(f.value, 500),
-            sourceId: f.sourceId,
-          })),
-          passages: items.map((i: any) => ({
-            chunkId: i.chunkId ?? i.id,
-            sourceId: i.sourceId,
-            title: clipped(i.title, 160),
-            text: clipped(i.text, 700),
-            url: clipped(i.canonicalUrl, 500),
-          })),
-          gaps: (value.gaps ?? []).slice(0, 12),
-        },
-        cards,
-      };
-    });
-  }
+  if (name === "knowledge_search") return knowledgeSearch(scope, raw, trusted);
   if (name === "approved_assets") {
     const input = assetQuery.parse(raw);
     const assets = (await assetTools.getBrandAssets(scope))
@@ -344,16 +221,6 @@ export async function runReadTool(
   throw new Error("CHAT_TOOL_NOT_ALLOWED");
 }
 
-const cardSchema = z
-  .object({
-    kind: z.enum(["source", "asset", "link", "status"]),
-    label: z.string().max(160),
-    href: z.string().max(600).optional(),
-    status: z.string().max(80).optional(),
-    resourceId: z.uuid().optional(),
-    version: z.number().int().optional(),
-  })
-  .strict();
 const resultSchemas = {
   project_status: z
     .object({
@@ -387,24 +254,7 @@ const resultSchemas = {
         .passthrough(),
     })
     .passthrough(),
-  knowledge_search: z
-    .object({
-      status: z.string(),
-      retrieval: z
-        .object({
-          mode: z.enum(["hybrid", "lexical_degraded"]),
-          indexProfile: z.string().min(1).max(160),
-          indexGeneration: z.number().int().positive(),
-          evidenceId: z.uuid(),
-        })
-        .strict(),
-      facts: z
-        .array(z.object({ id: z.uuid(), sourceId: z.uuid() }).passthrough())
-        .max(8),
-      passages: z.array(z.object({ sourceId: z.uuid() }).passthrough()).max(6),
-      gaps: z.array(z.unknown()).max(12),
-    })
-    .passthrough(),
+  knowledge_search: knowledgeSearchResult,
   approved_assets: z
     .array(
       z
@@ -433,12 +283,5 @@ export function validateReadToolResult(
 ) {
   const schema = resultSchemas[name as keyof typeof resultSchemas];
   if (!schema) throw new Error("CHAT_TOOL_NOT_ALLOWED");
-  const parsed = schema.parse(result);
-  const checkedCards = z.array(cardSchema).max(20).parse(cards);
-  if (
-    Buffer.byteLength(JSON.stringify({ result: parsed, cards: checkedCards })) >
-    12000
-  )
-    throw new Error("CHAT_TOOL_RESULT_LIMIT");
-  return { result: parsed, cards: checkedCards };
+  return checkToolResult(schema, result, cards);
 }
