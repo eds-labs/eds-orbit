@@ -1,5 +1,29 @@
 # Implementation status
 
+## Knowledge invalidation through impact handlers: WP3.1 (2026-10-15, local)
+
+Branch `claude/plattform-umbau-fortschritt-05c734`, the first work package of Phase 3 (plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`). Risk class high: a missed invalidation would make revoked evidence publishable. Behaviour is unchanged.
+
+- **Engine (`packages/knowledge`).** `invalidate()` keeps only its own part: it marks dependent evidence `invalidated` (or purges it) and then calls the impact handlers it was given, in the same transaction.
+  - The six changing operations (`ingest`, `setFact`, `withdrawFact`, `revokeSource`, `setSourceRights`, `revokeDocument`) take `handlers` after the scope.
+  - The result keeps `{ evidenceIds, contentIds }`; `contentIds` is what the handlers report.
+  - New types: `KnowledgeImpact`, `ImpactResult`, `ImpactHandler`.
+- **Marketing.** `invalidateMarketingForKnowledge` (`modules/marketing/pipeline/knowledge-impact.ts`) is the former marketing part, moved line for line, with the same revision history. It covers content, approvals, insights, publications, jobs, reconciliation jobs and the outbox. Marketing registers it as the new contribution `knowledgeImpact`.
+- **Platform.** `registeredImpactHandlers()` returns every module's handler, never filtered by activation. `platform/knowledge/engine.ts` binds them to the six operations.
+  - All callers use the platform wrapper: server, knowledge actions, ingestion, the import, tests, evals and `scripts/backup-restore-test.ts`, which now registers the modules first.
+  - Without registration the wrapper fails closed.
+- **Boundary check.** `forbiddenLiterals` in `scripts/boundaries.json` forbids the strings `content`, `approvals`, `publications`, `insights` and `jobs` in `packages/knowledge`. The old engine has five hits, the new one none.
+
+**Verification (local).**
+- The WP0.4 characterization snapshots (nine scenarios) pass without updating.
+- New tests:
+  - engine: handler order and arguments, reported content ids, handlers without affected evidence, rollback when a handler throws;
+  - registry: marketing's handler is bound for every project; fail-closed before registration;
+  - boundary script: the literal check.
+- Typecheck and source check pass; boundaries: 0 known violations.
+
+**Rollback.** Redeploy the previous image; there is no schema or data change.
+
 ## Google Drive on the platform, brand assets in marketing, Slack checked: WP2.5d (2026-10-14, local)
 
 Branch `claude/wp25d-drive-slack`, the last part of WP2.5.
