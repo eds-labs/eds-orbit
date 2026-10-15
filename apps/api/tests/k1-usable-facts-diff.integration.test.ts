@@ -201,16 +201,20 @@ describe.skipIf(!enabled)("K-1 usable facts diff (read-only SQL)", () => {
     });
     expect(byKey["paused.key"].excluded_copies[0].factId).toBe(ids.paused);
 
-    // The "today" side is exactly what marketing uses now.
-    const today = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    // Since the K-1 decision (2026-10-15) marketing uses exactly the K-1
+    // side: the reviewed diff and the shipped rule cannot drift apart.
+    const shipped = await scoped(scope.workspaceId, scope.projectId, (tx) =>
       listUsableFacts(tx, scope, new Date()),
     );
+    const usable = rows.filter((r) => r.k1_state === "usable");
+    expect(usable.map((r) => r.key)).toEqual(["conflict.key", "ok.key"]);
     expect(
-      rows
-        .filter((r) => r.today_state === "usable")
-        .map((r) => r.key)
-        .sort(),
-    ).toEqual(today.map((row) => (row.data as { key: string }).key).sort());
+      shipped.map((row) => {
+        const value = row.data as { key: string; value: string };
+        return [value.key, value.value];
+      }),
+    ).toEqual(usable.map((r) => [r.key, r.k1_value]));
+    expect(shipped.map((row) => row.id)).toEqual([ids.conflictKept, ids.ok]);
   });
 
   it("leaves the database unchanged and ends in ROLLBACK", () => {

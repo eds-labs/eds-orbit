@@ -133,6 +133,8 @@ export async function createPackageProject(
       valueType: "url",
       language: "en",
       sourceId,
+      // As setFact records it; usable facts must match the source's generation (K-1).
+      sourceGeneration: 1,
       validFrom: past,
       validUntil: future,
       status: "verified",
