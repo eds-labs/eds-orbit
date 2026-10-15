@@ -47,11 +47,16 @@ vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
     }),
   };
 });
-vi.mock("../src/modules/google-drive.ts", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/modules/google-drive.ts")>();
-  return { ...actual, saveDraftDocument: provider.saveDraftDocument };
-});
+vi.mock(
+  "../src/modules/marketing/brand/drive-assets.ts",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("../src/modules/marketing/brand/drive-assets.ts")
+      >();
+    return { ...actual, saveDraftDocument: provider.saveDraftDocument };
+  },
+);
 import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 import { data, entity, hash, update } from "../src/shared.ts";
 import {

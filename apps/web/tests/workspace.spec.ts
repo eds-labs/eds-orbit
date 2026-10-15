@@ -46,6 +46,11 @@ async function login(
   expect(response.status(), "Real sign-in response after server throttle").toBe(
     200,
   );
+  // A fresh browser has no last project; with several projects the start page
+  // shows the project picker, so open the seeded project instead.
+  await page.waitForURL(/\/(p|o)(\/|$)/);
+  if (!new URL(page.url()).pathname.startsWith("/p/"))
+    await page.goto(`/p/${account().projectId}`);
   await expect(
     page.getByRole("heading", { name: "Your marketing, in orbit." }),
   ).toBeVisible();
@@ -94,6 +99,7 @@ async function newProject(page: Page, name: string) {
       .getByRole("button", { name: "Open navigation", exact: true })
       .click();
   await selector.selectOption(project.id);
+  await expect(page).toHaveURL(new RegExp(`/p/${project.id}$`));
   if (
     await page.getByRole("dialog", { name: "Workspace navigation" }).isVisible()
   )
@@ -104,6 +110,21 @@ async function newProject(page: Page, name: string) {
   await expect(page.locator(".mode-band")).toBeVisible();
   return project.id as string;
 }
+// Pages by their old name; the shell serves them under /p/:projectId (WP1.7).
+const VIEW = {
+  knowledge: "knowledge",
+  settings: "settings",
+  missions: "marketing/missions",
+  content: "marketing/content",
+  calendar: "marketing/calendar",
+  analytics: "marketing/analytics",
+  operations: "operations",
+  chat: "assistant",
+  approvals: "approvals",
+  connectors: "connectors",
+} as const;
+const open = (page: Page, projectId: string, view: keyof typeof VIEW) =>
+  page.goto(`/p/${projectId}/${VIEW[view]}`);
 test.describe("Authenticated Orbit workspace, real local API", () => {
   test("knowledge → mission → review → approved test publication → revoke, with actual persistent state", async ({
     page,
@@ -116,7 +137,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       path: testInfo.outputPath("overview-desktop.png"),
       fullPage: true,
     });
-    await page.goto("/knowledge");
+    await open(page, projectId, "knowledge");
     await expect(
       page.getByRole("heading", { name: "Knowledge", exact: true }),
     ).toBeVisible();
@@ -275,7 +296,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       );
       linkFactIds.set(label, fact.id as string);
     }
-    await page.goto("/settings");
+    await open(page, projectId, "settings");
     await page.getByRole("tab", { name: "Brand", exact: true }).click();
     await page.getByRole("button", { name: "Review usage rights" }).click();
     dialog = page.getByRole("dialog", { name: "Approve brand usage" });
@@ -431,7 +452,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
-    await page.goto("/knowledge");
+    await open(page, projectId, "knowledge");
     await page.getByRole("tab", { name: "Inspector", exact: true }).click();
     await page.getByLabel("Test question").fill("orbit.browser.status");
     await page.getByRole("button", { name: "Retrieve evidence" }).click();
@@ -456,7 +477,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       perRunBudgetMicros: 0,
       approvedPaidTests: false,
     });
-    await page.goto("/missions");
+    await open(page, projectId, "missions");
     await page
       .getByRole("button", { name: "New mission", exact: true })
       .click();
@@ -512,7 +533,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         { timeout: 60_000 },
       )
       .toBeTruthy();
-    await page.goto("/content");
+    await open(page, projectId, "content");
     await page
       .getByRole("button", { name: "Browser acceptance mission", exact: true })
       .click();
@@ -578,7 +599,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       )
       .toBe("published_test");
     await dialog.getByRole("button", { name: "Close dialog" }).click();
-    await page.goto("/knowledge");
+    await open(page, projectId, "knowledge");
     await page.getByRole("tab", { name: "Sources", exact: true }).click();
     await page
       .locator(".source-row")
@@ -605,7 +626,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
   }, testInfo) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await login(page);
-    await newProject(page, "EDS Labs · mobile acceptance");
+    const projectId = await newProject(page, "EDS Labs · mobile acceptance");
     await page.screenshot({
       path: testInfo.outputPath("overview-mobile.png"),
       fullPage: false,
@@ -639,7 +660,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(dialog.getByLabel("Describe your objective")).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await page.goto("/operations");
+    await open(page, projectId, "operations");
     await expect(
       page.getByRole("heading", { name: "Worker and dispatch" }),
     ).toBeVisible();
@@ -659,7 +680,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "de");
     await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.emulateMedia({ reducedMotion: "reduce" });
-    await page.goto("/knowledge");
+    await open(page, projectId, "knowledge");
     await expect(
       page.getByRole("heading", { name: "Knowledge", exact: true }),
     ).toBeVisible();
@@ -696,7 +717,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       password: randomUUID() + randomUUID(),
       role: "viewer",
     };
-    await page.goto("/settings");
+    await open(page, projectId, "settings");
     await page.getByRole("button", { name: "Add member", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Name", { exact: false }).fill(viewer.name);
@@ -716,7 +737,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByRole("button", { name: "New mission", exact: true }),
     ).toHaveCount(0);
-    await page.goto("/knowledge");
+    await open(page, projectId, "knowledge");
     await expect(
       page.getByRole("button", { name: "Add source", exact: true }),
     ).toHaveCount(0);
@@ -728,7 +749,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       },
     );
     expect(denied.status()).toBe(403);
-    await page.goto("/settings");
+    await open(page, projectId, "settings");
     await expect(
       page.getByRole("button", { name: "Add member", exact: true }),
     ).toHaveCount(0);
@@ -801,7 +822,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
       assetPolicy: "approved_only",
     },
   );
-  await page.goto("/missions");
+  await open(page, projectId, "missions");
   await page.getByRole("button", { name: "Start from a brief" }).click();
   let dialog = page.getByRole("dialog");
   const brief =
@@ -853,7 +874,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
     "document export",
     "documentation",
   ]);
-  await page.goto("/content");
+  await open(page, projectId, "content");
   await page.getByRole("button", { name: "Community questions" }).click();
   await page
     .getByRole("button", { name: "Import authorized questions" })
@@ -888,7 +909,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
     path: testInfo.outputPath("community-desktop.png"),
     fullPage: true,
   });
-  await page.goto("/calendar");
+  await open(page, projectId, "calendar");
   await page.getByRole("button", { name: "Add calendar block" }).click();
   dialog = page.getByRole("dialog");
   await dialog.getByLabel("Block title").fill("Synthetic editorial blackout");
@@ -923,7 +944,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
       modelUse: false,
     },
   );
-  await page.goto("/knowledge");
+  await open(page, projectId, "knowledge");
   await page.getByRole("tab", { name: "Facts", exact: true }).click();
   await page
     .getByRole("button", { name: "editorial.export.status", exact: true })
@@ -954,7 +975,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
       .getByRole("button", { name: "Prepare without model call" }),
   ).toBeVisible();
   await page.keyboard.press("Escape");
-  await page.goto("/analytics");
+  await open(page, projectId, "analytics");
   await page
     .getByRole("button", { name: "Import from Matomo", exact: true })
     .click();
@@ -963,7 +984,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
   );
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/knowledge");
+  await open(page, projectId, "knowledge");
   await page.getByRole("tab", { name: "Health", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "Embedding index generations" }),
@@ -1016,7 +1037,7 @@ test("index activation is offered only after evaluation", async ({ page }) => {
       },
     }),
   );
-  await page.goto("/knowledge");
+  await open(page, projectId, "knowledge");
   const evaluated = page
     .locator(".index-generation")
     .filter({ hasText: "Generation 2" });
@@ -1082,7 +1103,7 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
       },
     },
   );
-  await page.goto("/settings");
+  await open(page, projectId, "settings");
   await page.getByRole("tab", { name: "Project", exact: true }).click();
   await page.getByRole("button", { name: "Configure OpenAI" }).click();
   const dialog = page.getByRole("dialog", { name: "OpenAI configuration" });

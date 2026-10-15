@@ -29,6 +29,8 @@ coverage.xml
 *.tmp
 *.temp
 node_modules/
+# Also a symlinked node_modules (worktrees link it), which `node_modules/` misses.
+node_modules
 .next/
 coverage/
 playwright-report/
