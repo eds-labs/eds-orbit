@@ -23,6 +23,7 @@ export function knowledgeSearchTool(options: {
   budget: (context: ToolContext) => SearchBudget;
   feature?: OrbitTool["feature"];
   deferLoading?: boolean;
+  alwaysOffered?: true;
 }): OrbitTool {
   return defineTool({
     name: "knowledge_search",
@@ -41,6 +42,7 @@ export function knowledgeSearchTool(options: {
     permission: PROJECT_READ,
     ...(options.feature ? { feature: options.feature } : {}),
     deferLoading: options.deferLoading ?? false,
+    ...(options.alwaysOffered ? { alwaysOffered: true as const } : {}),
     async execute(context, args) {
       const budget = options.budget(context);
       const read = await knowledgeSearch(
@@ -57,3 +59,16 @@ export function knowledgeSearchTool(options: {
     },
   });
 }
+
+/**
+ * The assistant's search: it reserves a search's query embedding under the
+ * chat run, and it is offered whatever modules are on, because the
+ * knowledge services belong to the platform (WP3.3).
+ */
+export const assistantKnowledgeSearch = knowledgeSearchTool({
+  budget: (context) => ({
+    retrievalJobKey: `chat:${context.runId}:knowledge:${context.callIndex}`,
+    budgetRunKey: `chat:${context.runId}`,
+  }),
+  alwaysOffered: true,
+});

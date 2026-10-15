@@ -119,9 +119,10 @@ describe.skipIf(!enabled)("Module activation enforcement", () => {
       });
     });
   });
-  // Every test starts with marketing on, even after a failed one.
+  // Every test starts with knowledge and marketing on, even after a failed one.
   afterEach(async () => {
     process.env.ORBIT_MODULES = "true";
+    await switchModule("knowledge", true);
     await switchModule("marketing", true);
     delete process.env.ORBIT_MODULES;
   });
@@ -190,6 +191,44 @@ describe.skipIf(!enabled)("Module activation enforcement", () => {
     expect((await run((tx) => sweepProject(tx, scope))).queued).toBeGreaterThan(
       0,
     );
+  });
+
+  it("switches knowledge off after marketing and keeps the assistant's search (WP3.3)", async () => {
+    process.env.ORBIT_MODULES = "true";
+    const before = await snapshot();
+    expect((await switchModule("marketing", false)).statusCode).toBe(200);
+    expect((await switchModule("knowledge", false)).statusCode).toBe(200);
+
+    // The knowledge module's routes, collections and actions.
+    for (const [method, url, payload] of [
+      ["GET", "/knowledge-health"],
+      ["GET", "/documents"],
+      ["GET", "/indexes"],
+      ["GET", "/sources"],
+      ["POST", "/actions/retrieve", { query: "synthetic" }],
+    ] as const) {
+      const response = await call(method, url, payload);
+      expect(response.statusCode, `${method} ${url}`).toBe(404);
+      expect(response.json().error.code, `${method} ${url}`).toBe(
+        "MODULE_DISABLED",
+      );
+    }
+    // The knowledge services are the platform's: the assistant still searches.
+    const on = await run((tx) => enabledModules(tx, scope));
+    expect([...on!]).toEqual([]);
+    expect(registeredTools(on).map((tool) => tool.name)).toEqual([
+      "knowledge_search",
+    ]);
+    expect(registeredToolOwner("knowledge_search")).toBe("platform");
+
+    // Marketing needs knowledge first; then everything is back unchanged.
+    const early = await switchModule("marketing", true);
+    expect(early.statusCode).toBe(409);
+    expect(early.json().error.code).toBe("MODULE_DEPENDENCY_DISABLED");
+    expect((await switchModule("knowledge", true)).statusCode).toBe(200);
+    expect((await switchModule("marketing", true)).statusCode).toBe(200);
+    expect(await snapshot()).toEqual(before);
+    expect((await call("GET", "/knowledge-health")).statusCode).toBe(200);
   });
 
   it("keeps knowledge on while marketing is on", async () => {

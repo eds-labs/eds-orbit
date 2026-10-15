@@ -10,7 +10,7 @@ import {
   type OrbitTool,
   type ToolContext,
 } from "../../agents/tools/registry.ts";
-import { knowledgeSearchTool } from "../../../platform/knowledge/search-tool.ts";
+import { assistantKnowledgeSearch } from "../../../platform/knowledge/search-tool.ts";
 
 // Model-facing shapes only; runReadTool's own zod inputs stay authoritative
 // and enforce the string lengths strict mode cannot express.
@@ -44,13 +44,8 @@ export const readTools: readonly OrbitTool[] = [
     "Read the current project, policy, open approvals, blockers, and available channels.",
     z.object({}).strict(),
   ),
-  // The chat reserves a search's query embedding under its run.
-  knowledgeSearchTool({
-    budget: (context) => ({
-      retrievalJobKey: `chat:${context.runId}:knowledge:${context.callIndex}`,
-      budgetRunKey: `chat:${context.runId}`,
-    }),
-  }),
+  // The platform's search, listed here to keep its place in the tool list.
+  assistantKnowledgeSearch,
   readTool(
     "approved_assets",
     "assets",
