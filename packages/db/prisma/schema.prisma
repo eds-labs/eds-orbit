@@ -112,9 +112,29 @@ model Project {
   marketingProfile ProjectMarketingProfile?
   chatConversations ChatConversation[]
   agentRuns        AgentRun[]
+  modules          ProjectModule[]
 
   @@unique([workspaceId, id])
   @@index([workDueAt])
+}
+
+/// Module activation per project (WP1.4). No row: the registry default applies.
+model ProjectModule {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @db.Uuid
+  projectId       String   @db.Uuid
+  moduleId        String
+  enabled         Boolean
+  settings        Json     @default("{}")
+  settingsVersion Int      @default(1)
+  /// Module contract version when the row was last written.
+  moduleVersion   String
+  changedBy       String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+  project         Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@unique([workspaceId, projectId, moduleId])
 }
 
 model ChatConversation {

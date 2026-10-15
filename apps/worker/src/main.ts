@@ -1,28 +1,17 @@
+import { registerModules } from "../../api/src/modules/registry.ts";
 import {
-  runScheduledMatomo,
-  nextMatomoRunAt,
-} from "../../api/src/modules/matomo-schedule.ts";
-import {
-  checkPostizQueue,
-  nextPostizQueueCheckAt,
-} from "../../api/src/modules/postiz-queue-watch.ts";
-import {
-  saveGeneratedAsset,
-  markSyncFailed,
-  connectionStatus,
-} from "../../api/src/modules/google-drive.ts";
-import { runIndexEvaluation } from "../../api/src/modules/index-evaluation.ts";
-import { buildIndexBatch } from "../../api/src/modules/reindex.ts";
+  ownerEnabled,
+  registeredJobOwner,
+  registeredJobs,
+  registeredPeriodicTasks,
+  workerStartHooks,
+} from "../../api/src/platform/modules/contributions.ts";
+import { enabledModules } from "../../api/src/platform/modules/enforcement.ts";
 import Redis from "ioredis";
-import {
-  dispatchSlackDigest,
-  markSlackOutcomeUnknown,
-} from "../../api/src/modules/slack.ts";
 import {
   sweepProject,
   nextSweepAt,
-  evaluateExperiment,
-} from "../../api/src/modules/lifecycle.ts";
+} from "../../api/src/platform/jobs/scheduler.ts";
 import { writeFile, rename, unlink, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
@@ -49,34 +38,12 @@ import {
   data,
   update,
   exception,
-  audit,
   create,
 } from "../../api/src/shared.ts";
-import {
-  deterministicDraft,
-  claimPublication,
-  finishPublication,
-  reviewContent,
-  publishIntent,
-} from "../../api/src/modules/workflow.ts";
-import { generateMissionLive } from "../../api/src/modules/generation.ts";
-import { runChatJob } from "../../api/src/modules/chat-runner.ts";
-import { stopChatRunForPause } from "../../api/src/modules/chat.ts";
-import { runImageJob } from "../../api/src/modules/image-requests.ts";
-import { registerAgentSpecialists } from "../../api/src/modules/agents/specialists/index.ts";
-import { runAgentTask } from "../../api/src/modules/agents/specialists/runner.ts";
-import { sendNotification } from "../../api/src/modules/agents/notification-sender.ts";
-import {
-  deliverPostizDraft,
-  markPostizDraftOutcomeUnknown,
-} from "../../api/src/modules/agents/draft-delivery.ts";
-import { syncSource, embedDocument } from "../../api/src/modules/ingestion.ts";
-import {
-  dispatchPublication,
-  reconcilePublication,
-} from "../../api/src/modules/publisher.ts";
-// Model specialists of the `agent` queue.
-registerAgentSpecialists();
+// A broken module manifest stops the worker before it takes a job.
+registerModules();
+// Module start-up, such as the specialists of the `agent` queue.
+for (const start of workerStartHooks()) start();
 const config = loadConfig(),
   url = new URL(config.REDIS_URL);
 const connection = new Redis(config.REDIS_URL, {
@@ -93,25 +60,9 @@ function reportConnectionError() {
 }
 connection.on("error", reportConnectionError);
 await connection.connect();
-const classes = [
-  "publishing",
-  "generation",
-  "chat",
-  "ingestion",
-  "embedding",
-  "reindex",
-  "index_evaluation",
-  "analytics",
-  "reconciliation",
-  "slack_notification",
-  "image",
-  // Specialist tasks of assignment runs (Orbit Agents).
-  "agent",
-  // Previews, notices and the daily report for the owner's Telegram bot (Orbit Agents).
-  "telegram_notification",
-  // Approved assignment posts sent to Postiz as drafts only (delivery "Postiz draft", R73).
-  "postiz_draft",
-] as const;
+// Queue classes as registered by the platform and the modules (WP1.6).
+const jobDefs = registeredJobs();
+const classes = [...jobDefs.keys()];
 const queues = new Map(
   classes.map((c) => [
     c,
@@ -134,10 +85,6 @@ const workspaces = workspaceAllowlist(
 );
 let stopping = false;
 const projectFailures = new Map<string, number>();
-const driveRetryChecks = new Map<
-  string,
-  { at: number; enabled: boolean; nextRetryAt: number | null }
->();
 const PUMP_INTERVAL_MS = 1500,
   PUMP_BATCH = 100,
   PUMP_CONCURRENCY = 4,
@@ -147,13 +94,13 @@ const PUMP_INTERVAL_MS = 1500,
   FAILURE_RETRY_MS = 5_000,
   // A pass holds the marker this long; a crashed pass is retried after it.
   PROCESSING_LEASE_MS = 60_000,
-  LEASE_GRACE_MS = 1_000,
-  DRIVE_CHECK_MS = 30_000;
+  LEASE_GRACE_MS = 1_000;
 const workers = classes.map(
   (topic) =>
     new Worker(
       config.QUEUE_NAMESPACE + "-" + topic,
       async (queued) => {
+        const def = jobDefs.get(topic)!;
         const { projectId, workspaceId, jobId } = queued.data;
         const scope: Scope = {
           projectId,
@@ -180,163 +127,51 @@ const workers = classes.map(
           const project = await tx.project.findUniqueOrThrow({
             where: { id: projectId },
           });
-          // A message to the owner's own bot publishes nothing; a pause notice must still reach him.
-          if (project.paused && topic !== "telegram_notification") {
+          if (project.paused && !def.runWhilePaused) {
             await update(tx, scope, job, {
               ...d,
               status: "blocked_dependency",
               error: "PROJECT_PAUSED",
             });
-            // The reply would otherwise wait forever.
-            if (topic === "chat") await stopChatRunForPause(tx, d);
+            await def.onBlockedByPause?.(tx, d);
+            return null;
+          }
+          // A disabled module's jobs stop like paused ones (WP2.4); the
+          // existing retry action restarts them once the module is on.
+          if (
+            !ownerEnabled(
+              registeredJobOwner(topic),
+              await enabledModules(tx, scope),
+            )
+          ) {
+            await update(tx, scope, job, {
+              ...d,
+              status: "blocked_dependency",
+              error: "MODULE_DISABLED",
+            });
             return null;
           }
           return update(tx, scope, job, {
             ...d,
             status: "running",
             attempts: d.attempts + 1,
-            // A specialist task may run its full 120 s wall time, a notification with its retries nearly as long; the lease outlasts both.
+            // The lease outlasts the class's longest run (JobDef.leaseMs).
             leaseUntil: new Date(
-              Date.now() +
-                (topic === "agent" || topic === "telegram_notification"
-                  ? 180000
-                  : 120000),
+              Date.now() + (def.leaseMs ?? 120000),
             ).toISOString(),
             worker: config.PUBLISHER_INSTANCE_ID,
           });
         });
         if (!claimed) return;
         try {
-          let chatResult: { status: string; errorCode: string | null } | null =
-            null;
-          if (topic === "chat") {
-            // Runs with the requesting user's current role, never the worker's.
-            const finished = await runChatJob(
+          // A handler may report its own terminal status (chat).
+          const chatResult =
+            (await def.handler({
               scope,
-              data(claimed).actorId,
-              data(claimed).resourceId,
-            );
-            chatResult = {
-              status: finished.status,
-              errorCode: finished.errorCode,
-            };
-          } else if (topic === "generation") {
-            const drafts =
-              config.EXECUTION_MODE === "live" ||
-              data(claimed).liveDraftOnce === true
-                ? [
-                    await generateMissionLive(
-                      scope,
-                      data(claimed).resourceId,
-                      jobId,
-                    ),
-                  ]
-                : await scoped(workspaceId, projectId, (tx) =>
-                    deterministicDraft(
-                      tx,
-                      scope,
-                      data(claimed).resourceId,
-                      jobId,
-                    ),
-                  );
-            for (const content of drafts) {
-              const reviewed = await scoped(
-                workspaceId,
-                projectId,
-                async (tx) => {
-                  const project = await tx.project.findUniqueOrThrow({
-                    where: { id: projectId },
-                  });
-                  if (
-                    data(claimed).liveDraftOnce === true ||
-                    project.mode !== "autopilot"
-                  )
-                    return null;
-                  const mission = await entity(
-                    tx,
-                    scope,
-                    "missions",
-                    data(content).missionId,
-                  );
-                  if (
-                    Array.isArray(data(mission).allowedActions) &&
-                    !data(mission).allowedActions.some(
-                      (action: string) =>
-                        action === "publish_test" || action === "publish_live",
-                    )
-                  )
-                    return null;
-                  const current = await entity(
-                    tx,
-                    scope,
-                    "content",
-                    content.id,
-                  );
-                  const result =
-                    data(current).status === "draft"
-                      ? await reviewContent(
-                          tx,
-                          scope,
-                          current.id,
-                          current.version,
-                        )
-                      : current;
-                  if (data(result).status !== "reviewed") {
-                    await exception(
-                      tx,
-                      scope,
-                      "CONTENT_REVIEW_REQUIRED",
-                      result.id,
-                    );
-                    return null;
-                  }
-                  return result;
-                },
-              );
-              if (reviewed)
-                await scoped(workspaceId, projectId, (tx) =>
-                  publishIntent(tx, scope, {
-                    contentId: reviewed.id,
-                    version: reviewed.version,
-                  }),
-                );
-            }
-          } else if (topic === "ingestion") {
-            await syncSource(scope, data(claimed).resourceId);
-          } else if (topic === "embedding") {
-            await embedDocument(scope, data(claimed).resourceId, jobId);
-          } else if (topic === "index_evaluation") {
-            await runIndexEvaluation(scope, data(claimed).resourceId, jobId);
-          } else if (topic === "reindex") {
-            await buildIndexBatch(scope, data(claimed).resourceId, jobId);
-          } else if (topic === "publishing") {
-            await dispatchPublication(scope, data(claimed).resourceId);
-          } else if (topic === "reconciliation") {
-            await reconcilePublication(scope, data(claimed).resourceId);
-          } else if (topic === "slack_notification") {
-            await dispatchSlackDigest(scope, data(claimed).resourceId);
-          } else if (topic === "image") {
-            // Runs an owner-approved image request with the decider's current role.
-            await runImageJob(
-              scope,
-              data(claimed).actorId,
-              data(claimed).resourceId,
               jobId,
-            );
-          } else if (topic === "telegram_notification") {
-            // Records its own outcome on the job; a failed delivery is an exception, never a retry loop.
-            await sendNotification(scope, jobId);
-          } else if (topic === "postiz_draft") {
-            // Records its own outcome on the handoff; an unclear send is never repeated.
-            await deliverPostizDraft(scope, data(claimed).resourceId);
-          } else if (topic === "agent") {
-            // Records its own outcome on the task; never retried after a paid call.
-            await runAgentTask(scope, data(claimed).resourceId);
-          } else if (topic === "analytics") {
-            await scoped(workspaceId, projectId, (tx) =>
-              evaluateExperiment(tx, scope, data(claimed).resourceId),
-            );
-          } else throw new Error("JOB_CAPABILITY_NOT_CONFIGURED");
+              job: data(claimed),
+              executionMode: config.EXECUTION_MODE,
+            })) ?? null;
           await scoped(workspaceId, projectId, async (tx) => {
             const job = await entity(tx, scope, "jobs", jobId);
             await update(tx, scope, job, {
@@ -375,7 +210,7 @@ const workers = classes.map(
       },
       {
         connection,
-        concurrency: topic === "publishing" ? 2 : 1,
+        concurrency: jobDefs.get(topic)!.concurrency ?? 1,
         lockDuration: 120000,
         stalledInterval: 30000,
         maxStalledCount: 1,
@@ -392,17 +227,19 @@ async function processProject(p: DueProject, claimed: Date) {
     role: "owner",
   };
   const at = new Date();
-  const { events, candidates } = await scoped(
+  const { events, candidates, periodicTasks } = await scoped(
     p.workspaceId,
     p.id,
     async (tx) => {
+      // Periodic tasks of enabled modules only (WP2.4).
+      const periodicTasks = registeredPeriodicTasks(
+        await enabledModules(tx, scope),
+      );
       await sweepProject(tx, scope);
-      const candidates: (Date | null)[] = [
-        await nextSweepAt(tx, scope),
-        // Not gated by pause, matching runScheduledMatomo.
-        await nextMatomoRunAt(tx, scope),
-        await nextPostizQueueCheckAt(tx, scope),
-      ];
+      const candidates: (Date | null)[] = [await nextSweepAt(tx, scope)];
+      // Periodic tasks are not gated by pause, matching their run below.
+      for (const task of periodicTasks)
+        if (task.nextDueAt) candidates.push(await task.nextDueAt(tx, scope));
       // Crash recovery preserves the intent and never retries an ambiguous external write.
       const running = await tx.entity.findMany({
         where: {
@@ -420,21 +257,8 @@ async function processProject(p: DueProject, claimed: Date) {
           candidates.push(new Date(lease.valueOf() + LEASE_GRACE_MS));
           continue;
         }
-        if (d.topic === "slack_notification")
-          await markSlackOutcomeUnknown(tx, scope, d.resourceId);
-        // A draft send that may have reached Postiz is never repeated (R73).
-        if (d.topic === "postiz_draft")
-          await markPostizDraftOutcomeUnknown(tx, scope, d.resourceId);
-        if (d.topic === "publishing") {
-          const pub = await entity(tx, scope, "publications", d.resourceId);
-          if (data(pub).status === "sending") {
-            await update(tx, scope, pub, {
-              ...data(pub),
-              status: "outcome_unknown",
-            });
-            await exception(tx, scope, "PUBLISH_OUTCOME_UNKNOWN", pub.id);
-          }
-        }
+        // Crash recovery per queue class: an ambiguous external write is never repeated.
+        await jobDefs.get(d.topic)?.onLeaseExpired?.(tx, scope, d);
         if (d.liveDraftOnce === true || d.attempts >= d.maxAttempts) {
           await update(tx, scope, job, {
             ...d,
@@ -484,12 +308,12 @@ async function processProject(p: DueProject, claimed: Date) {
         select: { availableAt: true },
       });
       candidates.push(upcoming?.availableAt ?? null);
-      return { events, candidates };
+      return { events, candidates, periodicTasks };
     },
   );
   let redispatch = events.length === OUTBOX_BATCH;
   for (const e of events) {
-    const queue = queues.get(e.topic as (typeof classes)[number]);
+    const queue = queues.get(e.topic);
     if (!queue) continue;
     if ((await queue.getWaitingCount()) > 200) {
       redispatch = true;
@@ -507,21 +331,20 @@ async function processProject(p: DueProject, claimed: Date) {
       }),
     );
   }
-  // Saved Matomo imports run at most twice a day per project.
-  await runScheduledMatomo(scope).catch(() => {});
-  // Read-only Postiz queue check; its result feeds /api/health/postiz.
-  const postizQueue = await checkPostizQueue(scope).catch(
-    () => ({ checked: false }) as const,
-  );
-  if (postizQueue.checked) {
-    const key = "orbit:postiz-queue:" + config.PUBLISHER_INSTANCE_ID;
+  // Module tasks after dispatch, such as saved Matomo imports and the
+  // read-only Postiz queue check; a published status feeds /api/health.
+  for (const task of periodicTasks) {
+    const result = await task.run(scope).catch(() => undefined);
+    if (result?.wakeAt) candidates.push(result.wakeAt);
+    if (!task.health || !result?.status) continue;
+    const key = `orbit:${task.name}:` + config.PUBLISHER_INSTANCE_ID;
     await connection
       .multi()
       .hset(
         key,
         p.id,
         JSON.stringify({
-          status: postizQueue.status,
+          status: result.status,
           checkedAt: new Date().toISOString(),
         }),
       )
@@ -529,53 +352,6 @@ async function processProject(p: DueProject, claimed: Date) {
       .exec()
       .catch(() => {});
   }
-  let drive = driveRetryChecks.get(p.id);
-  if (!drive || Date.now() - drive.at > DRIVE_CHECK_MS) {
-    // Gate the check itself, not only enabled projects, so disabled Drive costs no transaction per tick.
-    drive = {
-      at: Date.now(),
-      enabled: (await connectionStatus(scope)).enabled,
-      nextRetryAt: null,
-    };
-    driveRetryChecks.set(p.id, drive);
-    if (drive.enabled) {
-      const failed = await scoped(p.workspaceId, p.id, (tx) =>
-        tx.entity.findMany({
-          where: {
-            projectId: p.id,
-            kind: "assets",
-            data: { path: ["driveSyncStatus"], equals: "FAILED" },
-          },
-          take: 30,
-          orderBy: { updatedAt: "asc" },
-        }),
-      );
-      const pending = failed.filter(
-        (row) =>
-          data(row).driveSyncStatus === "FAILED" &&
-          Number(data(row).driveRetryAttempts ?? 0) < 5,
-      );
-      const due = pending.filter(
-        (row) => Date.parse(data(row).driveRetryAt ?? "") <= Date.now(),
-      );
-      for (const asset of due.slice(0, 3)) {
-        try {
-          await saveGeneratedAsset(scope, asset.id);
-        } catch {
-          await markSyncFailed(scope, asset.id);
-        }
-      }
-      const retryTimes = pending
-        .filter((row) => !due.slice(0, 3).includes(row))
-        .map((row) => Date.parse(data(row).driveRetryAt ?? ""))
-        .filter(Number.isFinite);
-      if (retryTimes.length) drive.nextRetryAt = Math.min(...retryTimes);
-    }
-  }
-  if (drive.enabled && drive.nextRetryAt !== null)
-    candidates.push(
-      new Date(Math.max(drive.nextRetryAt, drive.at + DRIVE_CHECK_MS)),
-    );
   const next = redispatch
     ? new Date()
     : earliestDue(at, MAX_IDLE_MS, candidates);

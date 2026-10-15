@@ -1,0 +1,251 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`Project sweep (characterization) > Orbit Agents off (weekly autopilot path) 1`] = `
+{
+  "entities": [
+    {
+      "kind": "experiments",
+      "label": "experiment-running",
+      "status": "running",
+      "version": 1,
+    },
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "idempotencyKey": "mission:<mission-due>:1",
+      "kind": "jobs",
+      "label": null,
+      "resourceId": "<mission-due>",
+      "status": "queued",
+      "topic": "generation",
+      "version": 1,
+    },
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "idempotencyKey": "periodic-sync:<source-sync-due>:1:497748",
+      "kind": "jobs",
+      "label": null,
+      "resourceId": "<new>",
+      "status": "queued",
+      "topic": "ingestion",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-assignment-run",
+      "status": "ready",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-draft",
+      "status": "draft",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-due",
+      "status": "ready",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-ended",
+      "status": "expired",
+      "version": 2,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-later",
+      "status": "ready",
+      "version": 1,
+    },
+    {
+      "kind": "sources",
+      "label": "source-no-schedule",
+      "status": "active",
+      "version": 1,
+    },
+    {
+      "kind": "sources",
+      "label": "source-sync-due",
+      "status": "active",
+      "version": 1,
+    },
+    {
+      "kind": "sources",
+      "label": "source-sync-fresh",
+      "status": "active",
+      "version": 1,
+    },
+    {
+      "expectedGeneration": 1,
+      "kind": "sync_requests",
+      "label": "sync-request-due",
+      "sourceId": "<source-sync-due>",
+      "status": null,
+      "version": 1,
+    },
+    {
+      "expectedGeneration": 1,
+      "kind": "sync_requests",
+      "label": "sync-request-due",
+      "sourceId": "<source-sync-due>",
+      "status": null,
+      "version": 1,
+    },
+    {
+      "expectedGeneration": 1,
+      "kind": "sync_requests",
+      "label": "sync-request-fresh",
+      "sourceId": "<source-sync-fresh>",
+      "status": null,
+      "version": 1,
+    },
+  ],
+  "nextSweepAfter": "2026-10-13T12:50:00.000Z",
+  "nextSweepBefore": "2026-10-13T12:50:00.000Z",
+  "outbox": [
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "job": "mission:<mission-due>:1",
+      "topic": "generation",
+    },
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "job": "periodic-sync:<source-sync-due>:1:497748",
+      "topic": "ingestion",
+    },
+  ],
+  "repeat": {
+    "queued": 1,
+  },
+  "result": {
+    "queued": 2,
+  },
+}
+`;
+
+exports[`Project sweep (characterization) > Orbit Agents on (assignment path) 1`] = `
+{
+  "entities": [
+    {
+      "kind": "experiments",
+      "label": "experiment-running",
+      "status": "running",
+      "version": 1,
+    },
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "idempotencyKey": "mission:<mission-due>:1",
+      "kind": "jobs",
+      "label": null,
+      "resourceId": "<mission-due>",
+      "status": "queued",
+      "topic": "generation",
+      "version": 1,
+    },
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "idempotencyKey": "periodic-sync:<source-sync-due>:1:497748",
+      "kind": "jobs",
+      "label": null,
+      "resourceId": "<new>",
+      "status": "queued",
+      "topic": "ingestion",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-assignment-run",
+      "status": "ready",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-draft",
+      "status": "draft",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-due",
+      "status": "ready",
+      "version": 1,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-ended",
+      "status": "expired",
+      "version": 2,
+    },
+    {
+      "kind": "missions",
+      "label": "mission-later",
+      "status": "ready",
+      "version": 1,
+    },
+    {
+      "kind": "sources",
+      "label": "source-no-schedule",
+      "status": "active",
+      "version": 1,
+    },
+    {
+      "kind": "sources",
+      "label": "source-sync-due",
+      "status": "active",
+      "version": 1,
+    },
+    {
+      "kind": "sources",
+      "label": "source-sync-fresh",
+      "status": "active",
+      "version": 1,
+    },
+    {
+      "expectedGeneration": 1,
+      "kind": "sync_requests",
+      "label": "sync-request-due",
+      "sourceId": "<source-sync-due>",
+      "status": null,
+      "version": 1,
+    },
+    {
+      "expectedGeneration": 1,
+      "kind": "sync_requests",
+      "label": "sync-request-due",
+      "sourceId": "<source-sync-due>",
+      "status": null,
+      "version": 1,
+    },
+    {
+      "expectedGeneration": 1,
+      "kind": "sync_requests",
+      "label": "sync-request-fresh",
+      "sourceId": "<source-sync-fresh>",
+      "status": null,
+      "version": 1,
+    },
+  ],
+  "nextSweepAfter": "2026-10-13T12:50:00.000Z",
+  "nextSweepBefore": "2026-10-13T12:50:00.000Z",
+  "outbox": [
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "job": "mission:<mission-due>:1",
+      "topic": "generation",
+    },
+    {
+      "availableAt": "2026-10-13T12:00:00.000Z",
+      "job": "periodic-sync:<source-sync-due>:1:497748",
+      "topic": "ingestion",
+    },
+  ],
+  "repeat": {
+    "queued": 1,
+  },
+  "result": {
+    "queued": 2,
+  },
+}
+`;

@@ -13,6 +13,8 @@ export default defineConfig({
       "apps/worker/**/*.test.ts",
       "packages/**/*.test.ts",
       "evals/**/*.test.ts",
+      // Repository checks (scripts/*.mjs) are plain ES modules.
+      "scripts/**/*.test.mjs",
     ],
     testTimeout: 30000,
     hookTimeout: 30000,

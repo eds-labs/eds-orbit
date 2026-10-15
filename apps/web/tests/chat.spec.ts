@@ -10,6 +10,21 @@ function account() {
 
 // better-auth allows three sign-ins per 10 seconds; short consecutive tests can
 // exceed that, so a rate-limited sign-in waits out the window once.
+// Pages by their old name; the shell serves them under /p/:projectId (WP1.7).
+const VIEW = {
+  knowledge: "knowledge",
+  settings: "settings",
+  missions: "marketing/missions",
+  content: "marketing/content",
+  calendar: "marketing/calendar",
+  analytics: "marketing/analytics",
+  operations: "operations",
+  chat: "assistant",
+  approvals: "approvals",
+  connectors: "connectors",
+} as const;
+const open = (page: Page, projectId: string, view: keyof typeof VIEW) =>
+  page.goto(`/p/${projectId}/${VIEW[view]}`);
 async function signIn(page: Page) {
   const user = account();
   await page.goto("/");
@@ -23,6 +38,10 @@ async function signIn(page: Page) {
     if ((await response).status() !== 429) break;
     await page.waitForTimeout(10_500);
   }
+  // With several projects a fresh browser lands on the project picker.
+  await page.waitForURL(/\/(p|o)(\/|$)/);
+  if (!new URL(page.url()).pathname.startsWith("/p/"))
+    await page.goto(`/p/${user.projectId}`);
   await expect(
     page.getByRole("heading", { name: "Your marketing, in orbit." }),
   ).toBeVisible();
@@ -33,7 +52,7 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
   page,
 }) => {
   const user = await signIn(page);
-  await page.goto("/chat");
+  await open(page, user.projectId, "chat");
   await expect(page.getByRole("heading", { name: "Orbit Chat" })).toBeVisible();
   await page.getByRole("button", { name: "Plan next week" }).click();
   await expect(page.getByLabel("Message Orbit")).toHaveValue(
@@ -64,8 +83,11 @@ test("private chat blocks without a paid mandate and resumes after reload and pr
   const otherId = (await project.json()).id as string;
   await page.reload();
   await page.locator("#project").selectOption(otherId);
+  // Switching keeps the page and changes the project in the URL.
+  await expect(page).toHaveURL(new RegExp(`/p/${otherId}/assistant$`));
   await expect(page.getByText(message, { exact: true })).toHaveCount(0);
   await page.locator("#project").selectOption(user.projectId);
+  await expect(page).toHaveURL(new RegExp(`/p/${user.projectId}/assistant$`));
   await expect(page.getByText(message, { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(
@@ -183,13 +205,14 @@ test("renders streamed text, action states, source links and cancellation", asyn
       });
     },
   );
-  await page.goto("/chat");
+  await open(page, user.projectId, "chat");
   await page
     .getByRole("button", { name: "Synthetic plan", exact: true })
     .click();
+  // The API's legacy card link points into the open project.
   await expect(
     page.getByRole("link", { name: "Official source" }),
-  ).toBeVisible();
+  ).toHaveAttribute("href", `/p/${user.projectId}/knowledge`);
   await expect(
     page.getByText("Knowledge retrieval: lexical_degraded · index 1"),
   ).toBeVisible();
@@ -322,7 +345,7 @@ test("starts a content package with one click and shows both drafts", async ({
       });
     },
   );
-  await page.goto("/chat");
+  await open(page, user.projectId, "chat");
   await page
     .getByRole("button", { name: "Synthetic beta package", exact: true })
     .click();
@@ -459,7 +482,7 @@ test("owner approves the package image's rights and attaches it to one draft", a
       return route.fulfill({ json: { id: "package-2" } });
     },
   );
-  await page.goto("/chat");
+  await open(page, user.projectId, "chat");
   await page
     .getByRole("button", { name: "Synthetic image package", exact: true })
     .click();
@@ -587,7 +610,7 @@ test("cancels a scheduled package post and reports a handed-over one honestly", 
       });
     },
   );
-  await page.goto("/chat");
+  await open(page, user.projectId, "chat");
   await page
     .getByRole("button", { name: "Synthetic scheduled package", exact: true })
     .click();
@@ -690,7 +713,7 @@ test("cancels a running content package and shows what stopped", async ({
       return route.fulfill({ json: { id: "package-2", status: "canceled" } });
     },
   );
-  await page.goto("/chat");
+  await open(page, user.projectId, "chat");
   await page
     .getByRole("button", { name: "Synthetic running package", exact: true })
     .click();
@@ -749,7 +772,7 @@ test("owner approves an editor's package image from the approvals inbox", async 
       });
     },
   );
-  await page.goto("/approvals");
+  await open(page, user.projectId, "approvals");
   const inbox = page.getByRole("region", { name: "Open decisions" });
   await expect(inbox.getByText("Generate image")).toBeVisible();
   await expect(
@@ -813,7 +836,7 @@ test("owner schedules an exact package post from the approvals inbox", async ({
       });
     },
   );
-  await page.goto("/approvals");
+  await open(page, user.projectId, "approvals");
   const inbox = page.getByRole("region", { name: "Open decisions" });
   await expect(inbox.getByText("Schedule post")).toBeVisible();
   await expect(inbox.getByText("Test mode")).toBeVisible();
@@ -882,12 +905,12 @@ test("Postiz owner selects exact channels for the current project", async ({
       return route.fulfill({ json: { id: connectorId, version: 2, data: {} } });
     },
   );
-  await page.goto("/connectors");
+  await open(page, user.projectId, "connectors");
   await expect(page.getByText("Not assigned")).toHaveCount(2);
   await page.getByRole("checkbox", { name: /uLiquid X/ }).check();
   await page.getByRole("button", { name: "Save assignment" }).click();
   await expect.poll(() => selected).toEqual(["uliquid-x"]);
-  await page.goto("/content");
+  await open(page, user.projectId, "content");
   await page.getByRole("button", { name: "New draft" }).first().click();
   await expect(page.getByRole("option", { name: /uLiquid X/ })).toBeAttached();
   await expect(page.getByRole("option", { name: /FamilyPlan/ })).toHaveCount(0);

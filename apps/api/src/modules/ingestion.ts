@@ -11,11 +11,13 @@ import {
 } from "../../../../packages/knowledge/src/index.ts";
 import { entity, data, DomainError } from "../shared.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
-import { activePolicy } from "./policy.ts";
-import { policy } from "../../../../packages/schemas/src/index.ts";
+import {
+  activeSpendMandateRef,
+  requireSpendMandate,
+} from "../platform/ai/spend-mandate.ts";
 import { embed, estimateCost } from "../../../../packages/ai/src/index.ts";
 import { runtimeOpenAiConfiguration } from "./openai-configuration.ts";
-import { enqueue } from "./workflow.ts";
+import { enqueue } from "../platform/jobs/enqueue.ts";
 import { recordSpan, startRun, tracedRun } from "./telemetry.ts";
 function assertEmbeddingDocumentFresh(
   version: {
@@ -197,15 +199,8 @@ async function embedDocumentBatch(
         .filter((chunk) => !stored.has(chunk.id))
         .slice(0, 32);
       if (!batch.length) return null;
-      const p = await activePolicy(tx, scope);
-      if (!p) throw new DomainError("POLICY_REQUIRED");
-      const approved = policy.parse(
-        Object.fromEntries(
-          Object.entries(data(p)).filter(
-            ([k]) => !["active", "activatedAt", "activatedBy"].includes(k),
-          ),
-        ),
-      );
+      const p = await requireSpendMandate(tx, scope);
+      const approved = p.limits;
       const texts = batch.map((x) => x.text);
       const ai = await runtimeOpenAiConfiguration(tx, scope);
       const amount = estimateCost(
@@ -254,7 +249,7 @@ async function embedDocumentBatch(
     const project = await tx.project.findUniqueOrThrow({
       where: { id: scope.projectId },
     });
-    const p = await activePolicy(tx, scope);
+    const p = await activeSpendMandateRef(tx, scope);
     if (
       project.paused ||
       project.generation !== prepared.projectGeneration ||
@@ -323,7 +318,7 @@ async function embedDocumentBatch(
     const project = await tx.project.findUniqueOrThrow({
         where: { id: scope.projectId },
       }),
-      p = await activePolicy(tx, scope);
+      p = await activeSpendMandateRef(tx, scope);
     if (
       project.paused ||
       project.generation !== prepared.projectGeneration ||

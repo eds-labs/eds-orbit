@@ -1,0 +1,494 @@
+import { randomUUID } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  authDb,
+  closeDatabase,
+  db,
+  scoped,
+  type DbTx,
+} from "../../../packages/db/src/index.ts";
+import type { Scope } from "../../../packages/schemas/src/index.ts";
+import {
+  getActiveIndex,
+  ingest,
+} from "../../../packages/knowledge/src/index.ts";
+import { audit, create } from "../src/shared.ts";
+import { enqueue } from "../src/modules/workflow.ts";
+
+const enabled = Boolean(
+  process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
+);
+
+/**
+ * Every table in the public schema, by how the business role (orbit_app)
+ * may reach it. A new table fails this test until it is classified here,
+ * has FORCE RLS where required and the grants in scripts/db-deploy.ts.
+ */
+const PROJECT_TABLES = [
+  "AgentRun",
+  "AgentSpan",
+  "AuditEvent",
+  "BudgetReservation",
+  "ChunkEmbedding",
+  "DocumentVersion",
+  "Entity",
+  "EntityVersion",
+  "KnowledgeChunk",
+  "KnowledgeDocument",
+  "KnowledgeIndex",
+  "Outbox",
+  "ProjectMarketingProfile",
+  "ProjectMarketingProfileVersion",
+  "ProjectModule",
+];
+// Project scope plus the chat owner (app.user_id).
+const CHAT_TABLES = [
+  "ChatConversation",
+  "ChatMessage",
+  "ChatProposal",
+  "ChatRun",
+];
+// RLS for the business role, full control only for orbit_auth.
+const TENANCY_TABLES = [
+  "Project",
+  "ProjectMember",
+  "Workspace",
+  "WorkspaceMember",
+];
+// Better Auth tables and Prisma's journal: no RLS, never granted to orbit_app.
+const AUTH_ONLY_TABLES = ["account", "session", "user", "verification"];
+const SYSTEM_TABLES = ["_prisma_migrations"];
+// Tenancy tables the business role must not touch at all.
+const NO_APP_ACCESS = [
+  "ProjectMember",
+  "Workspace",
+  "WorkspaceMember",
+  ...AUTH_ONLY_TABLES,
+  ...SYSTEM_TABLES,
+];
+const SCOPED_TABLES = [...PROJECT_TABLES, ...CHAT_TABLES];
+
+type TableInfo = {
+  relname: string;
+  rls: boolean;
+  force: boolean;
+  select: boolean;
+  insert: boolean;
+  update: boolean;
+  delete: boolean;
+};
+
+describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
+  const users: string[] = [];
+  const workspaces: string[] = [];
+  let tables: TableInfo[];
+  // A and C share a workspace; B lives in another one.
+  let a: Scope, b: Scope, c: Scope;
+  // An existing row of B, so a cross-project outbox insert can fail only on RLS.
+  let bEntityId: string;
+
+  const synthetic = async () => {
+    const row = await authDb.user.create({
+      data: {
+        id: randomUUID(),
+        name: "Synthetic RLS user",
+        email: `${randomUUID()}@example.invalid`,
+      },
+    });
+    users.push(row.id);
+    return row.id;
+  };
+  const workspace = async (owner: string) => {
+    const row = await authDb.workspace.create({
+      data: {
+        name: "Synthetic RLS workspace",
+        members: { create: { userId: owner, role: "owner" } },
+      },
+    });
+    workspaces.push(row.id);
+    return row.id;
+  };
+  const project = async (workspaceId: string, userId: string) => {
+    const row = await authDb.project.create({
+      data: { workspaceId, name: "Synthetic RLS project" },
+    });
+    return {
+      workspaceId,
+      projectId: row.id,
+      userId,
+      role: "owner",
+    } satisfies Scope;
+  };
+  // A scoped transaction as the chat code runs it (chatScoped sets the user).
+  const asScope = <T>(s: Scope, fn: (tx: DbTx) => Promise<T>) =>
+    scoped(s.workspaceId, s.projectId, async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.user_id', ${s.userId}, true)`;
+      return fn(tx);
+    });
+  const visible = (viewer: Scope, table: string, target: Scope) =>
+    asScope(viewer, async (tx) => {
+      const rows = await tx.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM "${table}" WHERE "projectId" = $1::uuid`,
+        target.projectId,
+      );
+      return Number(rows[0]!.n);
+    });
+  // Runs one statement in its own scoped transaction; a denial aborts only it.
+  const attempt = async (viewer: Scope, sql: string, ...params: unknown[]) => {
+    try {
+      return {
+        count: await asScope(viewer, (tx) =>
+          tx.$executeRawUnsafe(sql, ...params),
+        ),
+      };
+    } catch (error) {
+      return { error: String(error instanceof Error ? error.message : error) };
+    }
+  };
+
+  async function seed(s: Scope) {
+    await asScope(s, async (tx) => {
+      const source = await create(tx, s, "sources", {
+        name: "Synthetic RLS source",
+        status: "active",
+        generation: 1,
+        publicUse: true,
+        modelUse: true,
+        authority: "official",
+        maxAgeHours: 168,
+        allowedOrigins: [],
+        allowedPaths: ["/"],
+      });
+      await ingest(tx, s, {
+        sourceId: source.id,
+        externalId: "rls-guide",
+        title: "RLS fixture",
+        text: "Synthetic row-level security fixture text.",
+        mimeType: "text/plain",
+        language: "en",
+        expectedGeneration: 1,
+      });
+      const index = await getActiveIndex(tx, s);
+      const chunk = await tx.knowledgeChunk.findFirstOrThrow({
+        where: { workspaceId: s.workspaceId, projectId: s.projectId },
+      });
+      const vector = `[${new Array(index.dimensions).fill(0).join(",")}]`;
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "ChunkEmbedding" (id, "workspaceId", "projectId", "chunkId", profile, model, dimensions, "indexGeneration", vector)
+         VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7, $8, $9::vector)`,
+        randomUUID(),
+        s.workspaceId,
+        s.projectId,
+        chunk.id,
+        index.profile,
+        index.model,
+        index.dimensions,
+        index.generation,
+        vector,
+      );
+      await audit(tx, s, "rls.seed", source.id);
+      await enqueue(tx, s, "ingestion", source.id, `rls:${randomUUID()}`);
+      await tx.budgetReservation.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          key: `rls:${randomUUID()}`,
+          amountMicros: 1n,
+          category: "rls_test",
+          state: "released",
+        },
+      });
+      const runId = randomUUID();
+      await tx.agentRun.create({
+        data: {
+          id: runId,
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          kind: "chat",
+          agentName: "rls-test",
+          taskClass: "chat_operator",
+          status: "succeeded",
+        },
+      });
+      await tx.agentSpan.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          runId,
+          type: "model_call",
+          name: "rls-test",
+          status: "succeeded",
+          startedAt: new Date(),
+          durationMs: 1,
+        },
+      });
+      const profile = await tx.projectMarketingProfile.create({
+        data: { workspaceId: s.workspaceId, projectId: s.projectId, data: {} },
+      });
+      await tx.projectMarketingProfileVersion.create({
+        data: {
+          profileId: profile.id,
+          version: 1,
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          data: {},
+        },
+      });
+      await tx.projectModule.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          moduleId: "knowledge",
+          enabled: true,
+          moduleVersion: "1.0.0",
+        },
+      });
+      const owner = {
+        workspaceId: s.workspaceId,
+        projectId: s.projectId,
+        userId: s.userId,
+      };
+      const conversation = await tx.chatConversation.create({ data: owner });
+      const conversationId = conversation.id;
+      await tx.chatMessage.create({
+        data: {
+          ...owner,
+          conversationId,
+          sequence: 1,
+          role: "user",
+          text: "x",
+        },
+      });
+      await tx.chatRun.create({
+        data: { ...owner, conversationId, clientRequestId: randomUUID() },
+      });
+      await tx.chatProposal.create({
+        data: {
+          ...owner,
+          conversationId,
+          groupId: randomUUID(),
+          version: 1,
+          payload: {},
+          payloadHash: "rls",
+        },
+      });
+    });
+  }
+
+  beforeAll(async () => {
+    tables = await db.$queryRaw<TableInfo[]>`
+      SELECT c.relname,
+             c.relrowsecurity AS rls,
+             c.relforcerowsecurity AS force,
+             has_table_privilege(current_user, c.oid, 'SELECT') AS select,
+             has_table_privilege(current_user, c.oid, 'INSERT') AS insert,
+             has_table_privilege(current_user, c.oid, 'UPDATE') AS update,
+             has_table_privilege(current_user, c.oid, 'DELETE') AS delete
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
+       ORDER BY c.relname`;
+    const userA = await synthetic(),
+      userB = await synthetic();
+    const one = await workspace(userA),
+      two = await workspace(userB);
+    a = await project(one, userA);
+    c = await project(one, userA);
+    b = await project(two, userB);
+    for (const s of [a, b, c]) await seed(s);
+    bEntityId = await asScope(
+      b,
+      async (tx) =>
+        (
+          await tx.entity.findFirstOrThrow({
+            where: { projectId: b.projectId },
+          })
+        ).id,
+    );
+  });
+  afterAll(async () => {
+    await authDb.workspace.deleteMany({ where: { id: { in: workspaces } } });
+    await authDb.user.deleteMany({ where: { id: { in: users } } });
+    await closeDatabase();
+  });
+
+  it("classifies every table in the public schema", () => {
+    const known = [
+      ...SCOPED_TABLES,
+      ...TENANCY_TABLES,
+      ...AUTH_ONLY_TABLES,
+      ...SYSTEM_TABLES,
+    ].sort();
+    expect(tables.map((t) => t.relname).sort()).toEqual(known);
+  });
+
+  it("forces row-level security on every scoped and tenancy table", () => {
+    for (const name of [...SCOPED_TABLES, ...TENANCY_TABLES]) {
+      const t = tables.find((x) => x.relname === name)!;
+      expect({ name, rls: t.rls, force: t.force }).toEqual({
+        name,
+        rls: true,
+        force: true,
+      });
+    }
+  });
+
+  it("grants the business role nothing on auth, membership and system tables", () => {
+    for (const name of NO_APP_ACCESS) {
+      const t = tables.find((x) => x.relname === name)!;
+      expect({
+        name,
+        select: t.select,
+        insert: t.insert,
+        update: t.update,
+        delete: t.delete,
+      }).toEqual({
+        name,
+        select: false,
+        insert: false,
+        update: false,
+        delete: false,
+      });
+    }
+  });
+
+  it("keeps the audit log append-only and Project read/update-only", () => {
+    const auditTable = tables.find((x) => x.relname === "AuditEvent")!;
+    expect([
+      auditTable.select,
+      auditTable.insert,
+      auditTable.update,
+      auditTable.delete,
+    ]).toEqual([true, true, false, false]);
+    const projectTable = tables.find((x) => x.relname === "Project")!;
+    expect([
+      projectTable.select,
+      projectTable.insert,
+      projectTable.update,
+      projectTable.delete,
+    ]).toEqual([true, false, true, false]);
+  });
+
+  it("shows no row of any readable table without a project scope", async () => {
+    for (const t of tables.filter((x) => x.select)) {
+      const rows = await db.$queryRawUnsafe<{ n: bigint }[]>(
+        `SELECT count(*) AS n FROM "${t.relname}"`,
+      );
+      expect({ table: t.relname, rows: Number(rows[0]!.n) }).toEqual({
+        table: t.relname,
+        rows: 0,
+      });
+    }
+  });
+
+  it("shows each project its own seeded rows in every scoped table", async () => {
+    for (const s of [a, b, c])
+      for (const table of SCOPED_TABLES)
+        expect({ table, rows: (await visible(s, table, s)) > 0 }).toEqual({
+          table,
+          rows: true,
+        });
+  });
+
+  it("hides other projects' rows, in the same and in another workspace", async () => {
+    for (const [viewer, target] of [
+      [a, b],
+      [a, c],
+      [b, a],
+      [c, a],
+    ] as const)
+      for (const table of SCOPED_TABLES)
+        expect({ table, rows: await visible(viewer, table, target) }).toEqual({
+          table,
+          rows: 0,
+        });
+    const projects = await asScope(a, (tx) =>
+      tx.project.count({ where: { id: { in: [b.projectId, c.projectId] } } }),
+    );
+    expect(projects).toBe(0);
+  });
+
+  it("hides chat rows from another user of the same project", async () => {
+    const stranger = { ...a, userId: randomUUID() };
+    for (const table of CHAT_TABLES)
+      expect({ table, rows: await visible(stranger, table, a) }).toEqual({
+        table,
+        rows: 0,
+      });
+  });
+
+  it("cannot update or delete another project's rows", async () => {
+    for (const table of SCOPED_TABLES) {
+      const t = tables.find((x) => x.relname === table)!;
+      for (const [verb, sql] of [
+        [
+          "update",
+          `UPDATE "${table}" SET "projectId" = "projectId" WHERE "projectId" = $1::uuid`,
+        ],
+        ["delete", `DELETE FROM "${table}" WHERE "projectId" = $1::uuid`],
+      ] as const) {
+        const result = await attempt(a, sql, b.projectId);
+        if (t[verb])
+          expect({ table, verb, result }).toEqual({
+            table,
+            verb,
+            result: { count: 0 },
+          });
+        else
+          expect({
+            table,
+            verb,
+            denied: /permission denied/.test(result.error ?? ""),
+          }).toEqual({ table, verb, denied: true });
+      }
+    }
+    // The other project's rows are all still there.
+    for (const table of SCOPED_TABLES)
+      expect({ table, rows: (await visible(b, table, b)) > 0 }).toEqual({
+        table,
+        rows: true,
+      });
+  });
+
+  it("cannot insert rows into another project", async () => {
+    const statements: [string, string, unknown[]][] = [
+      [
+        "Entity",
+        `INSERT INTO "Entity" (id, "workspaceId", "projectId", kind, data, "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, 'missions', '{}', now())`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "Outbox",
+        `INSERT INTO "Outbox" (id, "workspaceId", "projectId", topic, "entityId", payload) VALUES ($1::uuid, $2::uuid, $3::uuid, 'ingestion', $4::uuid, '{}')`,
+        [randomUUID(), b.workspaceId, b.projectId, bEntityId],
+      ],
+      [
+        "AuditEvent",
+        `INSERT INTO "AuditEvent" (id, "workspaceId", "projectId", "actorId", action, "resourceId", metadata) VALUES ($1::uuid, $2::uuid, $3::uuid, 'rls', 'rls.cross', 'x', '{}')`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "BudgetReservation",
+        `INSERT INTO "BudgetReservation" (id, "workspaceId", "projectId", key, "amountMicros", category, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $1, 1, 'rls_test', 'released')`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "ChatConversation",
+        `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
+        [randomUUID(), b.workspaceId, b.projectId, a.userId],
+      ],
+    ];
+    for (const [table, sql, params] of statements) {
+      const result = await attempt(a, sql, ...params);
+      expect({
+        table,
+        error: /row-level security policy/.test(result.error ?? "")
+          ? "rls"
+          : (result.error ?? "inserted"),
+      }).toEqual({
+        table,
+        error: "rls",
+      });
+    }
+  });
+});

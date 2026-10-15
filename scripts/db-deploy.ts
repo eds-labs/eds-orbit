@@ -164,6 +164,10 @@ try {
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
   );
   await migrator.query('GRANT SELECT,UPDATE ON "Project" TO orbit_app');
+  // Module activation (WP1.4): disabling keeps the row, so no DELETE.
+  await migrator.query(
+    'GRANT SELECT,INSERT,UPDATE ON "ProjectModule" TO orbit_app',
+  );
   await migrator.query('GRANT SELECT,INSERT ON "AuditEvent" TO orbit_app');
   const owned = await migrator.query(
     "SELECT 1 FROM pg_tables WHERE schemaname='public' AND tableowner=ANY($1::text[])",
@@ -194,11 +198,13 @@ try {
     const a = authMatrix.rows[0];
     if (a.current_user !== "orbit_auth" || a.business || !a.auth_read)
       throw new Error("Authentication role matrix verification failed");
-    const unscoped = await app.query(
-      'SELECT count(*)::int AS count FROM "Entity"',
-    );
-    if (unscoped.rows[0].count !== 0)
-      throw new Error("Unscoped RLS verification failed");
+    for (const table of ["Entity", "ProjectModule"]) {
+      const unscoped = await app.query(
+        `SELECT count(*)::int AS count FROM ${identifier(table)}`,
+      );
+      if (unscoped.rows[0].count !== 0)
+        throw new Error("Unscoped RLS verification failed");
+    }
   } finally {
     await app.end();
     await auth.end();
