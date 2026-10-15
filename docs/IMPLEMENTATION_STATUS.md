@@ -1,5 +1,9 @@
 # Implementation status
 
+## Weekly autopilot removed (2026-10-13, local)
+
+Branch `claude/remove-old-agent-tests-e6b039` (PR #90), merged with the modular platform (#125), not deployed. Production has run on standing assignments since 2026-10-09 (`ORBIT_AGENTS=true`), so the weekly autopilot that the flag-off path kept as a fallback is gone: `marketing/pipeline/autopilot.ts` and its shim (planner, settings, one-click `approve-and-schedule`, migration proposal), the `configure-autopilot` and `approve-and-schedule` actions and permissions, the `…/assignments/autopilot-migration` routes, the `autopilot_settings` collection and its manifest kind (old rows stay in the database and in the project export), the autopilot settings tab (`autopilot-settings.tsx`), the autopilot approvals panel and the migration card, the Phase 0 rollout queries, and their tests (`autopilot.test.ts`, `autopilot-coexistence`, `autopilot-migration`, `rollout-phase0`, planner cases in `paid`, `official-target-link`, `assignment-runs`, `assignment-routes`, `drive-readiness`, `due-marker`, the web migration card). With `ORBIT_AGENTS` off the sweep now plans no posts (sweep characterization case renamed, snapshot unchanged). Kept: the project and policy mode `autopilot` (autonomy mode, unrelated), and the code that reads missions the autopilot planned earlier (slot occupancy, missed-slot archive, draft cleanup, content history, generation context). No schema migration. Rollback: revert the merge commit. Details: [OPERATIONS.md](OPERATIONS.md#orbit-agents).
+
 ## Google Drive on the platform, brand assets in marketing, Slack checked: WP2.5d (2026-10-14, local)
 
 Branch `claude/wp25d-drive-slack`, the last part of WP2.5.

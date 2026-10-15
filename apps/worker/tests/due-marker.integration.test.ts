@@ -167,22 +167,13 @@ describe.skipIf(!enabled)("Project work-due marker", () => {
     });
     expect(await run((tx) => nextSweepAt(tx, other, at), other)).toBeNull();
   });
-  it("autopilot plan checks and saved Matomo imports report their next run", async () => {
-    const at = new Date();
-    const checked = new Date(at.valueOf() - 4 * 60_000),
-      imported = new Date(at.valueOf() - 11 * 3600_000);
-    await run(async (tx) => {
-      await create(tx, scope, "autopilot_settings", {
-        enabled: true,
-        lastPlanCheckAt: checked.toISOString(),
-      });
-      await create(tx, scope, "matomo_schedules", {
+  it("saved Matomo imports report their next run", async () => {
+    const imported = new Date(Date.now() - 11 * 3600_000);
+    await run((tx) =>
+      create(tx, scope, "matomo_schedules", {
         enabled: true,
         lastRunAt: imported.toISOString(),
-      });
-    });
-    expect((await run((tx) => nextSweepAt(tx, scope, at)))?.valueOf()).toBe(
-      checked.valueOf() + 10 * 60_000,
+      }),
     );
     expect((await run((tx) => nextMatomoRunAt(tx, scope)))?.valueOf()).toBe(
       imported.valueOf() + 12 * 3600_000,

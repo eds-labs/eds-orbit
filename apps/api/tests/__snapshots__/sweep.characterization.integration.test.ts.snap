@@ -1,6 +1,6 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`Project sweep (characterization) > Orbit Agents off (weekly autopilot path) 1`] = `
+exports[`Project sweep (characterization) > Orbit Agents off (no planner) 1`] = `
 {
   "entities": [
     {
