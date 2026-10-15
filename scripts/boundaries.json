@@ -1,5 +1,5 @@
 {
-  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 §2, 05 §3); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added.",
+  "$comment": "Zones and baseline for the import-boundary check (scripts/boundaries.mjs, ADR 0009 AD-13). Zones map today's files to their target owner (plans/orbit-modularization/04 §2, 05 §3); the longest matching prefix wins. Update the baseline only with `node scripts/source-check.mjs --update-boundaries`, and only when violations were removed or a reviewed exception is added. `forbiddenLiterals` lists string literals a zone must not contain: the knowledge engine names no entity kind of another module and leaves dependent records to registered impact handlers (plans/orbit-modularization/05 §4, WP3.1).",
   "roots": [
     "apps/api/src",
     "apps/worker/src",
@@ -102,5 +102,14 @@
     "package:db",
     "package:knowledge"
   ],
+  "forbiddenLiterals": {
+    "package:knowledge": [
+      "content",
+      "approvals",
+      "publications",
+      "insights",
+      "jobs"
+    ]
+  },
   "baseline": []
 }

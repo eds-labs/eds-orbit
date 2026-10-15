@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   checkBoundaries,
+  checkForbiddenLiterals,
   classify,
   compareBaseline,
   parseImports,
@@ -153,5 +154,40 @@ describe("checkBoundaries and the baseline", () => {
       added: [result.violations[1]],
       resolved: ["platform-imports-module: gone.ts -> x.ts"],
     });
+  });
+});
+
+describe("checkForbiddenLiterals", () => {
+  const literals = {
+    ...config,
+    forbiddenLiterals: { "package:db": ["content", "jobs"] },
+  };
+
+  it("flags a forbidden string literal in its zone, in any quote style", () => {
+    expect(
+      checkForbiddenLiterals(
+        {
+          "packages/db/src/a.ts": 'const kinds = ["content"];',
+          "packages/db/src/b.ts": "where({ kind: 'jobs' }); const t = `content`;",
+        },
+        literals,
+      ),
+    ).toEqual([
+      'forbidden-literal: packages/db/src/a.ts -> "content"',
+      'forbidden-literal: packages/db/src/b.ts -> "content"',
+      'forbidden-literal: packages/db/src/b.ts -> "jobs"',
+    ]);
+  });
+
+  it("ignores the word outside string literals and in other zones", () => {
+    expect(
+      checkForbiddenLiterals(
+        {
+          "packages/db/src/a.ts": 'const contentIds = []; const s = "content-type";',
+          "apps/api/src/modules/chat.ts": 'const kind = "content";',
+        },
+        literals,
+      ),
+    ).toEqual([]);
   });
 });
