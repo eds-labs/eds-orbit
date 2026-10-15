@@ -75,6 +75,18 @@ export function routeTable(registry: WebRegistry): RouteTable {
       legacy.set(old, route);
     }
   }
+  for (const route of routes) {
+    if (!route.navKey) continue;
+    const entry = routes.find((r) => r.key === route.navKey && r.nav);
+    if (!entry)
+      problems.push(
+        `${route.key}: navKey "${route.navKey}" names no navigation entry`,
+      );
+    else if (entry.moduleId !== route.moduleId)
+      problems.push(
+        `${route.key}: navKey "${route.navKey}" belongs to another owner`,
+      );
+  }
   if (!routes.some((r) => r.segments.length === 0))
     problems.push('no project home (a platform view with path "")');
   if (problems.length)
@@ -143,6 +155,13 @@ export function locate(pathname: string, table: RouteTable): Place {
   }
   const legacy = parts.length === 1 && table.legacy.get(`/${first}`);
   return legacy ? { kind: "legacy", route: legacy } : { kind: "notFound" };
+}
+
+/** The navigation entry a page highlights: its own, else its navKey. */
+export function activeNavKey(
+  route: Route | null | undefined,
+): string | undefined {
+  return route?.navKey ?? route?.key;
 }
 
 /** Routes in sidebar order; routes without a nav entry come last. */

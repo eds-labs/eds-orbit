@@ -31,6 +31,7 @@ import {
 } from "@/platform/ui/form";
 import { WorkspaceContext } from "./workspace-context";
 import {
+  activeNavKey,
   defaultProject,
   keptSuffix,
   locate,
@@ -484,7 +485,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           <nav aria-label="Workspace">
             {visibleNav.map((item) => {
               const Icon = item.nav!.icon;
-              const active = item.key === route?.key;
+              const active = item.key === activeNavKey(route);
               return (
                 <Link
                   key={item.key}
@@ -600,7 +601,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                 <Link
                   key={n.key}
                   href={projectHref(project.id, n)}
-                  aria-current={route?.key === n.key ? "page" : undefined}
+                  aria-current={
+                    activeNavKey(route) === n.key ? "page" : undefined
+                  }
                 >
                   <Icon aria-hidden="true" />
                   <span>{mobile === true ? label(n) : mobile[locale]}</span>

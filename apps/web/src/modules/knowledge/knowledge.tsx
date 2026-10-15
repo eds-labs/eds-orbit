@@ -2,6 +2,8 @@
 import { FactWithdrawal } from "./fact-withdrawal";
 import { IndexManagement } from "./index-management";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { useShell } from "@/platform/shell/shell-context";
 import { cn } from "@/lib/utils";
 import {
   BookOpen,
@@ -60,21 +62,36 @@ import {
 } from "@/platform/ui/collection";
 import { EvidenceItems } from "@/platform/ui/evidence";
 type Health = Record<string, unknown>;
-export function Knowledge() {
+/** The knowledge tabs in their order; each has its own URL (WP3.3). */
+export const KNOWLEDGE_TABS = [
+  "overview",
+  "sources",
+  "facts",
+  "import",
+  "conflicts",
+  "library",
+  "health",
+  "inspector",
+  "impact",
+] as const;
+export type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number];
+export function Knowledge({ tab }: { tab: KnowledgeTab }) {
   const { t, locale, project, revision, canEdit, isOwner } = useWorkspace();
-  const [tab, setTab] = useState("overview"),
-    [add, setAdd] = useState(false);
-  const tabs = [
-    ["overview", "Overview"],
-    ["sources", t("sources")],
-    ["facts", t("factTab")],
-    ["import", "Import"],
-    ["conflicts", "Conflicts"],
-    ["library", t("library")],
-    ["health", t("health")],
-    ["inspector", t("inspector")],
-    ["impact", t("impact")],
-  ].map(([key, label]) => ({ key, label }));
+  const shell = useShell(),
+    router = useRouter();
+  const [add, setAdd] = useState(false);
+  const label: Record<KnowledgeTab, string> = {
+    overview: "Overview",
+    sources: t("sources"),
+    facts: t("factTab"),
+    import: "Import",
+    conflicts: "Conflicts",
+    library: t("library"),
+    health: t("health"),
+    inspector: t("inspector"),
+    impact: t("impact"),
+  };
+  const tabs = KNOWLEDGE_TABS.map((key) => ({ key, label: label[key] }));
   return (
     <>
       <PageHead title={t("knowledge")} description={t("knowledgeHint")}>
@@ -88,10 +105,13 @@ export function Knowledge() {
       <Tabs
         tabs={tabs}
         value={tab}
-        onChange={(s) => {
-          setTab(s);
-          setAdd(false);
-        }}
+        onChange={(next) =>
+          router.push(
+            shell.hrefOf(
+              next === "overview" ? "knowledge" : `knowledge-${next}`,
+            ),
+          )
+        }
       />
       {tab === "overview" ? (
         <KnowledgeHealth impact={false} />
