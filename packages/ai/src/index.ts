@@ -41,7 +41,40 @@ const structuredOutput = z.object({
  * contract has one, so every other draft request stays as it was.
  */
 export const BANNER_DRAFT_INSTRUCTION =
-  "The contract has a banner: also write banner, the short copy of the post's 16:9 image. headline1 and headline2 are the two parts of one bold headline shown in capitals (headline1 white, headline2 in the accent colour, for example Start free. and Build your workflow.), subline is one short line under it (for example Markets. Paper trading. Bots.) and button is the label of an outlined button (for example Explore Desk), without an arrow. Keep within banner.limits characters, use no headline word longer than 11 characters, write the post's language and voice, and state nothing about the product, brand or offer that the post body does not back with its facts: no figure, number word, percentage, price, date, status, promise or link on the banner. If the contract has a revision with revision.previousBanner, return previousBanner unchanged unless revision.instruction concerns the banner; when it does, edit previousBanner only as the instruction asks.";
+  "The contract has a banner: also write banner, the short copy of the post's 16:9 image. headline1 and headline2 are the two parts of one bold headline shown in capitals (headline1 white, headline2 in the accent colour, for example Start free. and Build your workflow.), subline is one short line under it (for example Markets. Paper trading. Bots.) and button is the label of an outlined button (for example Explore Desk), without an arrow. Keep within banner.limits characters, use no headline word longer than 11 characters, write the post's language and voice, and state nothing about the product, brand or offer that the post body does not back with its facts: no figure, number word, percentage, price, date, status, promise or link on the banner. If the contract has a revision with revision.previousBanner, return previousBanner unchanged unless revision.instruction concerns the banner; when it does, edit previousBanner only as the instruction asks. The banner copy is no claim: never record banner text in the claims ledger, which covers the body only.";
+
+/**
+ * Drops style claims that are only the banner's copy (R83). The ledger backs
+ * the body; a model that records the banner text there anyway would fail the
+ * exact body check (CLAIM_NOT_IN_CONTENT) for text that is not meant to be in
+ * the body. Only a style claim without fact or chunk that is not in the body
+ * and consists of banner fields alone is dropped; every other claim stays.
+ */
+export function withoutBannerClaims<
+  C extends { text: string; kind: string; factId?: string; chunkId?: string },
+>(
+  claims: C[],
+  banner: Record<"headline1" | "headline2" | "subline" | "button", string>,
+  body: string,
+): C[] {
+  const plain = (text: string) =>
+    text
+      .normalize("NFKC")
+      .replace(/\s+/g, " ")
+      .replace(/[\s\p{P}]+$/u, "")
+      .trim()
+      .toLocaleLowerCase();
+  const fields = new Set(Object.values(banner).map(plain));
+  return claims.filter((claim) => {
+    if (claim.kind !== "style" || claim.factId || claim.chunkId) return true;
+    if (body.includes(claim.text)) return true;
+    const parts = claim.text
+      .split(/\s*(?:\/|\||\n)\s*/)
+      .map(plain)
+      .filter(Boolean);
+    return !(parts.length && parts.every((part) => fields.has(part)));
+  });
+}
 const bannerJsonSchema = {
   type: "object",
   properties: {
@@ -239,6 +272,12 @@ export async function generate(params: {
     output = structuredOutput.parse(raw);
     // A banner was asked for: without it the output is not usable; never kept otherwise.
     if (banner ? !output.banner : output.banner) throw new Error("BANNER");
+    if (output.banner)
+      output.claims = withoutBannerClaims(
+        output.claims,
+        output.banner,
+        output.body,
+      );
   } catch {
     throw new GenerationOutputError(
       "MODEL_OUTPUT_NOT_VALID",
