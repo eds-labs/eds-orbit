@@ -112,6 +112,7 @@ Risk class medium. Tasks 1 and 2 are pure moves with unchanged behaviour. Task 3
 - Mario runs `scripts/rollout/k1-usable-facts-diff.sql` read-only against the uLiquid project (command in the file header; `--csv` makes the output easy to share).
 - `change = lost` lists the facts the assignment would no longer get, each with its reasons. `gained` lists keys a conflict blocks today that the full rules would resolve.
 - Mario decides: switch, switch after fixing the listed facts (for example re-verifying a fact against the current source generation), or not switch.
+- **Result (2026-10-15):** Mario ran the check in production (read-only, as `orbit_app`, ending in ROLLBACK). Every fact key of the uLiquid project was `unchanged`: none lost, none gained, no other copy. Mario approved the switch.
 
 ### Task 1: Move the orchestration into `platform/knowledge`
 
