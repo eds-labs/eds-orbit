@@ -165,7 +165,8 @@ export function registerContributions(
     periodic: new Map<string, string>(),
   };
   for (const [owner, c] of ordered) {
-    for (const tool of c.tools ?? []) owners.tools.set(tool.name, owner);
+    for (const tool of c.tools ?? [])
+      owners.tools.set(tool.name, tool.alwaysOffered ? "platform" : owner);
     for (const name of Object.keys(c.actions ?? {}))
       owners.actions.set(name, owner);
     for (const job of c.jobs ?? []) owners.jobs.set(job.queueClass, owner);

@@ -1,5 +1,25 @@
 # Implementation status
 
+## Knowledge module, server and web: WP3.3 (2026-10-15, local)
+
+Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. With `ORBIT_MODULES=false` the product is unchanged; the knowledge views gain URLs.
+
+- **Server.** `GET …/knowledge-health`, `…/documents` and `…/indexes` move unchanged from `server.ts` into `modules/knowledge/routes.ts`; the bulk import moves to `modules/knowledge/import.ts`. The platform's route guard answers `MODULE_DISABLED` for them while knowledge is off. The OpenAPI document is semantically unchanged (route order only; regenerated with the client types).
+- **Assistant search.** `assistantKnowledgeSearch` is a platform tool (`alwaysOffered`). Marketing lists it only to keep its place, so the tool list and prompt are unchanged. With knowledge and marketing off, the assistant still offers `knowledge_search`.
+- **Web.**
+  - Each knowledge tab is a view at `/p/:id/knowledge/<tab>`; the overview stays the module root.
+  - The tab bar keeps its role, labels, order and keyboard handling, and navigates to the tab's URL.
+  - `ViewDef.navKey` lets a URL-only view highlight its module's sidebar entry.
+- **Deviations from plan 05 §8, kept for an unchanged product.** "Conflicts" and "impact" stay tabs. Detail URLs with ids, the knowledge settings panel and the home tile are follow-ups.
+
+**Verification (local).**
+- New tests:
+  - enforcement: knowledge switched off after marketing blocks its routes, collections and actions; the assistant keeps the search; marketing needs knowledge first; the snapshot is unchanged;
+  - routes: every tab resolves to its view and highlights the knowledge entry; `navKey` validation.
+- Web typecheck and `next build --webpack` pass; Playwright not run locally.
+
+**Rollback.** Revert; there is no schema or data change.
+
 ## Knowledge services and the K-1 fact rule: WP3.2 (2026-10-15, local)
 
 Branch `claude/wp32-knowledge-services` (stacked on WP3.1). Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`.

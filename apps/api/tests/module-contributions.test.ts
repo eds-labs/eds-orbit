@@ -20,6 +20,7 @@ import {
   registeredRoutes,
   registeredSchedulers,
   registeredTelegramCallback,
+  registeredToolOwner,
   registeredTools,
   telegramContributorEnabled,
   unexportedKinds,
@@ -30,6 +31,7 @@ import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions
 import { marketingActionPermissions } from "../src/modules/marketing/permissions.ts";
 import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
 import { marketingRoutes } from "../src/modules/marketing/routes.ts";
+import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
@@ -298,8 +300,10 @@ describe("module contributions", () => {
     expect(registeredConnectionProvider("github")).toBeUndefined();
   });
 
-  it("lets marketing register its own HTTP routes (WP2.1f)", () => {
-    expect(registeredRoutes()).toEqual([marketingRoutes]);
+  it("lets knowledge and marketing register their HTTP routes (WP2.1f, WP3.3)", () => {
+    // Registry order: knowledge before marketing, which depends on it.
+    expect(registeredRoutes()).toEqual([knowledgeRoutes, marketingRoutes]);
+    expect(registeredToolOwner("knowledge_search")).toBe("platform");
   });
 
   it("projects module kinds through the module: asset bytes never leave", () => {

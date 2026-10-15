@@ -37,8 +37,7 @@
       "apps/api/src/modules/agents/tools/registry.ts"
     ],
     "module:knowledge": [
-      "apps/api/src/modules/knowledge/",
-      "apps/api/src/modules/knowledge-import.ts"
+      "apps/api/src/modules/knowledge/"
     ],
     "module:marketing": [
       "apps/api/src/modules/",

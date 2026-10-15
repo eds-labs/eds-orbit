@@ -48,6 +48,12 @@ export type OrbitTool = {
   feature?: ToolFeature;
   // Design for tool search (plan §6.4); unused until it is enabled.
   deferLoading: boolean;
+  /**
+   * A platform tool a module lists only to keep its place in the tool list:
+   * registered as the platform's, so it is offered whether or not that
+   * module is on (WP3.3).
+   */
+  alwaysOffered?: true;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 

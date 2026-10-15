@@ -34,7 +34,7 @@ import {
   importPreview,
   knowledgeImportInput,
   retryKnowledgeImport,
-} from "../knowledge-import.ts";
+} from "./import.ts";
 
 const retrievalRequest = (input: ActionContext["input"]) => ({
   query: z.string().min(1).max(2000).parse(input.query),

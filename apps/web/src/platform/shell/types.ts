@@ -32,6 +32,11 @@ export type ViewDef = {
   /** Paths from before WP1.7 that redirect here, such as "/missions". */
   legacyPaths?: readonly string[];
   /**
+   * For a page without its own navigation entry: the key of the owner's
+   * entry it belongs to, highlighted while the page is open (WP3.3).
+   */
+  navKey?: string;
+  /**
    * A platform page that only works while this module is on (WP2.4), such
    * as the approvals inbox that still lists marketing's items.
    */

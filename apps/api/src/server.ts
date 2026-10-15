@@ -38,7 +38,6 @@ import {
 } from "./modules/ai-usage.ts";
 import { pauseProject } from "./platform/governance/pause.ts";
 import { exportProject } from "./platform/governance/export.ts";
-import { listIndexGenerations } from "../../../packages/knowledge/src/index.ts";
 import {
   runtimeHealth,
   closeRuntime,
@@ -664,48 +663,6 @@ export async function buildServer(
       ),
     );
   });
-  app.get("/api/projects/:projectId/knowledge-health", async (req) => {
-    const { projectId } = req.params as any,
-      scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => {
-      const facts = await list(tx, scope, "facts"),
-        sources = await list(tx, scope, "sources"),
-        contents = await list(tx, scope, "content");
-      return {
-        conflicts: facts.filter((x) => data(x).status === "conflicting"),
-        expiredFacts: facts.filter(
-          (x) =>
-            data(x).validUntil && new Date(data(x).validUntil) <= new Date(),
-        ),
-        failedImports: (await list(tx, scope, "jobs")).filter(
-          (x) => data(x).topic === "ingestion" && data(x).status === "failed",
-        ),
-        staleSources: sources.filter(
-          (x) =>
-            !data(x).lastSuccessfulSyncAt ||
-            Date.now() - new Date(data(x).lastSuccessfulSyncAt).valueOf() >
-              data(x).maxAgeHours * 3600000,
-        ),
-        missingEvidence: contents.filter(
-          (x) => data(x).status === "needs_review",
-        ),
-        impacts: contents.filter((x) => data(x).status === "needs_review"),
-      };
-    });
-  });
-  app.get("/api/projects/:projectId/documents", async (req) => {
-    const { projectId } = req.params as any,
-      scope = await scopeFor(auth, req, projectId);
-    return scoped(scope.workspaceId, projectId, async (tx) => ({
-      items: await tx.knowledgeDocument.findMany({
-        where: { projectId },
-        include: {
-          versions: { include: { chunks: true }, orderBy: { version: "desc" } },
-        },
-        take: 200,
-      }),
-    }));
-  });
   app.get("/api/projects/:projectId/export", async (req) => {
     const { projectId } = req.params as any,
       scope = await scopeFor(auth, req, projectId);
@@ -773,13 +730,6 @@ export async function buildServer(
         include: { user: { select: { id: true, name: true, email: true } } },
       }),
     };
-  });
-  app.get("/api/projects/:projectId/indexes", async (req) => {
-    const { projectId } = req.params as { projectId: string };
-    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
-    return scoped(scope.workspaceId, projectId, async (tx) => ({
-      items: await listIndexGenerations(tx, scope),
-    }));
   });
   // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
   app.get("/api/projects/:projectId/telegram", async (req) => {
