@@ -237,6 +237,13 @@ export const marketingProfile = z
       designRules: ["Preserve the approved logo unchanged."],
     }),
     assetPolicy: z.enum(["approved_only"]),
+    // Lower-case words of the product's name that a fact sentence may
+    // contain without adding a claim (WP3.4). Absent: uLiquid's built-in list.
+    brandTerms: z
+      .array(z.string().regex(/^[\p{Ll}\p{N}]{2,40}$/u))
+      .min(1)
+      .max(20)
+      .optional(),
   })
   .strict();
 export const experiment = z

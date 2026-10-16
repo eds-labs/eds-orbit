@@ -216,8 +216,42 @@ Risk class medium. With `ORBIT_MODULES=false` (production) the product is unchan
 - [ ] `IMPLEMENTATION_STATUS.md`, `MODULE_ACTIVATION.md` (knowledge can be switched off after marketing; the assistant keeps the search), `KNOWLEDGE_ARCHITECTURE.md` (routes and views).
 - [ ] Full suite, `tsc`, web typecheck, source check, OpenAPI unchanged.
 
-## WP3.4–WP3.5 (outline; detailed plan per WP before it starts)
+## WP3.4 Marketing fact consumers (detailed)
 
-**WP3.4 Marketing fact consumers (2–3 PT).** `fact-claims.ts`, `fact-placeholders.ts`, `mission-evidence.ts` are already under `modules/marketing/policy|pipeline`; remaining work is the tenant vocabulary (`fact-claims.ts:51-53`) read from the marketing profile with the in-code default when the field is absent, so no profile save is needed (a save would invalidate pending packages, see 12.10). Acceptance: `fact-claims`, `claim-repeat`, `safety` unchanged.
+Risk class medium: the fact checks decide what may be published. Behaviour for uLiquid must stay identical.
+
+**What already exists.** `fact-claims.ts`, `fact-placeholders.ts` and `mission-evidence.ts` already live in `modules/marketing/policy|pipeline` (WP2.1). What remains is the tenant vocabulary in code:
+- `fact-claims.ts:63-65`: `uliquid`, `uliq` and `desk` may appear in a fact sentence without adding a claim;
+- `marketing-profile.ts:339` (`presaleLive`): "live uLiquid Desk presale" counts as a presale status statement.
+
+**Decision.** The marketing profile gets an optional `brandTerms`: lower-case words of the product name, 1–20 of them, each 2–40 letters or digits.
+- Absent (every profile today): the code uses today's words and today's regex unchanged. No profile save is needed, so pending packages are not invalidated (see 12.10).
+- Present: the fact matcher allows exactly those words, and the presale pattern accepts up to two of them between "live" and "presale".
+- A profile editor field is a follow-up; until then the field can be set through the profile API.
+
+### Task 1: Vocabulary from the profile
+
+**Files:** `packages/schemas/src/index.ts` (`marketingProfile.brandTerms`), `modules/marketing/policy/fact-claims.ts`, `modules/marketing/policy/policy.ts:160`, `modules/marketing/brand/marketing-profile.ts:279-339,407`. Tests: `fact-claims.test.ts`, `marketing-profile.test.ts` (new, pure).
+
+**Interfaces** (in `fact-claims.ts`):
+- `LEGACY_BRAND_TERMS = ["uliquid", "uliq", "desk"]`;
+- `brandTermsOf(profile: unknown): readonly string[]` (the profile's terms, else the legacy list);
+- `loadBrandTerms(tx, scope)`;
+- `factClaimMatches(text, fact, terms = LEGACY_BRAND_TERMS)`;
+- `presaleLivePattern(profileTerms?: readonly string[]): RegExp`. Without terms it returns today's regex verbatim.
+
+- [ ] Failing tests:
+  - with `["acme"]`, "Acme fee is 2%" matches a `fee=2%` fact while "uLiquid fee is 2%" does not;
+  - without terms, every existing `fact-claims` case is unchanged;
+  - `presaleLivePattern()` source equals today's regex source;
+  - `presaleLivePattern(["acme","pro"])` matches "live Acme Pro presale" but not "live Desk presale";
+  - a profile without `brandTerms` parses without the key (no hash change).
+- [ ] Implement; `checkClaims` loads the terms once, and only when a fact claim is checked.
+- [ ] `fact-claims`, `claim-repeat`, `safety`, `official-target-link`, `content-packages` green; commit.
+
+### Task 2: Docs and checks
+- [ ] `IMPLEMENTATION_STATUS.md`, `MARKETING_MEMORY.md` or the profile docs where the profile fields are listed; full suite, `tsc`, web typecheck (shared schema), source check, OpenAPI (the profile schema is part of it: an optional field is expected).
+
+## WP3.5 (outline; detailed plan before it starts)
 
 **WP3.5 Source audiences (2–3 PT, optional).** Optional `audiences` on `SourceData` (default all), consumer module in the retrieval context, filter in SQL eligibility. Before coding, confirm the attribute is outside the chunk manifest so the active evaluation stays valid.
