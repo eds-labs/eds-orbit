@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  ALL_AUDIENCES,
   CHUNK_VERSION,
   KnowledgeError,
   LIMITS,
@@ -158,4 +159,19 @@ export function diverseContext<
       return true;
     })
     .slice(0, topK);
+}
+/**
+ * Whether a source with these audiences may serve the consumer module
+ * (WP3.5). Absent audiences or `"all"` serve every caller; a restricted
+ * source serves only the modules it names, never a caller without a module.
+ * Mirrors the SQL eligibility in `retrieve`.
+ */
+export function servesConsumer(
+  audiences: readonly string[] | null | undefined,
+  consumer?: string,
+) {
+  if (audiences === undefined || audiences === null) return true;
+  if (!Array.isArray(audiences)) return false;
+  if (audiences.includes(ALL_AUDIENCES)) return true;
+  return consumer !== undefined && audiences.includes(consumer);
 }

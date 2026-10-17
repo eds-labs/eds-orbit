@@ -56,7 +56,19 @@ Three safety-net suites guard tenant isolation and access:
 
 In CI (`CI=true`), the test setup refuses to run without the test database and Redis instead of skipping the integration tests.
 
-Playwright normally uses its installed Chromium. For local testing with an existing Chrome installation, set `PLAYWRIGHT_CHANNEL=chrome`; reports record the actual browser. Integration tests use a separate `orbit_test` database with the same restricted app/auth roles. The restore test creates `orbit_restore_test`, pauses every restored project and never starts a publisher.
+### Parallel worktrees
+
+All worktrees share one local Postgres, and `scripts/db-deploy.ts` reissues every grant by its own branch's table lists. Two branches with different migrations on the shared `orbit_test` therefore revoke each other's grants. Give each worktree its own database instead:
+
+```sh
+node scripts/test-db-for-worktree.ts          # once per worktree, and after pulling new migrations
+node scripts/test-db-for-worktree.ts --reset  # after switching to a branch without some applied migration
+node scripts/test-db-for-worktree.ts --drop   # before removing the worktree
+```
+
+The script derives `orbit_test_<worktree>_<hash>` from the worktree path, creates it from `template0` on the local container (127.0.0.1:55432 only), migrates it with this branch's `scripts/db-deploy.ts` and writes the three `TEST_*` URLs to ignored `.runtime/test.env` (mode 0600), together with a matching `PUBLISHER_INSTANCE_ID` and `QUEUE_NAMESPACE` that keep the run's Redis keys and queues apart on the shared local Redis. Credentials come from `.runtime/local.env` (this worktree's, else the main checkout's). `tests/setup.ts` and `pnpm test:migration-profile` prefer `.runtime/test.env` over the shared URLs; without the file they use `orbit_test` as before. A worktree without its own `.runtime/local.env` runs the suite with `node --env-file=<main checkout>/.runtime/local.env ./node_modules/vitest/vitest.mjs run`. CI is unchanged.
+
+Playwright normally uses its installed Chromium. For local testing with an existing Chrome installation, set `PLAYWRIGHT_CHANNEL=chrome`; reports record the actual browser. Integration tests use a separate `orbit_test` database (or a worktree's own `orbit_test_<worktree>`, see above) with the same restricted app/auth roles. The restore test creates `orbit_restore_test`, pauses every restored project and never starts a publisher.
 
 ## Hosting and authority
 

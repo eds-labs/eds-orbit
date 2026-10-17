@@ -32,6 +32,13 @@ export const setSourceRights = (
   id: string,
   changes: Parameters<typeof engine.setSourceRights>[4],
 ) => engine.setSourceRights(tx, s, registeredImpactHandlers(), id, changes);
+export const setSourceAudiences = (
+  tx: DbTx,
+  s: Scope,
+  id: string,
+  audiences: readonly string[],
+) =>
+  engine.setSourceAudiences(tx, s, registeredImpactHandlers(), id, audiences);
 export const revokeDocument = (
   tx: DbTx,
   s: Scope,

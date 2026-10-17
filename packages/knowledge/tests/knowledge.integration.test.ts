@@ -22,6 +22,7 @@ import {
   revokeSource,
   withdrawFact,
   setSourceRights,
+  setSourceAudiences,
   revokeDocument,
 } from "../../../apps/api/src/platform/knowledge/engine.ts";
 const enabled = Boolean(
@@ -1073,5 +1074,186 @@ suite("PostgreSQL pgvector knowledge / nonprivileged RLS", () => {
         }),
       ),
     ).rejects.toThrow("MODEL_USE_FORBIDDEN");
+  });
+  describe("source audiences (WP3.5)", () => {
+    const vector = Array(1536).fill(0);
+    vector[5] = 1;
+    async function audienceSource(
+      token: string,
+      overrides: Record<string, unknown>,
+    ) {
+      const src = await source(a, overrides);
+      // Distinct texts: identical chunks would be deduplicated by hash.
+      await run(a, (tx) =>
+        ingest(tx, a, {
+          ...input(src.id, `${token} audience fixture ${src.id}`),
+          embeddings: [vector],
+        }),
+      );
+      return src.id;
+    }
+    async function sourcesFor(token: string, consumer?: string, hybrid = true) {
+      const e = await run(a, (tx) =>
+        retrieve(tx, a, {
+          query: token,
+          purpose: "public",
+          at,
+          ...(hybrid ? { queryVector: vector } : {}),
+          ...(consumer ? { consumer } : {}),
+        }),
+      );
+      return e.data as unknown as EvidenceData;
+    }
+    it("limits lexical and vector retrieval to the consumer module", async () => {
+      const token = "AUDIENCE733";
+      const shared = await audienceSource(token, {}),
+        all = await audienceSource(token, { audiences: ["all"] }),
+        support = await audienceSource(token, { audiences: ["support"] }),
+        marketing = await audienceSource(token, { audiences: ["marketing"] }),
+        malformed = await audienceSource(token, { audiences: "support" });
+      const mine = new Set([shared, all, support, marketing, malformed]);
+      for (const hybrid of [true, false]) {
+        // The vector search also ranks unrelated chunks of earlier tests.
+        const ids = async (consumer?: string) =>
+          new Set(
+            (await sourcesFor(token, consumer, hybrid)).items
+              .map((i) => i.sourceId)
+              .filter((id) => mine.has(id)),
+          );
+        expect(await ids()).toEqual(new Set([shared, all]));
+        expect(await ids("marketing")).toEqual(
+          new Set([shared, all, marketing]),
+        );
+        expect(await ids("support")).toEqual(new Set([shared, all, support]));
+      }
+      const excluded = (await sourcesFor(token, "marketing")).excluded;
+      expect(excluded).toEqual(
+        expect.arrayContaining([
+          { sourceId: support, reason: "audience_excluded" },
+          { sourceId: malformed, reason: "audience_excluded" },
+        ]),
+      );
+      expect(excluded.map((x) => x.sourceId)).not.toContain(marketing);
+    });
+    it("applies the audience to facts", async () => {
+      const src = await source(a, { audiences: ["support"] });
+      await run(a, (tx) =>
+        setFact(tx, a, {
+          key: "audience.support_hours",
+          value: "24/7",
+          valueType: "text",
+          language: "en",
+          sourceId: src.id,
+          validFrom: new Date(at.getTime() - 3600000).toISOString(),
+          status: "verified",
+          publicUse: true,
+          modelUse: true,
+        }),
+      );
+      const facts = async (consumer?: string) => {
+        const e = await run(a, (tx) =>
+          retrieve(tx, a, {
+            query: "support hours",
+            factKeys: ["audience.support_hours"],
+            purpose: "public",
+            at,
+            ...(consumer ? { consumer } : {}),
+          }),
+        );
+        return (e.data as unknown as EvidenceData).facts.map((f) => f.value);
+      };
+      expect(await facts("support")).toEqual(["24/7"]);
+      expect(await facts("marketing")).toEqual([]);
+      expect(await facts()).toEqual([]);
+    });
+    it("records the consumer only when named", async () => {
+      const token = "AUDIENCE734";
+      await audienceSource(token, {});
+      expect("consumer" in (await sourcesFor(token))).toBe(false);
+      expect((await sourcesFor(token, "marketing")).consumer).toBe("marketing");
+    });
+    it("narrowing invalidates dependent evidence without a new generation; widening does not", async () => {
+      const token = "AUDIENCE735";
+      const src = await audienceSource(token, {});
+      const marketing = await run(a, (tx) =>
+        retrieve(tx, a, {
+          query: token,
+          purpose: "public",
+          at,
+          consumer: "marketing",
+        }),
+      );
+      expect(
+        (await run(a, (tx) => validateEvidence(tx, a, marketing.id, at))).valid,
+      ).toBe(true);
+      const narrowed = await run(a, (tx) =>
+        setSourceAudiences(tx, a, src, ["support"]),
+      );
+      expect(narrowed).toMatchObject({
+        audiences: ["support"],
+        unchanged: false,
+        impact: { evidenceIds: [marketing.id] },
+      });
+      const stored = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: src } }),
+      );
+      expect(stored.data).toMatchObject({
+        generation: 1,
+        audiences: ["support"],
+      });
+      const after = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: marketing.id } }),
+      );
+      expect((after.data as unknown as EvidenceData).status).toBe(
+        "invalidated",
+      );
+      expect((after.data as unknown as EvidenceData).gaps).toContain(
+        "source_audience_changed",
+      );
+      expect(
+        (await run(a, (tx) => validateEvidence(tx, a, marketing.id, at)))
+          .reasons,
+      ).toContain("source_audience_changed");
+      // Ingestion for the unchanged generation still works.
+      await run(a, (tx) =>
+        ingest(tx, a, input(src, `${token} second document`)),
+      );
+      const support = await run(a, (tx) =>
+        retrieve(tx, a, {
+          query: token,
+          purpose: "public",
+          at,
+          consumer: "support",
+        }),
+      );
+      const widened = await run(a, (tx) =>
+        setSourceAudiences(tx, a, src, ["marketing", "support"]),
+      );
+      expect(widened).toMatchObject({
+        audiences: ["marketing", "support"],
+        unchanged: false,
+        impact: { evidenceIds: [], contentIds: [] },
+      });
+      expect(
+        (await run(a, (tx) => validateEvidence(tx, a, support.id, at))).valid,
+      ).toBe(true);
+      const opened = await run(a, (tx) =>
+        setSourceAudiences(tx, a, src, ["all"]),
+      );
+      expect(opened).toMatchObject({ audiences: ["all"], unchanged: false });
+      const reopened = await run(a, (tx) =>
+        tx.entity.findUniqueOrThrow({ where: { id: src } }),
+      );
+      expect("audiences" in (reopened.data as object)).toBe(false);
+      expect(
+        await run(a, (tx) => setSourceAudiences(tx, a, src, ["all"])),
+      ).toMatchObject({ unchanged: true });
+      await expect(
+        run(a, (tx) => setSourceAudiences(tx, a, src, [])),
+      ).rejects.toThrow("INVALID_SOURCE_AUDIENCES");
+      await expect(
+        run(a, (tx) => setSourceAudiences(tx, a, src, ["Support!"])),
+      ).rejects.toThrow("INVALID_SOURCE_AUDIENCES");
+    });
   });
 });

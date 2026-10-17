@@ -118,7 +118,7 @@ These are not pure refactors. Each needs Mario's decision before it ships.
 |---|---|---|
 | K-1 | `usableFact` adopts the full rules: source status and generation, language, market. Some facts accepted today could be rejected. | Do it. It is safer and aligns with retrieval. Before switching, run a read-only check that lists facts that would become unusable in production (a read-only SQL script, to be added under scripts/rollout). |
 | K-2 | Bulk-imported facts are auto-verified (`knowledge-import.ts:84`). | Keep it for now: it is existing behaviour. Raise it as a separate decision (Q-08). |
-| K-3 | Source "collections" or "audiences", so support-only sources are never used for marketing claims and vice versa. | Prepare it in WP3.5 as an optional attribute with the default "all". There is no behaviour change until a module sets it. |
+| K-3 | Source "collections" or "audiences", so support-only sources are never used for marketing claims and vice versa. | Prepare it in WP3.5 as an optional attribute with the default "all". There is no behaviour change until a module sets it. **Implemented 2026-10-17** (`SourceData.audiences`, `RetrieveInput.consumer`). |
 | K-4 | Automatic embedding after ingest; document embedding profile following the active index profile (today pinned to small, `ingestion.ts:80`). | Treat as a separate feature, outside the modularization. List as follow-up T-05. |
 | K-5 | Inspector uses hybrid retrieval instead of always-lexical (`knowledge.tsx:1599`). | Separate UX fix, T-06. |
 

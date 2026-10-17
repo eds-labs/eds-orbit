@@ -291,6 +291,7 @@ export async function deterministicDraft(
     purpose: "public",
     language: v.language,
     at: new Date(),
+    consumer: "marketing",
   });
   const e = data(evidence as any);
   const evidenceId = (evidence as any).id;

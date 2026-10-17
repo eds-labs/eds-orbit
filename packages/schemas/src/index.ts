@@ -37,6 +37,21 @@ export const collections = [
   "channel_post_sync",
 ] as const;
 export const collection = z.enum(collections);
+/**
+ * Who may retrieve a source (WP3.5): `"all"` or the modules named. Module
+ * ids are listed here, not read from the registry, so a source can be
+ * prepared for a module before it is enabled (support, WP5.6).
+ */
+export const knowledgeAudience = z.enum(["all", "marketing", "support"]);
+export const sourceAudiences = z
+  .array(knowledgeAudience)
+  .min(1)
+  .max(3)
+  .refine((a) => new Set(a).size === a.length, "duplicate audience")
+  .refine(
+    (a) => !a.includes("all") || a.length === 1,
+    '"all" cannot be combined with modules',
+  );
 export const source = z
   .object({
     name: z.string().min(1).max(200),
@@ -50,6 +65,8 @@ export const source = z
     allowedOrigins: z.array(z.url()).max(20).default([]),
     allowedPaths: z.array(z.string().max(400)).max(20).default(["/"]),
     syncEveryHours: z.number().int().min(1).max(168).optional(),
+    // Absent means all modules, the shape every existing source has.
+    audiences: sourceAudiences.optional(),
     status: z.literal("active").default("active"),
     generation: z.literal(1).default(1),
   })

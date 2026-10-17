@@ -1,6 +1,10 @@
 import { beforeAll } from "vitest";
 import { existsSync } from "node:fs";
+import { loadWorktreeTestEnv } from "../scripts/test-database.ts";
 if (existsSync(".runtime/local.env")) process.loadEnvFile(".runtime/local.env");
+// This worktree's own test database (scripts/test-db-for-worktree.ts) wins
+// over the shared orbit_test, so parallel branches do not share grants.
+loadWorktreeTestEnv();
 // Integration tests skip themselves without a database or Redis. In CI that
 // would turn a broken setup into a green run, so CI refuses to start instead.
 if (process.env.CI === "true") {

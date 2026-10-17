@@ -12,6 +12,7 @@ import {
   ingest,
   revokeDocument,
   revokeSource,
+  setSourceAudiences,
   setSourceRights,
   withdrawFact,
 } from "../../platform/knowledge/engine.ts";
@@ -46,6 +47,12 @@ const retrievalRequest = (input: ActionContext["input"]) => ({
   at: input.at ? new Date(z.iso.datetime().parse(input.at)) : new Date(),
   factKeys: z.array(z.string()).max(20).optional().parse(input.factKeys),
   sourceIds: z.array(schemas.id).max(30).optional().parse(input.sourceIds),
+  // Lets an operator preview what one module retrieves (WP3.5); without it
+  // only sources open to all modules are searched.
+  consumer: z
+    .enum(["marketing", "support"])
+    .optional()
+    .parse(input.consumer ?? undefined),
 });
 
 /**
@@ -176,6 +183,14 @@ export const knowledgeActions: Record<string, ActionHandler> = {
     setSourceRights(tx, scope, schemas.id.parse(input.sourceId), {
       paused: z.boolean().parse(input.paused),
     }),
+  ),
+  "source-audiences": sharedTransaction((tx, { scope, input }) =>
+    setSourceAudiences(
+      tx,
+      scope,
+      schemas.id.parse(input.sourceId),
+      schemas.sourceAudiences.parse(input.audiences),
+    ),
   ),
   "revoke-document": sharedTransaction((tx, { scope, input }) =>
     revokeDocument(
