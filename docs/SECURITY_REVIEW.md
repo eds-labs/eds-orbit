@@ -104,7 +104,15 @@ No cross-project bypass was identified in the reviewed scoped paths; local role/
    - No cookie or session is read, and every other write keeps the Origin check (tested).
 5. **Data.**
    - Stored messages are the platform kind `inbound_webhooks`, excluded from the export.
-   - Retention for these rows is a follow-up before a real provider uses the route.
+   - Retention: these rows are deleted after 30 days, and expired public sessions one hour after expiry (`platform/http/ingress-retention.ts`, hourly and in the retention action).
+6. **Direct providers** (follow-up, same flag). `slack` and `telegram` answer within the request.
+   - They reuse their old handlers unchanged: Slack's signature over the form body, actor mapping and replay claim; the bot's constant-time secret check.
+   - Two checks are added: the path's connection must be the project's selected Slack connector, and the path's workspace must be the Telegram project's.
+   - What the review checks:
+     - a forged or missing signature never reaches the module;
+     - a foreign connection or workspace answers like an unknown one;
+     - the media type is limited per provider;
+     - the old routes stay the registered URLs (cutover in `docs/PUBLIC_INGRESS.md`).
 
 ## Public ingress: public module API (WP4.2b, prepared 2026-10-17; review open)
 
@@ -131,6 +139,30 @@ This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). W
    - Retention for `public_sessions`.
    - A total limit per key, beyond the per-session limit.
    - An owner UI to manage keys (the API exists).
+
+## Platform files (WP4.6, prepared 2026-10-17; review open)
+
+`ORBIT_FILES` stays `false` in production until this review is done and Mario approves the flag. The bucket and token are Mario's (`docs/PLATFORM_FILES.md`). What the review checks:
+
+1. **Credentials.**
+   - The file bucket has its own token, scoped to that bucket. The backup container never receives `FILES_*`, and api/worker never receive `BACKUP_*` (compose check).
+   - No error, log or response carries a key or a signed URL.
+2. **Signing.**
+   - SigV4 is computed with `node:crypto` and pinned by the AWS test vector.
+   - The payload hash is signed, redirects are refused, and plain http is allowed only to localhost.
+   - Object keys are generated and validated: no dot segments, no user input.
+3. **Encryption.** AES-256-GCM, a fresh IV per file, and the file id as additional data. Tag and SHA-256 are verified before a byte is returned; a failure is a 500, audited `file.integrity_failed`.
+4. **Authorization.**
+   - Every route needs a session and membership.
+   - Upload and delete need write access, download read access, all in the file's module (module roles apply).
+   - The module must be on.
+   - Rows are under FORCE RLS: another project's file is a 404.
+5. **Content.**
+   - Allowlisted types, with a signature check for images and PDF.
+   - Downloads are attachments with `nosniff` and `default-src 'none'; sandbox`.
+   - Names are stripped of paths and control characters.
+   - The size limit is enforced while the body streams in.
+6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. Known gap: a deleted project leaves its objects behind.
 
 ## Primary implementation references
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import {
+  registeredWebhook,
   registerContributions,
   registeredAction,
   registeredActionNames,
@@ -36,6 +37,7 @@ import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
+import { ingressRetention } from "../src/platform/http/ingress-retention.ts";
 import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
 import { pauseCallback } from "../src/platform/connections/telegram.ts";
@@ -112,9 +114,26 @@ describe("module contributions", () => {
     ]);
   });
 
+  it("receives Slack and the owner's bot through the hooks route too (WP4.2)", () => {
+    expect(registeredWebhook("telegram")).toMatchObject({
+      owner: "platform",
+      direct: true,
+      bodies: ["json"],
+    });
+    expect(registeredWebhook("slack")).toMatchObject({
+      owner: "marketing",
+      direct: true,
+      bodies: ["form"],
+    });
+  });
+
   it("lets marketing extend pause, resume and retention (WP1.8)", () => {
     expect(registeredHooks()).toEqual([marketingHooks]);
-    expect(registeredRetention()).toEqual([marketingRetention]);
+    // The platform purges public ingress rows first (WP4.2 follow-up).
+    expect(registeredRetention()).toEqual([
+      ingressRetention,
+      marketingRetention,
+    ]);
   });
 
   it("binds marketing's knowledge impact handler for every project (WP3.1)", () => {
@@ -138,8 +157,11 @@ describe("module contributions", () => {
   });
   it("gives the worker its module tasks and start-up through the registry (WP2.1)", () => {
     // Same order as the worker ran them before: Matomo, the Postiz check,
-    // then the Drive retry of generated images (a task since WP2.5d).
+    // then the Drive retry of generated images (a task since WP2.5d). The
+    // platform's ingress cleanup comes first (WP4.2 follow-up).
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
+      "public-ingress-cleanup",
+      "file-cleanup",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
@@ -376,6 +398,18 @@ describe("module contributions", () => {
         { alpha: { actions: { same: action } } },
       ),
     ).toThrow("action same registered twice");
+    const direct = {
+      direct: true as const,
+      bodies: [] as const,
+      handle: async () => ({ status: 200 as const }),
+    };
+    expect(() =>
+      registerContributions(
+        registry,
+        {},
+        { alpha: { webhooks: { x1: direct } } },
+      ),
+    ).toThrow("webhook provider x1 accepts no known body");
     const provider = async () => ({ state: "x", blockers: [] });
     expect(() =>
       registerContributions(

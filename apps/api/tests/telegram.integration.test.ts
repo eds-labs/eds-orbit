@@ -951,4 +951,60 @@ describe.skipIf(!enabled)("Orbit Telegram bot", () => {
       c.connectionId,
     );
   });
+
+  it("takes the same webhook through the platform's hooks route (WP4.2)", async () => {
+    const c = await connect();
+    // Telegram keeps the bot's own URL until the cutover.
+    expect(sent("setWebhook").at(-1)!.body.url).toBe(
+      `${ORIGIN}/api/telegram/${projectId}/${c.connectionId}`,
+    );
+    const hook = (
+      secret: string | undefined,
+      payload: unknown,
+      options: { workspace?: string; type?: string } = {},
+    ) =>
+      app.inject({
+        method: "POST",
+        url: `/api/hooks/telegram/${options.workspace ?? workspaceId}/${projectId}/${c.connectionId}`,
+        headers: {
+          "content-type": options.type ?? "application/json",
+          ...(secret === undefined
+            ? {}
+            : { "x-telegram-bot-api-secret-token": secret }),
+        },
+        payload: JSON.stringify(payload),
+      });
+    try {
+      // Off with public ingress.
+      expect((await hook(c.secret, message("hi"))).statusCode).toBe(404);
+      process.env.ORBIT_PUBLIC_INGRESS = "true";
+      expect((await hook("wrong", message("hi"))).statusCode).toBe(401);
+      expect((await hook(undefined, message("hi"))).statusCode).toBe(401);
+      // The path's workspace must be the project's.
+      expect(
+        (await hook(c.secret, message("hi"), { workspace: randomUUID() }))
+          .statusCode,
+      ).toBe(401);
+      expect(
+        (await hook(c.secret, message("hi"), { type: "text/plain" }))
+          .statusCode,
+      ).toBe(415);
+      expect(await audits("telegram.webhook_rejected")).toHaveLength(2);
+      // A valid code links, exactly as on the bot's own route.
+      const linkedNow = await hook(
+        c.secret,
+        message(`/start ${c.body.linkCode}`),
+      );
+      expect(linkedNow.statusCode).toBe(200);
+      expect((await run((tx) => linkedTelegramConnection(tx, owner)))!.id).toBe(
+        c.connectionId,
+      );
+      expect(sent("sendMessage").at(-1)!.body.text).toMatch(/Verbunden/);
+      // While Orbit Agents is off, the bot does not exist here either.
+      process.env.ORBIT_AGENTS = "false";
+      expect((await hook(c.secret, message("/pause"))).statusCode).toBe(404);
+    } finally {
+      delete process.env.ORBIT_PUBLIC_INGRESS;
+    }
+  });
 });

@@ -1,7 +1,7 @@
 "use client";
 // Project members and administration (WP2.3b), moved unchanged from the marketing module (platform UI).
 import { useState } from "react";
-import { Settings, UserPlus } from "lucide-react";
+import { KeyRound, Settings, UserPlus } from "lucide-react";
 import {
   action,
   collectionPath,
@@ -14,12 +14,14 @@ import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
 import { ModuleRoles } from "./module-roles";
+import { PublicKeys } from "./public-keys";
 export function ProjectAdministration() {
   const { project, isOwner, t, refresh } = useWorkspace();
   const members = useResource<{ items: Array<Record<string, unknown>> }>(
     isOwner ? collectionPath(project.id, "members") : null,
   );
   const [mode, setMode] = useState<"project" | "member" | null>(null);
+  const [keysOpen, setKeysOpen] = useState(false);
   const [rolesFor, setRolesFor] = useState<{
     userId: string;
     name: string;
@@ -47,6 +49,10 @@ export function ProjectAdministration() {
           <Button variant="outline" size="sm" onClick={() => setMode("member")}>
             <UserPlus data-icon="inline-start" />
             Add member
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setKeysOpen(true)}>
+            <KeyRound data-icon="inline-start" />
+            Public keys
           </Button>
         </div>
       </div>
@@ -91,6 +97,7 @@ export function ProjectAdministration() {
       {rolesFor && (
         <ModuleRoles {...rolesFor} onClose={() => setRolesFor(null)} />
       )}
+      {keysOpen && <PublicKeys onClose={() => setKeysOpen(false)} />}
       {mode && (
         <Modal
           title={mode === "project" ? "Edit project" : "Add local member"}

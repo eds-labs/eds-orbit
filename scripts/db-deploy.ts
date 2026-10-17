@@ -174,6 +174,8 @@ try {
     "ChatProposal",
     "AgentRun",
     "AgentSpan",
+    // Platform files (WP4.6).
+    "File",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,

@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { scoped } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import type { FetchLike } from "../../../../../packages/connectors/src/index.ts";
 import { audit, create, data, DomainError, list } from "../shared.ts";
 import {
   CONNECTION_KIND,
@@ -47,7 +48,10 @@ const headersOf = (raw: Record<string, unknown>) =>
   );
 
 /** Registers the webhook route in its own scope with a raw-body JSON parser. */
-export async function registerWebhookRoutes(app: FastifyInstance) {
+export async function registerWebhookRoutes(
+  app: FastifyInstance,
+  options: { fetch?: FetchLike } = {},
+) {
   await app.register(async (child) => {
     // The signature covers the exact bytes, so the body stays a string here.
     child.removeContentTypeParser("application/json");
@@ -72,14 +76,45 @@ export async function registerWebhookRoutes(app: FastifyInstance) {
       },
       async (req, reply) => {
         if (!publicIngressEnabled()) throw new DomainError("NOT_FOUND", 404);
-        const contentType = String(req.headers["content-type"] ?? "");
-        if (!/^application\/json(\s*;|$)/i.test(contentType))
-          throw new DomainError("UNSUPPORTED_MEDIA_TYPE", 415);
         const p = params.parse(req.params);
         const provider = registeredWebhook(p.provider);
         if (!provider) throw new DomainError("NOT_FOUND", 404);
+        const contentType = String(req.headers["content-type"] ?? "");
+        const media = /^application\/json(\s*;|$)/i.test(contentType)
+          ? "json"
+          : /^application\/x-www-form-urlencoded(\s*;|$)/i.test(contentType)
+            ? "form"
+            : null;
+        const accepted = provider.direct ? provider.bodies : ["json"];
+        if (!media || !accepted.includes(media))
+          throw new DomainError("UNSUPPORTED_MEDIA_TYPE", 415);
         const rawBody = typeof req.body === "string" ? req.body : "";
         const headers = headersOf(req.headers as Record<string, unknown>);
+        // A direct provider answers itself, against its own connection.
+        if (provider.direct) {
+          const answer = await provider.handle({
+            workspaceId: p.workspaceId,
+            projectId: p.projectId,
+            connectionId: p.connectionId,
+            rawBody,
+            headers,
+            fetch: options.fetch,
+          });
+          if (answer.status === 200)
+            return reply.code(200).send(answer.body ?? { ok: true });
+          const code =
+            answer.code ??
+            {
+              400: "WEBHOOK_PAYLOAD_INVALID",
+              401: "UNAUTHORIZED",
+              403: "FORBIDDEN",
+              404: "NOT_FOUND",
+              409: "CONFLICT",
+            }[answer.status];
+          return reply
+            .code(answer.status)
+            .send({ error: { code, message: code.replaceAll("_", " ") } });
+        }
         const scope: Scope = {
           workspaceId: p.workspaceId,
           projectId: p.projectId,

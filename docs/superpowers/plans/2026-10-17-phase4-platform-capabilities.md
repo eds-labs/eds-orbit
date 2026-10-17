@@ -194,11 +194,119 @@ Risk class **high**: this is a new unauthenticated surface. It is built behind `
 - A module contributes `publicRoutes`; the fixture module uses them.
 - Tests: unknown or revoked key, disallowed origin and CORS preflight, missing or expired token, rate limits.
 
+## WP4.6 Platform files (detailed)
+
+**Decision (Mario, 2026-10-17, Q-19):** approved as recommended: a separate Cloudflare R2 bucket with its own API token, next to the backup bucket, never sharing the backup credentials. Mario creates the bucket and token and enters them in Coolify. No agent enters credentials.
+
+Risk class **high**: new credentials and a new data store for customer files. The feature is built behind `ORBIT_FILES` (default `false`). While the flag is off, or the bucket is not configured, every file route answers 404 and `storeFile` refuses with `FILES_NOT_CONFIGURED`.
+
+- **Configuration** (`packages/config`, `.env.example`, `docker-compose.yml`, `check-coolify-compose.mjs`):
+  - `ORBIT_FILES`;
+  - `FILES_S3_ENDPOINT`, `FILES_S3_BUCKET`, `FILES_S3_REGION` (default `auto`);
+  - `FILES_S3_ACCESS_KEY_ID`, `FILES_S3_SECRET_ACCESS_KEY`;
+  - `FILES_ENCRYPTION_KEY` (64 hex characters, separate from `CREDENTIAL_KEY`);
+  - `FILES_MAX_BYTES` (default 20 MB, at most 50 MB).
+  
+  The api and worker services get them; the backup service does not.
+- **Table** `File`: `id`, `workspaceId`, `projectId`, `moduleId`, `key`, `size`, `mime`, `sha256`, `encryption`, `name`, `createdBy`, `createdAt`, `deletedAt`.
+  - FORCE RLS with the project policy, granted to `orbit_app`.
+  - Migration `202610170007_platform_file`, additive.
+- **Object store client** `platform/files/s3.ts`: no new dependency.
+  - AWS Signature Version 4 with `node:crypto` (PUT, GET, DELETE), path-style URLs, the payload hash signed.
+  - Pinned by the documented AWS test vector.
+  - Timeouts; errors carry status and code only, never the key.
+- **Encryption.** Each file is encrypted before upload: AES-256-GCM with a fresh 96-bit IV.
+  - Object layout: version byte, IV, ciphertext, tag. The file id is bound as additional data, so objects cannot be swapped between rows.
+  - The object key is `projects/<projectId>/<moduleId>/<fileId>`; nothing about the name or content.
+  - `encryption` records `aes-256-gcm/v1`.
+- **Service** `platform/files/files.ts`:
+  - `storeFile(scope, { moduleId, bytes, mime, name })`: checks size, type and the module, hashes (SHA-256), writes the row and the object, and removes the object again when the row fails.
+  - `readFile(scope, id)`: the row in the project, then the object; decrypts and checks the tag and the SHA-256 before returning anything.
+  - `deleteFile(scope, id)`: sets `deletedAt` (unreadable at once), then removes the object and the row. If the object store fails, the hourly `file-cleanup` task retries, so no object outlives its row.
+  - Types: an allowlist (images, PDF, plain text, CSV, `message/rfc822`) with a magic-number check for images and PDF.
+- **Routes** (behind the flag, authenticated):
+  - `POST /api/projects/:id/files?module=<id>`: raw body (`application/octet-stream` plus `x-file-type` and `x-file-name`), counted while streaming, 413 above the limit; the caller needs write access in that module.
+  - `GET /api/projects/:id/files/:fileId`: read access in the file's module. `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff`, the stored type.
+  - `DELETE /api/projects/:id/files/:fileId`: write access in the module.
+- **Retention.** Modules delete their files through `deleteFile`. The hourly cleanup finishes removals that failed. Deleting a project cascades its rows, but not its objects (follow-up: purge the project prefix).
+- **Tests:**
+  - SigV4 test vector;
+  - encryption round trip and tamper detection;
+  - an in-process S3 double that checks every request's signature;
+  - upload, download and delete over HTTP;
+  - limits (size, type, magic number);
+  - another project's file is unreachable (404);
+  - a viewer cannot upload;
+  - flag off and not configured;
+  - RLS matrix and grants;
+  - marketing assets unchanged.
+- **Production:**
+  - merge brings the migration (approval);
+  - Mario creates the bucket and token and sets the variables;
+  - the flag on is a separate approval after the security review.
+
+## WP4.7 E-mail over SMTP/IMAP and notifications (detailed)
+
+**Decision (Mario, 2026-10-17, Q-16):** SMTP and IMAP against an existing mailbox, no new e-mail provider. SPF, DKIM and DMARC are the mailbox provider's (no Orbit DNS change), as long as Orbit sends only as the mailbox's own address.
+
+Risk class **high**: outbound mail on the project's behalf, inbound untrusted content and new dependencies. The work is behind `ORBIT_EMAIL` (default `false`). Sending follows the existing gate: `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`, otherwise a test receipt.
+
+- **Dependencies** (production, part of the merge approval):
+  - `nodemailer` (SMTP);
+  - `imapflow` (IMAP);
+  - `postal-mime` (MIME parsing, no dependencies).
+  
+  All MIT and widely used; pinned exactly.
+- **Connection** `email` (platform connection provider):
+  - fields: SMTP host, port and TLS mode; IMAP host, port and TLS; user name; from address and name;
+  - credential: the mailbox password, AES-GCM like every connection;
+  - `check` logs in to SMTP and IMAP and records `read_verified`. `write_verified` needs a real test send, which needs approval.
+  
+  TLS is required (implicit TLS or STARTTLS). Hosts must be public names, checked like other provider URLs.
+- **Outbound** `platform/email/send.ts`, the job `email_send`:
+  - one `email_messages` row per message (`queued` → `sent` / `failed` / `rejected` / `outcome_unknown` / `test_receipt`);
+  - the Message-ID `<orbit.<id>@<from domain>>`;
+  - errors before DATA are failures that may be retried; 5xx is `rejected`; anything ambiguous after DATA is `outcome_unknown`, never resent;
+  - notifications are sent with `Auto-Submitted: auto-generated`.
+- **Inbound** `platform/email/inbound.ts`, the periodic task `email-inbound`:
+  - every two minutes per project with a verified e-mail connection;
+  - fetches INBOX messages after the last UID (with a UIDVALIDITY check), at most 25 per pass, 10 MB each;
+  - stores the raw MIME as a platform file (WP4.6) and a normalized `inbound_emails` row: Message-ID, from, to, subject, date, text (bounded), In-Reply-To, References, auto-reply flags and the file id;
+  - deduplicates by Message-ID and UID;
+  - enqueues every module that registered `emailInbound: { queueClass }`.
+  
+  Without platform files the task records `FILES_NOT_CONFIGURED` and fetches nothing.
+- **Bounces.** A delivery status notification (`multipart/report; report-type=delivery-status`) whose content names an Orbit Message-ID marks that message `bounced`. Complaints are not available over SMTP; that limit is documented.
+- **Notifications:**
+  - Tables:
+    - `Notification(id, workspaceId, projectId, userId, moduleId, kind, title, body, link, readAt, createdAt)`;
+    - `NotificationPreference(workspaceId, projectId, userId, kind, inApp, email)`.
+    
+    Both use the chat tables' user policy, so a member sees only their own rows.
+  - Contract: `ModuleContributions.userNotifications = { kinds: { <kind>: { label, emailDefault } } }`.
+  - Service: `notifyMembers(tx, scope, { kind, userIds, title, body, link })` writes in-app rows by preference and queues `email_notification` for those who want e-mail.
+  - API:
+    - `GET /api/projects/:id/notifications` (mine, with the unread count);
+    - `POST …/notifications/:id/read` and `…/read-all`;
+    - `GET/PUT …/notification-preferences`.
+  - Web: a bell in the shell header with the unread count (polled every 60 s), a list with mark-as-read, and preferences per kind.
+- **Tests:**
+  - test-mode receipt without delivery;
+  - SMTP outcomes against a stub transport (failure before DATA, 5xx, ambiguous after DATA);
+  - inbound against a stubbed IMAP client: dedupe, UIDVALIDITY, limits, auto-reply flags and DSN to `bounced`;
+  - preference filtering and muting a kind;
+  - one member cannot read another's notifications (RLS);
+  - flag off.
+- **Production:**
+  - merge brings the migration and dependencies (approval);
+  - Mario creates the connection with the mailbox credentials in Orbit;
+  - the flag on and the first real send are separate approvals.
+
 ## WP4.2–WP4.7 (outline; each gets a detailed plan before it starts)
 
 | WP | Content | Gate before starting |
 |---|---|---|
-| 4.6 Files | `File` table with FORCE RLS, S3-compatible adapter (own bucket and credentials), streaming upload, authorized download, retention | Mario approves the bucket and credentials (Q-19) |
-| 4.7 E-mail and notifications | Provider adapter (send, inbound via 4.2, bounces), `Notification` and preferences, in-app bell, e-mail channel | Mario chooses the provider (Q-16); DNS change |
+| 4.6 Files | Detailed above | Approved 2026-10-17 (Q-19: own R2 bucket and token) |
+| 4.7 E-mail and notifications | Detailed above | Decided 2026-10-17 (Q-16: SMTP/IMAP against an existing mailbox, no DNS change by Orbit) |
 
 Suggested order: 4.1 → 4.4 (cheap, reuses the fixture) → 4.3 measurement → 4.5 → 4.2 → 4.6 → 4.7. The last three need decisions or credentials from Mario.

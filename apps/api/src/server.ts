@@ -154,10 +154,16 @@ import {
   createPublicKey,
   listPublicKeys,
   PUBLIC_URL,
+  publicApiModules,
   registerPublicApi,
   revokePublicKey,
 } from "./platform/http/public-api.ts";
 import { connectionVerified } from "./platform/connections/connections.ts";
+import {
+  FILE_ROUTE_PREFIX,
+  registerFileRoutes,
+} from "./platform/files/routes.ts";
+import { filesConfig } from "./platform/files/files.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
 const AGENT_ROUTES = new Set([
@@ -278,6 +284,12 @@ export async function buildServer(
     // paths cannot slip past (R62); each handler checks again.
     if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
       throw new DomainError("NOT_FOUND", 404);
+    // Platform files (WP4.6) do not exist while off or not configured.
+    if (
+      (req.routeOptions.url ?? "").startsWith(FILE_ROUTE_PREFIX) &&
+      !filesConfig()
+    )
+      throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off.
     if (
       (req.routeOptions.url === WEBHOOK_PATH ||
@@ -381,9 +393,11 @@ export async function buildServer(
     },
   );
   // Signed provider webhooks of the modules (WP4.2a).
-  await registerWebhookRoutes(app);
+  await registerWebhookRoutes(app, { fetch: options?.telegramFetch });
   // The modules' public APIs (WP4.2b).
   await registerPublicApi(app);
+  // Platform files (WP4.6).
+  await registerFileRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",
@@ -785,6 +799,8 @@ export async function buildServer(
       items: await listPublicKeys(
         await scopeFor(auth, req, projectId, PROJECT_OWN),
       ),
+      // The modules a new key can be issued for.
+      modules: publicApiModules(),
     };
   });
   app.post("/api/projects/:projectId/public-keys", async (req, reply) => {

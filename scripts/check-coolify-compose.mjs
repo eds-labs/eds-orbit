@@ -44,6 +44,7 @@ for (const key of [
   "ORBIT_MCP_CIMD_HOSTS",
   "ORBIT_MODULE_ROLES",
   "ORBIT_PUBLIC_INGRESS",
+  "ORBIT_FILES",
 ])
   delete composeEnvironment[key];
 
@@ -127,6 +128,7 @@ for (const name of ["api", "worker"])
     "ORBIT_MODULES",
     "ORBIT_MODULE_ROLES",
     "ORBIT_PUBLIC_INGRESS",
+    "ORBIT_FILES",
   ])
     assert.equal(
       services[name].environment[flag],
@@ -154,6 +156,7 @@ const flagged = JSON.parse(
         ORBIT_MCP_CIMD_HOSTS: "chatgpt.com,example.invalid",
         ORBIT_MODULE_ROLES: "true",
         ORBIT_PUBLIC_INGRESS: "true",
+        ORBIT_FILES: "true",
       },
     },
   ),
@@ -168,6 +171,7 @@ for (const name of ["api", "worker"])
     "ORBIT_MODULES",
     "ORBIT_MODULE_ROLES",
     "ORBIT_PUBLIC_INGRESS",
+    "ORBIT_FILES",
   ])
     assert.equal(
       flagged[name].environment[flag],
@@ -197,6 +201,12 @@ for (const name of ["api", "worker"]) {
     "chatgpt.com,example.invalid",
   );
 }
+// The file bucket and the backup bucket never share credentials (WP4.6).
+for (const key of Object.keys(services.backup.environment))
+  assert.ok(!key.startsWith("FILES_"), `backup must not receive ${key}`);
+for (const name of ["api", "worker"])
+  for (const key of Object.keys(services[name].environment))
+    assert.ok(!key.startsWith("BACKUP_"), `${name} must not receive ${key}`);
 
 const composeSource = readFileSync(`${root}/docker-compose.yml`, "utf8");
 assert.doesNotMatch(

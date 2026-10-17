@@ -14,6 +14,7 @@ import {
 } from "../src/modules/registry.ts";
 import {
   createPublicKey,
+  publicApiModules,
   revokePublicKey,
 } from "../src/platform/http/public-api.ts";
 import { setModuleEnabled } from "../src/platform/modules/activation.ts";
@@ -111,6 +112,8 @@ describe.skipIf(!enabled)("public module API", () => {
 
   it("issues keys only for modules with a public API, only to owners, with clean origins", async () => {
     process.env.ORBIT_PUBLIC_INGRESS = "true";
+    // The owner UI offers exactly these modules.
+    expect(publicApiModules()).toEqual(["tasks"]);
     await expect(
       createPublicKey(owner, { moduleId: "marketing", allowedOrigins: [SITE] }),
     ).rejects.toThrow("MODULE_HAS_NO_PUBLIC_API");
