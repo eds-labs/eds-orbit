@@ -21,6 +21,18 @@ Object.assign(process.env, {
   ORBIT_CONTENT_PACKAGES: "true",
   ORBIT_TOOL_SEARCH: "true",
   ORBIT_MODULES: "true",
+  ORBIT_MODULE_ROLES: "true",
+  ORBIT_PUBLIC_INGRESS: "true",
+  // Platform files (WP4.6) with a bucket that is never reached here.
+  ORBIT_FILES: "true",
+  FILES_S3_ENDPOINT: "https://files.example.invalid",
+  FILES_S3_BUCKET: "orbit-files-matrix",
+  FILES_S3_ACCESS_KEY_ID: "synthetic-access-key",
+  FILES_S3_SECRET_ACCESS_KEY: "synthetic-secret-key",
+  FILES_ENCRYPTION_KEY: "0".repeat(64),
+  // E-mail and member notifications (WP4.7); nothing is sent in test mode.
+  ORBIT_EMAIL: "true",
+  ORBIT_NOTIFICATIONS: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
@@ -40,6 +52,8 @@ const PUBLIC_ROUTES = [
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
+  // Signed provider webhooks (WP4.2a): the signature authenticates.
+  "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
 ];
 // The collection name is validated before the session: an unknown one is a 400
 // for everybody and reveals nothing about the project.

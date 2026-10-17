@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { factClaimMatches } from "./fact-claims.ts";
+import {
+  brandTermsOf,
+  factClaimMatches,
+  LEGACY_BRAND_TERMS,
+  presaleLivePattern,
+} from "./fact-claims.ts";
 
 const tagline = { key: "product.tagline", value: "AI assists. You decide." };
 
@@ -79,5 +84,46 @@ describe("fact claim matching", () => {
         value: "true",
       }),
     ).toBe(false);
+  });
+});
+
+describe("brand vocabulary from the marketing profile (WP3.4)", () => {
+  const custody = { key: "product.custody_model", value: "non_custodial" };
+
+  it("allows a profile's own product words instead of uLiquid's", () => {
+    expect(
+      factClaimMatches("Acme Pro's custody model is non-custodial", custody, [
+        "acme",
+        "pro",
+      ]),
+    ).toBe(true);
+    expect(
+      factClaimMatches(
+        "uLiquid Desk's custody model is non-custodial",
+        custody,
+        ["acme", "pro"],
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps uLiquid's words for a profile without brandTerms", () => {
+    expect(brandTermsOf({ productName: "uLiquid Desk" })).toEqual(
+      LEGACY_BRAND_TERMS,
+    );
+    expect(brandTermsOf(null)).toEqual(LEGACY_BRAND_TERMS);
+    expect(brandTermsOf({ brandTerms: ["acme"] })).toEqual(["acme"]);
+  });
+
+  it("keeps today's presale pattern without terms and builds one with them", () => {
+    expect(presaleLivePattern().source).toBe(
+      String.raw`\b(?:presale\s+(?:is\s+)?(?:(?:now|currently|officially)\s+)?live|(?:(?:now|currently|officially)\s+)?live\s+(?:(?:uliq|uliquid)(?:\s+desk)?\s+)?presale|presale[.\s]+status:\s*live)\b`,
+    );
+    expect(presaleLivePattern().flags).toBe("gi");
+    const acme = presaleLivePattern(["acme", "pro"]);
+    expect("The live Acme Pro presale".match(acme)).toEqual([
+      "live Acme Pro presale",
+    ]);
+    expect("Presale is now live".match(acme)).toEqual(["Presale is now live"]);
+    expect("The live Desk presale".match(acme)).toBeNull();
   });
 });

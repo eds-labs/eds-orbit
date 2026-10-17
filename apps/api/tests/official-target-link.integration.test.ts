@@ -4,9 +4,8 @@ import {
   scoped,
   type DbTx,
 } from "../../../packages/db/src/index.ts";
-import { create, data, entity, list, update } from "../src/shared.ts";
+import { create, data, entity, list } from "../src/shared.ts";
 import { createConversation } from "../src/modules/chat.ts";
-import { configureAutopilot, planAutopilot } from "../src/modules/autopilot.ts";
 import { requestContentPackage } from "../src/modules/agents/content-packages.ts";
 import {
   createPackageProject,
@@ -24,7 +23,7 @@ const SIGNUP = `${OFFICIAL_URL}/signup`;
 /**
  * A post targets an official link the policy allows. Production uLiquid lists
  * its website first while the policy allows only the app domain; every
- * autopilot draft and every package stopped with LINK_NOT_ALLOWED.
+ * package stopped with LINK_NOT_ALLOWED.
  */
 describe.skipIf(!enabled)("Official target link within the policy", () => {
   let project: Awaited<ReturnType<typeof createPackageProject>>;
@@ -59,15 +58,6 @@ describe.skipIf(!enabled)("Official target link within the policy", () => {
       ),
     ).payload.deliverables[0].mission.targetUrl as string;
   };
-  const planNow = () =>
-    run(async (tx) => {
-      const row = (await list(tx, project.owner, "autopilot_settings"))[0]!;
-      await update(tx, project.owner, row, {
-        ...data(row),
-        lastPlanCheckAt: null,
-      });
-      return planAutopilot(tx, project.owner);
-    });
 
   beforeAll(async () => {
     process.env.ORBIT_CONTENT_PACKAGES = "true";
@@ -81,6 +71,7 @@ describe.skipIf(!enabled)("Official target link within the policy", () => {
           valueType: "url",
           language: "en",
           sourceId: project.sourceId,
+          sourceGeneration: 1,
           validFrom: new Date(Date.now() - 3600000).toISOString(),
           validUntil: new Date(Date.now() + 30 * 86400000).toISOString(),
           status: "verified",
@@ -103,18 +94,6 @@ describe.skipIf(!enabled)("Official target link within the policy", () => {
           factId: (await fact("url.signup", SIGNUP)).id,
         },
       };
-      await tx.project.update({
-        where: { id: owner.projectId },
-        data: { mode: "autopilot" },
-      });
-      await configureAutopilot(tx, owner, {
-        enabled: true,
-        channels: [X],
-        factKeys: ["beta.access"],
-        assetIds: [],
-        planWeekday: new Date().getDay(),
-        planTime: "00:00",
-      });
     });
   });
   afterAll(async () => {
@@ -133,39 +112,10 @@ describe.skipIf(!enabled)("Official target link within the policy", () => {
     expect(await packageTarget(["beta.access", "url.signup"])).toBe(SIGNUP);
   });
 
-  it("plans autopilot posts with the first allowed link", async () => {
-    await setLinks(["website", "official", "signup"]);
-    const result = await planNow();
-    expect(result.planned).toBeGreaterThan(0);
-    const targets = (await run((tx) => list(tx, project.owner, "missions")))
-      .filter((m) => data(m).autopilot === true)
-      .map((m) => data(m).targetUrl);
-    expect(new Set(targets)).toEqual(new Set([OFFICIAL_URL]));
-  });
-
-  it("names the blocker when no official link is allowed, for packages and the autopilot", async () => {
+  it("names the blocker when no official link is allowed", async () => {
     await setLinks(["website"]);
     await expect(packageTarget(["beta.access"])).rejects.toThrow(
       "LINK_NOT_ALLOWED",
     );
-    // Free a planned day so the planner has something to plan.
-    await run(async (tx) => {
-      const mission = (await list(tx, project.owner, "missions")).find(
-        (m) => data(m).autopilot === true,
-      )!;
-      await update(tx, project.owner, mission, {
-        ...data(mission),
-        status: "archived",
-        autopilotSlot: `${data(mission).autopilotSlot}|released`,
-      });
-    });
-    expect(await planNow()).toMatchObject({
-      planned: 0,
-      blocked: "LINK_NOT_ALLOWED",
-    });
-    const exceptions = await run((tx) => list(tx, project.owner, "exceptions"));
-    expect(
-      exceptions.some((row) => data(row).code === "AUTOPILOT_PLANNING_BLOCKED"),
-    ).toBe(true);
   });
 });

@@ -322,6 +322,25 @@ pre {
   gap: 24px;
   align-items: center;
 }
+/* The member's unread notices (WP4.7). */
+.notification-bell {
+  position: relative;
+}
+.notification-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
 .language-control {
   display: flex;
   align-items: center;
@@ -3300,48 +3319,17 @@ body:has(dialog[open]) {
   font-size: 13px;
 }
 
-.autopilot-settings {
-  display: grid;
-  gap: 14px;
-}
-.autopilot-group {
-  display: grid;
-  gap: 8px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px 14px;
-}
-.autopilot-group legend {
-  padding: 0 6px;
-  font-weight: 600;
-}
-.autopilot-group label,
-.autopilot-plan label {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  overflow-wrap: anywhere;
-}
-.autopilot-plan {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-}
-.autopilot-plan label {
-  align-items: center;
-}
-
-.autopilot-approvals {
+.approval-list {
   display: grid;
   gap: 12px;
 }
-.autopilot-approval {
+.approval-item {
   display: grid;
   gap: 8px;
   border-top: 1px solid var(--border);
   padding-top: 12px;
 }
-.autopilot-approval-body {
+.approval-item-body {
   white-space: pre-wrap;
   font: inherit;
   margin: 0;

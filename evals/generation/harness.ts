@@ -12,7 +12,7 @@ import {
   mission as missionSchema,
   type Scope,
 } from "../../packages/schemas/src/index.ts";
-import { setFact } from "../../packages/knowledge/src/index.ts";
+import { setFact } from "../../apps/api/src/platform/knowledge/engine.ts";
 import {
   computeCost,
   modelRouteSchema,

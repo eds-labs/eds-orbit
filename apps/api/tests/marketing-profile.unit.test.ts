@@ -90,3 +90,20 @@ it("retains exclusive campaign context in mission and content contracts", () => 
     profileVersion: 1,
   });
 });
+
+it("keeps brandTerms optional: absent stays absent, terms are lower-case words (WP3.4)", () => {
+  // No key appears, so a stored profile parses, hashes and renders as before.
+  expect("brandTerms" in marketingProfile.parse(profile)).toBe(false);
+  expect(
+    marketingProfile.parse({ ...profile, brandTerms: ["acme", "pro2"] })
+      .brandTerms,
+  ).toEqual(["acme", "pro2"]);
+  for (const brandTerms of [
+    [],
+    ["Acme"],
+    ["acme pro"],
+    ["a"],
+    ["ä".repeat(41)],
+  ])
+    expect(() => marketingProfile.parse({ ...profile, brandTerms })).toThrow();
+});

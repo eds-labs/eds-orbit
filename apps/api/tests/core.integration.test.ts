@@ -17,12 +17,12 @@ import {
   reviewContent,
   analyze,
 } from "../src/modules/workflow.ts";
+import { retrieve } from "../../../packages/knowledge/src/index.ts";
 import {
   ingest,
-  retrieve,
   setFact,
   revokeSource,
-} from "../../../packages/knowledge/src/index.ts";
+} from "../src/platform/knowledge/engine.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,

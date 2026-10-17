@@ -29,7 +29,6 @@ export const collections = [
   "community_questions",
   "community_groups",
   "postiz_drafts",
-  "autopilot_settings",
   "matomo_schedules",
   "postiz_queue_watch",
   "assignments",
@@ -238,6 +237,13 @@ export const marketingProfile = z
       designRules: ["Preserve the approved logo unchanged."],
     }),
     assetPolicy: z.enum(["approved_only"]),
+    // Lower-case words of the product's name that a fact sentence may
+    // contain without adding a claim (WP3.4). Absent: uLiquid's built-in list.
+    brandTerms: z
+      .array(z.string().regex(/^[\p{Ll}\p{N}]{2,40}$/u))
+      .min(1)
+      .max(20)
+      .optional(),
   })
   .strict();
 export const experiment = z
@@ -259,6 +265,8 @@ export type Scope = {
   projectId: string;
   userId: string;
   role: "owner" | "editor" | "viewer";
+  /** The member's roles in single modules (WP4.5); absent without overrides. */
+  moduleRoles?: Readonly<Record<string, "editor" | "viewer" | "none">>;
 };
 export type EntityView = {
   id: string;

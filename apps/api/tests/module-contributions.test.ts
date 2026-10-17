@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import {
+  registeredWebhook,
   registerContributions,
   registeredAction,
   registeredActionNames,
@@ -8,6 +9,7 @@ import {
   registeredChannelDirectories,
   registeredReadiness,
   registeredHooks,
+  registeredImpactHandlers,
   registeredConnectionProvider,
   registeredConnectionProviderIds,
   registeredJobOwner,
@@ -19,6 +21,7 @@ import {
   registeredRoutes,
   registeredSchedulers,
   registeredTelegramCallback,
+  registeredToolOwner,
   registeredTools,
   telegramContributorEnabled,
   unexportedKinds,
@@ -29,16 +32,19 @@ import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions
 import { marketingActionPermissions } from "../src/modules/marketing/permissions.ts";
 import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
 import { marketingRoutes } from "../src/modules/marketing/routes.ts";
+import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
+import { ingressRetention } from "../src/platform/http/ingress-retention.ts";
 import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
 import { pauseCallback } from "../src/platform/connections/telegram.ts";
 import { stopCallback } from "../src/modules/marketing/agents/telegram-stop.ts";
 import { NOTIFY_KINDS } from "../src/modules/marketing/agents/notifications.ts";
 import { marketingNotifications } from "../src/modules/marketing/agents/notification-messages.ts";
+import { invalidateMarketingForKnowledge } from "../src/modules/marketing/pipeline/knowledge-impact.ts";
 
 /** The platform registries filled from module contributions (WP1.6). */
 describe("module contributions", () => {
@@ -62,6 +68,7 @@ describe("module contributions", () => {
         "agent",
         "analytics",
         "chat",
+        "email_send",
         "embedding",
         "generation",
         "image",
@@ -99,20 +106,68 @@ describe("module contributions", () => {
       "connectors",
       "drive_connection",
       "drive_oauth_state",
+      // E-mail (WP4.7): messages, inbound mail and the IMAP position.
+      "email_inbound_state",
+      "email_messages",
       "evidence",
+      // Raw provider webhooks (WP4.2a): operational data, never exported.
+      "inbound_emails",
+      "inbound_webhooks",
+      // Public client sessions with hashed tokens (WP4.2b).
+      "public_sessions",
       "telegram_connections",
     ]);
   });
 
-  it("lets marketing extend pause, resume and retention (WP1.8)", () => {
-    expect(registeredHooks()).toEqual([marketingHooks]);
-    expect(registeredRetention()).toEqual([marketingRetention]);
+  it("receives Slack and the owner's bot through the hooks route too (WP4.2)", () => {
+    expect(registeredWebhook("telegram")).toMatchObject({
+      owner: "platform",
+      direct: true,
+      bodies: ["json"],
+    });
+    expect(registeredWebhook("slack")).toMatchObject({
+      owner: "marketing",
+      direct: true,
+      bodies: ["form"],
+    });
   });
 
+  it("lets marketing extend pause, resume and retention (WP1.8)", () => {
+    expect(registeredHooks()).toEqual([marketingHooks]);
+    // The platform purges public ingress rows first (WP4.2 follow-up).
+    expect(registeredRetention()).toEqual([
+      ingressRetention,
+      marketingRetention,
+    ]);
+  });
+
+  it("binds marketing's knowledge impact handler for every project (WP3.1)", () => {
+    // No activation parameter: a revocation must also reach content of a
+    // project whose marketing module is switched off (plans 05 §4).
+    expect(registeredImpactHandlers.length).toBe(0);
+    expect(registeredImpactHandlers()).toEqual([
+      invalidateMarketingForKnowledge,
+    ]);
+  });
+  it("fails closed when no module registered its impact handler (WP3.1)", async () => {
+    vi.resetModules();
+    const fresh = await import("../src/platform/modules/contributions.ts");
+    expect(() => fresh.registeredImpactHandlers()).toThrow(
+      "MODULE_CONTRIBUTIONS_NOT_REGISTERED",
+    );
+    const engine = await import("../src/platform/knowledge/engine.ts");
+    expect(() =>
+      engine.revokeSource({} as never, {} as never, "source"),
+    ).toThrow("MODULE_CONTRIBUTIONS_NOT_REGISTERED");
+  });
   it("gives the worker its module tasks and start-up through the registry (WP2.1)", () => {
     // Same order as the worker ran them before: Matomo, the Postiz check,
-    // then the Drive retry of generated images (a task since WP2.5d).
+    // then the Drive retry of generated images (a task since WP2.5d). The
+    // platform's ingress cleanup comes first (WP4.2 follow-up).
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
+      "public-ingress-cleanup",
+      "file-cleanup",
+      "email-inbound",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
@@ -131,7 +186,6 @@ describe("module contributions", () => {
       "add-member",
       "analyze",
       "approve",
-      "approve-and-schedule",
       "archive-mission",
       "archive-old-drafts",
       "asset-status",
@@ -142,12 +196,12 @@ describe("module contributions", () => {
       "calendar-unblock",
       "community-import",
       "community-link",
-      "configure-autopilot",
       "configure-matomo-schedule",
       "connector",
       "connector-health",
       "correct-metric",
       "editorial-propose-brief",
+      "email-connect",
       "embed-document",
       "evaluate-experiment",
       "evaluate-index",
@@ -268,19 +322,24 @@ describe("module contributions", () => {
   });
 
   it("offers marketing's connection providers in their former order (WP2.5c)", () => {
+    // The platform's mailbox (WP4.7) comes first.
     expect(registeredConnectionProviderIds()).toEqual([
+      "email",
       "postiz",
       "matomo",
       "slack",
     ]);
-    for (const id of registeredConnectionProviderIds())
+    expect(registeredConnectionProvider("email")?.owner).toBe("platform");
+    for (const id of registeredConnectionProviderIds().slice(1))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();
   });
 
-  it("lets marketing register its own HTTP routes (WP2.1f)", () => {
-    expect(registeredRoutes()).toEqual([marketingRoutes]);
+  it("lets knowledge and marketing register their HTTP routes (WP2.1f, WP3.3)", () => {
+    // Registry order: knowledge before marketing, which depends on it.
+    expect(registeredRoutes()).toEqual([knowledgeRoutes, marketingRoutes]);
+    expect(registeredToolOwner("knowledge_search")).toBe("platform");
   });
 
   it("projects module kinds through the module: asset bytes never leave", () => {
@@ -349,6 +408,18 @@ describe("module contributions", () => {
         { alpha: { actions: { same: action } } },
       ),
     ).toThrow("action same registered twice");
+    const direct = {
+      direct: true as const,
+      bodies: [] as const,
+      handle: async () => ({ status: 200 as const }),
+    };
+    expect(() =>
+      registerContributions(
+        registry,
+        {},
+        { alpha: { webhooks: { x1: direct } } },
+      ),
+    ).toThrow("webhook provider x1 accepts no known body");
     const provider = async () => ({ state: "x", blockers: [] });
     expect(() =>
       registerContributions(

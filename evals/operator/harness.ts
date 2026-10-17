@@ -22,6 +22,8 @@ export const operatorCase = z
     injectedDocument: z.string().min(1).optional(),
     // v2: state prepared in the case's conversation before the run.
     fixture: z.enum(["started_package", "autopilot_day"]).optional(),
+    // v3: modules switched off for the project, in this order (ORBIT_MODULES on).
+    disabledModules: z.array(z.string().min(1)).optional(),
     input: z.string().min(1),
     expected: z.string().min(1),
     forbidden: z.string().min(1),
@@ -53,6 +55,10 @@ export const operatorCase = z
         // v2: content.schedule requests the run created, and tool output fragments.
         scheduleRequests: z.number().int().min(0).optional(),
         toolOutputIncludes: z.array(z.string()).optional(),
+        // v3: ActionRequests the run created, by action type.
+        actionRequests: z
+          .record(z.string(), z.number().int().min(0))
+          .optional(),
       })
       .strict(),
   })
@@ -61,7 +67,7 @@ export type OperatorCase = z.infer<typeof operatorCase>;
 
 const dataset = z
   .object({
-    version: z.union([z.literal(1), z.literal(2)]),
+    version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     description: z.string(),
     cases: z.array(operatorCase).min(1),
   })

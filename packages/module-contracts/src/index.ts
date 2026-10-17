@@ -18,6 +18,11 @@ export type EntityKindDef = {
   description: string;
   /** False for credentials, OAuth state and other rows the project export leaves out. */
   exported?: false;
+  /**
+   * True when members may read the kind through the generic collection API
+   * (GET /api/projects/:id/<kind>, WP4.1). Never for an unexported kind.
+   */
+  collection?: true;
 };
 
 /** A permission key, mapped to the existing project roles (AD-07). */
@@ -59,6 +64,7 @@ const serverModuleSchema = z
           kind: kindName,
           description: z.string().min(1),
           exported: z.literal(false).optional(),
+          collection: z.literal(true).optional(),
         })
         .strict(),
     ),
@@ -95,6 +101,8 @@ export type ValidatedRegistry = {
   tableOwner: ReadonlyMap<string, ModuleId | "platform">;
   /** Entity kinds the project export leaves out, platform first. */
   unexportedKinds: readonly string[];
+  /** Module kinds readable through the generic collection API (WP4.1). */
+  collectionKinds: readonly string[];
 };
 
 export class RegistryError extends Error {
@@ -181,8 +189,11 @@ export function validateRegistry(
     claim(permissionOwner, "permission", p.key, "platform");
   }
   for (const m of modules) {
-    for (const def of m.entityKinds)
+    for (const def of m.entityKinds) {
       claim(kindOwner, "entity kind", def.kind, m.id);
+      if (def.collection && def.exported === false)
+        problems.push(`entity kind ${def.kind} is unexported and a collection`);
+    }
     for (const table of m.tables) claim(tableOwner, "table", table, m.id);
     for (const p of m.permissions) {
       if (!p.key.startsWith(m.id + "."))
@@ -197,5 +208,15 @@ export function validateRegistry(
   ]
     .filter((def) => def.exported === false)
     .map((def) => def.kind);
-  return { modules, order, kindOwner, tableOwner, unexportedKinds };
+  const collectionKinds = modules.flatMap((m) =>
+    m.entityKinds.filter((def) => def.collection).map((def) => def.kind),
+  );
+  return {
+    modules,
+    order,
+    kindOwner,
+    tableOwner,
+    unexportedKinds,
+    collectionKinds,
+  };
 }

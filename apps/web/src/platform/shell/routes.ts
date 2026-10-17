@@ -1,4 +1,4 @@
-import type { ViewDef, WebRegistry } from "./types";
+import type { Label, ViewDef, WebRegistry } from "./types";
 
 // URL scheme of the web shell (ADR 0009 AD-12, plans/orbit-modularization/02):
 //   /                                  start: last project, else the pickers
@@ -75,6 +75,18 @@ export function routeTable(registry: WebRegistry): RouteTable {
       legacy.set(old, route);
     }
   }
+  for (const route of routes) {
+    if (!route.navKey) continue;
+    const entry = routes.find((r) => r.key === route.navKey && r.nav);
+    if (!entry)
+      problems.push(
+        `${route.key}: navKey "${route.navKey}" names no navigation entry`,
+      );
+    else if (entry.moduleId !== route.moduleId)
+      problems.push(
+        `${route.key}: navKey "${route.navKey}" belongs to another owner`,
+      );
+  }
   if (!routes.some((r) => r.segments.length === 0))
     problems.push('no project home (a platform view with path "")');
   if (problems.length)
@@ -143,6 +155,38 @@ export function locate(pathname: string, table: RouteTable): Place {
   }
   const legacy = parts.length === 1 && table.legacy.get(`/${first}`);
   return legacy ? { kind: "legacy", route: legacy } : { kind: "notFound" };
+}
+
+/**
+ * Whether the shell shows a module (WP2.4, WP4.5): enabled for the project
+ * and the member's access is not "none". Unknown states count as usable, so
+ * a failed load never hides a module.
+ */
+export function moduleUsable(state?: { enabled: boolean; access?: string }) {
+  return state ? state.enabled && state.access !== "none" : true;
+}
+
+/** The navigation entry a page highlights: its own, else its navKey. */
+export function activeNavKey(
+  route: Route | null | undefined,
+): string | undefined {
+  return route?.navKey ?? route?.key;
+}
+
+/**
+ * The breadcrumb of a page: its navigation label, or for a page under
+ * another entry (navKey) that entry's label and the page's title.
+ */
+export function crumbs(
+  route: Route,
+  table: RouteTable,
+  locale: keyof Label,
+): string[] {
+  const own = route.nav?.label[locale] ?? route.title?.[locale];
+  const parent = route.navKey
+    ? table.routes.find((r) => r.key === route.navKey)?.nav?.label[locale]
+    : undefined;
+  return parent ? [parent, own ?? route.key] : [own ?? route.key];
 }
 
 /** Routes in sidebar order; routes without a nav entry come last. */

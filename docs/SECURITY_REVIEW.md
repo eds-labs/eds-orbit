@@ -61,6 +61,135 @@ A bounded run of 40 API liveness reads at concurrency eight returned only HTTP 2
 
 No cross-project bypass was identified in the reviewed scoped paths; local role/RLS negative tests passed. This does not certify absence of every authorization defect. Existing Desk, Forecast, Postiz, Matomo and Chatwoot infrastructure stayed unchanged. Both temporary container projects were shut down after testing while preserving their test volumes; the primary local development stack remains separate.
 
+## Module-level roles (WP4.5, prepared 2026-10-17; review open)
+
+`ORBIT_MODULE_ROLES` stays `false` in production until this review is done and Mario approves the flag. What the review checks:
+
+1. **Every module entry point uses the member's role in that module.** Covered:
+   - routes (`scopeFor`, marked by the route group);
+   - actions and collections (by owner);
+   - assistant tools (offer and execution per tool owner);
+   - prompt fragments and conversation sections (`visibleModules`);
+   - the shell (`GET /modules` access).
+   
+   Tests: `module-roles.integration.test.ts`, `module-roles-assistant.integration.test.ts`.
+2. **No escalation.**
+   - Owners never get an override, and only owners set overrides.
+   - An override can raise a viewer to editor in one module (S-R6), never to owner.
+   - A forged tool call runs with the owner module's role.
+3. **Data.**
+   - `ProjectMemberModuleRole` is a tenancy table: RLS project scope, `orbit_auth` only, no grant to `orbit_app` (RLS matrix).
+   - Rows cascade with the membership.
+4. **Audit.** `member.module_role_changed` records the actor, the change and the resulting roles; no secrets.
+5. **Known limits.**
+   - Worker jobs re-read only the queuing member's project role and module roles, at run time (`actorScope`).
+   - A job a member queued before losing module access still runs once.
+   - Telegram callbacks are owner-only.
+
+## Public ingress: signed webhooks (WP4.2a, prepared 2026-10-17; review open)
+
+`ORBIT_PUBLIC_INGRESS` stays `false` in production until this review is done and Mario approves the flag. While off, `POST /api/hooks/...` answers 404 in the first hook, before body parsing. What the review checks:
+
+1. **Authentication.**
+   - Only a valid signature from the connection's own secret is accepted; the module's `verify` uses a constant-time comparison.
+   - A connection of another provider or another project is a 404, so the response reveals nothing about which ids exist.
+2. **Replay.**
+   - The provider's message id is unique per connection. The check runs under the project lock, so it is exact; a replay is a 409, audited, with no second job.
+3. **Limits.**
+   - JSON only (415), 256 KB (413).
+   - 120 requests per minute per connection, independent of the sender's address.
+   - Processing runs in the worker.
+4. **Surface.**
+   - The Origin exemption matches only the exact path pattern: a provider name and three lowercase UUIDs.
+   - No cookie or session is read, and every other write keeps the Origin check (tested).
+5. **Data.**
+   - Stored messages are the platform kind `inbound_webhooks`, excluded from the export.
+   - Retention: these rows are deleted after 30 days, and expired public sessions one hour after expiry (`platform/http/ingress-retention.ts`, hourly and in the retention action).
+6. **Direct providers** (follow-up, same flag). `slack` and `telegram` answer within the request.
+   - They reuse their old handlers unchanged: Slack's signature over the form body, actor mapping and replay claim; the bot's constant-time secret check.
+   - Two checks are added: the path's connection must be the project's selected Slack connector, and the path's workspace must be the Telegram project's.
+   - What the review checks:
+     - a forged or missing signature never reaches the module;
+     - a foreign connection or workspace answers like an unknown one;
+     - the media type is limited per provider;
+     - the old routes stay the registered URLs (cutover in `docs/PUBLIC_INGRESS.md`).
+
+## Public ingress: public module API (WP4.2b, prepared 2026-10-17; review open)
+
+This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). While off, `/api/public/...` answers 404 in the first hook. What the review checks:
+
+1. **Keys.**
+   - `PublicClientKey` is readable by `orbit_auth` only (RLS project scope plus `auth_control`; no grant to `orbit_app`).
+   - A key identifies a project and module, but it is no secret.
+   - Only owners create or revoke keys (audited).
+   - Allowed origins are exact HTTPS origins (`http://localhost` for development); no wildcard, no path.
+2. **Browsers.**
+   - A foreign Origin is a 403 (audited), also for the preflight.
+   - An allowed Origin gets `Access-Control-Allow-Origin` with `Vary: Origin`, and never `Allow-Credentials`, so no browser sends or exposes Orbit cookies.
+   - No cookie is read on these routes.
+3. **Sessions.**
+   - A session token is 32 random bytes, shown once and stored as a SHA-256 hash.
+   - It lasts 12 hours and is bound to its key.
+   - A module's handler sees the session id and a viewer scope of the project, never a member.
+4. **Limits.**
+   - JSON only, 64 KB.
+   - 20 new sessions per minute per key and address; 120 calls per minute per session.
+   - A switched-off module answers 404 (`MODULE_DISABLED`).
+5. **Open before production.**
+   - Retention for `public_sessions`.
+   - A total limit per key, beyond the per-session limit.
+   - An owner UI to manage keys (the API exists).
+
+## Platform files (WP4.6, prepared 2026-10-17; review open)
+
+`ORBIT_FILES` stays `false` in production until this review is done and Mario approves the flag. The bucket and token are Mario's (`docs/PLATFORM_FILES.md`). What the review checks:
+
+1. **Credentials.**
+   - The file bucket has its own token, scoped to that bucket. The backup container never receives `FILES_*`, and api/worker never receive `BACKUP_*` (compose check).
+   - No error, log or response carries a key or a signed URL.
+2. **Signing.**
+   - SigV4 is computed with `node:crypto` and pinned by the AWS test vector.
+   - The payload hash is signed, redirects are refused, and plain http is allowed only to localhost.
+   - Object keys are generated and validated: no dot segments, no user input.
+3. **Encryption.** AES-256-GCM, a fresh IV per file, and the file id as additional data. Tag and SHA-256 are verified before a byte is returned; a failure is a 500, audited `file.integrity_failed`.
+4. **Authorization.**
+   - Every route needs a session and membership.
+   - Upload and delete need write access, download read access, all in the file's module (module roles apply).
+   - The module must be on.
+   - Rows are under FORCE RLS: another project's file is a 404.
+5. **Content.**
+   - Allowlisted types, with a signature check for images and PDF.
+   - Downloads are attachments with `nosniff` and `default-src 'none'; sandbox`.
+   - Names are stripped of paths and control characters.
+   - The size limit is enforced while the body streams in.
+6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. Known gap: a deleted project leaves its objects behind.
+
+## E-mail and member notifications (WP4.7, prepared 2026-10-17; review open)
+
+`ORBIT_EMAIL` and `ORBIT_NOTIFICATIONS` stay `false` in production until this review is done and Mario approves each flag. Real delivery also needs live mode with external writes. What the review checks:
+
+1. **Credentials.** The mailbox password is stored only encrypted (`CREDENTIAL_KEY`), is never returned, and never appears in logs or errors. Errors carry codes only, never server banners.
+2. **Outbound abuse.**
+   - Only the connection's own address sends.
+   - Recipients are validated, at most 20.
+   - Subjects are single lines (no header injection).
+   - nodemailer file and URL access are off.
+   - Sending is owner-configured and module-initiated; no route sends arbitrary mail.
+3. **No duplicate sends.** An error after the hand-over, or a crash while sending, is `outcome_unknown` and never resent (tested, mutation-checked).
+4. **SSRF.**
+   - Mail hosts must be public DNS names resolving to public unicast addresses; checked at connect and before each use.
+   - Known gap: the client resolves again (a DNS-rebinding window).
+5. **Inbound content.**
+   - Fetched read-only, size- and count-limited.
+   - Raw MIME is kept encrypted in platform files; the normalized row holds bounded text only.
+   - Automatic mail is flagged, and bounces are matched only to the project's own messages.
+   - Content is untrusted data for modules.
+6. **Notifications.**
+   - Private per member by RLS (app.user_id).
+   - Only project members with access to the module are notified; muting is respected.
+   - Links are Orbit paths only (checked in the database and in the web).
+   - The e-mail copy goes only to the member's account address.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

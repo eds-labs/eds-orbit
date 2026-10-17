@@ -54,7 +54,6 @@ export const marketingModule: ServerModule = {
       kind: "connector_verifications",
       description: "Postiz write verification runs",
     },
-    { kind: "autopilot_settings", description: "Weekly autopilot settings" },
     {
       kind: "policies",
       description:

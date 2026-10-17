@@ -8,10 +8,8 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import {
-  getActiveIndex,
-  ingest,
-} from "../../../packages/knowledge/src/index.ts";
+import { getActiveIndex } from "../../../packages/knowledge/src/index.ts";
+import { ingest } from "../src/platform/knowledge/engine.ts";
 import { audit, create } from "../src/shared.ts";
 import { enqueue } from "../src/modules/workflow.ts";
 
@@ -33,6 +31,7 @@ const PROJECT_TABLES = [
   "DocumentVersion",
   "Entity",
   "EntityVersion",
+  "File",
   "KnowledgeChunk",
   "KnowledgeDocument",
   "KnowledgeIndex",
@@ -47,11 +46,16 @@ const CHAT_TABLES = [
   "ChatMessage",
   "ChatProposal",
   "ChatRun",
+  // Member notifications (WP4.7): private per member the same way.
+  "Notification",
+  "NotificationPreference",
 ];
 // RLS for the business role, full control only for orbit_auth.
 const TENANCY_TABLES = [
   "Project",
   "ProjectMember",
+  "ProjectMemberModuleRole",
+  "PublicClientKey",
   "Workspace",
   "WorkspaceMember",
 ];
@@ -61,6 +65,8 @@ const SYSTEM_TABLES = ["_prisma_migrations"];
 // Tenancy tables the business role must not touch at all.
 const NO_APP_ACCESS = [
   "ProjectMember",
+  "ProjectMemberModuleRole",
+  "PublicClientKey",
   "Workspace",
   "WorkspaceMember",
   ...AUTH_ONLY_TABLES,
@@ -148,6 +154,21 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
 
   async function seed(s: Scope) {
     await asScope(s, async (tx) => {
+      const fileId = randomUUID();
+      await tx.file.create({
+        data: {
+          id: fileId,
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          moduleId: "knowledge",
+          key: `projects/${s.projectId}/knowledge/${fileId}`,
+          mime: "text/plain",
+          size: 1,
+          sha256: "0".repeat(64),
+          encryption: "aes-256-gcm/v1",
+          createdBy: s.userId,
+        },
+      });
       const source = await create(tx, s, "sources", {
         name: "Synthetic RLS source",
         status: "active",
@@ -249,6 +270,12 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         projectId: s.projectId,
         userId: s.userId,
       };
+      await tx.notification.create({
+        data: { ...owner, moduleId: "knowledge", kind: "rls_seed", title: "x" },
+      });
+      await tx.notificationPreference.create({
+        data: { ...owner, kind: "rls_seed", inApp: true, email: false },
+      });
       const conversation = await tx.chatConversation.create({ data: owner });
       const conversationId = conversation.id;
       await tx.chatMessage.create({
@@ -470,6 +497,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       [
         "BudgetReservation",
         `INSERT INTO "BudgetReservation" (id, "workspaceId", "projectId", key, "amountMicros", category, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $1, 1, 'rls_test', 'released')`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "File",
+        `INSERT INTO "File" (id, "workspaceId", "projectId", "moduleId", key, mime, size, sha256, encryption, "createdBy") VALUES ($1::uuid, $2::uuid, $3::uuid, 'knowledge', $1, 'text/plain', 1, repeat('0', 64), 'aes-256-gcm/v1', 'rls')`,
         [randomUUID(), b.workspaceId, b.projectId],
       ],
       [

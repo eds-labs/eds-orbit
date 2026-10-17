@@ -13,17 +13,12 @@ import {
 import { RecordDetail } from "@/platform/ui/record-detail";
 import type { SettingsSection } from "@/platform/shell/types";
 import { PolicyEditor } from "./policy-editor";
-import { AutopilotSettings } from "./autopilot-settings";
 import { BrandApproval, MarketingProfileConfiguration } from "./advanced";
-import {
-  Assignments,
-  AutopilotMigrationPanel,
-  useAssignments,
-} from "./assignments";
+import { Assignments, useAssignments } from "./assignments";
 
 // Marketing's tabs of the project settings (WP2.3b), moved unchanged from
-// ProjectSettings: assignments or the weekly autopilot, the versioned
-// operating policy, and the brand.
+// ProjectSettings: assignments, the versioned operating policy, and the
+// brand.
 
 const POLICY_TAB = {
   key: "policy",
@@ -31,28 +26,16 @@ const POLICY_TAB = {
   order: 20,
 };
 
-// Orbit Agents: once its route answered, the assignments tab replaces the
-// weekly autopilot's; any error without an answer keeps the autopilot, and
-// neither tab shows before that is decided (agentsSurface).
+// Orbit Agents: the assignments tab shows only once its route answered
+// (agentsSurface); an error without an answer hides it.
 function useAgentsSection() {
   const assignments = useAssignments();
   if (assignments.surface === "assignments")
     return {
       label: { en: "Assignments", de: "Aufträge" },
       content: assignments.available ? (
-        <>
-          <AutopilotMigrationPanel />
-          <Assignments
-            resource={assignments.resource}
-            data={assignments.data}
-          />
-        </>
+        <Assignments resource={assignments.resource} data={assignments.data} />
       ) : null,
-    };
-  if (assignments.surface === "autopilot")
-    return {
-      label: { en: "Autopilot", de: "Autopilot" },
-      content: <AutopilotSettings />,
     };
   return null;
 }

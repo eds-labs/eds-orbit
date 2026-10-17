@@ -20,7 +20,7 @@ import {
   ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
   confirmedDelivery,
 } from "../agents/assignments.ts";
-import { factClaimMatches } from "./fact-claims.ts";
+import { factClaimMatches, loadBrandTerms } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,
   draftSimilarity,
@@ -132,6 +132,8 @@ export async function checkClaims(
     mission && typeof data(mission).targetAction === "string"
       ? ctaText(data(mission).targetAction)
       : null;
+  // The profile's product words, read once and only for a fact claim (WP3.4).
+  let brandTerms: readonly string[] | undefined;
   for (const claim of v.claims ?? []) {
     if (approvedCta && !claim.chunkId && ctaText(claim.text) === approvedCta) {
       if (!v.body.includes(claim.text)) problems.push("CLAIM_NOT_IN_CONTENT");
@@ -157,7 +159,8 @@ export async function checkClaims(
         (f.validUntil && Date.parse(f.validUntil) <= at.valueOf())
       )
         problems.push("FACT_NOT_VERIFIED");
-      if (!factClaimMatches(claim.text, f))
+      brandTerms ??= await loadBrandTerms(tx, scope);
+      if (!factClaimMatches(claim.text, f, brandTerms))
         problems.push("FACT_VALUE_MISMATCH");
       if (
         !(e.facts ?? []).some(

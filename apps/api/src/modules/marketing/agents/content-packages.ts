@@ -1,4 +1,5 @@
 import { z } from "zod";
+import * as knowledgeFacts from "../../../platform/knowledge/facts.ts";
 import {
   authorize,
   PROJECT_WRITE,
@@ -75,56 +76,41 @@ export const contentPackageRequest = z
   .strict();
 type PackageRequest = z.infer<typeof contentPackageRequest>;
 
-type FactRow = Awaited<ReturnType<typeof list>>[number];
-
-/** The one Verified Fact of a key that is public, model-usable and valid at `at`; throws when there is none or the copies disagree. */
-function usableFact(facts: FactRow[], key: string, at: Date) {
-  const usable = facts.filter((row) => {
-    const f = data(row);
-    return (
-      f.key === key &&
-      f.status === "verified" &&
-      f.publicUse === true &&
-      f.modelUse === true &&
-      Date.parse(f.validFrom) <= at.valueOf() &&
-      (!f.validUntil || Date.parse(f.validUntil) > at.valueOf())
-    );
-  });
-  if (!usable.length) throw new DomainError("FACT_NOT_USABLE", 409);
-  // Copies with the same statement (for example from an import that ran
-  // twice) are no contradiction: the newest copy is used. Differing values block.
-  const statement = (row: (typeof usable)[number]) => {
-    const f = data(row);
-    return hash([f.value, f.valueType, f.unit, f.currency, f.language]);
-  };
-  if (new Set(usable.map(statement)).size > 1)
-    throw new DomainError("FACT_CONFLICT", 409);
-  // Deterministic, so a rebuilt plan picks the same copy.
-  return [...usable].sort(
-    (a, b) =>
-      b.createdAt.valueOf() - a.createdAt.valueOf() || b.id.localeCompare(a.id),
-  )[0]!;
+/**
+ * Where a package's facts must be usable (K-1, decided 2026-10-15): the
+ * profile's content language (packages are written in it), else the
+ * project language; the global market, as marketing passes no market.
+ */
+async function factQuery(tx: DbTx, scope: Scope, at: Date) {
+  const profile = await currentMarketingProfile(tx, scope);
+  const language =
+    (profile?.data as { contentLanguage?: string } | null)?.contentLanguage ??
+    (
+      await tx.project.findUniqueOrThrow({
+        where: { id: scope.projectId },
+        select: { language: true },
+      })
+    ).language;
+  return { at, language };
 }
 
-/** Each key needs exactly one Verified Fact that is public, model-usable and valid now. */
+/** Each key needs exactly one Verified Fact that is usable now under the knowledge engine's full rules. */
 async function usableFacts(tx: DbTx, scope: Scope, keys: string[], at: Date) {
-  if (!keys.length) throw new DomainError("FACTS_REQUIRED", 409);
-  const facts = await list(tx, scope, "facts");
-  return [...new Set(keys)].map((key) => usableFact(facts, key, at));
+  return knowledgeFacts.usableFacts(
+    tx,
+    scope,
+    keys,
+    await factQuery(tx, scope, at),
+  );
 }
 
 /** Every key that has a usable Verified Fact at `at` (same rules as a package), sorted by key; a key whose copies disagree is left out. */
 export async function listUsableFacts(tx: DbTx, scope: Scope, at: Date) {
-  const facts = await list(tx, scope, "facts");
-  const keys = [...new Set(facts.map((row) => String(data(row).key)))].sort();
-  return keys.flatMap((key) => {
-    try {
-      return [usableFact(facts, key, at)];
-    } catch (error) {
-      if (error instanceof DomainError) return [];
-      throw error;
-    }
-  });
+  return knowledgeFacts.listUsableFacts(
+    tx,
+    scope,
+    await factQuery(tx, scope, at),
+  );
 }
 
 function slotFor(date: string, postingTime: string, timezone: string) {

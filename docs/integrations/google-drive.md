@@ -43,7 +43,7 @@ Every Drive call first exchanges the stored refresh token for an access token. W
 Readiness uses only this recorded state and never calls Google, so a dashboard load costs no Google request. A failure therefore becomes visible after the next Drive use, such as **Test connection**, a Drive upload retry, a preview or a publish that reads a Drive asset. While it is set:
 
 - `drive_save` is blocked with `GOOGLE_DRIVE_RECONNECT_REQUIRED`.
-- `postiz_schedule` and `postiz_live`, plus the global readiness blockers, report the same code when enabled autopilot settings or a running mission (`ready`, `awaiting_followup`) reference an asset whose bytes exist only in Drive (`driveFileId` without inline bytes). Live posts read such assets at publish time. The global blockers also refuse activating a live autopilot policy.
+- `postiz_schedule` and `postiz_live`, plus the global readiness blockers, report the same code when a running mission (`ready`, `awaiting_followup`) references an asset whose bytes exist only in Drive (`driveFileId` without inline bytes). Live posts read such assets at publish time. The global blockers also refuse activating a live autopilot policy.
 - Settings → Integrations · Google Drive shows **Reconnect required**. The status endpoint returns `reconnectRequired`, `lastRefreshFailedAt` and `lastRefreshErrorCode`.
 
 ## Production and rollback

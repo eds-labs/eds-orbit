@@ -22,7 +22,10 @@ export type ToolNamespace =
   | "drive"
   | "research"
   | "proposals"
-  | "assignments";
+  | "assignments"
+  // A module's own namespace (WP4.1): the namespace only groups tools for
+  // tool search, so a third module must not need a platform change for it.
+  | (string & {});
 // Agents never receive tools with external or irreversible effects.
 export type ToolRisk = "R0_read" | "W0_internal" | "P_proposal";
 // Tools behind a feature flag are offered only while it is on.
@@ -48,6 +51,12 @@ export type OrbitTool = {
   feature?: ToolFeature;
   // Design for tool search (plan §6.4); unused until it is enabled.
   deferLoading: boolean;
+  /**
+   * A platform tool a module lists only to keep its place in the tool list:
+   * registered as the platform's, so it is offered whether or not that
+   * module is on (WP3.3).
+   */
+  alwaysOffered?: true;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { authDb, scoped } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
-import { ingest, setFact } from "../../../../packages/knowledge/src/index.ts";
+import { ingest, setFact } from "../../src/platform/knowledge/engine.ts";
 import { create } from "../../src/shared.ts";
 import { saveOpenAiConfiguration } from "../../src/modules/openai-configuration.ts";
 
@@ -133,6 +133,8 @@ export async function createPackageProject(
       valueType: "url",
       language: "en",
       sourceId,
+      // As setFact records it; usable facts must match the source's generation (K-1).
+      sourceGeneration: 1,
       validFrom: past,
       validUntil: future,
       status: "verified",

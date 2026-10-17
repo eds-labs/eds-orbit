@@ -7,6 +7,7 @@ import { marketingHooks } from "./hooks.ts";
 import { marketingRetention } from "./retention.ts";
 import { marketingPeriodicTasks } from "./periodic.ts";
 import { marketingActions } from "./actions.ts";
+import { marketingActionPermissions } from "./permissions.ts";
 import { marketingRoutes } from "./routes.ts";
 import { readiness } from "./readiness/readiness.ts";
 import { marketingAssistant } from "./assistant/prompt.ts";
@@ -19,6 +20,8 @@ import { agentsEnabled } from "./agents/assignments.ts";
 import { stopCallback } from "./agents/telegram-stop.ts";
 import { marketingNotifications } from "./agents/notification-messages.ts";
 import { marketingConnections } from "./publishing/connection-providers.ts";
+import { invalidateMarketingForKnowledge } from "./pipeline/knowledge-impact.ts";
+import { slackWebhook } from "./publishing/slack.ts";
 
 /**
  * What the marketing module plugs into the platform (WP1.6). Transitional:
@@ -34,6 +37,7 @@ export const marketingContributions: ModuleContributions = {
   retention: marketingRetention,
   periodic: marketingPeriodicTasks,
   actions: marketingActions,
+  actionPermissions: marketingActionPermissions,
   routes: marketingRoutes,
   readiness,
   assistant: marketingAssistant,
@@ -49,6 +53,11 @@ export const marketingContributions: ModuleContributions = {
   notifications: marketingNotifications,
   // Postiz, Matomo and Slack connections and their checks (WP2.5c).
   connections: marketingConnections,
+  // Slack interactions through the platform's hooks route as well (WP4.2).
+  webhooks: { slack: slackWebhook },
+  // Content, approvals, publications, insights and jobs on revoked or
+  // changed knowledge (WP3.1).
+  knowledgeImpact: invalidateMarketingForKnowledge,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
   publicViews: {

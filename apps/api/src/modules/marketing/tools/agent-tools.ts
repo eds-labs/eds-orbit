@@ -4,10 +4,6 @@ import { createPostizClient } from "../../../../../../packages/connectors/src/in
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
-  runReadTool,
-  validateReadToolResult,
-} from "../assistant/chat-tools.ts";
-import {
   create,
   data,
   decrypt,
@@ -18,7 +14,7 @@ import {
 } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { runBudgetKey } from "../agents/specialists/runner.ts";
-import { readTools } from "./read-tools.ts";
+import { knowledgeSearchTool } from "../../../platform/knowledge/search-tool.ts";
 import {
   defineTool,
   dropNullFields,
@@ -408,42 +404,25 @@ const postizAnalyticsTool = defineTool({
   },
 });
 
-const chatKnowledgeSearch = readTools.find(
-  (tool) => tool.name === "knowledge_search",
-)!;
-
 /**
  * `knowledge_search` for a specialist: the chat tool reserves its query
  * embedding under `chat:<runId>`; here the retrieval reserves under the task
  * (`query:agent:<taskId>:...`, counted in the task's cost) and the run's
  * budget key, so the run and assignment ceilings see it.
  */
-const knowledgeSearchTool: OrbitTool = defineTool({
-  ...chatKnowledgeSearch,
+const knowledgeSearch: OrbitTool = knowledgeSearchTool({
   feature: "agents",
-  deferLoading: false,
-  async execute(context, args) {
+  budget(context) {
     if (!context.agentTask)
       throw new DomainError("AGENT_TOOL_NOT_ALLOWED", 403);
     const { taskId, runId } = context.agentTask;
-    const read = await runReadTool(
-      context.scope,
-      "knowledge_search",
-      dropNullFields(args),
-      {
-        retrievalJobKey: `agent:${taskId}:knowledge:${context.callIndex}`,
-        budgetRunKey: runBudgetKey(runId),
-      },
-    );
-    const checked = validateReadToolResult(
-      "knowledge_search",
-      read.result,
-      read.cards,
-    );
-    return { output: checked.result, cards: checked.cards };
+    return {
+      retrievalJobKey: `agent:${taskId}:knowledge:${context.callIndex}`,
+      budgetRunKey: runBudgetKey(runId),
+    };
   },
 });
 
 export const agentMetricsSummary = metricsSummaryTool;
 export const agentPostizAnalytics = postizAnalyticsTool;
-export const agentKnowledgeSearch = knowledgeSearchTool;
+export const agentKnowledgeSearch = knowledgeSearch;

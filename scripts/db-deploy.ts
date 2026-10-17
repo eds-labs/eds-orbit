@@ -137,6 +137,10 @@ try {
     "WorkspaceMember",
     "Project",
     "ProjectMember",
+    // Module-level roles (WP4.5): tenancy data, like ProjectMember.
+    "ProjectMemberModuleRole",
+    // Public client keys (WP4.2b): resolved without a project scope.
+    "PublicClientKey",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${authTables.map(identifier).join(",")} TO orbit_auth`,
@@ -159,6 +163,11 @@ try {
     "ChatProposal",
     "AgentRun",
     "AgentSpan",
+    // Platform files (WP4.6).
+    "File",
+    // Member notifications (WP4.7), private per member by RLS.
+    "Notification",
+    "NotificationPreference",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,

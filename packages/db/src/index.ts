@@ -34,6 +34,16 @@ export const authDb = new Proxy({} as PrismaClient, {
     return typeof v === "function" ? v.bind(c) : v;
   },
 });
+/** One project transaction as the measurement hook sees it (WP4.3). */
+export type LockSample = { waitMs: number; holdMs: number };
+/**
+ * Measurement hook (WP4.3): unset in production. When set, every `scoped()`
+ * reports how long it waited for the project lock and how long it held it
+ * afterwards. The observer runs in the caller's stack, so it can label the
+ * sample with its call site.
+ */
+export const lockObserver: { observe?: (sample: LockSample) => void } = {};
+
 export async function scoped<T>(
   workspaceId: string,
   projectId: string,
@@ -49,8 +59,19 @@ export async function scoped<T>(
     async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.workspace_id',${workspaceId},true)`;
       await tx.$executeRaw`SELECT set_config('app.project_id',${projectId},true)`;
+      const observe = lockObserver.observe;
+      if (!observe) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceId + ":" + projectId},0))`;
+        return fn(tx);
+      }
+      const asked = performance.now();
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${workspaceId + ":" + projectId},0))`;
-      return fn(tx);
+      const held = performance.now();
+      try {
+        return await fn(tx);
+      } finally {
+        observe({ waitMs: held - asked, holdMs: performance.now() - held });
+      }
     },
     { maxWait: 10000, timeout: 30000 },
   );

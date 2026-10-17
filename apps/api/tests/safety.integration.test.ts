@@ -21,7 +21,7 @@ import {
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { create, update, data, entity } from "../src/shared.ts";
-import { ingest, setFact } from "../../../packages/knowledge/src/index.ts";
+import { ingest, setFact } from "../src/platform/knowledge/engine.ts";
 import {
   deterministicDraft,
   reviewContent,

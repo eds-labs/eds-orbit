@@ -5,14 +5,16 @@ import {
   activateIndexGeneration,
   beginIndexBuild,
   extractDocument,
-  ingest,
   retrieve,
+  rollbackIndexGeneration,
+} from "../../../../../packages/knowledge/src/index.ts";
+import {
+  ingest,
   revokeDocument,
   revokeSource,
-  rollbackIndexGeneration,
   setSourceRights,
   withdrawFact,
-} from "../../../../../packages/knowledge/src/index.ts";
+} from "../../platform/knowledge/engine.ts";
 import {
   ownTransaction,
   sharedTransaction,
@@ -21,18 +23,18 @@ import {
 } from "../../platform/http/actions.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
 import { create, data, DomainError, entity } from "../../shared.ts";
-import { retrieveHybrid } from "../retrieval.ts";
+import { retrieveHybrid } from "../../platform/knowledge/retrieval.ts";
 import {
   queueIndexEvaluation,
   indexEvaluationRequest,
-} from "../index-evaluation.ts";
-import { queueDocumentEmbedding } from "../ingestion.ts";
+} from "../../platform/knowledge/index-evaluation.ts";
+import { queueDocumentEmbedding } from "../../platform/knowledge/ingestion.ts";
 import {
   commitKnowledgeImport,
   importPreview,
   knowledgeImportInput,
   retryKnowledgeImport,
-} from "../knowledge-import.ts";
+} from "./import.ts";
 
 const retrievalRequest = (input: ActionContext["input"]) => ({
   query: z.string().min(1).max(2000).parse(input.query),

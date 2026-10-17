@@ -24,3 +24,19 @@ Official npm manifests were checked for exact versions, engine constraints, expo
 - Retain original dependency/license inventory with the patched resolved versions. Remove the override only after upstream manifests independently require safe versions and the same checks pass.
 
 Current verification: patched lock/install and Prisma generation completed; refreshed audit reports zero findings; the production web build passed (`docs/evidence/web-build.log`); owned connector, native transport, creative, real-PostgreSQL Slack and Postiz-proof regressions passed 50/50 across six files (`docs/evidence/connector-creative-slack-postiz.log`). The frozen-lock Linux ARM64 image build, Prisma generation, both fresh Compose migrations and API/web/worker authenticated runtime acceptance passed (`docs/evidence/container-acceptance.json`). AMD64 and production-host acceptance remain unperformed. Risk acceptance has not been used to waive the audit. No remote infrastructure or provider write was performed.
+
+## E-mail dependencies (WP4.7, 2026-10-17)
+
+Mario chose SMTP/IMAP against an existing mailbox (Q-16), which needs an SMTP client, an IMAP client and a MIME parser. All three are pinned exactly, at versions at least two weeks old:
+- `nodemailer` 10.0.13 (MIT-0, no dependencies);
+- `imapflow` 2.2.1 (MIT; libmime, libqp, libbase64, encoding-japanese, iconv-lite, socks, mailsplit);
+- `postal-mime` 4.0.2 (MIT-0, no dependencies).
+
+`pnpm audit --prod` after adding them reports one moderate advisory in `sprintf-js` 1.0.3. It is already on `main` (through `mammoth` → `argparse`) and is not introduced by these packages.
+
+Usage limits:
+- nodemailer runs with `disableFileAccess` and `disableUrlAccess`;
+- every client requires TLS 1.2 or later and short timeouts;
+- mail hosts must resolve to public addresses only.
+
+See `docs/EMAIL_AND_NOTIFICATIONS.md`.

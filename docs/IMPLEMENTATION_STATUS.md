@@ -1,5 +1,343 @@
 # Implementation status
 
+## E-mail over SMTP/IMAP and member notifications: WP4.7 (2026-10-17, local; flags off)
+
+Branch `claude/wp47-email-notifications` (on top of WP4.6). Mario decided on 2026-10-17 (Q-16): the project's existing mailbox over SMTP and IMAP, no new provider and no DNS change by Orbit. The operating guide is `docs/EMAIL_AND_NOTIFICATIONS.md`.
+
+- **Flags.** `ORBIT_EMAIL` and `ORBIT_NOTIFICATIONS`, both `false`. Real delivery also needs live mode with external writes.
+- **Connection.** `platform/email/connection.ts`: the owner action `email-connect` (public hosts only, password encrypted) and the provider check `email` (SMTP and IMAP login, `read_verified`, sends nothing).
+- **Transport.** `platform/email/transport.ts`: nodemailer and imapflow behind small interfaces that tests replace, TLS required, and outcome classification.
+- **Sending.** `platform/email/send.ts`: `queueEmail`, the `email_send` job, and `sent` / `rejected` / `retry` → `failed` / `outcome_unknown` / `test_receipt`. Nothing is ever sent twice.
+- **Receiving.** `platform/email/inbound.ts`: the periodic task `email-inbound`.
+  - Read-only IMAP fetch with UIDVALIDITY handling and limits.
+  - The raw MIME becomes an encrypted platform file; `inbound_emails` holds the normalized row.
+  - Automatic mail is flagged, and bounces mark the project's own messages.
+  - Modules with `emailInbound` get a job per message.
+- **Notifications.**
+  - Migration `202610170008_member_notification`: `Notification` and `NotificationPreference`, private per member by RLS.
+  - Service: `platform/notifications/members.ts` (`notifyMembers`, list, read, preferences); contract: `userNotifications`.
+  - Routes: `platform/notifications/routes.ts`; owner mailbox view: `platform/email/routes.ts`.
+- **Web.** The bell in the top bar (`notification-bell.tsx`) and the mailbox card on the connectors page (`email-connection.tsx`).
+- **Dependencies.** `nodemailer` 10.0.13, `imapflow` 2.2.1, `postal-mime` 4.0.2 and `@types/nodemailer`, exact pins at least two weeks old. The audit adds no finding (`docs/DEPENDENCY_RISKS.md`).
+- **Tests:**
+  - `email.integration.test.ts`: connection, test receipt, live send headers, the four outcomes, crash recovery, inbound dedupe/UIDVALIDITY/limits/auto-reply, bounces, files required. A mutation check confirmed it.
+  - `notifications.integration.test.ts`: members only, privacy, read state, muting, e-mail choice, module role, flag off.
+  - Web unit tests; RLS and access matrices; contract tests.
+- **Production.**
+  - Merging brings the migration and the dependencies (approval).
+  - Mario then connects the mailbox in Orbit.
+  - Each flag and the first real send are separate approvals after the security review.
+
+## Platform files: WP4.6 (2026-10-17, local; flag off)
+
+Branch `claude/wp46-platform-files` (on top of the public ingress follow-ups). Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Mario approved the bucket and token on 2026-10-17 (Q-19: an own R2 bucket next to the backup bucket). The operating guide is `docs/PLATFORM_FILES.md`.
+
+- **Data.** Migration `202610170007_platform_file` adds the `File` table: FORCE RLS project policy and `orbit_app` grants, declared as a platform table. Additive.
+- **Object store.** `platform/files/s3.ts` is a SigV4 client without an SDK (PUT, GET, DELETE), pinned by the AWS test vector.
+- **Encryption.** `platform/files/crypto.ts`: AES-256-GCM, with the file id as additional data.
+- **Service.** `platform/files/files.ts`: `storeFile`, `readFile`, `deleteFile` and the hourly `file-cleanup` task.
+  - Limits: allowlisted types, signature checks for images and PDF, `FILES_MAX_BYTES`.
+- **Routes.** `platform/files/routes.ts`: upload, download and delete, with module access and the module switch. They answer 404 while off or not configured.
+- **Configuration.** `ORBIT_FILES` and `FILES_*` in config, compose and `.env.example`. The compose check pins that file and backup credentials never mix.
+- **Tests:**
+  - `files.integration.test.ts`, against a bucket double that checks every signature: round trip, encryption at rest, permissions, limits, the module switch, project isolation, a swapped or missing object, the cleanup retry, and off/unconfigured;
+  - unit tests for SigV4 and encryption;
+  - the RLS matrix (`File` seeded, cross-project insert refused);
+  - the access matrix (three routes).
+- **Production.**
+  - Merging brings the migration (approval).
+  - Mario then creates the bucket and token and sets the variables.
+  - The flag waits for the security review (`docs/SECURITY_REVIEW.md`).
+
+## Public ingress follow-ups (2026-10-17, local; flag off)
+
+Branch `claude/phase4-followups`. Everything stays behind `ORBIT_PUBLIC_INGRESS` (default `false`). The operating guide is `docs/PUBLIC_INGRESS.md`.
+
+- **Retention.** `platform/http/ingress-retention.ts` deletes rows for good, with their versions:
+  - public sessions one hour after they expire;
+  - received webhooks after 30 days.
+  
+  It runs hourly per project as the platform's periodic task `public-ingress-cleanup` and also inside the project's retention action, whose audit entry counts both. It purges regardless of the flag, so rows from an earlier "on" go too.
+- **Owner UI for public keys.** Project access has a new "Public keys" dialog (`components/public-keys.tsx`): list, create (module, exact origins) and revoke.
+  - `GET …/public-keys` also returns the modules a key can be issued for.
+  - Production has none, so the dialog says so.
+- **Slack and Telegram through the hooks route.** The webhook contract has a second variant, `DirectWebhookProvider`, for providers that must answer within the request. The platform owns the path, flag, media type, size and rate limit; the provider checks its own secret against its own connection.
+  - `telegram` (platform): `/api/hooks/telegram/<workspace>/<project>/<connection>`. Same handler and secret check as the bot's own route, and the path's workspace must be the project's.
+  - `slack` (marketing): `/api/hooks/slack/<workspace>/<project>/<connector>`, form-encoded. Same signature, mapping and replay checks, and the connector must be the project's selected Slack connector.
+  
+  The old routes stay the registered URLs. The cutover is a later production step (`docs/PUBLIC_INGRESS.md`).
+- **Tests.**
+  - `ingress-retention.integration.test.ts`: cleanup, project isolation, the hourly throttle and the retention action.
+  - The Telegram hooks path in `telegram.integration.test.ts`: flag, secret, foreign workspace, media type and linking.
+  - The Slack hooks path in `webhooks.integration.test.ts`: media type, missing and forged signature, foreign connector, and a valid signature reaching the actor check.
+  - Registry checks in `module-contributions.test.ts`; the origin parser in `public-keys.test.tsx`.
+- **Deployment record of Phase 4** (below).
+
+## Phase 4 in production: WP4.1–WP4.2b (2026-10-17)
+
+Each step was merged into `main` on Mario's approval, after green CI and outside the 10:00/17:00 slots. Both flags (`ORBIT_MODULE_ROLES`, `ORBIT_PUBLIC_INGRESS`) stayed `false`. After every deploy, `/api/health/ready` (database ok, worker ready) and `/api/health/postiz` were ok.
+
+| WP | PR | Merge commit | Merged | Live | Check |
+|---|---|---|---|---|---|
+| WP4.1 fixture module, open contracts | #133 | `cc1b128` | 10:15 | 10:19 | health |
+| WP4.4 cross-module operator eval | #134 | `ae12c7c` | 10:50 | 10:51 | health |
+| WP4.3 Part A lock measurement | #135 | `f654ab8` | 11:51 | 11:55 | health |
+| WP4.5 module roles (migration `202610170005`) | #136 | `b5e07f6` | 12:23 | 12:27 | `/modules` returns `access`; module-roles API 404 |
+| WP4.2a signed webhooks | #137 | `3fd782d` | 12:56 | 13:00 | `/api/hooks/...` 404 |
+| WP4.2b public API (migration `202610170006`) | #138 | `bff9a83` | 13:30 | about 13:40 | `/api/public/...` answers the flag's 404 instead of `ORIGIN_REQUIRED` |
+
+## Public module API: WP4.2b (2026-10-17, local; flag off)
+
+Branch `claude/wp42b-public-api` (on top of WP4.2a). Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, default `false`).
+
+- **Keys.** Migration `202610170006_public_client_key` adds the `PublicClientKey` table: owners only, audited, exact allowed origins.
+  - API: `GET/POST /api/projects/:id/public-keys` and `POST …/:keyId/revoke`.
+- **Public API.** `platform/http/public-api.ts`, at `/api/public/<module>/:publicKey/...`:
+  - the key is resolved without a project scope;
+  - the Origin check and CORS run per key (manual, no credentials) and preflight is supported;
+  - `POST …/session` issues a bearer token, stored as a hash, valid 12 hours;
+  - module routes need that token;
+  - JSON only, 64 KB, rate limits per key and address, and per session;
+  - the API is off with its module.
+- **Contract.** `ModuleContributions.publicRoutes`. The registry checks paths and refuses `/session` and duplicates. The fixture module serves `/requests`: visitors file requests and see only their own.
+- **Tests.** `public-api.integration.test.ts` covers:
+  - the flag off;
+  - key issuing rules;
+  - unknown, foreign and revoked keys;
+  - a foreign Origin (audited), an allowed Origin without credentials, and preflight;
+  - missing, wrong and expired tokens, and that cookies are ignored;
+  - the token stored as a hash, and visitors seeing only their own requests;
+  - the per-session rate limit and the module switch.
+  
+  A mutation check confirmed it: with the origin comparison disabled, the test fails. The access matrix adds exactly the three owner-only key routes.
+- **Production.** Merging brings the migration (Mario's approval). The flag waits for the security review.
+
+## Signed provider webhooks: WP4.2a (2026-10-17, local; flag off)
+
+Branch `claude/wp42-public-ingress`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: a new unauthenticated surface, behind `ORBIT_PUBLIC_INGRESS` (default `false`).
+
+- **Route.** `POST /api/hooks/:provider/:workspaceId/:projectId/:connectionId` (`platform/http/webhooks.ts`):
+  - the raw JSON body is kept as received for the signature;
+  - 415 and 413 limits;
+  - 120 requests per minute per connection;
+  - exempt from the Origin check by exact path pattern.
+- **Contract.** A module contributes `webhooks[provider] = { connectionProvider, verify, messageId, queueClass }`. The registry refuses duplicate names and unknown queue classes.
+- **Flow.** Inside the project transaction:
+  - the connection must belong to the provider (404 otherwise);
+  - the signature is checked (401 otherwise, audited);
+  - the message id is required (400 otherwise);
+  - a replay gets 409 (audited);
+  - the message is stored as `inbound_webhooks` and the module's job is enqueued; the answer is 200 at once.
+- **Fixture.** The test module `tasks` signs with HMAC-SHA256, and its job turns the message into a task.
+- **Tests.** `webhooks.integration.test.ts` covers the flag off, every rejection path, storing, the job, replay, the per-connection rate limit and the unchanged Origin check. A mutation check confirmed it: with the signature check disabled, 4 tests fail.
+- **Production.** Mario's approval for the flag, after the security review (`docs/SECURITY_REVIEW.md`). Merging alone changes nothing (404 while off). Slack and Telegram stay on their own routes for now.
+
+## Module-level roles: WP4.5 (2026-10-17, local; flag off)
+
+Branch `claude/wp45-module-roles`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: an authorization change, behind `ORBIT_MODULE_ROLES` (default `false`).
+
+- **Data.** Migration `202610170005_project_member_module_role`: an additive table with RLS, `orbit_auth` only, cascading with the membership.
+- **Resolution.** `platform/tenancy/module-roles.ts`:
+  - The membership carries a non-owner's overrides.
+  - `effectiveRole` and `moduleScope` give a module's code the member's role there; `none` answers 404 `MODULE_NOT_AVAILABLE`.
+  - `visibleModules` filters tools, prompt fragments and conversation sections like activation does.
+- **Gates.**
+  - Module routes, actions and collections.
+  - Assistant tools, offered and executed per tool owner.
+  - Prompt fragments and conversation sections.
+  - `GET /modules` with `access`, so the web shell hides `none`.
+- **Management.**
+  - `GET/PUT /api/projects/:id/members/:userId/module-roles`: owners only, audited, refused for owners and unknown modules, 404 while the flag is off.
+  - "Module roles" per member in the web.
+- **Tests.**
+  - `module-roles.integration.test.ts`: refusals; `none` in routes, collections, actions and the module list; a viewer raised to editor in knowledge only; stored rows ignored with the flag off; removal.
+  - `module-roles-assistant.integration.test.ts`: tools and a forged call.
+  - Shell and form unit tests; the RLS matrix includes the new table.
+- **Production.** Migration and flag need Mario's approval; the flag also needs the security review (`docs/SECURITY_REVIEW.md`). The migration alone changes nothing.
+
+## Project lock measurement: WP4.3 Part A (2026-10-17, local)
+
+Branch `claude/wp43-lock-measurement`. Report: [docs/evidence/lock-measurement-2026-10-17.md](evidence/lock-measurement-2026-10-17.md).
+
+- **Hook.** `lockObserver.observe` in `packages/db` reports `{ waitMs, holdMs }` for every `scoped()` transaction. It is unset in production (one property read) and tested in `packages/db/tests/lock-observer.integration.test.ts`.
+- **Measurement.** `scripts/measure/lock-load.measure.ts` with `vitest.measure.config.ts`, outside `pnpm test`. Load: chat runs with a 1.5 s model, searches with a 1 s embedding, writers, the sweep, and 5 or 25 chat-stream pollers.
+- **Result.**
+  - No transaction holds the lock across a provider call; the longest hold is 66 ms.
+  - With 25 open chat streams (about 54 transactions per second on one project), writers keep a call p95 of 28 ms and polls 71 ms.
+  - The lock does not limit one project at this load. Polling is the cost that grows with open streams.
+- **Recommendation.** Part B needs Mario's decision:
+  - no lock-free read path now;
+  - Redis pub/sub for streams when Support starts;
+  - repeat the measurement on the production host against a staging copy first.
+
+## Cross-module operator eval: WP4.4 (2026-10-17, local)
+
+Branch `claude/wp44-operator-eval` (on top of WP4.1).
+
+- **Dataset.** `evals/operator/cases-v3.json` replays recorded model steps through the real chat runner, with knowledge, marketing and the test-only fixture module registered:
+  - JC30: tools of all three modules in one run, with two task proposals as two pending ActionRequests;
+  - JC31: a viewer is offered no module write, and a forged `propose_tasks` is refused (`CHAT_TOOL_NOT_ALLOWED`);
+  - JC32: with the tasks module off, its tool is neither offered nor callable;
+  - JC33: with every module off, the assistant is offered exactly `knowledge_search` and still searches the existing sources.
+- **Harness.** New optional `disabledModules` and `actionRequests` fields. `cases-v1.json` and `cases-v2.json` are unchanged, and so are their hashes.
+- **Verification.** All 14 operator cases are green offline; no network call and no paid call.
+
+## A third module through the contracts alone: WP4.1 (2026-10-17, local)
+
+Branch `claude/wp41-extensibility`, the first work package of Phase 4. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`.
+
+- **Fixture module `tasks`** (`apps/api/tests/fixtures/modules/tasks`, test only). It declares:
+  - a kind and two permissions;
+  - a route, a readable collection and an action;
+  - a proposal tool, an action type and a scheduler.
+  
+  `registerTestModules()` in `modules/registry.ts` adds it; the API and the worker register only the static list.
+- **Three gaps the suite found and closed** (behaviour of knowledge and marketing unchanged):
+  - `ToolNamespace` was a closed union. A module may now name its own namespace; it only groups tools for tool search.
+  - The generic collection read accepted a fixed list of kinds. A module now declares readable kinds with `EntityKindDef.collection`. The registry refuses it for an unexported kind, so credentials can never become readable.
+  - Action permissions were hard-coded for knowledge and marketing in `server.ts`. Modules now contribute `actionPermissions` for their own actions only; the registry refuses another module's action.
+- **Tests:**
+  - `extensibility.integration.test.ts`: registration; the tool offered by role; the route, collection and action for owner, editor, viewer and a non-member; module off and on again, including the scheduler.
+  - `extensibility-assistant.integration.test.ts`: a scripted chat run across knowledge, marketing and the fixture yields two ActionRequests. A viewer cannot decide them; an editor approves one and exactly one task appears.
+
+**Rollback.** Revert; there is no schema or data change.
+
+## Phase 3 follow-ups (2026-10-17, local)
+
+Branch `claude/phase3-followups`.
+
+- **Breadcrumb.** Knowledge sub-pages showed their internal key ("knowledge-facts"). `ViewDef.title` now names a page without a navigation entry, and `crumbs()` shows "Wissen / Fakten". A test checks that no page shows its key.
+- **brandTerms in the profile editor.** The marketing profile editor (`modules/marketing/advanced.tsx`) has a field for the product words of the fact checks. Words are lower-cased and de-duplicated; an empty field leaves `brandTerms` out, so the built-in uLiquid words stay. Saving the profile invalidates pending packages, as every profile save does.
+- **Deployment record of Phase 3** (below).
+
+## Phase 3 in production: WP3.1–WP3.4 (2026-10-15/16)
+
+Each step was merged into `main` on Mario's approval, after green CI and outside the 10:00/17:00 slots. Coolify deployed each one with about 30–40 seconds of 503 while the containers were replaced. After every deploy, `/api/health/ready` (database ok, worker ready) and `/api/health/postiz` were ok.
+
+| WP | PR | Merge commit | Merged | Live |
+|---|---|---|---|---|
+| WP3.1 impact handlers | #128 | `918e06c` | 15.10 15:57 | 16:00 |
+| WP3.2 knowledge services, K-1 | #129 | `6567951` | 15.10 17:15 | 17:19 |
+| WP3.3 knowledge module, URL views | #130 | `c9f8af2` | 15.10 17:46 | 17:49 |
+| WP3.4 brand terms from the profile | #131 | `2533a80` | 16.10 15:41 | 15:45 |
+
+Checks after the deploys:
+- **K-1, before the switch.** The read-only check in production (`scripts/rollout/k1-usable-facts-diff.sql`, as `orbit_app`, ending in ROLLBACK) showed every uLiquid fact unchanged.
+- **Knowledge views.** `/p/<uLiquid>/knowledge/facts` opens the Facts tab with the knowledge entry highlighted.
+- **Assignment runs on 16.10 (`63f76b22`) and 17.10 (`f610945b`).** Every step finished; the new `knowledge_search` and the K-1 rule raised no error.
+  - Of the four drafts, the 17:00 draft of 17.10 was approved and handed to Postiz for X and Telegram (WP2.6 check 8).
+  - The three rejections came from content conflicts, not from the refactor: an extra word in a fact sentence, banner copy competing with the CTA, reviewer directions left in the text, and a topic built on a fact that the guardrails forbid. They are handled separately.
+  - The daily report (WP2.6 check 9) has not been checked here.
+
+## Product words of the fact checks from the profile: WP3.4 (2026-10-15; production 2026-10-16)
+
+Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. Behaviour for uLiquid is unchanged.
+
+- **Profile field.** `marketingProfile.brandTerms` is new and optional: lower-case words of the product name, 1–20, each 2–40 letters or digits.
+- **Fact matcher.** `factClaimMatches(text, fact, brandTerms)` allows the profile's words instead of the built-in `uliquid`, `uliq` and `desk`.
+- **Presale check.** `presaleLivePattern(profileTerms)` accepts up to two of the profile's words between "live" and "presale".
+- **Without the field (every profile today).** `LEGACY_BRAND_TERMS` applies and the presale regex stays verbatim (pinned by a test), so no check changes and no profile save is needed.
+- **Loading.** `checkClaims` reads the terms once, and only when it checks a fact claim.
+- **Follow-up.** A field in the profile editor; until then the profile API sets it.
+
+**Verification (local).**
+- New tests:
+  - the matcher with a profile's own words, which rejects uLiquid's words there;
+  - `brandTermsOf`;
+  - the legacy presale regex is pinned verbatim; the generated one matches and rejects as expected;
+  - the schema keeps an absent field absent and rejects invalid terms.
+- `fact-claims`, `claim-repeat`, `safety`, `official-target-link` and `content-packages` are green; the OpenAPI document is unchanged.
+
+**Rollback.** Revert; there is no schema migration or data change (the profile field is optional and unused).
+
+## Knowledge module, server and web: WP3.3 (2026-10-15; production 2026-10-15)
+
+Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. With `ORBIT_MODULES=false` the product is unchanged; the knowledge views gain URLs.
+
+- **Server.** `GET …/knowledge-health`, `…/documents` and `…/indexes` move unchanged from `server.ts` into `modules/knowledge/routes.ts`; the bulk import moves to `modules/knowledge/import.ts`. The platform's route guard answers `MODULE_DISABLED` for them while knowledge is off. The OpenAPI document is semantically unchanged (route order only; regenerated with the client types).
+- **Assistant search.** `assistantKnowledgeSearch` is a platform tool (`alwaysOffered`). Marketing lists it only to keep its place, so the tool list and prompt are unchanged. With knowledge and marketing off, the assistant still offers `knowledge_search`.
+- **Web.**
+  - Each knowledge tab is a view at `/p/:id/knowledge/<tab>`; the overview stays the module root.
+  - The tab bar keeps its role, labels, order and keyboard handling, and navigates to the tab's URL.
+  - `ViewDef.navKey` lets a URL-only view highlight its module's sidebar entry.
+- **Deviations from plan 05 §8, kept for an unchanged product.** "Conflicts" and "impact" stay tabs. Detail URLs with ids, the knowledge settings panel and the home tile are follow-ups.
+
+**Verification (local).**
+- New tests:
+  - enforcement: knowledge switched off after marketing blocks its routes, collections and actions; the assistant keeps the search; marketing needs knowledge first; the snapshot is unchanged;
+  - routes: every tab resolves to its view and highlights the knowledge entry; `navKey` validation.
+- Web typecheck and `next build --webpack` pass; Playwright not run locally.
+
+**Rollback.** Revert; there is no schema or data change.
+
+## Knowledge services and the K-1 fact rule: WP3.2 (2026-10-15; production 2026-10-15)
+
+Branch `claude/wp32-knowledge-services` (stacked on WP3.1). Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`.
+
+- **Orchestration moved.** `retrieval.ts`, `ingestion.ts`, `reindex.ts` and `index-evaluation.ts` move unchanged from the flat api modules to `apps/api/src/platform/knowledge/`; only import paths change. `services.ts` is the facade (retrieve, retrieveHybrid, validateEvidence, getActiveIndex, the six bound changing operations).
+- **One `knowledge_search`.** The search moves verbatim from marketing's `runReadTool` to `platform/knowledge/search.ts`. `knowledgeSearchTool()` is the only definition.
+  - The chat and the specialists pass their budget keys, which are unchanged: `chat:<runId>:knowledge:<n>` with `chat:<runId>`, and `agent:<taskId>:knowledge:<n>` with `assignment-run:<runId>`.
+  - Name, description, schema and position in the tool list are unchanged, so the prompt is the same.
+  - The card check is now `checkToolResult` in `platform/assistant/cards.ts`.
+- **K-1 (behaviour change, decided by Mario).** `platform/knowledge/facts.ts` applies the engine's full rules to package facts. Marketing's `usableFacts`/`listUsableFacts` delegate to it, with the profile's content language.
+  - The production check before the switch (`scripts/rollout/k1-usable-facts-diff.sql`, read-only) showed every uLiquid fact `unchanged`.
+  - Two test fixtures created facts without `sourceGeneration`, which `setFact` always records. They now set it.
+
+**Verification (local).**
+- New tests:
+  - `knowledge-search-tool.test.ts`: same model-facing tool for both variants, both budget-key sets, the specialist variant refused outside a task.
+  - The K-1 test now pins the shipped rule to the SQL's K-1 side.
+- Typecheck and source check pass; boundaries: 0 known violations.
+
+**Rollback.** Revert; there is no schema or data change.
+
+## Knowledge invalidation through impact handlers: WP3.1 (2026-10-15; production 2026-10-15)
+
+Branch `claude/plattform-umbau-fortschritt-05c734`, the first work package of Phase 3 (plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`). Risk class high: a missed invalidation would make revoked evidence publishable. Behaviour is unchanged.
+
+- **Engine (`packages/knowledge`).** `invalidate()` keeps only its own part: it marks dependent evidence `invalidated` (or purges it) and then calls the impact handlers it was given, in the same transaction.
+  - The six changing operations (`ingest`, `setFact`, `withdrawFact`, `revokeSource`, `setSourceRights`, `revokeDocument`) take `handlers` after the scope.
+  - The result keeps `{ evidenceIds, contentIds }`; `contentIds` is what the handlers report.
+  - New types: `KnowledgeImpact`, `ImpactResult`, `ImpactHandler`.
+- **Marketing.** `invalidateMarketingForKnowledge` (`modules/marketing/pipeline/knowledge-impact.ts`) is the former marketing part, moved line for line, with the same revision history. It covers content, approvals, insights, publications, jobs, reconciliation jobs and the outbox. Marketing registers it as the new contribution `knowledgeImpact`.
+- **Platform.** `registeredImpactHandlers()` returns every module's handler, never filtered by activation. `platform/knowledge/engine.ts` binds them to the six operations.
+  - All callers use the platform wrapper: server, knowledge actions, ingestion, the import, tests, evals and `scripts/backup-restore-test.ts`, which now registers the modules first.
+  - Without registration the wrapper fails closed.
+- **Boundary check.** `forbiddenLiterals` in `scripts/boundaries.json` forbids the strings `content`, `approvals`, `publications`, `insights` and `jobs` in `packages/knowledge`. The old engine has five hits, the new one none.
+
+**Verification (local).**
+- The WP0.4 characterization snapshots (nine scenarios) pass without updating.
+- New tests:
+  - engine: handler order and arguments, reported content ids, handlers without affected evidence, rollback when a handler throws;
+  - registry: marketing's handler is bound for every project; fail-closed before registration;
+  - boundary script: the literal check.
+- Typecheck and source check pass; boundaries: 0 known violations.
+
+**Rollback.** Redeploy the previous image; there is no schema or data change.
+
+## Banner copy no longer a claim: R83 (2026-10-15, local)
+
+Branch `claude/banner-claims`. The uLiquid 17:00 draft of 2026-10-15 was rejected with `CLAIM_NOT_IN_CONTENT`, because the model had recorded the banner copy as a style claim. The generation (`packages/ai`) now drops a style claim with no fact or chunk that is not in the body and consists only of banner fields, and the banner instruction says the banner copy is no claim. Details: ruling R83. Verification: AI package tests (a new test with the production case), and the banner, copywriter and agent-review suites.
+
+## Modular platform in production: WP2.6 Step A (2026-10-15)
+
+On Mario's Approval A, release PR #125 was merged into `main` at 13:05 CEST (merge commit `930511e`). The new version was live at 13:10, and migration `202610130001_platform_project_module` ran. `ORBIT_MODULES` stays `false`. Runbook: `docs/deployment/MODULAR_PLATFORM_ROLLOUT.md`.
+
+Post-deploy checks:
+1. `/api/health/ready` ok (database ok, worker ready); `/api/health/postiz` ok.
+2. uLiquid home and navigation: 13 entries; Knowledge, Marketing and Platform sections.
+3. Settings → Modules: Knowledge and Marketing on, switching not enabled.
+4. Settings tabs as before; the assignment "uLiquid Beta" is active (Postiz drafts, 10:00/17:00).
+5. Connectors: Postiz, Matomo, Slack, Telegram (linked), blog, newsletter, in the former order.
+6. Operations: worker heartbeat, outbox 0, 14 queue classes, AI runs with costs.
+7. Telegram: the bot answered a text message with its help text (13:18).
+
+Checks 8 and 9 (the next run's drafts and the daily report) follow. The 17:00 rejection of that day predates the deploy and is fixed by R83.
+
+## Weekly autopilot removed (2026-10-13, local)
+
+Branch `claude/remove-old-agent-tests-e6b039` (PR #90), merged with the modular platform (#125), not deployed. Production has run on standing assignments since 2026-10-09 (`ORBIT_AGENTS=true`), so the weekly autopilot that the flag-off path kept as a fallback is gone: `marketing/pipeline/autopilot.ts` and its shim (planner, settings, one-click `approve-and-schedule`, migration proposal), the `configure-autopilot` and `approve-and-schedule` actions and permissions, the `…/assignments/autopilot-migration` routes, the `autopilot_settings` collection and its manifest kind (old rows stay in the database and in the project export), the autopilot settings tab (`autopilot-settings.tsx`), the autopilot approvals panel and the migration card, the Phase 0 rollout queries, and their tests (`autopilot.test.ts`, `autopilot-coexistence`, `autopilot-migration`, `rollout-phase0`, planner cases in `paid`, `official-target-link`, `assignment-runs`, `assignment-routes`, `drive-readiness`, `due-marker`, the web migration card). With `ORBIT_AGENTS` off the sweep now plans no posts (sweep characterization case renamed, snapshot unchanged). Kept: the project and policy mode `autopilot` (autonomy mode, unrelated), and the code that reads missions the autopilot planned earlier (slot occupancy, missed-slot archive, draft cleanup, content history, generation context). No schema migration. Rollback: revert the merge commit. Details: [OPERATIONS.md](OPERATIONS.md#orbit-agents).
+
 ## Google Drive on the platform, brand assets in marketing, Slack checked: WP2.5d (2026-10-14, local)
 
 Branch `claude/wp25d-drive-slack`, the last part of WP2.5.

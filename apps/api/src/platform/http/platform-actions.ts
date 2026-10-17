@@ -24,6 +24,7 @@ import { assertModuleEnabled } from "../modules/enforcement.ts";
 import { pauseProject } from "../governance/pause.ts";
 import { retention } from "../governance/retention.ts";
 import { addProjectMember } from "../tenancy/project-members.ts";
+import { connectEmail } from "../email/connection.ts";
 import {
   ownTransaction,
   sharedTransaction,
@@ -99,6 +100,10 @@ export const platformActions: Record<string, ActionHandler> = {
       }),
     );
   }),
+  // The project's mailbox over SMTP and IMAP (WP4.7); checked separately.
+  "email-connect": sharedTransaction((tx, { scope, input }) =>
+    connectEmail(tx, scope, input),
+  ),
   // Checks a connection with its provider and records what it can do; the
   // provider call runs outside any transaction (WP2.5c).
   "connector-health": ownTransaction(async ({ scope, input }) => {
