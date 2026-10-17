@@ -78,6 +78,14 @@ import swagger from "@fastify/swagger";
 import { z } from "zod";
 import { authDb, scoped, jsonSafe } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
+import {
+  authRequestBody,
+  isOriginExemptOAuth,
+  oauthAuthPaths,
+  pathOf,
+  registerOAuthDiscovery,
+  sendWebResponse,
+} from "./platform/mcp-auth/http.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { setFact } from "./platform/knowledge/engine.ts";
@@ -254,8 +262,10 @@ export async function buildServer(
     // paths cannot slip past (R62); each handler checks again.
     if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
       throw new DomainError("NOT_FOUND", 404);
-    // Signed provider webhooks carry their own authentication instead of a browser origin.
+    // Signed provider webhooks carry their own authentication instead of a browser origin;
+    // OAuth clients (token, revoke, introspect) authenticate in the request itself.
     if (
+      !isOriginExemptOAuth(config, req.method, req.url) &&
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
         req.url,
       ) &&
@@ -412,34 +422,33 @@ export async function buildServer(
         max: 20,
         timeWindow: "1 minute",
         keyGenerator: (req: import("fastify").FastifyRequest) =>
-          clientIp(req) + ":" + req.method + ":" + req.url.split("?")[0],
+          clientIp(req) + ":" + req.method + ":" + pathOf(req.url),
       },
     },
     handler: async (req, reply) => {
-      const endpoint = req.url.split("?")[0];
+      const endpoint = pathOf(req.url);
       const permitted = [
         "/api/auth/sign-in/email",
         "/api/auth/sign-out",
         "/api/auth/get-session",
+        ...oauthAuthPaths(config),
       ];
-      if (!permitted.includes(endpoint!))
+      if (!permitted.includes(endpoint))
         throw new DomainError("AUTH_ENDPOINT_DISABLED", 403);
-      const response = await auth.handler(
-        new Request(new URL(req.url, config.APP_ORIGIN), {
-          method: req.method,
-          headers: fromNodeHeaders(req.headers),
-          ...(req.body ? { body: JSON.stringify(req.body) } : {}),
-        }),
+      const body = authRequestBody(config, req);
+      return sendWebResponse(
+        reply,
+        await auth.handler(
+          new Request(new URL(req.url, config.APP_ORIGIN), {
+            method: req.method,
+            headers: fromNodeHeaders(req.headers),
+            ...(body === undefined ? {} : { body }),
+          }),
+        ),
       );
-      reply.code(response.status);
-      response.headers.forEach((v, k) => {
-        if (k !== "set-cookie") reply.header(k, v);
-      });
-      const cookies = response.headers.getSetCookie();
-      if (cookies.length) reply.header("set-cookie", cookies);
-      return reply.send(await response.text());
     },
   });
+  registerOAuthDiscovery(app, auth, config);
   app.get("/api/me", async (req) => {
     const user = await userFor(auth, req);
     const memberships = await authDb.workspaceMember.findMany({
