@@ -4,7 +4,10 @@ import { TimelineItem } from "./ticket";
 import { embedSnippet, inboxBody, parseCategories } from "./settings";
 import { supportText } from "./labels";
 
-const render = (entry: Parameters<typeof TimelineItem>[0]["entry"]) =>
+const render = (
+  entry: Parameters<typeof TimelineItem>[0]["entry"],
+  onUseDraft?: (text: string) => void,
+) =>
   renderToStaticMarkup(
     <TimelineItem
       entry={entry}
@@ -12,6 +15,7 @@ const render = (entry: Parameters<typeof TimelineItem>[0]["entry"]) =>
       locale="de"
       timezone="Europe/Berlin"
       projectId="p1"
+      onUseDraft={onUseDraft}
     />,
   );
 
@@ -113,5 +117,23 @@ describe("support ticket view (WP5.2)", () => {
     const hostile = embedSnippet("https://o.example", "pk_</script>", "en");
     expect(hostile).not.toContain("pk_</script>");
     expect(hostile).toContain("pk_\\u003c/script>");
+  });
+
+  it("offers an AI draft to agents, marked internal (WP5.6)", () => {
+    const entry = {
+      entry: "message" as const,
+      id: "d1",
+      kind: "ai_draft",
+      internal: true,
+      bodyText: "Einzahlungen dauern bis zu einer Stunde.",
+      createdAt: "2026-10-18T08:00:00Z",
+      attachments: [],
+    };
+    const html = render(entry, () => undefined);
+    expect(html).toContain("KI-Entwurf");
+    expect(html).toContain("Entwurf übernehmen");
+    expect(html).toMatch(/support-message-internal(?=["\s])/);
+    // Without a composer to fill (viewers), no button.
+    expect(render(entry)).not.toContain("Entwurf übernehmen");
   });
 });

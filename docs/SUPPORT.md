@@ -197,6 +197,52 @@ The widget's public API lives at `/api/public/support/<publicKey>/…`. It is mo
 
 `rules` on the inbox (migration `202610180003`) switches each automation. A missing key keeps the project default.
 
+## Support AI (WP5.6)
+
+These are drafts for agents only; a person always sends (Q-17). The inbox switch is `aiMode`: `off` (default) or `draft`.
+
+| Task | When | What it does |
+|---|---|---|
+| Triage (`support_triage`) | each new ticket | Suggests language, category, priority, sentiment and a one-sentence summary. An empty category is filled; priority stays the agents' call. The summary is an internal note, and the suggestions are an `ai_triage` event without text. |
+| Draft (`support_draft`) | each customer message, or an agent's "AI draft" (`POST /tickets/:id/ai-draft`) | Retrieves `support`-audience knowledge (WP3.5) for the latest customer message, then asks the model for a reply that cites `fact:<id>` and `chunk:<id>`. |
+
+**Checks on a draft**, before an agent sees it. The draft is withheld, and the ticket handed off, when:
+- it has no citations, or cites an id it was not given;
+- the evidence pack is invalid;
+- it contains a forbidden promise or advice.
+
+Without evidence, an internal gap note replaces the draft and the ticket is handed off. A draft the model is unsure about is kept, but the ticket is handed off too.
+
+**Hard rules** (`modules/support/hard-rules.ts`). Trading or investment questions, account security, billing and legal matters go straight to a human, without a model call. The offline eval `evals/support/hard-rules.test.ts` requires recall 1.0 on its sensitive cases.
+
+**Handoff.** `aiState` becomes `handed_off`, with a `handoff` event carrying the reason and the `support_ai_handoff` notification.
+
+**Personal data (Q-12a, option B).**
+- The model never sees the contact's name or any e-mail address; placeholders stand in, and the agent's draft gets the name back.
+- The platform always sends `store: false`, and there is no trace export.
+- Telemetry stores input hashes only.
+
+**Cost and limits.**
+- Category `support_text` under the project's spend mandate, with run budget `support:<ticketId>`.
+- `AgentRun` kind `support` (migration `202610180004`).
+- The ticket view shows the AI cost per ticket.
+- Paid calls are never retried after a transmit (`SUPPORT_CALL_UNKNOWN`).
+- A paused project gets no call; the worker blocks jobs and the call path checks again.
+
+**The Orbit Assistant** gets `support_insights`, which returns counts only: no ticket content reaches the assistant's model.
+
+**Paid eval** (`pnpm eval:support`, manual):
+- 12 triage and 8 draft cases, synthetic;
+- the routes as in production;
+- a hard 3 USD ceiling, also enforced by the eval project's spend mandate, and a confirmation hash;
+- the key from the keychain (`orbit-eval-openai`);
+- a local database;
+- a report of ids and numbers only.
+
+The first run on 2026-10-17 cost $0.0227 and FAILED on one handoff case; see `docs/evidence/support-ai-eval-2026-10-17.json` and the status entry.
+
+**Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17).
+
 ## Tickets and channels
 
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:

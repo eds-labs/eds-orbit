@@ -1,0 +1,5 @@
+{
+  "description": "Routes of the paid support AI eval (WP5.6). Triage follows the standard tier and drafts the quality tier, as resolveRoute does without saved task routes; models as in production (gpt-5.6-terra standard, gpt-6.1-sol quality). Prices come from evals/generation/candidates-v1.json.",
+  "triage": { "model": "gpt-5.6-terra", "maxOutputTokens": 800 },
+  "draft": { "model": "gpt-6.1-sol", "maxOutputTokens": 1800 }
+}

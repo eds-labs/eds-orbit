@@ -53,6 +53,10 @@ const en = {
   tickets: "Tickets",
   back: "Back to the list",
   pendingDelivery: "Waiting for delivery",
+  useDraft: "Use draft",
+  generateDraft: "AI draft",
+  draftQueued: "The AI is drafting a reply; it appears in the timeline.",
+  aiCost: "AI cost",
   delivery: {
     pending: "Waiting for delivery",
     sent: "Sent",
@@ -184,6 +188,10 @@ const de: SupportText = {
   tickets: "Tickets",
   back: "Zurück zur Liste",
   pendingDelivery: "Wartet auf Zustellung",
+  useDraft: "Entwurf übernehmen",
+  generateDraft: "KI-Entwurf",
+  draftQueued: "Die KI entwirft eine Antwort; sie erscheint im Verlauf.",
+  aiCost: "KI-Kosten",
   delivery: {
     pending: "Wartet auf Zustellung",
     sent: "Gesendet",

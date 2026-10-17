@@ -37,6 +37,7 @@ import {
   replyToTicket,
   ticketDetail,
   ticketSummary,
+  requestDraft,
   updateContact,
   updateTicket,
 } from "./workspace.ts";
@@ -101,6 +102,11 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
   app.patch(`${BASE}/tickets/:ticketId`, (req) =>
     inSupport(auth, req, SUPPORT_TICKETS_ASSIGN, (tx, scope, p) =>
       updateTicket(tx, scope, ticket(p), req.body),
+    ),
+  );
+  app.post(`${BASE}/tickets/:ticketId/ai-draft`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_REPLY, (tx, scope, p) =>
+      requestDraft(tx, scope, ticket(p)),
     ),
   );
   app.post(`${BASE}/tickets/:ticketId/merge`, (req) =>

@@ -1,5 +1,27 @@
 # Implementation status
 
+## Support AI: WP5.6 (2026-10-17, local; flags off)
+
+Branch `claude/wp56-support-ai`, stacked on WP5.5. Guide: `docs/SUPPORT.md` (Support AI). Decisions: Q-12a option B (OpenAI with safeguards) and Q-17 (drafts only).
+
+- **Task classes.** `support_triage` and `support_draft`, in the routing and the routing settings.
+- **Run kind.** `support`, from migration `202610180004_support_ai`, which widens a check constraint.
+- **`modules/support/ai.ts`.**
+  - Personal-data placeholders, and a paid call with reservation, settlement and telemetry that is never retried after a transmit.
+  - Triage, and drafts grounded in `support`-audience evidence with citation and evidence checks.
+  - The handoff state, the jobs, `queueSupportAi` on new tickets and customer messages, the cost per ticket, and an agent-requested draft.
+- **Hard rules.** `modules/support/hard-rules.ts`, with the offline eval `evals/support/hard-rules-v1.json` (20 customer and 7 draft cases).
+- **Assistant.** The tool `support_insights` (counts only).
+- **Web.** AI draft cards with "Use draft", an "AI draft" button and the AI cost on the ticket.
+- **Tests:**
+  - `support-ai.integration.test.ts`, 7 tests, with a mocked model and retrieval, mutation-checked for placeholders;
+  - the eval (3 tests);
+  - the render test.
+- **Paid eval.** Approved by Mario on 2026-10-17, capped at 3 USD. `pnpm eval:support` (`evals/support/live.eval.ts`) ran once on commit `15eacc3`, with real model calls only and synthetic evidence. Result: **FAIL** (`docs/evidence/support-ai-eval-2026-10-17.json`), cost **$0.0227**.
+  - Triage: category 12/12, language 12/12, sensitive recall 4/4.
+  - Drafts: 6/6 answered with citations; 0 forbidden phrases; 0 errors.
+  - Handoff on unanswerable questions: 1/2, which missed the pre-registered rule. D04 ("Solana deposits?") produced a draft that cites the supported-networks fact instead of handing off. The case note allows a draft that says Solana is not listed, but the pass rule demanded a handoff. The rule was not changed afterwards.
+
 ## Support notifications and automations: WP5.5 (2026-10-17, local; flags off)
 
 Branch `claude/wp55-support-automations`, stacked on WP5.4. Guide: `docs/SUPPORT.md` (Notifications and automations).

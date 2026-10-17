@@ -507,9 +507,9 @@ export function registeredTools(
   enabled?: ReadonlySet<string>,
 ): readonly OrbitTool[] {
   const { tools, owners } = current();
-  return enabled
-    ? tools.filter((t) => ownerEnabled(owners.tools.get(t.name), enabled))
-    : tools;
+  // Always filtered: without an enabled set, unavailable modules (support
+  // without ORBIT_SUPPORT) still offer nothing (WP5.6).
+  return tools.filter((t) => ownerEnabled(owners.tools.get(t.name), enabled));
 }
 export function registeredActionType(type: string) {
   return current().actionTypes.get(type);
@@ -571,9 +571,9 @@ export function registeredPeriodicTasks(
   enabled?: ReadonlySet<string>,
 ): readonly PeriodicTask[] {
   const { periodic, owners } = current();
-  return enabled
-    ? periodic.filter((t) => ownerEnabled(owners.periodic.get(t.name), enabled))
-    : periodic;
+  return periodic.filter((t) =>
+    ownerEnabled(owners.periodic.get(t.name), enabled),
+  );
 }
 export function registeredPeriodicTask(name: string) {
   return current().periodic.find((t) => t.name === name);
