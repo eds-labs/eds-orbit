@@ -10,8 +10,14 @@
 | Q-12b | **24 months** after closure as the default retention for closed tickets, as in §1.5. |
 | Q-13 | Support runs in the **existing uLiquid project**, with staff separated by module roles (WP4.5). |
 | Pilot channels | The pilot starts with **both channels at once**: the support mailbox and the Desk app widget. WP5.9 therefore needs WP5.3 and WP5.4 to be finished. |
+| Q-20 | **Desk gets the widget first** (the pilot). **Claude builds the Desk-side integration**: the widget embed and the HMAC signing of `externalUserId` in Desk's backend. Mario's answer, "Das Widget baut Claude dann ein", was given in the platform session and relayed here. |
 
 Still open: the §1.2 and §1.3 *legal check* items, which must be settled before WP5.9, and the facts in §2.2 marked "Mario to confirm".
+
+**Desk-side work (Q-20).** This is its own step within WP5.4 and WP5.9:
+- It lives in the Desk repository and gets its own PR there. Deploying it needs Mario's approval.
+- Desk signs only on its backend and never calls Orbit server-side (master spec).
+- **Mario sets the widget secret in Desk himself. No agent does.** Orbit shows the secret only once, when the inbox is created or the secret is rotated.
 
 
 **Scope:** Before Phase 5 (`07` §Phase 5) starts, two things must be settled:
@@ -120,8 +126,8 @@ These are defaults per project, stored in the support module settings. The owner
 | Inbox name | "uLiquid Desk" | — |
 | Channels | **Decided:** e-mail and the Desk app widget, both at the pilot start | — |
 | Mailbox | A **dedicated** mailbox, for example `support@uliquid.vip`, that humans do not also work in. WP4.7 reads IMAP read-only, so a shared mailbox would show every mail twice. | Address, and whether it exists |
-| Widget origin | `https://desk.uliquid.vip` | The Desk team embeds the script. Desk never calls Orbit server-side (master spec). |
-| Widget identity | Anonymous (with e-mail) in the pilot. HMAC-verified users only once the Desk backend can sign. | Whether the Desk team can add HMAC signing |
+| Widget origin | `https://desk.uliquid.vip` | Claude embeds the script in Desk (Q-20). Desk never calls Orbit server-side (master spec). |
+| Widget identity | HMAC-verified users: Claude adds the signing of `externalUserId` to Desk's backend (Q-20); Mario sets the secret. Anonymous visitors give an e-mail. | — |
 | Language | English by default, German recognized | — |
 | Agents in the pilot | Mario (owner) | Further people? Each needs an Orbit account plus module role. |
 | SLA targets (24/7 clock) | First response: urgent 4 h, high 8 h, normal 24 h, low 72 h. Resolution: 3× the first-response target. | — |
