@@ -162,11 +162,11 @@ export type McpHookDeps = {
     sessionId: string;
   }) => Promise<void>;
   /**
-   * An authorization code went to the client for this session's
-   * authorization. Throws (an APIError) unless the selection is active, which
-   * withholds the code.
+   * An authorization code was issued for this session's authorization.
+   * Returns false unless the selection is active; the hook then withholds the
+   * code from the client.
    */
-  onCodeIssued: (args: { sessionId: string }) => Promise<void>;
+  onCodeIssued: (args: { sessionId: string }) => Promise<boolean>;
   /** A rotated refresh token was replayed after the reuse window. */
   onRefreshReplay: (args: {
     userId: string;
@@ -205,6 +205,16 @@ function oauthError(returned: unknown) {
     typeof r.body?.error === "string"
     ? r.body.error
     : undefined;
+}
+
+/** Whether the endpoint answered with a thrown redirect (3xx APIError). */
+function isRedirectError(returned: unknown) {
+  const r = returned as Returned | undefined;
+  return (
+    typeof r?.statusCode === "number" &&
+    r.statusCode >= 300 &&
+    r.statusCode < 400
+  );
 }
 
 /** Where the endpoint sends the browser: a JSON redirect or a Location header. */
@@ -260,30 +270,36 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
       }
       if (ctx.path === "/oauth2/consent") {
         // Activate before the provider stores consent and issues the code, so
-        // a code is only ever issued for an active grant. Requests the
-        // provider will reject (bad signature, scope not requested, claims)
-        // are left to it and activate nothing.
+        // consent is only ever stored for an active grant. A request the
+        // provider will reject (bad signature, a scope not requested) is left
+        // to it and activates nothing; scopes are parsed exactly as the
+        // provider parses them (no filtering of empty tokens).
         const body = ctx.body as {
           accept?: unknown;
           oauth_query?: unknown;
           scope?: unknown;
           claims?: unknown;
         };
+        if (body?.accept !== true) return;
+        // Orbit's consent page never narrows claims; refusing them keeps
+        // every stored consent tied to an activation.
+        if (body.claims !== undefined)
+          throw new APIError("BAD_REQUEST", {
+            error: "invalid_request",
+            error_description: "claims are not supported",
+          });
         if (
-          body?.accept !== true ||
           typeof body.oauth_query !== "string" ||
-          body.claims !== undefined ||
+          (body.scope !== undefined && typeof body.scope !== "string") ||
           !(await verifyOAuthQueryParams(body.oauth_query, ctx.context.secret))
         )
           return;
         const query = new URLSearchParams(body.oauth_query);
         const clientId = query.get("client_id");
-        const requested = (query.get("scope") ?? "").split(" ").filter(Boolean);
-        const scopes =
-          typeof body.scope === "string"
-            ? body.scope.split(" ").filter(Boolean)
-            : requested;
-        if (!clientId || scopes.some((scope) => !requested.includes(scope)))
+        const requested = query.get("scope")?.split(" ") ?? [];
+        const accepted =
+          typeof body.scope === "string" ? body.scope.split(" ") : requested;
+        if (!clientId || accepted.some((scope) => !requested.includes(scope)))
           return;
         const session = await getSessionFromCtx(ctx);
         if (!session) return;
@@ -291,7 +307,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
           userId: session.user.id,
           sessionId: session.session.id,
           clientId,
-          scopes,
+          scopes: accepted.filter(Boolean),
         });
         return;
       }
@@ -351,7 +367,21 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
       const sessionId = session.session.id;
       if (denied)
         return deps.onConsentDenied({ userId: session.user.id, sessionId });
-      await deps.onCodeIssued({ sessionId });
+      if (await deps.onCodeIssued({ sessionId })) return;
+      // Refused: the code must not reach the client. A thrown redirect keeps
+      // its 302 status and Location when a hook only throws, so drop the
+      // Location and answer with a plain 400 Response instead.
+      ctx.context.responseHeaders?.delete("location");
+      const refusal = {
+        error: "consent_required",
+        error_description: "the selection is not an active grant",
+      };
+      if (isRedirectError(returned))
+        return new Response(JSON.stringify(refusal), {
+          status: 400,
+          headers: { "content-type": "application/json" },
+        });
+      throw new APIError("BAD_REQUEST", refusal);
     }),
   };
 }

@@ -38,6 +38,8 @@ const DENY_CLIENT_ID = "https://client.test/deny.json";
 const EXPIRED_CLIENT_ID = "https://client.test/expired.json";
 const TWO_SESSIONS_CLIENT_ID = "https://client.test/two-sessions.json";
 const FAILED_CONSENT_CLIENT_ID = "https://client.test/failed-consent.json";
+const REFUSAL_CLIENT_ID = "https://client.test/refusal.json";
+const CLAIMS_CLIENT_ID = "https://client.test/claims.json";
 const PKJWT_CLIENT_ID = "https://client.test/pkjwt.json";
 const REDIRECT_URI = "https://client.test/cb";
 const SCOPES = "openid email profile offline_access orbit:read orbit:propose";
@@ -84,6 +86,8 @@ const documents: Record<string, Json> = {
   [EXPIRED_CLIENT_ID]: metadata(EXPIRED_CLIENT_ID),
   [TWO_SESSIONS_CLIENT_ID]: metadata(TWO_SESSIONS_CLIENT_ID),
   [FAILED_CONSENT_CLIENT_ID]: metadata(FAILED_CONSENT_CLIENT_ID),
+  [REFUSAL_CLIENT_ID]: metadata(REFUSAL_CLIENT_ID),
+  [CLAIMS_CLIENT_ID]: metadata(CLAIMS_CLIENT_ID),
   [PKJWT_CLIENT_ID]: metadata(PKJWT_CLIENT_ID, {
     token_endpoint_auth_method: "private_key_jwt",
     jwks: { keys: [clientKey.jwk] },
@@ -206,6 +210,8 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     EXPIRED_CLIENT_ID,
     TWO_SESSIONS_CLIENT_ID,
     FAILED_CONSENT_CLIENT_ID,
+    REFUSAL_CLIENT_ID,
+    CLAIMS_CLIENT_ID,
     PKJWT_CLIENT_ID,
   ];
 
@@ -807,6 +813,85 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     expect(rows.filter((g) => g.status === "active")).toHaveLength(1);
     expect(rows.filter((g) => g.status === "pending")).toHaveLength(0);
     expect(rows.every((g) => g.sessionId === null)).toBe(true);
+  });
+
+  it("a top-level authorize never hands a code to the client for a pending selection", async () => {
+    // Register the client, then hold a pending selection for it.
+    const first = await authorize({ client_id: REFUSAL_CLIENT_ID });
+    expect(first.location?.pathname).toBe("/connect");
+    const pending = await recordSelection({
+      userId,
+      sessionId,
+      clientId: REFUSAL_CLIENT_ID,
+      workspaceId,
+      projectIds: [projectA],
+    });
+    expect(pending.status).toBe("pending");
+    // A consent stored under the pending placeholder (which Orbit never
+    // stores itself) would let the provider issue a code from authorize.
+    const now = new Date();
+    await authDb.oauthConsent.create({
+      data: {
+        id: randomUUID(),
+        clientId: REFUSAL_CLIENT_ID,
+        userId,
+        referenceId: `pending:${pending.id}`,
+        scopes: SCOPES.split(" "),
+        resources: [config.MCP_RESOURCE],
+        requestedUserInfoClaims: [],
+        createdAt: now,
+        updatedAt: now,
+      },
+    });
+    const refused = await authorize({ client_id: REFUSAL_CLIENT_ID });
+    expect(refused.response.statusCode).toBe(400);
+    expect(refused.response.headers.location).toBeUndefined();
+    expect(refused.response.body).not.toContain("code=");
+    expect(refused.response.json().error).toBe("consent_required");
+    const [row] = await grants(REFUSAL_CLIENT_ID);
+    expect(row).toMatchObject({ status: "pending", sessionId });
+  });
+
+  it("consent bodies with claims or malformed scopes activate nothing", async () => {
+    const { location } = await authorize({ client_id: CLAIMS_CLIENT_ID });
+    const selected = await select(queryOf(location!));
+    const next = queryOf(new URL(selected.json().next, origin));
+    const direct = (body: Json) =>
+      inject({
+        method: "POST",
+        url: "/api/auth/oauth2/consent",
+        headers: { accept: "application/json" },
+        payload: { accept: true, oauth_query: next, ...body },
+      });
+    const claims = await direct({ claims: {} });
+    expect(claims.statusCode).toBe(400);
+    expect(claims.json().error).toBe("invalid_request");
+    for (const scope of ["", "openid  orbit:read", "openid "]) {
+      const r = await direct({ scope });
+      expect(r.statusCode).toBe(400);
+    }
+    const rows = await grants(CLAIMS_CLIENT_ID);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("pending");
+    expect(
+      await authDb.oauthConsent.count({
+        where: { clientId: CLAIMS_CLIENT_ID },
+      }),
+    ).toBe(0);
+    expect(
+      await authDb.oauthConsent.count({
+        where: { referenceId: `pending:${rows[0]!.id}` },
+      }),
+    ).toBe(0);
+    // A well-formed answer still works and activates the selection.
+    const ok = await direct({ scope: "openid orbit:read" });
+    expect(ok.statusCode).toBe(200);
+    expect(new URL(ok.json().url).searchParams.get("code")).toBeTruthy();
+    const [active] = await grants(CLAIMS_CLIENT_ID);
+    expect(active).toMatchObject({
+      status: "active",
+      scopes: ["openid", "orbit:read"],
+    });
   });
 
   it("re-consent replaces the active grant", async () => {

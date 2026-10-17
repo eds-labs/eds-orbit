@@ -498,17 +498,12 @@ export function grantHookDeps(): McpHookDeps {
       if (!request) throw setWorkspace();
       await denyGrant({ userId, sessionId, clientId: request.clientId });
     },
+    // False (the hook withholds the code) unless the selection is active.
     onCodeIssued: async ({ sessionId }) => {
       const request = await providerRequest();
-      const consumed = request
-        ? await consumeSelection({ sessionId, clientId: request.clientId })
+      return request
+        ? consumeSelection({ sessionId, clientId: request.clientId })
         : false;
-      // Fail closed: the code never reaches the client without an active grant.
-      if (!consumed)
-        throw new APIError("BAD_REQUEST", {
-          error: "consent_required",
-          error_description: "the selection is not an active grant",
-        });
     },
     onRefreshReplay: recordRefreshReplay,
   };
