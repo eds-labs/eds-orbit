@@ -476,6 +476,70 @@ describe.skipIf(!enabled)("platform files in the database", () => {
     expect(await blobs(scope)).toHaveLength(0);
   });
 
+  // Review of the database backend (2026-10-17).
+  it("refuses another project's key in the database itself", async () => {
+    // The project policy allows the row; the check constraint does not.
+    await expect(
+      scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.fileBlob.create({
+          data: {
+            key: `projects/${other.projectId}/knowledge/x`,
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            data: Buffer.from([1]),
+          },
+        }),
+      ),
+    ).rejects.toThrow(/FileBlob_key_check/);
+  });
+
+  it("keeps a project within its storage quota, counting files not yet purged", async () => {
+    process.env.FILES_PROJECT_QUOTA_BYTES = String(PNG.byteLength * 2);
+    try {
+      const store = () =>
+        storeFile(scope, {
+          moduleId: "knowledge",
+          bytes: PNG,
+          mime: "image/png",
+        });
+      const one = await store();
+      await store();
+      await expect(store()).rejects.toMatchObject({
+        code: "FILES_QUOTA_EXCEEDED",
+        status: 413,
+      });
+      // Nothing of the refused file is left behind.
+      expect(await blobs(scope)).toHaveLength(2);
+      // Concurrent uploads cannot overshoot the quota either: all three
+      // pass the early check and meet at the object write, then race.
+      await deleteFile(scope, one.id);
+      const { databaseStore } =
+        await import("../src/platform/files/db-store.ts");
+      const inner = databaseStore(scope);
+      let arrived = 0;
+      let release = () => {};
+      const all = new Promise<void>((done) => (release = done));
+      setObjectStoreForTests({
+        ...inner,
+        async put(key, body) {
+          await inner.put(key, body);
+          if (++arrived === 3) release();
+          await all;
+        },
+      });
+      const results = await Promise.allSettled([store(), store(), store()]);
+      setObjectStoreForTests(null);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(await blobs(scope)).toHaveLength(2);
+    } finally {
+      delete process.env.FILES_PROJECT_QUOTA_BYTES;
+      for (const row of await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.file.findMany({ where: { deletedAt: null } }),
+      ))
+        await deleteFile(scope, row.id);
+    }
+  });
+
   it("keeps blobs to their own project, and they go with it", async () => {
     // A key of another project is refused by the store and by the database.
     const { databaseStore } = await import("../src/platform/files/db-store.ts");

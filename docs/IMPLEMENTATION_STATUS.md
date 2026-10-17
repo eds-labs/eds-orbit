@@ -15,6 +15,10 @@ Branch `claude/files-database-backend`. Mario chose on 2026-10-17 to keep files,
   - The RLS matrix seeds and isolates `FileBlob`.
   - The compose check pins the generated key.
 - **Production.** Merging brings the migration (approval). Coolify generates the key on that deploy. `ORBIT_FILES` stays `false` until the WP4.6 security review is done.
+- **Security review (2026-10-17).** Section 7 of `docs/SECURITY_REVIEW.md`:
+  - D-1: a project quota, `FILES_PROJECT_QUOTA_BYTES` (default 100 MB), bounds the database and the backup, whose work space is a 512 MB tmpfs;
+  - D-2: the restore runbook requires a copy of `FILES_ENCRYPTION_KEY`.
+  - Mario must copy the generated key into the password manager after the first deploy.
 
 ## Track M WP-M1: OAuth authorization server, consent and grants (2026-10-17, local)
 

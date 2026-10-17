@@ -44,6 +44,8 @@ export const allowedFileTypes = () => Object.keys(TYPES);
 type FilesConfig = {
   backend: "database" | "s3";
   maxBytes: number;
+  /** What one project may store in all, files marked deleted included. */
+  quotaBytes: number;
   keyHex: string;
   /** The project's store: its rows in the database, or the bucket. */
   store: (scope: Scope) => ObjectStore;
@@ -65,6 +67,7 @@ export function filesConfig(): FilesConfig | null {
   const base = {
     backend: c.FILES_BACKEND,
     maxBytes: c.FILES_MAX_BYTES,
+    quotaBytes: c.FILES_PROJECT_QUOTA_BYTES,
     keyHex: c.FILES_ENCRYPTION_KEY,
   };
   if (c.FILES_BACKEND === "database")
@@ -132,9 +135,20 @@ export function cleanFileName(raw: unknown): string | null {
   return clean ? clean.slice(0, 200) : null;
 }
 
+/** Bytes the project holds, counting files marked deleted until purged. */
+async function projectBytes(tx: DbTx, scope: Scope) {
+  const sum = await tx.file.aggregate({
+    _sum: { size: true },
+    where: { workspaceId: scope.workspaceId, projectId: scope.projectId },
+  });
+  return sum._sum.size ?? 0;
+}
+
 /**
- * Stores one file of a module: checks size and type, encrypts, writes the
- * object, then the row. A failed row removes the object again.
+ * Stores one file of a module: checks size, type and the project's quota,
+ * encrypts, writes the object, then the row. A failed row removes the
+ * object again. The quota bounds the database (and its backup) with the
+ * database backend, and the bucket with S3.
  */
 export async function storeFile(
   scope: Scope,
@@ -154,6 +168,12 @@ export async function storeFile(
   const check = TYPES[mime];
   if (check === undefined || (check && !check(input.bytes)))
     throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
+  const size = input.bytes.byteLength;
+  const overQuota = async (tx: DbTx) =>
+    (await projectBytes(tx, scope)) + size > config.quotaBytes;
+  // Early, so a full project writes no object at all.
+  if (await scoped(scope.workspaceId, scope.projectId, overQuota))
+    throw new DomainError("FILES_QUOTA_EXCEEDED", 413);
   const id = randomUUID();
   const key = `projects/${scope.projectId}/${input.moduleId}/${id}`;
   const digest = sha256(input.bytes);
@@ -161,6 +181,10 @@ export async function storeFile(
   await store.put(key, encryptFile(input.bytes, id, config.keyHex));
   try {
     const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      // Again in the row's transaction: scoped() holds the project's lock,
+      // so concurrent uploads cannot overshoot.
+      if (await overQuota(tx))
+        throw new DomainError("FILES_QUOTA_EXCEEDED", 413);
       const created = await tx.file.create({
         data: {
           id,

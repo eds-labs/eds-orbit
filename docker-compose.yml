@@ -65,6 +65,8 @@ x-api-environment: &api-environment
   # Generated and kept by Coolify like CREDENTIAL_KEY; losing it makes files unreadable.
   FILES_ENCRYPTION_KEY: ${FILES_ENCRYPTION_KEY:-${SERVICE_HEX_64_FILESKEY}}
   FILES_MAX_BYTES: ${FILES_MAX_BYTES:-20971520}
+  # All files of one project; see packages/config (backup work space).
+  FILES_PROJECT_QUOTA_BYTES: ${FILES_PROJECT_QUOTA_BYTES:-104857600}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_VERIFIED_MODELS: ${OPENAI_VERIFIED_MODELS:-}
   OPENAI_RATE_CARD_JSON: ${OPENAI_RATE_CARD_JSON:-}

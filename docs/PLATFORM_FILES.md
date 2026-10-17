@@ -45,6 +45,7 @@ The backup container never receives `FILES_*`, and api/worker never receive `BAC
 
 - **Limits.**
   - Size: `FILES_MAX_BYTES`, default 20 MB, at most 50 MB.
+  - Total per project: `FILES_PROJECT_QUOTA_BYTES`, default 100 MB, files marked deleted included until purged; beyond it, uploads answer 413 `FILES_QUOTA_EXCEEDED`. With the database backend every file is in every backup, and the backup currently works in a 512 MB tmpfs (the dump and its encrypted copy). Raise the quota only once the backup works on disk.
   - Types:
     - images (PNG, JPEG, GIF, WebP) and PDF, each checked by its file signature;
     - plain text, CSV and `message/rfc822`.

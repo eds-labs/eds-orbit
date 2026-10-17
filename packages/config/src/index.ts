@@ -132,6 +132,17 @@ const baseConfigSchema = z.object({
     .min(1)
     .max(50 * 1024 * 1024)
     .default(20 * 1024 * 1024),
+  // What one project may store in all (WP4.6 review). With the database
+  // backend the files are in every backup, whose work space is a 512 MB
+  // tmpfs holding the dump and its encrypted copy: keep the sum of all
+  // projects and the rest of the database below about 250 MB until the
+  // backup works on disk.
+  FILES_PROJECT_QUOTA_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(1024 * 1024 * 1024 * 1024)
+    .default(100 * 1024 * 1024),
 });
 export const configSchema = baseConfigSchema.transform((config, ctx) => {
   const MCP_RESOURCE =

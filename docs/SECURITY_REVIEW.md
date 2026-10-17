@@ -163,11 +163,24 @@ This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). W
    - Names are stripped of paths and control characters.
    - The size limit is enforced while the body streams in.
 6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. With `s3`, a deleted project leaves its objects behind; with `database` they go by cascade.
-7. **Database backend** (`FILES_BACKEND=database`, the default since 2026-10-17).
-   - `FileBlob` is under FORCE RLS with the project policy.
-   - The store and a check constraint refuse keys of another project.
-   - Content is the same sealed AES-GCM object, so database dumps hold ciphertext only.
-   - The key is Coolify-generated (`SERVICE_HEX_64_FILESKEY`); the review checks that backups without the key cannot reveal content, and that the key is kept somewhere a restore can reach.
+7. **Database backend** (`FILES_BACKEND=database`, the default since 2026-10-17). _Reviewed 2026-10-17: fix (D-1, D-2)._
+   - `FileBlob` is under FORCE RLS with the project policy. _Pass_ (RLS matrix).
+   - The store and a check constraint refuse keys of another project. _Pass_: the constraint is tested by a direct insert from the project's own scope. Project ids are UUIDs, so the `LIKE` pattern holds no wildcards.
+   - Content is the same sealed AES-GCM object, so file content in database dumps is ciphertext. _Pass_, with a limit: names, sizes and the SHA-256 of each file (`File`), and the normalized text of inbound mail (`inbound_emails`), are plaintext in the dump. The dump itself is age-encrypted to the owner's key.
+   - The key is Coolify-generated (`SERVICE_HEX_64_FILESKEY`, the same pattern as `CREDENTIAL_KEY`), reaches api and worker, and never the backup container (compose check). _Fix (D-2)_: the restore runbook now requires a copy.
+   - Size limits against database load. _Fix (D-1)_: a project quota.
+
+   Findings (database backend):
+
+   | ID  | Severity | Finding                                                                                                                                                                                                                                                                                                                                                                      | Evidence                                                                                                                         | Fix                                                                                                                                                                                                                     |
+   | --- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | D-1 | Medium   | Nothing bounded the total. Every byte lands in Postgres and in every nightly backup. The backup stages the dump and its encrypted copy in a 512 MB tmpfs (RAM), and ciphertext does not compress, so backups fail once the database passes about 250 MB. Any editor (100 uploads of 20 MB per minute) or inbound mail could also fill the database disk. | `files.integration` "keeps a project within its storage quota": a third file over the quota was stored.                         | `FILES_PROJECT_QUOTA_BYTES` (default 100 MB) is checked before the write and again in the row's transaction. `scoped()` holds the project lock there, so concurrent uploads cannot overshoot (mutation-checked). Files marked deleted count until purged. |
+   | D-2 | Low      | `docs/BACKUP_RESTORE.md` asked for a copy of `CREDENTIAL_KEY` but not of `FILES_ENCRYPTION_KEY`. A restore after losing the server (and Coolify with it) would leave every file unreadable.                                                                                                                                                                                 | Runbook review.                                                                                                                  | The runbook requires both keys, and a restore checks one file download.                                                                                                                                                 |
+
+   Residual (database backend):
+   - A download holds the file several times in memory (bytea travels hex-encoded over the text protocol, plus copies for decryption and the reply): about 5–6× `FILES_MAX_BYTES` per concurrent download.
+   - At the quota, inbound mail is not stored. It stays in the mailbox and is fetched again (the UID is not advanced), but the owner's mailbox view shows no `lastError` for it (WP4.7 follow-up).
+   - Before raising the quota, the backup must work on disk or streamed (`pg_dump | age`), not in the 512 MB tmpfs. Until then, the sum of all projects' quotas plus the rest of the database must stay below about 250 MB.
 
 ## E-mail and member notifications (WP4.7, prepared 2026-10-17; review open)
 
