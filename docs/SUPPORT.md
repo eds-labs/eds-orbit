@@ -248,6 +248,8 @@ Without evidence, an internal gap note replaces the draft and the ticket is hand
 
 The first run on 2026-10-17 cost $0.0227 and FAILED on one handoff case; see `docs/evidence/support-ai-eval-2026-10-17.json` and the status entry.
 
+The second run on 2026-10-17, after the handoff instruction was sharpened, cost $0.0221 (`docs/evidence/support-ai-eval-2026-10-17-run2.json`). It handed off 2/2 but still FAILED: triage category and language reached only 10/12. The two misses, T09 and T11, are sensitive questions that the hard rules now hand off before any model call (review fix 4), so they get no model category or language by design. The eval still scores them as model triage.
+
 **Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17).
 
 ## Statistics (WP5.7)

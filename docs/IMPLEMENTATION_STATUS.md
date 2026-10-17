@@ -62,6 +62,9 @@ Branch `claude/wp56-support-ai`, stacked on WP5.5. Guide: `docs/SUPPORT.md` (Sup
   - Triage: category 12/12, language 12/12, sensitive recall 4/4.
   - Drafts: 6/6 answered with citations; 0 forbidden phrases; 0 errors.
   - Handoff on unanswerable questions: 1/2, which missed the pre-registered rule. D04 ("Solana deposits?") produced a draft that cites the supported-networks fact instead of handing off. The case note allows a draft that says Solana is not listed, but the pass rule demanded a handoff. The rule was not changed afterwards.
+  - Run 2 on commit `ed6096b`, after the review fixes and a sharpened instruction (never answer from what the evidence does not name; hand off). Result: **FAIL** (`docs/evidence/support-ai-eval-2026-10-17-run2.json`), cost **$0.0221**. The total spent so far is $0.0448.
+    - Handoff: 2/2, so D04 is fixed. Drafts: 6/6 with citations; 0 forbidden phrases; 0 errors; sensitive recall 4/4.
+    - Triage category and language: 10/12. The misses are T09 (`trading`) and T11 (`billing`). Review fix 4 hands both off before the model is called, so they have no model category or language. This was checked locally with `screenCustomerText`. The eval's scoring predates fix 4. The rule was again not changed afterwards.
 
 ## Support notifications and automations: WP5.5 (2026-10-17, local; flags off)
 
