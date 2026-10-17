@@ -79,12 +79,33 @@ Risk: low (tests plus one test-only hook and one type widening). Rollback: rever
 
 ---
 
+## WP4.3 Lock measurement and real-time fan-out (detailed)
+
+Risk class high: invariants may rely on the per-project advisory lock in `scoped()` (`packages/db/src/index.ts`). This WP therefore runs in two gated parts. Part A changes nothing in behaviour. Part B starts only after Mario has seen the measurement report.
+
+**Part A: measurement (this PR).**
+- **Hook.** `lockObserver.observe` in `packages/db` receives `{ waitMs, holdMs }` for every `scoped()` transaction. It is unset in production, where it costs one property read. The measurement labels each sample with its call site from the stack.
+- **Load.** `scripts/measure/lock-load.measure.ts` runs with `vitest.measure.config.ts`, outside `pnpm test`, against the local test database, for 30 s on one project:
+  - five chat-stream pollers (`getRun` every 700 ms, as the SSE route does);
+  - two writers;
+  - the scheduler sweep every 2 s;
+  - a chat run whose scripted model takes 1.5 s per call;
+  - knowledge searches with a 1 s embedding.
+- **Report.** `docs/evidence/lock-measurement-2026-10-17.md` gives per call site the count, wait p50/p95/max and hold p50/p95/max. It also names the transactions that hold the lock across a network call and says whether the lock limits concurrent use.
+
+**Part B: after the report (separate PRs, each with its own approval).**
+- `scopedRead()` without the advisory lock, RLS still set, for read paths the report proves read-only, starting with the chat-stream poll.
+- Redis pub/sub per project and stream:
+  - writers publish after commit;
+  - SSE subscribes and replays from the DB with `Last-Event-ID`;
+  - if Redis is down, it falls back to slow polling.
+- Chat SSE onto pub/sub (optional, if the report shows the poll matters).
+
 ## WP4.2–WP4.7 (outline; each gets a detailed plan before it starts)
 
 | WP | Content | Gate before starting |
 |---|---|---|
 | 4.2 Public ingress | `/api/hooks/:provider/:connectionId` (signature, store, enqueue, idempotent) and `/api/public/<module>/:publicKey/...` (CORS per key, session token, no cookies); per-client rate limits | Security review plan; F-02 fix is live |
-| 4.3 Real-time | Lock wait measurement, `scopedRead()` for proven read-only paths, Redis pub/sub per project and stream with `Last-Event-ID` replay | Measurement report first |
 | 4.4 Operator eval | Offline cases: tool choice across modules, permission-filtered sets, one ActionRequest per write (uses the fixture module) | none |
 | 4.5 Module roles | `ProjectMemberModuleRole`, `can()` resolves module role first, `none` hides the module; members UI matrix | Security review; auth change |
 | 4.6 Files | `File` table with FORCE RLS, S3-compatible adapter (own bucket and credentials), streaming upload, authorized download, retention | Mario approves the bucket and credentials (Q-19) |
