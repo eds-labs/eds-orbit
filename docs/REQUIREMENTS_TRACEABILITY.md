@@ -105,7 +105,7 @@ Rows from `plans/orbit-modularization/07-roadmap.md` (WP-M1 acceptance and tests
 | M105 | ChatGPT auth requirement: resource and `aud` (token audience includes `MCP_RESOURCE`) | `mcp-oauth-flow` (full flow issues an audience-bound token) | PASS_TEST |
 | M106 | ChatGPT auth requirement: UserInfo with `sub`, `email`, `email_verified` (`false`, known limitation D7) | `mcp-oauth-flow` (UserInfo) | PASS_TEST |
 | M107 | A revoked grant fails on the next call; revocation beats the refresh reuse window | `mcp-oauth-revoke.integration` (revoked grant, reuse window, owner revoke, gateway lookup) | PASS_TEST |
-| M108 | Session login is unchanged (flag off registers nothing; no `set-auth-jwt`; `/api/auth/token` closed) | `mcp-oauth-config.unit`, `mcp-oauth-http` (flag off, sign-in headers), `auth.integration.test.ts`, `access-matrix.integration` | PASS_TEST |
+| M108 | Session login is unchanged with the flag off | `mcp-oauth-config.unit` (flag off registers no plugins; `/api/auth/token` stays disabled in every mode), `mcp-oauth-http.integration` (flag off: oauth2 endpoints answer 403 and well-known paths 404; with the flag on, sign-in responses carry no `set-auth-jwt` header), `auth.integration.test.ts` (the unchanged session suite), `access-matrix.integration` | PASS_TEST |
 | M109 | Test: PKCE and wrong verifier | `mcp-oauth-flow` (full flow, wrong `code_verifier` is `invalid_grant`) | PASS_TEST |
 | M110 | Test: wrong redirect URI | `mcp-oauth-flow` (unregistered `redirect_uri` is rejected without redirecting) | PASS_TEST |
 | M111 | Test: missing `resource` | `mcp-oauth-flow` (`invalid_target` without a redirect) | PASS_TEST |

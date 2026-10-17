@@ -10,7 +10,7 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
   - `MCP_RESOURCE` (blank): token audience and resource, default `${APP_ORIGIN}/mcp`; must be https (loopback http only) without query, fragment or credentials. Every configured resource needs `allowedScopes` (Prisma list `null` caveat).
   - `ORBIT_MCP_CIMD_HOSTS=chatgpt.com`: hosts (exact or subdomain) whose client metadata documents Orbit may fetch.
   - All four pass through `docker-compose.yml` (api and worker share the anchor); `scripts/check-coolify-compose.mjs` pins the defaults and the follow-through.
-- **Endpoints (flag on).** Issuer `${APP_ORIGIN}/api/auth` (D2); `/api/auth/oauth2/*` (authorize, token, userinfo, consent, continue; register only with DCR); `/api/auth/jwks`; metadata at `/.well-known/oauth-authorization-server/api/auth` and `/api/auth/.well-known/openid-configuration`. `/api/auth/token` stays disabled and sign-in responses carry no `set-auth-jwt` header. Machine endpoints (token, userinfo, register) skip the browser Origin check and accept form bodies; consent and continue still need it. Ingress is the existing web proxy plus a Next route for the root `/.well-known/*` paths (D3); the proxy forwards `Authorization` only for `/api/auth/oauth2/*` and sends the browser's `Sec-Fetch-Mode` as `x-orbit-sec-fetch-mode` so authorize answers 302 instead of JSON; the API strips that header with the flag off.
+- **Endpoints (flag on).** Issuer `${APP_ORIGIN}/api/auth` (D2); `/api/auth/oauth2/*` (authorize, token, userinfo, consent, continue; register only with DCR); `/api/auth/jwks`; metadata at `/.well-known/oauth-authorization-server/api/auth` and `/api/auth/.well-known/openid-configuration`. `/api/auth/token` stays disabled and sign-in responses carry no `set-auth-jwt` header. Machine endpoints (token, revoke, introspect, and register only with DCR on) skip the browser Origin check and accept form bodies; authorize, consent, continue and userinfo are not exempt. Ingress is the existing web proxy plus a Next route for the root `/.well-known/*` paths (D3); the proxy forwards `Authorization` only for `/api/auth/oauth2/*` and sends the browser's `Sec-Fetch-Mode` as `x-orbit-sec-fetch-mode` so authorize answers 302 instead of JSON; the API strips that header with the flag off.
 - **Orbit routes (flag on, else 404).** `GET /api/mcp-connect/request`, `POST /api/mcp-connect/selection`, `POST /api/mcp-connect/consent`, `GET /api/mcp-grants`, `GET /api/workspaces/:id/mcp-grants`, `DELETE /api/mcp-grants/:id`.
 - **Web.** `/connect` (workspace, project and scope selection with consent), `/connect/login` (login that continues the authorization; plain sign-in is unchanged), `/connect/error`, and Settings → Connected apps (own grants, owner section for the workspace).
 - **Data.** Migration `202610170001_mcp_oauth` (additive): the ten auth tables `jwks`, `oauthClient`, `oauthAccessToken`, `oauthRefreshToken`, `oauthConsent`, `oauthClientAssertion`, `oauthResource`, `oauthClientResource`, `McpGrant`, `McpGrantEvent`. They belong to `orbit_auth` (listed in `scripts/db-deploy.ts` `authTables`, owner entries in the module registry); `orbit_app` has no access.
@@ -20,7 +20,7 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
 - **Security mechanisms.**
   - The workspace is Better Auth's consent reference, so consent, tokens and refresh families are per (user, client, workspace) (fixed upstream in 1.7.10, #11801).
   - One partial unique index allows a single active grant per (user, client, workspace); a selection replaces the active one and copies its scopes.
-  - A code is issued only for an active grant (pending selections never yield one; refused redirects withhold the code; consent with claims is refused).
+  - A code is issued only for an active grant (pending selections never yield one; refused redirects withhold the code; consent with claims is refused). This is not fail-closed without exception: consuming a selection is a read-then-update without a row lock (same-user concurrent replace window), and an abandoned selection can be reused once by the same client and session within 600 s (see limitations).
   - `resource` is required on authorize and must equal `MCP_RESOURCE` (400 `invalid_target`); the signed query is checked for expiry (`OAUTH_REQUEST_EXPIRED`) and tampering.
   - A refresh needs an active grant and `refreshAllowed` (no revocation of the same grant lineage at or after the token's creation, except replaced or superseded).
   - Revocation (user, owner, deny, client change) deletes the grant's outstanding authorization codes, consent and refresh tokens in one transaction and writes a `McpGrantEvent`.
@@ -57,7 +57,16 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
 - A changed client document is noticed only after the metadata revalidation interval (default 60 min). A failed revocation on a client change is logged at error level and marked `revocationFailed`; there is no persisted retry.
 - Discovery metadata is sent with `Cache-Control: no-store` (WP-M2 may want caching).
 - Replacing a grant copies the old scopes even when the new request asks for fewer: WP-M2 must intersect token scopes with grant scopes, check that `aud` includes `MCP_RESOURCE`, and call `activeGrantForToken`.
-- The ledger of smaller review notes is in `.superpowers/sdd/2026-10-17-track-m-wp-m1-oauth/progress.md` (not part of the repository history).
+- Smaller review findings, accepted for WP-M1:
+  - The selection is not bound to the signed OAuth query; it is looked up only by session and client.
+  - An abandoned selection can be reused once by the same client and session within 600 s.
+  - With the flag on, form bodies are accepted on every permitted `/api/auth` endpoint, including sign-in (the Origin check still applies).
+  - After a re-grant within 1 s of a revocation, older refresh tokens are refused (`createdAt` has second precision); the user may need to re-authorize.
+  - `consumeSelection` is a read-then-update without a row lock: there is a same-user concurrent-replace window.
+  - A selection can replace an active grant before `/oauth2/continue` has validated the client.
+  - Browsers that send no `Sec-Fetch-Mode` still get the JSON answer instead of a 302 on authorize.
+  - The owner section in Connected apps is gated on the project role, not the workspace role (the API enforces workspace owner).
+- `docs/evidence/source-manifest.json` is stale for `docker-compose.yml` (and has been since the initial commits); regenerate it with `node scripts/source-manifest.mjs` at the next evidence refresh.
 
 **Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`; nothing else changes. Production (later, WP-M5): the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway. The migration is additive and the tables can stay. Full rollback: redeploy the previous `main` commit.
 
