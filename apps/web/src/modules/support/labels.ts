@@ -83,6 +83,12 @@ const en = {
     ai_reply: "AI reply",
     system: "System",
   } as Record<string, string>,
+  privacy: {
+    export: "Export data",
+    erase: "Erase contact",
+    eraseConfirm:
+      "Erase this contact with all tickets, messages, attachments and mails? This cannot be undone.",
+  },
   stats: {
     title: "Support statistics",
     intro: "Tickets created in the range: volume, speed, SLA and AI.",
@@ -238,6 +244,12 @@ const de: SupportText = {
     ai_draft: "KI-Entwurf",
     ai_reply: "KI-Antwort",
     system: "System",
+  },
+  privacy: {
+    export: "Daten exportieren",
+    erase: "Kontakt löschen",
+    eraseConfirm:
+      "Diesen Kontakt mit allen Tickets, Nachrichten, Anhängen und Mails löschen? Das lässt sich nicht rückgängig machen.",
   },
   stats: {
     title: "Support-Statistik",

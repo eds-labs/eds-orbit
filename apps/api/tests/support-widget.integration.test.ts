@@ -330,4 +330,24 @@ describe.skipIf(!enabled)("support widget public API", () => {
       404,
     );
   });
+
+  it("caps conversations per anonymous session (WP5.8)", async () => {
+    const token = await visitor();
+    await call("POST", "/identify", {
+      token,
+      payload: { email: "many@example.org" },
+    });
+    const statuses = [];
+    for (let i = 0; i < 6; i++)
+      statuses.push(
+        (
+          await call("POST", "/conversations", {
+            token,
+            payload: { bodyText: `Question ${i}` },
+          })
+        ).statusCode,
+      );
+    expect(statuses.slice(0, 5)).toEqual([200, 200, 200, 200, 200]);
+    expect(statuses[5]).toBe(429);
+  });
 });

@@ -1,5 +1,17 @@
 # Implementation status
 
+## Support privacy and operations: WP5.8 (2026-10-17, local; flag off)
+
+Branch `claude/wp58-support-privacy`, stacked on WP5.7. Guides: `docs/SUPPORT.md` (Privacy and operations) and `docs/OPERATIONS.md` (Support runbook).
+
+- **Export and erasure per contact** (owners). Erasure covers the rows, the files, the mailbox rows of sent and received mail with their raw files, the identities and the widget sessions.
+- **Daily retention by the Q-12b settings** (closed tickets, AI drafts, sessions, orphan contacts, raw mail files).
+- **Abuse caps** for widget conversations and messages, and for e-mail tickets per sender.
+- **The canary test**: no text in audit, events, telemetry or notifications.
+- **A runbook** for mail outage, widget abuse, the AI kill switch and privacy operations.
+- **Tests.** `support-privacy.integration.test.ts`, 5 tests: export, erase, retention, canary, sender cap. Plus the widget conversation cap.
+- **Blocks the pilot until done; now done.** The pilot (WP5.9) still needs the legal checks in the decision note.
+
 ## Support statistics: WP5.7 (2026-10-17, local; flag off)
 
 Branch `claude/wp57-support-stats`, stacked on WP5.6. Guide: `docs/SUPPORT.md` (Statistics).
