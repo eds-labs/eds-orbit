@@ -48,6 +48,8 @@ export const configSchema = z.object({
   // Owners may switch modules per project (WP1.4). Activation is recorded but
   // not yet enforced; every module keeps working while this is "false".
   ORBIT_MODULES: z.enum(["false", "true"]).default("false"),
+  // Module-level roles (WP4.5): off until the security review and approval.
+  ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);
