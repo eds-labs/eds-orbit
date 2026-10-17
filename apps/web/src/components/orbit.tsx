@@ -32,6 +32,8 @@ import {
 import { WorkspaceContext } from "./workspace-context";
 import {
   activeNavKey,
+  crumbs,
+  moduleUsable,
   defaultProject,
   keptSuffix,
   locate,
@@ -58,7 +60,9 @@ import {
 } from "@/platform/shell/pickers";
 
 const LAST_PROJECT = "orbit.project";
-type ModuleStates = { modules: Array<{ id: string; enabled: boolean }> };
+type ModuleStates = {
+  modules: Array<{ id: string; enabled: boolean; access?: string }>;
+};
 
 const lastProject = () => {
   try {
@@ -197,8 +201,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     if (!project) return null;
     const states = moduleStates.data?.modules;
     // Until the states load, or if they fail, every module counts as enabled.
+    // A module the member has no access to (WP4.5) is hidden like a disabled one.
     const enabled = (id: string) =>
-      states?.find((m) => m.id === id)?.enabled ?? true;
+      moduleUsable(states?.find((m) => m.id === id));
     const nav = navOrder(table.routes.filter((r) => r.nav));
     const active = registry.modules.filter((m) => enabled(m.id));
     return {
@@ -562,7 +567,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               )}
               <span>{project.name}</span>
               <span>/</span>
-              <strong>{route ? label(route) : t("notFound")}</strong>
+              {route ? (
+                crumbs(route, table, locale).map((part, i, all) =>
+                  i < all.length - 1 ? (
+                    <span key={part}>
+                      {part}
+                      <span aria-hidden="true"> / </span>
+                    </span>
+                  ) : (
+                    <strong key={part}>{part}</strong>
+                  ),
+                )
+              ) : (
+                <strong>{t("notFound")}</strong>
+              )}
             </div>
             <div className="topbar-actions">
               {languageControl}

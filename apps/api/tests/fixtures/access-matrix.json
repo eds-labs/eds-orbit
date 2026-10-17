@@ -398,6 +398,13 @@
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/members/{userId}/module-roles": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/metrics": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1393,6 +1400,13 @@
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/marketing-profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/members/{userId}/module-roles": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",

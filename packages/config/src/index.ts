@@ -85,6 +85,8 @@ const baseConfigSchema = z.object({
   ),
   // Hosts (exact or subdomain) whose Client ID Metadata Documents are fetched.
   ORBIT_MCP_CIMD_HOSTS: z.string().default("chatgpt.com"),
+  // Module-level roles (WP4.5): off until the security review and approval.
+  ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
 });
 export const configSchema = baseConfigSchema.transform((config, ctx) => {
   const MCP_RESOURCE =

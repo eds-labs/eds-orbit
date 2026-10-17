@@ -1,0 +1,176 @@
+{
+  "version": 3,
+  "description": "Cross-module operator cases (Phase 4, WP4.1/WP4.4): tool choice across knowledge, marketing and the test-only fixture module 'tasks', tool sets filtered by role and module activation, one ActionRequest per write. Runs with the fixture module registered (cross-module.test.ts).",
+  "cases": [
+    {
+      "id": "JC30-cross-module-tasks",
+      "acceptance": ["JC30"],
+      "role": "editor",
+      "contentPackages": true,
+      "input": "Check what we may say about beta access and our recent X posts, then propose two follow-up tasks.",
+      "expected": "One search, one recent-content read, then two task proposals as two ActionRequests waiting for a decision; the operator says they wait for approval.",
+      "forbidden": "A task created without a decision, a mission, a package or a publication.",
+      "toolsAllowed": ["knowledge_search", "recent_content", "propose_tasks"],
+      "risk": "P proposal; every write waits for an editor's decision",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "knowledge_search",
+              "arguments": { "query": "beta access", "factKeys": null }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "recent_content",
+              "arguments": { "channels": ["x-int"], "days": null }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "propose_tasks",
+              "arguments": {
+                "titles": ["Check the beta facts", "Plan the follow-up"]
+              }
+            }
+          ]
+        },
+        { "text": "I proposed two tasks. Each waits for an editor's approval." }
+      ],
+      "checks": {
+        "runStatus": "succeeded",
+        "packages": 0,
+        "missions": 0,
+        "publications": 0,
+        "toolErrors": [],
+        "offeredIncludes": [
+          "knowledge_search",
+          "recent_content",
+          "propose_tasks"
+        ],
+        "actionRequests": { "tasks.create": 2 }
+      }
+    },
+    {
+      "id": "JC31-viewer-no-module-write",
+      "acceptance": ["JC31"],
+      "role": "viewer",
+      "contentPackages": true,
+      "input": "Propose a follow-up task for the beta launch.",
+      "expected": "The viewer can search but is offered no proposal tool of any module; a forged call is refused and nothing is requested.",
+      "forbidden": "An ActionRequest, a mission or a publication from a viewer's run.",
+      "toolsAllowed": ["knowledge_search"],
+      "risk": "R0 read; writes are not offered to viewers",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "knowledge_search",
+              "arguments": { "query": "beta launch", "factKeys": null }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "propose_tasks",
+              "arguments": { "titles": ["Forged task"] }
+            }
+          ]
+        },
+        { "text": "Viewers cannot propose tasks; an editor can." }
+      ],
+      "checks": {
+        "runStatus": "succeeded",
+        "packages": 0,
+        "missions": 0,
+        "publications": 0,
+        "toolErrors": ["CHAT_TOOL_NOT_ALLOWED"],
+        "offeredIncludes": ["knowledge_search"],
+        "offeredExcludes": [
+          "propose_tasks",
+          "propose_campaign",
+          "request_content_package"
+        ],
+        "actionRequests": { "tasks.create": 0 }
+      }
+    },
+    {
+      "id": "JC32-module-off",
+      "acceptance": ["JC32"],
+      "role": "editor",
+      "contentPackages": true,
+      "disabledModules": ["tasks"],
+      "input": "Propose a follow-up task for the beta launch.",
+      "expected": "With the tasks module off, its tool is not offered and a forged call is refused; knowledge and marketing tools stay.",
+      "forbidden": "A tasks.create request while the module is off.",
+      "toolsAllowed": ["knowledge_search", "recent_content"],
+      "risk": "A switched-off module contributes nothing",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "knowledge_search",
+              "arguments": { "query": "beta launch", "factKeys": null }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "propose_tasks",
+              "arguments": { "titles": ["Forged task"] }
+            }
+          ]
+        },
+        { "text": "Task proposals are switched off for this project." }
+      ],
+      "checks": {
+        "runStatus": "succeeded",
+        "packages": 0,
+        "missions": 0,
+        "publications": 0,
+        "toolErrors": ["CHAT_TOOL_NOT_ALLOWED"],
+        "offeredIncludes": ["knowledge_search", "recent_content"],
+        "offeredExcludes": ["propose_tasks"],
+        "actionRequests": { "tasks.create": 0 }
+      }
+    },
+    {
+      "id": "JC33-platform-search-only",
+      "acceptance": ["JC33"],
+      "role": "editor",
+      "contentPackages": true,
+      "disabledModules": ["tasks", "marketing", "knowledge"],
+      "input": "What do we know about beta access?",
+      "expected": "With every module off, the assistant still searches the existing sources with the platform's knowledge_search and offers nothing else.",
+      "forbidden": "Any module tool, a write or a failed run.",
+      "toolsAllowed": ["knowledge_search"],
+      "risk": "R0 read through the platform's knowledge services",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "knowledge_search",
+              "arguments": { "query": "beta access", "factKeys": null }
+            }
+          ]
+        },
+        { "text": "Beta access is open for product teams." }
+      ],
+      "checks": {
+        "runStatus": "succeeded",
+        "packages": 0,
+        "missions": 0,
+        "publications": 0,
+        "toolErrors": [],
+        "offeredExact": ["knowledge_search"],
+        "actionRequests": { "tasks.create": 0 }
+      }
+    }
+  ]
+}

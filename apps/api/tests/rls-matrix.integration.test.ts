@@ -50,6 +50,7 @@ const CHAT_TABLES = [
 const TENANCY_TABLES = [
   "Project",
   "ProjectMember",
+  "ProjectMemberModuleRole",
   "Workspace",
   "WorkspaceMember",
 ];
@@ -74,6 +75,7 @@ const SYSTEM_TABLES = ["_prisma_migrations"];
 // Tenancy tables the business role must not touch at all.
 const NO_APP_ACCESS = [
   "ProjectMember",
+  "ProjectMemberModuleRole",
   "Workspace",
   "WorkspaceMember",
   ...AUTH_ONLY_TABLES,

@@ -8,6 +8,7 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { DomainError } from "../shared.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { projectMembership } from "./member-scope.ts";
+import { moduleScope } from "./module-roles.ts";
 import { authorize, PROJECT_READ } from "./permissions.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import { CLIENT_IP_HEADER } from "../../client-ip.ts";
@@ -118,12 +119,19 @@ export async function scopeFor(
   if (!membership) throw new DomainError("NOT_FOUND", 404);
   const role = membership.role;
   if (!role) throw new DomainError("FORBIDDEN", 403);
-  authorize({ role }, required);
-  return {
+  const scope: Scope = {
     workspaceId: membership.workspaceId,
     projectId,
     userId: user.id,
     role,
+    ...(membership.moduleRoles ? { moduleRoles: membership.moduleRoles } : {}),
   };
+  // A module's route runs with the member's role in that module (WP4.5).
+  const effective = moduleScope(
+    scope,
+    (req as { orbitModule?: string }).orbitModule,
+  );
+  authorize(effective, required);
+  return effective;
 }
 export { fromNodeHeaders };

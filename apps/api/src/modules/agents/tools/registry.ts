@@ -22,7 +22,10 @@ export type ToolNamespace =
   | "drive"
   | "research"
   | "proposals"
-  | "assignments";
+  | "assignments"
+  // A module's own namespace (WP4.1): the namespace only groups tools for
+  // tool search, so a third module must not need a platform change for it.
+  | (string & {});
 // Agents never receive tools with external or irreversible effects.
 export type ToolRisk = "R0_read" | "W0_internal" | "P_proposal";
 // Tools behind a feature flag are offered only while it is on.

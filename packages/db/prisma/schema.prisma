@@ -256,14 +256,31 @@ model ProjectMarketingProfileVersion {
 }
 
 model ProjectMember {
-  workspaceId String  @db.Uuid
-  projectId   String  @db.Uuid
+  workspaceId String                    @db.Uuid
+  projectId   String                    @db.Uuid
   userId      String
   role        String
-  project     Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
-  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project                   @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleRoles ProjectMemberModuleRole[]
 
   @@id([projectId, userId])
+  @@index([workspaceId, userId])
+}
+
+/// A member's role in one module (WP4.5): editor, viewer or none.
+model ProjectMemberModuleRole {
+  workspaceId String        @db.Uuid
+  projectId   String        @db.Uuid
+  userId      String
+  moduleId    String
+  role        String
+  changedBy   String?
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime      @default(now()) @updatedAt @db.Timestamptz(3)
+  member      ProjectMember @relation(fields: [projectId, userId], references: [projectId, userId], onDelete: Cascade)
+
+  @@id([projectId, userId, moduleId])
   @@index([workspaceId, userId])
 }
 

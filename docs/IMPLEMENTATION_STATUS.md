@@ -70,7 +70,104 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
 
 **Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`; nothing else changes. Production (later, WP-M5): the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway. The migration is additive and the tables can stay. Full rollback: redeploy the previous `main` commit.
 
-## Product words of the fact checks from the profile: WP3.4 (2026-10-15, local)
+## Module-level roles: WP4.5 (2026-10-17, local; flag off)
+
+Branch `claude/wp45-module-roles`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: an authorization change, behind `ORBIT_MODULE_ROLES` (default `false`).
+
+- **Data.** Migration `202610170005_project_member_module_role`: an additive table with RLS, `orbit_auth` only, cascading with the membership.
+- **Resolution.** `platform/tenancy/module-roles.ts`:
+  - The membership carries a non-owner's overrides.
+  - `effectiveRole` and `moduleScope` give a module's code the member's role there; `none` answers 404 `MODULE_NOT_AVAILABLE`.
+  - `visibleModules` filters tools, prompt fragments and conversation sections like activation does.
+- **Gates.**
+  - Module routes, actions and collections.
+  - Assistant tools, offered and executed per tool owner.
+  - Prompt fragments and conversation sections.
+  - `GET /modules` with `access`, so the web shell hides `none`.
+- **Management.**
+  - `GET/PUT /api/projects/:id/members/:userId/module-roles`: owners only, audited, refused for owners and unknown modules, 404 while the flag is off.
+  - "Module roles" per member in the web.
+- **Tests.**
+  - `module-roles.integration.test.ts`: refusals; `none` in routes, collections, actions and the module list; a viewer raised to editor in knowledge only; stored rows ignored with the flag off; removal.
+  - `module-roles-assistant.integration.test.ts`: tools and a forged call.
+  - Shell and form unit tests; the RLS matrix includes the new table.
+- **Production.** Migration and flag need Mario's approval; the flag also needs the security review (`docs/SECURITY_REVIEW.md`). The migration alone changes nothing.
+
+## Project lock measurement: WP4.3 Part A (2026-10-17, local)
+
+Branch `claude/wp43-lock-measurement`. Report: [docs/evidence/lock-measurement-2026-10-17.md](evidence/lock-measurement-2026-10-17.md).
+
+- **Hook.** `lockObserver.observe` in `packages/db` reports `{ waitMs, holdMs }` for every `scoped()` transaction. It is unset in production (one property read) and tested in `packages/db/tests/lock-observer.integration.test.ts`.
+- **Measurement.** `scripts/measure/lock-load.measure.ts` with `vitest.measure.config.ts`, outside `pnpm test`. Load: chat runs with a 1.5 s model, searches with a 1 s embedding, writers, the sweep, and 5 or 25 chat-stream pollers.
+- **Result.**
+  - No transaction holds the lock across a provider call; the longest hold is 66 ms.
+  - With 25 open chat streams (about 54 transactions per second on one project), writers keep a call p95 of 28 ms and polls 71 ms.
+  - The lock does not limit one project at this load. Polling is the cost that grows with open streams.
+- **Recommendation.** Part B needs Mario's decision:
+  - no lock-free read path now;
+  - Redis pub/sub for streams when Support starts;
+  - repeat the measurement on the production host against a staging copy first.
+
+## Cross-module operator eval: WP4.4 (2026-10-17, local)
+
+Branch `claude/wp44-operator-eval` (on top of WP4.1).
+
+- **Dataset.** `evals/operator/cases-v3.json` replays recorded model steps through the real chat runner, with knowledge, marketing and the test-only fixture module registered:
+  - JC30: tools of all three modules in one run, with two task proposals as two pending ActionRequests;
+  - JC31: a viewer is offered no module write, and a forged `propose_tasks` is refused (`CHAT_TOOL_NOT_ALLOWED`);
+  - JC32: with the tasks module off, its tool is neither offered nor callable;
+  - JC33: with every module off, the assistant is offered exactly `knowledge_search` and still searches the existing sources.
+- **Harness.** New optional `disabledModules` and `actionRequests` fields. `cases-v1.json` and `cases-v2.json` are unchanged, and so are their hashes.
+- **Verification.** All 14 operator cases are green offline; no network call and no paid call.
+
+## A third module through the contracts alone: WP4.1 (2026-10-17, local)
+
+Branch `claude/wp41-extensibility`, the first work package of Phase 4. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`.
+
+- **Fixture module `tasks`** (`apps/api/tests/fixtures/modules/tasks`, test only). It declares:
+  - a kind and two permissions;
+  - a route, a readable collection and an action;
+  - a proposal tool, an action type and a scheduler.
+  
+  `registerTestModules()` in `modules/registry.ts` adds it; the API and the worker register only the static list.
+- **Three gaps the suite found and closed** (behaviour of knowledge and marketing unchanged):
+  - `ToolNamespace` was a closed union. A module may now name its own namespace; it only groups tools for tool search.
+  - The generic collection read accepted a fixed list of kinds. A module now declares readable kinds with `EntityKindDef.collection`. The registry refuses it for an unexported kind, so credentials can never become readable.
+  - Action permissions were hard-coded for knowledge and marketing in `server.ts`. Modules now contribute `actionPermissions` for their own actions only; the registry refuses another module's action.
+- **Tests:**
+  - `extensibility.integration.test.ts`: registration; the tool offered by role; the route, collection and action for owner, editor, viewer and a non-member; module off and on again, including the scheduler.
+  - `extensibility-assistant.integration.test.ts`: a scripted chat run across knowledge, marketing and the fixture yields two ActionRequests. A viewer cannot decide them; an editor approves one and exactly one task appears.
+
+**Rollback.** Revert; there is no schema or data change.
+
+## Phase 3 follow-ups (2026-10-17, local)
+
+Branch `claude/phase3-followups`.
+
+- **Breadcrumb.** Knowledge sub-pages showed their internal key ("knowledge-facts"). `ViewDef.title` now names a page without a navigation entry, and `crumbs()` shows "Wissen / Fakten". A test checks that no page shows its key.
+- **brandTerms in the profile editor.** The marketing profile editor (`modules/marketing/advanced.tsx`) has a field for the product words of the fact checks. Words are lower-cased and de-duplicated; an empty field leaves `brandTerms` out, so the built-in uLiquid words stay. Saving the profile invalidates pending packages, as every profile save does.
+- **Deployment record of Phase 3** (below).
+
+## Phase 3 in production: WP3.1–WP3.4 (2026-10-15/16)
+
+Each step was merged into `main` on Mario's approval, after green CI and outside the 10:00/17:00 slots. Coolify deployed each one with about 30–40 seconds of 503 while the containers were replaced. After every deploy, `/api/health/ready` (database ok, worker ready) and `/api/health/postiz` were ok.
+
+| WP | PR | Merge commit | Merged | Live |
+|---|---|---|---|---|
+| WP3.1 impact handlers | #128 | `918e06c` | 15.10 15:57 | 16:00 |
+| WP3.2 knowledge services, K-1 | #129 | `6567951` | 15.10 17:15 | 17:19 |
+| WP3.3 knowledge module, URL views | #130 | `c9f8af2` | 15.10 17:46 | 17:49 |
+| WP3.4 brand terms from the profile | #131 | `2533a80` | 16.10 15:41 | 15:45 |
+
+Checks after the deploys:
+- **K-1, before the switch.** The read-only check in production (`scripts/rollout/k1-usable-facts-diff.sql`, as `orbit_app`, ending in ROLLBACK) showed every uLiquid fact unchanged.
+- **Knowledge views.** `/p/<uLiquid>/knowledge/facts` opens the Facts tab with the knowledge entry highlighted.
+- **Assignment runs on 16.10 (`63f76b22`) and 17.10 (`f610945b`).** Every step finished; the new `knowledge_search` and the K-1 rule raised no error.
+  - Of the four drafts, the 17:00 draft of 17.10 was approved and handed to Postiz for X and Telegram (WP2.6 check 8).
+  - The three rejections came from content conflicts, not from the refactor: an extra word in a fact sentence, banner copy competing with the CTA, reviewer directions left in the text, and a topic built on a fact that the guardrails forbid. They are handled separately.
+  - The daily report (WP2.6 check 9) has not been checked here.
+
+## Product words of the fact checks from the profile: WP3.4 (2026-10-15; production 2026-10-16)
 
 Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. Behaviour for uLiquid is unchanged.
 
@@ -91,7 +188,7 @@ Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-ph
 
 **Rollback.** Revert; there is no schema migration or data change (the profile field is optional and unused).
 
-## Knowledge module, server and web: WP3.3 (2026-10-15, local)
+## Knowledge module, server and web: WP3.3 (2026-10-15; production 2026-10-15)
 
 Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. With `ORBIT_MODULES=false` the product is unchanged; the knowledge views gain URLs.
 
@@ -111,7 +208,7 @@ Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-
 
 **Rollback.** Revert; there is no schema or data change.
 
-## Knowledge services and the K-1 fact rule: WP3.2 (2026-10-15, local)
+## Knowledge services and the K-1 fact rule: WP3.2 (2026-10-15; production 2026-10-15)
 
 Branch `claude/wp32-knowledge-services` (stacked on WP3.1). Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`.
 
@@ -132,7 +229,7 @@ Branch `claude/wp32-knowledge-services` (stacked on WP3.1). Plan: `docs/superpow
 
 **Rollback.** Revert; there is no schema or data change.
 
-## Knowledge invalidation through impact handlers: WP3.1 (2026-10-15, local)
+## Knowledge invalidation through impact handlers: WP3.1 (2026-10-15; production 2026-10-15)
 
 Branch `claude/plattform-umbau-fortschritt-05c734`, the first work package of Phase 3 (plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`). Risk class high: a missed invalidation would make revoked evidence publishable. Behaviour is unchanged.
 

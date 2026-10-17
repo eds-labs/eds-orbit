@@ -3,9 +3,11 @@ import { Home } from "lucide-react";
 import { webRegistry } from "@/modules/registry";
 import {
   activeNavKey,
+  crumbs,
   defaultProject,
   keptSuffix,
   locate,
+  moduleUsable,
   navOrder,
   pickerHref,
   projectHref,
@@ -212,6 +214,30 @@ describe("Web route registry", () => {
     expect(table.routes.some((r) => standaloneKeys.includes(r.key))).toBe(
       false,
     );
+  });
+
+  it("names a knowledge tab in the breadcrumb under its entry, never by its key", () => {
+    const route = (key: string) => table.routes.find((r) => r.key === key)!;
+    expect(crumbs(route("knowledge-facts"), table, "de")).toEqual([
+      "Wissen",
+      "Fakten",
+    ]);
+    expect(crumbs(route("knowledge-conflicts"), table, "en")).toEqual([
+      "Knowledge",
+      "Conflicts",
+    ]);
+    expect(crumbs(route("knowledge"), table, "de")).toEqual(["Wissen"]);
+    for (const r of table.routes)
+      for (const part of crumbs(r, table, "en"))
+        expect(part, r.key).not.toBe(r.key);
+  });
+
+  it("hides a module that is off or that the member has no access to (WP4.5)", () => {
+    expect(moduleUsable(undefined)).toBe(true);
+    expect(moduleUsable({ enabled: true })).toBe(true);
+    expect(moduleUsable({ enabled: true, access: "viewer" })).toBe(true);
+    expect(moduleUsable({ enabled: true, access: "none" })).toBe(false);
+    expect(moduleUsable({ enabled: false, access: "editor" })).toBe(false);
   });
 
   it("rejects conflicting registries", () => {

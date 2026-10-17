@@ -148,6 +148,8 @@ try {
     "oauthClientResource",
     "McpGrant",
     "McpGrantEvent",
+    // Module-level roles (WP4.5): tenancy data, like ProjectMember.
+    "ProjectMemberModuleRole",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${authTables.map(identifier).join(",")} TO orbit_auth`,

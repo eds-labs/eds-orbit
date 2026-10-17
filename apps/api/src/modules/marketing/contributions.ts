@@ -7,6 +7,7 @@ import { marketingHooks } from "./hooks.ts";
 import { marketingRetention } from "./retention.ts";
 import { marketingPeriodicTasks } from "./periodic.ts";
 import { marketingActions } from "./actions.ts";
+import { marketingActionPermissions } from "./permissions.ts";
 import { marketingRoutes } from "./routes.ts";
 import { readiness } from "./readiness/readiness.ts";
 import { marketingAssistant } from "./assistant/prompt.ts";
@@ -35,6 +36,7 @@ export const marketingContributions: ModuleContributions = {
   retention: marketingRetention,
   periodic: marketingPeriodicTasks,
   actions: marketingActions,
+  actionPermissions: marketingActionPermissions,
   routes: marketingRoutes,
   readiness,
   assistant: marketingAssistant,
