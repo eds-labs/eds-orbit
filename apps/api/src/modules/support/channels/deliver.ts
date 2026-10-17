@@ -37,7 +37,9 @@ export async function deliverMessage(
   const contact = await tx.supportContact.findFirst({
     where: { id: ticket.contactId, deletedAt: null },
   });
-  const to = contact?.email ?? contact?.claimedEmail;
+  // Only the correspondence address: a claimed (typed, unverified) address
+  // is never mailed, or anyone could send our replies to a third party.
+  const to = contact?.email;
   if (to) {
     const state = await queueEmailMessage(tx, scope, ticket, message, {
       ...options,

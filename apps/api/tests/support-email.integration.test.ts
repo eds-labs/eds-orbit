@@ -20,6 +20,7 @@ import {
 import { setObjectStoreForTests } from "../src/platform/files/files.ts";
 import type { ObjectStore } from "../src/platform/files/s3.ts";
 import { createInbox } from "../src/modules/support/inboxes.ts";
+import { createTicket } from "../src/modules/support/tickets.ts";
 import {
   handleInboundEmail,
   syncEmailDelivery,
@@ -464,5 +465,62 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
     delete process.env.ORBIT_SUPPORT;
     await receive(mime({ Subject: "While off" }));
     expect((await tickets()).length).toBe(before);
+  });
+
+  it("never mails a claimed address and threads by headers only from the ticket's contact (review fix 1)", async () => {
+    // An anonymous widget visitor who typed someone else's address.
+    const widgetInbox = await run(
+      async (tx) =>
+        (
+          await createInbox(tx, scope, {
+            name: "Widget",
+            channels: ["widget"],
+            allowedOrigins: ["https://desk.example.invalid"],
+          })
+        ).inbox.id,
+    );
+    const claimed = await run((tx) =>
+      tx.supportContact.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          claimedEmail: "victim@example.org",
+        },
+      }),
+    );
+    const widgetTicket = await run((tx) =>
+      createTicket(tx, scope, {
+        inboxId: widgetInbox,
+        channel: "widget",
+        contactId: claimed.id,
+        inbound: { externalId: null, contact: {}, subject: "Hi", bodyText: "Hi", attachments: [] },
+      }),
+    );
+    await flush();
+    sent.length = 0;
+    const reply = await run((tx) =>
+      replyToTicket(tx, { ...scope, userId: "agent-1" }, widgetTicket.ticketId, {
+        bodyText: "Widget answer",
+      }),
+    );
+    await flush();
+    expect(sent.filter((m) => m.to.includes("victim@example.org"))).toEqual([]);
+    expect(reply.deliveryState).toBe("sent");
+
+    // A stranger answering with the headers of Anna's thread opens a new ticket.
+    const raw = mime({ Subject: "Anna thread" });
+    await receive(raw);
+    const annaTicket = (await tickets()).find((t) => t.subject === "Anna thread")!;
+    const annaId = /Message-ID: (<[^>]+>)/.exec(raw.toString())![1]!;
+    await receive(
+      mime(
+        { From: "Mallory <mallory@example.org>", Subject: "Re: Anna thread", "In-Reply-To": annaId },
+        "Injected",
+      ),
+    );
+    expect(
+      (await messagesOf(annaTicket.id)).some((m) => m.bodyText.includes("Injected")),
+    ).toBe(false);
   });
 });

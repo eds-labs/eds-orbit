@@ -186,10 +186,42 @@ export async function eraseContact(scope: Scope, contactId: string) {
       await tx.entity.deleteMany({
         where: { id: { in: sessions.map((s) => s.id) } },
       });
-      await tx.supportMessage.updateMany({
+      // What they wrote in other tickets goes too (review fix 2).
+      const authored = await tx.supportMessage.findMany({
         where: { authorContactId: contactId },
-        data: { authorContactId: null },
+        select: { id: true },
       });
+      const authoredFiles = await tx.supportAttachment.findMany({
+        where: { messageId: { in: authored.map((m) => m.id) } },
+        select: { fileId: true },
+      });
+      await tx.supportMessage.deleteMany({
+        where: { authorContactId: contactId },
+      });
+      // Mail from their addresses that never became a message (review fix 8).
+      const addresses = [contact.email, contact.claimedEmail].filter(
+        (v): v is string => Boolean(v),
+      );
+      const unlinked = addresses.length
+        ? await tx.entity.findMany({
+            where: {
+              projectId: scope.projectId,
+              kind: INBOUND_KIND,
+              OR: addresses.map((a) => ({
+                data: { path: ["from"], equals: a },
+              })),
+            },
+          })
+        : [];
+      await tx.entity.deleteMany({
+        where: { id: { in: unlinked.map((r) => r.id) } },
+      });
+      removed.files.push(
+        ...authoredFiles.map((a) => a.fileId),
+        ...unlinked
+          .map((r) => data(r).fileId)
+          .filter((v): v is string => typeof v === "string"),
+      );
       await tx.supportContact.delete({ where: { id: contactId } });
       await audit(tx, scope, "support.contact.erased", contactId, {
         contactId,

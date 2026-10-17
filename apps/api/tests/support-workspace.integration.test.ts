@@ -335,34 +335,15 @@ describe.skipIf(!enabled)("support workspace API", () => {
     expect(refused.json().error.code).toBe("ASSIGNEE_NOT_AGENT");
   });
 
-  it("merges tickets and contacts", async () => {
+  it("merges contacts, then their tickets, and never tickets of two contacts", async () => {
     const a = await ticket({ contact: { email: "merge-a@example.invalid" } });
     const b = await ticket({ contact: { email: "merge-b@example.invalid" } });
-    const merged = await call(
-      "editor",
-      "POST",
-      `/tickets/${a.ticketId}/merge`,
-      {
-        intoTicketId: b.ticketId,
-      },
-    );
-    expect(merged.statusCode).toBe(200);
-    const source = await call("viewer", "GET", `/tickets/${a.ticketId}`);
-    expect(source.json().ticket).toMatchObject({
-      status: "closed",
-      mergedIntoTicketId: b.ticketId,
+    // Two customers' conversations never end up in one ticket (review fix 2).
+    const across = await call("editor", "POST", `/tickets/${a.ticketId}/merge`, {
+      intoTicketId: b.ticketId,
     });
-    const target = await call("viewer", "GET", `/tickets/${b.ticketId}`);
-    expect(
-      target.json().timeline.filter((i: any) => i.kind === "customer"),
-    ).toHaveLength(2);
-    expect(
-      (
-        await call("editor", "POST", `/tickets/${b.ticketId}/merge`, {
-          intoTicketId: b.ticketId,
-        })
-      ).statusCode,
-    ).toBe(409);
+    expect(across.statusCode).toBe(409);
+    expect(across.json().error.code).toBe("MERGE_CONTACT_MISMATCH");
 
     const contactMerge = await call(
       "editor",
@@ -380,6 +361,32 @@ describe.skipIf(!enabled)("support workspace API", () => {
     ).toEqual([a.ticketId, b.ticketId].sort());
     const list = await call("viewer", "GET", "/contacts?q=merge-a");
     expect(list.json().items).toEqual([]);
+    // The tombstone keeps nothing personal.
+    const tomb = await run((tx) =>
+      tx.supportContact.findUniqueOrThrow({ where: { id: a.contactId } }),
+    );
+    expect(tomb).toMatchObject({ email: null, name: null, claimedEmail: null, notes: null });
+
+    const merged = await call("editor", "POST", `/tickets/${a.ticketId}/merge`, {
+      intoTicketId: b.ticketId,
+    });
+    expect(merged.statusCode).toBe(200);
+    const source = await call("viewer", "GET", `/tickets/${a.ticketId}`);
+    expect(source.json().ticket).toMatchObject({
+      status: "closed",
+      mergedIntoTicketId: b.ticketId,
+    });
+    const target = await call("viewer", "GET", `/tickets/${b.ticketId}`);
+    expect(
+      target.json().timeline.filter((i: any) => i.kind === "customer"),
+    ).toHaveLength(2);
+    expect(
+      (
+        await call("editor", "POST", `/tickets/${b.ticketId}/merge`, {
+          intoTicketId: b.ticketId,
+        })
+      ).statusCode,
+    ).toBe(409);
     const renamed = await call("editor", "PATCH", `/contacts/${b.contactId}`, {
       name: "Bea Merged",
       notes: "VIP",

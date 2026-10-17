@@ -361,4 +361,21 @@ describe.skipIf(!enabled)("support privacy and operations", () => {
     expect(results.filter(Boolean)).toHaveLength(10);
     expect(results.at(-1)).toBe(false);
   });
+
+  it("erases the contact's messages in other tickets and their unlinked inbound mail (review fixes 2, 8)", async () => {
+    const t = await ticket("author@example.org", "Mine");
+    const other = await ticket("other@example.org", "Other customer");
+    await run(async (tx) => {
+      await tx.supportMessage.create({
+        data: { id: randomUUID(), workspaceId: owner.workspaceId, projectId: owner.projectId, ticketId: other.ticketId, kind: "customer", authorContactId: t.contactId, bodyText: "Authored elsewhere", channel: "email", visibleToCustomer: true },
+      });
+      await create(tx, owner, "inbound_emails", { messageId: "<unlinked@example.org>", from: "author@example.org", subject: "Ignored", text: "Unlinked text" });
+    });
+    await eraseContact(owner, t.contactId);
+    const left = await run(async (tx) => ({
+      authored: await tx.supportMessage.count({ where: { bodyText: "Authored elsewhere" } }),
+      inbound: await tx.entity.count({ where: { kind: "inbound_emails", data: { path: ["from"], equals: "author@example.org" } } }),
+    }));
+    expect(left).toEqual({ authored: 0, inbound: 0 });
+  });
 });
