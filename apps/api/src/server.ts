@@ -41,6 +41,8 @@ import {
 } from "./modules/ai-usage.ts";
 import { pauseProject } from "./platform/governance/pause.ts";
 import { exportProject } from "./platform/governance/export.ts";
+import { closeRealtime, realtimeEnabled } from "./platform/realtime/fanout.ts";
+import { serveEventStream } from "./platform/realtime/sse.ts";
 import {
   runtimeHealth,
   closeRuntime,
@@ -54,6 +56,9 @@ import {
   sendMessage,
   getRun,
   cancelRun,
+  runSnapshot,
+  runStream,
+  TERMINAL_RUN_STATUSES,
 } from "./modules/chat.ts";
 import {
   decideActionRequest,
@@ -1002,6 +1007,29 @@ export async function buildServer(
       const scope = await scopeFor(auth, req, projectId);
       const runId = z.uuid().parse(id);
       await getRun(scope, runId);
+      // WP4.3 Part B: wait on the real-time fan-out instead of polling.
+      if (realtimeEnabled())
+        return serveEventStream(req, reply, {
+          projectId,
+          stream: runStream(runId),
+          async replay(after) {
+            const run = await getRun(scope, runId);
+            return {
+              // The snapshot is the whole run, so only the latest counts.
+              events:
+                after === null || run.sequence > after
+                  ? [
+                      {
+                        id: run.sequence,
+                        event: "snapshot",
+                        data: runSnapshot(run),
+                      },
+                    ]
+                  : [],
+              done: TERMINAL_RUN_STATUSES.includes(run.status),
+            };
+          },
+        });
       reply.hijack();
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -1020,13 +1048,11 @@ export async function buildServer(
           if (run.sequence !== last) {
             last = run.sequence;
             reply.raw.write(
-              `id: ${run.sequence}\nevent: snapshot\ndata: ${JSON.stringify({ id: run.id, status: run.status, partialText: run.partialText, errorCode: run.errorCode, sequence: run.sequence })}\n\n`,
+              `id: ${run.sequence}\nevent: snapshot\ndata: ${JSON.stringify(runSnapshot(run))}\n\n`,
             );
           } else reply.raw.write(": keepalive\n\n");
           if (
-            ["succeeded", "failed", "blocked", "canceled"].includes(
-              run.status,
-            ) ||
+            TERMINAL_RUN_STATUSES.includes(run.status) ||
             Date.now() - started > 39000
           ) {
             clearInterval(timer);
@@ -1208,7 +1234,10 @@ export async function buildServer(
     await userFor(auth, req);
     return { ...app.swagger(), components: { schemas: contractSchemas } };
   });
-  app.addHook("onClose", async () => closeRuntime());
+  app.addHook("onClose", async () => {
+    closeRuntime();
+    await closeRealtime();
+  });
   await app.ready();
   return app;
 }

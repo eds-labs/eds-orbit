@@ -23,7 +23,7 @@ import {
   openAiConfigurationVersion,
   runtimeOpenAiConfiguration,
 } from "./openai-configuration.ts";
-import { chatScoped, getRun } from "./chat.ts";
+import { chatScoped, getRun, runChanged } from "./chat.ts";
 import { actorScope } from "./member-scope.ts";
 import type { ChatCard } from "../platform/assistant/cards.ts";
 import {
@@ -101,7 +101,7 @@ export function staticChatBytes() {
   );
 }
 async function snapshot(scope: Scope, runId: string, text: string) {
-  return chatScoped(scope, async (tx) => {
+  const saved = await chatScoped(scope, async (tx) => {
     const run = await tx.chatRun.findFirst({
       where: {
         id: runId,
@@ -120,6 +120,8 @@ async function snapshot(scope: Scope, runId: string, text: string) {
       },
     });
   });
+  runChanged(scope, runId, saved.sequence);
+  return saved;
 }
 
 function errorCode(error: unknown) {
@@ -341,6 +343,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       const routeVersion = await openAiConfigurationVersion(tx, scope);
       return { run, messages: messages.reverse(), project, routeVersion };
     });
+    runChanged(scope, runId);
     if (recovered) {
       // A crashed invocation left its run open; close it after the settlement committed.
       const crashed = recovered as NonNullable<typeof recovered>;
@@ -479,6 +482,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
           });
           return { runtime, model, modelRoute, reservationId: reservation.id };
         });
+        runChanged(scope, runId);
         inFlight.reservationId = prepared.reservationId;
         inFlight.transmitted = true;
         inFlight.model = prepared.model;
@@ -607,6 +611,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         },
       });
     });
+    runChanged(scope, runId);
     await finishRun(scope, agentRunId, finalStatus);
   } catch (error) {
     const unsettled =
@@ -640,6 +645,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         },
       });
     });
+    runChanged(scope, runId);
     // Telemetry only after the failure settlement committed.
     if (unsettled)
       await recordSpan(scope, agentRunId, {

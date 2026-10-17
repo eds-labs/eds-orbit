@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { DbTx } from "../../../../packages/db/src/index.ts";
+import { afterCommit, DbTx } from "../../../../packages/db/src/index.ts";
 import { userScoped } from "../platform/tenancy/scope.ts";
 import { type Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, create, DomainError, entity, update } from "../shared.ts";
@@ -7,6 +7,7 @@ import { enqueue } from "../platform/jobs/enqueue.ts";
 import { registeredConversationSections } from "../platform/modules/contributions.ts";
 import { visibleModules } from "../platform/tenancy/module-roles.ts";
 import { enabledModules } from "../platform/modules/enforcement.ts";
+import { publishChange } from "../platform/realtime/fanout.ts";
 
 export const sendInput = z
   .object({
@@ -291,11 +292,13 @@ export async function sendMessage(scope: Scope, id: string, raw: unknown) {
 export async function stopChatRunForPause(
   tx: DbTx,
   job: Record<string, unknown>,
+  scope: Scope,
 ) {
+  const runId = String(job.resourceId);
   await tx.$executeRaw`SELECT set_config('app.user_id',${String(job.actorId)},true)`;
-  await tx.chatRun.updateMany({
+  const stopped = await tx.chatRun.updateMany({
     // A running reply checked the pause before its model call and finishes.
-    where: { id: String(job.resourceId), status: "queued" },
+    where: { id: runId, status: "queued" },
     data: {
       status: "blocked",
       errorCode: "PROJECT_PAUSED",
@@ -303,6 +306,42 @@ export async function stopChatRunForPause(
     },
   });
   await tx.$executeRaw`SELECT set_config('app.user_id','',true)`;
+  if (stopped.count) afterCommit(tx, () => runChanged(scope, runId));
+}
+
+/** A run's stream on the real-time fan-out (WP4.3 Part B). */
+export const runStream = (runId: string) => `chat-run:${runId}`;
+export const TERMINAL_RUN_STATUSES = [
+  "succeeded",
+  "failed",
+  "blocked",
+  "canceled",
+];
+
+/**
+ * Wakes the run's SSE subscribers. Call it after the transaction that
+ * changed the run returned; `sequence` lets subscribers that already have
+ * it skip the read.
+ */
+export function runChanged(scope: Scope, runId: string, sequence?: number) {
+  void publishChange(scope.projectId, runStream(runId), sequence);
+}
+
+/** The SSE snapshot of a run: the whole state, so the latest one suffices. */
+export function runSnapshot(run: {
+  id: string;
+  status: string;
+  partialText: string | null;
+  errorCode: string | null;
+  sequence: number;
+}) {
+  return {
+    id: run.id,
+    status: run.status,
+    partialText: run.partialText,
+    errorCode: run.errorCode,
+    sequence: run.sequence,
+  };
 }
 
 export async function getRun(scope: Scope, runId: string) {
@@ -316,7 +355,7 @@ export async function getRun(scope: Scope, runId: string) {
 }
 
 export async function cancelRun(scope: Scope, runId: string) {
-  return chatScoped(scope, async (tx) => {
+  const run = await chatScoped(scope, async (tx) => {
     const run = await tx.chatRun.findFirst({
       where: { ...where(scope), id: runId },
     });
@@ -328,4 +367,6 @@ export async function cancelRun(scope: Scope, runId: string) {
       data: { status: "canceled", sequence: { increment: 1 } },
     });
   });
+  runChanged(scope, runId, run.sequence);
+  return run;
 }

@@ -42,7 +42,7 @@ export const platformContributions: ModuleContributions = {
         return { status: finished.status, errorCode: finished.errorCode };
       },
       // The reply would otherwise wait forever.
-      onBlockedByPause: (tx, job) => stopChatRunForPause(tx, job),
+      onBlockedByPause: (tx, job, scope) => stopChatRunForPause(tx, job, scope),
     },
     {
       queueClass: "ingestion",

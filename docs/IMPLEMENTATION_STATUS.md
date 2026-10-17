@@ -1,5 +1,29 @@
 # Implementation status
 
+## Real-time fan-out: WP4.3 Part B (2026-10-17, local; flag off)
+
+Branch `claude/hungry-neumann-4b8c03`. Mario deferred Part B until Support starts, and decided against `scopedRead()` on 2026-10-17. The operating guide is `docs/REALTIME_FANOUT.md`.
+
+- **Flag.** `ORBIT_REALTIME`, default `false`, in config, Compose (API and worker) and `.env.example`. While it is off, nothing is published and the chat stream polls as before.
+- **Fan-out.** `platform/realtime/fanout.ts`:
+  - `publishChange` runs after commit, is fire-and-forget and carries the cursor only, no content.
+  - `RealtimeHub` keeps one subscriber connection per process, with channels refcounted per project and stream, and its own resubscribe after an outage.
+- **SSE.** `platform/realtime/sse.ts`: `serveEventStream`.
+  - It subscribes, then replays from the database after `Last-Event-ID`, and replays again on each wake-up.
+  - It ends after 39 s with `retry: 1000`, and polls every 5 s while Redis is down.
+- **`afterCommit(tx, fn)`** in `packages/db`. `scoped()` runs these hooks after the commit and never after a rollback. The pause stop of a chat run publishes through it.
+- **Orbit Chat.**
+  - With the flag on, the run stream uses `serveEventStream`.
+  - The runner, cancel and the pause stop publish after each committed run write.
+  - The worker passes the scope to `onBlockedByPause`.
+- **Web proxy.** It forwards `Last-Event-ID`, which it dropped before, so a reconnect resumes instead of starting over.
+- **Tests.**
+  - `realtime.integration.test.ts`: concurrency, order, repeated cuts with resume, Redis unreachable, Redis cut and recovered, flag off.
+  - `chat-realtime.integration.test.ts`: 10 streams on one run, no transaction while idle, resume, pause, another member's run, flag off, `afterCommit`.
+  - Proxy header test.
+  - Local p95: fan-out 4–7 ms, chat SSE 18–30 ms, each test under 1 s. A mutation check confirmed both suites.
+- **Production.** Merging changes nothing while the flag is off. The flag, and its first use for the chat, are separate approvals by Mario. The production-host lock measurement remains as planned in the Part A report.
+
 ## E-mail over SMTP/IMAP and member notifications: WP4.7 (2026-10-17, local; flags off)
 
 Branch `claude/wp47-email-notifications` (on top of WP4.6). Mario decided on 2026-10-17 (Q-16): the project's existing mailbox over SMTP and IMAP, no new provider and no DNS change by Orbit. The operating guide is `docs/EMAIL_AND_NOTIFICATIONS.md`.

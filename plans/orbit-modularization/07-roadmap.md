@@ -546,6 +546,10 @@
 - **Effort:** 3–5 PT.
 
 ### WP4.3 Lock measurement and real-time fan-out
+- **Status:**
+  - Part A (measurement) is live via #135 (2026-10-17).
+  - Part B (items 3–4) was implemented locally on 2026-10-17, flag `ORBIT_REALTIME` off (`docs/REALTIME_FANOUT.md`).
+  - Item 2 (`scopedRead()`) was dropped by Mario's decision of 2026-10-17: the lock is not a measured bottleneck.
 - **Goal / result:** Two outcomes:
   - Data on whether the per-project lock (`packages/db/src/index.ts:52`) limits concurrent use.
   - A real-time mechanism that does not poll the DB under the lock. This is now **mandatory** for the support live chat (S-R5).
