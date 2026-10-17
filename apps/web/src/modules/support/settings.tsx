@@ -71,6 +71,8 @@ export function inboxBody(form: {
   origins: string;
   aiMode: string;
   language: string;
+  /** Per-inbox switches (WP5.5); left out, the project defaults apply. */
+  rules?: { autoAck: boolean; autoClose: boolean; sla: boolean };
 }) {
   const channels = [
     ...(form.email ? ["email"] : []),
@@ -88,6 +90,7 @@ export function inboxBody(form: {
       : [],
     aiMode: form.aiMode,
     language: form.language,
+    ...(form.rules ? { rules: form.rules } : {}),
   };
 }
 
@@ -257,6 +260,11 @@ function InboxForm({
     emailAddress: inbox?.emailAddress ?? "",
     origins: (inbox?.allowedOrigins ?? []).join("\n"),
     aiMode: inbox?.aiMode ?? "off",
+    rules: {
+      autoAck: inbox?.rules?.autoAck ?? true,
+      autoClose: inbox?.rules?.autoClose ?? true,
+      sla: inbox?.rules?.sla ?? true,
+    },
     language: inbox?.language ?? "en",
   });
   const save = useMutation();
@@ -350,6 +358,21 @@ function InboxForm({
             <option value="de">Deutsch</option>
           </select>
         </label>
+        <fieldset>
+          <legend>{t.settings.rulesLegend}</legend>
+          {(["autoAck", "autoClose", "sla"] as const).map((rule) => (
+            <label key={rule}>
+              <input
+                type="checkbox"
+                checked={form.rules[rule]}
+                onChange={(e) =>
+                  set({ rules: { ...form.rules, [rule]: e.target.checked } })
+                }
+              />{" "}
+              {t.settings.rule[rule]}
+            </label>
+          ))}
+        </fieldset>
         <Button type="submit" disabled={save.pending}>
           {t.save}
         </Button>

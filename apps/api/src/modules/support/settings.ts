@@ -86,3 +86,32 @@ export function supportSettingsDefaults(): SupportSettings {
     },
   };
 }
+
+/**
+ * Per-inbox switches over the project's settings (WP5.5); a missing key
+ * keeps the project default.
+ */
+export const inboxRulesSchema = z
+  .object({
+    autoAck: z.boolean(),
+    autoClose: z.boolean(),
+    autoCloseDays: z.number().int().min(1).max(90),
+    reopenOnReply: z.boolean(),
+    sla: z.boolean(),
+  })
+  .partial()
+  .strict();
+export type InboxRules = z.infer<typeof inboxRulesSchema>;
+
+/** The rules that apply to an inbox: its switches over the project settings. */
+export function effectiveRules(settings: SupportSettings, raw: unknown) {
+  const rules = inboxRulesSchema.safeParse(raw ?? {});
+  const own = rules.success ? rules.data : {};
+  return {
+    autoAck: own.autoAck ?? settings.autoAck,
+    autoClose: own.autoClose ?? true,
+    autoCloseDays: own.autoCloseDays ?? settings.autoCloseDays,
+    reopenOnReply: own.reopenOnReply ?? settings.reopenOnReply,
+    sla: own.sla ?? true,
+  };
+}

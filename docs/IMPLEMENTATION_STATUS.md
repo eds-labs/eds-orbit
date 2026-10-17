@@ -1,5 +1,17 @@
 # Implementation status
 
+## Support notifications and automations: WP5.5 (2026-10-17, local; flags off)
+
+Branch `claude/wp55-support-automations`, stacked on WP5.4. Guide: `docs/SUPPORT.md` (Notifications and automations).
+
+- **Notifications.** Seven member notification kinds (WP4.7). Their titles carry no text; e-mail is on by default only for assigned, breached and handoff.
+- **Automations.**
+  - Auto-assign (fixed, round robin).
+  - A scheduler contribution for SLA at risk and breach (once per clock) and auto-close, with `nextDueAt`.
+  - The hooks in ticket creation, customer replies, assignment, mentions and handoff.
+- **Per-inbox switches.** `rules` on the inbox, from migration `202610180003_support_inbox_rules` (additive), with checkboxes in the inbox form.
+- **Tests.** `support-automations.integration.test.ts`, 7 tests, with the sweep run at given times. They cover recipients, auto-assign, mentions, replies, SLA once each, auto-close with its switch, the inbox rules, a muted kind, and the sweep while support is off.
+
 ## Support livechat widget: WP5.4 (2026-10-17, local; flags off)
 
 Branch `claude/wp54-support-widget`, stacked on WP5.3. Guides: `docs/SUPPORT.md` (Livechat widget) and `docs/SUPPORT_WIDGET.md` (app teams, Desk pilot checklist for Q-20).

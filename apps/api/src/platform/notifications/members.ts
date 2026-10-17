@@ -7,9 +7,11 @@ import { userScoped } from "../tenancy/scope.ts";
 import { projectMembership } from "../tenancy/member-scope.ts";
 import { effectiveRole } from "../tenancy/module-roles.ts";
 import {
+  ownerEnabled,
   registeredUserNotification,
   registeredUserNotifications,
 } from "../modules/contributions.ts";
+import { enabledModules } from "../modules/enforcement.ts";
 import { emailEnabled } from "../email/connection.ts";
 import { queueEmail } from "../email/send.ts";
 
@@ -207,10 +209,17 @@ export async function myPreferences(scope: Scope) {
     const stored = await tx.notificationPreference.findMany({
       where: { projectId: scope.projectId, userId: scope.userId },
     });
+    // Only kinds of modules that are on in the project and available for
+    // the installation (support needs ORBIT_SUPPORT, WP5.5).
+    const enabled = await enabledModules(tx, scope);
     return {
       email: emailEnabled(),
       kinds: registeredUserNotifications()
-        .filter((k) => effectiveRole(scope, k.owner) !== "none")
+        .filter(
+          (k) =>
+            ownerEnabled(k.owner, enabled) &&
+            effectiveRole(scope, k.owner) !== "none",
+        )
         .map((k) => {
           const mine = stored.find((p) => p.kind === k.kind);
           return {

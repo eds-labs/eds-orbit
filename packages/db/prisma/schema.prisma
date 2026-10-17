@@ -350,6 +350,7 @@ model SupportInbox {
   defaultAssigneeUserId String?
   language              String    @default("en")
   aiMode                String    @default("off")
+  rules                 Json      @default("{}")
   version               Int       @default(1)
   createdBy             String
   createdAt             DateTime  @default(now()) @db.Timestamptz(3)
