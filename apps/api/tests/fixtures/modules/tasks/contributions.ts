@@ -55,9 +55,19 @@ export const proposeTasks = defineTool({
   },
 });
 
-/** HMAC-SHA256 of the raw body with the connection's secret, hex. */
-export function fixtureSignature(rawBody: string, secret: string) {
-  return createHmac("sha256", secret).update(rawBody).digest("hex");
+/**
+ * HMAC-SHA256 of the message id and the raw body with the connection's
+ * secret, hex. The id is signed too, so a captured delivery cannot be
+ * replayed under a new id.
+ */
+export function fixtureSignature(
+  messageId: string,
+  rawBody: string,
+  secret: string,
+) {
+  return createHmac("sha256", secret)
+    .update(`${messageId}.${rawBody}`)
+    .digest("hex");
 }
 
 export const tasksContributions: ModuleContributions = {
@@ -105,7 +115,11 @@ export const tasksContributions: ModuleContributions = {
       verify({ rawBody, headers, credential }) {
         const sent = Buffer.from(headers["x-fixture-signature"] ?? "", "hex");
         const expected = Buffer.from(
-          fixtureSignature(rawBody, credential),
+          fixtureSignature(
+            headers["x-fixture-message-id"] ?? "",
+            rawBody,
+            credential,
+          ),
           "hex",
         );
         return (

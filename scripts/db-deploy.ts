@@ -174,8 +174,9 @@ try {
     "ChatProposal",
     "AgentRun",
     "AgentSpan",
-    // Platform files (WP4.6).
+    // Platform files (WP4.6) and their content with the database backend.
     "File",
+    "FileBlob",
     // Member notifications (WP4.7), private per member by RLS.
     "Notification",
     "NotificationPreference",

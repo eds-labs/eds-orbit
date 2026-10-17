@@ -151,7 +151,13 @@ export type SignedWebhookProvider = {
     credential: string;
     now: Date;
   }): boolean;
-  /** The provider's id of the message, for idempotency; null rejects it. */
+  /**
+   * The provider's id of the message, for idempotency; null rejects it. It
+   * must be covered by the signature `verify` checks (a field of the signed
+   * body, or a header the signature includes); otherwise a captured delivery
+   * replays under a new id. A provider that signs a timestamp should also
+   * reject old ones in `verify`.
+   */
   messageId(input: {
     body: unknown;
     headers: Readonly<Record<string, string | undefined>>;
@@ -228,6 +234,7 @@ type Registered = {
     actions: ReadonlyMap<string, string>;
     jobs: ReadonlyMap<string, string>;
     periodic: ReadonlyMap<string, string>;
+    actionTypes: ReadonlyMap<string, string>;
   };
 };
 let registered: Registered | null = null;
@@ -278,6 +285,7 @@ export function registerContributions(
     actions: new Map<string, string>(),
     jobs: new Map<string, string>(),
     periodic: new Map<string, string>(),
+    actionTypes: new Map<string, string>(),
   };
   for (const [owner, c] of ordered) {
     for (const tool of c.tools ?? [])
@@ -286,6 +294,8 @@ export function registerContributions(
       owners.actions.set(name, owner);
     for (const job of c.jobs ?? []) owners.jobs.set(job.queueClass, owner);
     for (const task of c.periodic ?? []) owners.periodic.set(task.name, owner);
+    for (const type of Object.keys(c.actionTypes ?? {}))
+      owners.actionTypes.set(type, owner);
     for (const [prefix, handle] of Object.entries(
       c.telegram?.callbacks ?? {},
     )) {
@@ -482,6 +492,9 @@ export const registeredActionOwner = (name: string) =>
   current().owners.actions.get(name);
 export const registeredJobOwner = (queueClass: string) =>
   current().owners.jobs.get(queueClass);
+/** The module (or "platform") whose action request type this is (WP4.5). */
+export const registeredActionTypeOwner = (type: string) =>
+  current().owners.actionTypes.get(type);
 
 /**
  * Assistant tools of every module, platform first, then in registry order;

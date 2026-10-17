@@ -40,6 +40,37 @@ export function moduleScope(scope: Scope, moduleId: string | undefined): Scope {
 }
 
 /**
+ * The member's highest role in any module, for checks made before the module
+ * is known: a viewer raised to editor in one module counts as an editor.
+ */
+export function highestRole(scope: Scope): Scope["role"] {
+  if (scope.role !== "viewer") return scope.role;
+  return Object.values(scope.moduleRoles ?? {}).includes("editor")
+    ? "editor"
+    : "viewer";
+}
+
+/** The modules the member has no access to (never any for owners). */
+export function hiddenModules(scope: Scope): string[] {
+  if (scope.role === "owner") return [];
+  return Object.entries(scope.moduleRoles ?? {})
+    .filter(([, role]) => role === "none")
+    .map(([id]) => id);
+}
+
+/**
+ * The entity kinds of the modules the member has no access to: the records
+ * platform reads that span modules (export, dashboard) leave out.
+ */
+export function hiddenKinds(scope: Scope): string[] {
+  const hidden = hiddenModules(scope);
+  if (!hidden.length) return [];
+  return [...registeredRegistry().kindOwner]
+    .filter(([, owner]) => hidden.includes(owner))
+    .map(([kind]) => kind);
+}
+
+/**
  * The modules the member may use, intersected with the project's enabled
  * modules: the set the platform filters tools, prompt fragments and
  * conversation sections by. Unchanged without a "none" override.
@@ -48,10 +79,8 @@ export function visibleModules(
   scope: Scope,
   enabled?: ReadonlySet<string>,
 ): ReadonlySet<string> | undefined {
-  const hidden = Object.entries(scope.moduleRoles ?? {})
-    .filter(([, role]) => role === "none")
-    .map(([id]) => id);
-  if (!hidden.length || scope.role === "owner") return enabled;
+  const hidden = hiddenModules(scope);
+  if (!hidden.length) return enabled;
   const base = enabled ?? new Set(registeredRegistry().order);
   return new Set([...base].filter((id) => !hidden.includes(id)));
 }
