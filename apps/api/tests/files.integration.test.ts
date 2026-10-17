@@ -319,6 +319,59 @@ describe.skipIf(!enabled)("platform files", () => {
     );
   });
 
+  it("applies the member's role in the file's module (WP4.5)", async () => {
+    const marketing = await storeFile(owner(), {
+      moduleId: "marketing",
+      bytes: PNG,
+      mime: "image/png",
+    });
+    process.env.ORBIT_MODULE_ROLES = "true";
+    const role = (value: "viewer" | "none") =>
+      authDb.projectMemberModuleRole.upsert({
+        where: {
+          projectId_userId_moduleId: {
+            projectId,
+            userId: ids.editor,
+            moduleId: "marketing",
+          },
+        },
+        create: {
+          workspaceId,
+          projectId,
+          userId: ids.editor,
+          moduleId: "marketing",
+          role: value,
+        },
+        update: { role: value },
+      });
+    try {
+      await role("viewer");
+      expect(
+        (await upload("editor", PNG, { module: "marketing" })).statusCode,
+      ).toBe(403);
+      expect((await call("editor", "DELETE", marketing.id)).statusCode).toBe(
+        403,
+      );
+      expect((await call("editor", "GET", marketing.id)).statusCode).toBe(200);
+      await role("none");
+      for (const response of [
+        await upload("editor", PNG, { module: "marketing" }),
+        await call("editor", "GET", marketing.id),
+        await call("editor", "DELETE", marketing.id),
+      ]) {
+        expect(response.statusCode).toBe(404);
+        expect(response.json().error.code).toBe("MODULE_NOT_AVAILABLE");
+      }
+      // Knowledge stays as before.
+      expect((await upload("editor", PNG)).statusCode).toBe(201);
+    } finally {
+      delete process.env.ORBIT_MODULE_ROLES;
+      await authDb.projectMemberModuleRole.deleteMany({
+        where: { projectId },
+      });
+    }
+  });
+
   it("keeps another project's files unreachable", async () => {
     const theirs = await storeFile(
       { ...owner(), projectId: otherProjectId },

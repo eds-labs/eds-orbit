@@ -61,30 +61,65 @@ A bounded run of 40 API liveness reads at concurrency eight returned only HTTP 2
 
 No cross-project bypass was identified in the reviewed scoped paths; local role/RLS negative tests passed. This does not certify absence of every authorization defect. Existing Desk, Forecast, Postiz, Matomo and Chatwoot infrastructure stayed unchanged. Both temporary container projects were shut down after testing while preserving their test volumes; the primary local development stack remains separate.
 
-## Module-level roles (WP4.5, prepared 2026-10-17; review open)
+## Module-level roles (WP4.5, prepared 2026-10-17; review done 2026-10-17)
 
-`ORBIT_MODULE_ROLES` stays `false` in production until this review is done and Mario approves the flag. What the review checks:
+`ORBIT_MODULE_ROLES` stays `false` in production until Mario approves the flag. An independent adversarial review ran on 2026-10-17. It found four holes in platform entry points outside the original list (MR-1 to MR-4). All four are fixed with tests in the review PR. **The flag can go on once that PR is merged and deployed, not before.**
 
-1. **Every module entry point uses the member's role in that module.** Covered:
-   - routes (`scopeFor`, marked by the route group);
-   - actions and collections (by owner);
-   - assistant tools (offer and execution per tool owner);
-   - prompt fragments and conversation sections (`visibleModules`);
-   - the shell (`GET /modules` access).
-   
-   Tests: `module-roles.integration.test.ts`, `module-roles-assistant.integration.test.ts`.
-2. **No escalation.**
-   - Owners never get an override, and only owners set overrides.
-   - An override can raise a viewer to editor in one module (S-R6), never to owner.
-   - A forged tool call runs with the owner module's role.
-3. **Data.**
-   - `ProjectMemberModuleRole` is a tenancy table: RLS project scope, `orbit_auth` only, no grant to `orbit_app` (RLS matrix).
-   - Rows cascade with the membership.
-4. **Audit.** `member.module_role_changed` records the actor, the change and the resulting roles; no secrets.
-5. **Known limits.**
+Each item is marked **pass** (held under attack, with a test) or **fix** (a hole was found and fixed).
+
+1. **Every module entry point uses the member's role in that module.**
+   - **pass:** routes (`scopeFor`, marked by the route group); every marketing and knowledge project route calls `scopeFor`. The Slack interaction route maps only owners.
+   - **pass:** actions and collections (by owner).
+   - **pass:** assistant tools (offer and execution per tool owner).
+   - **pass:** prompt fragments and conversation sections (`visibleModules`).
+   - **pass:** the shell (`GET /modules` access).
+   - **pass:** platform files. Upload, download and delete use the role in the file's stored module (new test in `files.integration.test.ts`).
+   - **pass:** public module API. A public session is a project viewer, never a member, so module roles do not apply.
+   - **fix (MR-1):** action request decisions.
+   - **fix (MR-2, MR-3):** the export and the dashboard.
+   - **fix (MR-4):** the member's notification list.
+
+   Tests: `module-roles.integration.test.ts`, `module-roles-assistant.integration.test.ts`, `files.integration.test.ts`, `notifications.integration.test.ts`.
+2. **No escalation.** **pass** for all of:
+   - Only owners set overrides. An editor gets `403`.
+   - Owners never get an override. A project owner gets `409 OWNER_HAS_NO_MODULE_ROLES`, and a workspace owner without a membership row gets `404`.
+   - Rows stored before a promotion to owner are ignored (new test).
+   - An override can raise a viewer to editor in one module (S-R6), never to owner. The input enum and the database check both refuse `owner`.
+   - A forged tool call runs with the owner module's role. It is refused when that role is `none`.
+   - Nothing is cached across members or requests:
+     - membership and module roles are read on every request;
+     - Better Auth's cookie cache is off;
+     - the registry holds no per-member state.
+3. **Data.** **pass.**
+   - `ProjectMemberModuleRole` is a tenancy table: RLS project scope, `orbit_auth` only, no grant to `orbit_app` (RLS matrix, `db-deploy` grants).
+   - Rows cascade with the membership (new test).
+4. **Audit.** **pass.** `member.module_role_changed` records the actor, the member, the change and the resulting roles. It holds no secrets.
+5. **Flag changes.** **pass.**
+   - Off: stored rows are ignored and the management API answers `404`.
+   - On: rows apply from the next request. Rows survive an off and on.
+   - A chat run keeps the roles it read when it started, for the run's few minutes (O-3).
+6. **Known limits** (unchanged, accepted):
    - Worker jobs re-read only the queuing member's project role and module roles, at run time (`actorScope`).
    - A job a member queued before losing module access still runs once.
    - Telegram callbacks are owner-only.
+
+### Findings
+
+| ID | Severity | Finding and evidence | Fix |
+| --- | --- | --- | --- |
+| MR-1 | High | `POST /action-requests/:id/decide` checked only the project role. An editor with `marketing: none` or `marketing: viewer` could decide a marketing `content_package.start` request, and approving one starts paid drafts. Test "decides an action request with the role in the request's module": `200` where `404`/`403` was expected. | The registry records each action type's module (`registeredActionTypeOwner`). The decision, `revalidate` and `onApproved` run with the member's scope in that module: `none` is `404 MODULE_NOT_AVAILABLE`, a viewer `403`. The route keeps its writer pre-check on the member's highest module role (`highestRole`), so plain viewers still get `403` before validation, and the access matrix is unchanged. A viewer raised to editor in marketing can decide (S-R6). |
+| MR-2 | Medium | `GET /export` (any member) returned every entity, including all marketing records for a member with `marketing: none`. Test "keeps a hidden module's records out of the export". | The export leaves out the entity kinds of modules the member cannot see (`hiddenKinds`). Owners still export everything. |
+| MR-3 | Medium | `GET /dashboard` listed the hidden module's publications (post text, schedule), its record counts and the marketing policy's budget limits. Test "keeps a hidden module's records off the dashboard". | Counts, the publication list, the active policy and the verified-fact count only include kinds the member can see. |
+| MR-4 | Low | `GET /notifications` still listed and counted notices a module sent before the member lost access to it. Extended test in `notifications.integration.test.ts`. | The list and the unread count leave out the modules the member cannot see. |
+
+### Observations (accepted, no change)
+
+- **O-1 Operational metadata.** These platform kinds stay visible by project role, as before: jobs, exceptions, connectors, agent runs and spans, AI cost and go-live readiness. They show classes, statuses, error codes, ids, durations and costs, not module content. Revisit before support staff join a marketing project, if they must not see this metadata either.
+- **O-2 Own chat history.** Messages, cards and proposals in the member's own conversations from before the change stay readable. Nothing new is offered or run.
+- **O-3 Running work.** A chat run keeps the module roles read at its start. A queued job follows the known limits above.
+- **O-4 Nested module scopes.** `moduleScope` puts the effective role in `role`, so module code that ran another module's check with that scope would see the raised role. No such path exists today: chat tools, actions, collections, decisions and files all start from the member's own scope. Hardening follow-up: carry the project role separately in `Scope`.
+- **O-5 Knowledge search.** `knowledge_search` is a platform tool (WP3.3), so a member with `knowledge: none` can still search in the assistant. Source audiences (WP3.5) are the boundary there. Decide whether `knowledge: none` should also remove it.
+- **O-6 MCP gateway.** WP-M2 must build its scope through `projectMembership` so module roles apply. Check this in the WP-M2 review.
 
 ## Public ingress: signed webhooks (WP4.2a, prepared 2026-10-17; review done 2026-10-17)
 
