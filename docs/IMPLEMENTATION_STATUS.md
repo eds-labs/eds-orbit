@@ -1,5 +1,28 @@
 # Implementation status
 
+## Phase 4 in production, part 2: follow-ups, WP4.6, WP4.7 (2026-10-17)
+
+Merged on Mario's approval, after green CI and outside the 10:00/17:00 slots. Every flag stayed `false`: `ORBIT_PUBLIC_INGRESS`, `ORBIT_FILES`, `ORBIT_EMAIL` and `ORBIT_NOTIFICATIONS`.
+
+| Change | PR | Merge commit | Merged | Live | Check |
+|---|---|---|---|---|---|
+| Public ingress follow-ups | #141 | `8d42389` | 14:51 | 14:56 | health; hooks route 404 |
+| WP4.6 platform files (migration `202610170007`) | #142 | `8c87e78` | 14:56 | 15:25, after the hotfix | `/files/...` answers the flag's 404 |
+| Hotfix: empty optional variables | #144 | `247aa45` | 15:20 | 15:25 | health, worker, Postiz, web |
+| WP4.7 e-mail and notifications (migration `202610170008`, three dependencies) | #143 | `91aa5a8` | 15:58 | 16:03 | `/notifications` and `/email` answer the flag's 404 |
+
+### Incident: production 503 from 15:00 to 15:25
+
+- **What.** After #142, api and worker did not start; Traefik answered "no available server" for the app and the web.
+- **Cause.** Compose renders an unset optional variable as an empty string (`FILES_S3_ENDPOINT: ${FILES_S3_ENDPOINT:-}`). The new `FILES_*` validators (URL, regex, `min(1)`) refused `""`, so `loadConfig` threw at start-up.
+  - Tests leave these variables unset, and the compose check rendered the file without parsing it, so nothing caught it.
+  - The migration itself was fine; it is additive.
+- **Fix.** #144 treats `""` as unset for those optional variables, with a regression test. Mario approved merging it at once. The repository ruleset still required the acceptance check, so it went in by auto-merge as soon as that check passed.
+- **Prevention.**
+  - The compose check now parses the rendered api and worker environment with the real config schema. It failed on the broken state and passes on the fixed one.
+  - Changes to configuration get a start-up test with `tsx` and the production-like environment before merging.
+- **Also caught before production.** The first #143 run failed in browser acceptance: the notification bell used the workspace context, but the top bar sits outside its provider, which blanked the app. Fixed (the bell takes props), with a render test without the provider.
+
 ## E-mail over SMTP/IMAP and member notifications: WP4.7 (2026-10-17, local; flags off)
 
 Branch `claude/wp47-email-notifications` (on top of WP4.6). Mario decided on 2026-10-17 (Q-16): the project's existing mailbox over SMTP and IMAP, no new provider and no DNS change by Orbit. The operating guide is `docs/EMAIL_AND_NOTIFICATIONS.md`.
