@@ -9,6 +9,7 @@ import { runIndexEvaluation } from "../knowledge/index-evaluation.ts";
 import { pauseCallback, telegramWebhook } from "../connections/telegram.ts";
 import { sendNotification } from "../notifications/sender.ts";
 import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
+import { fileCleanup } from "../files/files.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
@@ -20,7 +21,8 @@ export const platformContributions: ModuleContributions = {
   webhooks: { telegram: telegramWebhook },
   // Public sessions and received webhooks are purged on their own (WP4.2).
   retention: ingressRetention,
-  periodic: [ingressCleanup],
+  // Files whose removal failed are retried hourly (WP4.6).
+  periodic: [ingressCleanup, fileCleanup],
   jobs: [
     {
       queueClass: "chat",

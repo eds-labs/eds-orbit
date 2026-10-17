@@ -31,6 +31,7 @@ const PROJECT_TABLES = [
   "DocumentVersion",
   "Entity",
   "EntityVersion",
+  "File",
   "KnowledgeChunk",
   "KnowledgeDocument",
   "KnowledgeIndex",
@@ -150,6 +151,21 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
 
   async function seed(s: Scope) {
     await asScope(s, async (tx) => {
+      const fileId = randomUUID();
+      await tx.file.create({
+        data: {
+          id: fileId,
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          moduleId: "knowledge",
+          key: `projects/${s.projectId}/knowledge/${fileId}`,
+          mime: "text/plain",
+          size: 1,
+          sha256: "0".repeat(64),
+          encryption: "aes-256-gcm/v1",
+          createdBy: s.userId,
+        },
+      });
       const source = await create(tx, s, "sources", {
         name: "Synthetic RLS source",
         status: "active",
@@ -472,6 +488,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       [
         "BudgetReservation",
         `INSERT INTO "BudgetReservation" (id, "workspaceId", "projectId", key, "amountMicros", category, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $1, 1, 'rls_test', 'released')`,
+        [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "File",
+        `INSERT INTO "File" (id, "workspaceId", "projectId", "moduleId", key, mime, size, sha256, encryption, "createdBy") VALUES ($1::uuid, $2::uuid, $3::uuid, 'knowledge', $1, 'text/plain', 1, repeat('0', 64), 'aes-256-gcm/v1', 'rls')`,
         [randomUUID(), b.workspaceId, b.projectId],
       ],
       [

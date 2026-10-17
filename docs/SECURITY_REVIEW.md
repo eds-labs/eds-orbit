@@ -140,6 +140,30 @@ This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). W
    - A total limit per key, beyond the per-session limit.
    - An owner UI to manage keys (the API exists).
 
+## Platform files (WP4.6, prepared 2026-10-17; review open)
+
+`ORBIT_FILES` stays `false` in production until this review is done and Mario approves the flag. The bucket and token are Mario's (`docs/PLATFORM_FILES.md`). What the review checks:
+
+1. **Credentials.**
+   - The file bucket has its own token, scoped to that bucket. The backup container never receives `FILES_*`, and api/worker never receive `BACKUP_*` (compose check).
+   - No error, log or response carries a key or a signed URL.
+2. **Signing.**
+   - SigV4 is computed with `node:crypto` and pinned by the AWS test vector.
+   - The payload hash is signed, redirects are refused, and plain http is allowed only to localhost.
+   - Object keys are generated and validated: no dot segments, no user input.
+3. **Encryption.** AES-256-GCM, a fresh IV per file, and the file id as additional data. Tag and SHA-256 are verified before a byte is returned; a failure is a 500, audited `file.integrity_failed`.
+4. **Authorization.**
+   - Every route needs a session and membership.
+   - Upload and delete need write access, download read access, all in the file's module (module roles apply).
+   - The module must be on.
+   - Rows are under FORCE RLS: another project's file is a 404.
+5. **Content.**
+   - Allowlisted types, with a signature check for images and PDF.
+   - Downloads are attachments with `nosniff` and `default-src 'none'; sandbox`.
+   - Names are stripped of paths and control characters.
+   - The size limit is enforced while the body streams in.
+6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. Known gap: a deleted project leaves its objects behind.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

@@ -23,6 +23,13 @@ Object.assign(process.env, {
   ORBIT_MODULES: "true",
   ORBIT_MODULE_ROLES: "true",
   ORBIT_PUBLIC_INGRESS: "true",
+  // Platform files (WP4.6) with a bucket that is never reached here.
+  ORBIT_FILES: "true",
+  FILES_S3_ENDPOINT: "https://files.example.invalid",
+  FILES_S3_BUCKET: "orbit-files-matrix",
+  FILES_S3_ACCESS_KEY_ID: "synthetic-access-key",
+  FILES_S3_SECRET_ACCESS_KEY: "synthetic-secret-key",
+  FILES_ENCRYPTION_KEY: "0".repeat(64),
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
