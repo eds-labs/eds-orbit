@@ -13,6 +13,7 @@ import {
   setObjectStoreForTests,
   storeFile,
 } from "../src/platform/files/files.ts";
+import { readFile, deleteFile } from "../src/platform/files/files.ts";
 import { s3Store, signS3Request } from "../src/platform/files/s3.ts";
 import { setModuleEnabled } from "../src/platform/modules/activation.ts";
 import { moduleRegistry } from "../src/modules/registry.ts";
@@ -30,6 +31,7 @@ const BUCKET = {
 };
 const FILES_ENV = {
   ORBIT_FILES: "true",
+  FILES_BACKEND: "s3",
   FILES_S3_ENDPOINT: BUCKET.endpoint,
   FILES_S3_BUCKET: BUCKET.bucket,
   FILES_S3_ACCESS_KEY_ID: BUCKET.accessKeyId,
@@ -443,5 +445,171 @@ describe.skipIf(!enabled)("platform files", () => {
         mime: "image/png",
       }),
     ).rejects.toThrow("FILES_NOT_CONFIGURED");
+  });
+});
+
+/**
+ * The database backend (Mario 2026-10-17): the same encrypted objects in
+ * `FileBlob`, scoped to their project, gone with the file and the project.
+ */
+describe.skipIf(!enabled)("platform files in the database", () => {
+  const workspaces: string[] = [];
+  let scope: {
+    workspaceId: string;
+    projectId: string;
+    userId: string;
+    role: "owner";
+  };
+  let other: typeof scope;
+  const blobs = (s: typeof scope) =>
+    scoped(s.workspaceId, s.projectId, (tx) => tx.fileBlob.findMany());
+
+  beforeAll(async () => {
+    setObjectStoreForTests(null);
+    Object.assign(process.env, {
+      ORBIT_FILES: "true",
+      FILES_BACKEND: "database",
+      FILES_ENCRYPTION_KEY: FILES_ENV.FILES_ENCRYPTION_KEY,
+      FILES_MAX_BYTES: String(64 * 1024),
+    });
+    for (const name of [
+      "FILES_S3_ENDPOINT",
+      "FILES_S3_BUCKET",
+      "FILES_S3_ACCESS_KEY_ID",
+      "FILES_S3_SECRET_ACCESS_KEY",
+    ])
+      delete process.env[name];
+    const make = async () => {
+      const workspace = await authDb.workspace.create({
+        data: { name: "Synthetic file blobs" },
+      });
+      workspaces.push(workspace.id);
+      const project = await authDb.project.create({
+        data: { workspaceId: workspace.id, name: "Synthetic file blobs" },
+      });
+      return {
+        workspaceId: workspace.id,
+        projectId: project.id,
+        userId: "setup",
+        role: "owner" as const,
+      };
+    };
+    scope = await make();
+    other = await make();
+  });
+  afterAll(async () => {
+    for (const name of [
+      "ORBIT_FILES",
+      "FILES_BACKEND",
+      "FILES_ENCRYPTION_KEY",
+      "FILES_MAX_BYTES",
+    ])
+      delete process.env[name];
+    await authDb.workspace.deleteMany({ where: { id: { in: workspaces } } });
+    await closeDatabase();
+  });
+
+  it("needs only the encryption key, stores encrypted and reads back", async () => {
+    const file = await storeFile(scope, {
+      moduleId: "knowledge",
+      bytes: PNG,
+      mime: "image/png",
+      name: "logo.png",
+    });
+    const [blob] = await blobs(scope);
+    expect(blob!.key).toBe(`projects/${scope.projectId}/knowledge/${file.id}`);
+    // Encrypted at rest: no plaintext bytes in the row.
+    expect(Buffer.from(blob!.data).includes(PNG.subarray(8, 40))).toBe(false);
+    const read = await readFile(scope, file.id);
+    expect(Buffer.from(read.bytes).equals(PNG)).toBe(true);
+    // Another project sees neither the file nor its blob.
+    await expect(readFile(other, file.id)).rejects.toThrow("NOT_FOUND");
+    expect(await blobs(other)).toHaveLength(0);
+    await deleteFile(scope, file.id);
+    expect(await blobs(scope)).toHaveLength(0);
+  });
+
+  // Review of the database backend (2026-10-17).
+  it("refuses another project's key in the database itself", async () => {
+    // The project policy allows the row; the check constraint does not.
+    await expect(
+      scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.fileBlob.create({
+          data: {
+            key: `projects/${other.projectId}/knowledge/x`,
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            data: Buffer.from([1]),
+          },
+        }),
+      ),
+    ).rejects.toThrow(/FileBlob_key_check/);
+  });
+
+  it("keeps a project within its storage quota, counting files not yet purged", async () => {
+    process.env.FILES_PROJECT_QUOTA_BYTES = String(PNG.byteLength * 2);
+    try {
+      const store = () =>
+        storeFile(scope, {
+          moduleId: "knowledge",
+          bytes: PNG,
+          mime: "image/png",
+        });
+      const one = await store();
+      await store();
+      await expect(store()).rejects.toMatchObject({
+        code: "FILES_QUOTA_EXCEEDED",
+        status: 413,
+      });
+      // Nothing of the refused file is left behind.
+      expect(await blobs(scope)).toHaveLength(2);
+      // Concurrent uploads cannot overshoot the quota either: all three
+      // pass the early check and meet at the object write, then race.
+      await deleteFile(scope, one.id);
+      const { databaseStore } =
+        await import("../src/platform/files/db-store.ts");
+      const inner = databaseStore(scope);
+      let arrived = 0;
+      let release = () => {};
+      const all = new Promise<void>((done) => (release = done));
+      setObjectStoreForTests({
+        ...inner,
+        async put(key, body) {
+          await inner.put(key, body);
+          if (++arrived === 3) release();
+          await all;
+        },
+      });
+      const results = await Promise.allSettled([store(), store(), store()]);
+      setObjectStoreForTests(null);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(await blobs(scope)).toHaveLength(2);
+    } finally {
+      delete process.env.FILES_PROJECT_QUOTA_BYTES;
+      for (const row of await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        tx.file.findMany({ where: { deletedAt: null } }),
+      ))
+        await deleteFile(scope, row.id);
+    }
+  });
+
+  it("keeps blobs to their own project, and they go with it", async () => {
+    // A key of another project is refused by the store and by the database.
+    const { databaseStore } = await import("../src/platform/files/db-store.ts");
+    await expect(
+      databaseStore(scope).put(
+        `projects/${other.projectId}/knowledge/x`,
+        new Uint8Array([1]),
+      ),
+    ).rejects.toThrow("OBJECT_KEY_INVALID");
+    await storeFile(other, {
+      moduleId: "knowledge",
+      bytes: Buffer.from("text"),
+      mime: "text/plain",
+    });
+    expect(await blobs(other)).toHaveLength(1);
+    await authDb.project.delete({ where: { id: other.projectId } });
+    // The project's scope still names its id; nothing is left under it.
+    expect(await blobs(other)).toHaveLength(0);
   });
 });

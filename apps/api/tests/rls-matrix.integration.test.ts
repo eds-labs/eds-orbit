@@ -32,6 +32,7 @@ const PROJECT_TABLES = [
   "Entity",
   "EntityVersion",
   "File",
+  "FileBlob",
   "KnowledgeChunk",
   "KnowledgeDocument",
   "KnowledgeIndex",
@@ -170,6 +171,14 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   async function seed(s: Scope) {
     await asScope(s, async (tx) => {
       const fileId = randomUUID();
+      await tx.fileBlob.create({
+        data: {
+          key: `projects/${s.projectId}/knowledge/${fileId}`,
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          data: Buffer.from([1]),
+        },
+      });
       await tx.file.create({
         data: {
           id: fileId,
@@ -513,6 +522,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         "BudgetReservation",
         `INSERT INTO "BudgetReservation" (id, "workspaceId", "projectId", key, "amountMicros", category, state) VALUES ($1::uuid, $2::uuid, $3::uuid, $1, 1, 'rls_test', 'released')`,
         [randomUUID(), b.workspaceId, b.projectId],
+      ],
+      [
+        "FileBlob",
+        `INSERT INTO "FileBlob" (key, "workspaceId", "projectId", data) VALUES ($3, $1::uuid, $2::uuid, '\\x01')`,
+        [b.workspaceId, b.projectId, `projects/${b.projectId}/knowledge/x`],
       ],
       [
         "File",
