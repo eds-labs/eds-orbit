@@ -301,6 +301,13 @@ describe.skipIf(!enabled)("support AI", () => {
       expect.objectContaining({ budgetRunKey: `support:${t.ticketId}` }),
       "support",
     );
+    // Eval case D04: what the evidence does not name is handed off, never
+    // answered from its absence.
+    const instructions = String(
+      (mocked.requests[0] as { instructions?: string }).instructions,
+    );
+    expect(instructions).toContain("does not name");
+    expect(instructions).toContain("never conclude from its absence");
     const draft = (await messages(t.ticketId)).find(
       (m) => m.kind === "ai_draft",
     )!;

@@ -136,6 +136,7 @@ const DRAFT_INSTRUCTIONS = [
   RULES,
   "Use only the evidence given. Cite every evidence id you use as listed (fact:<id> or chunk:<id>).",
   "If the evidence does not answer the question, say so in the reply and set handoff to true.",
+  "If the customer asks about something the evidence does not name (a network, asset, product, feature, fee, limit or date), never conclude from its absence whether it is supported: reply that a colleague will check, and set handoff to true and confidence to low.",
   "Answer in the customer's language, briefly and kindly.",
 ].join("\n");
 
