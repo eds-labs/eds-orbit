@@ -45,7 +45,7 @@ Hosts must be public DNS names that resolve to public addresses only. IP literal
 
 - **Fetching.** Every two minutes per project with a verified connection, new INBOX messages are fetched read-only: nothing is flagged, moved or deleted. At most 25 per pass, 10 MB each; larger ones are skipped and counted. A new UIDVALIDITY starts over; the Message-ID check keeps it free of duplicates.
 - **Storage.** Each message is kept twice:
-  - the raw MIME as an encrypted platform file (`docs/PLATFORM_FILES.md`), so receiving needs platform files;
+  - the raw MIME as an encrypted platform file (`docs/PLATFORM_FILES.md`; by default stored in the database), so receiving needs `ORBIT_FILES=true`;
   - a normalized `inbound_emails` row: sender, recipients, subject, date, text (20,000 characters), threading headers, attachment count and the file id. Every field is bounded and free of control characters.
 - **Unreadable mail.** A message the parser refuses (too deeply nested, oversized headers) is kept as an `unreadable` row with its raw file. A single message never stops the mailbox from being read.
 - **Automatic mail.** Auto-replies, lists, bulk mail and mailer daemons are flagged `automatic`. Modules must not answer them.

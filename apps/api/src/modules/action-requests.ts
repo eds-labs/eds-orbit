@@ -19,8 +19,10 @@ import {
 import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
 import {
   registeredActionType,
+  registeredActionTypeOwner,
   registeredChannelDirectories,
 } from "../platform/modules/contributions.ts";
+import { moduleScope } from "../platform/tenancy/module-roles.ts";
 
 /**
  * Generic action requests (ADR 0008), stored as Entity(kind="action_requests").
@@ -106,16 +108,19 @@ export async function createActionRequest(
 /** Records an authenticated user's decision on the exact version and hash that were shown. */
 export async function decideActionRequest(
   tx: DbTx,
-  scope: Scope,
+  member: Scope,
   id: string,
   raw: unknown,
 ) {
   const input = actionDecision.parse(raw);
-  if (scope.userId === "worker")
+  if (member.userId === "worker")
     throw new DomainError("DECISION_USER_REQUIRED", 403);
-  const row = await entity(tx, scope, KIND, id);
+  const row = await entity(tx, member, KIND, id);
   const d = data(row);
   const type = definition(d.actionType);
+  // The member decides, and the type's module runs, with the member's role
+  // in the type's module (WP4.5): "none" is MODULE_NOT_AVAILABLE.
+  const scope = moduleScope(member, registeredActionTypeOwner(d.actionType));
   if (type.deciderRole === "owner")
     authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   else authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");

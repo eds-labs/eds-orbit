@@ -37,7 +37,7 @@ The age private key never exists on the server, so bucket or server access alone
 1. On a trusted workstation: `age-keygen -o orbit-backup.key`. Store the file in the password manager and one offline copy. The printed `age1…` public key is the recipient.
 2. In Cloudflare R2: use a private EU bucket, create an API token with Object Read & Write for that bucket only, and add a lifecycle rule for prefix `orbit/` (for example delete after 30 days).
 3. In the Coolify Orbit application set `BACKUP_AGE_RECIPIENT`, `BACKUP_S3_ENDPOINT` (`https://<account-id>.r2.cloudflarestorage.com`), `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY` and, for the first verification only, `BACKUP_RUN_ON_START=true`. Redeploy and confirm an `orbit-backup ok …` log line and both objects in the bucket, then remove `BACKUP_RUN_ON_START`.
-4. Store the running `CREDENTIAL_KEY` value in the password manager as well. A database backup cannot decrypt stored connector and OpenAI credentials without it.
+4. Store the running `CREDENTIAL_KEY` and `FILES_ENCRYPTION_KEY` values in the password manager as well. Coolify generates both (`SERVICE_HEX_64_CREDENTIALKEY`, `SERVICE_HEX_64_FILESKEY`), so the only other copy is on the server. A database backup cannot decrypt stored connector and OpenAI credentials without the first, or any platform file (with `FILES_BACKEND=database`, their content is in the dump) without the second.
 
 **Restore drill (isolated, never over production):**
 
@@ -51,7 +51,7 @@ pg_restore --list orbit.dump
 
 ## Authorized restore sequence
 
-1. Name the operator, exact backup/checkpoint, destination and human-approved change reference. Verify checksums, required keys, image/schema compatibility and available storage before starting.
+1. Name the operator, exact backup/checkpoint, destination and human-approved change reference. Verify checksums, required keys (`CREDENTIAL_KEY`, `FILES_ENCRYPTION_KEY`), image/schema compatibility and available storage before starting. With the original `FILES_ENCRYPTION_KEY`, one restored file must download; with another key every file answers `FILE_INTEGRITY`.
 2. Restore into a new isolated database/storage namespace with provider/model/network writes blocked. Keep workers stopped. Do not replace the authoritative database during diagnosis.
 3. Apply reviewed role grants and current revocation/deletion journals, including changes after the backup checkpoint. Pause every project and set Observe before any application process can execute work. Preserve provider IDs and outcome-unknown records.
 4. Validate real-role isolation, login, source/asset hashes, tombstones, index profile/dimensions, retrieval/citation rights and cost/usage journals. Rebuild indexes only from controlled permitted originals; a rebuild must not resurrect removed sources.

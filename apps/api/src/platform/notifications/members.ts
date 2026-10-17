@@ -5,7 +5,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../shared.ts";
 import { userScoped } from "../tenancy/scope.ts";
 import { projectMembership } from "../tenancy/member-scope.ts";
-import { effectiveRole } from "../tenancy/module-roles.ts";
+import { effectiveRole, hiddenModules } from "../tenancy/module-roles.ts";
 import {
   registeredUserNotification,
   registeredUserNotifications,
@@ -153,7 +153,10 @@ export async function notifyMembers(tx: DbTx, scope: Scope, raw: unknown) {
 
 const LIST_LIMIT = 50;
 
-/** The member's latest notices and the unread count. */
+/**
+ * The member's latest notices and the unread count, without those of
+ * modules the member no longer has access to (WP4.5).
+ */
 export async function myNotifications(scope: Scope) {
   if (!notificationsEnabled()) throw new DomainError("NOT_FOUND", 404);
   return userScoped(scope, async (tx) => {
@@ -161,6 +164,7 @@ export async function myNotifications(scope: Scope) {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       userId: scope.userId,
+      moduleId: { notIn: hiddenModules(scope) },
     };
     const [items, unread] = await Promise.all([
       tx.notification.findMany({

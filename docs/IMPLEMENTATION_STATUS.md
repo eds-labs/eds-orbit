@@ -1,5 +1,25 @@
 # Implementation status
 
+## Platform files in the database: WP4.6 backend B (2026-10-17, local; flag off)
+
+Branch `claude/files-database-backend`. Mario chose on 2026-10-17 to keep files, including raw inbound e-mail, on the server instead of in an R2 bucket for the pilot, inside the database.
+
+- **Data.** Migration `202610170010_file_blob` (additive) adds `FileBlob(key, workspaceId, projectId, data)`:
+  - FORCE RLS project policy and `orbit_app` grants;
+  - a check constraint ties the key to its project;
+  - the content is deleted with the project.
+- **Backend.** `platform/files/db-store.ts` implements the same `ObjectStore` interface as the S3 client; it refuses another project's key. `FILES_BACKEND=database` is the default, and `s3` keeps the bucket path.
+- **Configuration.** The database backend needs only `FILES_ENCRYPTION_KEY`; Compose fills it from Coolify's generated `SERVICE_HEX_64_FILESKEY`. So switching files on needs no manual secret, only the flag after the review.
+- **Tests.**
+  - `files.integration.test.ts` runs the S3 path explicitly (`FILES_BACKEND=s3`) and adds the database backend: encrypted at rest, round trip, isolation, deletion, project cascade. A mutation check confirmed it: without the cascade, the test fails.
+  - The RLS matrix seeds and isolates `FileBlob`.
+  - The compose check pins the generated key.
+- **Production.** Merging brings the migration (approval). Coolify generates the key on that deploy. `ORBIT_FILES` stays `false` until the WP4.6 security review is done.
+- **Security review (2026-10-17).** Section 7 of `docs/SECURITY_REVIEW.md`:
+  - D-1: a project quota, `FILES_PROJECT_QUOTA_BYTES` (default 100 MB), bounds the database and the backup, whose work space is a 512 MB tmpfs;
+  - D-2: the restore runbook requires a copy of `FILES_ENCRYPTION_KEY`.
+  - Mario must copy the generated key into the password manager after the first deploy.
+
 ## Track M WP-M1: OAuth authorization server, consent and grants (2026-10-17, local)
 
 Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plans/2026-10-17-track-m-wp-m1-oauth.md` (decisions D1–D7 approved by Mario on 2026-10-17; Task 0 findings are at its end). Risk: high (new authentication surface). Environment: local only so far. There is no MCP endpoint yet (WP-M2).
@@ -231,6 +251,13 @@ Branch `claude/wp46-platform-files` (on top of the public ingress follow-ups). P
   - Merging brings the migration (approval).
   - Mario then creates the bucket and token and sets the variables.
   - The flag waits for the security review (`docs/SECURITY_REVIEW.md`).
+- **Security review (2026-10-17, done).** Five findings, fixed with tests in branch `claude/fervent-leavitt-045f77` (draft PR, not merged):
+  - F-1: platform files (raw inbound e-mail) are owner-only;
+  - F-2: uploads check the session, module and type before reading the body;
+  - F-3: download names end in their type's extension, without bidi controls;
+  - F-4: `filename*` is RFC 5987 encoded;
+  - F-5: the web proxy forwards the upload headers.
+  - Residual risks and the filesystem alternative are in `docs/SECURITY_REVIEW.md`. The flag can go on after this fix is deployed and the bucket is set up (Mario's approval).
 
 ## Public ingress follow-ups (2026-10-17, local; flag off)
 
@@ -337,6 +364,7 @@ Branch `claude/wp45-module-roles`. Plan: `docs/superpowers/plans/2026-10-17-phas
   - `module-roles-assistant.integration.test.ts`: tools and a forged call.
   - Shell and form unit tests; the RLS matrix includes the new table.
 - **Production.** Migration and flag need Mario's approval; the flag also needs the security review (`docs/SECURITY_REVIEW.md`). The migration alone changes nothing.
+- **Security review (2026-10-17, done).** It found four holes in platform entry points: action request decisions (MR-1, high), the export (MR-2), the dashboard (MR-3) and old notices (MR-4). All four are fixed with tests in the review PR. The flag can go on after that PR is live. Findings and observations are in `docs/SECURITY_REVIEW.md`.
 
 ## Project lock measurement: WP4.3 Part A (2026-10-17, local)
 
