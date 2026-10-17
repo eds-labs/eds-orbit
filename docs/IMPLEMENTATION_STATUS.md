@@ -1,5 +1,20 @@
 # Implementation status
 
+## Project lock measurement: WP4.3 Part A (2026-10-17, local)
+
+Branch `claude/wp43-lock-measurement`. Report: [docs/evidence/lock-measurement-2026-10-17.md](evidence/lock-measurement-2026-10-17.md).
+
+- **Hook.** `lockObserver.observe` in `packages/db` reports `{ waitMs, holdMs }` for every `scoped()` transaction. It is unset in production (one property read) and tested in `packages/db/tests/lock-observer.integration.test.ts`.
+- **Measurement.** `scripts/measure/lock-load.measure.ts` with `vitest.measure.config.ts`, outside `pnpm test`. Load: chat runs with a 1.5 s model, searches with a 1 s embedding, writers, the sweep, and 5 or 25 chat-stream pollers.
+- **Result.**
+  - No transaction holds the lock across a provider call; the longest hold is 66 ms.
+  - With 25 open chat streams (about 54 transactions per second on one project), writers keep a call p95 of 28 ms and polls 71 ms.
+  - The lock does not limit one project at this load. Polling is the cost that grows with open streams.
+- **Recommendation.** Part B needs Mario's decision:
+  - no lock-free read path now;
+  - Redis pub/sub for streams when Support starts;
+  - repeat the measurement on the production host against a staging copy first.
+
 ## Cross-module operator eval: WP4.4 (2026-10-17, local)
 
 Branch `claude/wp44-operator-eval` (on top of WP4.1).
