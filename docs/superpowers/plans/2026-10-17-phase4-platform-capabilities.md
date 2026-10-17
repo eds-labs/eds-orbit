@@ -79,6 +79,7 @@ Risk: low (tests plus one test-only hook and one type widening). Rollback: rever
 
 ---
 
+
 ## WP4.3 Lock measurement and real-time fan-out (detailed)
 
 Risk class high: invariants may rely on the per-project advisory lock in `scoped()` (`packages/db/src/index.ts`). This WP therefore runs in two gated parts. Part A changes nothing in behaviour. Part B starts only after Mario has seen the measurement report.
@@ -106,7 +107,6 @@ Risk class high: invariants may rely on the per-project advisory lock in `scoped
 | WP | Content | Gate before starting |
 |---|---|---|
 | 4.2 Public ingress | `/api/hooks/:provider/:connectionId` (signature, store, enqueue, idempotent) and `/api/public/<module>/:publicKey/...` (CORS per key, session token, no cookies); per-client rate limits | Security review plan; F-02 fix is live |
-| 4.4 Operator eval | Offline cases: tool choice across modules, permission-filtered sets, one ActionRequest per write (uses the fixture module) | none |
 | 4.5 Module roles | `ProjectMemberModuleRole`, `can()` resolves module role first, `none` hides the module; members UI matrix | Security review; auth change |
 | 4.6 Files | `File` table with FORCE RLS, S3-compatible adapter (own bucket and credentials), streaming upload, authorized download, retention | Mario approves the bucket and credentials (Q-19) |
 | 4.7 E-mail and notifications | Provider adapter (send, inbound via 4.2, bounces), `Notification` and preferences, in-app bell, e-mail channel | Mario chooses the provider (Q-16); DNS change |
