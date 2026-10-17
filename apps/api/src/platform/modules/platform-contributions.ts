@@ -6,8 +6,9 @@ import { stopChatRunForPause } from "../../modules/chat.ts";
 import { embedDocument, syncSource } from "../knowledge/ingestion.ts";
 import { buildIndexBatch } from "../knowledge/reindex.ts";
 import { runIndexEvaluation } from "../knowledge/index-evaluation.ts";
-import { pauseCallback } from "../connections/telegram.ts";
+import { pauseCallback, telegramWebhook } from "../connections/telegram.ts";
 import { sendNotification } from "../notifications/sender.ts";
+import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
@@ -15,6 +16,11 @@ export const platformContributions: ModuleContributions = {
   scheduler: sourceSyncScheduler,
   // The bot's `/pause` confirmation; modules add their own buttons.
   telegram: { callbacks: { pause: pauseCallback } },
+  // The bot's webhook through the platform's hooks route as well (WP4.2).
+  webhooks: { telegram: telegramWebhook },
+  // Public sessions and received webhooks are purged on their own (WP4.2).
+  retention: ingressRetention,
+  periodic: [ingressCleanup],
   jobs: [
     {
       queueClass: "chat",

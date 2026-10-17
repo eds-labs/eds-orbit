@@ -159,7 +159,11 @@ describe.skipIf(!enabled)(
         { days: 30 },
       );
       expect(response.statusCode).toBe(200);
+      // Since the WP4.2 follow-up the platform also purges public ingress
+      // rows first; this project has none.
       expect(response.json()).toEqual({
+        purgedPublicSessions: 0,
+        purgedInboundWebhooks: 0,
         purgedInsights: 1,
         purgedPreferences: 1,
       });
@@ -219,7 +223,13 @@ describe.skipIf(!enabled)(
           {
             action: "retention.apply",
             resource: "project",
-            details: { days: 30, insights: 1, preferences: 1 },
+            details: {
+              days: 30,
+              publicSessions: 0,
+              inboundWebhooks: 0,
+              insights: 1,
+              preferences: 1,
+            },
           },
         ],
       });

@@ -35,6 +35,7 @@ import { enqueue } from "../pipeline/workflow.ts";
 import { notify } from "../agents/notifications.ts";
 import { decryptCredential } from "../../../platform/connections/connections.ts";
 import { assertModuleEnabled } from "../../../platform/modules/enforcement.ts";
+import type { DirectWebhookProvider } from "../../../platform/modules/contributions.ts";
 
 const slackId = z.string().regex(/^[A-Z][A-Z0-9]{2,39}$/);
 // The optional Slack digest embeds a short approval preview; longer drafts use web review.
@@ -428,6 +429,8 @@ export async function dispatchSlackDigest(
 export type SlackInbound = {
   workspaceId: string;
   projectId: string;
+  /** Given by the platform's hooks route: it must be the selected connector. */
+  connectionId?: string;
   rawBody: string | Buffer;
   timestamp: string;
   signature: string;
@@ -443,8 +446,10 @@ export async function handleSlackInteraction(input: SlackInbound) {
     role: "owner",
   };
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const connector = await selectedConnector(tx, scope),
-      c = data(connector),
+    const connector = await selectedConnector(tx, scope);
+    if (input.connectionId !== undefined && connector.id !== input.connectionId)
+      throw new DomainError("NOT_FOUND", 404);
+    const c = data(connector),
       secret = credentials(c);
     let mappedUser: string | undefined;
     const interaction = await verifySlackInteraction(
@@ -618,3 +623,46 @@ export async function markSlackOutcomeUnknown(
   await exception(tx, scope, "SLACK_OUTCOME_UNKNOWN", messageId);
   return changed;
 }
+
+/**
+ * Slack interactions through the platform's hooks route (WP4.2 follow-up):
+ * `/api/hooks/slack/<workspaceId>/<projectId>/<connectorId>`, the same
+ * signature, mapping and replay checks as
+ * `/api/slack/<workspaceId>/<projectId>/interactions`, which stays the URL
+ * in the Slack app until the cutover (docs/PUBLIC_INGRESS.md).
+ */
+export const slackWebhook: DirectWebhookProvider = {
+  direct: true,
+  bodies: ["form"],
+  async handle(input) {
+    const timestamp = input.headers["x-slack-request-timestamp"];
+    const signature = input.headers["x-slack-signature"];
+    if (!timestamp || !signature) return { status: 401 };
+    try {
+      await handleSlackInteraction({
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        connectionId: input.connectionId,
+        rawBody: input.rawBody,
+        timestamp,
+        signature,
+      });
+      return { status: 200, body: "" };
+    } catch (error) {
+      if (error instanceof ConnectorError) {
+        if (error.code === "SLACK_REPLAY") return { status: 200, body: "" };
+        return error.code === "SLACK_PAYLOAD_INVALID"
+          ? { status: 400, code: error.code }
+          : { status: 403, code: error.code };
+      }
+      // No connector of this id: the same 404 as any unknown connection.
+      if (
+        error instanceof DomainError &&
+        (error.code === "NOT_FOUND" || error.code === "SLACK_NOT_CONFIGURED")
+      )
+        return { status: 404 };
+      // Everything else answers as on the interactions route.
+      throw error;
+    }
+  },
+};
