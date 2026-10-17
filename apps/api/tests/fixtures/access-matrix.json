@@ -230,6 +230,13 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/email": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/evidence": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -406,6 +413,20 @@
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/modules": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/notification-preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/notifications": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "allowed:200",
@@ -676,6 +697,13 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/email-connect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/embed-document": {
@@ -1273,6 +1301,20 @@
     "editor": "allowed:400",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/notifications/read-all": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "POST /api/projects/{projectId}/notifications/{notificationId}/read": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
   "POST /api/projects/{projectId}/policies": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1418,6 +1460,13 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/notification-preferences": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
     "owner": "allowed:400"
   }
 }

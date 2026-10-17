@@ -1,5 +1,6 @@
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { FetchLike } from "../../../../../packages/connectors/src/index.ts";
+import type { UserNotificationKind } from "../notifications/members.ts";
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import type { ImpactHandler } from "../../../../../packages/knowledge/src/index.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
@@ -98,6 +99,17 @@ export type ModuleContributions = {
    * public session's bearer token.
    */
   publicRoutes?: readonly PublicRoute[];
+  /**
+   * Inbound e-mail of the project's mailbox (WP4.7): the platform stores
+   * each message as `inbound_emails` and enqueues this queue class with the
+   * row's id. Bounces are the platform's and never handed over.
+   */
+  emailInbound?: { queueClass: string };
+  /**
+   * Member notification kinds the module sends with `notifyMembers`
+   * (WP4.7), by kind name, unique across modules.
+   */
+  userNotifications?: Readonly<Record<string, UserNotificationKind>>;
 };
 
 /** One route of a module's public API (WP4.2b). */
@@ -198,6 +210,11 @@ type Registered = {
   >;
   actionPermissions: ReadonlyMap<string, PermissionDef>;
   webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
+  emailInbound: readonly { owner: string; queueClass: string }[];
+  userNotifications: ReadonlyMap<
+    string,
+    UserNotificationKind & { owner: string; kind: string }
+  >;
   publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
@@ -367,6 +384,29 @@ export function registerContributions(
         );
       webhooks.set(name, { ...provider, owner });
     }
+  // Inbound e-mail consumers: a queue class that exists.
+  const emailInbound: { owner: string; queueClass: string }[] = [];
+  for (const [owner, c] of ordered)
+    if (c.emailInbound) {
+      if (!jobs.has(c.emailInbound.queueClass))
+        problems.push(
+          `${owner} takes inbound e-mail with unknown queue class ${c.emailInbound.queueClass}`,
+        );
+      emailInbound.push({ owner, queueClass: c.emailInbound.queueClass });
+    }
+  // Member notification kinds: valid, unique names.
+  const userNotifications = new Map<
+    string,
+    UserNotificationKind & { owner: string; kind: string }
+  >();
+  for (const [owner, c] of ordered)
+    for (const [kind, def] of Object.entries(c.userNotifications ?? {})) {
+      if (!/^[a-z][a-z0-9_]{1,60}$/.test(kind))
+        problems.push(`invalid notification kind ${kind}`);
+      if (userNotifications.has(kind))
+        problems.push(`notification kind ${kind} registered twice`);
+      userNotifications.set(kind, { ...def, owner, kind });
+    }
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -383,6 +423,8 @@ export function registerContributions(
     connectionProviders,
     actionPermissions,
     webhooks,
+    emailInbound,
+    userNotifications,
     publicRoutes,
     owners,
   };
@@ -517,6 +559,20 @@ export function registeredPublicRoutes(): ReadonlyMap<
   readonly PublicRoute[]
 > {
   return current().publicRoutes;
+}
+
+/** A member notification kind with its owner, or undefined (WP4.7). */
+export function registeredUserNotification(kind: string) {
+  return current().userNotifications.get(kind);
+}
+/** Every member notification kind, in registry order. */
+export function registeredUserNotifications() {
+  return [...current().userNotifications.values()];
+}
+
+/** The modules that take inbound e-mail, in registry order (WP4.7). */
+export function registeredEmailInbound() {
+  return current().emailInbound;
 }
 
 /** A webhook provider with its owner, or undefined for an unknown name. */

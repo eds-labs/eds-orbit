@@ -249,7 +249,7 @@ Risk class **high**: new credentials and a new data store for customer files. Th
 
 **Decision (Mario, 2026-10-17, Q-16):** SMTP and IMAP against an existing mailbox, no new e-mail provider. SPF, DKIM and DMARC are the mailbox provider's (no Orbit DNS change), as long as Orbit sends only as the mailbox's own address.
 
-Risk class **high**: outbound mail on the project's behalf, inbound untrusted content and new dependencies. The work is behind `ORBIT_EMAIL` (default `false`). Sending follows the existing gate: `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`, otherwise a test receipt.
+Risk class **high**: outbound mail on the project's behalf, inbound untrusted content and new dependencies. E-mail is behind `ORBIT_EMAIL` and in-app notifications behind `ORBIT_NOTIFICATIONS` (both default `false`). Sending follows the existing gate: `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`, otherwise a test receipt.
 
 - **Dependencies** (production, part of the merge approval):
   - `nodemailer` (SMTP);

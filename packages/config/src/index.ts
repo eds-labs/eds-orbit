@@ -76,6 +76,11 @@ export const configSchema = z.object({
       .regex(/^[a-fA-F0-9]{64}$/)
       .optional(),
   ),
+  // E-mail over SMTP/IMAP and member notifications (WP4.7); off until the
+  // security review. Sending also needs EXECUTION_MODE=live and external writes.
+  ORBIT_EMAIL: z.enum(["false", "true"]).default("false"),
+  // In-app member notifications and their preferences (WP4.7).
+  ORBIT_NOTIFICATIONS: z.enum(["false", "true"]).default("false"),
   FILES_MAX_BYTES: z.coerce
     .number()
     .int()

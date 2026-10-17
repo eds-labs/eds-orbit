@@ -160,6 +160,13 @@ import {
   registerFileRoutes,
 } from "./platform/files/routes.ts";
 import { filesConfig } from "./platform/files/files.ts";
+import {
+  NOTIFICATION_ROUTES,
+  registerNotificationRoutes,
+} from "./platform/notifications/routes.ts";
+import { notificationsEnabled } from "./platform/notifications/members.ts";
+import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
+import { emailEnabled } from "./platform/email/connection.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
 const AGENT_ROUTES = new Set([
@@ -281,6 +288,15 @@ export async function buildServer(
       !filesConfig()
     )
       throw new DomainError("NOT_FOUND", 404);
+    // The mailbox view (WP4.7) does not exist while e-mail is off.
+    if (req.routeOptions.url === EMAIL_ROUTE && !emailEnabled())
+      throw new DomainError("NOT_FOUND", 404);
+    // Member notifications (WP4.7) do not exist while their flag is off.
+    if (
+      NOTIFICATION_ROUTES.has(req.routeOptions.url ?? "") &&
+      !notificationsEnabled()
+    )
+      throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off.
     if (
       (req.routeOptions.url === WEBHOOK_PATH ||
@@ -387,6 +403,9 @@ export async function buildServer(
   await registerPublicApi(app);
   // Platform files (WP4.6).
   await registerFileRoutes(app, auth);
+  // A member's own notifications and the project's mailbox (WP4.7).
+  registerNotificationRoutes(app, auth);
+  registerEmailRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",
