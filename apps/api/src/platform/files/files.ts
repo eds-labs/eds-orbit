@@ -39,6 +39,18 @@ const TYPES: Record<string, ((bytes: Uint8Array) => boolean) | null> = {
 const starts = (bytes: Uint8Array, signature: number[]) =>
   signature.every((value, i) => bytes[i] === value);
 
+/** The extensions a name of each type may end in; the first is appended otherwise. */
+const EXTENSIONS: Record<string, string[]> = {
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/gif": [".gif"],
+  "image/webp": [".webp"],
+  "application/pdf": [".pdf"],
+  "text/plain": [".txt"],
+  "text/csv": [".csv"],
+  "message/rfc822": [".eml"],
+};
+
 export const allowedFileTypes = () => Object.keys(TYPES);
 
 type FilesConfig = {
@@ -127,12 +139,26 @@ export const fileView = (row: FileRow) => ({
 const sha256 = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 
-/** A display name without paths or control characters, at most 200 characters. */
-export function cleanFileName(raw: unknown): string | null {
+/**
+ * A display name without paths, control or bidi characters, at most 200
+ * characters, ending in an extension of its type: a download is saved under
+ * this name, so plain text never arrives as "run.bat".
+ */
+export function cleanFileName(raw: unknown, mime: string): string | null {
   if (typeof raw !== "string") return null;
   const base = raw.split(/[\\/]/).pop() ?? "";
-  const clean = base.replace(/[\u0000-\u001f\u007f"]/g, "").trim();
-  return clean ? clean.slice(0, 200) : null;
+  const clean = base
+    .replace(
+      /[\u0000-\u001f\u007f-\u009f"\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+      "",
+    )
+    .trim();
+  if (!clean) return null;
+  const extensions = EXTENSIONS[mime] ?? [];
+  const lower = clean.toLowerCase();
+  if (extensions.some((extension) => lower.endsWith(extension)))
+    return clean.slice(-200);
+  return `${clean.slice(0, 200 - extensions[0]!.length)}${extensions[0]}`;
 }
 
 /** Bytes the project holds, counting files marked deleted until purged. */
@@ -192,7 +218,7 @@ export async function storeFile(
           projectId: scope.projectId,
           moduleId: input.moduleId,
           key,
-          name: cleanFileName(input.name),
+          name: cleanFileName(input.name, mime),
           mime,
           size: input.bytes.byteLength,
           sha256: digest,

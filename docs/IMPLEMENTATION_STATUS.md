@@ -251,6 +251,13 @@ Branch `claude/wp46-platform-files` (on top of the public ingress follow-ups). P
   - Merging brings the migration (approval).
   - Mario then creates the bucket and token and sets the variables.
   - The flag waits for the security review (`docs/SECURITY_REVIEW.md`).
+- **Security review (2026-10-17, done).** Five findings, fixed with tests in branch `claude/fervent-leavitt-045f77` (draft PR, not merged):
+  - F-1: platform files (raw inbound e-mail) are owner-only;
+  - F-2: uploads check the session, module and type before reading the body;
+  - F-3: download names end in their type's extension, without bidi controls;
+  - F-4: `filename*` is RFC 5987 encoded;
+  - F-5: the web proxy forwards the upload headers.
+  - Residual risks and the filesystem alternative are in `docs/SECURITY_REVIEW.md`. The flag can go on after this fix is deployed and the bucket is set up (Mario's approval).
 
 ## Public ingress follow-ups (2026-10-17, local; flag off)
 

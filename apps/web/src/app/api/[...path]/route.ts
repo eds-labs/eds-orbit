@@ -11,6 +11,9 @@ const forwardedHeaders = [
   "origin",
   "user-agent",
   "x-csrf-token",
+  // A platform file upload's type and name (WP4.6); the API validates both.
+  "x-file-name",
+  "x-file-type",
   "x-slack-signature",
   "x-slack-request-timestamp",
   // Telegram authenticates its webhook calls with this header.

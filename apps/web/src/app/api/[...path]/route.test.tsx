@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { POST } from "./route";
+import { GET, POST } from "./route";
 
 const call = async (headers: Record<string, string>) => {
   const forwarded: Headers[] = [];
@@ -36,6 +36,45 @@ describe("API proxy", () => {
   it("forwards an EventSource's Last-Event-ID so a reconnect resumes", async () => {
     const headers = await call({ "last-event-id": "42" });
     expect(headers.get("last-event-id")).toBe("42");
+  });
+
+  // Platform files (WP4.6): an upload names its type and file name in headers.
+  it("forwards a file upload's type and name headers", async () => {
+    const headers = await call({
+      "content-type": "application/octet-stream",
+      "x-file-type": "image/png",
+      "x-file-name": "logo.png",
+    });
+    expect(headers.get("x-file-type")).toBe("image/png");
+    expect(headers.get("x-file-name")).toBe("logo.png");
+  });
+
+  it("passes a download's attachment and sandbox headers through", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("x", {
+            status: 200,
+            headers: {
+              "content-type": "text/plain",
+              "content-disposition": 'attachment; filename="a.txt"',
+              "content-security-policy": "default-src 'none'; sandbox",
+            },
+          }),
+      ),
+    );
+    const response = await GET(
+      new NextRequest("https://orbit.example/api/projects/p/files/f"),
+      { params: Promise.resolve({ path: ["projects", "p", "files", "f"] }) },
+    );
+    expect(response.headers.get("content-disposition")).toBe(
+      'attachment; filename="a.txt"',
+    );
+    expect(response.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; sandbox",
+    );
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
   it("drops headers outside its allow-list", async () => {
