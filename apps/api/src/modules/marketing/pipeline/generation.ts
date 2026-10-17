@@ -52,6 +52,7 @@ import {
   BANNER_TEXT_LIMITS,
   bannerTemplateOf,
   parsedBanner,
+  withCtaButton,
 } from "../agents/banner.ts";
 import type { BannerText } from "../../../../../../packages/creative/src/index.ts";
 import {
@@ -866,6 +867,11 @@ async function generateMissionDraft(
         outcome.output,
         data(prepared.evidence).facts ?? [],
       ),
+      // The banner's button is the mission CTA, never the copywriter's own
+      // call to action (R78): no banner competes with its post.
+      ...(outcome.output.banner
+        ? { banner: withCtaButton(outcome.output.banner, m.targetAction) }
+        : {}),
       type: m.contentType,
       language: m.language,
       channel: m.channels[(m.completedRuns ?? 0) % m.channels.length],

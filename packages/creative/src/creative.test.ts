@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   bannerChromeOverflow,
   bannerTemplates,
+  bannerButtonFits,
   bannerTextOverflow,
   renderBrandBanner,
   renderRasterBanner,
@@ -325,8 +326,37 @@ describe("brand banner (R78)", () => {
       "<script>",
     );
     expect(() =>
-      renderBrandBanner({ ...input, text: { ...text, button: " " } }),
+      renderBrandBanner({ ...input, text: { ...text, subline: " " } }),
     ).toThrow("INVALID_TEMPLATE_INPUT");
+  });
+
+  // Production uLiquid, 2026-10-17 (run f610945b): the button "Explore Desk"
+  // competed with the post's call to action; Orbit now sets the button to
+  // that call to action, or leaves it out when it does not fit.
+  it("renders without a button when the button is empty", () => {
+    const rendered = renderBrandBanner({
+      ...input,
+      text: { ...text, button: " " },
+    });
+    expect(rendered.status).toBe("rendered");
+    if (rendered.status !== "rendered") return;
+    const layers = structure(rendered.svg);
+    for (const layer of [
+      "rect#button",
+      "text#button-label",
+      "path#button-arrow",
+    ])
+      expect(layers).not.toContain(layer);
+    expect(layers).toContain("text#subline");
+    expect(bannerTextOverflow({ ...text, button: "" })).toBe(false);
+  });
+
+  it("tells whether a button label fits the template", () => {
+    expect(bannerButtonFits("Create your beta account")).toBe(true);
+    expect(
+      bannerButtonFits("Explore the whole trading desk right now for free"),
+    ).toBe(false);
+    expect(bannerButtonFits("")).toBe(false);
   });
 
   it("exports a 1600×900 PNG", async () => {

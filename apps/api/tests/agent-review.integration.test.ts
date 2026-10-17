@@ -17,6 +17,8 @@ const provider = vi.hoisted(() => ({
   requests: [] as any[],
   // A revision fails like a provider outage when set.
   failRevision: false,
+  // A revision repeats the original's mismatched fact claim when set.
+  mismatchRevision: false,
   replies: [] as Array<(request: any) => Reply>,
 }));
 vi.mock("../../../packages/ai/src/index.ts", async (importOriginal) => {
@@ -87,6 +89,8 @@ const enabled = Boolean(
 );
 const BODY = "Beta access is open for product teams. Learn more.";
 const HUMAN = "HUMAN_CONTENT_REVIEW_REQUIRED";
+// "worldwide" is not in the fact beta.access = "open for product teams".
+const MISMATCH = "Beta access is open for product teams worldwide";
 
 type Verdict = {
   verdict: "approve" | "revise" | "reject";
@@ -179,12 +183,23 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     provider.requests = [];
     provider.replies = [];
     provider.failRevision = false;
+    provider.mismatchRevision = false;
     provider.embed.mockReset().mockResolvedValue(embedded());
     provider.generate.mockReset().mockImplementation(async (params: any) => {
       const contract = JSON.parse(params.goal);
       const topic = String(contract.brief?.topic ?? "");
       if (contract.revision && provider.failRevision)
         throw new Error("synthetic provider outage");
+      // A fact claim with a word its fact does not back (FACT_VALUE_MISMATCH).
+      const beta = params.evidence.facts.find(
+        (fact: any) => fact.key === "beta.access",
+      );
+      const mismatched = () =>
+        generated(`${MISMATCH}. Learn more. (${topic})`, [
+          { text: MISMATCH, kind: "fact", factId: beta.id },
+          { text: "Learn more.", kind: "style" },
+        ]);
+      if (contract.revision && provider.mismatchRevision) return mismatched();
       if (contract.revision)
         return generated(
           `Beta access is open for product teams, ready on day one (${topic}). Learn more.`,
@@ -192,6 +207,11 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
       if (topic.includes("BARELINK"))
         return generated(
           `Beta access is open, sign up at beta-signup.example/teams (${topic}). Learn more.`,
+        );
+      if (topic.includes("MISMATCH")) return mismatched();
+      if (topic.includes("REVIEWERNOTE"))
+        return generated(
+          `${BODY}\n\n[Note to reviewer: add the launch date here] (${topic})`,
         );
       if (topic.includes("PROMISE"))
         return generated(
@@ -460,6 +480,114 @@ describe.skipIf(!enabled)("Review agent and agent review authority", () => {
     expect(revised.status).toBe("reviewed");
     expect(revised.agentReview.bodyHash).toBe(hash(revised.body));
     expect(await blockers(revised.id)).not.toContain(HUMAN);
+  });
+
+  // Production uLiquid, 2026-10-17 (run f610945b): "Subscription payment
+  // remains USDC" against pricing.payment_remains_usdc = true was rejected
+  // at once, without a revision.
+  it("revises a draft whose only problem is a fact value mismatch once", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00"],
+        leadMinutes: 360,
+      },
+    });
+    const review = await drafted(() => ({ topic: "MISMATCH of a fact" }));
+    const [original] = await contents();
+    expect(await blockers(original!.id)).toContain("FACT_VALUE_MISMATCH");
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+
+    // The model never saw the mismatched draft; the copywriter revised it once.
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    const instruction = JSON.parse(provider.generate.mock.calls[1]![0].goal)
+      .revision.instruction as string;
+    expect(instruction).toContain(`"${MISMATCH}"`);
+    expect(instruction).toContain("beta.access");
+    expect(instruction).toContain("open for product teams");
+    const all = Object.fromEntries(
+      (await h.rows("content")).map((d) => [d.id, d]),
+    );
+    expect(all[original!.id]!.agentReviewDecision).toMatchObject({
+      round: 1,
+      verdict: "revise",
+      modelVerdict: null,
+      deterministicProblems: ["FACT_VALUE_MISMATCH"],
+      revisionInstructions: instruction,
+    });
+    const revisedId = all[original!.id]!.supersededBy as string;
+    expect(shown(provider.requests[0]).map((d) => d.contentId)).toEqual([
+      revisedId,
+    ]);
+    expect(all[revisedId]!.status).toBe("reviewed");
+  });
+
+  it("rejects a revision that still mismatches its fact (R26)", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00"],
+        leadMinutes: 360,
+      },
+    });
+    const review = await drafted(() => ({ topic: "MISMATCH of a fact" }));
+    provider.mismatchRevision = true;
+    await runAgentTask(h.worker(), review.id);
+    expect((await h.task("review")).status).toBe("done");
+
+    // One revision only, and no model call for a mismatched draft.
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    expect(provider.requests).toHaveLength(0);
+    const all = await h.rows("content");
+    const revised = all.find((d) => !d.supersededBy)!;
+    expect(revised.status).toBe("rejected");
+    expect(revised.agentReviewDecision).toMatchObject({
+      round: 2,
+      verdict: "reject",
+      deterministicProblems: ["FACT_VALUE_MISMATCH"],
+    });
+    await reviewAgain(review.id);
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+  });
+
+  // Production uLiquid, 2026-10-17 (run f610945b): a paragraph addressed the
+  // reviewer instead of the reader and the model review rejected the post.
+  it("revises a draft with text addressed to the reviewer", async () => {
+    await h.connectTelegram();
+    await h.makeAssignment({
+      schedule: {
+        rhythm: "daily",
+        weekdays: [],
+        times: ["10:00"],
+        leadMinutes: 360,
+      },
+    });
+    const review = await drafted(() => ({ topic: "REVIEWERNOTE draft" }));
+    const [original] = await contents();
+    provider.replies.push(answer(() => ({ verdict: "approve" })));
+    await runAgentTask(h.worker(), review.id);
+
+    expect(provider.generate).toHaveBeenCalledTimes(2);
+    const instruction = JSON.parse(provider.generate.mock.calls[1]![0].goal)
+      .revision.instruction as string;
+    expect(instruction).toContain(
+      "[Note to reviewer: add the launch date here]",
+    );
+    const all = Object.fromEntries(
+      (await h.rows("content")).map((d) => [d.id, d]),
+    );
+    expect(all[original!.id]!.agentReviewDecision).toMatchObject({
+      verdict: "revise",
+      modelVerdict: null,
+      deterministicProblems: ["DRAFT_INSTRUCTION_TEXT"],
+    });
+    const revisedId = all[original!.id]!.supersededBy as string;
+    expect(all[revisedId]!.status).toBe("reviewed");
   });
 
   it("refuses agent-approved content of an outdated assignment version", async () => {

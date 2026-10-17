@@ -18,6 +18,11 @@ import {
 import { invalidateContent } from "../../pipeline/content-invalidation.ts";
 import { currentMarketingProfile } from "../../brand/marketing-profile.ts";
 import { checkClaims, preflight } from "../../policy/policy.ts";
+import {
+  factClaimMatches,
+  factMismatchInstruction,
+  loadBrandTerms,
+} from "../../policy/fact-claims.ts";
 import { errorCode } from "../../../telemetry.ts";
 import {
   bodyLinkProblems,
@@ -32,6 +37,11 @@ import {
   FORMAT_PROBLEMS,
 } from "../post-format.ts";
 import { cloneForChannel, groupSlots } from "../shared-posts.ts";
+import {
+  DRAFT_INSTRUCTION_TEXT,
+  instructionTextInstruction,
+  instructionTextProblems,
+} from "../draft-text.ts";
 import {
   BANNER_BRAND_OVERFLOW,
   BANNER_IMAGE_MISSING,
@@ -74,8 +84,10 @@ import {
  * one more review, where anything but `approve` rejects it; `reject` drops
  * the deliverable. A replaced draft is rejected. Decisions are stored on the
  * content before they are applied, so running the task again neither calls
- * the model for a decided draft nor revises twice (R26). A draft that only
- * misses the assignment's format (R77) is revised once without the model;
+ * the model for a decided draft nor revises twice (R26). A draft whose only
+ * problems are the assignment's format (R77), its banner copy (R78), a fact
+ * claim that does not match its fact or text addressed to a reviewer is
+ * revised once without the model;
  * a shared run's settled draft is copied for its slot group's other
  * channels, each copy checked on its own channel (R76, `shareDraft`).
  */
@@ -127,8 +139,15 @@ export const CHANNEL_PROBLEMS = new Set([
 ]);
 /** The text changed after the review model judged it (R76): its verdict covers another text. */
 export const AGENT_REVIEW_TEXT_CHANGED = "AGENT_REVIEW_TEXT_CHANGED";
+// A fact claim with words its fact does not back (checkClaims).
+const FACT_VALUE_MISMATCH = "FACT_VALUE_MISMATCH";
 // Problems one deterministic revision may fix in round 1 (R77, R78).
-const REVISABLE = new Set([...FORMAT_PROBLEMS, ...BANNER_REVISABLE]);
+const REVISABLE = new Set([
+  ...FORMAT_PROBLEMS,
+  ...BANNER_REVISABLE,
+  FACT_VALUE_MISMATCH,
+  DRAFT_INSTRUCTION_TEXT,
+]);
 // Revision failures of the provider or the project, not of the draft (R49).
 const TRANSIENT_REVISION_FAILURES = new Set([
   "MODEL_OUTCOME_OR_COST_UNKNOWN",
@@ -293,7 +312,9 @@ export async function deterministicProblems(
   );
   // The format the draft was written for (R77), carried on its mission.
   problems.push(...formatProblems(v.body, mission?.format));
-  // The banner copy (R78) is reviewed content too.
+  // A finished post addresses the reader, never a reviewer or editor.
+  problems.push(...instructionTextProblems(v.body));
+  // The banner copy (R78) is reviewed content too; its button is the mission CTA.
   if (bannerTemplateOf(mission))
     problems.push(
       ...(await bannerProblems(
@@ -301,6 +322,7 @@ export async function deterministicProblems(
         scope,
         v,
         checked.policyInput?.allowedOrigins ?? [],
+        mission?.targetAction,
       )),
     );
   return [...new Set(problems)];
@@ -321,6 +343,7 @@ async function bannerProblems(
   scope: Scope,
   v: Record<string, any>,
   allowedOrigins: string[],
+  cta: unknown,
 ) {
   const profileRow = await currentMarketingProfile(tx, scope);
   const profile = profileRow
@@ -342,6 +365,7 @@ async function bannerProblems(
     ...bannerTextProblems(v.banner, {
       brandName: profile?.success ? profile.data.productName : "Brand",
       footer: footer ?? footerDomain(v.targetUrl) ?? "example.com",
+      cta,
     }),
   );
   const text = parsedBanner(v.banner);
@@ -358,13 +382,42 @@ async function bannerProblems(
 }
 
 /**
- * A round-1 draft whose only problems are the format's (R77) or its banner
- * copy's (R78: too long, a figure, status or promise word) gets one revision with a
- * deterministic instruction instead of a reject; the model does not judge
- * it in this round. Anything else, or round 2, stays as before: reject or
- * leave for the owner.
+ * The fact claims of a draft that do not match their facts, with each
+ * fact's key and value (the `FACT_VALUE_MISMATCH` of checkClaims).
  */
-async function formatRevision(
+async function factMismatches(tx: DbTx, scope: Scope, v: Record<string, any>) {
+  const brandTerms = await loadBrandTerms(tx, scope);
+  const found: Array<{ claim: string; key: string; value: string }> = [];
+  for (const claim of v.claims ?? []) {
+    if (claim.kind === "style" || !claim.factId) continue;
+    // A fact that no longer exists is another problem, not a mismatch to name.
+    const row = await entity(tx, scope, "facts", claim.factId).catch(
+      (error) => {
+        if (error instanceof DomainError) return null;
+        throw error;
+      },
+    );
+    if (!row) continue;
+    const fact = data(row);
+    if (!factClaimMatches(claim.text, fact, brandTerms))
+      found.push({
+        claim: String(claim.text),
+        key: String(fact.key),
+        value: String(fact.value?.amount ?? fact.value ?? ""),
+      });
+  }
+  return found;
+}
+
+/**
+ * A round-1 draft whose only problems are the format's (R77), its banner
+ * copy's (R78: too long, a figure, status or promise word), fact claims
+ * that do not match their facts or text addressed to a reviewer gets one
+ * revision with a deterministic instruction instead of a reject; the model
+ * does not judge it in this round. Anything else, or round 2, stays as
+ * before: reject or leave for the owner (R26).
+ */
+async function deterministicRevision(
   tx: DbTx,
   scope: Scope,
   contentId: string,
@@ -383,7 +436,15 @@ async function formatRevision(
     parts.push(formatInstruction(v.body, mission.format, problems));
   }
   if (problems.some((code) => BANNER_REVISABLE.has(code)))
-    parts.push(bannerInstruction(v.banner, problems));
+    parts.push(bannerInstruction(v.banner, problems, mission?.targetAction));
+  if (problems.includes(FACT_VALUE_MISMATCH)) {
+    const mismatches = await factMismatches(tx, scope, v);
+    // Nothing to name: the mismatch is not one a revision can be told to fix.
+    if (!mismatches.length) return null;
+    parts.push(factMismatchInstruction(mismatches));
+  }
+  if (problems.includes(DRAFT_INSTRUCTION_TEXT))
+    parts.push(instructionTextInstruction(v.body));
   return parts.join(" ");
 }
 
@@ -628,7 +689,13 @@ async function decideRound(
         if (channel.length) channelOnly.set(id, channel);
         continue;
       }
-      const instruction = await formatRevision(tx, scope, id, text, round);
+      const instruction = await deterministicRevision(
+        tx,
+        scope,
+        id,
+        text,
+        round,
+      );
       const decision: ReviewDecision = {
         taskId: task.id,
         round,
@@ -1211,7 +1278,7 @@ export const reviewStep: StepHandler = async (scope, task) => {
       round: 1,
       verdict,
       reasons: decision.reasons,
-      // Format problems (R77) are why a draft is revised without the model.
+      // Deterministic problems (format, banner, facts, reviewer text) are why a draft is revised without the model.
       deterministicProblems: decision.deterministicProblems,
       revisedTo,
     });

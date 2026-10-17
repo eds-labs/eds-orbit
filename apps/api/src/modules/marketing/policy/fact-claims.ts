@@ -169,3 +169,17 @@ export function factClaimMatches(
     return false;
   return true;
 }
+
+/**
+ * The copywriter's revision instruction for fact claims that do not match
+ * their facts (`FACT_VALUE_MISMATCH`): each claim with its fact's key and
+ * value, and how to write it so the matcher above accepts it.
+ */
+export function factMismatchInstruction(
+  mismatches: ReadonlyArray<{ claim: string; key: string; value: string }>,
+) {
+  const listed = mismatches
+    .map(({ claim, key, value }) => `"${claim}" (fact ${key} = ${value})`)
+    .join("; ");
+  return `Fix the fact claims that do not match their verified facts: ${listed}. Write each of them again as its fact placeholder; for a true or false fact, as one plain clause with words from the fact key and no word that is not in the fact key (with not or no when the value is false), and record exactly that clause as the claim. Keep the rest of the post and add no new claim, figure or link.`;
+}
