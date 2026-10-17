@@ -16,8 +16,38 @@ const forwardedHeaders = [
   // Telegram authenticates its webhook calls with this header.
   "x-telegram-bot-api-secret-token",
 ];
-/** OAuth clients (MCP) authenticate token, revoke and introspect calls with it. */
+/**
+ * OAuth clients (MCP) authenticate token, revoke and introspect calls with it;
+ * public API clients send their session's bearer token in it (WP4.2b).
+ */
 const oauthHeaders = [...forwardedHeaders, "authorization"];
+// A provider's webhook (WP4.2a) is signed with headers of its own choosing
+// (x-hub-signature-256, stripe-signature, webhook-id ...), so under
+// /api/hooks/ every header passes except these. The hooks route reads no
+// cookie or session, and the client address is set by the proxy alone.
+const hookDropped = new Set([
+  "accept-encoding",
+  "connection",
+  "content-length",
+  "cookie",
+  "expect",
+  "forwarded",
+  "host",
+  "keep-alive",
+  "proxy-authorization",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "x-real-ip",
+]);
+const hookHeaders = (request: NextRequest) =>
+  [...request.headers.keys()].filter(
+    (name) =>
+      !hookDropped.has(name) &&
+      !/^(x-orbit-|x-forwarded-|x-middleware-|x-nextjs-|sec-)/.test(name),
+  );
 async function proxy(
   request: NextRequest,
   context: { params: Promise<{ path: string[] }> },
@@ -33,12 +63,18 @@ async function proxy(
       { error: { code: "INVALID_PATH", message: "Invalid API path." } },
       { status: 400 },
     );
-  // Authorization only under /api/auth/oauth2/: nowhere else does the API read it.
-  const oauth = path[0] === "auth" && path[1] === "oauth2";
+  // Authorization only under /api/auth/oauth2/ and /api/public/: nowhere
+  // else does the API read it.
+  const bearer =
+    (path[0] === "auth" && path[1] === "oauth2") || path[0] === "public";
   return forwardToApi(
     request,
     `/api/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
-    oauth ? oauthHeaders : forwardedHeaders,
+    path[0] === "hooks"
+      ? hookHeaders(request)
+      : bearer
+        ? oauthHeaders
+        : forwardedHeaders,
   );
 }
 export {

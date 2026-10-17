@@ -311,10 +311,11 @@ export async function buildServer(
       !notificationsEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
-    // Public ingress (WP4.2) does not exist while its flag is off.
+    // Public ingress (WP4.2) does not exist while its flag is off. The
+    // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
       (req.routeOptions.url === WEBHOOK_PATH ||
-        req.url.startsWith("/api/public/")) &&
+        (req.routeOptions.url ?? "").startsWith("/api/public/")) &&
       !publicIngressEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);

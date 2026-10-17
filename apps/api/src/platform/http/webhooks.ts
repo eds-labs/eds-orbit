@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { scoped } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -11,6 +11,7 @@ import {
 } from "../connections/connections.ts";
 import { registeredWebhook } from "../modules/contributions.ts";
 import { enqueue } from "../jobs/enqueue.ts";
+import { clientIp } from "../../client-ip.ts";
 
 // Public ingress for signed provider webhooks (WP4.2a). No session, no
 // cookie, no Origin: the connection's secret authenticates the provider.
@@ -25,6 +26,8 @@ export const WEBHOOK_URL = new RegExp(
   `^/api/hooks/[a-z][a-z0-9_-]{1,30}/${UUID}/${UUID}/${UUID}$`,
 );
 const MAX_BYTES = 262_144;
+/** Hook calls per minute from one client address, across all connections. */
+export const HOOKS_PER_ADDRESS = 600;
 
 export function publicIngressEnabled() {
   return loadConfig().ORBIT_PUBLIC_INGRESS === "true";
@@ -47,6 +50,29 @@ const headersOf = (raw: Record<string, unknown>) =>
     ]),
   );
 
+/**
+ * An onRequest hook that limits requests per `key(req)` on top of a route's
+ * own rate limit. A route's limit keyed by a value the caller picks (a
+ * connection or session id) replaces the global per-address limit, so made-up
+ * values would otherwise never be limited (review finding PI-2/PI-3).
+ */
+export function ceilingPerKey(
+  app: FastifyInstance,
+  max: number,
+  key: (req: FastifyRequest) => string,
+) {
+  const check = app.createRateLimit({
+    max,
+    timeWindow: "1 minute",
+    keyGenerator: key,
+  });
+  return async (req: FastifyRequest) => {
+    const limit = await check(req);
+    if (!limit.isAllowed && limit.isExceeded)
+      throw new DomainError("RATE_LIMITED", 429);
+  };
+}
+
 /** Registers the webhook route in its own scope with a raw-body JSON parser. */
 export async function registerWebhookRoutes(
   app: FastifyInstance,
@@ -64,12 +90,18 @@ export async function registerWebhookRoutes(
       WEBHOOK_PATH,
       {
         bodyLimit: MAX_BYTES,
+        // Made-up connection ids each get their own bucket below.
+        onRequest: ceilingPerKey(
+          child,
+          HOOKS_PER_ADDRESS,
+          (req) => `hooks-address:${clientIp(req)}`,
+        ),
         config: {
           rateLimit: {
             max: 120,
             timeWindow: "1 minute",
             // Per connection, whatever address the provider sends from.
-            keyGenerator: (req: import("fastify").FastifyRequest) =>
+            keyGenerator: (req: FastifyRequest) =>
               `hook:${(req.params as { connectionId?: string }).connectionId ?? "?"}`,
           },
         },

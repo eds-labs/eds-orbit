@@ -145,7 +145,13 @@ export type SignedWebhookProvider = {
     credential: string;
     now: Date;
   }): boolean;
-  /** The provider's id of the message, for idempotency; null rejects it. */
+  /**
+   * The provider's id of the message, for idempotency; null rejects it. It
+   * must be covered by the signature `verify` checks (a field of the signed
+   * body, or a header the signature includes); otherwise a captured delivery
+   * replays under a new id. A provider that signs a timestamp should also
+   * reject old ones in `verify`.
+   */
   messageId(input: {
     body: unknown;
     headers: Readonly<Record<string, string | undefined>>;
