@@ -1,5 +1,25 @@
 # Implementation status
 
+## A third module through the contracts alone: WP4.1 (2026-10-17, local)
+
+Branch `claude/wp41-extensibility`, the first work package of Phase 4. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`.
+
+- **Fixture module `tasks`** (`apps/api/tests/fixtures/modules/tasks`, test only). It declares:
+  - a kind and two permissions;
+  - a route, a readable collection and an action;
+  - a proposal tool, an action type and a scheduler.
+  
+  `registerTestModules()` in `modules/registry.ts` adds it; the API and the worker register only the static list.
+- **Three gaps the suite found and closed** (behaviour of knowledge and marketing unchanged):
+  - `ToolNamespace` was a closed union. A module may now name its own namespace; it only groups tools for tool search.
+  - The generic collection read accepted a fixed list of kinds. A module now declares readable kinds with `EntityKindDef.collection`. The registry refuses it for an unexported kind, so credentials can never become readable.
+  - Action permissions were hard-coded for knowledge and marketing in `server.ts`. Modules now contribute `actionPermissions` for their own actions only; the registry refuses another module's action.
+- **Tests:**
+  - `extensibility.integration.test.ts`: registration; the tool offered by role; the route, collection and action for owner, editor, viewer and a non-member; module off and on again, including the scheduler.
+  - `extensibility-assistant.integration.test.ts`: a scripted chat run across knowledge, marketing and the fixture yields two ActionRequests. A viewer cannot decide them; an editor approves one and exactly one task appears.
+
+**Rollback.** Revert; there is no schema or data change.
+
 ## Phase 3 follow-ups (2026-10-17, local)
 
 Branch `claude/phase3-followups`.

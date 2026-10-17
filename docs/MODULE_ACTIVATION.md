@@ -67,3 +67,15 @@ Owners switch modules in **Settings → Modules**. Disabling asks for confirmati
 1. Merge with the flag off; no behaviour change.
 2. Turn the flag on in staging. Turn marketing off and on again on a test project, and check the acceptance list above.
 3. Production: turning the flag on is a separate, approved step (`AGENTS.md`). Turning it on alone changes nothing until an owner disables a module.
+
+## Adding a module (WP4.1)
+
+A module plugs in through its manifest (`ServerModule`) and its contributions (`ModuleContributions`), registered in `apps/api/src/modules/registry.ts`. The test-only fixture module `apps/api/tests/fixtures/modules/tasks` shows every part:
+- entity kinds (`collection: true` makes one readable through `GET /api/projects/:id/<kind>`);
+- permissions with the module's prefix;
+- routes (guarded by activation);
+- actions with their `actionPermissions`;
+- assistant tools (own namespace);
+- action types and a scheduler contribution.
+
+Writes to the generic collection route stay per-kind code; a module writes through its own actions and routes. Tests add modules with `registerTestModules()`; production never calls it.
