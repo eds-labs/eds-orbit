@@ -36,6 +36,8 @@ export type ViewDef = {
    * entry it belongs to, highlighted while the page is open (WP3.3).
    */
   navKey?: string;
+  /** The page's name in the breadcrumb when it has no navigation entry. */
+  title?: Label;
   /**
    * A platform page that only works while this module is on (WP2.4), such
    * as the approvals inbox that still lists marketing's items.

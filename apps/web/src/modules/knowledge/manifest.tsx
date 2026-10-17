@@ -1,7 +1,7 @@
 import { BookOpen } from "lucide-react";
 import { labels } from "@/lib/i18n";
 import type { WebModule } from "@/platform/shell/types";
-import type { ViewDef } from "@/platform/shell/types";
+import type { Label, ViewDef } from "@/platform/shell/types";
 import {
   Knowledge,
   KNOWLEDGE_TABS,
@@ -10,9 +10,22 @@ import {
 
 // Each tab but the overview is a page of its own (WP3.3), reachable by URL
 // and highlighting the knowledge entry of the sidebar.
+// Breadcrumb names of the tabs (the tab bar keeps its own labels).
+const TAB_TITLES: Record<Exclude<KnowledgeTab, "overview">, Label> = {
+  sources: { en: labels.en.sources, de: labels.de.sources },
+  facts: { en: labels.en.factTab, de: labels.de.factTab },
+  import: { en: labels.en.import, de: labels.de.import },
+  conflicts: { en: "Conflicts", de: "Konflikte" },
+  library: { en: labels.en.library, de: labels.de.library },
+  health: { en: labels.en.health, de: labels.de.health },
+  inspector: { en: labels.en.inspector, de: labels.de.inspector },
+  impact: { en: labels.en.impact, de: labels.de.impact },
+};
+
 const tabView = (tab: Exclude<KnowledgeTab, "overview">): ViewDef => ({
   key: `knowledge-${tab}`,
   path: tab,
+  title: TAB_TITLES[tab],
   component: function KnowledgeTabView() {
     return <Knowledge tab={tab} />;
   },

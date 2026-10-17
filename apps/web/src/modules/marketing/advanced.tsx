@@ -21,6 +21,7 @@ import {
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import { useCollection } from "@/platform/ui/collection";
+import { brandTermsField } from "./profile-fields";
 
 type MarketingProfileView = {
   id: string;
@@ -223,6 +224,13 @@ export function MarketingProfileConfiguration() {
       value: profileLines(current?.primaryCtas),
     },
     {
+      name: "brandTerms",
+      label: "Product words in fact sentences (one per line)",
+      type: "textarea",
+      value: profileLines(current?.brandTerms),
+      hint: "Lower-case words of the product name that a fact sentence may contain, such as the brand. Empty keeps the built-in words (uliquid, uliq, desk). Saving the profile invalidates pending packages.",
+    },
+    {
       name: "channelPriority",
       label: "Channel priority (one per line)",
       type: "textarea",
@@ -392,6 +400,7 @@ export function MarketingProfileConfiguration() {
                       guardrails: profileCsv(str(v, "guardrails")),
                       primaryCtas: profileCsv(str(v, "primaryCtas")),
                       channelPriority: profileCsv(str(v, "channelPriority")),
+                      ...brandTermsField(str(v, "brandTerms")),
                       notificationPreference: str(v, "notificationPreference"),
                       officialLinks,
                       visualIdentity: {

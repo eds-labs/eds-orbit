@@ -1,6 +1,33 @@
 # Implementation status
 
-## Product words of the fact checks from the profile: WP3.4 (2026-10-15, local)
+## Phase 3 follow-ups (2026-10-17, local)
+
+Branch `claude/phase3-followups`.
+
+- **Breadcrumb.** Knowledge sub-pages showed their internal key ("knowledge-facts"). `ViewDef.title` now names a page without a navigation entry, and `crumbs()` shows "Wissen / Fakten". A test checks that no page shows its key.
+- **brandTerms in the profile editor.** The marketing profile editor (`modules/marketing/advanced.tsx`) has a field for the product words of the fact checks. Words are lower-cased and de-duplicated; an empty field leaves `brandTerms` out, so the built-in uLiquid words stay. Saving the profile invalidates pending packages, as every profile save does.
+- **Deployment record of Phase 3** (below).
+
+## Phase 3 in production: WP3.1–WP3.4 (2026-10-15/16)
+
+Each step was merged into `main` on Mario's approval, after green CI and outside the 10:00/17:00 slots. Coolify deployed each one with about 30–40 seconds of 503 while the containers were replaced. After every deploy, `/api/health/ready` (database ok, worker ready) and `/api/health/postiz` were ok.
+
+| WP | PR | Merge commit | Merged | Live |
+|---|---|---|---|---|
+| WP3.1 impact handlers | #128 | `918e06c` | 15.10 15:57 | 16:00 |
+| WP3.2 knowledge services, K-1 | #129 | `6567951` | 15.10 17:15 | 17:19 |
+| WP3.3 knowledge module, URL views | #130 | `c9f8af2` | 15.10 17:46 | 17:49 |
+| WP3.4 brand terms from the profile | #131 | `2533a80` | 16.10 15:41 | 15:45 |
+
+Checks after the deploys:
+- **K-1, before the switch.** The read-only check in production (`scripts/rollout/k1-usable-facts-diff.sql`, as `orbit_app`, ending in ROLLBACK) showed every uLiquid fact unchanged.
+- **Knowledge views.** `/p/<uLiquid>/knowledge/facts` opens the Facts tab with the knowledge entry highlighted.
+- **Assignment runs on 16.10 (`63f76b22`) and 17.10 (`f610945b`).** Every step finished; the new `knowledge_search` and the K-1 rule raised no error.
+  - Of the four drafts, the 17:00 draft of 17.10 was approved and handed to Postiz for X and Telegram (WP2.6 check 8).
+  - The three rejections came from content conflicts, not from the refactor: an extra word in a fact sentence, banner copy competing with the CTA, reviewer directions left in the text, and a topic built on a fact that the guardrails forbid. They are handled separately.
+  - The daily report (WP2.6 check 9) has not been checked here.
+
+## Product words of the fact checks from the profile: WP3.4 (2026-10-15; production 2026-10-16)
 
 Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. Behaviour for uLiquid is unchanged.
 
@@ -21,7 +48,7 @@ Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-ph
 
 **Rollback.** Revert; there is no schema migration or data change (the profile field is optional and unused).
 
-## Knowledge module, server and web: WP3.3 (2026-10-15, local)
+## Knowledge module, server and web: WP3.3 (2026-10-15; production 2026-10-15)
 
 Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. With `ORBIT_MODULES=false` the product is unchanged; the knowledge views gain URLs.
 
@@ -41,7 +68,7 @@ Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-
 
 **Rollback.** Revert; there is no schema or data change.
 
-## Knowledge services and the K-1 fact rule: WP3.2 (2026-10-15, local)
+## Knowledge services and the K-1 fact rule: WP3.2 (2026-10-15; production 2026-10-15)
 
 Branch `claude/wp32-knowledge-services` (stacked on WP3.1). Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`.
 
@@ -62,7 +89,7 @@ Branch `claude/wp32-knowledge-services` (stacked on WP3.1). Plan: `docs/superpow
 
 **Rollback.** Revert; there is no schema or data change.
 
-## Knowledge invalidation through impact handlers: WP3.1 (2026-10-15, local)
+## Knowledge invalidation through impact handlers: WP3.1 (2026-10-15; production 2026-10-15)
 
 Branch `claude/plattform-umbau-fortschritt-05c734`, the first work package of Phase 3 (plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`). Risk class high: a missed invalidation would make revoked evidence publishable. Behaviour is unchanged.
 

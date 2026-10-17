@@ -174,6 +174,8 @@ Risk class medium. With `ORBIT_MODULES=false` (production) the product is unchan
 - The settings panel and the home tile are also follow-ups.
 - The static "Marketing Memory" principle card is text without a code dependency, so it stays.
 
+**Follow-ups after the rollout (2026-10-17).** The breadcrumb names sub-pages ("Wissen / Fakten") and the profile editor edits `brandTerms`. Still open: detail URLs with ids, the knowledge settings panel and the home tile. They are not needed for Phase 4 and can be done when the knowledge UI is next worked on.
+
 ### Task 1: Knowledge routes and import in the module
 
 **Files:**
