@@ -60,7 +60,22 @@ const TENANCY_TABLES = [
   "WorkspaceMember",
 ];
 // Better Auth tables and Prisma's journal: no RLS, never granted to orbit_app.
-const AUTH_ONLY_TABLES = ["account", "session", "user", "verification"];
+const AUTH_ONLY_TABLES = [
+  "McpGrant",
+  "McpGrantEvent",
+  "account",
+  "jwks",
+  "oauthAccessToken",
+  "oauthClient",
+  "oauthClientAssertion",
+  "oauthClientResource",
+  "oauthConsent",
+  "oauthRefreshToken",
+  "oauthResource",
+  "session",
+  "user",
+  "verification",
+];
 const SYSTEM_TABLES = ["_prisma_migrations"];
 // Tenancy tables the business role must not touch at all.
 const NO_APP_ACCESS = [

@@ -1,5 +1,95 @@
 # Implementation status
 
+## Track M WP-M1: OAuth authorization server, consent and grants (2026-10-17, local)
+
+Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plans/2026-10-17-track-m-wp-m1-oauth.md` (decisions D1–D7 approved by Mario on 2026-10-17; Task 0 findings are at its end). Risk: high (new authentication surface). Environment: local only so far. There is no MCP endpoint yet (WP-M2).
+
+- **Merging is a production change.** A merge to `main` auto-deploys, so it applies to production regardless of the flag: the additive migration `202610170009_mcp_oauth` (ten new tables, one partial unique index, `orbit_auth` grants from `db-deploy`) and the Better Auth patch upgrade 1.7.5 → 1.7.10 (with `better-call` 1.4.2 and `@better-auth/utils` 0.5.0). AGENTS.md treats both as needing explicit approval (production migration, dependency change): the merge itself needs Mario's explicit approval. The flag flip, the Traefik and route decisions and the ChatGPT run remain WP-M5.
+- **Post-deploy smoke test (after the merge, flag off).** Sign in; `GET /api/auth/get-session` returns the session; a request after the renewal threshold sets a renewed (sliding) session cookie; sign out; Settings loads and the Connected apps tab is hidden; `GET /api/health/ready` is ok.
+- **Flags (all default off).**
+  - `ORBIT_MCP_OAUTH=false`: no OAuth plugin, route or table access is registered; session login and the `/api/auth/*` responses are unchanged, with these exceptions: the Better Auth dependency upgrade above applies anyway; `disabledPaths: ["/token"]` is set unconditionally (no effect, `/api/auth/token` is only registered by the `jwt()` plugin); the web proxy always sends the proxy-only `x-orbit-sec-fetch-mode` header, which the API strips; the `/connect` web pages exist and render a generic failure; Settings probes `GET /api/mcp-grants` (404) to decide whether to show Connected apps.
+  - `ORBIT_MCP_DCR=false`: dynamic client registration stays closed; when on, Better Auth limits registration to 5 per minute per IP.
+  - `MCP_RESOURCE` (blank): token audience and resource, default `${APP_ORIGIN}/mcp`; must be https (loopback http only) without query, fragment or credentials. Every configured resource needs `allowedScopes` (Prisma list `null` caveat).
+  - `ORBIT_MCP_CIMD_HOSTS=chatgpt.com`: hosts (exact or subdomain) whose client metadata documents Orbit may fetch.
+  - All four pass through `docker-compose.yml` (api and worker share the anchor); `scripts/check-coolify-compose.mjs` pins the defaults and the follow-through.
+- **Endpoints (flag on).** Issuer `${APP_ORIGIN}/api/auth` (D2); `/api/auth/oauth2/*` (authorize, token, userinfo, consent, continue, revoke, introspect; register only with DCR); `/api/auth/jwks`; metadata at `/.well-known/oauth-authorization-server/api/auth` and `/api/auth/.well-known/openid-configuration`. `/api/auth/token` stays disabled and sign-in responses carry no `set-auth-jwt` header. Machine endpoints (token, revoke, introspect, and register only with DCR on) skip the browser Origin check and accept form bodies; authorize, consent, continue and userinfo are not exempt. Ingress is the existing web proxy plus a Next route for the root `/.well-known/*` paths (D3); the proxy forwards `Authorization` only for `/api/auth/oauth2/*` and sends the browser's `Sec-Fetch-Mode` as `x-orbit-sec-fetch-mode` so authorize answers 302 instead of JSON; the API strips that header with the flag off.
+- **Orbit routes (flag on, else 404).** `GET /api/mcp-connect/request`, `POST /api/mcp-connect/selection`, `POST /api/mcp-connect/consent`, `GET /api/mcp-grants`, `GET /api/workspaces/:id/mcp-grants`, `DELETE /api/mcp-grants/:id`.
+- **Web.** `/connect` (workspace, project and scope selection with consent), `/connect/login` (login that continues the authorization; plain sign-in is unchanged), `/connect/error`, and Settings → Connected apps (own grants, owner section for the workspace).
+- **Data.** Migration `202610170009_mcp_oauth` (additive): the ten auth tables `jwks`, `oauthClient`, `oauthAccessToken`, `oauthRefreshToken`, `oauthConsent`, `oauthClientAssertion`, `oauthResource`, `oauthClientResource`, `McpGrant`, `McpGrantEvent`. They belong to `orbit_auth` (listed in `scripts/db-deploy.ts` `authTables`, owner entries in the module registry); `orbit_app` has no access.
+- **Dependencies (D1).** `better-auth` 1.7.5 → 1.7.10; new `@better-auth/mcp`, `@better-auth/oauth-provider`, `@better-auth/cimd`, all exactly 1.7.10. Transitive: `better-call`, `@better-auth/core` and the adapters.
+- **Decisions.** D2 issuer path as above; D3 ingress through the web proxy, the Traefik route is decided with `/mcp` in WP-M2; D4 scopes `openid email profile offline_access orbit:read orbit:propose` (no `orbit:write`); D5 CIMD host allowlist; D6 DCR off; D7 `email_verified` is `false` (Orbit has no e-mail verification).
+- **Tokens.** Authorization code with PKCE S256 only plus `refresh_token`. Access token: JWT, 600 s, `aud` = `[MCP_RESOURCE, <userinfo endpoint>]` (WP-M2 checks that it includes `MCP_RESOURCE`), claim `orbit_workspace_id` from the consent reference. Refresh token: opaque, hashed, rotated, 30 s reuse window; a replay revokes the user's tokens of that client (stricter than per grant) and is audited as `token.refresh_replay`. Client authentication: `none` and `private_key_jwt`.
+- **Security mechanisms.**
+  - The workspace is Better Auth's consent reference, so consent, tokens and refresh families are per (user, client, workspace) (fixed upstream in 1.7.10, #11801).
+  - One partial unique index allows a single active grant per (user, client, workspace); a selection replaces the active one and copies its scopes.
+  - A code is issued only for an active grant (pending selections never yield one; refused redirects withhold the code; consent with claims is refused). This is not fail-closed without exception: consuming a selection is a read-then-update without a row lock (same-user concurrent replace window), and an abandoned selection can be reused once by the same client and session within 600 s (see limitations).
+  - `resource` is required on authorize and must equal `MCP_RESOURCE` (400 `invalid_target`); the signed query is checked for expiry (`OAUTH_REQUEST_EXPIRED`) and tampering.
+  - A refresh needs an active grant and `refreshAllowed` (no revocation of the same grant lineage at or after the token's creation, except replaced or superseded).
+  - Revocation (user, owner, deny, client change) deletes the grant's outstanding authorization codes, consent and refresh tokens in one transaction and writes a `McpGrantEvent`.
+  - CIMD: host allowlist and URL policy (https, no credentials, fragment, loopback or IP literal) run before any fetch; the bundled `@better-auth/cimd/node` transport resolves once, rejects special-use addresses, pins the address and allows no redirects, 5 s and 5 KB; secret or symmetric auth methods are refused.
+  - A change of redirect URIs or JWKS in a client document revokes that client's grants and pending selections (`client.refreshed`).
+  - The gateway lookup `activeGrantForToken` re-checks the current membership on every call.
+
+**Verification (local).**
+- Full suite (`vitest run` with the local env file) after merging `main` (WP4.1–WP4.5): 172 files, 1552 of 1553 tests passed. The one failure, `rls-matrix` "classifies every table", came from a `PublicClientKey` table that another worktree's unmerged migration had left in the shared local test database; on a fresh isolated local database deployed from this branch, `rls-matrix` and `access-matrix` pass (2 files, 14 tests). `tsc --noEmit` (root and `apps/web`), `next build --webpack`, `scripts/source-check.mjs`, `python3 scripts/check-secrets.py` and `scripts/check-coolify-compose.mjs` pass.
+- The local Docker VM had been reset, so the local databases were recreated with the isolated local setup steps (init-db, then db-deploy on the dev and test databases) before the full run.
+- New test files: `mcp-oauth-{config.unit,schema.integration,http.integration,flow.integration,revoke.integration,cimd.integration,browser-redirect.integration,hooks.characterization.integration}`, plus web tests for the proxy, `/.well-known` route, routes table, `connect-view` and `connected-apps`. The access matrix and RLS matrix include the new surface and tables.
+- Mapping to the acceptance criteria: `docs/REQUIREMENTS_TRACEABILITY.md` ("Track M WP-M1 acceptance").
+- Not done: a live ChatGPT developer-mode run, MCP conformance and the independent security review (WP-M5).
+
+**Security review notes (WP-M1, checklist `09` §9).**
+
+| §9 item | Status | Evidence |
+|---|---|---|
+| Token audience binding | partly: issuing side met; verification and the REST API refusal come with WP-M2 | `mcp-oauth-flow` (full flow: `aud` includes `MCP_RESOURCE`, missing or other `resource` is `invalid_target`); WP-M2 must verify `aud` inclusion on every call |
+| PKCE required, exact redirect, `iss`, no skipped consent | met | `mcp-oauth-http` (S256 only, `iss` parameter advertised), `mcp-oauth-flow` (wrong verifier, unregistered redirect, new client always reaches consent) |
+| CIMD fetch is SSRF-safe | partly | `mcp-oauth-cimd` (host and URL policy before fetch, size limit, no secret methods), `mcp-oauth-config` (production uses the bundled pinned transport). The address pinning itself is the library's and has no Orbit-side test |
+| Refresh rotation with reuse detection, immediate revocation | met | `mcp-oauth-flow` (rotation, replay after 30 s), `mcp-oauth-revoke` (revoked grant fails on the next call, revocation beats the reuse window), `mcp-oauth-cimd` (refresh needs an active grant, codes die with the grant) |
+| Membership and module activation re-checked, intersection never exceeds UI rights | partly: membership met, the rest WP-M2 | `mcp-oauth-revoke` (`activeGrantForToken` accepts only an active grant of a current member); token scopes are not yet intersected with grant scopes |
+| Results respect `modelUse`, hard floors, ActionRequests | WP-M2 and later | no tool surface in WP-M1 |
+| Rate limits, quotas, kill switch | partly | `mcp-oauth-http` (token endpoint limited per client IP), `mcp-oauth-cimd` (DCR 5 per minute); the flag is the kill switch; per-grant gateway limits come with WP-M2 |
+| Dependency pinning past known advisories | met | exact 1.7.10 pins; advisory query on 2026-10-17 (plan D1) |
+| MCP conformance and ChatGPT end-to-end test | WP-M5 | not run |
+
+**Known limitations and follow-ups.**
+- `email_verified` is `false` (D7): ChatGPT Enterprise domain restrictions would fail.
+- A member removed from a workspace keeps an active grant row; `activeGrantForToken` denies them, but grants should be revoked on member removal (WP-M2 or a removal hook).
+- Two millisecond windows remain between code or refresh rotation and a concurrent revocation; a global `/oauth2/token` after-hook that deletes tokens minted for a non-active grant closes them.
+- Downgrading a client from `private_key_jwt` to `none` does not revoke grants; needs a decision.
+- A changed client document is noticed only after the metadata revalidation interval (default 60 min). A failed revocation on a client change is logged at error level and marked `revocationFailed`; there is no persisted retry.
+- Discovery metadata is sent with `Cache-Control: no-store` (WP-M2 may want caching).
+- Replacing a grant copies the old scopes even when the new request asks for fewer: WP-M2 must intersect token scopes with grant scopes, check that `aud` includes `MCP_RESOURCE`, and call `activeGrantForToken`.
+- Smaller review findings, accepted for WP-M1:
+  - The selection is not bound to the signed OAuth query; it is looked up only by session and client.
+  - An abandoned selection can be reused once by the same client and session within 600 s.
+  - With the flag on, form bodies are accepted on every permitted `/api/auth` endpoint, including sign-in (the Origin check still applies).
+  - After a re-grant within 1 s of a revocation, older refresh tokens are refused (`createdAt` has second precision); the user may need to re-authorize.
+  - `consumeSelection` is a read-then-update without a row lock: there is a same-user concurrent-replace window.
+  - A selection can replace an active grant before `/oauth2/continue` has validated the client.
+  - Browsers that send no `Sec-Fetch-Mode` still get the JSON answer instead of a 302 on authorize.
+  - The owner section in Connected apps is gated on the project role, not the workspace role (the API enforces workspace owner).
+- `docs/evidence/source-manifest.json` is stale for `docker-compose.yml` (and has been since the initial commits); regenerate it with `node scripts/source-manifest.mjs` at the next evidence refresh.
+
+**WP-M5 pre-flip checklist (before `ORBIT_MCP_OAUTH=true` in production).**
+- [ ] Normalize `MCP_RESOURCE` (trailing slash, host case) at config load and in the `resource` comparison.
+- [ ] Add a `CHECK` constraint on `McpGrant.status` (allowed values only).
+- [ ] Bind the pending selection to the signed OAuth query, not only to session and client.
+- [ ] Characterization test for the provider's sign-in continuation: the after-hook re-run after `/connect/login`.
+- [ ] A `/oauth2/token` after-hook that deletes tokens minted for a non-active grant (closes the code-consume and refresh-rotation millisecond windows).
+- [ ] Decide on a `token_endpoint_auth_method` downgrade (`private_key_jwt` → `none`); recommended: revoke the client's grants.
+- [ ] Tests for deny after a replacement and for `GRANT_CONFLICT`.
+- [ ] Review the per-IP limits against hosted clients (ChatGPT egress IPs share addresses).
+- [ ] Cleanup of abandoned pending selections.
+- [ ] RFC 7009 client revocation vs grant status: decide whether a client's token revocation changes the grant (WP-M2 decision).
+- [ ] Index on `McpGrant.sessionId`.
+
+**WP-M2 entry criteria.**
+- Split `grants.ts` and `plugins.ts` (selection, revocation, client events, queries, hooks) before adding the gateway.
+- Intersect token scopes with the grant's scopes.
+- Check that `aud` includes `MCP_RESOURCE` and call `activeGrantForToken` on every MCP call.
+- Consider WP4.5 module roles (`ORBIT_MODULE_ROLES`) in the grant intersection, so a module role `none` or `viewer` also narrows what a grant allows.
+
+**Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`. Production after the merge (flag still off): the flag needs no change; if the smoke test fails, redeploy the previous `main` commit, which reverts the Better Auth upgrade. The migration is additive and its tables stay (unused with the flag off); dropping them is not part of a rollback. Production after the WP-M5 flip: the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway.
 ## Fewer avoidable assignment rejects: R84–R87 (2026-10-17, local)
 
 Branch `claude/amazing-hawking-253a3e`. In the uLiquid runs of 2026-10-16 (63f76b22) and 2026-10-17 (f610945b) only one of four drafts was approved; the other three failed for content-consistency gaps, not because of the Phase 3 refactor. Rulings R84–R87 in `docs/superpowers/plans/2026-10-09-orbit-agents-rulings.md`.

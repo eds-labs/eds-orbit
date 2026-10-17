@@ -34,6 +34,11 @@ function trustedPeer(address: string) {
   );
 }
 
+/** Whether the TCP peer is an Orbit container (the web proxy) and may set proxy-only headers. */
+export function isTrustedPeer(req: FastifyRequest) {
+  return trustedPeer(normalize(req.socket.remoteAddress ?? req.ip));
+}
+
 /**
  * The client address used for rate limiting: the forwarded header from a
  * trusted peer when it holds one valid IP, otherwise the TCP peer itself.

@@ -1,4 +1,4 @@
-import type { Label, ViewDef, WebRegistry } from "./types";
+import type { Label, StandaloneView, ViewDef, WebRegistry } from "./types";
 
 // URL scheme of the web shell (ADR 0009 AD-12, plans/orbit-modularization/02):
 //   /                                  start: last project, else the pickers
@@ -19,6 +19,8 @@ export type Route = ViewDef & {
 
 export type RouteTable = {
   routes: readonly Route[];
+  /** Pages outside any project. */
+  standalone: readonly StandaloneView[];
   /** Legacy path -> route. */
   legacy: ReadonlyMap<string, Route>;
   moduleIds: readonly string[];
@@ -27,6 +29,7 @@ export type RouteTable = {
 const SEGMENT = /^[a-z][a-z0-9-]*$/;
 // First segments the shell itself uses; no page may claim them.
 const RESERVED = new Set(["o", "p", "api", "admin"]);
+const STANDALONE_PATH = /^[a-z][a-z0-9-]*(\/[a-z][a-z0-9-]*)*$/;
 
 /** Builds and checks the route table once; throws on any conflict. */
 export function routeTable(registry: WebRegistry): RouteTable {
@@ -87,11 +90,32 @@ export function routeTable(registry: WebRegistry): RouteTable {
         `${route.key}: navKey "${route.navKey}" belongs to another owner`,
       );
   }
+  const standalone = registry.standalone ?? [];
+  const standaloneKeys = new Set<string>();
+  const standalonePaths = new Map<string, string>();
+  for (const view of standalone) {
+    const first = view.path.split("/")[0]!;
+    if (!STANDALONE_PATH.test(view.path))
+      problems.push(`${view.key}: invalid standalone path "${view.path}"`);
+    else if (RESERVED.has(first) || moduleIds.includes(first))
+      problems.push(`standalone page ${view.key} claims "/${first}"`);
+    else if (legacy.has(`/${view.path}`))
+      problems.push(
+        `legacy path /${view.path} used by ${legacy.get(`/${view.path}`)!.key} and ${view.key}`,
+      );
+    if (standaloneKeys.has(view.key) || seen.has(`key:${view.key}`))
+      problems.push(`key ${view.key} used twice`);
+    standaloneKeys.add(view.key);
+    const prior = standalonePaths.get(view.path);
+    if (prior)
+      problems.push(`path /${view.path} used by ${prior} and ${view.key}`);
+    standalonePaths.set(view.path, view.key);
+  }
   if (!routes.some((r) => r.segments.length === 0))
     problems.push('no project home (a platform view with path "")');
   if (problems.length)
     throw new Error(`WEB_ROUTES_INVALID: ${problems.join("; ")}`);
-  return { routes, legacy, moduleIds };
+  return { routes, standalone, legacy, moduleIds };
 }
 
 /**
@@ -116,6 +140,8 @@ export type Place =
   | { kind: "organizations" }
   | { kind: "organization"; organizationId: string }
   | { kind: "view"; projectId: string; route: Route }
+  /** A page outside any project, such as /connect. */
+  | { kind: "standalone"; view: StandaloneView }
   /** A module root without a root view: go to its first page. */
   | { kind: "redirect"; projectId: string; route: Route }
   | { kind: "legacy"; route: Route }
@@ -153,6 +179,8 @@ export function locate(pathname: string, table: RouteTable): Place {
     }
     return { kind: "notFound", projectId: second };
   }
+  const page = table.standalone.find((v) => v.path === parts.join("/"));
+  if (page) return { kind: "standalone", view: page };
   const legacy = parts.length === 1 && table.legacy.get(`/${first}`);
   return legacy ? { kind: "legacy", route: legacy } : { kind: "notFound" };
 }

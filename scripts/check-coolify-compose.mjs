@@ -38,6 +38,10 @@ for (const key of [
   "ORBIT_IMAGE_REFERENCES",
   "ORBIT_AGENT_REVIEW_AUTHORITY",
   "ORBIT_MODULES",
+  "ORBIT_MCP_OAUTH",
+  "ORBIT_MCP_DCR",
+  "MCP_RESOURCE",
+  "ORBIT_MCP_CIMD_HOSTS",
   "ORBIT_MODULE_ROLES",
   "ORBIT_PUBLIC_INGRESS",
   "ORBIT_FILES",
@@ -167,6 +171,10 @@ const flagged = JSON.parse(
         ORBIT_IMAGE_REFERENCES: "true",
         ORBIT_AGENT_REVIEW_AUTHORITY: "true",
         ORBIT_MODULES: "true",
+        ORBIT_MCP_OAUTH: "true",
+        ORBIT_MCP_DCR: "true",
+        MCP_RESOURCE: "https://orbit.example.invalid/mcp",
+        ORBIT_MCP_CIMD_HOSTS: "chatgpt.com,example.invalid",
         ORBIT_MODULE_ROLES: "true",
         ORBIT_PUBLIC_INGRESS: "true",
         ORBIT_FILES: "true",
@@ -198,6 +206,28 @@ for (const name of ["api", "worker"])
       `${name} must follow ${flag} from the deployment environment`,
     );
 
+// The MCP OAuth server (Track M WP-M1) is off by default, its resource falls
+// back to the config default (empty), and CIMD discovery is limited to
+// chatgpt.com until configured otherwise.
+for (const name of ["api", "worker"]) {
+  assert.equal(services[name].environment.ORBIT_MCP_OAUTH, "false");
+  assert.equal(services[name].environment.ORBIT_MCP_DCR, "false");
+  assert.equal(services[name].environment.MCP_RESOURCE, "");
+  assert.equal(
+    services[name].environment.ORBIT_MCP_CIMD_HOSTS,
+    "chatgpt.com",
+  );
+  assert.equal(flagged[name].environment.ORBIT_MCP_OAUTH, "true");
+  assert.equal(flagged[name].environment.ORBIT_MCP_DCR, "true");
+  assert.equal(
+    flagged[name].environment.MCP_RESOURCE,
+    "https://orbit.example.invalid/mcp",
+  );
+  assert.equal(
+    flagged[name].environment.ORBIT_MCP_CIMD_HOSTS,
+    "chatgpt.com,example.invalid",
+  );
+}
 // The file bucket and the backup bucket never share credentials (WP4.6).
 for (const key of Object.keys(services.backup.environment))
   assert.ok(!key.startsWith("FILES_"), `backup must not receive ${key}`);

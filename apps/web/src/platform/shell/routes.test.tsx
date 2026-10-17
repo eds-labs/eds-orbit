@@ -189,6 +189,33 @@ describe("Web route registry", () => {
     ).toHaveLength(1);
   });
 
+  it("knows the standalone pages of the OAuth authorization outside any project", () => {
+    for (const [path, key, session] of [
+      ["/connect", "connect", "required"],
+      ["/connect/login", "connect-login", "required"],
+      ["/connect/error", "connect-error", "none"],
+    ] as const) {
+      const place = locate(path, table);
+      expect(place.kind, path).toBe("standalone");
+      if (place.kind !== "standalone") continue;
+      expect(place.view.key).toBe(key);
+      expect(place.view.session).toBe(session);
+      expect(place.view.title.en).toBeTruthy();
+      expect(place.view.title.de).toBeTruthy();
+    }
+    // Only /connect/login continues an authorization when signing in.
+    expect(
+      table.standalone.filter((v) => v.oauthLogin).map((v) => v.key),
+    ).toEqual(["connect-login"]);
+    expect(locate("/connect/other", table)).toEqual({ kind: "notFound" });
+    expect(locate("/connect/", table)).toMatchObject({ kind: "standalone" });
+    // They never show up in a project's navigation.
+    const standaloneKeys = table.standalone.map((v) => v.key);
+    expect(table.routes.some((r) => standaloneKeys.includes(r.key))).toBe(
+      false,
+    );
+  });
+
   it("names a knowledge tab in the breadcrumb under its entry, never by its key", () => {
     const route = (key: string) => table.routes.find((r) => r.key === key)!;
     expect(crumbs(route("knowledge-facts"), table, "de")).toEqual([
@@ -304,6 +331,46 @@ describe("Web route registry", () => {
         },
       ],
     ];
+    const page = (key: string, path: string) => ({
+      key,
+      path,
+      title: { en: key, de: key },
+      session: "none" as const,
+      component: () => null,
+    });
+    broken.push(
+      [
+        'standalone page c claims "/o"',
+        { ...base, standalone: [page("c", "o/x")] },
+      ],
+      [
+        'standalone page c claims "/p"',
+        { ...base, standalone: [page("c", "p")] },
+      ],
+      [
+        "invalid standalone path",
+        { ...base, standalone: [page("c", "Connect")] },
+      ],
+      ["key home used", { ...base, standalone: [page("home", "connect")] }],
+      [
+        "path /connect used by c1 and c2",
+        {
+          ...base,
+          standalone: [page("c1", "connect"), page("c2", "connect")],
+        },
+      ],
+      [
+        "legacy path /x used by a and c",
+        {
+          ...base,
+          platform: [
+            view("home", ""),
+            { ...view("a", "a"), legacyPaths: ["/x"] },
+          ],
+          standalone: [page("c", "x")],
+        },
+      ],
+    );
     for (const [message, registry] of broken)
       expect(() => routeTable(registry), message).toThrow(message);
   });

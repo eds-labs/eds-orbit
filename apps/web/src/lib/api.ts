@@ -152,3 +152,17 @@ export const usd = (micros: number | null | undefined) =>
  */
 export const libraryAssets = (items: Entity[] | undefined) =>
   (items ?? []).filter((asset) => !asset.data.boundTo);
+/**
+ * A DELETE whose success answers 204 with no body, which `api` would fail to
+ * parse as JSON. Sends no Content-Type: there is no body to describe.
+ */
+export async function remove(path: string): Promise<void> {
+  const response = await fetch(`/api${path}`, {
+    method: "DELETE",
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (response.ok) return;
+  const value = await response.json().catch(() => null);
+  throw new ApiError(value?.error?.code ?? "REQUEST_FAILED", response.status);
+}

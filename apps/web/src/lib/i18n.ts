@@ -134,6 +134,66 @@ export const labels = {
       "Your text opens in Orbit Chat; nothing is sent until you press Send.",
     askAssistantLabel: "Message for Orbit Chat",
     continueInChat: "Continue in chat",
+    connectTitle: "Connect an app to Orbit",
+    connectWants: "wants to use Orbit on your behalf.",
+    connectClientHost: "App identity (client_id host)",
+    connectClientWebsite: "Website it names",
+    connectSelectTitle: "Choose what the app may reach",
+    connectSelectHint:
+      "The app works only inside the workspace and projects you choose, and only with what you may do yourself. You can revoke it at any time under Settings, Connected apps.",
+    connectWorkspace: "Workspace",
+    connectProjects: "Projects",
+    connectAllProjects: "All current projects",
+    connectAllProjectsHint:
+      "Every project you can open in this workspace, including ones created later.",
+    connectPickProjects: "Choose projects",
+    connectNoProjectsInWorkspace:
+      "You are not a member of any project in this workspace; there is no project to share.",
+    connectContinue: "Continue",
+    connectConsentTitle: "Allow access?",
+    connectAccess: "What it may do",
+    connectScopeReadOnly: "Always included",
+    connectScopeOptional: "You can leave this out",
+    connectAllow: "Allow",
+    connectDeny: "Deny",
+    connectSignedInAs: "Signed in as",
+    connectScopeOpenid: "Identify you to the app",
+    connectScopeEmail: "See your email address",
+    connectScopeProfile: "See your name",
+    connectScopeOfflineAccess: "Stay connected without asking you again",
+    connectScopeRead: "Read what you can read in the chosen projects",
+    connectScopePropose:
+      "Propose changes and actions; you still approve them in Orbit",
+    connectScopeOther: "Other permission",
+    connectNoProjects:
+      "This workspace has no project you can share. Ask an owner to add you to a project, or choose another workspace.",
+    connectExpired:
+      "This authorization request has expired. Go back to the app and start connecting again.",
+    connectInvalid:
+      "This authorization request is not valid. Go back to the app and start connecting again.",
+    connectFailed: "The connection could not be completed.",
+    connectCode: "Error code",
+    connectErrorTitle: "The app could not be connected",
+    connectErrorHint:
+      "The request was refused, for example because the app sent a return address it has not registered. Nothing was shared. Go back to the app and try again, or contact whoever provides it.",
+    connectedApps: "Connected apps",
+    connectedAppsHint:
+      "Apps you allowed to use Orbit on your behalf. Revoking signs an app out at once.",
+    connectedOrgTitle: "Apps connected to this organization",
+    connectedOrgHint:
+      "Every app anyone in this organization connected. As an owner you can revoke any of them.",
+    connectedEmpty: "No apps are connected.",
+    connectedNeverUsed: "Never used",
+    connectedLastUsed: "Last used",
+    connectedConnectedOn: "Connected",
+    connectedPerson: "Person",
+    connectedRevoke: "Revoke",
+    connectedRevokeTitle: "Revoke access for",
+    connectedRevokeHint:
+      "Revoking signs the app out and ends its access to this workspace immediately. It has to ask you again to reconnect.",
+    connectedRevokeConfirm: "Revoke access",
+    connectedAllProjects: "All current projects",
+    connectedScopes: "Permissions",
   },
   de: {
     overview: "Übersicht",
@@ -271,6 +331,66 @@ export const labels = {
       "Dein Text öffnet sich im Orbit Chat; gesendet wird erst mit Senden.",
     askAssistantLabel: "Nachricht für den Orbit Chat",
     continueInChat: "Im Chat fortsetzen",
+    connectTitle: "App mit Orbit verbinden",
+    connectWants: "möchte Orbit in deinem Namen nutzen.",
+    connectClientHost: "Identität der App (Host der client_id)",
+    connectClientWebsite: "Genannte Website",
+    connectSelectTitle: "Wähle, was die App erreichen darf",
+    connectSelectHint:
+      "Die App arbeitet nur in der gewählten Organisation und den gewählten Projekten, und nur mit dem, was du selbst darfst. Du kannst den Zugriff jederzeit unter Einstellungen, Verbundene Apps widerrufen.",
+    connectWorkspace: "Workspace",
+    connectProjects: "Projekte",
+    connectAllProjects: "Alle aktuellen Projekte",
+    connectAllProjectsHint:
+      "Alle Projekte, die du in diesem Workspace öffnen kannst, auch später angelegte.",
+    connectPickProjects: "Projekte wählen",
+    connectNoProjectsInWorkspace:
+      "Du bist in diesem Workspace in keinem Projekt Mitglied; es gibt kein Projekt zum Freigeben.",
+    connectContinue: "Weiter",
+    connectConsentTitle: "Zugriff erlauben?",
+    connectAccess: "Was sie darf",
+    connectScopeReadOnly: "Immer enthalten",
+    connectScopeOptional: "Kannst du weglassen",
+    connectAllow: "Erlauben",
+    connectDeny: "Ablehnen",
+    connectSignedInAs: "Angemeldet als",
+    connectScopeOpenid: "Dich gegenüber der App identifizieren",
+    connectScopeEmail: "Deine E-Mail-Adresse sehen",
+    connectScopeProfile: "Deinen Namen sehen",
+    connectScopeOfflineAccess: "Verbunden bleiben, ohne erneut zu fragen",
+    connectScopeRead: "Lesen, was du in den gewählten Projekten lesen darfst",
+    connectScopePropose:
+      "Änderungen und Aktionen vorschlagen; du gibst sie weiterhin in Orbit frei",
+    connectScopeOther: "Weitere Berechtigung",
+    connectNoProjects:
+      "Dieser Workspace hat kein Projekt, das du freigeben kannst. Bitte einen Owner, dich zu einem Projekt hinzuzufügen, oder wähle einen anderen Workspace.",
+    connectExpired:
+      "Diese Autorisierungsanfrage ist abgelaufen. Gehe zurück zur App und starte die Verbindung neu.",
+    connectInvalid:
+      "Diese Autorisierungsanfrage ist ungültig. Gehe zurück zur App und starte die Verbindung neu.",
+    connectFailed: "Die Verbindung konnte nicht hergestellt werden.",
+    connectCode: "Fehlercode",
+    connectErrorTitle: "Die App konnte nicht verbunden werden",
+    connectErrorHint:
+      "Die Anfrage wurde abgelehnt, zum Beispiel weil die App eine nicht registrierte Rückkehradresse gesendet hat. Es wurde nichts freigegeben. Gehe zurück zur App und versuche es erneut oder wende dich an den Anbieter.",
+    connectedApps: "Verbundene Apps",
+    connectedAppsHint:
+      "Apps, denen du erlaubt hast, Orbit in deinem Namen zu nutzen. Widerrufen meldet eine App sofort ab.",
+    connectedOrgTitle: "Mit dieser Organisation verbundene Apps",
+    connectedOrgHint:
+      "Alle Apps, die jemand in dieser Organisation verbunden hat. Als Owner kannst du jede widerrufen.",
+    connectedEmpty: "Keine Apps verbunden.",
+    connectedNeverUsed: "Nie genutzt",
+    connectedLastUsed: "Zuletzt genutzt",
+    connectedConnectedOn: "Verbunden",
+    connectedPerson: "Person",
+    connectedRevoke: "Widerrufen",
+    connectedRevokeTitle: "Zugriff widerrufen für",
+    connectedRevokeHint:
+      "Widerrufen meldet die App ab und beendet sofort ihren Zugriff auf diesen Workspace. Zum erneuten Verbinden muss sie dich wieder fragen.",
+    connectedRevokeConfirm: "Zugriff widerrufen",
+    connectedAllProjects: "Alle aktuellen Projekte",
+    connectedScopes: "Berechtigungen",
   },
 } as const;
 export type Text = (key: keyof typeof labels.en) => string;
