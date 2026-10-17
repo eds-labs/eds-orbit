@@ -44,6 +44,21 @@ export type LockSample = { waitMs: number; holdMs: number };
  */
 export const lockObserver: { observe?: (sample: LockSample) => void } = {};
 
+const commitHooks = new WeakMap<object, Array<() => void>>();
+/**
+ * Runs `fn` once the `scoped()` transaction that owns `tx` committed, never
+ * on rollback (WP4.3 Part B: writers publish real-time changes only after
+ * they are visible). Hooks run in order after the lock is released; one
+ * that throws does not stop the others or fail the caller. Outside
+ * `scoped()` nothing is registered and it returns false: a hook is a
+ * notification and must never fail the work it reports.
+ */
+export function afterCommit(tx: DbTx, fn: () => void): boolean {
+  const hooks = commitHooks.get(tx);
+  hooks?.push(fn);
+  return Boolean(hooks);
+}
+
 export async function scoped<T>(
   workspaceId: string,
   projectId: string,
@@ -55,8 +70,10 @@ export async function scoped<T>(
     !/^[\da-f-]{36}$/i.test(projectId)
   )
     throw new Error("Invalid scope");
-  return client.$transaction(
+  const hooks: Array<() => void> = [];
+  const result = await client.$transaction(
     async (tx) => {
+      commitHooks.set(tx, hooks);
       await tx.$executeRaw`SELECT set_config('app.workspace_id',${workspaceId},true)`;
       await tx.$executeRaw`SELECT set_config('app.project_id',${projectId},true)`;
       const observe = lockObserver.observe;
@@ -75,6 +92,13 @@ export async function scoped<T>(
     },
     { maxWait: 10000, timeout: 30000 },
   );
+  for (const hook of hooks)
+    try {
+      hook();
+    } catch {
+      // A hook is a notification; the committed work stands.
+    }
+  return result;
 }
 export function jsonSafe<T>(value: T): unknown {
   return JSON.parse(

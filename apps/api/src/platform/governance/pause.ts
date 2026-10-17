@@ -42,6 +42,7 @@ export async function pauseProject(
       await stopChatRunForPause(
         tx,
         d as { resourceId: string; actorId: string },
+        scope,
       );
   }
   if (!paused)

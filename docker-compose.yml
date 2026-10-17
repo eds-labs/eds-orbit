@@ -49,6 +49,8 @@ x-api-environment: &api-environment
   # E-mail over the project's mailbox and member notifications (WP4.7).
   ORBIT_EMAIL: ${ORBIT_EMAIL:-false}
   ORBIT_NOTIFICATIONS: ${ORBIT_NOTIFICATIONS:-false}
+  # Real-time fan-out over Redis for the chat SSE route (WP4.3 Part B).
+  ORBIT_REALTIME: ${ORBIT_REALTIME:-false}
   FILES_S3_ENDPOINT: ${FILES_S3_ENDPOINT:-}
   FILES_S3_BUCKET: ${FILES_S3_BUCKET:-}
   FILES_S3_REGION: ${FILES_S3_REGION:-auto}

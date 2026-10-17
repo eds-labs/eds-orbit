@@ -289,7 +289,7 @@ Further rules:
 | S-R2 | Open registries: tools, action types, task classes, cards, queues, notification kinds | WP1.6 |
 | S-R3 | Knowledge services without the knowledge module, plus source audiences | WP3.2, WP3.5 |
 | S-R4 | **Public ingress**: webhook route pattern, public API pattern, CORS per inbox, per-client rate limits, idempotency, no project lock on ingest | WP4.2 (+ F-02 fix) |
-| S-R5 | **Real-time fan-out** (Redis pub/sub, SSE resume) and a lock-free read path | WP4.3 |
+| S-R5 | **Real-time fan-out** (Redis pub/sub, SSE resume); implemented 2026-10-17 behind `ORBIT_REALTIME` (`docs/REALTIME_FANOUT.md`). No lock-free read path (Mario, 2026-10-17). | WP4.3 |
 | S-R6 | **Module-level roles** | WP4.5 |
 | S-R7 | **Platform files**: object storage, encryption, authorized download, limits | WP4.6 |
 | S-R8 | **E-mail connection and notification channels**: in-app inbox, e-mail, preferences | WP4.7 |

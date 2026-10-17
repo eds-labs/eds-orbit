@@ -37,7 +37,11 @@ export type JobDef = {
     job: Record<string, any>,
   ): Promise<void>;
   /** Called when a paused project blocks the job (it is never retried then). */
-  onBlockedByPause?(tx: DbTx, job: Record<string, any>): Promise<void>;
+  onBlockedByPause?(
+    tx: DbTx,
+    job: Record<string, any>,
+    scope: Scope,
+  ): Promise<void>;
 };
 
 /** A module's contribution to the per-project sweep (plans 03 §7). */

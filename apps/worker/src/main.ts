@@ -7,6 +7,7 @@ import {
   workerStartHooks,
 } from "../../api/src/platform/modules/contributions.ts";
 import { enabledModules } from "../../api/src/platform/modules/enforcement.ts";
+import { closeRealtime } from "../../api/src/platform/realtime/fanout.ts";
 import Redis from "ioredis";
 import {
   sweepProject,
@@ -133,7 +134,7 @@ const workers = classes.map(
               status: "blocked_dependency",
               error: "PROJECT_PAUSED",
             });
-            await def.onBlockedByPause?.(tx, d);
+            await def.onBlockedByPause?.(tx, d, scope);
             return null;
           }
           // A disabled module's jobs stop like paused ones (WP2.4); the
@@ -461,6 +462,7 @@ for (const signal of ["SIGINT", "SIGTERM"])
     await Promise.all(workers.map((w) => w.close()));
     await Promise.all([...queues.values()].map((q) => q.close()));
     await closeDatabase();
+    await closeRealtime();
     connection.disconnect();
     process.exit(0);
   });
