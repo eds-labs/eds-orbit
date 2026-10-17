@@ -146,6 +146,13 @@ import {
   WEBHOOK_PATH,
   WEBHOOK_URL,
 } from "./platform/http/webhooks.ts";
+import {
+  createPublicKey,
+  listPublicKeys,
+  PUBLIC_URL,
+  registerPublicApi,
+  revokePublicKey,
+} from "./platform/http/public-api.ts";
 import { connectionVerified } from "./platform/connections/connections.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
@@ -263,7 +270,11 @@ export async function buildServer(
     if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
       throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off.
-    if (req.routeOptions.url === WEBHOOK_PATH && !publicIngressEnabled())
+    if (
+      (req.routeOptions.url === WEBHOOK_PATH ||
+        req.url.startsWith("/api/public/")) &&
+      !publicIngressEnabled()
+    )
       throw new DomainError("NOT_FOUND", 404);
     // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
@@ -272,6 +283,8 @@ export async function buildServer(
       ) &&
       !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
       !(req.method === "POST" && WEBHOOK_URL.test(req.url)) &&
+      // The public API checks the Origin itself, against its key (WP4.2b).
+      !(req.method === "POST" && PUBLIC_URL.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )
@@ -358,6 +371,8 @@ export async function buildServer(
   );
   // Signed provider webhooks of the modules (WP4.2a).
   await registerWebhookRoutes(app);
+  // The modules' public APIs (WP4.2b).
+  await registerPublicApi(app);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",
@@ -752,6 +767,31 @@ export async function buildServer(
       }),
     };
   });
+  // Public API keys (WP4.2b): owners only, while ORBIT_PUBLIC_INGRESS is on.
+  app.get("/api/projects/:projectId/public-keys", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return {
+      items: await listPublicKeys(
+        await scopeFor(auth, req, projectId, PROJECT_OWN),
+      ),
+    };
+  });
+  app.post("/api/projects/:projectId/public-keys", async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    return reply.code(201).send(await createPublicKey(scope, req.body));
+  });
+  app.post(
+    "/api/projects/:projectId/public-keys/:keyId/revoke",
+    async (req) => {
+      const { projectId, keyId } = req.params as {
+        projectId: string;
+        keyId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      return revokePublicKey(scope, z.uuid().parse(keyId));
+    },
+  );
   // A member's module roles (WP4.5): owners only, while ORBIT_MODULE_ROLES is on.
   app.get(
     "/api/projects/:projectId/members/:userId/module-roles",

@@ -106,6 +106,32 @@ No cross-project bypass was identified in the reviewed scoped paths; local role/
    - Stored messages are the platform kind `inbound_webhooks`, excluded from the export.
    - Retention for these rows is a follow-up before a real provider uses the route.
 
+## Public ingress: public module API (WP4.2b, prepared 2026-10-17; review open)
+
+This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). While off, `/api/public/...` answers 404 in the first hook. What the review checks:
+
+1. **Keys.**
+   - `PublicClientKey` is readable by `orbit_auth` only (RLS project scope plus `auth_control`; no grant to `orbit_app`).
+   - A key identifies a project and module, but it is no secret.
+   - Only owners create or revoke keys (audited).
+   - Allowed origins are exact HTTPS origins (`http://localhost` for development); no wildcard, no path.
+2. **Browsers.**
+   - A foreign Origin is a 403 (audited), also for the preflight.
+   - An allowed Origin gets `Access-Control-Allow-Origin` with `Vary: Origin`, and never `Allow-Credentials`, so no browser sends or exposes Orbit cookies.
+   - No cookie is read on these routes.
+3. **Sessions.**
+   - A session token is 32 random bytes, shown once and stored as a SHA-256 hash.
+   - It lasts 12 hours and is bound to its key.
+   - A module's handler sees the session id and a viewer scope of the project, never a member.
+4. **Limits.**
+   - JSON only, 64 KB.
+   - 20 new sessions per minute per key and address; 120 calls per minute per session.
+   - A switched-off module answers 404 (`MODULE_DISABLED`).
+5. **Open before production.**
+   - Retention for `public_sessions`.
+   - A total limit per key, beyond the per-session limit.
+   - An owner UI to manage keys (the API exists).
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

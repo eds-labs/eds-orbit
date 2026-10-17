@@ -1,5 +1,31 @@
 # Implementation status
 
+## Public module API: WP4.2b (2026-10-17, local; flag off)
+
+Branch `claude/wp42b-public-api` (on top of WP4.2a). Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, default `false`).
+
+- **Keys.** Migration `202610170006_public_client_key` adds the `PublicClientKey` table: owners only, audited, exact allowed origins.
+  - API: `GET/POST /api/projects/:id/public-keys` and `POST …/:keyId/revoke`.
+- **Public API.** `platform/http/public-api.ts`, at `/api/public/<module>/:publicKey/...`:
+  - the key is resolved without a project scope;
+  - the Origin check and CORS run per key (manual, no credentials) and preflight is supported;
+  - `POST …/session` issues a bearer token, stored as a hash, valid 12 hours;
+  - module routes need that token;
+  - JSON only, 64 KB, rate limits per key and address, and per session;
+  - the API is off with its module.
+- **Contract.** `ModuleContributions.publicRoutes`. The registry checks paths and refuses `/session` and duplicates. The fixture module serves `/requests`: visitors file requests and see only their own.
+- **Tests.** `public-api.integration.test.ts` covers:
+  - the flag off;
+  - key issuing rules;
+  - unknown, foreign and revoked keys;
+  - a foreign Origin (audited), an allowed Origin without credentials, and preflight;
+  - missing, wrong and expired tokens, and that cookies are ignored;
+  - the token stored as a hash, and visitors seeing only their own requests;
+  - the per-session rate limit and the module switch.
+  
+  A mutation check confirmed it: with the origin comparison disabled, the test fails. The access matrix adds exactly the three owner-only key routes.
+- **Production.** Merging brings the migration (Mario's approval). The flag waits for the security review.
+
 ## Signed provider webhooks: WP4.2a (2026-10-17, local; flag off)
 
 Branch `claude/wp42-public-ingress`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: a new unauthenticated surface, behind `ORBIT_PUBLIC_INGRESS` (default `false`).

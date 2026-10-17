@@ -62,6 +62,42 @@ export function fixtureSignature(rawBody: string, secret: string) {
 
 export const tasksContributions: ModuleContributions = {
   tools: [proposeTasks],
+  // A public API for browsers on a key's origins (WP4.2b): visitors file
+  // requests and see their own.
+  publicRoutes: [
+    {
+      method: "POST",
+      path: "/requests",
+      async handler({ scope, session, body }) {
+        const { title } = z
+          .object({ title: z.string().min(1).max(120) })
+          .strict()
+          .parse(body);
+        const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+          create(tx, scope, "fixture_tasks", {
+            title,
+            source: "public",
+            sessionId: session.id,
+          }),
+        );
+        return { id: row.id, title };
+      },
+    },
+    {
+      method: "GET",
+      path: "/requests",
+      async handler({ scope, session }) {
+        const rows = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+          list(tx, scope, "fixture_tasks"),
+        );
+        return {
+          items: rows
+            .filter((row) => data(row).sessionId === session.id)
+            .map((row) => ({ id: row.id, title: data(row).title })),
+        };
+      },
+    },
+  ],
   // A signed provider webhook through the platform's route (WP4.2a).
   webhooks: {
     fixture: {

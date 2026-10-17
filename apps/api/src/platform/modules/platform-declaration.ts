@@ -41,6 +41,12 @@ export const platformDeclaration: PlatformDeclaration = {
       exported: false,
     },
     {
+      kind: "public_sessions",
+      description:
+        "Sessions of public API clients, with hashed tokens (WP4.2b)",
+      exported: false,
+    },
+    {
       kind: "inbound_webhooks",
       description:
         "Signed provider webhooks received through the platform (WP4.2)",
@@ -58,6 +64,7 @@ export const platformDeclaration: PlatformDeclaration = {
     "Project",
     "ProjectMember",
     "ProjectMemberModuleRole",
+    "PublicClientKey",
     "ProjectModule",
     "Entity",
     "EntityVersion",
