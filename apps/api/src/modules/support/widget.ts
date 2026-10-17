@@ -130,10 +130,15 @@ async function visitorOf(
       verified: false,
       ticketIds: [],
     };
-  if (touch)
-    await update(tx, ctx.scope, row, {
-      ...data(row),
-      lastSeenAt: new Date().toISOString(),
+  // Last seen, at most once a minute and without a new version: a stream
+  // reconnects every 39 s and polling runs every 5 s (review fix 12).
+  const seen = Date.parse(String(data(row).lastSeenAt ?? "")) || 0;
+  if (touch && Date.now() - seen > 60_000)
+    await tx.entity.update({
+      where: { id: row.id },
+      data: {
+        data: { ...data(row), lastSeenAt: new Date().toISOString() } as never,
+      },
     });
   const d = data(row);
   return {

@@ -1,7 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
+import {
+  authDb,
+  scoped,
+  type DbTx,
+} from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, create, data, DomainError } from "../shared.ts";
 import {
@@ -304,8 +308,42 @@ export async function listPublicKeys(scope: Scope) {
   return rows.map(publicView);
 }
 
+/**
+ * Replaces a key's allowed origins, for a module that keeps them in step
+ * with its own settings (support inboxes, WP5.4); audited.
+ */
+export async function setPublicKeyOrigins(
+  scope: Scope,
+  id: string,
+  allowedOrigins: string[],
+  /** The caller's project transaction, when it holds one (no second lock). */
+  tx?: DbTx,
+) {
+  const origins = z.array(publicOrigin).min(1).max(10).parse(allowedOrigins);
+  const row = await authDb.publicClientKey.findFirst({
+    where: { id, workspaceId: scope.workspaceId, projectId: scope.projectId },
+  });
+  if (!row || row.revokedAt) return null;
+  await authDb.publicClientKey.update({
+    where: { id },
+    data: { allowedOrigins: origins },
+  });
+  const write = (t: DbTx) =>
+    audit(t, scope, "public_key.origins_changed", id, {
+      allowedOrigins: origins,
+    });
+  if (tx) await write(tx);
+  else await scoped(scope.workspaceId, scope.projectId, write);
+  return { id, allowedOrigins: origins };
+}
+
 /** Revokes a key: its API answers 404 from now on; audited. */
-export async function revokePublicKey(scope: Scope, id: string) {
+export async function revokePublicKey(
+  scope: Scope,
+  id: string,
+  /** The caller's project transaction, when it holds one (no second lock). */
+  tx?: DbTx,
+) {
   requireOwner(scope);
   const row = await authDb.publicClientKey.findFirst({
     where: { id, workspaceId: scope.workspaceId, projectId: scope.projectId },
@@ -317,8 +355,9 @@ export async function revokePublicKey(scope: Scope, id: string) {
         where: { id },
         data: { revokedAt: new Date() },
       });
-  await scoped(scope.workspaceId, scope.projectId, (tx) =>
-    audit(tx, scope, "public_key.revoked", id, { moduleId: row.moduleId }),
-  );
+  const write = (t: DbTx) =>
+    audit(t, scope, "public_key.revoked", id, { moduleId: row.moduleId });
+  if (tx) await write(tx);
+  else await scoped(scope.workspaceId, scope.projectId, write);
   return publicView(revoked);
 }

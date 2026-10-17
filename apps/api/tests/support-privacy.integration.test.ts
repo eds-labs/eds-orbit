@@ -7,7 +7,7 @@ import {
   type DbTx,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create } from "../src/shared.ts";
+import { create, update } from "../src/shared.ts";
 import {
   setObjectStoreForTests,
   storeFile,
@@ -399,5 +399,60 @@ describe.skipIf(!enabled)("support privacy and operations", () => {
       }),
     }));
     expect(left).toEqual({ authored: 0, inbound: 0 });
+  });
+
+  it("keeps only dedupe fields of old recorded mail and no history (review fix 7)", async () => {
+    const t = await ticket("raw@example.org", "Raw mail body");
+    const old = new Date(Date.now() - 120 * DAY);
+    const message = await run((tx) =>
+      tx.supportMessage.findFirstOrThrow({
+        where: { ticketId: t.ticketId, kind: "customer" },
+      }),
+    );
+    const row = await run(async (tx) => {
+      await tx.supportMessage.update({
+        where: { id: message.id },
+        data: { createdAt: old },
+      });
+      const created = await create(tx, owner, "inbound_emails", {
+        messageId: message.externalId,
+        connectionId: "c1",
+        uid: 7,
+        uidValidity: "1",
+        from: "raw@example.org",
+        subject: "Raw subject",
+        text: "Raw mail body",
+        to: ["s@example.invalid"],
+      });
+      // A second version, as the platform's updates create them.
+      await update(tx, owner, created, {
+        ...(created.data as object),
+        automatic: false,
+      });
+      await tx.entity.update({
+        where: { id: created.id },
+        data: { createdAt: old },
+      });
+      return created;
+    });
+    await supportRetention(owner);
+    const after = await run(async (tx) => ({
+      row: await tx.entity.findUniqueOrThrow({ where: { id: row.id } }),
+      versions: await tx.entityVersion.findMany({
+        where: { entityId: row.id },
+      }),
+    }));
+    expect(Object.keys(after.row.data as object).sort()).toEqual(
+      [
+        "connectionId",
+        "messageId",
+        "retainedUntil",
+        "uid",
+        "uidValidity",
+      ].sort(),
+    );
+    expect(JSON.stringify(after.versions)).not.toMatch(
+      /Raw mail body|Raw subject|raw@example/,
+    );
   });
 });

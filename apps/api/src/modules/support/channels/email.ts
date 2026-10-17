@@ -427,9 +427,18 @@ export async function syncEmailDelivery(scope: Scope) {
         projectId: scope.projectId,
         channel: { in: ["email", "widget"] },
         kind: { not: "customer" },
-        deliveryState: { in: ["pending", "sent"] },
         externalId: { startsWith: "<orbit." },
+        // Pending always; sent ones only while a bounce can still come
+        // (30 days), newest first, so the sync never starves (review fix 9).
+        OR: [
+          { deliveryState: "pending" },
+          {
+            deliveryState: "sent",
+            createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) },
+          },
+        ],
       },
+      orderBy: { createdAt: "desc" },
       take: 200,
     });
     let changed = 0;

@@ -2,7 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { publicOrigin } from "../../platform/http/public-api.ts";
+import {
+  publicOrigin,
+  revokePublicKey,
+  setPublicKeyOrigins,
+} from "../../platform/http/public-api.ts";
 import { audit, credentialKey, DomainError, encrypt } from "../../shared.ts";
 import { inboxRulesSchema } from "./settings.ts";
 
@@ -172,6 +176,7 @@ export async function updateInbox(
     data: { ...changes, widgetSecretEnc, version: version + 1 },
   });
   if (updated.count !== 1) throw new DomainError("INBOX_VERSION_CONFLICT", 409);
+  await syncWidgetKey(tx, scope, current, next);
   await audit(tx, scope, "support.inbox.updated", id, {
     inboxId: id,
     version: version + 1,
@@ -214,4 +219,38 @@ export async function archiveInbox(tx: DbTx, scope: Scope, id: string) {
     version: archived.version,
   });
   return inboxView(archived);
+}
+
+/**
+ * Keeps the inbox's widget key in step (review fix 10): new origins go to
+ * the key; without the widget channel the key is revoked and forgotten,
+ * so a re-added widget never revives it.
+ */
+async function syncWidgetKey(
+  tx: DbTx,
+  scope: Scope,
+  current: InboxRow,
+  next: { channels: string[]; allowedOrigins: string[] },
+) {
+  if (!current.publicClientKeyId) return;
+  if (!next.channels.includes("widget") || !next.allowedOrigins.length) {
+    await revokePublicKey(scope, current.publicClientKeyId, tx).catch(
+      () => undefined,
+    );
+    await tx.supportInbox.update({
+      where: { id: current.id },
+      data: { publicClientKeyId: null },
+    });
+    return;
+  }
+  if (
+    JSON.stringify(next.allowedOrigins) !==
+    JSON.stringify(current.allowedOrigins)
+  )
+    await setPublicKeyOrigins(
+      scope,
+      current.publicClientKeyId,
+      next.allowedOrigins,
+      tx,
+    );
 }
