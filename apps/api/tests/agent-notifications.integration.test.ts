@@ -117,7 +117,9 @@ const enabled = Boolean(
 );
 // Synthetic token in Telegram's shape; the fake transport below is the only "Telegram".
 const TOKEN = "123456789:AAsyntheticTelegramTokenForTests_0123456";
-const CHAT = "4711";
+// Long enough never to appear by chance in a UUID or a timestamp, so the
+// "not stored" check below cannot fail on a random id.
+const CHAT = "730958164207";
 const BODY = "Beta access is open for product teams. Learn more.";
 const MINUTE = 60000;
 // A 1x1 PNG.
