@@ -268,7 +268,8 @@ async function rasterize(rendered: {
  * background (the assignment run's generated art without text or logos, or
  * the template's own navy and waves) it places a dark shade on the left for
  * legibility, the approved logo with the wordmark, a two-part headline in
- * capitals (part 1 white, part 2 cyan), a subline, an outlined button, a
+ * capitals (part 1 white, part 2 cyan), a subline, an outlined button (left
+ * out when its label is empty), a
  * divider and the footer domain on the left, and a glass card holding the
  * approved logo on the right. The copy is used exactly as given (only shown
  * in capitals for the headline); text that does not fit throws
@@ -333,10 +334,11 @@ function bannerInputValid(text: BannerText, brandName: string, footer: string) {
   const fields = [text.headline1, text.headline2, text.subline, text.button];
   return (
     fields.every(
-      (field) =>
-        typeof field === "string" &&
-        field.trim().length > 0 &&
-        field.length <= BANNER_TEXT_MAX,
+      (field) => typeof field === "string" && field.length <= BANNER_TEXT_MAX,
+    ) &&
+    // The button may be empty: the banner then has none.
+    [text.headline1, text.headline2, text.subline].every(
+      (field) => field.trim().length > 0,
     ) &&
     chromeValid(brandName, footer) &&
     !/[\u0000-\u001f]/u.test(fields.join(""))
@@ -365,6 +367,26 @@ export function bannerChromeOverflow(brandName: string, footer: string) {
   );
 }
 
+/** The width of an outlined button with this label, arrow included. */
+const buttonWidthOf = (label: string) =>
+  Math.ceil(
+    width(label, BANNER.button.size) +
+      2 * BANNER.button.padding +
+      BANNER.button.arrow +
+      16,
+  );
+
+/** Whether a button label fits the template's column (an empty label is no button). */
+export function bannerButtonFits(label: string) {
+  const trimmed = label.trim();
+  return (
+    trimmed.length > 0 &&
+    trimmed.length <= BANNER_TEXT_MAX &&
+    !/[\u0000-\u001f]/u.test(trimmed) &&
+    buttonWidthOf(trimmed) <= BANNER.column
+  );
+}
+
 /** Lines and positions of the banner's text; throws `TEXT_OVERFLOW` when it does not fit. */
 function bannerLayout(text: BannerText, brandName: string, footer: string) {
   if (!bannerInputValid(text, brandName, footer))
@@ -381,9 +403,7 @@ function bannerLayout(text: BannerText, brandName: string, footer: string) {
     subline.maxLines,
   );
   const buttonText = text.button.trim();
-  const buttonWidth = Math.ceil(
-    width(buttonText, button.size) + 2 * button.padding + button.arrow + 16,
-  );
+  const buttonWidth = buttonText ? buttonWidthOf(buttonText) : 0;
   if (buttonWidth > column) throw new CreativeError("TEXT_OVERFLOW");
   if (bannerChromeOverflow(brandName, footer))
     throw new CreativeError("TEXT_OVERFLOW");
@@ -392,8 +412,7 @@ function bannerLayout(text: BannerText, brandName: string, footer: string) {
     headlineLines * headline.lineHeight +
     36 +
     sublineLines.length * subline.lineHeight +
-    44 +
-    button.height;
+    (buttonText ? 44 + button.height : 0);
   const room = BANNER.bottom - BANNER.top;
   if (block > room) throw new CreativeError("TEXT_OVERFLOW");
   const top = BANNER.top + Math.floor((room - block) / 2);
@@ -497,9 +516,13 @@ export function renderBrandBanner(input: BannerInput) {
       "headline2",
     ),
     `<text data-layer="subline" x="${margin}" y="${layout.sublineTop + Math.round(subline.size * 0.8)}" fill="${white}" fill-opacity=".92" font-family="${family}" font-size="${subline.size}">${layout.subline.map((line, i) => `<tspan x="${margin}" dy="${i ? subline.lineHeight : 0}">${escape(line)}</tspan>`).join("")}</text>`,
-    `<rect data-layer="button" x="${margin}" y="${buttonY}" width="${layout.buttonWidth}" height="${button.height}" rx="16" fill="${navy}" fill-opacity=".55" stroke="${cyan}" stroke-width="2"/>`,
-    `<text data-layer="button-label" x="${margin + button.padding}" y="${buttonY + 44}" fill="${white}" font-family="${family}" font-size="${button.size}" font-weight="700">${escape(layout.button)}</text>`,
-    `<path data-layer="button-arrow" d="M${arrowX} ${arrowY} H${arrowX + button.arrow} M${arrowX + button.arrow - 11} ${arrowY - 10} L${arrowX + button.arrow} ${arrowY} L${arrowX + button.arrow - 11} ${arrowY + 10}" fill="none" stroke="${cyan}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`,
+    ...(layout.button
+      ? [
+          `<rect data-layer="button" x="${margin}" y="${buttonY}" width="${layout.buttonWidth}" height="${button.height}" rx="16" fill="${navy}" fill-opacity=".55" stroke="${cyan}" stroke-width="2"/>`,
+          `<text data-layer="button-label" x="${margin + button.padding}" y="${buttonY + 44}" fill="${white}" font-family="${family}" font-size="${button.size}" font-weight="700">${escape(layout.button)}</text>`,
+          `<path data-layer="button-arrow" d="M${arrowX} ${arrowY} H${arrowX + button.arrow} M${arrowX + button.arrow - 11} ${arrowY - 10} L${arrowX + button.arrow} ${arrowY} L${arrowX + button.arrow - 11} ${arrowY + 10}" fill="none" stroke="${cyan}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>`,
+        ]
+      : []),
     `<line data-layer="divider" x1="${margin}" y1="${BANNER.divider}" x2="${w - margin}" y2="${BANNER.divider}" stroke="${white}" stroke-opacity=".18"/>`,
     `<text data-layer="footer" x="${margin}" y="${BANNER.divider + 46}" fill="${white}" fill-opacity=".8" font-family="${family}" font-size="${BANNER.footer}">${escape(input.footer.trim())}</text>`,
     `<rect data-layer="card" x="${cardX}" y="${cardY}" width="${card.size}" height="${card.size}" rx="36" fill="url(#glass)" stroke="${cyan}" stroke-opacity=".6" stroke-width="2"/>`,

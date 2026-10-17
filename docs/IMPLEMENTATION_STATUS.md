@@ -1,5 +1,22 @@
 # Implementation status
 
+## Fewer avoidable assignment rejects: R84–R87 (2026-10-17, local)
+
+Branch `claude/amazing-hawking-253a3e`. In the uLiquid runs of 2026-10-16 (63f76b22) and 2026-10-17 (f610945b) only one of four drafts was approved; the other three failed for content-consistency gaps, not because of the Phase 3 refactor. Rulings R84–R87 in `docs/superpowers/plans/2026-10-09-orbit-agents-rulings.md`.
+
+- **Facts against guardrails (R84).** `listUsableFacts` leaves out a fact whose value names what a profile ban forbids ("No webhook promotion") or has prohibited wording, so strategy and copywriter never see it (`policy/fact-guardrails.ts`).
+- **Fact value mismatch is revised once (R85).** A draft whose only problem is `FACT_VALUE_MISMATCH` gets one deterministic revision naming the failing claims with fact key and value (`factMismatchInstruction`); a second mismatch rejects (R26).
+- **Banner button is the mission CTA (R86).** Orbit sets the button to the mission CTA when the draft is saved, or leaves the button out when it does not fit; the creative renderer supports a banner without button.
+- **No text addressed to the reviewer (R87).** The draft instructions ask for a finished post; the review adds `DRAFT_INSTRUCTION_TEXT` for notes, bracketed directions and elisions and revises such a draft once.
+
+**Verification (local).**
+- Failing tests first, then green: `fact-guardrails`, `draft-text`, `fact-claims` (instruction), `banner`, `creative`, `packages/ai` requests, and the integration suites `specialist-strategy` (no forbidden fact offered, brief dropped), `agent-review` (mismatch revised once, still mismatched rejected, reviewer note revised) and `assignment-banners` (button set to the CTA in draft, composed banner and review input).
+- Full vitest suite, `tsc --noEmit` and `node scripts/source-check.mjs` green.
+
+**Operations.** No schema migration or data change. The draft and review behaviour changes with the next run after a deploy; existing drafts keep their stored banner. Production deploy needs Mario's approval.
+
+**Rollback.** Revert the merge commit and redeploy.
+
 ## Product words of the fact checks from the profile: WP3.4 (2026-10-15, local)
 
 Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. Behaviour for uLiquid is unchanged.

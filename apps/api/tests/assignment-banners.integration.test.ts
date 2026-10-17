@@ -136,11 +136,12 @@ const approveAll = (request: any): Reply => ({
   ],
 });
 
+// The copywriter writes the mission CTA ("Learn more.") on the button.
 const BANNER = {
   headline1: "Start free.",
   headline2: "Build your workflow.",
   subline: "Markets. Paper trading. Bots.",
-  button: "Explore Desk",
+  button: "Learn more",
 };
 const FOOTER = new URL(OFFICIAL_URL).hostname;
 
@@ -548,6 +549,25 @@ describe.skipIf(!enabled)("Assignment banners in the brand style", () => {
       expect(assets.find((a) => a.id === id)!.bannerKey).toEqual(
         expect.any(String),
       );
+  });
+
+  // Production uLiquid, 2026-10-17 (run f610945b): the button "Explore
+  // Desk" competed with the mission CTA and the review rejected the post.
+  it("sets the banner button to the mission CTA, whatever the copywriter wrote", async () => {
+    await linkBot();
+    await shared();
+    bannerFor = () => ({ ...BANNER, button: "Explore Desk" });
+    const { review } = await drafted();
+    const written = await contents();
+    expect(written.length).toBeGreaterThan(0);
+    for (const draft of written) expect(draft.banner.button).toBe("Learn more");
+    const banners = (await h.rows("assets")).filter((a) => a.bannerKey);
+    for (const composed of banners)
+      expect(composed.bannerText.button).toBe("Learn more");
+    provider.replies.push(approveAll);
+    await runAgentTask(h.worker(), review.id);
+    const shown = JSON.parse(provider.requests[0].input[0].content).drafts;
+    for (const draft of shown) expect(draft.banner.button).toBe("Learn more");
   });
 
   it("binds the agent review to the banner copy", async () => {

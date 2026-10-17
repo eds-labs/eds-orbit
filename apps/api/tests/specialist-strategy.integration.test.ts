@@ -425,6 +425,63 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
     });
   });
 
+  // Production uLiquid, 2026-10-16 (run 63f76b22): a brief built on a fact
+  // the profile's guardrails forbid ended in a copywriter abstention.
+  it("offers no fact whose value a profile guardrail forbids", async () => {
+    const [first, second] = await slots();
+    await run(async (tx) => {
+      const beta = (await list(tx, project.owner, "facts")).find(
+        (row) => data(row).key === "beta.access",
+      )!;
+      await create(tx, project.owner, "facts", {
+        ...data(beta),
+        key: "feature.notifications.channels",
+        value: "in-app, Telegram and webhook where enabled",
+      });
+      const profile = await tx.projectMarketingProfile.findFirstOrThrow({
+        where: { projectId: project.owner.projectId },
+      });
+      await tx.projectMarketingProfile.update({
+        where: { id: profile.id },
+        data: {
+          data: {
+            ...(profile.data as Record<string, unknown>),
+            guardrails: ["No unsupported claims", "No webhook promotion"],
+          },
+        },
+      });
+    });
+    mocked.replies.push(() => ({
+      output: [
+        message({
+          briefs: [
+            brief(first!),
+            brief(second!, { factKeys: ["feature.notifications.channels"] }),
+          ],
+        }),
+      ],
+    }));
+    await runAgentTask(worker(), (await strategyTask()).id);
+
+    const input = JSON.parse(mocked.requests[0].input[0].content);
+    expect(input.facts.map((f: any) => f.key)).not.toContain(
+      "feature.notifications.channels",
+    );
+    expect(await task("strategy")).toMatchObject({
+      status: "done",
+      output: {
+        briefs: [brief(first!)],
+        dropped: [
+          {
+            channel: second!.channel,
+            slotAt: second!.at,
+            code: "AGENT_UNKNOWN_FACT",
+          },
+        ],
+      },
+    });
+  });
+
   it("drops a brief with an expired fact, no fact or a slot outside the run", async () => {
     const [first, second] = await slots();
     mocked.replies.push(() => ({
