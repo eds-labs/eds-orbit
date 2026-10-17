@@ -33,6 +33,11 @@ describe("API proxy", () => {
     expect(headers.get("x-telegram-bot-api-secret-token")).toBe("s3cret");
   });
 
+  it("forwards an EventSource's Last-Event-ID so a reconnect resumes", async () => {
+    const headers = await call({ "last-event-id": "42" });
+    expect(headers.get("last-event-id")).toBe("42");
+  });
+
   it("drops headers outside its allow-list", async () => {
     const headers = await call({ authorization: "Bearer x", "x-other": "1" });
     expect(headers.get("authorization")).toBeNull();

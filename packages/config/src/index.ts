@@ -118,6 +118,11 @@ const baseConfigSchema = z.object({
   ORBIT_EMAIL: z.enum(["false", "true"]).default("false"),
   // In-app member notifications and their preferences (WP4.7).
   ORBIT_NOTIFICATIONS: z.enum(["false", "true"]).default("false"),
+  // Real-time fan-out (WP4.3 Part B): writers publish committed changes over
+  // Redis and the chat SSE route waits for them instead of polling the
+  // database. Off keeps the 700 ms polling route. The API and the worker
+  // need the same value.
+  ORBIT_REALTIME: z.enum(["false", "true"]).default("false"),
   FILES_MAX_BYTES: z.coerce
     .number()
     .int()

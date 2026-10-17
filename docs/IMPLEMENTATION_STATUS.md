@@ -91,6 +91,30 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
 
 **Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`. Production after the merge (flag still off): the flag needs no change; if the smoke test fails, redeploy the previous `main` commit, which reverts the Better Auth upgrade. The migration is additive and its tables stay (unused with the flag off); dropping them is not part of a rollback. Production after the WP-M5 flip: the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway.
 
+## Real-time fan-out: WP4.3 Part B (2026-10-17, local; flag off)
+
+Branch `claude/hungry-neumann-4b8c03`. Mario deferred Part B until Support starts, and decided against `scopedRead()` on 2026-10-17. The operating guide is `docs/REALTIME_FANOUT.md`.
+
+- **Flag.** `ORBIT_REALTIME`, default `false`, in config, Compose (API and worker) and `.env.example`. While it is off, nothing is published and the chat stream polls as before.
+- **Fan-out.** `platform/realtime/fanout.ts`:
+  - `publishChange` runs after commit, is fire-and-forget and carries the cursor only, no content.
+  - `RealtimeHub` keeps one subscriber connection per process, with channels refcounted per project and stream, and its own resubscribe after an outage.
+- **SSE.** `platform/realtime/sse.ts`: `serveEventStream`.
+  - It subscribes, then replays from the database after `Last-Event-ID`, and replays again on each wake-up.
+  - It ends after 39 s with `retry: 1000`, and polls every 5 s while Redis is down.
+- **`afterCommit(tx, fn)`** in `packages/db`. `scoped()` runs these hooks after the commit and never after a rollback. The pause stop of a chat run publishes through it.
+- **Orbit Chat.**
+  - With the flag on, the run stream uses `serveEventStream`.
+  - The runner, cancel and the pause stop publish after each committed run write.
+  - The worker passes the scope to `onBlockedByPause`.
+- **Web proxy.** It forwards `Last-Event-ID`, which it dropped before, so a reconnect resumes instead of starting over.
+- **Tests.**
+  - `realtime.integration.test.ts`: concurrency, order, repeated cuts with resume, Redis unreachable, Redis cut and recovered, flag off.
+  - `chat-realtime.integration.test.ts`: 10 streams on one run, no transaction while idle, resume, pause, another member's run, flag off, `afterCommit`.
+  - Proxy header test.
+  - Local p95: fan-out 4–7 ms, chat SSE 18–30 ms, each test under 1 s. A mutation check confirmed both suites.
+- **Production.** Merging changes nothing while the flag is off. The flag, and its first use for the chat, are separate approvals by Mario. The production-host lock measurement remains as planned in the Part A report.
+
 ## Source audiences: WP3.5 (2026-10-17, local)
 
 Branch `claude/dazzling-tesla-875f58`. Mario decided on 2026-10-17 (Q-13) that support runs inside the uLiquid project next to marketing; support AI drafts (WP5.6) may only draw on sources whose audience includes support. Roadmap: `plans/orbit-modularization/07-roadmap.md` §WP3.5. Contract: `docs/KNOWLEDGE_ARCHITECTURE.md` (Retrieval and facts).

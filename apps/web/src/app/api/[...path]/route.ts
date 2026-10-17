@@ -6,6 +6,8 @@ const forwardedHeaders = [
   "accept",
   "content-type",
   "cookie",
+  // A reconnecting EventSource resumes after its last event (WP4.3 Part B).
+  "last-event-id",
   "origin",
   "user-agent",
   "x-csrf-token",

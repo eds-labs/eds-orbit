@@ -221,7 +221,7 @@ export interface PublicRouter {
 }
 ```
 
-Public routes run under RLS for the resolved project. Their read paths use the lock-free `scopedRead()` (WP4.3). Their writes use `scoped()`.
+Public routes run under RLS for the resolved project and use `scoped()`. There is no lock-free `scopedRead()`: Mario dropped it on 2026-10-17 because the lock is not a measured bottleneck. Streams avoid polling through the real-time fan-out (`serveEventStream`, WP4.3 Part B, `docs/REALTIME_FANOUT.md`).
 
 ### 5.2 Platform services added for Support
 
@@ -230,7 +230,7 @@ Public routes run under RLS for the resolved project. Their read paths use the l
 | Files | `files.put(tx, scope, {moduleId, stream, mime, maxBytes}) → FileRef`; `files.authorizeDownload(scope, ref)`; `files.delete(ref)` | WP4.6 |
 | E-mail connection | `email.send(conn, message) → {outcome, externalId}`; inbound through `webhooks`; delivery events → module handler | WP4.7 |
 | Notifications | `notify(tx, scope, {moduleId, kind, recipients: users \| permission, payload})`; per-user preferences; channels in-app, e-mail and Telegram (owner) | WP2.5, WP4.7 |
-| Real-time | `realtime.publish(scope, stream, event)` after commit; `realtime.subscribe(scope, stream, lastEventId)` | WP4.3 |
+| Real-time | `publishChange(projectId, stream, cursor)` after commit (or `afterCommit(tx, …)`); `serveEventStream(req, reply, {projectId, stream, replay})` with `Last-Event-ID` resume (`platform/realtime`) | WP4.3 |
 | OAuth tokens / grants | Orbit is the OAuth 2.1 authorization server. `McpGrant(userId, clientId, workspaceId, projectIds, scopes, modules?)`. The same server can later issue REST API tokens (Support E6). | WP-M1 |
 | MCP gateway | Adapts registry tools with `exposure.mcp` (R0, P, selected W0) and module resource templates. Effective permission = tool ∩ user role ∩ grant ∩ activation. P tools create ActionRequests. Details in `09`. | WP-M2–WP-M4 |
 
