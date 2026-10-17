@@ -9,16 +9,18 @@ import {
   worktreeTestDatabase,
 } from "./test-database.ts";
 
+const envKeys = [...testUrlKeys, "PUBLISHER_INSTANCE_ID", "QUEUE_NAMESPACE"];
+
 const local = (name) =>
   new URL(`postgresql://orbit_app:x@127.0.0.1:55432/${name}`);
 
 describe("worktree test databases", () => {
   const saved = Object.fromEntries(
-    testUrlKeys.map((key) => [key, process.env[key]]),
+    envKeys.map((key) => [key, process.env[key]]),
   );
   let dir;
   afterEach(() => {
-    for (const key of testUrlKeys)
+    for (const key of envKeys)
       if (saved[key] === undefined) delete process.env[key];
       else process.env[key] = saved[key];
     if (dir) rmSync(dir, { recursive: true, force: true });
@@ -61,15 +63,24 @@ describe("worktree test databases", () => {
     const file = join(dir, "test.env");
     expect(loadWorktreeTestEnv(file)).toBeUndefined();
     for (const key of testUrlKeys) process.env[key] = local("orbit_test").href;
+    process.env.PUBLISHER_INSTANCE_ID = "shared";
+    const urls = testUrlKeys
+      .map((key) => `${key}=${local("orbit_test_wt_abc123").href}`)
+      .join("\n");
+    writeFileSync(file, urls);
+    expect(() => loadWorktreeTestEnv(file)).toThrow(/PUBLISHER_INSTANCE_ID/);
     writeFileSync(
       file,
-      testUrlKeys
-        .map((key) => `${key}=${local("orbit_test_wt_abc123").href}`)
-        .join("\n"),
+      urls +
+        "\nPUBLISHER_INSTANCE_ID=orbit-test-wt-abc123" +
+        "\nQUEUE_NAMESPACE=orbit-test-wt-abc123\n",
     );
     expect(loadWorktreeTestEnv(file)).toBe("orbit_test_wt_abc123");
     for (const key of testUrlKeys)
       expect(new URL(process.env[key]).pathname).toBe("/orbit_test_wt_abc123");
+    // Redis keys and queues of parallel runs stay apart too.
+    expect(process.env.PUBLISHER_INSTANCE_ID).toBe("orbit-test-wt-abc123");
+    expect(process.env.QUEUE_NAMESPACE).toBe("orbit-test-wt-abc123");
   });
 
   it("refuses a file that names another database", () => {

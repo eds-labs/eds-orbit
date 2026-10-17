@@ -26,6 +26,7 @@ import {
   isLocalTestDatabase,
   testUrlKeys,
   worktreeTestDatabase,
+  worktreeRedisNamespace,
   worktreeTestEnvFile,
 } from "./test-database.ts";
 
@@ -166,7 +167,9 @@ try {
     envFile,
     "# Written by scripts/test-db-for-worktree.ts; tests/setup.ts prefers it.\n" +
       testUrlKeys.map((key) => `${key}=${urls[key]}`).join("\n") +
-      "\n",
+      // Scopes this worktree's Redis keys and queues on the shared Redis.
+      `\nPUBLISHER_INSTANCE_ID=${worktreeRedisNamespace(database)}` +
+      `\nQUEUE_NAMESPACE=${worktreeRedisNamespace(database)}\n`,
     { mode: 0o600 },
   );
   console.log(
