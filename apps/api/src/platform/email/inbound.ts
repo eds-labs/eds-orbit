@@ -16,7 +16,7 @@ import {
   emailEnabled,
   verifiedEmailConnection,
 } from "./connection.ts";
-import { EMAIL_KIND, ORBIT_MESSAGE_ID } from "./send.ts";
+import { EMAIL_KIND, INBOUND_KIND, ORBIT_MESSAGE_ID } from "./send.ts";
 import { mailFactories, MailSendError } from "./transport.ts";
 
 // Inbound e-mail (WP4.7): every two minutes per project with a verified
@@ -25,16 +25,50 @@ import { mailFactories, MailSendError } from "./transport.ts";
 // encrypted platform file, and a normalized `inbound_emails` row. Modules
 // that registered `emailInbound` get a job per message. Customer mail is
 // untrusted data: it is stored and handed over, never interpreted here.
+// A message that cannot be parsed is kept (raw file, `unreadable` row), so
+// no single message can stop the mailbox from being read.
 
-export const INBOUND_KIND = "inbound_emails";
+export { INBOUND_KIND };
 export const INBOUND_STATE_KIND = "email_inbound_state";
 const INTERVAL_MS = 120_000;
 const MAX_PER_PASS = 25;
 const MAX_BYTES = 10 * 1024 * 1024;
 const TEXT_MAX = 20_000;
+const LINE_MAX = 998;
+/** The Message-ID Orbit gives its own messages (send.ts). */
+const OWN_MESSAGE_ID =
+  /^<orbit\.([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@[^<>\s]+>$/i;
 const lastRun = new Map<string, number>();
 
 type Parsed = Awaited<ReturnType<typeof PostalMime.parse>>;
+
+/**
+ * Bounded text without NUL and other control characters (Postgres jsonb
+ * refuses \u0000); one line unless `multiline`.
+ */
+export function cleanText(value: unknown, max: number, multiline = false) {
+  if (typeof value !== "string") return "";
+  const controls = multiline
+    ? /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g
+    : /[\u0000-\u001f\u007f]+/g;
+  return value
+    .replace(LONE_SURROGATE, "\ufffd")
+    .replace(controls, multiline ? "" : " ")
+    .slice(0, max);
+}
+
+// Half of a UTF-16 pair on its own: jsonb refuses it like NUL.
+const LONE_SURROGATE =
+  /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+
+/** The parsed message, or null when it cannot be parsed. */
+async function parseMessage(source: Buffer): Promise<Parsed | null> {
+  try {
+    return await PostalMime.parse(source);
+  } catch {
+    return null;
+  }
+}
 
 const header = (parsed: Parsed, name: string) =>
   parsed.headers.find((h) => h.key.toLowerCase() === name)?.value ?? "";
@@ -54,28 +88,82 @@ export function automaticMail(parsed: Parsed) {
   );
 }
 
-/** A delivery status notification: the Orbit messages it reports. */
-export function bouncedMessageIds(parsed: Parsed, raw: Buffer): string[] {
+/**
+ * A failed-delivery report: an RFC 3464 delivery status notification with
+ * "Action: failed", or a classic mailer-daemon bounce. Read receipts (MDN),
+ * "delayed" warnings and replies are not. Returns the report text and the
+ * Orbit message ids it names; a message counts as bounced only when the
+ * report also names one of its recipients (see `fetchInbound`).
+ */
+export function failedDeliveryReport(parsed: Parsed, raw: Buffer) {
   const type = header(parsed, "content-type").toLowerCase();
   const from = (parsed.from?.address ?? "").toLowerCase();
-  const report =
-    type.includes("multipart/report") ||
-    /^(mailer-daemon|postmaster)@/.test(from);
-  if (!report) return [];
-  return [
+  const text = raw.toString("latin1");
+  const dsn =
+    type.includes("multipart/report") &&
+    /report-type\s*=\s*"?delivery-status/.test(type);
+  const daemon =
+    /^(mailer-daemon|postmaster)@/.test(from) &&
+    !type.includes("multipart/report");
+  if (!(dsn ? /^action:\s*failed/im.test(text) : daemon)) return null;
+  const ids = [
     ...new Set(
-      [...raw.toString("latin1").matchAll(ORBIT_MESSAGE_ID)].map((m) =>
-        m[1]!.toLowerCase(),
-      ),
+      [...text.matchAll(ORBIT_MESSAGE_ID)].map((m) => m[1]!.toLowerCase()),
     ),
   ];
+  // Every address the report names (Final-Recipient, the bounce text).
+  const named = new Set(
+    (text.toLowerCase().match(/[^\s<>()[\]:;,"']+@[a-z0-9.-]+/g) ?? []).map(
+      (a) => a.replace(/\.+$/, ""),
+    ),
+  );
+  return ids.length ? { ids, named } : null;
 }
 
 const addresses = (list?: { address?: string }[]) =>
   (list ?? [])
-    .map((a) => a.address)
-    .filter((a): a is string => Boolean(a))
+    .map((a) => cleanText(a.address, 320))
+    .filter(Boolean)
     .slice(0, 50);
+
+/** The row fields of a parsed message; bounded, one line except the text. */
+function normalized(parsed: Parsed | null) {
+  if (!parsed)
+    return {
+      messageId: "",
+      from: null,
+      fromName: null,
+      to: [],
+      cc: [],
+      subject: "",
+      date: null,
+      text: "",
+      inReplyTo: null,
+      references: [],
+      automatic: false,
+      attachments: 0,
+      unreadable: true,
+    };
+  return {
+    messageId: cleanText(parsed.messageId, LINE_MAX),
+    from: cleanText(parsed.from?.address, 320) || null,
+    fromName: cleanText(parsed.from?.name, 200) || null,
+    to: addresses(parsed.to),
+    cc: addresses(parsed.cc),
+    subject: cleanText(parsed.subject, LINE_MAX),
+    date: cleanText(parsed.date, 100) || null,
+    text: cleanText(parsed.text, TEXT_MAX, true),
+    inReplyTo: cleanText(parsed.inReplyTo, LINE_MAX) || null,
+    references: cleanText(parsed.references, 100_000)
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 50)
+      .map((r: string) => r.slice(0, LINE_MAX)),
+    automatic: automaticMail(parsed),
+    attachments: parsed.attachments.length,
+    unreadable: false,
+  };
+}
 
 async function stateOf(tx: DbTx, scope: Scope, connectionId: string) {
   return (await list(tx, scope, INBOUND_STATE_KIND)).find(
@@ -133,8 +221,9 @@ export async function fetchInbound(scope: Scope) {
   let stored = 0;
   let bounced = 0;
   for (const message of batch.messages) {
-    const parsed = await PostalMime.parse(message.source);
-    const messageId = (parsed.messageId ?? "").slice(0, 998);
+    const parsed = await parseMessage(message.source);
+    const fields = normalized(parsed);
+    const { messageId } = fields;
     const duplicate = await scoped(scope.workspaceId, scope.projectId, (tx) =>
       tx.entity.findFirst({
         where: {
@@ -170,34 +259,12 @@ export async function fetchInbound(scope: Scope) {
           name: `${message.uid}.eml`,
         },
       );
-      const bounces = bouncedMessageIds(parsed, message.source);
+      const report = parsed
+        ? failedDeliveryReport(parsed, message.source)
+        : null;
       await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-        const row = await create(tx, scope, INBOUND_KIND, {
-          connectionId: connection.id,
-          uid: message.uid,
-          uidValidity: batch.uidValidity,
-          messageId,
-          from: parsed.from?.address ?? null,
-          fromName: parsed.from?.name?.slice(0, 200) ?? null,
-          to: addresses(parsed.to),
-          cc: addresses(parsed.cc),
-          subject: (parsed.subject ?? "").slice(0, 998),
-          date: parsed.date ?? null,
-          text: (parsed.text ?? "").slice(0, TEXT_MAX),
-          inReplyTo: parsed.inReplyTo ?? null,
-          references: (parsed.references ?? "")
-            .split(/\s+/)
-            .filter(Boolean)
-            .slice(0, 50),
-          automatic: automaticMail(parsed),
-          bounceOf: bounces,
-          attachments: parsed.attachments.length,
-          fileId: file.id,
-          receivedAt: new Date().toISOString(),
-        });
-        // A bounce marks the project's own messages it names.
-        for (const id of bounces) {
-          const sent = await tx.entity.findFirst({
+        const own = (id: string) =>
+          tx.entity.findFirst({
             where: {
               id,
               workspaceId: scope.workspaceId,
@@ -205,17 +272,44 @@ export async function fetchInbound(scope: Scope) {
               kind: EMAIL_KIND,
             },
           });
-          if (sent) {
-            await update(tx, scope, sent, {
-              ...data(sent),
-              deliveryState: "bounced",
-              bouncedAt: new Date().toISOString(),
-            });
-            bounced++;
-          }
+        // A failed-delivery report marks the project's own messages it
+        // names, and only for a recipient it names as well.
+        const bounceOf: string[] = [];
+        for (const id of report?.ids ?? []) {
+          const sent = await own(id);
+          if (!sent) continue;
+          const to = ((data(sent).to as string[] | undefined) ?? []).map((a) =>
+            a.toLowerCase(),
+          );
+          if (!to.some((a) => report!.named.has(a))) continue;
+          await update(tx, scope, sent, {
+            ...data(sent),
+            deliveryState: "bounced",
+            bouncedAt: new Date().toISOString(),
+          });
+          bounceOf.push(id);
+          bounced++;
         }
-        // Bounces are the platform's; everything else goes to the modules.
-        if (!bounces.length) {
+        // Orbit's own message coming back in (sent to the mailbox itself,
+        // or copied into the INBOX by the provider): never a new request.
+        const ownId = OWN_MESSAGE_ID.exec(messageId)?.[1];
+        const copy = ownId ? await own(ownId.toLowerCase()) : null;
+        const echo =
+          copy !== null &&
+          String(data(copy).messageId ?? "").toLowerCase() ===
+            messageId.toLowerCase();
+        const row = await create(tx, scope, INBOUND_KIND, {
+          connectionId: connection.id,
+          uid: message.uid,
+          uidValidity: batch.uidValidity,
+          ...fields,
+          bounceOf,
+          ...(echo ? { ownMessage: true } : {}),
+          fileId: file.id,
+          receivedAt: new Date().toISOString(),
+        });
+        // Bounces and echoes are the platform's; the rest goes to modules.
+        if (!bounceOf.length && !echo) {
           const enabled = await enabledModules(tx, scope);
           for (const { owner, queueClass } of registeredEmailInbound())
             if (ownerEnabled(owner, enabled))

@@ -30,6 +30,9 @@ export type UserNotificationKind = {
   emailDefault: boolean;
 };
 
+/** A same-origin path; the database and the bell check the same rule. */
+export const ORBIT_PATH = /^\/(?![/\\])[^\s\\\u0000-\u001f\u007f]*$/;
+
 export function notificationsEnabled() {
   return loadConfig().ORBIT_NOTIFICATIONS === "true";
 }
@@ -40,12 +43,11 @@ const notice = z
     userIds: z.array(z.string().min(1).max(200)).min(1).max(200),
     title: z.string().trim().min(1).max(200),
     body: z.string().max(2000).default(""),
-    /** An Orbit path, such as /projects/<id>/tasks. */
-    link: z
-      .string()
-      .max(500)
-      .regex(/^\/[^/]/)
-      .optional(),
+    /**
+     * An Orbit path, such as /projects/<id>/tasks. No backslash, space or
+     * control character: browsers read "/\\x" and "/<tab>/x" as "//x".
+     */
+    link: z.string().max(500).regex(ORBIT_PATH).optional(),
   })
   .strict();
 
@@ -129,7 +131,9 @@ export async function notifyMembers(tx: DbTx, scope: Scope, raw: unknown) {
       const origin = loadConfig().APP_ORIGIN.replace(/\/+$/, "");
       await queueEmail(tx, scope, {
         to: [user.email],
-        subject: input.title,
+        // A title may come from user input with line breaks; a subject is
+        // one line (queueEmail refuses anything else).
+        subject: input.title.replace(/\s+/g, " "),
         text: [
           input.body || input.title,
           input.link ? `${origin}${input.link}` : "",

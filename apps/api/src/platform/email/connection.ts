@@ -111,6 +111,8 @@ export async function connectEmail(tx: DbTx, scope: Scope, raw: unknown) {
  */
 export const emailConnectionProvider: ConnectionProvider = {
   async check(connection, password) {
+    // No login to the mailbox while e-mail is off, even for an old row.
+    if (!emailEnabled()) throw new DomainError("NOT_FOUND", 404);
     const account = accountOf(connection);
     const factories = mailFactories();
     // Which side failed, as a code only (no server text).

@@ -33,9 +33,15 @@ export function unreadLabel(count: number) {
   return count <= 0 ? "" : count > 9 ? "9+" : String(count);
 }
 
-/** Only Orbit paths are followed: a notice never sends a member elsewhere. */
+/**
+ * Only Orbit paths are followed: a notice never sends a member elsewhere.
+ * No backslash, space or control character, since browsers read "/\\x" and
+ * "/<tab>/x" as "//x" (the API's ORBIT_PATH rule).
+ */
 export function safeLink(link: string | null) {
-  return link && /^\/[^/\\]/.test(link) ? link : null;
+  return link && /^\/(?![/\\])[^\s\\\u0000-\u001f\u007f]*$/.test(link)
+    ? link
+    : null;
 }
 
 type BellProps = {
