@@ -5,6 +5,8 @@ import { audit, DomainError } from "../../shared.ts";
 import type { NormalizedInbound, SupportChannel } from "./channels/adapter.ts";
 import { requireSupport } from "./gate.ts";
 import { loadInbox } from "./inboxes.ts";
+import { afterTicketCreated, notifyCustomerReply } from "./automations.ts";
+import { effectiveRules } from "./settings.ts";
 import {
   attachFiles,
   conversationChanged,
@@ -220,6 +222,7 @@ export async function createTicket(
     createdAt: now,
   });
   conversationChanged(tx, scope, ticket.id);
+  await afterTicketCreated(tx, scope, ticket);
   await audit(tx, scope, "support.ticket.created", ticket.id, {
     ticketId: ticket.id,
     number: ticket.number,
@@ -285,9 +288,12 @@ export async function appendCustomerMessage(
     })),
   );
   const settings = await supportSettings(tx, scope);
+  const inbox = await tx.supportInbox.findFirst({
+    where: { id: ticket.inboxId },
+  });
   const reopen =
     !input.automatic &&
-    settings.reopenOnReply &&
+    effectiveRules(settings, inbox?.rules).reopenOnReply &&
     ["pending_customer", "resolved", "closed"].includes(ticket.status);
   await tx.supportTicket.update({
     where: { id: ticket.id },
@@ -307,5 +313,6 @@ export async function appendCustomerMessage(
       createdAt: now,
     });
   conversationChanged(tx, scope, ticket.id);
+  if (!input.automatic) await notifyCustomerReply(tx, scope, ticket);
   return message;
 }

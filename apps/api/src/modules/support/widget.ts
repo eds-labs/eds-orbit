@@ -25,6 +25,7 @@ import {
   ticketEvent,
 } from "./common.ts";
 import { requireSupport } from "./gate.ts";
+import { notifyHandoff } from "./automations.ts";
 import { loadInbox } from "./inboxes.ts";
 import {
   appendCustomerMessage,
@@ -404,6 +405,11 @@ async function handoff(ctx: PublicRouteContext) {
       after: { aiState: "handed_off", status },
     });
     conversationChanged(tx, ctx.scope, ticket.id);
+    await notifyHandoff(
+      tx,
+      ctx.scope,
+      await tx.supportTicket.findFirstOrThrow({ where: { id: ticket.id } }),
+    );
     return { ok: true };
   });
 }

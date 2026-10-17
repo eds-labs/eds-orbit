@@ -5,6 +5,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../shared.ts";
 import { supportAgents } from "./agents.ts";
 import { deliverMessage } from "./channels/deliver.ts";
+import { notifyAssigned, notifyMentions } from "./automations.ts";
 import {
   attachFiles,
   dueTimes,
@@ -264,6 +265,12 @@ export async function noteOnTicket(
     where: { id },
     data: { updatedAt: new Date() },
   });
+  await notifyMentions(
+    tx,
+    scope,
+    await loadTicket(tx, scope, id),
+    input.bodyText,
+  );
   await audit(tx, scope, "support.ticket.noted", id, {
     ticketId: id,
     messageId: message.id,
@@ -354,6 +361,8 @@ export async function updateTicket(
   }
   if (!changed.length) return ticket;
   const updated = await tx.supportTicket.update({ where: { id }, data });
+  if (changed.includes("assigneeUserId"))
+    await notifyAssigned(tx, scope, updated);
   await audit(tx, scope, "support.ticket.updated", id, {
     ticketId: id,
     changed,

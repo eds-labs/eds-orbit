@@ -104,6 +104,12 @@ const en = {
     language: "Language",
     rotate: "New widget secret",
     widgetKey: "Widget embed",
+    rulesLegend: "Automations for this inbox",
+    rule: {
+      autoAck: "Acknowledge new e-mail tickets",
+      autoClose: "Close tickets waiting on the customer",
+      sla: "SLA timers and alerts",
+    },
     snippetHint:
       "Paste this into the app's pages. The app's backend signs each user id with the widget secret (see docs/SUPPORT_WIDGET.md). A new embed key revokes the old one.",
     archive: "Archive",
@@ -229,6 +235,12 @@ const de: SupportText = {
     language: "Sprache",
     rotate: "Neues Widget-Secret",
     widgetKey: "Widget einbinden",
+    rulesLegend: "Automationen für diesen Posteingang",
+    rule: {
+      autoAck: "Neue E-Mail-Tickets bestätigen",
+      autoClose: "Tickets schließen, die auf den Kunden warten",
+      sla: "SLA-Fristen und Warnungen",
+    },
     snippetHint:
       "Füge das in die Seiten der App ein. Das Backend der App signiert jede User-ID mit dem Widget-Secret (siehe docs/SUPPORT_WIDGET.md). Ein neuer Schlüssel widerruft den alten.",
     archive: "Archivieren",

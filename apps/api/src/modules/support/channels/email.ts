@@ -23,6 +23,7 @@ import {
 import type { PeriodicTask } from "../../../platform/jobs/types.ts";
 import { audit, data } from "../../../shared.ts";
 import { supportSettings } from "../common.ts";
+import { effectiveRules } from "../settings.ts";
 import { supportActive } from "../gate.ts";
 import { appendCustomerMessage, createTicket } from "../tickets.ts";
 
@@ -350,7 +351,7 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
           },
         });
         const settings = await supportSettings(tx, scope);
-        if (settings.autoAck)
+        if (effectiveRules(settings, inbox.rules).autoAck)
           await acknowledge(tx, scope, created.ticketId, inbox);
         await audit(tx, scope, "support.email.received", created.ticketId, {
           ticketId: created.ticketId,

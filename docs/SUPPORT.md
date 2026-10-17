@@ -172,6 +172,31 @@ The widget's public API lives at `/api/public/support/<publicKey>/…`. It is mo
 - A public GET route may `stream` (`PublicRoute.stream`). `serveEventStream` keeps the CORS headers through the hijack.
 - The web proxy now forwards `Authorization` under `/api/public/`. Before, no public session could pass the proxy.
 
+## Notifications and automations (WP5.5)
+
+**Notifications.** The kinds go through the WP4.7 member notifications (`ORBIT_NOTIFICATIONS`). Each member sets in-app and e-mail per kind. The title names only the ticket number, never its subject or text, and links to the ticket.
+
+| Kind | To | E-mail by default |
+|---|---|---|
+| `support_ticket_new` | every support agent (except the auto-assignee) | no |
+| `support_ticket_assigned` | the new assignee, unless they assigned it to themselves | yes |
+| `support_customer_replied` | the assignee, else every agent | no |
+| `support_sla_at_risk` / `support_sla_breached` | the assignee, else every agent | no / yes |
+| `support_ai_handoff` | the assignee, else every agent | yes |
+| `support_mention` | an agent named as `@Name` in an internal note | no |
+
+**Automations.**
+
+| Automation | Behaviour | Switch |
+|---|---|---|
+| Auto-assign | `fixed` takes the inbox's default assignee while they are an agent. `round_robin` takes the agent after the inbox's last assignee. | `assignmentPolicy` |
+| SLA timers | The per-project sweep raises `sla_at_risk` within 60 minutes of a pending due time and `sla_breached` after it, once per clock (first response, resolution), with a notification. Due times are set on create and recomputed on a priority change. | `sla` |
+| Auto-close | Closes tickets waiting on the customer after `autoCloseDays`, counted from when they started waiting. | `autoClose`, `autoCloseDays` |
+| Auto-acknowledgement | See the e-mail channel. | `autoAck` |
+| Reopen on reply | See the e-mail channel. | `reopenOnReply` |
+
+`rules` on the inbox (migration `202610180003`) switches each automation. A missing key keeps the project default.
+
 ## Tickets and channels
 
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:

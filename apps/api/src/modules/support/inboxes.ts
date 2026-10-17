@@ -4,6 +4,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { publicOrigin } from "../../platform/http/public-api.ts";
 import { audit, credentialKey, DomainError, encrypt } from "../../shared.ts";
+import { inboxRulesSchema } from "./settings.ts";
 
 // Support inboxes (06 §2.1): one entry point each, an e-mail address and/or
 // a widget. The widget's HMAC secret is generated here, stored encrypted and
@@ -28,6 +29,7 @@ const fields = {
   language: z.enum(["en", "de"]),
   // "widget_answer" follows with WP5.6, after Q-17.
   aiMode: z.enum(["off", "draft"]),
+  rules: inboxRulesSchema,
 };
 const createInput = z
   .object({
@@ -40,6 +42,7 @@ const createInput = z
     defaultAssigneeUserId: fields.defaultAssigneeUserId.optional(),
     language: fields.language.optional(),
     aiMode: fields.aiMode.optional(),
+    rules: fields.rules.optional(),
   })
   .strict();
 const updateInput = z
@@ -54,6 +57,7 @@ const updateInput = z
     defaultAssigneeUserId: fields.defaultAssigneeUserId.optional(),
     language: fields.language.optional(),
     aiMode: fields.aiMode.optional(),
+    rules: fields.rules.optional(),
   })
   .strict();
 

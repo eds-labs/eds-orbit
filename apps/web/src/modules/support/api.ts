@@ -62,6 +62,7 @@ export type Inbox = {
   assignmentPolicy: string;
   language: string;
   aiMode: string;
+  rules?: { autoAck?: boolean; autoClose?: boolean; sla?: boolean };
   version: number;
   archivedAt: string | null;
   hasWidgetSecret: boolean;
