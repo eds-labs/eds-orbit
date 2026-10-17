@@ -13,7 +13,26 @@ export const embeddingProfile = {
   metric: "cosine",
   generation: 1,
 } as const;
-export const configSchema = z.object({
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+
+/**
+ * The MCP protected resource identifier (RFC 8707 / RFC 9728): HTTPS without
+ * query, fragment or credentials. Plain http only for loopback development.
+ */
+export function isValidMcpResource(value: string) {
+  if (value.includes("?") || value.includes("#")) return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password) return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
+}
+
+const baseConfigSchema = z.object({
   DATABASE_URL: z.string().min(1),
   AUTH_DATABASE_URL: z.string().min(1),
   REDIS_URL: z.url(),
@@ -48,7 +67,42 @@ export const configSchema = z.object({
   // Owners may switch modules per project (WP1.4). Activation is recorded but
   // not yet enforced; every module keeps working while this is "false".
   ORBIT_MODULES: z.enum(["false", "true"]).default("false"),
+  // Orbit as OAuth 2.1 authorization server for MCP clients (Track M, WP-M1).
+  // Nothing is registered and /api/auth behaves as before while "false".
+  ORBIT_MCP_OAUTH: z.enum(["false", "true"]).default("false"),
+  // Dynamic client registration (RFC 7591) on top of CIMD; closed by default.
+  ORBIT_MCP_DCR: z.enum(["false", "true"]).default("false"),
+  // Canonical MCP resource and token audience; defaults to ${APP_ORIGIN}/mcp.
+  MCP_RESOURCE: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string()
+      .refine(isValidMcpResource, {
+        message:
+          "MCP_RESOURCE must be an https URL without query, fragment or credentials (http only on loopback)",
+      })
+      .optional(),
+  ),
+  // Hosts (exact or subdomain) whose Client ID Metadata Documents are fetched.
+  ORBIT_MCP_CIMD_HOSTS: z.string().default("chatgpt.com"),
 });
-export function loadConfig() {
+export const configSchema = baseConfigSchema.transform((config, ctx) => {
+  const MCP_RESOURCE =
+    config.MCP_RESOURCE ?? `${new URL(config.APP_ORIGIN).origin}/mcp`;
+  // A derived default only has to be valid when the OAuth server is switched on,
+  // so a plain-http APP_ORIGIN keeps booting with the flag off.
+  if (config.ORBIT_MCP_OAUTH === "true" && !isValidMcpResource(MCP_RESOURCE)) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["MCP_RESOURCE"],
+      message:
+        "MCP_RESOURCE (default APP_ORIGIN + /mcp) must be https or loopback http when ORBIT_MCP_OAUTH is true",
+    });
+    return z.NEVER;
+  }
+  return { ...config, MCP_RESOURCE };
+});
+export type Config = z.infer<typeof configSchema>;
+export function loadConfig(): Config {
   return configSchema.parse(process.env);
 }

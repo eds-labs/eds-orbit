@@ -11,7 +11,9 @@ import { projectMembership } from "./member-scope.ts";
 import { authorize, PROJECT_READ } from "./permissions.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import { CLIENT_IP_HEADER } from "../../client-ip.ts";
-export function makeAuth() {
+import { mcpAuthDeps, mcpAuthPlugins } from "../mcp-auth/plugins.ts";
+// `cimdFetch` is a test seam for the Client ID Metadata Document transport.
+export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
   const config = loadConfig();
   return betterAuth({
     database: prismaAdapter(authDb, { provider: "postgresql" }),
@@ -19,6 +21,12 @@ export function makeAuth() {
     baseURL: config.APP_ORIGIN,
     basePath: "/api/auth",
     trustedOrigins: [config.APP_ORIGIN],
+    // jwt() would otherwise expose a session JWT at GET /api/auth/token.
+    disabledPaths: ["/token"],
+    plugins:
+      config.ORBIT_MCP_OAUTH === "true"
+        ? [...mcpAuthPlugins(config, mcpAuthDeps(options))]
+        : [],
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,
