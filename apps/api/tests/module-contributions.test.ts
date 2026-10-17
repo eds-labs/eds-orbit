@@ -81,7 +81,9 @@ describe("module contributions", () => {
         "reconciliation",
         "reindex",
         "slack_notification",
+        "support_draft",
         "support_email_inbound",
+        "support_triage",
         "telegram_notification",
       ].sort(),
     );
@@ -173,11 +175,19 @@ describe("module contributions", () => {
       "public-ingress-cleanup",
       "file-cleanup",
       "email-inbound",
-      "support-email-delivery",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
     ]);
+    // Support's task counts only while support is available (WP5.3, WP5.6).
+    process.env.ORBIT_SUPPORT = "true";
+    try {
+      expect(registeredPeriodicTasks().map((t) => t.name)).toContain(
+        "support-email-delivery",
+      );
+    } finally {
+      delete process.env.ORBIT_SUPPORT;
+    }
     // The health key and summary of /api/health/postiz stay the same.
     expect(registeredPeriodicTask("postiz-queue")?.health?.summarize).toBe(
       postizQueueHealth,

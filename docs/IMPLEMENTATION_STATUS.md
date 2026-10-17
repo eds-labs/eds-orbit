@@ -1,5 +1,24 @@
 # Implementation status
 
+## Support AI: WP5.6 (2026-10-17, local; flags off)
+
+Branch `claude/wp56-support-ai`, stacked on WP5.5. Guide: `docs/SUPPORT.md` (Support AI). Decisions: Q-12a option B (OpenAI with safeguards) and Q-17 (drafts only).
+
+- **Task classes.** `support_triage` and `support_draft`, in the routing and the routing settings.
+- **Run kind.** `support`, from migration `202610180004_support_ai`, which widens a check constraint.
+- **`modules/support/ai.ts`.**
+  - Personal-data placeholders, and a paid call with reservation, settlement and telemetry that is never retried after a transmit.
+  - Triage, and drafts grounded in `support`-audience evidence with citation and evidence checks.
+  - The handoff state, the jobs, `queueSupportAi` on new tickets and customer messages, the cost per ticket, and an agent-requested draft.
+- **Hard rules.** `modules/support/hard-rules.ts`, with the offline eval `evals/support/hard-rules-v1.json` (20 customer and 7 draft cases).
+- **Assistant.** The tool `support_insights` (counts only).
+- **Web.** AI draft cards with "Use draft", an "AI draft" button and the AI cost on the ticket.
+- **Tests:**
+  - `support-ai.integration.test.ts`, 7 tests, with a mocked model and retrieval, mutation-checked for placeholders;
+  - the eval (3 tests);
+  - the render test.
+- **Not run:** a paid model eval of triage accuracy and citation quality. It needs a budget approval.
+
 ## Support notifications and automations: WP5.5 (2026-10-17, local; flags off)
 
 Branch `claude/wp55-support-automations`, stacked on WP5.4. Guide: `docs/SUPPORT.md` (Notifications and automations).

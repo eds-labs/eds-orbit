@@ -1,6 +1,8 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { supportSwitchedOn } from "./gate.ts";
 import { supportRoutes } from "./routes.ts";
+import { runSupportTask, SUPPORT_DRAFT, SUPPORT_TRIAGE } from "./ai.ts";
+import { supportTools } from "./tools.ts";
 import { widgetRoutes } from "./widget.ts";
 import { supportScheduler, supportUserNotifications } from "./automations.ts";
 import {
@@ -20,7 +22,21 @@ export const supportContributions: ModuleContributions = {
       queueClass: SUPPORT_EMAIL_INBOUND,
       handler: ({ scope, job }) => handleInboundEmail(scope, job.resourceId),
     },
+    // Support AI (WP5.6): paid calls, never retried after a transmit.
+    {
+      queueClass: SUPPORT_TRIAGE,
+      leaseMs: 180_000,
+      handler: ({ scope, job }) =>
+        runSupportTask(scope, { task: "triage", ticketId: job.resourceId }),
+    },
+    {
+      queueClass: SUPPORT_DRAFT,
+      leaseMs: 180_000,
+      handler: ({ scope, job }) =>
+        runSupportTask(scope, { task: "draft", ticketId: job.resourceId }),
+    },
   ],
+  tools: supportTools,
   periodic: [supportEmailDelivery],
   // The livechat widget's public API (WP5.4).
   publicRoutes: widgetRoutes,

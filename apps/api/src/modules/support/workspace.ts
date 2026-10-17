@@ -6,6 +6,8 @@ import { audit, DomainError } from "../../shared.ts";
 import { supportAgents } from "./agents.ts";
 import { deliverMessage } from "./channels/deliver.ts";
 import { notifyAssigned, notifyMentions } from "./automations.ts";
+import { SUPPORT_DRAFT, ticketAiCost } from "./ai.ts";
+import { enqueue } from "../../platform/jobs/enqueue.ts";
 import {
   attachFiles,
   dueTimes,
@@ -136,7 +138,7 @@ export async function ticketDetail(tx: DbTx, scope: Scope, id: string) {
     tx.supportContact.findFirst({ where: { id: ticket.contactId } }),
     tx.supportInbox.findFirst({
       where: { id: ticket.inboxId },
-      select: { id: true, name: true, channels: true },
+      select: { id: true, name: true, channels: true, aiMode: true },
     }),
     tx.supportMessage.findMany({
       where: { projectId: scope.projectId, ticketId: id },
@@ -161,7 +163,13 @@ export async function ticketDetail(tx: DbTx, scope: Scope, id: string) {
         x.createdAt.getTime() - y.createdAt.getTime() || x.order - y.order,
     )
     .map(({ order: _order, ...item }) => item);
-  return { ticket, contact, inbox, timeline };
+  return {
+    ticket,
+    contact,
+    inbox,
+    timeline,
+    aiCostMicros: await ticketAiCost(tx, id),
+  };
 }
 
 const replyInput = z
@@ -581,4 +589,26 @@ export async function ticketSummary(tx: DbTx, scope: Scope, now = new Date()) {
     }),
   ]);
   return { open, unassigned, atRisk, breached };
+}
+
+/** Asks the AI for a new draft of the latest customer message (agents). */
+export async function requestDraft(tx: DbTx, scope: Scope, id: string) {
+  const ticket = await loadTicket(tx, scope, id);
+  const inbox = await tx.supportInbox.findFirst({
+    where: { id: ticket.inboxId },
+  });
+  if (inbox?.aiMode !== "draft") throw new DomainError("AI_OFF", 409);
+  const message = await tx.supportMessage.findFirst({
+    where: { ticketId: id, kind: "customer" },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!message) throw new DomainError("NOTHING_TO_ANSWER", 409);
+  await enqueue(
+    tx,
+    scope,
+    SUPPORT_DRAFT,
+    id,
+    `support-draft:${message.id}:${Date.now()}`,
+  );
+  return { queued: true };
 }

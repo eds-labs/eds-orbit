@@ -6,6 +6,7 @@ import type { NormalizedInbound, SupportChannel } from "./channels/adapter.ts";
 import { requireSupport } from "./gate.ts";
 import { loadInbox } from "./inboxes.ts";
 import { afterTicketCreated, notifyCustomerReply } from "./automations.ts";
+import { queueSupportAi } from "./ai.ts";
 import { effectiveRules } from "./settings.ts";
 import {
   attachFiles,
@@ -223,6 +224,7 @@ export async function createTicket(
   });
   conversationChanged(tx, scope, ticket.id);
   await afterTicketCreated(tx, scope, ticket);
+  await queueSupportAi(tx, scope, ticket, message.id, { triage: true });
   await audit(tx, scope, "support.ticket.created", ticket.id, {
     ticketId: ticket.id,
     number: ticket.number,
@@ -313,6 +315,9 @@ export async function appendCustomerMessage(
       createdAt: now,
     });
   conversationChanged(tx, scope, ticket.id);
-  if (!input.automatic) await notifyCustomerReply(tx, scope, ticket);
+  if (!input.automatic) {
+    await notifyCustomerReply(tx, scope, ticket);
+    await queueSupportAi(tx, scope, ticket, message.id);
+  }
   return message;
 }

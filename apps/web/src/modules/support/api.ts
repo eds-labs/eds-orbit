@@ -49,8 +49,14 @@ export type Attachment = {
 export type TicketDetail = {
   ticket: Ticket;
   contact: Contact | null;
-  inbox: { id: string; name: string; channels: string[] } | null;
+  inbox: {
+    id: string;
+    name: string;
+    channels: string[];
+    aiMode?: string;
+  } | null;
   timeline: Array<Record<string, any>>;
+  aiCostMicros?: number;
 };
 export type Inbox = {
   id: string;

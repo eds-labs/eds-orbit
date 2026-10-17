@@ -90,6 +90,8 @@ describe("resolveRoute", () => {
       "agent_research",
       "agent_analytics",
       "agent_review",
+      "support_triage",
+      "support_draft",
     ]);
   });
   it("rejects unverified models", () => {

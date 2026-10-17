@@ -1,7 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { ArrowLeft, Lock, Paperclip } from "lucide-react";
-import { useResource, useMutation, when } from "@/lib/api";
+import { usd, useResource, useMutation, when } from "@/lib/api";
 import {
   Alert,
   Badge,
@@ -57,6 +57,9 @@ export function TicketView({
     detail.refresh();
     onChanged();
   };
+  // An AI draft taken over into the composer; n remounts it with the text.
+  const [prefill, setPrefill] = useState({ text: "", n: 0 });
+  const draftRequest = useMutation();
   if (detail.loading) return <Loading />;
   if (detail.error || !detail.data)
     return <Alert kind="error">{detail.error?.message ?? "—"}</Alert>;
@@ -84,7 +87,32 @@ export function TicketView({
             {t.priority[ticket.priority as keyof SupportText["priority"]]}
           </Badge>
           <Badge tone={SLA_TONE[sla]}>{t.sla[sla]}</Badge>
+          {(detail.data.aiCostMicros ?? 0) > 0 && (
+            <Badge>
+              {t.aiCost}: {usd(detail.data.aiCostMicros)}
+            </Badge>
+          )}
+          {canEdit && detail.data.inbox?.aiMode === "draft" && (
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              disabled={draftRequest.pending}
+              onClick={() =>
+                draftRequest.run(() =>
+                  post(
+                    supportPath(project.id, `/tickets/${ticketId}/ai-draft`),
+                    {},
+                  ),
+                )
+              }
+            >
+              {t.generateDraft}
+            </Button>
+          )}
         </div>
+        {draftRequest.success && <Alert kind="info">{t.draftQueued}</Alert>}
+        {draftRequest.error && <Alert kind="error">{draftRequest.error}</Alert>}
         {canEdit && (
           <TicketControls
             detail={detail.data}
@@ -104,6 +132,12 @@ export function TicketView({
               locale={locale}
               timezone={project.timezone}
               projectId={project.id}
+              {...(canEdit
+                ? {
+                    onUseDraft: (text: string) =>
+                      setPrefill((p) => ({ text, n: p.n + 1 })),
+                  }
+                : {})}
             />
           ))}
         </ol>
@@ -131,7 +165,15 @@ export function TicketView({
           </aside>
         )}
       </div>
-      {canEdit && <Composer ticketId={ticketId} t={t} onSent={refresh} />}
+      {canEdit && (
+        <Composer
+          key={prefill.n}
+          ticketId={ticketId}
+          t={t}
+          onSent={refresh}
+          initialText={prefill.text}
+        />
+      )}
     </article>
   );
 }
@@ -142,12 +184,15 @@ export function TimelineItem({
   locale,
   timezone,
   projectId,
+  onUseDraft,
 }: {
   entry: TimelineEntry;
   t: SupportText;
   locale: string;
   timezone: string;
   projectId: string;
+  /** Fills the composer with an AI draft (agents only). */
+  onUseDraft?: (text: string) => void;
 }) {
   if (entry.entry === "event")
     return (
@@ -175,6 +220,16 @@ export function TimelineItem({
         )}
       </div>
       <p className="support-message-text">{entry.bodyText}</p>
+      {entry.kind === "ai_draft" && onUseDraft && (
+        <Button
+          size="sm"
+          variant="outline"
+          type="button"
+          onClick={() => onUseDraft(entry.bodyText)}
+        >
+          {t.useDraft}
+        </Button>
+      )}
       {entry.attachments.length > 0 && (
         <ul className="support-attachments">
           {entry.attachments.map((a) => (
@@ -287,14 +342,16 @@ export function Composer({
   ticketId,
   t,
   onSent,
+  initialText = "",
 }: {
   ticketId: string;
   t: SupportText;
   onSent: () => void;
+  initialText?: string;
 }) {
   const { project } = useWorkspace();
   const [mode, setMode] = useState<"reply" | "note">("reply");
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialText);
   const [files, setFiles] = useState<File[]>([]);
   const mutation = useMutation(() => {
     setText("");
