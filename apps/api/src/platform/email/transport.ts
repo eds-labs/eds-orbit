@@ -1,12 +1,17 @@
 import { lookup } from "node:dns/promises";
 import ipaddr from "ipaddr.js";
-import nodemailer from "nodemailer";
-import { ImapFlow } from "imapflow";
+import SMTPConnection, {
+  type SMTPConnectionOptions,
+} from "nodemailer/lib/smtp-connection";
+import MailComposer from "nodemailer/lib/mail-composer";
+import { ImapFlow, type ImapFlowOptions } from "imapflow";
 
 // SMTP and IMAP against the project's own mailbox (WP4.7, Q-16). Both sides
 // sit behind small interfaces so tests replace them; the real ones use
-// nodemailer and imapflow with TLS required and short timeouts. Errors keep
-// only codes, never the password, a server banner or message content.
+// nodemailer and imapflow with TLS required and short timeouts. Both connect
+// to the address the host check vetted (no second DNS lookup, so no DNS
+// rebinding); TLS still verifies the certificate against the host name.
+// Errors keep only codes, never the password, a server banner or content.
 
 export type TlsMode = "implicit" | "starttls";
 
@@ -81,9 +86,10 @@ const TIMEOUT_MS = 20_000;
 
 /**
  * A mail host must be a public DNS name that resolves to public addresses
- * only: no IP literal, no local name, nothing private (SSRF).
+ * only: no IP literal, no local name, nothing private (SSRF). Returns the
+ * vetted address the client must connect to.
  */
-export async function assertPublicMailHost(host: string) {
+export async function assertPublicMailHost(host: string): Promise<string> {
   const name = host.trim().toLowerCase();
   if (
     !/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(
@@ -103,82 +109,160 @@ export async function assertPublicMailHost(host: string) {
     addresses.some((a) => ipaddr.process(a.address).range() !== "unicast")
   )
     throw new MailSendError("MAIL_HOST_NOT_PUBLIC");
+  return addresses[0]!.address;
+}
+
+/** SMTP options pinned to the vetted address; TLS checks the host name. */
+export function smtpOptions(
+  account: EmailAccount,
+  address: string,
+): SMTPConnectionOptions {
+  return {
+    host: address,
+    servername: account.smtpHost,
+    port: account.smtpPort,
+    secure: account.smtpTls === "implicit",
+    requireTLS: account.smtpTls === "starttls",
+    connectionTimeout: TIMEOUT_MS,
+    greetingTimeout: TIMEOUT_MS,
+    socketTimeout: TIMEOUT_MS,
+    tls: { minVersion: "TLSv1.2", servername: account.smtpHost },
+  };
+}
+
+// A fetched message is at most 10 MB (inbound.ts); a server announcing
+// more is refused instead of buffered (imapflow allows 1 GB by default).
+const IMAP_MAX_LITERAL = 12 * 1024 * 1024;
+
+/** IMAP options pinned to the vetted address; TLS checks the host name. */
+export function imapOptions(
+  account: EmailAccount,
+  password: string,
+  address: string,
+): ImapFlowOptions {
+  return {
+    host: address,
+    servername: account.imapHost,
+    port: account.imapPort,
+    secure: account.imapTls === "implicit",
+    doSTARTTLS: account.imapTls === "starttls" ? true : undefined,
+    auth: { user: account.username, pass: password },
+    logger: false,
+    connectionTimeout: TIMEOUT_MS,
+    greetingTimeout: TIMEOUT_MS,
+    socketTimeout: TIMEOUT_MS * 3,
+    tls: { minVersion: "TLSv1.2", servername: account.imapHost },
+    maxLiteralSize: IMAP_MAX_LITERAL,
+    maxResponseSize: IMAP_MAX_LITERAL + 1024 * 1024,
+  };
+}
+
+export type SmtpSession = {
+  options: SMTPConnectionOptions;
+  auth?: { user: string; pass: string };
+};
+
+/** An SMTP error as codes only; see `classifySendError`. */
+function smtpError(error: unknown, sending: boolean) {
+  const e = error as { code?: string; command?: string; responseCode?: number };
+  // Once the envelope is under way, a lost connection or a timeout may come
+  // after the server took the message, and nodemailer then names no step
+  // (or "CONN"). Without a server reply that is "maybe sent", never a retry.
+  const command =
+    sending &&
+    e.responseCode === undefined &&
+    (!e.command || e.command === "CONN")
+      ? "DATA"
+      : e.command;
+  return new MailSendError(e.code ?? "SMTP_ERROR", command, e.responseCode);
+}
+
+/**
+ * One SMTP session: connect, log in, and (with `mail`) hand the message
+ * over. The step is tracked here because nodemailer reports a broken
+ * connection as "CONN" whether or not the message was already out.
+ */
+export async function smtpSession(
+  session: SmtpSession,
+  mail?: OutgoingMail,
+): Promise<SendResult> {
+  const raw = mail
+    ? await new MailComposer({
+        from: mail.from,
+        to: mail.to,
+        subject: mail.subject,
+        text: mail.text,
+        messageId: mail.messageId,
+        headers: mail.headers,
+        inReplyTo: mail.inReplyTo,
+        references: mail.references,
+        disableFileAccess: true,
+        disableUrlAccess: true,
+      })
+        .compile()
+        .build()
+    : null;
+  const connection = new SMTPConnection(session.options);
+  let sending = false;
+  return new Promise<SendResult>((resolve, reject) => {
+    let settled = false;
+    const finish = (error: unknown, result?: SendResult) => {
+      if (settled) return;
+      settled = true;
+      connection.close();
+      if (error) reject(smtpError(error, sending));
+      else resolve(result!);
+    };
+    connection.on("error", (error) => finish(error));
+    const handOver = () => {
+      if (!mail || !raw) return finish(null, { accepted: [], rejected: [] });
+      sending = true;
+      connection.send(
+        { from: mail.from.address, to: mail.to },
+        raw,
+        (error, info) =>
+          error
+            ? finish(error)
+            : finish(null, {
+                accepted: (info?.accepted ?? []).map(String),
+                rejected: (info?.rejected ?? []).map(String),
+              }),
+      );
+    };
+    connection.connect((error) => {
+      if (error) return finish(error);
+      if (!session.auth) return handOver();
+      connection.login(session.auth, (loginError) =>
+        loginError ? finish(loginError) : handOver(),
+      );
+    });
+  });
 }
 
 const realFactories: MailFactories = {
-  checkHost: assertPublicMailHost,
+  checkHost: async (host) => void (await assertPublicMailHost(host)),
   transport(account, password) {
-    const transporter = nodemailer.createTransport({
-      host: account.smtpHost,
-      port: account.smtpPort,
-      secure: account.smtpTls === "implicit",
-      requireTLS: account.smtpTls === "starttls",
-      auth: { user: account.username, pass: password },
-      connectionTimeout: TIMEOUT_MS,
-      greetingTimeout: TIMEOUT_MS,
-      socketTimeout: TIMEOUT_MS,
-      tls: { minVersion: "TLSv1.2" },
-      disableFileAccess: true,
-      disableUrlAccess: true,
-    });
-    const wrap = (error: unknown): never => {
-      const e = error as {
-        code?: string;
-        command?: string;
-        responseCode?: number;
-      };
-      throw new MailSendError(
-        e.code ?? "SMTP_ERROR",
-        e.command,
-        e.responseCode,
+    const session = async (mail?: OutgoingMail) =>
+      smtpSession(
+        {
+          options: smtpOptions(
+            account,
+            await assertPublicMailHost(account.smtpHost),
+          ),
+          auth: { user: account.username, pass: password },
+        },
+        mail,
       );
-    };
     return {
-      async verify() {
-        await assertPublicMailHost(account.smtpHost);
-        await transporter.verify().catch(wrap);
-      },
-      async send(mail) {
-        await assertPublicMailHost(account.smtpHost);
-        const info = await transporter
-          .sendMail({
-            from: mail.from,
-            to: mail.to,
-            subject: mail.subject,
-            text: mail.text,
-            messageId: mail.messageId,
-            headers: mail.headers,
-            inReplyTo: mail.inReplyTo,
-            references: mail.references,
-            disableFileAccess: true,
-            disableUrlAccess: true,
-          })
-          .catch(wrap);
-        return {
-          accepted: (info.accepted ?? []).map(String),
-          rejected: (info.rejected ?? []).map(String),
-        };
-      },
-      close: () => transporter.close(),
+      verify: async () => void (await session()),
+      send: (mail) => session(mail),
+      close: () => undefined,
     };
   },
   mailbox(account, password) {
-    const client = () =>
-      new ImapFlow({
-        host: account.imapHost,
-        port: account.imapPort,
-        secure: account.imapTls === "implicit",
-        doSTARTTLS: account.imapTls === "starttls" ? true : undefined,
-        auth: { user: account.username, pass: password },
-        logger: false,
-        connectionTimeout: TIMEOUT_MS,
-        greetingTimeout: TIMEOUT_MS,
-        socketTimeout: TIMEOUT_MS * 3,
-        tls: { minVersion: "TLSv1.2" },
-      });
     const session = async <T>(work: (c: ImapFlow) => Promise<T>) => {
-      await assertPublicMailHost(account.imapHost);
-      const c = client();
+      const address = await assertPublicMailHost(account.imapHost);
+      const c = new ImapFlow(imapOptions(account, password, address));
       try {
         await c.connect();
         return await work(c);

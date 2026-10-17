@@ -24,6 +24,7 @@ import {
   MailSendError,
   setMailFactoriesForTests,
   type FetchedMessage,
+  type MailFactories,
   type OutgoingMail,
 } from "../src/platform/email/transport.ts";
 import { setObjectStoreForTests } from "../src/platform/files/files.ts";
@@ -95,43 +96,44 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
     get: async (key) => objects.get(key) ?? null,
     delete: async (key) => void objects.delete(key),
   };
+  const factories: MailFactories = {
+    checkHost: async (host) => {
+      if (host.endsWith(".internal"))
+        throw new MailSendError("MAIL_HOST_NOT_PUBLIC");
+    },
+    transport: () => ({
+      verify: async () => undefined,
+      send: async (mail) => {
+        if (sendError) throw sendError;
+        sent.push(mail);
+        return { accepted: mail.to, rejected: [] };
+      },
+      close: () => undefined,
+    }),
+    mailbox: () => ({
+      verify: async () => undefined,
+      fetchNew: async (state, limits) => {
+        const from =
+          inbox.uidValidity === state.uidValidity ? state.lastUid : 0;
+        const fresh = inbox.messages.filter((m) => m.uid > from);
+        const batch = fresh.slice(0, limits.max);
+        return {
+          uidValidity: inbox.uidValidity,
+          messages: batch.filter((m) => m.source.length <= limits.maxBytes),
+          skipped: batch
+            .filter((m) => m.source.length > limits.maxBytes)
+            .map((m) => m.uid),
+        };
+      },
+    }),
+  };
   const run = <T>(fn: (tx: DbTx) => Promise<T>) =>
     scoped(scope.workspaceId, scope.projectId, fn);
 
   beforeAll(async () => {
     Object.assign(process.env, ENV);
     setObjectStoreForTests(store);
-    setMailFactoriesForTests({
-      checkHost: async (host) => {
-        if (host.endsWith(".internal"))
-          throw new MailSendError("MAIL_HOST_NOT_PUBLIC");
-      },
-      transport: () => ({
-        verify: async () => undefined,
-        send: async (mail) => {
-          if (sendError) throw sendError;
-          sent.push(mail);
-          return { accepted: mail.to, rejected: [] };
-        },
-        close: () => undefined,
-      }),
-      mailbox: () => ({
-        verify: async () => undefined,
-        fetchNew: async (state, limits) => {
-          const from =
-            inbox.uidValidity === state.uidValidity ? state.lastUid : 0;
-          const fresh = inbox.messages.filter((m) => m.uid > from);
-          const batch = fresh.slice(0, limits.max);
-          return {
-            uidValidity: inbox.uidValidity,
-            messages: batch.filter((m) => m.source.length <= limits.maxBytes),
-            skipped: batch
-              .filter((m) => m.source.length > limits.maxBytes)
-              .map((m) => m.uid),
-          };
-        },
-      }),
-    });
+    setMailFactoriesForTests(factories);
     const workspace = await authDb.workspace.create({
       data: { name: "Synthetic e-mail" },
     });
@@ -433,6 +435,14 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
               "",
               "The mail could not be delivered.",
               "--b",
+              "Content-Type: message/delivery-status",
+              "",
+              "Reporting-MTA: dns; mailbox.example.com",
+              "",
+              "Final-Recipient: rfc822; gone@example.org",
+              "Action: failed",
+              "Status: 5.1.1",
+              "--b",
               "Content-Type: text/rfc822-headers",
               "",
               `Message-ID: <orbit.${row.id}@eds-labs.example>`,
@@ -450,12 +460,306 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
     expect(jobsAfter).toBe(jobsBefore);
   });
 
+  it("does not let one hostile message block the mailbox", async () => {
+    const nested = (depth: number) =>
+      Array.from(
+        { length: depth },
+        (_, i) =>
+          `--b${i}\r\nContent-Type: multipart/mixed; boundary="b${i + 1}"\r\n\r\n`,
+      ).join("") + `--b${depth}\r\nContent-Type: text/plain\r\n\r\ndeep\r\n`;
+    inbox = {
+      uidValidity: "8",
+      messages: [
+        // Deeper than the parser allows: postal-mime throws.
+        {
+          uid: 30,
+          source: mime(
+            {
+              "Message-ID": "<deep@example.org>",
+              "Content-Type": 'multipart/mixed; boundary="b0"',
+            },
+            nested(300),
+          ),
+        },
+        // Headers above the parser's 2 MB limit: postal-mime throws.
+        {
+          uid: 31,
+          source: mime({
+            "Message-ID": "<huge-header@example.org>",
+            "X-Pad": "a".repeat(3 * 1024 * 1024),
+          }),
+        },
+        // NUL in subject and text: Postgres jsonb refuses \u0000.
+        {
+          uid: 32,
+          source: mime(
+            {
+              "Message-ID": "<nul@example.org>",
+              Subject: "=?utf-8?B?SGkAdGhlcmU=?=",
+            },
+            "a\u0000b",
+          ),
+        },
+        // Oversized threading fields stay bounded in the row.
+        {
+          uid: 33,
+          source: mime({
+            "Message-ID": "<long@example.org>",
+            "In-Reply-To": `<${"r".repeat(5000)}@example.org>`,
+            References: Array.from(
+              { length: 60 },
+              (_, i) => `<${i}${"x".repeat(2000)}@example.org>`,
+            ).join(" "),
+          }),
+        },
+        { uid: 34, source: mime({ "Message-ID": "<after@example.org>" }) },
+      ],
+    };
+    const result = await fetchInbound(scope);
+    expect(result).toMatchObject({ status: "ok", stored: 5 });
+    const rows = (await run((tx) => list(tx, scope, "inbound_emails")))
+      .map((r) => data(r))
+      .filter((r) => r.uid >= 30 && r.uid <= 34);
+    expect(rows.map((r) => r.uid).sort()).toEqual([30, 31, 32, 33, 34]);
+    // An unreadable message keeps its raw file and is flagged.
+    const deep = rows.find((r) => r.uid === 30)!;
+    expect(deep).toMatchObject({ unreadable: true, automatic: false });
+    expect(deep.fileId).toBeTruthy();
+    expect(rows.find((r) => r.uid === 32)).toMatchObject({
+      subject: "Hi there",
+      text: expect.stringContaining("ab"),
+    });
+    const long = rows.find((r) => r.uid === 33)!;
+    expect(long.inReplyTo.length).toBeLessThanOrEqual(998);
+    expect(long.references.every((r: string) => r.length <= 998)).toBe(true);
+    // Nothing is fetched again.
+    expect(await fetchInbound(scope)).toMatchObject({ stored: 0 });
+  });
+
+  it("marks bounced only by a delivery report naming the message's recipient", async () => {
+    process.env.EXECUTION_MODE = "live";
+    process.env.ENABLE_EXTERNAL_WRITES = "true";
+    const row = await run((tx) =>
+      queueEmail(tx, scope, {
+        to: ["alice@example.org"],
+        subject: "Report check",
+        text: "Body",
+        moduleId: "tasks",
+      }),
+    );
+    await sendQueuedEmail(scope, row.id);
+    const ref = `<orbit.${row.id}@eds-labs.example>`;
+    const report = (type: string, part: string) =>
+      [
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "Report.",
+        "--b",
+        `Content-Type: ${type}`,
+        "",
+        part,
+        "--b",
+        "Content-Type: text/rfc822-headers",
+        "",
+        `Message-ID: ${ref}`,
+        "--b--",
+      ].join("\r\n");
+    inbox = {
+      uidValidity: "8",
+      messages: [
+        // A read receipt (MDN) is a multipart/report, not a bounce.
+        {
+          uid: 40,
+          source: mime(
+            {
+              From: "Alice <alice@example.org>",
+              "Message-ID": "<mdn1@example.org>",
+              "Content-Type":
+                'multipart/report; report-type=disposition-notification; boundary="b"',
+            },
+            report(
+              "message/disposition-notification",
+              `Final-Recipient: rfc822; alice@example.org\r\nOriginal-Message-ID: ${ref}\r\nDisposition: manual-action/MDN-sent-manually; displayed`,
+            ),
+          ),
+        },
+        // A forged report for an address the message never went to.
+        {
+          uid: 41,
+          source: mime(
+            {
+              From: "postmaster@attacker.example",
+              "Message-ID": "<forged@attacker.example>",
+              "Content-Type":
+                'multipart/report; report-type=delivery-status; boundary="b"',
+            },
+            report(
+              "message/delivery-status",
+              "Final-Recipient: rfc822; mallory@attacker.example\r\nAction: failed\r\nStatus: 5.1.1",
+            ),
+          ),
+        },
+        // Another address that merely contains the recipient's.
+        {
+          uid: 43,
+          source: mime(
+            {
+              From: "MAILER-DAEMON@mailbox.example.com",
+              "Message-ID": "<dsn-similar@mailbox.example.com>",
+              "Content-Type":
+                'multipart/report; report-type=delivery-status; boundary="b"',
+            },
+            report(
+              "message/delivery-status",
+              "Final-Recipient: rfc822; malice@example.org\r\nAction: failed\r\nStatus: 5.1.1",
+            ),
+          ),
+        },
+        // A "delayed" warning: the message may still arrive.
+        {
+          uid: 44,
+          source: mime(
+            {
+              From: "MAILER-DAEMON@mailbox.example.com",
+              "Message-ID": "<dsn-delayed@mailbox.example.com>",
+              "Content-Type":
+                'multipart/report; report-type=delivery-status; boundary="b"',
+            },
+            report(
+              "message/delivery-status",
+              "Final-Recipient: rfc822; alice@example.org\r\nAction: delayed\r\nStatus: 4.4.7",
+            ),
+          ),
+        },
+        // A human reply from a postmaster address quoting the thread.
+        {
+          uid: 42,
+          source: mime(
+            {
+              From: "postmaster@customer.example",
+              "Message-ID": "<human@customer.example>",
+              "In-Reply-To": ref,
+            },
+            "Thanks, we will look into it.",
+          ),
+        },
+      ],
+    };
+    const jobsBefore = (await run((tx) => list(tx, scope, "jobs"))).filter(
+      (j) => data(j).topic === "fixture_email",
+    ).length;
+    expect(await fetchInbound(scope)).toMatchObject({ stored: 5, bounced: 0 });
+    expect((await message(row.id)).deliveryState).toBeUndefined();
+    // Not bounces, so the modules get them.
+    const jobsAfter = (await run((tx) => list(tx, scope, "jobs"))).filter(
+      (j) => data(j).topic === "fixture_email",
+    ).length;
+    expect(jobsAfter).toBe(jobsBefore + 5);
+  });
+
+  it("does not hand Orbit's own messages back to the modules", async () => {
+    process.env.EXECUTION_MODE = "live";
+    process.env.ENABLE_EXTERNAL_WRITES = "true";
+    // A notice to a member whose address is the mailbox itself, or a
+    // provider that copies sent mail into the INBOX: it comes back in.
+    const row = await run((tx) =>
+      queueEmail(tx, scope, {
+        to: [ACCOUNT.fromAddress],
+        subject: "Notice",
+        text: "Body",
+        moduleId: "tasks",
+        automatic: true,
+      }),
+    );
+    await sendQueuedEmail(scope, row.id);
+    const jobsBefore = (await run((tx) => list(tx, scope, "jobs"))).filter(
+      (j) => data(j).topic === "fixture_email",
+    ).length;
+    inbox = {
+      uidValidity: "8",
+      messages: [
+        {
+          uid: 50,
+          source: mime({
+            From: `EDS Support <${ACCOUNT.fromAddress}>`,
+            "Message-ID": `<orbit.${row.id}@eds-labs.example>`,
+            "X-Orbit-Message": row.id,
+          }),
+        },
+      ],
+    };
+    await fetchInbound(scope);
+    const jobsAfter = (await run((tx) => list(tx, scope, "jobs"))).filter(
+      (j) => data(j).topic === "fixture_email",
+    ).length;
+    expect(jobsAfter).toBe(jobsBefore);
+  });
+
+  it("refuses a reply to automatic mail (no auto-reply loops)", async () => {
+    inbox = {
+      uidValidity: "8",
+      messages: [
+        {
+          uid: 60,
+          source: mime({
+            "Message-ID": "<vacation@example.org>",
+            "Auto-Submitted": "auto-replied",
+            Subject: "Away",
+          }),
+        },
+      ],
+    };
+    await fetchInbound(scope);
+    await expect(
+      run((tx) =>
+        queueEmail(tx, scope, {
+          to: ["customer@example.org"],
+          subject: "Re: Away",
+          text: "Thanks",
+          moduleId: "tasks",
+          inReplyTo: "<vacation@example.org>",
+        }),
+      ),
+    ).rejects.toThrow("EMAIL_REPLY_TO_AUTOMATIC");
+  });
+
+  it("does not log in to the mailbox while e-mail is off", async () => {
+    const id = await connect();
+    const row = await run((tx) => entity(tx, scope, "connectors", id));
+    let logins = 0;
+    setMailFactoriesForTests({
+      checkHost: async () => undefined,
+      transport: () => ({
+        verify: async () => void logins++,
+        send: async () => ({ accepted: [], rejected: [] }),
+        close: () => undefined,
+      }),
+      mailbox: () => ({
+        verify: async () => void logins++,
+        fetchNew: async () => ({ uidValidity: "1", messages: [], skipped: [] }),
+      }),
+    });
+    process.env.ORBIT_EMAIL = "false";
+    try {
+      await expect(
+        registeredConnectionProvider("email")!.check!(
+          { ...data(row) },
+          ACCOUNT.password,
+        ),
+      ).rejects.toThrow("NOT_FOUND");
+      expect(logins).toBe(0);
+    } finally {
+      setMailFactoriesForTests(factories);
+    }
+  });
+
   it("fetches nothing without platform files", async () => {
     process.env.ORBIT_FILES = "false";
     inbox = {
       uidValidity: "8",
       messages: [
-        { uid: 20, source: mime({ "Message-ID": "<later@example.org>" }) },
+        { uid: 100, source: mime({ "Message-ID": "<later@example.org>" }) },
       ],
     };
     expect(await fetchInbound(scope)).toMatchObject({
