@@ -3,6 +3,7 @@ import { Home } from "lucide-react";
 import { webRegistry } from "@/modules/registry";
 import {
   activeNavKey,
+  crumbs,
   defaultProject,
   keptSuffix,
   locate,
@@ -185,6 +186,22 @@ describe("Web route registry", () => {
     expect(
       table.routes.filter((r) => r.moduleId === "knowledge" && r.nav),
     ).toHaveLength(1);
+  });
+
+  it("names a knowledge tab in the breadcrumb under its entry, never by its key", () => {
+    const route = (key: string) => table.routes.find((r) => r.key === key)!;
+    expect(crumbs(route("knowledge-facts"), table, "de")).toEqual([
+      "Wissen",
+      "Fakten",
+    ]);
+    expect(crumbs(route("knowledge-conflicts"), table, "en")).toEqual([
+      "Knowledge",
+      "Conflicts",
+    ]);
+    expect(crumbs(route("knowledge"), table, "de")).toEqual(["Wissen"]);
+    for (const r of table.routes)
+      for (const part of crumbs(r, table, "en"))
+        expect(part, r.key).not.toBe(r.key);
   });
 
   it("rejects conflicting registries", () => {
