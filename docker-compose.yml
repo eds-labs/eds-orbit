@@ -50,6 +50,9 @@ x-api-environment: &api-environment
   ORBIT_PUBLIC_INGRESS: ${ORBIT_PUBLIC_INGRESS:-false}
   # Platform files (WP4.6): an own R2 bucket and token, never the backup ones.
   ORBIT_FILES: ${ORBIT_FILES:-false}
+  # E-mail over the project's mailbox and member notifications (WP4.7).
+  ORBIT_EMAIL: ${ORBIT_EMAIL:-false}
+  ORBIT_NOTIFICATIONS: ${ORBIT_NOTIFICATIONS:-false}
   FILES_S3_ENDPOINT: ${FILES_S3_ENDPOINT:-}
   FILES_S3_BUCKET: ${FILES_S3_BUCKET:-}
   FILES_S3_REGION: ${FILES_S3_REGION:-auto}

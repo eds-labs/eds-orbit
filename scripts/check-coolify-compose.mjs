@@ -45,6 +45,8 @@ for (const key of [
   "ORBIT_MODULE_ROLES",
   "ORBIT_PUBLIC_INGRESS",
   "ORBIT_FILES",
+  "ORBIT_EMAIL",
+  "ORBIT_NOTIFICATIONS",
 ])
   delete composeEnvironment[key];
 
@@ -58,6 +60,21 @@ const rendered = execFileSync(
   },
 );
 const services = JSON.parse(rendered).services;
+
+// The api and worker must start with exactly what Compose renders: an
+// unset optional variable arrives as "" (production incident 2026-10-17).
+const { configSchema } = await import("../packages/config/src/index.ts");
+for (const name of ["api", "worker"]) {
+  const parsed = configSchema.safeParse(services[name].environment);
+  assert.ok(
+    parsed.success,
+    `${name} must accept its rendered environment: ${
+      parsed.success
+        ? ""
+        : parsed.error.issues.map((issue) => issue.path.join(".")).join(", ")
+    }`,
+  );
+}
 const runtimeBuild = services.api.build;
 
 assert.ok(runtimeBuild, "api must be locally buildable");
@@ -129,6 +146,8 @@ for (const name of ["api", "worker"])
     "ORBIT_MODULE_ROLES",
     "ORBIT_PUBLIC_INGRESS",
     "ORBIT_FILES",
+    "ORBIT_EMAIL",
+    "ORBIT_NOTIFICATIONS",
   ])
     assert.equal(
       services[name].environment[flag],
@@ -157,6 +176,8 @@ const flagged = JSON.parse(
         ORBIT_MODULE_ROLES: "true",
         ORBIT_PUBLIC_INGRESS: "true",
         ORBIT_FILES: "true",
+        ORBIT_EMAIL: "true",
+        ORBIT_NOTIFICATIONS: "true",
       },
     },
   ),
@@ -172,6 +193,8 @@ for (const name of ["api", "worker"])
     "ORBIT_MODULE_ROLES",
     "ORBIT_PUBLIC_INGRESS",
     "ORBIT_FILES",
+    "ORBIT_EMAIL",
+    "ORBIT_NOTIFICATIONS",
   ])
     assert.equal(
       flagged[name].environment[flag],

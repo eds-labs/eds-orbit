@@ -25,6 +25,21 @@ export const platformDeclaration: PlatformDeclaration = {
       exported: false,
     },
     {
+      kind: "email_messages",
+      description: "Outbound e-mail and its delivery state (WP4.7)",
+      exported: false,
+    },
+    {
+      kind: "inbound_emails",
+      description: "Normalized inbound e-mail; the raw message is a file",
+      exported: false,
+    },
+    {
+      kind: "email_inbound_state",
+      description: "The last fetched IMAP UID per mailbox",
+      exported: false,
+    },
+    {
       kind: "telegram_connections",
       description: "The owner's notification bot",
       exported: false,
@@ -78,6 +93,8 @@ export const platformDeclaration: PlatformDeclaration = {
     "ProjectMemberModuleRole",
     "PublicClientKey",
     "File",
+    "Notification",
+    "NotificationPreference",
     "ProjectModule",
     "Entity",
     "EntityVersion",

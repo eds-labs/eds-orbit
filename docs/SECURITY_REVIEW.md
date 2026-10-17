@@ -164,6 +164,32 @@ This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). W
    - The size limit is enforced while the body streams in.
 6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. Known gap: a deleted project leaves its objects behind.
 
+## E-mail and member notifications (WP4.7, prepared 2026-10-17; review open)
+
+`ORBIT_EMAIL` and `ORBIT_NOTIFICATIONS` stay `false` in production until this review is done and Mario approves each flag. Real delivery also needs live mode with external writes. What the review checks:
+
+1. **Credentials.** The mailbox password is stored only encrypted (`CREDENTIAL_KEY`), is never returned, and never appears in logs or errors. Errors carry codes only, never server banners.
+2. **Outbound abuse.**
+   - Only the connection's own address sends.
+   - Recipients are validated, at most 20.
+   - Subjects are single lines (no header injection).
+   - nodemailer file and URL access are off.
+   - Sending is owner-configured and module-initiated; no route sends arbitrary mail.
+3. **No duplicate sends.** An error after the hand-over, or a crash while sending, is `outcome_unknown` and never resent (tested, mutation-checked).
+4. **SSRF.**
+   - Mail hosts must be public DNS names resolving to public unicast addresses; checked at connect and before each use.
+   - Known gap: the client resolves again (a DNS-rebinding window).
+5. **Inbound content.**
+   - Fetched read-only, size- and count-limited.
+   - Raw MIME is kept encrypted in platform files; the normalized row holds bounded text only.
+   - Automatic mail is flagged, and bounces are matched only to the project's own messages.
+   - Content is untrusted data for modules.
+6. **Notifications.**
+   - Private per member by RLS (app.user_id).
+   - Only project members with access to the module are notified; muting is respected.
+   - Links are Orbit paths only (checked in the database and in the web).
+   - The e-mail copy goes only to the member's account address.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

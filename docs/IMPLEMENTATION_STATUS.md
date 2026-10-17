@@ -91,6 +91,34 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
 
 **Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`. Production after the merge (flag still off): the flag needs no change; if the smoke test fails, redeploy the previous `main` commit, which reverts the Better Auth upgrade. The migration is additive and its tables stay (unused with the flag off); dropping them is not part of a rollback. Production after the WP-M5 flip: the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway.
 
+## E-mail over SMTP/IMAP and member notifications: WP4.7 (2026-10-17, local; flags off)
+
+Branch `claude/wp47-email-notifications` (on top of WP4.6). Mario decided on 2026-10-17 (Q-16): the project's existing mailbox over SMTP and IMAP, no new provider and no DNS change by Orbit. The operating guide is `docs/EMAIL_AND_NOTIFICATIONS.md`.
+
+- **Flags.** `ORBIT_EMAIL` and `ORBIT_NOTIFICATIONS`, both `false`. Real delivery also needs live mode with external writes.
+- **Connection.** `platform/email/connection.ts`: the owner action `email-connect` (public hosts only, password encrypted) and the provider check `email` (SMTP and IMAP login, `read_verified`, sends nothing).
+- **Transport.** `platform/email/transport.ts`: nodemailer and imapflow behind small interfaces that tests replace, TLS required, and outcome classification.
+- **Sending.** `platform/email/send.ts`: `queueEmail`, the `email_send` job, and `sent` / `rejected` / `retry` → `failed` / `outcome_unknown` / `test_receipt`. Nothing is ever sent twice.
+- **Receiving.** `platform/email/inbound.ts`: the periodic task `email-inbound`.
+  - Read-only IMAP fetch with UIDVALIDITY handling and limits.
+  - The raw MIME becomes an encrypted platform file; `inbound_emails` holds the normalized row.
+  - Automatic mail is flagged, and bounces mark the project's own messages.
+  - Modules with `emailInbound` get a job per message.
+- **Notifications.**
+  - Migration `202610170008_member_notification`: `Notification` and `NotificationPreference`, private per member by RLS.
+  - Service: `platform/notifications/members.ts` (`notifyMembers`, list, read, preferences); contract: `userNotifications`.
+  - Routes: `platform/notifications/routes.ts`; owner mailbox view: `platform/email/routes.ts`.
+- **Web.** The bell in the top bar (`notification-bell.tsx`) and the mailbox card on the connectors page (`email-connection.tsx`).
+- **Dependencies.** `nodemailer` 10.0.13, `imapflow` 2.2.1, `postal-mime` 4.0.2 and `@types/nodemailer`, exact pins at least two weeks old. The audit adds no finding (`docs/DEPENDENCY_RISKS.md`).
+- **Tests:**
+  - `email.integration.test.ts`: connection, test receipt, live send headers, the four outcomes, crash recovery, inbound dedupe/UIDVALIDITY/limits/auto-reply, bounces, files required. A mutation check confirmed it.
+  - `notifications.integration.test.ts`: members only, privacy, read state, muting, e-mail choice, module role, flag off.
+  - Web unit tests; RLS and access matrices; contract tests.
+- **Production.**
+  - Merging brings the migration and the dependencies (approval).
+  - Mario then connects the mailbox in Orbit.
+  - Each flag and the first real send are separate approvals after the security review.
+
 ## Platform files: WP4.6 (2026-10-17, local; flag off)
 
 Branch `claude/wp46-platform-files` (on top of the public ingress follow-ups). Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Mario approved the bucket and token on 2026-10-17 (Q-19: an own R2 bucket next to the backup bucket). The operating guide is `docs/PLATFORM_FILES.md`.

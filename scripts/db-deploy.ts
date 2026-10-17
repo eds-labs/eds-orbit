@@ -176,6 +176,9 @@ try {
     "AgentSpan",
     // Platform files (WP4.6).
     "File",
+    // Member notifications (WP4.7), private per member by RLS.
+    "Notification",
+    "NotificationPreference",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
