@@ -7,6 +7,7 @@ import {
 import {
   BANNER_TEXT_LIMITS,
   BANNER_TEXT_MAX,
+  bannerButtonFits,
   bannerChromeOverflow,
   bannerTextOverflow,
   type BannerText,
@@ -37,15 +38,38 @@ export const assignmentBanner = z
   .strict();
 export type AssignmentBanner = z.infer<typeof assignmentBanner>;
 
-/** The banner copy the copywriter writes per post (stored on the content as `banner`). */
+/**
+ * The banner copy the copywriter writes per post (stored on the content as
+ * `banner`). Its button is the mission CTA, set by Orbit (`withCtaButton`);
+ * empty when the CTA does not fit, and the banner then has no button.
+ */
 export const bannerText = z
   .object({
     headline1: z.string().trim().min(1).max(BANNER_TEXT_MAX),
     headline2: z.string().trim().min(1).max(BANNER_TEXT_MAX),
     subline: z.string().trim().min(1).max(BANNER_TEXT_MAX),
-    button: z.string().trim().min(1).max(BANNER_TEXT_MAX),
+    button: z.string().trim().max(BANNER_TEXT_MAX),
   })
   .strict();
+
+/**
+ * The banner button for a mission's CTA (its `targetAction`): the CTA
+ * without closing punctuation when it fits the template, else empty (no
+ * button). A banner thus never names another call to action than its post.
+ */
+export function ctaButton(cta: unknown) {
+  const label =
+    typeof cta === "string" ? cta.replace(/[\s\p{P}]+$/u, "").trim() : "";
+  return bannerButtonFits(label) ? label : "";
+}
+
+/** Banner copy with its button set to the mission CTA (`ctaButton`). */
+export function withCtaButton<T extends { button: string }>(
+  text: T,
+  cta: unknown,
+): T {
+  return { ...text, button: ctaButton(cta) };
+}
 
 export { BANNER_TEXT_LIMITS };
 
@@ -219,6 +243,17 @@ const INVISIBLE = /\p{Cf}/u;
 const normalized = (text: BannerText) => bannerCopy(text).normalize("NFKC");
 
 /**
+ * The copy the claim and wording checks read: without the button when it
+ * is the mission's approved CTA, which is campaign copy and no claim (as in
+ * checkClaims).
+ */
+const checkedCopy = (text: BannerText, cta?: unknown) =>
+  (text.button && text.button === ctaButton(cta)
+    ? [text.headline1, text.headline2, text.subline].join("\n")
+    : bannerCopy(text)
+  ).normalize("NFKC");
+
+/**
  * Copy that could hide a claim from the checks: invisible format
  * characters, or letters outside the Latin script (Cyrillic or Greek look-
  * alikes); the copy is written in English or German.
@@ -232,10 +267,10 @@ function unsafeCopy(text: BannerText) {
 }
 
 /** The words of a banner's copy that a banner cannot carry, for the revision instruction. */
-export function bannerOffenses(value: unknown) {
+export function bannerOffenses(value: unknown, cta?: unknown) {
   const text = parsedBanner(value);
   if (!text) return [];
-  const copy = normalized(text);
+  const copy = checkedCopy(text, cta);
   const found = [FIGURE, STATUS, PROMISE, ...PROHIBITED_LANGUAGE].flatMap(
     (rule) =>
       [
@@ -259,12 +294,13 @@ export function bannerOffenses(value: unknown) {
  * and status wording (`BANNER_UNSUPPORTED_CLAIM`), profit, return or risk
  * promises and the profile's prohibited wording
  * (`BANNER_PROHIBITED_LANGUAGE`). The last three are revised once
- * (`BANNER_REVISABLE`). Links are checked by the caller with the policy's
- * origins, like the body's.
+ * (`BANNER_REVISABLE`). A button that is the mission's `cta` is campaign
+ * copy and not checked for claims or wording. Links are checked by the
+ * caller with the policy's origins, like the body's.
  */
 export function bannerTextProblems(
   value: unknown,
-  layout: { brandName: string; footer: string },
+  layout: { brandName: string; footer: string; cta?: unknown },
 ) {
   const text = parsedBanner(value);
   if (!text) return [BANNER_TEXT_MISSING];
@@ -282,7 +318,7 @@ export function bannerTextProblems(
     // Copy the template refuses outright (control characters) counts as missing.
     return [BANNER_TEXT_MISSING];
   }
-  const copy = normalized(text);
+  const copy = checkedCopy(text, layout.cta);
   const hits = (rule: RegExp) => new RegExp(rule.source, "iu").test(copy);
   if (hits(FIGURE) || hits(STATUS)) problems.push(BANNER_UNSUPPORTED_CLAIM);
   if (hits(PROMISE) || PROHIBITED_LANGUAGE.some((rule) => hits(rule)))
@@ -295,22 +331,27 @@ export function bannerTextProblems(
  * The copywriter's revision instruction for banner copy (R78): shorten it,
  * and remove the words a banner cannot carry, naming them. Nothing new.
  */
-export function bannerInstruction(value: unknown, problems: string[]) {
+export function bannerInstruction(
+  value: unknown,
+  problems: string[],
+  cta?: unknown,
+) {
   const text = parsedBanner(value);
   const parts: string[] = [];
   if (problems.includes(BANNER_TEXT_OVERFLOW)) {
     const sizes = text
-      ? ` (now ${text.headline1.length}, ${text.headline2.length}, ${text.subline.length} and ${text.button.length} characters)`
+      ? ` (now ${text.headline1.length}, ${text.headline2.length} and ${text.subline.length} characters)`
       : "";
+    // The button is the mission CTA, set by Orbit: not the copywriter's to shorten.
     parts.push(
-      `shorten it to fit: headline1 at most ${BANNER_TEXT_LIMITS.headline1} characters, headline2 at most ${BANNER_TEXT_LIMITS.headline2}, subline at most ${BANNER_TEXT_LIMITS.subline} and button at most ${BANNER_TEXT_LIMITS.button}${sizes}, with no headline word longer than 11 characters`,
+      `shorten it to fit: headline1 at most ${BANNER_TEXT_LIMITS.headline1} characters, headline2 at most ${BANNER_TEXT_LIMITS.headline2} and subline at most ${BANNER_TEXT_LIMITS.subline}${sizes}, with no headline word longer than 11 characters`,
     );
   }
   if (
     problems.includes(BANNER_UNSUPPORTED_CLAIM) ||
     problems.includes(BANNER_PROHIBITED_LANGUAGE)
   ) {
-    const words = bannerOffenses(value)
+    const words = bannerOffenses(value, cta)
       .map((word) => `"${word}"`)
       .join(", ");
     parts.push(

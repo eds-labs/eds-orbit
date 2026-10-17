@@ -772,10 +772,15 @@ export async function composeRunBanners(scope: Scope, runId: string) {
       if (["archived", "rejected"].includes(v.status) || v.supersededBy)
         continue;
       const key = bannerKeyOf(background, v, logo.brand);
-      // Copy the review will refuse or send back gets no banner (R78).
+      // Copy the review will refuse or send back gets no banner (R78); its
+      // button is the mission CTA, checked as campaign copy.
+      const mission = v.missionId
+        ? data(await entity(tx, scope, "missions", v.missionId))
+        : null;
       const refused = bannerTextProblems(v.banner, {
         brandName: logo.productName,
         footer: footerDomain(v.targetUrl) ?? "",
+        cta: mission?.targetAction,
       }).length;
       if (!key || refused || done.has(key)) continue;
       const entry = todo.get(key);

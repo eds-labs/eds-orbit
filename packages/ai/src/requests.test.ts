@@ -54,6 +54,24 @@ describe("route-driven requests", () => {
       reasoning: { effort: "low" },
     });
   });
+  // Production uLiquid, 2026-10-17 (run f610945b): a paragraph addressed
+  // the reviewer, so the post did not read as finished.
+  it("generate asks for a finished post without notes to a reviewer", async () => {
+    await generate({
+      task: "draft",
+      goal: "g",
+      evidence: {},
+      route: { model: "m", maxOutputTokens: 2400 },
+      reservationId: "r",
+      runtime,
+    });
+    const { instructions } = create.mock.calls[0]![0];
+    expect(instructions).toContain(
+      "The body is the finished post exactly as readers see it",
+    );
+    expect(instructions).toMatch(/never address a reviewer, editor or Orbit/);
+    expect(instructions).toMatch(/no bracketed directions/);
+  });
   it("generate omits reasoning when the route has no effort", async () => {
     await generate({
       task: "draft",
@@ -222,6 +240,11 @@ describe("banner copy in drafts (R78)", () => {
     expect(body.instructions).toContain(
       "return previousBanner unchanged unless revision.instruction concerns the banner",
     );
+    // The button never competes with the post's call to action.
+    expect(body.instructions).toContain(
+      "button is the label of an outlined button: write the contract's intendedPrimaryCta there",
+    );
+    expect(body.instructions).not.toContain("Explore Desk");
     expect(body.text.format.schema.required).toContain("banner");
     expect(body.text.format.schema.properties.banner.required).toEqual([
       "headline1",
