@@ -7,6 +7,7 @@ import {
   defaultProject,
   keptSuffix,
   locate,
+  moduleUsable,
   navOrder,
   pickerHref,
   projectHref,
@@ -202,6 +203,14 @@ describe("Web route registry", () => {
     for (const r of table.routes)
       for (const part of crumbs(r, table, "en"))
         expect(part, r.key).not.toBe(r.key);
+  });
+
+  it("hides a module that is off or that the member has no access to (WP4.5)", () => {
+    expect(moduleUsable(undefined)).toBe(true);
+    expect(moduleUsable({ enabled: true })).toBe(true);
+    expect(moduleUsable({ enabled: true, access: "viewer" })).toBe(true);
+    expect(moduleUsable({ enabled: true, access: "none" })).toBe(false);
+    expect(moduleUsable({ enabled: false, access: "editor" })).toBe(false);
   });
 
   it("rejects conflicting registries", () => {

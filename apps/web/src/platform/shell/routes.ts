@@ -157,6 +157,15 @@ export function locate(pathname: string, table: RouteTable): Place {
   return legacy ? { kind: "legacy", route: legacy } : { kind: "notFound" };
 }
 
+/**
+ * Whether the shell shows a module (WP2.4, WP4.5): enabled for the project
+ * and the member's access is not "none". Unknown states count as usable, so
+ * a failed load never hides a module.
+ */
+export function moduleUsable(state?: { enabled: boolean; access?: string }) {
+  return state ? state.enabled && state.access !== "none" : true;
+}
+
 /** The navigation entry a page highlights: its own, else its navKey. */
 export function activeNavKey(
   route: Route | null | undefined,
