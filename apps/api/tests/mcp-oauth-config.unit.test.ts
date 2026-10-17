@@ -10,6 +10,7 @@ import {
   mcpAuthPluginOptions,
   oauthApi,
 } from "../src/platform/mcp-auth/plugins.ts";
+import { authRequestHeaders } from "../src/platform/mcp-auth/http.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 
 const ENV_KEYS = [
@@ -230,5 +231,44 @@ describe("CIMD host allow list", () => {
     ).toBe(false);
     expect(isCimdHostAllowed("not a url", hosts)).toBe(false);
     expect(isCimdHostAllowed("https://chatgpt.com/c.json", [])).toBe(false);
+  });
+});
+
+describe("authRequestHeaders", () => {
+  const request = (headers: Record<string, string>) =>
+    ({
+      headers,
+      ip: "127.0.0.1",
+      socket: { remoteAddress: "127.0.0.1" },
+    }) as never;
+
+  it("flag off: the proxy-only header never reaches Better Auth, every other header is unchanged", () => {
+    const incoming = {
+      "x-orbit-sec-fetch-mode": "navigate",
+      "sec-fetch-mode": "cors",
+      cookie: "orbit.session=abc",
+      origin: "https://orbit.example",
+      "content-type": "application/json",
+    };
+    const headers = authRequestHeaders(
+      { ORBIT_MCP_OAUTH: "false", ORBIT_MCP_DCR: "false" },
+      request(incoming),
+    );
+    expect(headers.has("x-orbit-sec-fetch-mode")).toBe(false);
+    // The proxied mode is not applied either: Better Auth sees what it saw before.
+    expect(Object.fromEntries(headers.entries())).toEqual({
+      "sec-fetch-mode": "cors",
+      cookie: "orbit.session=abc",
+      origin: "https://orbit.example",
+      "content-type": "application/json",
+    });
+  });
+
+  it("flag off: a request without the header is unchanged", () => {
+    const headers = authRequestHeaders(
+      { ORBIT_MCP_OAUTH: "false", ORBIT_MCP_DCR: "false" },
+      request({ cookie: "a=b" }),
+    );
+    expect(Object.fromEntries(headers.entries())).toEqual({ cookie: "a=b" });
   });
 });

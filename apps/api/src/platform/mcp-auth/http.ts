@@ -94,16 +94,17 @@ const FETCH_MODES = new Set([
  * opened by navigation gets its redirect. The copy is believed only from a
  * trusted peer and only when it is a known value; with the header absent
  * (direct calls) the headers are unchanged. The proxy-only header never
- * reaches Better Auth.
+ * reaches Better Auth, whether the OAuth server is on or off.
  */
 export function authRequestHeaders(config: OAuthFlags, req: FastifyRequest) {
   const headers = fromNodeHeaders(req.headers);
-  if (config.ORBIT_MCP_OAUTH !== "true") return headers;
   const proxied = headers
     .get(PROXY_SEC_FETCH_MODE_HEADER)
     ?.trim()
     .toLowerCase();
+  // Also with the OAuth server off: Better Auth never sees the proxy-only header.
   headers.delete(PROXY_SEC_FETCH_MODE_HEADER);
+  if (config.ORBIT_MCP_OAUTH !== "true") return headers;
   if (proxied && FETCH_MODES.has(proxied) && isTrustedPeer(req))
     headers.set("sec-fetch-mode", proxied);
   return headers;
