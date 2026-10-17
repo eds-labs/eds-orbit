@@ -75,6 +75,7 @@ describe.skipIf(!enabled)("Chat while the project is paused", () => {
       stopChatRunForPause(
         tx,
         data(await entity(tx, project.owner, "jobs", sent.jobId!)),
+        project.owner,
       ),
     );
     expect(await getRun(project.owner, sent.runId)).toMatchObject({

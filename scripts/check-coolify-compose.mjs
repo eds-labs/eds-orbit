@@ -44,6 +44,7 @@ for (const key of [
   "ORBIT_FILES",
   "ORBIT_EMAIL",
   "ORBIT_NOTIFICATIONS",
+  "ORBIT_REALTIME",
 ])
   delete composeEnvironment[key];
 
@@ -146,6 +147,7 @@ for (const name of ["api", "worker"])
     "ORBIT_FILES",
     "ORBIT_EMAIL",
     "ORBIT_NOTIFICATIONS",
+    "ORBIT_REALTIME",
   ])
     assert.equal(
       services[name].environment[flag],
@@ -173,6 +175,7 @@ const flagged = JSON.parse(
         ORBIT_FILES: "true",
         ORBIT_EMAIL: "true",
         ORBIT_NOTIFICATIONS: "true",
+        ORBIT_REALTIME: "true",
       },
     },
   ),
@@ -191,6 +194,7 @@ for (const name of ["api", "worker"])
     "ORBIT_FILES",
     "ORBIT_EMAIL",
     "ORBIT_NOTIFICATIONS",
+    "ORBIT_REALTIME",
   ])
     assert.equal(
       flagged[name].environment[flag],

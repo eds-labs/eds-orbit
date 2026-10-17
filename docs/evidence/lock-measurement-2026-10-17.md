@@ -67,3 +67,14 @@ A chat run takes about 1.6 s end to end and a search about 1.2 s. Their longest 
   
   This removes the polling cost that scales with open streams. The chat SSE can move onto it in the same step.
 - **Repeat the measurement on the production host** before Phase 5, with the same script against a staging copy, never against production data.
+
+## Part B (2026-10-17)
+
+Implemented as recommended, behind `ORBIT_REALTIME` (default off). See `docs/REALTIME_FANOUT.md`:
+
+- writers publish after commit;
+- SSE subscribes and replays from the database with `Last-Event-ID`;
+- slow polling while Redis is down;
+- the chat SSE route moves onto it.
+
+No `scopedRead()` (Mario, 2026-10-17). With the flag on, an open chat stream makes no transaction while its run is idle (tested), instead of one every 700 ms. This report's load script was not repeated, because its `stream_poll` generator models the old route. The production-host measurement remains as planned above.
