@@ -157,8 +157,7 @@ try {
       },
     },
   );
-  if (deploy.status !== 0)
-    throw new Error(`db-deploy failed for ${database}`);
+  if (deploy.status !== 0) throw new Error(`db-deploy failed for ${database}`);
   await admin.query(
     `GRANT CONNECT ON DATABASE ${quoted} TO orbit_app, orbit_auth`,
   );

@@ -10,7 +10,7 @@ This was a small synthetic database drill, not a production-sized performance te
 
 ## Repeat the bounded synthetic drill
 
-Use the pinned Node 24 environment and the existing isolated `eds-orbit-local` PostgreSQL stack. `.runtime/local.env` must contain the three `TEST_*DATABASE_URL` roles targeting exactly `127.0.0.1:55432/orbit_test`. The script also checks the Docker project/service identity. It refuses every other source target and refuses to overwrite an existing restore database.
+Use the pinned Node 24 environment and the existing isolated `eds-orbit-local` PostgreSQL stack. `.runtime/local.env` must contain the three `TEST_*DATABASE_URL` roles targeting `127.0.0.1:55432/orbit_test`, or one worktree's own `orbit_test_<worktree>` database from `scripts/test-db-for-worktree.ts` (pass `--env-file=.runtime/test.env` after `.runtime/local.env`); all three must name the same database. The script also checks the Docker project/service identity. It refuses every other source target and refuses to overwrite an existing restore database.
 
 Choose a fresh lowercase suffix of at most 24 letters/digits/underscores; for example:
 

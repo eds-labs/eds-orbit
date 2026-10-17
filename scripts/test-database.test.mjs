@@ -28,7 +28,9 @@ describe("worktree test databases", () => {
     const a = worktreeTestDatabase(
       "/repo/.claude/worktrees/Vigilant-Chatelet-f0f3a8",
     );
-    const b = worktreeTestDatabase("/other/.claude/worktrees/vigilant-chatelet-f0f3a8");
+    const b = worktreeTestDatabase(
+      "/other/.claude/worktrees/vigilant-chatelet-f0f3a8",
+    );
     expect(a).toMatch(/^orbit_test_vigilant_chatelet_f0f3a8_[a-f0-9]{6}$/);
     expect(a).not.toBe(b);
     expect(isLocalTestDatabase(local(a))).toBe(true);
@@ -77,11 +79,15 @@ describe("worktree test databases", () => {
       file,
       testUrlKeys.map((key) => `${key}=${local("orbit").href}`).join("\n"),
     );
-    expect(() => loadWorktreeTestEnv(file)).toThrow(/local Orbit test database/);
+    expect(() => loadWorktreeTestEnv(file)).toThrow(
+      /local Orbit test database/,
+    );
     writeFileSync(
       file,
       testUrlKeys
-        .map((key, i) => `${key}=${local(i ? "orbit_test" : "orbit_test_a").href}`)
+        .map(
+          (key, i) => `${key}=${local(i ? "orbit_test" : "orbit_test_a").href}`,
+        )
         .join("\n"),
     );
     expect(() => loadWorktreeTestEnv(file)).toThrow(/same database/);

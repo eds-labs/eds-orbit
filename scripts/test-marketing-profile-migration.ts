@@ -199,7 +199,10 @@ try {
       const moduleGrants = await verify.query(
         `SELECT has_table_privilege('orbit_app','"ProjectModule"','UPDATE') AS write, has_table_privilege('orbit_app','"ProjectModule"','DELETE') AS remove`,
       );
-      if (moduleGrants.rows[0]?.write !== true || moduleGrants.rows[0]?.remove !== false)
+      if (
+        moduleGrants.rows[0]?.write !== true ||
+        moduleGrants.rows[0]?.remove !== false
+      )
         throw new Error("Module activation grants wrong");
       const moduleApplied = await verify.query(
         `SELECT 1 FROM "_prisma_migrations" WHERE migration_name=$1 AND finished_at IS NOT NULL`,
