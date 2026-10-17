@@ -2,15 +2,17 @@
 
 ## Track M WP-M1: OAuth authorization server, consent and grants (2026-10-17, local)
 
-Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plans/2026-10-17-track-m-wp-m1-oauth.md` (decisions D1–D7 approved by Mario on 2026-10-17; Task 0 findings are at its end). Risk: high (new authentication surface). Environment: local only; the production migration, the deployment and the flag flip are separate approvals (WP-M5). There is no MCP endpoint yet (WP-M2).
+Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plans/2026-10-17-track-m-wp-m1-oauth.md` (decisions D1–D7 approved by Mario on 2026-10-17; Task 0 findings are at its end). Risk: high (new authentication surface). Environment: local only so far. There is no MCP endpoint yet (WP-M2).
 
+- **Merging is a production change.** A merge to `main` auto-deploys, so it applies to production regardless of the flag: the additive migration `202610170007_mcp_oauth` (ten new tables, one partial unique index, `orbit_auth` grants from `db-deploy`) and the Better Auth patch upgrade 1.7.5 → 1.7.10 (with `better-call` 1.4.2 and `@better-auth/utils` 0.5.0). AGENTS.md treats both as needing explicit approval (production migration, dependency change): the merge itself needs Mario's explicit approval. The flag flip, the Traefik and route decisions and the ChatGPT run remain WP-M5.
+- **Post-deploy smoke test (after the merge, flag off).** Sign in; `GET /api/auth/get-session` returns the session; a request after the renewal threshold sets a renewed (sliding) session cookie; sign out; Settings loads and the Connected apps tab is hidden; `GET /api/health/ready` is ok.
 - **Flags (all default off).**
-  - `ORBIT_MCP_OAUTH=false`: nothing is registered; session login, `/api/auth/*` and its responses are unchanged.
+  - `ORBIT_MCP_OAUTH=false`: no OAuth plugin, route or table access is registered; session login and the `/api/auth/*` responses are unchanged, with these exceptions: the Better Auth dependency upgrade above applies anyway; `disabledPaths: ["/token"]` is set unconditionally (no effect, `/api/auth/token` is only registered by the `jwt()` plugin); the web proxy always sends the proxy-only `x-orbit-sec-fetch-mode` header, which the API strips; the `/connect` web pages exist and render a generic failure; Settings probes `GET /api/mcp-grants` (404) to decide whether to show Connected apps.
   - `ORBIT_MCP_DCR=false`: dynamic client registration stays closed; when on, Better Auth limits registration to 5 per minute per IP.
   - `MCP_RESOURCE` (blank): token audience and resource, default `${APP_ORIGIN}/mcp`; must be https (loopback http only) without query, fragment or credentials. Every configured resource needs `allowedScopes` (Prisma list `null` caveat).
   - `ORBIT_MCP_CIMD_HOSTS=chatgpt.com`: hosts (exact or subdomain) whose client metadata documents Orbit may fetch.
   - All four pass through `docker-compose.yml` (api and worker share the anchor); `scripts/check-coolify-compose.mjs` pins the defaults and the follow-through.
-- **Endpoints (flag on).** Issuer `${APP_ORIGIN}/api/auth` (D2); `/api/auth/oauth2/*` (authorize, token, userinfo, consent, continue; register only with DCR); `/api/auth/jwks`; metadata at `/.well-known/oauth-authorization-server/api/auth` and `/api/auth/.well-known/openid-configuration`. `/api/auth/token` stays disabled and sign-in responses carry no `set-auth-jwt` header. Machine endpoints (token, revoke, introspect, and register only with DCR on) skip the browser Origin check and accept form bodies; authorize, consent, continue and userinfo are not exempt. Ingress is the existing web proxy plus a Next route for the root `/.well-known/*` paths (D3); the proxy forwards `Authorization` only for `/api/auth/oauth2/*` and sends the browser's `Sec-Fetch-Mode` as `x-orbit-sec-fetch-mode` so authorize answers 302 instead of JSON; the API strips that header with the flag off.
+- **Endpoints (flag on).** Issuer `${APP_ORIGIN}/api/auth` (D2); `/api/auth/oauth2/*` (authorize, token, userinfo, consent, continue, revoke, introspect; register only with DCR); `/api/auth/jwks`; metadata at `/.well-known/oauth-authorization-server/api/auth` and `/api/auth/.well-known/openid-configuration`. `/api/auth/token` stays disabled and sign-in responses carry no `set-auth-jwt` header. Machine endpoints (token, revoke, introspect, and register only with DCR on) skip the browser Origin check and accept form bodies; authorize, consent, continue and userinfo are not exempt. Ingress is the existing web proxy plus a Next route for the root `/.well-known/*` paths (D3); the proxy forwards `Authorization` only for `/api/auth/oauth2/*` and sends the browser's `Sec-Fetch-Mode` as `x-orbit-sec-fetch-mode` so authorize answers 302 instead of JSON; the API strips that header with the flag off.
 - **Orbit routes (flag on, else 404).** `GET /api/mcp-connect/request`, `POST /api/mcp-connect/selection`, `POST /api/mcp-connect/consent`, `GET /api/mcp-grants`, `GET /api/workspaces/:id/mcp-grants`, `DELETE /api/mcp-grants/:id`.
 - **Web.** `/connect` (workspace, project and scope selection with consent), `/connect/login` (login that continues the authorization; plain sign-in is unchanged), `/connect/error`, and Settings → Connected apps (own grants, owner section for the workspace).
 - **Data.** Migration `202610170007_mcp_oauth` (additive): the ten auth tables `jwks`, `oauthClient`, `oauthAccessToken`, `oauthRefreshToken`, `oauthConsent`, `oauthClientAssertion`, `oauthResource`, `oauthClientResource`, `McpGrant`, `McpGrantEvent`. They belong to `orbit_auth` (listed in `scripts/db-deploy.ts` `authTables`, owner entries in the module registry); `orbit_app` has no access.
@@ -29,7 +31,7 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
   - The gateway lookup `activeGrantForToken` re-checks the current membership on every call.
 
 **Verification (local).**
-- Full suite (`vitest run` with the local env file): 164 files, 1527 tests passed. `tsc --noEmit` (root and `apps/web`), `next build --webpack`, `scripts/source-check.mjs`, `python3 scripts/check-secrets.py` and `scripts/check-coolify-compose.mjs` pass.
+- Full suite (`vitest run` with the local env file) after merging `main` (WP4.1–WP4.5): 172 files, 1552 of 1553 tests passed. The one failure, `rls-matrix` "classifies every table", came from a `PublicClientKey` table that another worktree's unmerged migration had left in the shared local test database; on a fresh isolated local database deployed from this branch, `rls-matrix` and `access-matrix` pass (2 files, 14 tests). `tsc --noEmit` (root and `apps/web`), `next build --webpack`, `scripts/source-check.mjs`, `python3 scripts/check-secrets.py` and `scripts/check-coolify-compose.mjs` pass.
 - The local Docker VM had been reset, so the local databases were recreated with the isolated local setup steps (init-db, then db-deploy on the dev and test databases) before the full run.
 - New test files: `mcp-oauth-{config.unit,schema.integration,http.integration,flow.integration,revoke.integration,cimd.integration,browser-redirect.integration,hooks.characterization.integration}`, plus web tests for the proxy, `/.well-known` route, routes table, `connect-view` and `connected-apps`. The access matrix and RLS matrix include the new surface and tables.
 - Mapping to the acceptance criteria: `docs/REQUIREMENTS_TRACEABILITY.md` ("Track M WP-M1 acceptance").
@@ -68,7 +70,26 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
   - The owner section in Connected apps is gated on the project role, not the workspace role (the API enforces workspace owner).
 - `docs/evidence/source-manifest.json` is stale for `docker-compose.yml` (and has been since the initial commits); regenerate it with `node scripts/source-manifest.mjs` at the next evidence refresh.
 
-**Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`; nothing else changes. Production (later, WP-M5): the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway. The migration is additive and the tables can stay. Full rollback: redeploy the previous `main` commit.
+**WP-M5 pre-flip checklist (before `ORBIT_MCP_OAUTH=true` in production).**
+- [ ] Normalize `MCP_RESOURCE` (trailing slash, host case) at config load and in the `resource` comparison.
+- [ ] Add a `CHECK` constraint on `McpGrant.status` (allowed values only).
+- [ ] Bind the pending selection to the signed OAuth query, not only to session and client.
+- [ ] Characterization test for the provider's sign-in continuation: the after-hook re-run after `/connect/login`.
+- [ ] A `/oauth2/token` after-hook that deletes tokens minted for a non-active grant (closes the code-consume and refresh-rotation millisecond windows).
+- [ ] Decide on a `token_endpoint_auth_method` downgrade (`private_key_jwt` → `none`); recommended: revoke the client's grants.
+- [ ] Tests for deny after a replacement and for `GRANT_CONFLICT`.
+- [ ] Review the per-IP limits against hosted clients (ChatGPT egress IPs share addresses).
+- [ ] Cleanup of abandoned pending selections.
+- [ ] RFC 7009 client revocation vs grant status: decide whether a client's token revocation changes the grant (WP-M2 decision).
+- [ ] Index on `McpGrant.sessionId`.
+
+**WP-M2 entry criteria.**
+- Split `grants.ts` and `plugins.ts` (selection, revocation, client events, queries, hooks) before adding the gateway.
+- Intersect token scopes with the grant's scopes.
+- Check that `aud` includes `MCP_RESOURCE` and call `activeGrantForToken` on every MCP call.
+- Consider WP4.5 module roles (`ORBIT_MODULE_ROLES`) in the grant intersection, so a module role `none` or `viewer` also narrows what a grant allows.
+
+**Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`. Production after the merge (flag still off): the flag needs no change; if the smoke test fails, redeploy the previous `main` commit, which reverts the Better Auth upgrade. The migration is additive and its tables stay (unused with the flag off); dropping them is not part of a rollback. Production after the WP-M5 flip: the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway.
 
 ## Module-level roles: WP4.5 (2026-10-17, local; flag off)
 

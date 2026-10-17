@@ -13,7 +13,12 @@ import { verifyOAuthQueryParams } from "@better-auth/oauth-provider";
 import type { Config } from "../../../../../packages/config/src/index.ts";
 
 // Orbit as OAuth 2.1 authorization server for MCP clients (Track M, WP-M1).
-// This file only wires Better Auth's plugins; it holds no business logic.
+// This file wires Better Auth's plugins (options, CIMD host policy, client
+// change detection) and holds the global hooks that enforce grants on the
+// OAuth endpoints (`resource` on authorize, refresh only with an active grant,
+// selection activation on consent, hand-off of denials, issued codes and
+// refresh replays); the grant bookkeeping itself lives in grants.ts. It holds
+// no business logic of the product modules.
 // Everything here is registered only behind ORBIT_MCP_OAUTH (see tenancy/auth.ts).
 
 /** `orbit:read` and `orbit:propose` only narrow what the user may do in the UI. */

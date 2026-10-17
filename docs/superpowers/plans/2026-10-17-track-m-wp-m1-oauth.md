@@ -13,7 +13,8 @@
 ## Risk, environment, profile
 
 - **Risk:** high (new authentication surface). AGENTS.md requires risk analysis, test strategy and rollback before implementation; they are in this plan (§ Risk analysis, the tests in each task, § Rollback).
-- **Environment:** local only. Production deployment, the production migration and the flag flip are separate approvals (WP-M5).
+- **Environment:** local only until the merge. Merging to `main` auto-deploys and therefore applies to production regardless of the flag: the additive migration `202610170007_mcp_oauth` (ten new tables, one partial unique index, `orbit_auth` grants) and the Better Auth patch upgrade 1.7.5 → 1.7.10 (with `better-call` 1.4.2 and `@better-auth/utils` 0.5.0). Under AGENTS.md that is a production migration plus a dependency change, so the merge itself needs Mario's explicit approval. The flag flip, the Traefik and route decisions and the ChatGPT run remain WP-M5.
+- **Post-deploy smoke test (after the merge, flag off):** sign in; `GET /api/auth/get-session` returns the session; a request after the renewal threshold sets a renewed (sliding) session cookie; sign out; Settings loads with the Connected apps tab hidden; `GET /api/health/ready` is ok.
 - **App profile:** `backend-api` primary; `web-frontend` for the consent and Connected apps views; security rules from `.agentic/security/`.
 - **Workflow:** `.agentic/workflows/feature.md` plus `migration.md` for the additive schema.
 
@@ -56,6 +57,7 @@ Not chosen: `1.8.0-beta.*` (beta); an external IdP (rejected by AD-21); a hand-w
 - `iss` in every authorization response; discovery advertises `code_challenge_methods_supported: ["S256"]`, `client_id_metadata_document_supported: true`, `authorization_response_iss_parameter_supported: true`.
 - Client authentication: `none` and `private_key_jwt` only for discovered clients.
 - `ORBIT_MCP_OAUTH=false` must leave session login, `/api/auth/*` behaviour and responses unchanged.
+  - As built, the flag-off exceptions (none changes session login): the Better Auth upgrade (D1), the unconditional `disabledPaths: ["/token"]` (no effect), the proxy-only `x-orbit-sec-fetch-mode` header (stripped by the API), the `/connect` web pages (render a generic failure) and the Settings probe of `GET /api/mcp-grants` (404).
 - The `jwt()` plugin must not add a `set-auth-jwt` header to session responses (`disableSettingJwtHeader: true`), and `/api/auth/token` stays disabled.
 - New tables belong to the auth set: owned by `orbit_auth`, listed in `scripts/db-deploy.ts` `authTables`, no access for `orbit_app` in WP-M1.
 - Code and docs in English; additive migration only; no new production dependency beyond D1.
@@ -282,7 +284,7 @@ Starts only after Mario approves D1 to D7.
 
 | Risk | Mitigation |
 |---|---|
-| A flag-on bug weakens session login | Flag off = identical config; Task 1 and Task 3 tests on both flag states; `auth.integration` in every task. |
+| A flag-on bug weakens session login | Flag off = identical config except the unconditional `disabledPaths: ["/token"]` (no effect without `jwt()`) and the upgraded Better Auth; Task 1 and Task 3 tests on both flag states; `auth.integration` in every task. |
 | Token accepted for the wrong resource | `aud` pinned to `MCP_RESOURCE`; Task 4 asserts it; WP-M2 verifies `aud` again. |
 | SSRF through CIMD | Bundled pinned transport + host allowlist before any fetch (Task 7). |
 | Consent or grant mix-up across workspaces | Workspace as consent reference (fixed in 1.7.10 #11801), one-active-grant index, tests in Task 4. |
@@ -291,8 +293,9 @@ Starts only after Mario approves D1 to D7.
 
 ## Rollback
 
-- Local and preview: set `ORBIT_MCP_OAUTH=false`; nothing else changes.
-- Production (only after WP-M5 approvals): flag off immediately disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the WP-M2 gateway. The migration is additive; tables can stay. Full rollback: redeploy the previous `main` commit.
+- Local and preview: set `ORBIT_MCP_OAUTH=false`. The Better Auth upgrade, the unconditional `disabledPaths: ["/token"]`, the stripped proxy header `x-orbit-sec-fetch-mode`, the `/connect` pages (generic failure) and the Settings probe of `GET /api/mcp-grants` (404) stay; none changes session login.
+- Production after the merge (flag off): if the post-deploy smoke test fails, redeploy the previous `main` commit; that reverts the Better Auth upgrade. The migration is additive; its tables stay and are unused with the flag off.
+- Production after the WP-M5 flip: flag off immediately disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the WP-M2 gateway. Full rollback: redeploy the previous `main` commit.
 
 ## Task 0 findings
 
