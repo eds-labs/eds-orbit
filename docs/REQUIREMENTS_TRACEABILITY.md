@@ -92,6 +92,31 @@ Rows from the [Orbit Agents design](superpowers/specs/2026-10-09-orbit-agents-de
 
 Totals: **18 PASS_TEST, 1 PASS_LIVE, 1 NOT_RUN**. OA10 passed live with Mario's approval (run 3); OA17 needs Mario's approvals and production; it is not an internal gap.
 
+## Track M WP-M1 acceptance (2026-10-17)
+
+Rows from `plans/orbit-modularization/07-roadmap.md` (WP-M1 acceptance and tests) and `plans/orbit-modularization/09-mcp-gateway.md` §2.2. Local evidence only, with a stubbed CIMD fetch and signed test clients, behind `ORBIT_MCP_OAUTH`. No live ChatGPT run, no MCP conformance run and no production change; the independent security review belongs to WP-M5. All test files are under `apps/api/tests/` unless noted.
+
+| ID | Requirement | Local evidence | Result |
+| --- | --- | --- | --- |
+| M101 | Discovery metadata validates (RFC 8414 and OIDC; S256 only, CIMD supported, `iss` parameter supported) | `mcp-oauth-http.integration` (authorization server metadata, openid configuration) | PASS_TEST |
+| M102 | ChatGPT auth requirement: PKCE S256 | `mcp-oauth-http` (`code_challenge_methods_supported` is `["S256"]`), `mcp-oauth-flow.integration` (full flow, wrong verifier) | PASS_TEST |
+| M103 | ChatGPT auth requirement: CIMD clients, `private_key_jwt` | `mcp-oauth-flow` (CIMD client, signed assertion), `mcp-oauth-cimd.integration` (client audit events, secret methods refused) | PASS_TEST |
+| M104 | ChatGPT auth requirement: `iss` in the authorization response | `mcp-oauth-http` (metadata advertises it), `mcp-oauth-flow` (full flow) | PASS_TEST |
+| M105 | ChatGPT auth requirement: resource and `aud` (token audience includes `MCP_RESOURCE`) | `mcp-oauth-flow` (full flow issues an audience-bound token) | PASS_TEST |
+| M106 | ChatGPT auth requirement: UserInfo with `sub`, `email`, `email_verified` (`false`, known limitation D7) | `mcp-oauth-flow` (UserInfo) | PASS_TEST |
+| M107 | A revoked grant fails on the next call; revocation beats the refresh reuse window | `mcp-oauth-revoke.integration` (revoked grant, reuse window, owner revoke, gateway lookup) | PASS_TEST |
+| M108 | Session login is unchanged (flag off registers nothing; no `set-auth-jwt`; `/api/auth/token` closed) | `mcp-oauth-config.unit`, `mcp-oauth-http` (flag off, sign-in headers), `auth.integration.test.ts`, `access-matrix.integration` | PASS_TEST |
+| M109 | Test: PKCE and wrong verifier | `mcp-oauth-flow` (full flow, wrong `code_verifier` is `invalid_grant`) | PASS_TEST |
+| M110 | Test: wrong redirect URI | `mcp-oauth-flow` (unregistered `redirect_uri` is rejected without redirecting) | PASS_TEST |
+| M111 | Test: missing `resource` | `mcp-oauth-flow` (`invalid_target` without a redirect) | PASS_TEST |
+| M112 | Test: refresh rotation and reuse | `mcp-oauth-flow` (rotation, replay after 30 s revokes), `mcp-oauth-cimd` (refresh needs an active grant), `mcp-oauth-revoke` | PASS_TEST |
+| M113 | Test: CIMD fetch SSRF | `mcp-oauth-cimd` (host allowlist and URL policy before any fetch; size limit), `mcp-oauth-config.unit` (production uses the bundled pinned transport). The transport's address pinning is the library's and has no Orbit-side test | PASS_TEST (partly library-trusted) |
+| M114 | Test: RLS and grants for the new tables | `mcp-oauth-schema.integration` (`orbit_auth` CRUD, `orbit_app` denied, one active grant per user, client and workspace; drift guard), `rls-matrix.integration` | PASS_TEST |
+| M115 | Consent and grants: one workspace, selected projects and scopes; user and owner revoke; audit events | `mcp-oauth-flow` (consent, re-consent, deny, workspace without projects), `mcp-oauth-revoke`, `mcp-oauth-cimd` (client events); web: `connect-view.test.tsx`, `connected-apps.test.tsx`, `shell/routes.test.tsx` | PASS_TEST |
+| M116 | Web ingress: browser redirects and proxy header rules through the web proxy | `mcp-oauth-browser-redirect.integration`; web: `oauth-proxy.test.tsx`, `.well-known/[...path]/route.test.tsx` | PASS_TEST |
+
+Totals: **16 PASS_TEST**. Open for WP-M5: ChatGPT developer-mode end-to-end run, MCP conformance, independent security review, production migration and flag flip.
+
 ## Configuration-parity acceptance (2026-09-18)
 
 The rows below are deliberately separate from the historical master count. They distinguish local backend safety coverage from the newly added user workflow; prior browser evidence is not reused as proof of configuration parity.

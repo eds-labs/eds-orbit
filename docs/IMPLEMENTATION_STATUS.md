@@ -1,5 +1,66 @@
 # Implementation status
 
+## Track M WP-M1: OAuth authorization server, consent and grants (2026-10-17, local)
+
+Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plans/2026-10-17-track-m-wp-m1-oauth.md` (decisions D1–D7 approved by Mario on 2026-10-17; Task 0 findings are at its end). Risk: high (new authentication surface). Environment: local only; the production migration, the deployment and the flag flip are separate approvals (WP-M5). There is no MCP endpoint yet (WP-M2).
+
+- **Flags (all default off).**
+  - `ORBIT_MCP_OAUTH=false`: nothing is registered; session login, `/api/auth/*` and its responses are unchanged.
+  - `ORBIT_MCP_DCR=false`: dynamic client registration stays closed; when on, Better Auth limits registration to 5 per minute per IP.
+  - `MCP_RESOURCE` (blank): token audience and resource, default `${APP_ORIGIN}/mcp`; must be https (loopback http only) without query, fragment or credentials. Every configured resource needs `allowedScopes` (Prisma list `null` caveat).
+  - `ORBIT_MCP_CIMD_HOSTS=chatgpt.com`: hosts (exact or subdomain) whose client metadata documents Orbit may fetch.
+  - All four pass through `docker-compose.yml` (api and worker share the anchor); `scripts/check-coolify-compose.mjs` pins the defaults and the follow-through.
+- **Endpoints (flag on).** Issuer `${APP_ORIGIN}/api/auth` (D2); `/api/auth/oauth2/*` (authorize, token, userinfo, consent, continue; register only with DCR); `/api/auth/jwks`; metadata at `/.well-known/oauth-authorization-server/api/auth` and `/api/auth/.well-known/openid-configuration`. `/api/auth/token` stays disabled and sign-in responses carry no `set-auth-jwt` header. Machine endpoints (token, userinfo, register) skip the browser Origin check and accept form bodies; consent and continue still need it. Ingress is the existing web proxy plus a Next route for the root `/.well-known/*` paths (D3); the proxy forwards `Authorization` only for `/api/auth/oauth2/*` and sends the browser's `Sec-Fetch-Mode` as `x-orbit-sec-fetch-mode` so authorize answers 302 instead of JSON; the API strips that header with the flag off.
+- **Orbit routes (flag on, else 404).** `GET /api/mcp-connect/request`, `POST /api/mcp-connect/selection`, `POST /api/mcp-connect/consent`, `GET /api/mcp-grants`, `GET /api/workspaces/:id/mcp-grants`, `DELETE /api/mcp-grants/:id`.
+- **Web.** `/connect` (workspace, project and scope selection with consent), `/connect/login` (login that continues the authorization; plain sign-in is unchanged), `/connect/error`, and Settings → Connected apps (own grants, owner section for the workspace).
+- **Data.** Migration `202610170001_mcp_oauth` (additive): the ten auth tables `jwks`, `oauthClient`, `oauthAccessToken`, `oauthRefreshToken`, `oauthConsent`, `oauthClientAssertion`, `oauthResource`, `oauthClientResource`, `McpGrant`, `McpGrantEvent`. They belong to `orbit_auth` (listed in `scripts/db-deploy.ts` `authTables`, owner entries in the module registry); `orbit_app` has no access.
+- **Dependencies (D1).** `better-auth` 1.7.5 → 1.7.10; new `@better-auth/mcp`, `@better-auth/oauth-provider`, `@better-auth/cimd`, all exactly 1.7.10. Transitive: `better-call`, `@better-auth/core` and the adapters.
+- **Decisions.** D2 issuer path as above; D3 ingress through the web proxy, the Traefik route is decided with `/mcp` in WP-M2; D4 scopes `openid email profile offline_access orbit:read orbit:propose` (no `orbit:write`); D5 CIMD host allowlist; D6 DCR off; D7 `email_verified` is `false` (Orbit has no e-mail verification).
+- **Tokens.** Authorization code with PKCE S256 only plus `refresh_token`. Access token: JWT, 600 s, `aud` = `[MCP_RESOURCE, <userinfo endpoint>]` (WP-M2 checks that it includes `MCP_RESOURCE`), claim `orbit_workspace_id` from the consent reference. Refresh token: opaque, hashed, rotated, 30 s reuse window; a replay revokes the user's tokens of that client (stricter than per grant) and is audited as `token.refresh_replay`. Client authentication: `none` and `private_key_jwt`.
+- **Security mechanisms.**
+  - The workspace is Better Auth's consent reference, so consent, tokens and refresh families are per (user, client, workspace) (fixed upstream in 1.7.10, #11801).
+  - One partial unique index allows a single active grant per (user, client, workspace); a selection replaces the active one and copies its scopes.
+  - A code is issued only for an active grant (pending selections never yield one; refused redirects withhold the code; consent with claims is refused).
+  - `resource` is required on authorize and must equal `MCP_RESOURCE` (400 `invalid_target`); the signed query is checked for expiry (`OAUTH_REQUEST_EXPIRED`) and tampering.
+  - A refresh needs an active grant and `refreshAllowed` (no revocation of the same grant lineage at or after the token's creation, except replaced or superseded).
+  - Revocation (user, owner, deny, client change) deletes the grant's outstanding authorization codes, consent and refresh tokens in one transaction and writes a `McpGrantEvent`.
+  - CIMD: host allowlist and URL policy (https, no credentials, fragment, loopback or IP literal) run before any fetch; the bundled `@better-auth/cimd/node` transport resolves once, rejects special-use addresses, pins the address and allows no redirects, 5 s and 5 KB; secret or symmetric auth methods are refused.
+  - A change of redirect URIs or JWKS in a client document revokes that client's grants and pending selections (`client.refreshed`).
+  - The gateway lookup `activeGrantForToken` re-checks the current membership on every call.
+
+**Verification (local).**
+- Full suite (`vitest run` with the local env file): 164 files, 1527 tests passed. `tsc --noEmit` (root and `apps/web`), `next build --webpack`, `scripts/source-check.mjs`, `python3 scripts/check-secrets.py` and `scripts/check-coolify-compose.mjs` pass.
+- The local Docker VM had been reset, so the local databases were recreated with the isolated local setup steps (init-db, then db-deploy on the dev and test databases) before the full run.
+- New test files: `mcp-oauth-{config.unit,schema.integration,http.integration,flow.integration,revoke.integration,cimd.integration,browser-redirect.integration,hooks.characterization.integration}`, plus web tests for the proxy, `/.well-known` route, routes table, `connect-view` and `connected-apps`. The access matrix and RLS matrix include the new surface and tables.
+- Mapping to the acceptance criteria: `docs/REQUIREMENTS_TRACEABILITY.md` ("Track M WP-M1 acceptance").
+- Not done: a live ChatGPT developer-mode run, MCP conformance and the independent security review (WP-M5).
+
+**Security review notes (WP-M1, checklist `09` §9).**
+
+| §9 item | Status | Evidence |
+|---|---|---|
+| Token audience binding | partly: issuing side met; verification and the REST API refusal come with WP-M2 | `mcp-oauth-flow` (full flow: `aud` includes `MCP_RESOURCE`, missing or other `resource` is `invalid_target`); WP-M2 must verify `aud` inclusion on every call |
+| PKCE required, exact redirect, `iss`, no skipped consent | met | `mcp-oauth-http` (S256 only, `iss` parameter advertised), `mcp-oauth-flow` (wrong verifier, unregistered redirect, new client always reaches consent) |
+| CIMD fetch is SSRF-safe | partly | `mcp-oauth-cimd` (host and URL policy before fetch, size limit, no secret methods), `mcp-oauth-config` (production uses the bundled pinned transport). The address pinning itself is the library's and has no Orbit-side test |
+| Refresh rotation with reuse detection, immediate revocation | met | `mcp-oauth-flow` (rotation, replay after 30 s), `mcp-oauth-revoke` (revoked grant fails on the next call, revocation beats the reuse window), `mcp-oauth-cimd` (refresh needs an active grant, codes die with the grant) |
+| Membership and module activation re-checked, intersection never exceeds UI rights | partly: membership met, the rest WP-M2 | `mcp-oauth-revoke` (`activeGrantForToken` accepts only an active grant of a current member); token scopes are not yet intersected with grant scopes |
+| Results respect `modelUse`, hard floors, ActionRequests | WP-M2 and later | no tool surface in WP-M1 |
+| Rate limits, quotas, kill switch | partly | `mcp-oauth-http` (token endpoint limited per client IP), `mcp-oauth-cimd` (DCR 5 per minute); the flag is the kill switch; per-grant gateway limits come with WP-M2 |
+| Dependency pinning past known advisories | met | exact 1.7.10 pins; advisory query on 2026-10-17 (plan D1) |
+| MCP conformance and ChatGPT end-to-end test | WP-M5 | not run |
+
+**Known limitations and follow-ups.**
+- `email_verified` is `false` (D7): ChatGPT Enterprise domain restrictions would fail.
+- A member removed from a workspace keeps an active grant row; `activeGrantForToken` denies them, but grants should be revoked on member removal (WP-M2 or a removal hook).
+- Two millisecond windows remain between code or refresh rotation and a concurrent revocation; a global `/oauth2/token` after-hook that deletes tokens minted for a non-active grant closes them.
+- Downgrading a client from `private_key_jwt` to `none` does not revoke grants; needs a decision.
+- A changed client document is noticed only after the metadata revalidation interval (default 60 min). A failed revocation on a client change is logged at error level and marked `revocationFailed`; there is no persisted retry.
+- Discovery metadata is sent with `Cache-Control: no-store` (WP-M2 may want caching).
+- Replacing a grant copies the old scopes even when the new request asks for fewer: WP-M2 must intersect token scopes with grant scopes, check that `aud` includes `MCP_RESOURCE`, and call `activeGrantForToken`.
+- The ledger of smaller review notes is in `.superpowers/sdd/2026-10-17-track-m-wp-m1-oauth/progress.md` (not part of the repository history).
+
+**Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`; nothing else changes. Production (later, WP-M5): the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway. The migration is additive and the tables can stay. Full rollback: redeploy the previous `main` commit.
+
 ## Product words of the fact checks from the profile: WP3.4 (2026-10-15, local)
 
 Branch `claude/wp34-fact-consumers`. Plan: `docs/superpowers/plans/2026-10-15-phase3-knowledge-module.md`. Behaviour for uLiquid is unchanged.
