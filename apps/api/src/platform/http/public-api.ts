@@ -9,7 +9,8 @@ import {
   registeredRegistry,
 } from "../modules/contributions.ts";
 import { assertModuleEnabled } from "../modules/enforcement.ts";
-import { publicIngressEnabled } from "./webhooks.ts";
+import { ceilingPerKey, publicIngressEnabled } from "./webhooks.ts";
+import { clientIp } from "../../client-ip.ts";
 
 // A module's public API (WP4.2b): browsers on a key's allowed origins call
 // /api/public/<module>/:publicKey/... with a public session's bearer token.
@@ -19,6 +20,8 @@ import { publicIngressEnabled } from "./webhooks.ts";
 export const SESSION_KIND = "public_sessions";
 export const SESSION_HOURS = 12;
 const MAX_BODY = 65_536;
+/** Calls per minute to one key from one client address, whatever the token. */
+export const CALLS_PER_ADDRESS = 300;
 /** A public API path: module, key, then the route. */
 export const PUBLIC_URL =
   /^\/api\/public\/[a-z][a-z0-9_]{1,30}\/pk_[A-Za-z0-9_-]{32,64}(\/[a-z0-9-]+){1,4}(\?.*)?$/;
@@ -84,6 +87,24 @@ async function resolve(
   return key;
 }
 
+/**
+ * JSON.parse that refuses prototype keys, as Fastify's own parser does for
+ * every other route (onProtoPoisoning and onConstructorPoisoning "error").
+ */
+function parseJson(text: string) {
+  return JSON.parse(text, function (key, value) {
+    if (
+      key === "__proto__" ||
+      (key === "constructor" &&
+        value !== null &&
+        typeof value === "object" &&
+        Object.hasOwn(value, "prototype"))
+    )
+      throw new SyntaxError("prototype key");
+    return value;
+  });
+}
+
 const tokenOf = (req: FastifyRequest) => {
   const header = String(req.headers.authorization ?? "");
   return /^Bearer [A-Za-z0-9_-]{43}$/.test(header) ? header.slice(7) : null;
@@ -92,17 +113,26 @@ const tokenOf = (req: FastifyRequest) => {
 /** Registers every module's public API in one scope with its own limits. */
 export async function registerPublicApi(app: FastifyInstance) {
   await app.register(async (child) => {
-    child.removeContentTypeParser("application/json");
+    // JSON only: the root's form and text parsers would hand a handler a
+    // string, so every other media type is a 415 here.
+    child.removeAllContentTypeParsers();
     child.addContentTypeParser(
       "application/json",
       { parseAs: "string", bodyLimit: MAX_BODY },
       (_req, body, done) => {
         try {
-          done(null, body ? JSON.parse(String(body)) : {});
+          done(null, body ? parseJson(String(body)) : {});
         } catch {
           done(new DomainError("PUBLIC_PAYLOAD_INVALID", 400));
         }
       },
+    );
+    // Made-up tokens each get their own per-session bucket below.
+    const perAddress = ceilingPerKey(
+      child,
+      CALLS_PER_ADDRESS,
+      (req) =>
+        `public-address:${(req.params as { publicKey?: string }).publicKey}:${clientIp(req)}`,
     );
     for (const [moduleId, routes] of registeredPublicRoutes()) {
       const base = `/api/public/${moduleId}/:publicKey`;
@@ -125,8 +155,9 @@ export async function registerPublicApi(app: FastifyInstance) {
             rateLimit: {
               max: 20,
               timeWindow: "1 minute",
+              // The browser's address: req.ip is the web proxy's.
               keyGenerator: (req: FastifyRequest) =>
-                `public-session:${(req.params as { publicKey?: string }).publicKey}:${req.ip}`,
+                `public-session:${(req.params as { publicKey?: string }).publicKey}:${clientIp(req)}`,
             },
           },
         },
@@ -153,13 +184,14 @@ export async function registerPublicApi(app: FastifyInstance) {
           method: route.method,
           url: `${base}${route.path}`,
           bodyLimit: MAX_BODY,
+          onRequest: perAddress,
           config: {
             rateLimit: {
               max: 120,
               timeWindow: "1 minute",
               // Per session token, whatever address the browser has.
               keyGenerator: (req: FastifyRequest) =>
-                `public:${sha256(tokenOf(req) ?? `anonymous:${req.ip}`).slice(0, 32)}`,
+                `public:${sha256(tokenOf(req) ?? `anonymous:${clientIp(req)}`).slice(0, 32)}`,
             },
           },
           handler: async (req, reply) => {

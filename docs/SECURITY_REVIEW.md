@@ -121,59 +121,100 @@ Each item is marked **pass** (held under attack, with a test) or **fix** (a hole
 - **O-5 Knowledge search.** `knowledge_search` is a platform tool (WP3.3), so a member with `knowledge: none` can still search in the assistant. Source audiences (WP3.5) are the boundary there. Decide whether `knowledge: none` should also remove it.
 - **O-6 MCP gateway.** WP-M2 must build its scope through `projectMembership` so module roles apply. Check this in the WP-M2 review.
 
-## Public ingress: signed webhooks (WP4.2a, prepared 2026-10-17; review open)
+## Public ingress: signed webhooks (WP4.2a, prepared 2026-10-17; review done 2026-10-17)
 
-`ORBIT_PUBLIC_INGRESS` stays `false` in production until this review is done and Mario approves the flag. While off, `POST /api/hooks/...` answers 404 in the first hook, before body parsing. What the review checks:
+`ORBIT_PUBLIC_INGRESS` stays `false` in production until Mario approves the flag. While off, `POST /api/hooks/...` answers 404 in the first hook, before body parsing. The review was adversarial: every suspected hole got a failing test first. The regression tests are in `apps/api/tests/public-ingress-review.integration.test.ts` (PI-\*), next to `webhooks`, `ingress-retention`, `telegram` and the proxy route tests. Findings are listed after the WP4.2b section.
 
-1. **Authentication.**
+1. **Authentication.** Pass.
    - Only a valid signature from the connection's own secret is accepted; the module's `verify` uses a constant-time comparison.
-   - A connection of another provider or another project is a 404, so the response reveals nothing about which ids exist.
-2. **Replay.**
-   - The provider's message id is unique per connection. The check runs under the project lock, so it is exact; a replay is a 409, audited, with no second job.
-3. **Limits.**
+   - A connection of another provider or another project is a 404, so the response reveals nothing about which ids exist. A workspace in the path that does not own the project finds nothing under RLS (404).
+2. **Replay.** Fix (PI-7).
+   - The provider's message id is unique per connection. The check runs under the project lock, so it is exact; a replay is a 409, audited, with no second job. The job's idempotency key repeats the guard.
+   - The guard is only as good as the message id. The fixture took it from an unsigned header, so a captured delivery replayed under a new id. The provider contract now requires the id to be covered by the signature, and the fixture signs `id.body`.
+3. **Limits.** Fix (PI-3).
    - JSON only (415), 256 KB (413).
    - 120 requests per minute per connection, independent of the sender's address.
+   - The connection's bucket replaced the global per-address limit, and made-up connection ids each got a fresh one. Now 600 hook calls per minute per client address (`HOOKS_PER_ADDRESS`) apply on top.
    - Processing runs in the worker.
-4. **Surface.**
+4. **Surface.** Pass (tested).
    - The Origin exemption matches only the exact path pattern: a provider name and three lowercase UUIDs.
+   - Upper case, a trailing slash, a query string, a percent-encoded character and dot segments all lose the exemption (403 `ORIGIN_REQUIRED`), and nothing is stored.
    - No cookie or session is read, and every other write keeps the Origin check (tested).
-5. **Data.**
+5. **Data.** Pass.
    - Stored messages are the platform kind `inbound_webhooks`, excluded from the export.
    - Retention: these rows are deleted after 30 days, and expired public sessions one hour after expiry (`platform/http/ingress-retention.ts`, hourly and in the retention action).
-6. **Direct providers** (follow-up, same flag). `slack` and `telegram` answer within the request.
+6. **Direct providers** (follow-up, same flag). Pass. `slack` and `telegram` answer within the request.
    - They reuse their old handlers unchanged: Slack's signature over the form body, actor mapping and replay claim; the bot's constant-time secret check.
    - Two checks are added: the path's connection must be the project's selected Slack connector, and the path's workspace must be the Telegram project's.
-   - What the review checks:
-     - a forged or missing signature never reaches the module;
-     - a foreign connection or workspace answers like an unknown one;
-     - the media type is limited per provider;
-     - the old routes stay the registered URLs (cutover in `docs/PUBLIC_INGRESS.md`).
+   - A forged or missing signature never reaches the module (Slack 401/403, Telegram 401, audited).
+   - A foreign connection or workspace answers like an unknown one (Slack 404, Telegram 401).
+   - The media type is limited per provider (Slack form, Telegram JSON).
+   - The old routes stay the registered URLs (cutover in `docs/PUBLIC_INGRESS.md`).
+7. **Web proxy.** Fix (PI-8).
+   - The proxy forwarded only Slack's and Telegram's headers, so a module provider's signature never reached the API (always 401, fail-closed).
+   - Under `/api/hooks/` it now forwards every header except cookies, hop-by-hop headers and proxy-only ones (`x-orbit-*`, `x-forwarded-*`). The client address is still set by the proxy alone.
 
-## Public ingress: public module API (WP4.2b, prepared 2026-10-17; review open)
+## Public ingress: public module API (WP4.2b, prepared 2026-10-17; review done 2026-10-17)
 
-This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). While off, `/api/public/...` answers 404 in the first hook. What the review checks:
+This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). While off, `/api/public/...` answers 404 in the first hook. What the review checked:
 
-1. **Keys.**
-   - `PublicClientKey` is readable by `orbit_auth` only (RLS project scope plus `auth_control`; no grant to `orbit_app`).
+1. **Keys.** Pass.
+   - `PublicClientKey` is readable by `orbit_auth` only (RLS project scope plus `auth_control`; no grant to `orbit_app`, RLS matrix).
    - A key identifies a project and module, but it is no secret.
    - Only owners create or revoke keys (audited).
    - Allowed origins are exact HTTPS origins (`http://localhost` for development); no wildcard, no path.
-2. **Browsers.**
+2. **Browsers.** Pass.
    - A foreign Origin is a 403 (audited), also for the preflight.
    - An allowed Origin gets `Access-Control-Allow-Origin` with `Vary: Origin`, and never `Allow-Credentials`, so no browser sends or exposes Orbit cookies.
    - No cookie is read on these routes.
-3. **Sessions.**
-   - A session token is 32 random bytes, shown once and stored as a SHA-256 hash.
+3. **Sessions.** Pass.
+   - A session token is 32 random bytes, shown once and stored as a SHA-256 hash. Tokens of another key are refused.
    - It lasts 12 hours and is bound to its key.
    - A module's handler sees the session id and a viewer scope of the project, never a member.
-4. **Limits.**
-   - JSON only, 64 KB.
-   - 20 new sessions per minute per key and address; 120 calls per minute per session.
+   - Logs carry the path only and redact `Authorization`.
+4. **Limits.** Fix (PI-1, PI-2, PI-4, PI-5).
+   - JSON only, 64 KB. The root's form and text parsers used to hand a handler a string; every other media type is now a 415.
+   - Prototype keys (`__proto__`, `constructor.prototype`) are a 400, as on every other route. The own JSON parser had dropped Fastify's protection.
+   - 20 new sessions per minute per key and address. The address used to be `req.ip`, which is the web proxy in production; it is now the browser's address (`clientIp`).
+   - 120 calls per minute per session. Made-up tokens each got a fresh bucket; 300 calls per minute per key and client address (`CALLS_PER_ADDRESS`) now apply on top. This also bounds the audit rows of a foreign Origin.
    - A switched-off module answers 404 (`MODULE_DISABLED`).
-5. **Open before production.**
-   - Retention for `public_sessions`.
-   - A total limit per key, beyond the per-session limit.
-   - An owner UI to manage keys (the API exists).
+5. **Flag off.** Fix (PI-6).
+   - The hook matched the raw URL. `/api/%70ublic/...` reaches the same routes, so its body was parsed before the handler's own 404.
+   - It now matches the route pattern, like the other flags.
+6. **Web proxy.** Fix (PI-8). The proxy forwarded `Authorization` only under `/api/auth/oauth2/`, so every session call through it was a 401. It now forwards the header under `/api/public/` too.
+7. **Still open before a module ships a public API.**
+   - A total limit per key across addresses: many addresses can still open sessions.
+   - The owner UI exists (Project access → Public keys); there is no key in production because no module has a public API.
+
+### Findings (2026-10-17)
+
+All findings are fixed in the review's PR, each with a test that failed before the fix.
+
+| ID | Severity | Finding and evidence | Fix |
+| --- | --- | --- | --- |
+| PI-1 | Medium | The session limit was keyed by `req.ip`. Behind the web proxy that is the proxy's address, so one client used up the 20 sessions per minute of every visitor of a key. Test: 25 visitors behind the proxy, the 21st got 429. | Key by `clientIp(req)`. |
+| PI-2 | Medium | The per-session bucket was keyed by the caller's token and replaced the global limit. Random tokens got unlimited requests against a public key: two project-locked transactions each, and an audit row each with a foreign Origin. Test: 305 random tokens from one address, no 429; 305 audit rows. | 300 calls per minute per key and client address on top (`ceilingPerKey`). |
+| PI-3 | Medium | The webhook bucket was keyed by the path's connection id. Random ids bypassed every limit, and each request took the project lock. The workspace and project ids are in every hook URL. Test: 605 random ids from one address, no 429. | 600 hook calls per minute per client address on top. |
+| PI-4 | Low | The public API took `text/plain` and form bodies through the root parsers. A handler got a string, and these CORS-simple requests need no preflight (the Origin check still applied). Test: both answered 401 instead of 415. | Only the JSON parser in the public scope. |
+| PI-5 | Low | The public JSON parser was plain `JSON.parse`, without Fastify's prototype-poisoning check. Test: `__proto__` and `constructor.prototype` bodies were accepted. | A reviver refuses both (400). |
+| PI-6 | Low | The flag-off check matched the raw URL. `/api/%70ublic/...` was routed to the public API and its body parsed (400) before the handler's 404. No bypass: the handler checks the flag itself. | Match the route pattern. |
+| PI-7 | Low | Replay protection trusts the provider's message id. The fixture read it from an unsigned header, so a captured delivery replayed under a new id. Test: the replay was accepted. | The contract requires a signed id; the fixture signs it. |
+| PI-8 | Low (functional) | The web proxy dropped `Authorization` under `/api/public/` and provider signature headers under `/api/hooks/`. Through the proxy, public sessions and module webhooks always failed (fail-closed). Test: proxy route tests. | Forward them on those paths only. |
+
+Accepted and noted, not changed:
+
+- Someone who knows a hook URL can use up its connection's 120 calls per minute with forged requests, and cause up to 120 `webhook.rejected` audit rows per minute. Hook URLs are known only to the provider, and one address is limited.
+- A 429 carries no `Access-Control-Allow-Origin`, so a browser sees a network error instead of the status.
+- Telegram sends all bots' updates from a few addresses. 600 hook calls per minute per address is ample at Orbit's scale; revisit with many bots.
+- Rate limits are kept in each API process's memory (no Redis store), as for every other route.
+- A session is found by a JSON-path match over the project's `public_sessions`. Retention and the session limits bound that table.
+
+### Verdict
+
+With this PR merged, the flag can go on from the security side. Mario still has to approve that step. What switching it on changes in production today:
+
+- `/api/hooks/slack/...` and `/api/hooks/telegram/...` answer. They are not registered with Slack or Telegram until the cutover.
+- `/api/public/...` and the key routes answer. No module in production has a public API, so no key can be issued yet.
 
 ## Platform files (WP4.6, prepared 2026-10-17; review done 2026-10-17)
 

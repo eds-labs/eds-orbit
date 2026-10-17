@@ -2,7 +2,7 @@
 
 Public ingress is everything Orbit accepts without a member's session: signed provider webhooks and the modules' public APIs (WP4.2). It is off unless `ORBIT_PUBLIC_INGRESS=true`. While it is off, every path below answers 404 before the body is parsed.
 
-Switching the flag on in production needs two things first: the security reviews of WP4.2a and WP4.2b in `docs/SECURITY_REVIEW.md`, and Mario's approval for that step.
+Switching the flag on in production needs two things first: the security reviews of WP4.2a and WP4.2b in `docs/SECURITY_REVIEW.md` (done 2026-10-17, findings PI-1 to PI-8 fixed), and Mario's approval for that step.
 
 ## Routes
 
@@ -14,12 +14,25 @@ Switching the flag on in production needs two things first: the security reviews
 
 There are two kinds of webhook provider:
 
-- **Signed providers** (`SignedWebhookProvider`) are stored as `inbound_webhooks` and processed by the module's worker job. A replayed message id gets 409.
+- **Signed providers** (`SignedWebhookProvider`) are stored as `inbound_webhooks` and processed by the module's worker job. A replayed message id gets 409. The message id must be covered by the provider's signature; otherwise a captured delivery could be replayed under a new id.
 - **Direct providers** (`DirectWebhookProvider`) answer within the request.
   - `telegram`: JSON.
   - `slack`: form-encoded.
 
   Each checks its own secret against its own connection exactly as on its old route.
+
+## Limits
+
+- Hooks: 120 calls per minute per connection, and 600 per minute per client address across all hooks. JSON only for signed providers, up to 256 KB.
+- Public API: 20 new sessions per minute per key and client address, 120 calls per minute per session, and 300 per minute per key and client address. JSON only, up to 64 KB.
+- The client address is the browser's, as the web proxy forwards it (`X-Orbit-Client-IP`), not the proxy's own.
+
+## Web proxy
+
+Every call reaches the API through the web app's `/api` proxy, which forwards only listed headers:
+
+- under `/api/public/`, also `Authorization` (the session's bearer token);
+- under `/api/hooks/`, every header except cookies, hop-by-hop headers and the proxy-only `x-orbit-*` and `x-forwarded-*`, because providers sign with headers of their own choosing.
 
 ## Data kept
 
