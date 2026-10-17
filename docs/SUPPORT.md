@@ -243,6 +243,27 @@ The first run on 2026-10-17 cost $0.0227 and FAILED on one handoff case; see `do
 
 **Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17).
 
+## Statistics (WP5.7)
+
+There are two routes:
+- `GET /stats?from=&to=[&inboxId=&category=&agent=]` (permission `support.stats.read`);
+- `GET /stats/export` with the same query, which returns CSV (`metric,value`).
+
+Numbers are computed on read over the tickets **created in the range**, at most 5,000 (`truncated` says when the cap was hit).
+
+| Metric | Definition |
+|---|---|
+| Volume | Total, by channel, inbox and category |
+| First response | Median and mean minutes from creation to the first agent reply |
+| Resolution | Median and mean minutes from creation to resolution |
+| Backlog | Open tickets now, by age (< 1 d, 1–3 d, 3–7 d, > 7 d) |
+| Reopen rate | Resolved tickets that a customer reopened ÷ resolved tickets |
+| SLA | First responses within their due time ÷ first responses; `sla_breached` events |
+| AI | Drafts, drafts followed by an agent reply ("used"), sent unchanged or edited, withheld, AI handoffs |
+| Cost | AI cost (settled, else reserved) in total and per ticket with AI |
+
+The web view sits under Support > Statistics: last 7, 30 or 90 days, per inbox, with a CSV download. There are no rollups yet; they come once measurements show a need.
+
 ## Tickets and channels
 
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:

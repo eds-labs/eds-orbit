@@ -3,6 +3,7 @@ import type { WebModule } from "@/platform/shell/types";
 import { SupportContacts } from "./contacts";
 import { SupportHome } from "./home";
 import { SupportInbox } from "./inbox";
+import { SupportStats } from "./stats";
 import { supportSettings } from "./settings";
 
 /**
@@ -37,6 +38,13 @@ export const supportWeb: WebModule = {
       path: "contacts",
       component: SupportContacts,
       title: { en: "Contacts", de: "Kontakte" },
+      navKey: "support",
+    },
+    {
+      key: "support-stats",
+      path: "stats",
+      component: SupportStats,
+      title: { en: "Statistics", de: "Statistik" },
       navKey: "support",
     },
   ],
