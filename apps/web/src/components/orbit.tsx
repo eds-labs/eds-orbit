@@ -32,6 +32,7 @@ import {
 import { WorkspaceContext } from "./workspace-context";
 import {
   activeNavKey,
+  crumbs,
   defaultProject,
   keptSuffix,
   locate,
@@ -534,7 +535,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               )}
               <span>{project.name}</span>
               <span>/</span>
-              <strong>{route ? label(route) : t("notFound")}</strong>
+              {route ? (
+                crumbs(route, table, locale).map((part, i, all) =>
+                  i < all.length - 1 ? (
+                    <span key={part}>
+                      {part}
+                      <span aria-hidden="true"> / </span>
+                    </span>
+                  ) : (
+                    <strong key={part}>{part}</strong>
+                  ),
+                )
+              ) : (
+                <strong>{t("notFound")}</strong>
+              )}
             </div>
             <div className="topbar-actions">
               {languageControl}
