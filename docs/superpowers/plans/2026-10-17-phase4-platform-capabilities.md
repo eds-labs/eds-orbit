@@ -65,7 +65,7 @@ Risk: low (tests plus one test-only hook and one type widening). Rollback: rever
 
 ### Task 3: Assistant run across three modules
 
-**Files:** `apps/api/tests/extensibility-assistant.integration.test.ts`, using `tests/support/package-project.ts` and a scripted `streamChat` as in `chat-runner.integration.test.ts`.
+**Files:** `apps/api/tests/extensibility-assistant.integration.test.ts`, using `apps/api/tests/support/package-project.ts` and a scripted `streamChat` as in `chat-runner.integration.test.ts`.
 
 - [ ] Failing test: the editor's chat run calls `knowledge_search`, then `recent_content`, then `propose_tasks` with two tasks, then answers. The result is two pending `tasks.create` ActionRequests with different payload hashes.
   - The viewer cannot decide them (`EDITOR_REQUIRED`).
