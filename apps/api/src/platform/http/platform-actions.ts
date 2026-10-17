@@ -23,6 +23,7 @@ import {
 import { assertModuleEnabled } from "../modules/enforcement.ts";
 import { pauseProject } from "../governance/pause.ts";
 import { retention } from "../governance/retention.ts";
+import { addProjectMember } from "../tenancy/project-members.ts";
 import { connectEmail } from "../email/connection.ts";
 import {
   ownTransaction,
@@ -49,45 +50,9 @@ export const platformActions: Record<string, ActionHandler> = {
       return result;
     }),
   ),
-  "add-member": ownTransaction(async ({ scope, input, auth }) => {
-    const i = z
-      .object({
-        email: z.email(),
-        name: z.string().min(1).max(100),
-        password: z.string().min(12).max(128),
-        role: z.enum(["owner", "editor", "viewer"]),
-      })
-      .strict()
-      .parse(input);
-    let user = await authDb.user.findUnique({ where: { email: i.email } });
-    if (!user) {
-      const result = await auth.api.signUpEmail({
-        body: { email: i.email, name: i.name, password: i.password },
-      });
-      user = result.user as any;
-    }
-    const userId = user!.id;
-    await authDb.$transaction(async (tx) => {
-      await tx.workspaceMember.upsert({
-        where: {
-          workspaceId_userId: { workspaceId: scope.workspaceId, userId },
-        },
-        create: { workspaceId: scope.workspaceId, userId, role: "viewer" },
-        update: {},
-      });
-      await tx.projectMember.upsert({
-        where: { projectId_userId: { projectId: scope.projectId, userId } },
-        create: {
-          workspaceId: scope.workspaceId,
-          projectId: scope.projectId,
-          userId,
-          role: i.role,
-        },
-        update: { role: i.role },
-      });
-    });
-    return { added: true };
-  }),
+  "add-member": ownTransaction(({ scope, input, auth }) =>
+    addProjectMember(auth, scope, input),
+  ),
   "project-settings": ownTransaction(async ({ scope, input }) => {
     const i = z
       .object({
