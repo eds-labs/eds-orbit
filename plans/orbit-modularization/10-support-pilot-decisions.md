@@ -10,6 +10,7 @@
 | Q-12b | **24 months** after closure as the default retention for closed tickets, as in §1.5. |
 | Q-13 | Support runs in the **existing uLiquid project**, with staff separated by module roles (WP4.5). |
 | Pilot channels | The pilot starts with **both channels at once**: the support mailbox and the Desk app widget. WP5.9 therefore needs WP5.3 and WP5.4 to be finished. |
+| Q-17 | **No AI first answer in the widget** for the pilot: a human answers every customer; AI only drafts for agents (inbox `aiMode` `off` or `draft`). Mario's answer, "Ja das passt", was given in the platform session and relayed here. |
 | Q-20 | **Desk gets the widget first** (the pilot). **Claude builds the Desk-side integration**: the widget embed and the HMAC signing of `externalUserId` in Desk's backend. Mario's answer, "Das Widget baut Claude dann ein", was given in the platform session and relayed here. |
 
 Still open: the §1.2 and §1.3 *legal check* items, which must be settled before WP5.9, and the facts in §2.2 marked "Mario to confirm".
@@ -133,7 +134,7 @@ These are defaults per project, stored in the support module settings. The owner
 | SLA targets (24/7 clock) | First response: urgent 4 h, high 8 h, normal 24 h, low 72 h. Resolution: 3× the first-response target. | — |
 | Auto-close | 7 days in `pending_customer` | — |
 | Sensitive categories (immediate handoff, never answered by AI) | Billing, account security, legal, trading and financial questions | — |
-| Widget AI first answer (Q-17) | **Off** in the pilot. AI only drafts for agents. | — |
+| Widget AI first answer (Q-17) | **Decided: off** in the pilot. AI only drafts for agents. | — |
 | Chatwoot | Keeps running unchanged during the pilot. The switch happens only when the mailbox and widget point to Orbit (`06` §7). | Is Chatwoot currently used for uLiquid at all? |
 
 ---
