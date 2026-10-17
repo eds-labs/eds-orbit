@@ -1,5 +1,21 @@
 # Implementation status
 
+## Platform files in the database: WP4.6 backend B (2026-10-17, local; flag off)
+
+Branch `claude/files-database-backend`. Mario chose on 2026-10-17 to keep files, including raw inbound e-mail, on the server instead of in an R2 bucket for the pilot, inside the database.
+
+- **Data.** Migration `202610170010_file_blob` (additive) adds `FileBlob(key, workspaceId, projectId, data)`:
+  - FORCE RLS project policy and `orbit_app` grants;
+  - a check constraint ties the key to its project;
+  - the content is deleted with the project.
+- **Backend.** `platform/files/db-store.ts` implements the same `ObjectStore` interface as the S3 client; it refuses another project's key. `FILES_BACKEND=database` is the default, and `s3` keeps the bucket path.
+- **Configuration.** The database backend needs only `FILES_ENCRYPTION_KEY`; Compose fills it from Coolify's generated `SERVICE_HEX_64_FILESKEY`. So switching files on needs no manual secret, only the flag after the review.
+- **Tests.**
+  - `files.integration.test.ts` runs the S3 path explicitly (`FILES_BACKEND=s3`) and adds the database backend: encrypted at rest, round trip, isolation, deletion, project cascade. A mutation check confirmed it: without the cascade, the test fails.
+  - The RLS matrix seeds and isolates `FileBlob`.
+  - The compose check pins the generated key.
+- **Production.** Merging brings the migration (approval). Coolify generates the key on that deploy. `ORBIT_FILES` stays `false` until the WP4.6 security review is done.
+
 ## Track M WP-M1: OAuth authorization server, consent and grants (2026-10-17, local)
 
 Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plans/2026-10-17-track-m-wp-m1-oauth.md` (decisions D1–D7 approved by Mario on 2026-10-17; Task 0 findings are at its end). Risk: high (new authentication surface). Environment: local only so far. There is no MCP endpoint yet (WP-M2).

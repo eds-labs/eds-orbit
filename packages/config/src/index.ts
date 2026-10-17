@@ -96,6 +96,9 @@ const baseConfigSchema = z.object({
   // Platform files (WP4.6): an own S3-compatible bucket (R2), never the
   // backup bucket or its credentials. Off until the security review.
   ORBIT_FILES: z.enum(["false", "true"]).default("false"),
+  // Where file content lives: encrypted rows in Postgres (with the database
+  // backup; Mario's choice for the pilot) or an S3-compatible bucket.
+  FILES_BACKEND: z.enum(["database", "s3"]).default("database"),
   FILES_S3_ENDPOINT: unset(z.url().optional()),
   FILES_S3_BUCKET: unset(
     z

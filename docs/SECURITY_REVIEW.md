@@ -162,7 +162,12 @@ This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). W
    - Downloads are attachments with `nosniff` and `default-src 'none'; sandbox`.
    - Names are stripped of paths and control characters.
    - The size limit is enforced while the body streams in.
-6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. Known gap: a deleted project leaves its objects behind.
+6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. With `s3`, a deleted project leaves its objects behind; with `database` they go by cascade.
+7. **Database backend** (`FILES_BACKEND=database`, the default since 2026-10-17).
+   - `FileBlob` is under FORCE RLS with the project policy.
+   - The store and a check constraint refuse keys of another project.
+   - Content is the same sealed AES-GCM object, so database dumps hold ciphertext only.
+   - The key is Coolify-generated (`SERVICE_HEX_64_FILESKEY`); the review checks that backups without the key cannot reveal content, and that the key is kept somewhere a restore can reach.
 
 ## E-mail and member notifications (WP4.7, prepared 2026-10-17; review open)
 

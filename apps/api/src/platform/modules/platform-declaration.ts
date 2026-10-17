@@ -93,6 +93,7 @@ export const platformDeclaration: PlatformDeclaration = {
     "ProjectMemberModuleRole",
     "PublicClientKey",
     "File",
+    "FileBlob",
     "Notification",
     "NotificationPreference",
     "ProjectModule",
