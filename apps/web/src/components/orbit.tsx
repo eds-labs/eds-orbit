@@ -556,7 +556,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               )}
             </div>
             <div className="topbar-actions">
-              <NotificationBell />
+              <NotificationBell project={project} locale={locale} />
               {languageControl}
               <span className="avatar" title={`${me.user.name} · ${role}`}>
                 {me.user.name.slice(0, 1).toUpperCase()}

@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { preferencesBody, safeLink, unreadLabel } from "./notification-bell";
+import { renderToString } from "react-dom/server";
+import {
+  NotificationBell,
+  preferencesBody,
+  safeLink,
+  unreadLabel,
+} from "./notification-bell";
 import { emailConnectBody } from "./email-connection";
 
 describe("notification bell (WP4.7)", () => {
+  // The top bar sits outside the workspace provider; the bell must not need
+  // it (the first version did and blanked the whole app in the browser run).
+  it("renders without the workspace context", () => {
+    expect(() =>
+      renderToString(
+        <NotificationBell
+          project={{ id: "p", timezone: "Europe/Berlin" }}
+          locale="de"
+        />,
+      ),
+    ).not.toThrow();
+  });
   it("shows a short unread count", () => {
     expect([0, 1, 9, 10, 250].map(unreadLabel)).toEqual([
       "",

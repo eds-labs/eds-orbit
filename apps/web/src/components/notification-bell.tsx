@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
 import { api, collectionPath, useMutation, useResource, when } from "@/lib/api";
 import { Alert, Button, Loading, Modal } from "./ui/primitives";
-import { useWorkspace } from "./workspace-context";
 
 type Notice = {
   id: string;
@@ -39,8 +38,13 @@ export function safeLink(link: string | null) {
   return link && /^\/[^/\\]/.test(link) ? link : null;
 }
 
-export function NotificationBell() {
-  const { project, locale } = useWorkspace();
+type BellProps = {
+  project: { id: string; timezone: string };
+  locale: "en" | "de";
+};
+
+/** Rendered in the top bar, outside the workspace context: props only. */
+export function NotificationBell({ project, locale }: BellProps) {
   const notices = useResource<Notices>(
     collectionPath(project.id, "notifications"),
   );
@@ -149,7 +153,11 @@ export function NotificationBell() {
         </Modal>
       )}
       {open === "settings" && (
-        <NotificationSettings onClose={() => setOpen(null)} />
+        <NotificationSettings
+          project={project}
+          locale={locale}
+          onClose={() => setOpen(null)}
+        />
       )}
     </>
   );
@@ -166,8 +174,11 @@ export function preferencesBody(kinds: Preferences["kinds"]): {
   };
 }
 
-function NotificationSettings({ onClose }: { onClose(): void }) {
-  const { project, locale } = useWorkspace();
+function NotificationSettings({
+  project,
+  locale,
+  onClose,
+}: BellProps & { onClose(): void }) {
   const de = locale === "de";
   const prefs = useResource<Preferences>(
     collectionPath(project.id, "notification-preferences"),
