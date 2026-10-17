@@ -11,6 +11,7 @@ import {
   ORBIT_WORKSPACE_CLAIM,
   PENDING_REFERENCE_PREFIX,
   type McpAuthDeps,
+  type McpClientDeps,
   type McpHookDeps,
 } from "./plugins.ts";
 
@@ -516,6 +517,51 @@ const grantConflict = () =>
     error_description: "another authorization changed this grant",
   });
 
+/** Grants that ended by being replaced or superseded leave the stored authorization in place on purpose. */
+const KEEPS_AUTHORIZATION = ["replaced", "superseded"];
+
+/**
+ * Whether a refresh token issued at `issuedAt` for `referenceId` (the
+ * workspace the user granted) may be exchanged: an active grant exists for
+ * (user, client, workspace), and no grant of that reference that was active
+ * before was revoked after the token was issued. Replacement by a new
+ * selection keeps older tokens valid by design; every other revocation ends
+ * them, also when its token cleanup lost a race with an in-flight refresh.
+ */
+export async function refreshAllowed(input: {
+  userId: string;
+  clientId: string;
+  referenceId?: string;
+  issuedAt: Date;
+}) {
+  if (!input.referenceId || !UUID.test(input.referenceId)) return false;
+  const reference = {
+    userId: input.userId,
+    clientId: input.clientId,
+    workspaceId: input.referenceId,
+  };
+  const [active, revokedSince] = await Promise.all([
+    authDb.mcpGrant.findFirst({
+      where: { ...reference, status: "active" },
+      select: { id: true },
+    }),
+    authDb.mcpGrant.findFirst({
+      where: {
+        ...reference,
+        status: "revoked",
+        activatedAt: { not: null },
+        // Better Auth stores `createdAt` rounded down to the second, so a
+        // revocation in the token's own second counts as after it: the
+        // check fails safe (a new authorization) rather than open.
+        revokedAt: { gte: input.issuedAt },
+        revokedBy: { notIn: KEEPS_AUTHORIZATION },
+      },
+      select: { id: true },
+    }),
+  ]);
+  return Boolean(active) && !revokedSince;
+}
+
 /** Grant bookkeeping for the provider's consent, code and refresh events. */
 export function grantHookDeps(): McpHookDeps {
   return {
@@ -543,6 +589,7 @@ export function grantHookDeps(): McpHookDeps {
         ? consumeSelection({ sessionId, clientId: request.clientId })
         : false;
     },
+    refreshAllowed,
     onRefreshReplay: recordRefreshReplay,
   };
 }
@@ -605,6 +652,125 @@ export async function revokeGrant(
       tx,
     );
   });
+}
+
+/**
+ * Revokes every active grant of a client and closes its pending selections,
+ * for a client whose security-relevant metadata changed: what the user agreed
+ * to was agreed to for the old document. Each active grant loses its stored
+ * authorization like a user's revocation does, and gets a `grant.revoked`
+ * event. All of it happens in one transaction. Returns the number of active
+ * grants revoked.
+ */
+export async function revokeClientGrants(
+  clientId: string,
+  reason: "client_changed",
+): Promise<number> {
+  const now = new Date();
+  return authDb.$transaction(async (tx) => {
+    const grants = await tx.mcpGrant.findMany({
+      where: { clientId, status: { in: ["active", "pending"] } },
+      orderBy: { createdAt: "asc" },
+    });
+    let revoked = 0;
+    for (const grant of grants) {
+      // The guard on status keeps a concurrent change from being written twice.
+      const changed = await tx.mcpGrant.updateMany({
+        where: { id: grant.id, status: grant.status },
+        data: {
+          status: "revoked",
+          revokedAt: now,
+          revokedBy: reason,
+          sessionId: null,
+        },
+      });
+      if (!changed.count || grant.status !== "active") continue;
+      revoked += 1;
+      await dropStoredAuthorization(tx, grant);
+      await recordGrantEvent(
+        {
+          action: "grant.revoked",
+          userId: grant.userId,
+          clientId: grant.clientId,
+          grantId: grant.id,
+          workspaceId: grant.workspaceId,
+          detail: { by: "system", reason },
+        },
+        tx,
+      );
+    }
+    return revoked;
+  });
+}
+
+/** Client events are about no particular user. */
+const SYSTEM_ACTOR = "system";
+
+/** Fields whose change ends the grants given to the previous document. */
+const REVOKING_CLIENT_FIELDS = ["redirect_uris", "jwks_uri", "jwks"];
+
+/** Names the failure only: errors of the database can carry query text. */
+const failureName = (error: unknown) =>
+  error instanceof Error ? error.name : "unknown";
+
+/**
+ * Audit and revocation for Client ID Metadata Document clients. Better Auth
+ * runs these best-effort and keeps its own logger off in Orbit, so they log
+ * here. An audit failure is logged and swallowed; a revocation failure is
+ * logged at error level and rethrown (the library ends up ignoring it, but the
+ * log is the only trace that grants of a changed client are still active).
+ */
+export function grantClientDeps(): McpClientDeps {
+  return {
+    onClientCreated: async ({ clientId }) => {
+      try {
+        await recordGrantEvent({
+          action: "client.registered",
+          userId: SYSTEM_ACTOR,
+          clientId,
+        });
+      } catch (error) {
+        console.error(
+          "Orbit MCP client.registered audit failed",
+          failureName(error),
+        );
+      }
+    },
+    onClientRefreshed: async ({ clientId, changed }) => {
+      // Unchanged documents are revalidated all the time: nothing to record.
+      if (!changed.length) return;
+      let revokedGrants: number | null = null;
+      let failure: unknown;
+      if (changed.some((field) => REVOKING_CLIENT_FIELDS.includes(field)))
+        try {
+          revokedGrants = await revokeClientGrants(clientId, "client_changed");
+        } catch (error) {
+          failure = error;
+          console.error(
+            "Orbit MCP revoke of grants for a changed client failed",
+            failureName(error),
+          );
+        }
+      try {
+        await recordGrantEvent({
+          action: "client.refreshed",
+          userId: SYSTEM_ACTOR,
+          clientId,
+          detail: {
+            changed,
+            ...(revokedGrants === null ? {} : { revokedGrants }),
+            ...(failure === undefined ? {} : { revocationFailed: true }),
+          },
+        });
+      } catch (error) {
+        console.error(
+          "Orbit MCP client.refreshed audit failed",
+          failureName(error),
+        );
+      }
+      if (failure !== undefined) throw failure;
+    },
+  };
 }
 
 export type GrantRow = {

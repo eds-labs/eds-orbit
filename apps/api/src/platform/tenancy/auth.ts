@@ -16,7 +16,11 @@ import {
   mcpAuthHooks,
   mcpAuthPlugins,
 } from "../mcp-auth/plugins.ts";
-import { grantHookDeps, grantPostLogin } from "../mcp-auth/grants.ts";
+import {
+  grantClientDeps,
+  grantHookDeps,
+  grantPostLogin,
+} from "../mcp-auth/grants.ts";
 // `cimdFetch` is a test seam for the Client ID Metadata Document transport.
 export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
   const config = loadConfig();
@@ -34,6 +38,7 @@ export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
           ...mcpAuthPlugins(config, {
             ...mcpAuthDeps(options),
             ...grantPostLogin(),
+            clientEvents: grantClientDeps(),
           }),
         ]
       : [],

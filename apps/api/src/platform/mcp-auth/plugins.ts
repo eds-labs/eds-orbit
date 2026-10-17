@@ -43,9 +43,29 @@ export type MetadataResourceFetch = Parameters<
   typeof cimd
 >[0]["fetchClientMetadataResource"];
 
+/**
+ * What Orbit does when a Client ID Metadata Document client appears or
+ * changes (implemented in grants.ts). Better Auth calls these on a best-effort
+ * basis: a failure is logged and never fails the OAuth request.
+ */
+export type McpClientDeps = {
+  /** A client was stored for the first time. */
+  onClientCreated: (args: { clientId: string }) => Promise<void>;
+  /**
+   * A known client was reconciled with its document; `changed` names the
+   * security-relevant fields that differ (see `changedClientFields`).
+   */
+  onClientRefreshed: (args: {
+    clientId: string;
+    changed: string[];
+  }) => Promise<void>;
+};
+
 export type McpAuthDeps = {
   /** Transport for Client ID Metadata Documents (resolve-once DNS, no redirects). */
   fetchClientMetadataResource: MetadataResourceFetch;
+  /** Audit and revocation for discovered clients; absent in bare setups. */
+  clientEvents?: McpClientDeps;
   /** Workspace the session selected for the consent being given (Task 4). */
   consentReference: (args: PostLoginArgs) => Promise<string | undefined>;
   /** Whether the user still has to pick a workspace on /connect (Task 4). */
@@ -89,6 +109,63 @@ export function isCimdHostAllowed(clientIdUrl: string, hosts: string[]) {
   return hosts.some(
     (host) => hostname === host || hostname.endsWith(`.${host}`),
   );
+}
+
+/** The stored client fields a metadata refresh can change. */
+type ClientRecord = {
+  name?: string | null;
+  uri?: string | null;
+  redirectUris?: string[] | null;
+  postLogoutRedirectUris?: string[] | null;
+  jwksUri?: string | null;
+  jwks?: string | null;
+  tokenEndpointAuthMethod?: string | null;
+  grantTypes?: string[] | null;
+  scopes?: string[] | null;
+};
+
+/** Stable text of a JSON value, so key order never counts as a change. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`)
+      .join(",")}}`;
+  return JSON.stringify(value) ?? "null";
+}
+
+function canonicalDocument(value: string | null | undefined) {
+  if (!value) return "";
+  try {
+    return canonicalJson(JSON.parse(value));
+  } catch {
+    return value;
+  }
+}
+
+const sortedSet = (value: string[] | null | undefined) =>
+  JSON.stringify([...new Set(value ?? [])].sort());
+
+/** Metadata names (RFC 7591) of the client fields that differ; names only, never values. */
+export function changedClientFields(
+  previous: ClientRecord,
+  current: ClientRecord,
+): string[] {
+  const fields: [string, (c: ClientRecord) => string][] = [
+    ["client_name", (c) => c.name ?? ""],
+    ["client_uri", (c) => c.uri ?? ""],
+    ["redirect_uris", (c) => sortedSet(c.redirectUris)],
+    ["post_logout_redirect_uris", (c) => sortedSet(c.postLogoutRedirectUris)],
+    ["jwks_uri", (c) => c.jwksUri ?? ""],
+    ["jwks", (c) => canonicalDocument(c.jwks)],
+    ["token_endpoint_auth_method", (c) => c.tokenEndpointAuthMethod ?? ""],
+    ["grant_types", (c) => sortedSet(c.grantTypes)],
+    ["scope", (c) => sortedSet(c.scopes)],
+  ];
+  return fields
+    .filter(([, read]) => read(previous) !== read(current))
+    .map(([name]) => name);
 }
 
 export function mcpAuthPluginOptions(config: Config, deps: McpAuthDeps) {
@@ -135,6 +212,27 @@ export function mcpAuthPluginOptions(config: Config, deps: McpAuthDeps) {
       fetchClientMetadataResource: deps.fetchClientMetadataResource,
       isMetadataDocumentUrlAllowed: (clientIdUrl: string) =>
         isCimdHostAllowed(clientIdUrl, hosts),
+      ...(deps.clientEvents
+        ? {
+            onClientCreated: async ({
+              client,
+            }: {
+              client: ClientRecord & { clientId: string };
+            }) =>
+              deps.clientEvents!.onClientCreated({ clientId: client.clientId }),
+            onClientRefreshed: async ({
+              client,
+              previousClient,
+            }: {
+              client: ClientRecord & { clientId: string };
+              previousClient: ClientRecord;
+            }) =>
+              deps.clientEvents!.onClientRefreshed({
+                clientId: client.clientId,
+                changed: changedClientFields(previousClient, client),
+              }),
+          }
+        : {}),
     },
   };
 }
@@ -167,6 +265,17 @@ export type McpHookDeps = {
    * code from the client.
    */
   onCodeIssued: (args: { sessionId: string }) => Promise<boolean>;
+  /**
+   * Whether a refresh token may still be exchanged: an active grant exists for
+   * (user, client, workspace the token was issued for), and none of that
+   * reference was revoked after the token was issued.
+   */
+  refreshAllowed: (args: {
+    userId: string;
+    clientId: string;
+    referenceId?: string;
+    issuedAt: Date;
+  }) => Promise<boolean>;
   /** A rotated refresh token was replayed after the reuse window. */
   onRefreshReplay: (args: {
     userId: string;
@@ -239,8 +348,10 @@ function carriesCode(target: string | undefined) {
  * ORBIT_MCP_OAUTH is on:
  * - before `/oauth2/authorize`: `resource` must be exactly MCP_RESOURCE
  *   (the library would otherwise issue an opaque token without audience);
- * - before `/oauth2/token` (refresh): remembers who owns a presented, already
- *   rotated refresh token, because the library deletes the family on replay;
+ * - before `/oauth2/token` (refresh): refuses a token without an active grant
+ *   (`invalid_grant`, nothing rotated) and remembers who owns a presented,
+ *   already rotated refresh token, because the library deletes the family on
+ *   replay;
  * - before `/oauth2/consent` (accepted): activates the session's selection;
  * - after: hands denials, issued codes and refresh replays to `deps`.
  */
@@ -311,7 +422,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
         });
         return;
       }
-      if (ctx.path !== "/oauth2/token" || !ctx.request) return;
+      if (ctx.path !== "/oauth2/token") return;
       const body = ctx.body as {
         grant_type?: unknown;
         refresh_token?: unknown;
@@ -326,6 +437,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
         userId: string;
         clientId: string;
         referenceId?: string | null;
+        createdAt: Date;
         revoked?: Date | null;
       }>({
         model: "oauthRefreshToken",
@@ -338,7 +450,25 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
           },
         ],
       });
-      if (row?.revoked)
+      if (!row) return;
+      // Nothing is rotated for a token whose grant is gone: this also closes
+      // the race with a revocation that deleted the tokens after this
+      // request found its row, and keeps a token issued before a revocation
+      // from working again after a later grant for the same reference.
+      if (
+        !(await deps.refreshAllowed({
+          userId: row.userId,
+          clientId: row.clientId,
+          ...(row.referenceId ? { referenceId: row.referenceId } : {}),
+          issuedAt: new Date(row.createdAt),
+        }))
+      )
+        throw new APIError("BAD_REQUEST", {
+          error: "invalid_grant",
+          error_description:
+            "the grant behind this refresh token is not active",
+        });
+      if (row.revoked && ctx.request)
         presentedRefresh.set(ctx.request, {
           userId: row.userId,
           clientId: row.clientId,
