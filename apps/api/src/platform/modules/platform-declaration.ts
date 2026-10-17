@@ -25,6 +25,21 @@ export const platformDeclaration: PlatformDeclaration = {
       exported: false,
     },
     {
+      kind: "email_messages",
+      description: "Outbound e-mail and its delivery state (WP4.7)",
+      exported: false,
+    },
+    {
+      kind: "inbound_emails",
+      description: "Normalized inbound e-mail; the raw message is a file",
+      exported: false,
+    },
+    {
+      kind: "email_inbound_state",
+      description: "The last fetched IMAP UID per mailbox",
+      exported: false,
+    },
+    {
       kind: "telegram_connections",
       description: "The owner's notification bot",
       exported: false,
@@ -40,6 +55,18 @@ export const platformDeclaration: PlatformDeclaration = {
       description: "Pending Google Drive OAuth state",
       exported: false,
     },
+    {
+      kind: "public_sessions",
+      description:
+        "Sessions of public API clients, with hashed tokens (WP4.2b)",
+      exported: false,
+    },
+    {
+      kind: "inbound_webhooks",
+      description:
+        "Signed provider webhooks received through the platform (WP4.2)",
+      exported: false,
+    },
   ],
   tables: [
     "_prisma_migrations",
@@ -51,6 +78,11 @@ export const platformDeclaration: PlatformDeclaration = {
     "WorkspaceMember",
     "Project",
     "ProjectMember",
+    "ProjectMemberModuleRole",
+    "PublicClientKey",
+    "File",
+    "Notification",
+    "NotificationPreference",
     "ProjectModule",
     "Entity",
     "EntityVersion",

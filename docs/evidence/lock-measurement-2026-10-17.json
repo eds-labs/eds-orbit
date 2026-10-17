@@ -1,0 +1,385 @@
+{
+  "description": "WP4.3 lock measurement, local test database (Postgres 17 in Docker on the developer machine), synthetic load on one project. Produced by scripts/measure/lock-load.measure.ts.",
+  "runs": [
+    {
+      "measuredAt": "2026-10-17T08:58:45.100Z",
+      "phaseMs": 15000,
+      "pollers": 5,
+      "modelMs": 1500,
+      "embedMs": 1000,
+      "rows": [
+        {
+          "phase": "without_pollers",
+          "load": "chat_run",
+          "transactions": 111,
+          "waitP50": 0.8,
+          "waitP95": 4.6,
+          "waitMax": 18.3,
+          "holdP50": 3.4,
+          "holdP95": 17.9,
+          "holdMax": 36.4,
+          "calls": 9,
+          "callP95": 1672,
+          "callMax": 1672
+        },
+        {
+          "phase": "without_pollers",
+          "load": "search",
+          "transactions": 30,
+          "waitP50": 1.1,
+          "waitP95": 20,
+          "waitMax": 31.4,
+          "holdP50": 4.8,
+          "holdP95": 36.9,
+          "holdMax": 44.2,
+          "calls": 5,
+          "callP95": 1186,
+          "callMax": 1186
+        },
+        {
+          "phase": "without_pollers",
+          "load": "sweep",
+          "transactions": 8,
+          "waitP50": 2.2,
+          "waitP95": 20.9,
+          "waitMax": 20.9,
+          "holdP50": 16.2,
+          "holdP95": 19.2,
+          "holdMax": 19.2,
+          "calls": 8,
+          "callP95": 64,
+          "callMax": 64
+        },
+        {
+          "phase": "without_pollers",
+          "load": "writer",
+          "transactions": 100,
+          "waitP50": 3.8,
+          "waitP95": 12.4,
+          "waitMax": 27.2,
+          "holdP50": 3.8,
+          "holdP95": 7.7,
+          "holdMax": 10.3,
+          "calls": 100,
+          "callP95": 32,
+          "callMax": 40
+        },
+        {
+          "phase": "without_pollers",
+          "load": "ALL",
+          "transactions": 249,
+          "waitP50": 1.1,
+          "waitP95": 11.9,
+          "waitMax": 31.4,
+          "holdP50": 3.8,
+          "holdP95": 17.9,
+          "holdMax": 44.2,
+          "calls": 122,
+          "callP95": 1592,
+          "callMax": 1672
+        },
+        {
+          "phase": "with_pollers",
+          "load": "chat_run",
+          "transactions": 117,
+          "waitP50": 0.9,
+          "waitP95": 7.9,
+          "waitMax": 21.1,
+          "holdP50": 3.2,
+          "holdP95": 15.6,
+          "holdMax": 33.5,
+          "calls": 10,
+          "callP95": 1633,
+          "callMax": 1633
+        },
+        {
+          "phase": "with_pollers",
+          "load": "search",
+          "transactions": 30,
+          "waitP50": 0.7,
+          "waitP95": 9.1,
+          "waitMax": 11.2,
+          "holdP50": 2.7,
+          "holdP95": 31.2,
+          "holdMax": 33.7,
+          "calls": 5,
+          "callP95": 1122,
+          "callMax": 1122
+        },
+        {
+          "phase": "with_pollers",
+          "load": "stream_poll",
+          "transactions": 110,
+          "waitP50": 6.4,
+          "waitP95": 18.2,
+          "waitMax": 25.5,
+          "holdP50": 2,
+          "holdP95": 4.2,
+          "holdMax": 7.2,
+          "calls": 110,
+          "callP95": 33,
+          "callMax": 43
+        },
+        {
+          "phase": "with_pollers",
+          "load": "sweep",
+          "transactions": 7,
+          "waitP50": 2.1,
+          "waitP95": 7.6,
+          "waitMax": 7.6,
+          "holdP50": 10.8,
+          "holdP95": 23.9,
+          "holdMax": 23.9,
+          "calls": 7,
+          "callP95": 32,
+          "callMax": 32
+        },
+        {
+          "phase": "with_pollers",
+          "load": "writer",
+          "transactions": 100,
+          "waitP50": 3.7,
+          "waitP95": 13.3,
+          "waitMax": 19.8,
+          "holdP50": 4,
+          "holdP95": 7.4,
+          "holdMax": 10,
+          "calls": 100,
+          "callP95": 31,
+          "callMax": 37
+        },
+        {
+          "phase": "with_pollers",
+          "load": "ALL",
+          "transactions": 364,
+          "waitP50": 1.9,
+          "waitP95": 13.4,
+          "waitMax": 25.5,
+          "holdP50": 2.9,
+          "holdP95": 12.5,
+          "holdMax": 33.7,
+          "calls": 232,
+          "callP95": 1089,
+          "callMax": 1633
+        }
+      ],
+      "longest": [
+        {
+          "load": "search",
+          "site": "platform/ai/telemetry.ts:188",
+          "holdMs": 44.2
+        },
+        {
+          "load": "search",
+          "site": "platform/ai/telemetry.ts:188",
+          "holdMs": 36.9
+        },
+        {
+          "load": "chat_run",
+          "site": "measure:writer",
+          "holdMs": 36.4
+        },
+        {
+          "load": "search",
+          "site": "platform/ai/telemetry.ts:188",
+          "holdMs": 33.7
+        },
+        {
+          "load": "chat_run",
+          "site": "measure:writer",
+          "holdMs": 33.5
+        }
+      ]
+    },
+    {
+      "measuredAt": "2026-10-17T08:59:17.339Z",
+      "phaseMs": 15000,
+      "pollers": 25,
+      "modelMs": 1500,
+      "embedMs": 1000,
+      "rows": [
+        {
+          "phase": "without_pollers",
+          "load": "chat_run",
+          "transactions": 111,
+          "waitP50": 0.9,
+          "waitP95": 10.4,
+          "waitMax": 21.2,
+          "holdP50": 3.8,
+          "holdP95": 20.7,
+          "holdMax": 64.7,
+          "calls": 9,
+          "callP95": 1764,
+          "callMax": 1764
+        },
+        {
+          "phase": "without_pollers",
+          "load": "search",
+          "transactions": 30,
+          "waitP50": 1.1,
+          "waitP95": 18.5,
+          "waitMax": 44.8,
+          "holdP50": 5.8,
+          "holdP95": 56.3,
+          "holdMax": 66,
+          "calls": 5,
+          "callP95": 1271,
+          "callMax": 1271
+        },
+        {
+          "phase": "without_pollers",
+          "load": "sweep",
+          "transactions": 8,
+          "waitP50": 1.5,
+          "waitP95": 16,
+          "waitMax": 16,
+          "holdP50": 19.6,
+          "holdP95": 49.8,
+          "holdMax": 49.8,
+          "calls": 8,
+          "callP95": 75,
+          "callMax": 75
+        },
+        {
+          "phase": "without_pollers",
+          "load": "writer",
+          "transactions": 100,
+          "waitP50": 6.1,
+          "waitP95": 31.5,
+          "waitMax": 110.1,
+          "holdP50": 4.3,
+          "holdP95": 10.9,
+          "holdMax": 13.5,
+          "calls": 100,
+          "callP95": 50,
+          "callMax": 151
+        },
+        {
+          "phase": "without_pollers",
+          "load": "ALL",
+          "transactions": 249,
+          "waitP50": 1.2,
+          "waitP95": 18.4,
+          "waitMax": 110.1,
+          "holdP50": 4.4,
+          "holdP95": 21.7,
+          "holdMax": 66,
+          "calls": 122,
+          "callP95": 1610,
+          "callMax": 1764
+        },
+        {
+          "phase": "with_pollers",
+          "load": "chat_run",
+          "transactions": 117,
+          "waitP50": 0.6,
+          "waitP95": 12.4,
+          "waitMax": 17.2,
+          "holdP50": 3,
+          "holdP95": 11.6,
+          "holdMax": 20.4,
+          "calls": 10,
+          "callP95": 1629,
+          "callMax": 1629
+        },
+        {
+          "phase": "with_pollers",
+          "load": "search",
+          "transactions": 30,
+          "waitP50": 0.8,
+          "waitP95": 13.9,
+          "waitMax": 16.7,
+          "holdP50": 4.2,
+          "holdP95": 38,
+          "holdMax": 41.5,
+          "calls": 5,
+          "callP95": 1172,
+          "callMax": 1172
+        },
+        {
+          "phase": "with_pollers",
+          "load": "stream_poll",
+          "transactions": 550,
+          "waitP50": 15.1,
+          "waitP95": 26.5,
+          "waitMax": 36.8,
+          "holdP50": 1.2,
+          "holdP95": 2.7,
+          "holdMax": 18.5,
+          "calls": 550,
+          "callP95": 71,
+          "callMax": 83
+        },
+        {
+          "phase": "with_pollers",
+          "load": "sweep",
+          "transactions": 7,
+          "waitP50": 0.9,
+          "waitP95": 16.7,
+          "waitMax": 16.7,
+          "holdP50": 10.8,
+          "holdP95": 17.7,
+          "holdMax": 17.7,
+          "calls": 7,
+          "callP95": 36,
+          "callMax": 36
+        },
+        {
+          "phase": "with_pollers",
+          "load": "writer",
+          "transactions": 100,
+          "waitP50": 4.4,
+          "waitP95": 13.9,
+          "waitMax": 16.3,
+          "holdP50": 3.4,
+          "holdP95": 8.4,
+          "holdMax": 9.5,
+          "calls": 100,
+          "callP95": 28,
+          "callMax": 41
+        },
+        {
+          "phase": "with_pollers",
+          "load": "ALL",
+          "transactions": 804,
+          "waitP50": 12.4,
+          "waitP95": 25.1,
+          "waitMax": 36.8,
+          "holdP50": 1.5,
+          "holdP95": 8.4,
+          "holdMax": 41.5,
+          "calls": 672,
+          "callP95": 73,
+          "callMax": 1629
+        }
+      ],
+      "longest": [
+        {
+          "load": "search",
+          "site": "platform/ai/telemetry.ts:188",
+          "holdMs": 66
+        },
+        {
+          "load": "chat_run",
+          "site": "measure:writer",
+          "holdMs": 64.7
+        },
+        {
+          "load": "search",
+          "site": "platform/knowledge/retrieval.ts:86 < platform/ai/telemetry.ts:188",
+          "holdMs": 56.3
+        },
+        {
+          "load": "search",
+          "site": "platform/ai/telemetry.ts:188",
+          "holdMs": 55.6
+        },
+        {
+          "load": "sweep",
+          "site": "measure:writer",
+          "holdMs": 49.8
+        }
+      ]
+    }
+  ]
+}

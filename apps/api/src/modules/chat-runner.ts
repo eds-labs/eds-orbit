@@ -28,8 +28,14 @@ import { actorScope } from "./member-scope.ts";
 import type { ChatCard } from "../platform/assistant/cards.ts";
 import {
   registeredAssistants,
+  registeredToolOwner,
   registeredTools,
 } from "../platform/modules/contributions.ts";
+import {
+  effectiveRole,
+  moduleScope,
+  visibleModules,
+} from "../platform/tenancy/module-roles.ts";
 import { moduleSwitchingEnabled } from "../platform/modules/activation.ts";
 import { enabledModules } from "../platform/modules/enforcement.ts";
 import {
@@ -172,8 +178,14 @@ function chatToolHost(host: {
         const args = JSON.parse(call.arguments);
         const tool = findTool(offered, call.name);
         if (!tool) throw new DomainError("CHAT_TOOL_NOT_ALLOWED", 403);
+        // The tool runs with the member's role in its module (WP4.5).
         const result = await tool.execute(
-          { scope, runId, conversationId, callIndex },
+          {
+            scope: moduleScope(scope, registeredToolOwner(tool.name)),
+            runId,
+            conversationId,
+            callIndex,
+          },
           args,
         );
         output = result.output;
@@ -382,15 +394,20 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     // Modules turn tool features on (assignment tools exist only as
     // deferred tools, so marketing offers them only with tool search).
     // A disabled module offers no tools and no prompt fragments (WP2.4).
-    const enabled = moduleSwitchingEnabled()
-      ? await chatScoped(scope, (tx) => enabledModules(tx, scope))
-      : undefined;
-    const assistants = registeredAssistants(enabled);
-    const offered = availableTools(
-      registeredTools(enabled),
-      scope.role,
-      assistants.flatMap((a) => a.features({ toolSearch })),
+    // A module the member has no access to counts as disabled (WP4.5).
+    const enabled = visibleModules(
+      scope,
+      moduleSwitchingEnabled()
+        ? await chatScoped(scope, (tx) => enabledModules(tx, scope))
+        : undefined,
     );
+    const assistants = registeredAssistants(enabled);
+    const features = assistants.flatMap((a) => a.features({ toolSearch }));
+    // Each tool is offered by the member's role in the tool's module.
+    const offered = registeredTools(enabled).filter((tool) => {
+      const role = effectiveRole(scope, registeredToolOwner(tool.name));
+      return role !== "none" && availableTools([tool], role, features).length;
+    });
     const deferred = toolSearch
       ? offered.filter((tool) => tool.deferLoading)
       : [];

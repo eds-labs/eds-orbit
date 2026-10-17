@@ -35,6 +35,7 @@ import {
 } from "../modules/contributions.ts";
 import { enabledModules } from "../modules/enforcement.ts";
 import type { TelegramCallback } from "./types.ts";
+import type { DirectWebhookProvider } from "../modules/contributions.ts";
 
 /**
  * The owner's private Orbit Telegram bot (Orbit Agents, spec §10).
@@ -446,6 +447,8 @@ const command = (text: string | undefined) => {
  */
 export async function handleTelegramWebhook(
   input: {
+    /** Given by the platform's hooks route: it must be the project's. */
+    workspaceId?: string;
     projectId: string;
     connectionId: string;
     secret: unknown;
@@ -464,6 +467,11 @@ export async function handleTelegramWebhook(
     select: { workspaceId: true },
   });
   if (!project) return unknown;
+  if (
+    input.workspaceId !== undefined &&
+    input.workspaceId.toLowerCase() !== project.workspaceId
+  )
+    return unknown;
   const system: Scope = {
     workspaceId: project.workspaceId,
     projectId,
@@ -719,4 +727,35 @@ export const pauseCallback: TelegramCallback = async (
     nonce: pause.nonce,
   });
   return { handled: "paused", answer: TEXT.paused };
+};
+
+/**
+ * The bot's webhook through the platform's hooks route (WP4.2 follow-up):
+ * `/api/hooks/telegram/<workspaceId>/<projectId>/<connectionId>`, the same
+ * handler and secret check as `/api/telegram/<projectId>/<connectionId>`,
+ * which stays the registered URL until the cutover (docs/PUBLIC_INGRESS.md).
+ */
+export const telegramWebhook: DirectWebhookProvider = {
+  direct: true,
+  bodies: ["json"],
+  async handle(input) {
+    if (!telegramEnabled()) return { status: 404 };
+    let body: unknown;
+    try {
+      body = JSON.parse(input.rawBody);
+    } catch {
+      body = undefined;
+    }
+    const result = await handleTelegramWebhook(
+      {
+        workspaceId: input.workspaceId,
+        projectId: input.projectId,
+        connectionId: input.connectionId,
+        secret: input.headers["x-telegram-bot-api-secret-token"],
+        body,
+      },
+      { fetch: input.fetch },
+    );
+    return { status: result.status };
+  },
 };

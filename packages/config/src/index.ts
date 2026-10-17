@@ -13,6 +13,10 @@ export const embeddingProfile = {
   metric: "cosine",
   generation: 1,
 } as const;
+// Compose passes an unset optional variable as "" (`${NAME:-}`); for a
+// validated optional value that means "not set", never an invalid value.
+const unset = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === "" ? undefined : value), schema);
 export const configSchema = z.object({
   DATABASE_URL: z.string().min(1),
   AUTH_DATABASE_URL: z.string().min(1),
@@ -48,6 +52,41 @@ export const configSchema = z.object({
   // Owners may switch modules per project (WP1.4). Activation is recorded but
   // not yet enforced; every module keeps working while this is "false".
   ORBIT_MODULES: z.enum(["false", "true"]).default("false"),
+  // Module-level roles (WP4.5): off until the security review and approval.
+  ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
+  // Public ingress (WP4.2): signed provider webhooks; off until the security review.
+  ORBIT_PUBLIC_INGRESS: z.enum(["false", "true"]).default("false"),
+  // Platform files (WP4.6): an own S3-compatible bucket (R2), never the
+  // backup bucket or its credentials. Off until the security review.
+  ORBIT_FILES: z.enum(["false", "true"]).default("false"),
+  FILES_S3_ENDPOINT: unset(z.url().optional()),
+  FILES_S3_BUCKET: unset(
+    z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/)
+      .optional(),
+  ),
+  FILES_S3_REGION: z.string().min(1).default("auto"),
+  FILES_S3_ACCESS_KEY_ID: unset(z.string().min(1).optional()),
+  FILES_S3_SECRET_ACCESS_KEY: unset(z.string().min(1).optional()),
+  // 32 bytes as hex, separate from CREDENTIAL_KEY.
+  FILES_ENCRYPTION_KEY: unset(
+    z
+      .string()
+      .regex(/^[a-fA-F0-9]{64}$/)
+      .optional(),
+  ),
+  // E-mail over SMTP/IMAP and member notifications (WP4.7); off until the
+  // security review. Sending also needs EXECUTION_MODE=live and external writes.
+  ORBIT_EMAIL: z.enum(["false", "true"]).default("false"),
+  // In-app member notifications and their preferences (WP4.7).
+  ORBIT_NOTIFICATIONS: z.enum(["false", "true"]).default("false"),
+  FILES_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50 * 1024 * 1024)
+    .default(20 * 1024 * 1024),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

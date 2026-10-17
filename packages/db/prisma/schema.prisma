@@ -248,14 +248,95 @@ model ProjectMarketingProfileVersion {
 }
 
 model ProjectMember {
-  workspaceId String  @db.Uuid
-  projectId   String  @db.Uuid
+  workspaceId String                    @db.Uuid
+  projectId   String                    @db.Uuid
   userId      String
   role        String
-  project     Project @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
-  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project                   @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  user        User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moduleRoles ProjectMemberModuleRole[]
 
   @@id([projectId, userId])
+  @@index([workspaceId, userId])
+}
+
+/// A module's public API key for one project (WP4.2b); no secret.
+model PublicClientKey {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  moduleId       String
+  publicKey      String    @unique
+  allowedOrigins String[]  @default([])
+  createdBy      String?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt      DateTime? @db.Timestamptz(3)
+
+  @@index([workspaceId, projectId])
+}
+
+/// A platform file (WP4.6): metadata of one encrypted object in object storage.
+model File {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  moduleId    String
+  key         String    @unique
+  name        String?
+  mime        String
+  size        Int
+  sha256      String
+  encryption  String
+  createdBy   String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  deletedAt   DateTime? @db.Timestamptz(3)
+
+  @@index([workspaceId, projectId, moduleId])
+}
+
+/// An in-app notice for one member (WP4.7); private to that member by RLS.
+model Notification {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  userId      String
+  moduleId    String
+  kind        String
+  title       String
+  body        String    @default("")
+  link        String?
+  readAt      DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([workspaceId, projectId, userId, createdAt])
+}
+
+/// A member's choice per notification kind (WP4.7).
+model NotificationPreference {
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  userId      String
+  kind        String
+  inApp       Boolean
+  email       Boolean
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([projectId, userId, kind])
+}
+
+/// A member's role in one module (WP4.5): editor, viewer or none.
+model ProjectMemberModuleRole {
+  workspaceId String        @db.Uuid
+  projectId   String        @db.Uuid
+  userId      String
+  moduleId    String
+  role        String
+  changedBy   String?
+  createdAt   DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime      @default(now()) @updatedAt @db.Timestamptz(3)
+  member      ProjectMember @relation(fields: [projectId, userId], references: [projectId, userId], onDelete: Cascade)
+
+  @@id([projectId, userId, moduleId])
   @@index([workspaceId, userId])
 }
 

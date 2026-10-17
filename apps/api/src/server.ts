@@ -1,20 +1,23 @@
 import {
+  authorize,
   PROJECT_OWN,
   PROJECT_WRITE,
   platformActionPermissions,
 } from "./platform/tenancy/permissions.ts";
-import {
-  knowledgeActionPermissions,
-  knowledgeCollectionPermissions,
-} from "./modules/knowledge/permissions.ts";
-import {
-  marketingActionPermissions,
-  marketingCollectionPermissions,
-} from "./modules/marketing/permissions.ts";
+import { knowledgeCollectionPermissions } from "./modules/knowledge/permissions.ts";
+import { marketingCollectionPermissions } from "./modules/marketing/permissions.ts";
 import { moduleRegistry, registerModules } from "./modules/registry.ts";
+import {
+  effectiveRole,
+  memberModuleRoles,
+  moduleRolesEnabled,
+  moduleScope,
+  setMemberModuleRoles,
+} from "./platform/tenancy/module-roles.ts";
 import {
   registeredAction,
   registeredActionOwner,
+  registeredActionPermission,
   registeredRegistry,
   registeredRoutesByOwner,
 } from "./platform/modules/contributions.ts";
@@ -137,7 +140,33 @@ const factSchema = z
   })
   .strict();
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
+import {
+  publicIngressEnabled,
+  registerWebhookRoutes,
+  WEBHOOK_PATH,
+  WEBHOOK_URL,
+} from "./platform/http/webhooks.ts";
+import {
+  createPublicKey,
+  listPublicKeys,
+  PUBLIC_URL,
+  publicApiModules,
+  registerPublicApi,
+  revokePublicKey,
+} from "./platform/http/public-api.ts";
 import { connectionVerified } from "./platform/connections/connections.ts";
+import {
+  FILE_ROUTE_PREFIX,
+  registerFileRoutes,
+} from "./platform/files/routes.ts";
+import { filesConfig } from "./platform/files/files.ts";
+import {
+  NOTIFICATION_ROUTES,
+  registerNotificationRoutes,
+} from "./platform/notifications/routes.ts";
+import { notificationsEnabled } from "./platform/notifications/members.ts";
+import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
+import { emailEnabled } from "./platform/email/connection.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
 const AGENT_ROUTES = new Set([
@@ -163,8 +192,7 @@ const TELEGRAM_WEBHOOK_PATH = new RegExp(
 function actionPermission(action: string) {
   return (
     platformActionPermissions[action] ??
-    knowledgeActionPermissions[action] ??
-    marketingActionPermissions[action] ??
+    registeredActionPermission(action) ??
     PROJECT_WRITE
   );
 }
@@ -254,12 +282,37 @@ export async function buildServer(
     // paths cannot slip past (R62); each handler checks again.
     if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
       throw new DomainError("NOT_FOUND", 404);
+    // Platform files (WP4.6) do not exist while off or not configured.
+    if (
+      (req.routeOptions.url ?? "").startsWith(FILE_ROUTE_PREFIX) &&
+      !filesConfig()
+    )
+      throw new DomainError("NOT_FOUND", 404);
+    // The mailbox view (WP4.7) does not exist while e-mail is off.
+    if (req.routeOptions.url === EMAIL_ROUTE && !emailEnabled())
+      throw new DomainError("NOT_FOUND", 404);
+    // Member notifications (WP4.7) do not exist while their flag is off.
+    if (
+      NOTIFICATION_ROUTES.has(req.routeOptions.url ?? "") &&
+      !notificationsEnabled()
+    )
+      throw new DomainError("NOT_FOUND", 404);
+    // Public ingress (WP4.2) does not exist while its flag is off.
+    if (
+      (req.routeOptions.url === WEBHOOK_PATH ||
+        req.url.startsWith("/api/public/")) &&
+      !publicIngressEnabled()
+    )
+      throw new DomainError("NOT_FOUND", 404);
     // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
         req.url,
       ) &&
       !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
+      !(req.method === "POST" && WEBHOOK_URL.test(req.url)) &&
+      // The public API checks the Origin itself, against its key (WP4.2b).
+      !(req.method === "POST" && PUBLIC_URL.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )
@@ -344,6 +397,15 @@ export async function buildServer(
       return reply.code(200).send({ ok: true });
     },
   );
+  // Signed provider webhooks of the modules (WP4.2a).
+  await registerWebhookRoutes(app, { fetch: options?.telegramFetch });
+  // The modules' public APIs (WP4.2b).
+  await registerPublicApi(app);
+  // Platform files (WP4.6).
+  await registerFileRoutes(app, auth);
+  // A member's own notifications and the project's mailbox (WP4.7).
+  registerNotificationRoutes(app, auth);
+  registerEmailRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",
@@ -548,11 +610,16 @@ export async function buildServer(
   app.get("/api/projects/:projectId/modules", async (req) => {
     const { projectId } = req.params as any;
     const scope = await scopeFor(auth, req, projectId);
+    const states = await scoped(scope.workspaceId, projectId, (tx) =>
+      listModuleStates(tx, scope, moduleRegistry()),
+    );
     return {
       switchable: moduleSwitchingEnabled(),
-      modules: await scoped(scope.workspaceId, projectId, (tx) =>
-        listModuleStates(tx, scope, moduleRegistry()),
-      ),
+      // The requesting member's role per module (WP4.5): "none" hides it.
+      modules: states.map((state) => ({
+        ...state,
+        access: effectiveRole(scope, state.id),
+      })),
     };
   });
   app.put("/api/projects/:projectId/modules/:moduleId", async (req) => {
@@ -677,6 +744,8 @@ export async function buildServer(
   for (const [owner, routes] of registeredRoutesByOwner())
     await app.register(async (child) => {
       child.addHook("preHandler", async (req) => {
+        // scopeFor gives the module's routes the member's role in the module (WP4.5).
+        (req as { orbitModule?: string }).orbitModule = owner;
         if (!moduleSwitchingEnabled()) return;
         if (!req.routeOptions.url?.startsWith("/api/projects/:projectId/"))
           return;
@@ -731,6 +800,57 @@ export async function buildServer(
       }),
     };
   });
+  // Public API keys (WP4.2b): owners only, while ORBIT_PUBLIC_INGRESS is on.
+  app.get("/api/projects/:projectId/public-keys", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    return {
+      items: await listPublicKeys(
+        await scopeFor(auth, req, projectId, PROJECT_OWN),
+      ),
+      // The modules a new key can be issued for.
+      modules: publicApiModules(),
+    };
+  });
+  app.post("/api/projects/:projectId/public-keys", async (req, reply) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    return reply.code(201).send(await createPublicKey(scope, req.body));
+  });
+  app.post(
+    "/api/projects/:projectId/public-keys/:keyId/revoke",
+    async (req) => {
+      const { projectId, keyId } = req.params as {
+        projectId: string;
+        keyId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      return revokePublicKey(scope, z.uuid().parse(keyId));
+    },
+  );
+  // A member's module roles (WP4.5): owners only, while ORBIT_MODULE_ROLES is on.
+  app.get(
+    "/api/projects/:projectId/members/:userId/module-roles",
+    async (req) => {
+      const { projectId, userId } = req.params as {
+        projectId: string;
+        userId: string;
+      };
+      await scopeFor(auth, req, projectId, PROJECT_OWN);
+      if (!moduleRolesEnabled()) throw new DomainError("NOT_FOUND", 404);
+      return { userId, roles: await memberModuleRoles(projectId, userId) };
+    },
+  );
+  app.put(
+    "/api/projects/:projectId/members/:userId/module-roles",
+    async (req) => {
+      const { projectId, userId } = req.params as {
+        projectId: string;
+        userId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      return setMemberModuleRoles(scope, userId, req.body);
+    },
+  );
   // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
   app.get("/api/projects/:projectId/telegram", async (req) => {
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
@@ -955,8 +1075,13 @@ export async function buildServer(
   );
   app.get("/api/projects/:projectId/:collection", async (req) => {
     const { projectId, collection } = req.params as any;
-    schemas.collection.parse(collection);
-    const scope = await scopeFor(auth, req, projectId);
+    // A module may expose its own kinds for reading (EntityKindDef.collection).
+    if (!registeredRegistry().collectionKinds.includes(collection))
+      schemas.collection.parse(collection);
+    const scope = moduleScope(
+      await scopeFor(auth, req, projectId),
+      collectionOwner(collection),
+    );
     return scoped(scope.workspaceId, projectId, async (tx) => {
       await assertModuleEnabled(tx, scope, collectionOwner(collection));
       return {
@@ -970,12 +1095,11 @@ export async function buildServer(
   });
   app.post("/api/projects/:projectId/:collection", async (req, reply) => {
     const { projectId, collection } = req.params as any;
-    const scope = await scopeFor(
-      auth,
-      req,
-      projectId,
-      collectionWritePermission(collection),
+    const scope = moduleScope(
+      await scopeFor(auth, req, projectId),
+      collectionOwner(collection),
     );
+    authorize(scope, collectionWritePermission(collection));
     const result = await scoped(scope.workspaceId, projectId, async (tx) => {
       await assertModuleEnabled(tx, scope, collectionOwner(collection));
       if (collection === "facts")
@@ -1061,19 +1185,16 @@ export async function buildServer(
     const { projectId, action } = req.params as any;
     // Every action declares its permission in the owning module's catalogue;
     // an unknown name needs the writer level, as before (WP1.5).
-    const scope = await scopeFor(
-      auth,
-      req,
-      projectId,
-      actionPermission(action),
-    );
+    // The member's role in the action's module decides (WP4.5).
+    const owner = registeredActionOwner(action);
+    const scope = moduleScope(await scopeFor(auth, req, projectId), owner);
+    authorize(scope, actionPermission(action));
     const input = object.parse(req.body);
     // Handlers come from the platform and the modules (WP2.1f).
     const handler = registeredAction(action);
     if (!handler) throw new DomainError("ACTION_NOT_SUPPORTED", 400);
     const ctx = { scope, input, config, auth };
     // A disabled module's actions answer 404 MODULE_DISABLED (WP2.4).
-    const owner = registeredActionOwner(action);
     if (handler.transaction === "own") {
       await assertModuleEnabledFor(scope, owner);
       return handler.run(ctx);
