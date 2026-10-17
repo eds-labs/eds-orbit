@@ -140,6 +140,12 @@ const factSchema = z
   })
   .strict();
 import { installOpenApiSchemas, contractSchemas } from "./openapi.ts";
+import {
+  publicIngressEnabled,
+  registerWebhookRoutes,
+  WEBHOOK_PATH,
+  WEBHOOK_URL,
+} from "./platform/http/webhooks.ts";
 import { connectionVerified } from "./platform/connections/connections.ts";
 const object = z.record(z.string(), z.unknown());
 // Orbit Agents routes (Telegram bot, assignments, assignment posts), by registered pattern.
@@ -256,12 +262,16 @@ export async function buildServer(
     // paths cannot slip past (R62); each handler checks again.
     if (AGENT_ROUTES.has(req.routeOptions.url ?? "") && !agentsEnabled())
       throw new DomainError("NOT_FOUND", 404);
+    // Public ingress (WP4.2) does not exist while its flag is off.
+    if (req.routeOptions.url === WEBHOOK_PATH && !publicIngressEnabled())
+      throw new DomainError("NOT_FOUND", 404);
     // Signed provider webhooks carry their own authentication instead of a browser origin.
     if (
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
         req.url,
       ) &&
       !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
+      !(req.method === "POST" && WEBHOOK_URL.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.headers.origin !== config.APP_ORIGIN
     )
@@ -346,6 +356,8 @@ export async function buildServer(
       return reply.code(200).send({ ok: true });
     },
   );
+  // Signed provider webhooks of the modules (WP4.2a).
+  await registerWebhookRoutes(app);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",

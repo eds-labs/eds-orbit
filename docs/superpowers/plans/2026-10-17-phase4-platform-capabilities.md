@@ -158,11 +158,46 @@ Risk class **high**: this is an authorization change. It is built and tested loc
 4. Management API and `GET /modules` access; web shell hides `none` modules; members matrix UI.
 5. Docs (`MODULE_ACTIVATION.md`, `SECURITY_REVIEW.md`), full checks, PR.
 
+## WP4.2 Public ingress (detailed)
+
+Risk class **high**: this is a new unauthenticated surface. It is built behind `ORBIT_PUBLIC_INGRESS` (default `false`; while off the routes answer 404 before parsing, like the Orbit Agents routes). Production gets the flag only after the security review in `docs/SECURITY_REVIEW.md` and Mario's approval. It ships in two PRs.
+
+**WP4.2a: signed provider webhooks (no new table).**
+- **Route.** `POST /api/hooks/:provider/:workspaceId/:projectId/:connectionId`.
+  - The path carries the project, as Slack's does, because row-level security makes an unscoped connection lookup impossible.
+  - JSON only (415 otherwise), 256 KB maximum (413).
+  - Exempt from the Origin check; no cookies are read.
+  - Rate-limited per connection: 120 requests per minute.
+- **Contract.** `ModuleContributions.webhooks[provider] = { connectionProvider, verify({ rawBody, headers, credential, now }), messageId({ body, headers }), queueClass }`.
+  - The platform owns the route.
+  - The module owns signature checking and processing.
+  - Provider names are unique across modules.
+- **Flow.** Inside the project's transaction, in this order:
+  1. find the connection; it must belong to that provider (404 otherwise);
+  2. verify the signature over the raw body (401, audited `webhook.rejected`);
+  3. read the message id (400 without one);
+  4. refuse a seen message id (409 `DUPLICATE_MESSAGE`, audited `webhook.duplicate`, no new job);
+  5. store the message as the platform kind `inbound_webhooks` (not exported);
+  6. enqueue the module's queue class;
+  7. answer 200 at once.
+  
+  The project lock serializes duplicates.
+- **Consumer.** The fixture module `tasks` contributes a webhook provider (HMAC-SHA256) and its job, which creates a task. Slack and Telegram stay on their own routes for now; moving them is a follow-up once the pattern is proven.
+- **Tests:** flag off; unknown provider, connection or foreign connection; forged signature; wrong content type; oversized body; valid message stored and processed; replay refused; per-connection rate limit; sessions and the Origin check unchanged.
+
+**WP4.2b: public module API (next PR).**
+- Platform table `PublicClientKey(projectId, moduleId, publicKey, allowedOrigins, revokedAt)`, readable by `orbit_auth` for the unscoped lookup.
+- `/api/public/<module>/:publicKey/...`:
+  - CORS from the key's allowed origins (`@fastify/cors`, registered for this prefix only);
+  - a per-session bearer token stored hashed, no cookies;
+  - rate limits per key and per session.
+- A module contributes `publicRoutes`; the fixture module uses them.
+- Tests: unknown or revoked key, disallowed origin and CORS preflight, missing or expired token, rate limits.
+
 ## WP4.2–WP4.7 (outline; each gets a detailed plan before it starts)
 
 | WP | Content | Gate before starting |
 |---|---|---|
-| 4.2 Public ingress | `/api/hooks/:provider/:connectionId` (signature, store, enqueue, idempotent) and `/api/public/<module>/:publicKey/...` (CORS per key, session token, no cookies); per-client rate limits | Security review plan; F-02 fix is live |
 | 4.6 Files | `File` table with FORCE RLS, S3-compatible adapter (own bucket and credentials), streaming upload, authorized download, retention | Mario approves the bucket and credentials (Q-19) |
 | 4.7 E-mail and notifications | Provider adapter (send, inbound via 4.2, bounces), `Notification` and preferences, in-app bell, e-mail channel | Mario chooses the provider (Q-16); DNS change |
 

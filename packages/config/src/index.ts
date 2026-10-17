@@ -50,6 +50,8 @@ export const configSchema = z.object({
   ORBIT_MODULES: z.enum(["false", "true"]).default("false"),
   // Module-level roles (WP4.5): off until the security review and approval.
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
+  // Public ingress (WP4.2): signed provider webhooks; off until the security review.
+  ORBIT_PUBLIC_INGRESS: z.enum(["false", "true"]).default("false"),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

@@ -40,6 +40,12 @@ export const platformDeclaration: PlatformDeclaration = {
       description: "Pending Google Drive OAuth state",
       exported: false,
     },
+    {
+      kind: "inbound_webhooks",
+      description:
+        "Signed provider webhooks received through the platform (WP4.2)",
+      exported: false,
+    },
   ],
   tables: [
     "_prisma_migrations",

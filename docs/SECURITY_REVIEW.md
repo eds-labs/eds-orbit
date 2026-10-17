@@ -86,6 +86,26 @@ No cross-project bypass was identified in the reviewed scoped paths; local role/
    - A job a member queued before losing module access still runs once.
    - Telegram callbacks are owner-only.
 
+## Public ingress: signed webhooks (WP4.2a, prepared 2026-10-17; review open)
+
+`ORBIT_PUBLIC_INGRESS` stays `false` in production until this review is done and Mario approves the flag. While off, `POST /api/hooks/...` answers 404 in the first hook, before body parsing. What the review checks:
+
+1. **Authentication.**
+   - Only a valid signature from the connection's own secret is accepted; the module's `verify` uses a constant-time comparison.
+   - A connection of another provider or another project is a 404, so the response reveals nothing about which ids exist.
+2. **Replay.**
+   - The provider's message id is unique per connection. The check runs under the project lock, so it is exact; a replay is a 409, audited, with no second job.
+3. **Limits.**
+   - JSON only (415), 256 KB (413).
+   - 120 requests per minute per connection, independent of the sender's address.
+   - Processing runs in the worker.
+4. **Surface.**
+   - The Origin exemption matches only the exact path pattern: a provider name and three lowercase UUIDs.
+   - No cookie or session is read, and every other write keeps the Origin check (tested).
+5. **Data.**
+   - Stored messages are the platform kind `inbound_webhooks`, excluded from the export.
+   - Retention for these rows is a follow-up before a real provider uses the route.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

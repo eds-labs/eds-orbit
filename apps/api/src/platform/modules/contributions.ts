@@ -85,6 +85,31 @@ export type ModuleContributions = {
    * (WP4.1); an action without one needs the writer level.
    */
   actionPermissions?: Readonly<Record<string, PermissionDef>>;
+  /**
+   * Signed provider webhooks the module receives through the platform's
+   * POST /api/hooks/:provider/... route (WP4.2), by provider name.
+   */
+  webhooks?: Readonly<Record<string, WebhookProvider>>;
+};
+
+/** A provider whose signed webhooks a module processes (WP4.2). */
+export type WebhookProvider = {
+  /** The connection provider whose connection holds the signing secret. */
+  connectionProvider: string;
+  /** True when the signature over the raw body is valid for the credential. */
+  verify(input: {
+    rawBody: string;
+    headers: Readonly<Record<string, string | undefined>>;
+    credential: string;
+    now: Date;
+  }): boolean;
+  /** The provider's id of the message, for idempotency; null rejects it. */
+  messageId(input: {
+    body: unknown;
+    headers: Readonly<Record<string, string | undefined>>;
+  }): string | null;
+  /** The worker queue class that processes the stored message. */
+  queueClass: string;
 };
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
@@ -114,6 +139,7 @@ type Registered = {
     ConnectionProvider & { owner: string }
   >;
   actionPermissions: ReadonlyMap<string, PermissionDef>;
+  webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
     tools: ReadonlyMap<string, string>;
@@ -243,6 +269,20 @@ export function registerContributions(
         );
       actionPermissions.set(name, permission);
     }
+  // Webhook providers: unique names, a queue class that exists.
+  const webhooks = new Map<string, WebhookProvider & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const [name, provider] of Object.entries(c.webhooks ?? {})) {
+      if (!/^[a-z][a-z0-9_-]{1,30}$/.test(name))
+        problems.push(`invalid webhook provider ${name}`);
+      if (webhooks.has(name))
+        problems.push(`webhook provider ${name} registered twice`);
+      if (!jobs.has(provider.queueClass))
+        problems.push(
+          `webhook provider ${name} uses unknown queue class ${provider.queueClass}`,
+        );
+      webhooks.set(name, { ...provider, owner });
+    }
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -258,6 +298,7 @@ export function registerContributions(
     notifications,
     connectionProviders,
     actionPermissions,
+    webhooks,
     owners,
   };
 }
@@ -383,6 +424,11 @@ export function workerStartHooks(): Array<() => void> {
   return [...current().byModule.values()]
     .map((c) => c.onWorkerStart)
     .filter((h): h is () => void => Boolean(h));
+}
+
+/** A webhook provider with its owner, or undefined for an unknown name. */
+export function registeredWebhook(name: string) {
+  return current().webhooks.get(name);
 }
 
 /** The permission a module declared for its action, or undefined. */

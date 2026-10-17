@@ -22,6 +22,7 @@ Object.assign(process.env, {
   ORBIT_TOOL_SEARCH: "true",
   ORBIT_MODULES: "true",
   ORBIT_MODULE_ROLES: "true",
+  ORBIT_PUBLIC_INGRESS: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
@@ -41,6 +42,8 @@ const PUBLIC_ROUTES = [
   "GET /health",
   "POST /api/setup",
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
+  // Signed provider webhooks (WP4.2a): the signature authenticates.
+  "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
 ];
 // The collection name is validated before the session: an unknown one is a 400
 // for everybody and reveals nothing about the project.
