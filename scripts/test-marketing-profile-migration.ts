@@ -4,9 +4,11 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { Client } from "pg";
 import { spawnSync } from "node:child_process";
+import { isLocalTestDatabase, loadWorktreeTestEnv } from "./test-database.ts";
 
 const require = createRequire(import.meta.url);
 if (existsSync(".runtime/local.env")) process.loadEnvFile(".runtime/local.env");
+loadWorktreeTestEnv();
 const required = (key: string) => {
   const value = process.env[key];
   if (!value) throw new Error(`${key} is required`);
@@ -18,11 +20,7 @@ const sourceUrls = {
   auth: new URL(required("TEST_AUTH_DATABASE_URL")),
 };
 for (const url of Object.values(sourceUrls)) {
-  if (
-    url.hostname !== "127.0.0.1" ||
-    url.port !== "55432" ||
-    url.pathname !== "/orbit_test"
-  )
+  if (!isLocalTestDatabase(url))
     throw new Error("Isolated Orbit test database configuration required");
 }
 if (
