@@ -1,12 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { readModuleSettings } from "../../platform/modules/settings.ts";
 import { audit, DomainError } from "../../shared.ts";
 import type { NormalizedInbound, SupportChannel } from "./channels/adapter.ts";
 import { requireSupport } from "./gate.ts";
 import { loadInbox } from "./inboxes.ts";
-import { supportSettingsDefaults, supportSettingsSchema } from "./settings.ts";
+import {
+  attachFiles,
+  dueTimes,
+  supportFiles,
+  supportSettings,
+  ticketEvent,
+} from "./common.ts";
 
 // Ticket creation (WP5.1): the one entry the channels use for a new
 // conversation. Runs in the caller's project transaction, which holds the
@@ -14,7 +19,6 @@ import { supportSettingsDefaults, supportSettingsSchema } from "./settings.ts";
 // Message text, subjects and addresses stay in the support tables; audit and
 // event rows carry ids and field values only (Q-12a).
 
-const MINUTE = 60_000;
 const SUBJECT_MAX = 300;
 
 export type CreatedTicket = {
@@ -152,14 +156,13 @@ export async function createTicket(
     input.channel,
     inbound.contact,
   );
-  const { settings } = await readModuleSettings(
+  const settings = await supportSettings(tx, scope);
+  // Adapters store files first; only live support files of the project count.
+  const files = await supportFiles(
     tx,
     scope,
-    "support",
-    supportSettingsSchema,
-    supportSettingsDefaults,
+    inbound.attachments.map((a) => a.fileId),
   );
-  const sla = settings.sla.normal;
   // Never max(number)+1: a deleted newest ticket must not hand on its number.
   const counter = await tx.supportTicketCounter.upsert({
     where: { projectId: scope.projectId },
@@ -176,10 +179,7 @@ export async function createTicket(
       subject: inbound.subject.trim().slice(0, SUBJECT_MAX) || "(no subject)",
       category: inbox.defaultCategory,
       channel: input.channel,
-      firstResponseDueAt: new Date(
-        now.getTime() + sla.firstResponseMinutes * MINUTE,
-      ),
-      resolutionDueAt: new Date(now.getTime() + sla.resolutionMinutes * MINUTE),
+      ...dueTimes(settings, "normal", now),
       lastCustomerMessageAt: now,
       createdAt: now,
     },
@@ -199,34 +199,26 @@ export async function createTicket(
       createdAt: now,
     },
   });
-  for (const file of inbound.attachments)
-    await tx.supportAttachment.create({
-      data: {
-        id: randomUUID(),
-        ...base,
-        messageId: message.id,
-        fileId: file.fileId,
-        name: file.name.slice(0, 200),
-        mime: file.mime,
-        size: file.size,
-      },
-    });
-  await tx.supportTicketEvent.create({
-    data: {
-      id: randomUUID(),
-      ...base,
-      ticketId: ticket.id,
-      type: "created",
-      actorKind: "contact",
-      actorId: contactId,
-      before: {},
-      after: {
-        status: ticket.status,
-        priority: ticket.priority,
-        category: ticket.category,
-      },
-      createdAt: now,
+  await attachFiles(
+    tx,
+    scope,
+    message.id,
+    files.map((file, i) => ({
+      ...file,
+      name: inbound.attachments[i]!.name || file.name,
+    })),
+  );
+  await ticketEvent(tx, scope, {
+    ticketId: ticket.id,
+    type: "created",
+    actorKind: "contact",
+    actorId: contactId,
+    after: {
+      status: ticket.status,
+      priority: ticket.priority,
+      category: ticket.category,
     },
+    createdAt: now,
   });
   await audit(tx, scope, "support.ticket.created", ticket.id, {
     ticketId: ticket.id,

@@ -18,18 +18,41 @@ import {
   updateInbox,
 } from "./inboxes.ts";
 import {
+  SUPPORT_CONTACTS_MANAGE,
+  SUPPORT_NOTES_WRITE,
   SUPPORT_SETTINGS_MANAGE,
+  SUPPORT_TICKETS_ASSIGN,
   SUPPORT_TICKETS_READ,
+  SUPPORT_TICKETS_REPLY,
 } from "./permissions.ts";
+import { supportAgents } from "./agents.ts";
+import {
+  contactDetail,
+  listContacts,
+  listTickets,
+  mergeContact,
+  mergeTicket,
+  noteOnTicket,
+  replyToTicket,
+  ticketDetail,
+  updateContact,
+  updateTicket,
+} from "./workspace.ts";
 import { supportSettingsDefaults, supportSettingsSchema } from "./settings.ts";
 
 const BASE = "/api/projects/:projectId/support";
 const inboxId = z.uuid();
+const recordId = z.uuid();
 const settingsInput = z
   .object({ settings: z.unknown(), version: z.number().int().min(1) })
   .strict();
 
-type Params = { projectId: string; inboxId?: string };
+type Params = {
+  projectId: string;
+  inboxId?: string;
+  ticketId?: string;
+  contactId?: string;
+};
 
 /**
  * Runs a support handler: the member's permission in the module first, then
@@ -49,8 +72,65 @@ async function inSupport<T>(
   });
 }
 
-/** Support settings and inbox management (WP5.1). */
+/** Support settings, inboxes (WP5.1) and the agent workspace (WP5.2). */
 export const supportRoutes: RoutesContribution = ({ app, auth }) => {
+  const ticket = (p: Params) => recordId.parse(p.ticketId);
+  const contact = (p: Params) => recordId.parse(p.contactId);
+  app.get(`${BASE}/tickets`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope) =>
+      listTickets(tx, scope, req.query ?? {}),
+    ),
+  );
+  app.get(`${BASE}/tickets/:ticketId`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope, p) =>
+      ticketDetail(tx, scope, ticket(p)),
+    ),
+  );
+  app.post(`${BASE}/tickets/:ticketId/replies`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_REPLY, (tx, scope, p) =>
+      replyToTicket(tx, scope, ticket(p), req.body),
+    ),
+  );
+  app.post(`${BASE}/tickets/:ticketId/notes`, (req) =>
+    inSupport(auth, req, SUPPORT_NOTES_WRITE, (tx, scope, p) =>
+      noteOnTicket(tx, scope, ticket(p), req.body),
+    ),
+  );
+  app.patch(`${BASE}/tickets/:ticketId`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_ASSIGN, (tx, scope, p) =>
+      updateTicket(tx, scope, ticket(p), req.body),
+    ),
+  );
+  app.post(`${BASE}/tickets/:ticketId/merge`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_ASSIGN, (tx, scope, p) =>
+      mergeTicket(tx, scope, ticket(p), req.body),
+    ),
+  );
+  app.get(`${BASE}/contacts`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope) =>
+      listContacts(tx, scope, req.query ?? {}),
+    ),
+  );
+  app.get(`${BASE}/contacts/:contactId`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope, p) =>
+      contactDetail(tx, scope, contact(p)),
+    ),
+  );
+  app.patch(`${BASE}/contacts/:contactId`, (req) =>
+    inSupport(auth, req, SUPPORT_CONTACTS_MANAGE, (tx, scope, p) =>
+      updateContact(tx, scope, contact(p), req.body),
+    ),
+  );
+  app.post(`${BASE}/contacts/:contactId/merge`, (req) =>
+    inSupport(auth, req, SUPPORT_CONTACTS_MANAGE, (tx, scope, p) =>
+      mergeContact(tx, scope, contact(p), req.body),
+    ),
+  );
+  app.get(`${BASE}/agents`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, async (_tx, scope) => ({
+      items: await supportAgents(scope),
+    })),
+  );
   app.get(`${BASE}/settings`, (req) =>
     inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope) =>
       readModuleSettings(
