@@ -221,6 +221,10 @@ describe.skipIf(!enabled)("member notifications", () => {
       status: "queued",
     });
     // No access to the module: no notice either.
+    expect(await notify([ids.editor], "Before")).toEqual({
+      inApp: 1,
+      email: 0,
+    });
     process.env.ORBIT_MODULE_ROLES = "true";
     await authDb.projectMemberModuleRole.create({
       data: {
@@ -234,6 +238,11 @@ describe.skipIf(!enabled)("member notifications", () => {
     expect(await notify([ids.editor], "Hidden")).toEqual({
       inApp: 0,
       email: 0,
+    });
+    // Notices from before the change are hidden too, and do not count.
+    expect((await call("editor", "GET", "/notifications")).json()).toEqual({
+      unread: 0,
+      items: [],
     });
   });
 

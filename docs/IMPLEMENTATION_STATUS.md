@@ -337,6 +337,7 @@ Branch `claude/wp45-module-roles`. Plan: `docs/superpowers/plans/2026-10-17-phas
   - `module-roles-assistant.integration.test.ts`: tools and a forged call.
   - Shell and form unit tests; the RLS matrix includes the new table.
 - **Production.** Migration and flag need Mario's approval; the flag also needs the security review (`docs/SECURITY_REVIEW.md`). The migration alone changes nothing.
+- **Security review (2026-10-17, done).** It found four holes in platform entry points: action request decisions (MR-1, high), the export (MR-2), the dashboard (MR-3) and old notices (MR-4). All four are fixed with tests in the review PR. The flag can go on after that PR is live. Findings and observations are in `docs/SECURITY_REVIEW.md`.
 
 ## Project lock measurement: WP4.3 Part A (2026-10-17, local)
 

@@ -86,11 +86,14 @@ With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a ro
 - `editor` or `viewer` replaces the project role in that module;
 - `none` hides the module for that member, like switching it off for them alone.
 
-**Where it applies.** The same places as activation:
+**Where it applies.** The places activation covers, and a few more:
 - module routes, actions and collections (`MODULE_NOT_AVAILABLE` for `none`);
 - assistant tools and prompt fragments;
 - conversation sections;
-- the shell (`GET /modules` returns `access`).
+- the shell (`GET /modules` returns `access`);
+- platform files, by the file's module;
+- decisions on action requests, by the action type's module;
+- the export, the dashboard and the member's notification list, which leave out the module's records.
 
 **Rules.**
 - Owners always keep their role.
