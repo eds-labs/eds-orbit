@@ -104,6 +104,8 @@ describe("module contributions", () => {
       "drive_connection",
       "drive_oauth_state",
       "evidence",
+      // Raw provider webhooks (WP4.2a): operational data, never exported.
+      "inbound_webhooks",
       "telegram_connections",
     ]);
   });
