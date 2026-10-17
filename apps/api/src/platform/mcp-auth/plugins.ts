@@ -9,6 +9,7 @@ import { jwt } from "better-auth/plugins";
 import { cimd } from "@better-auth/cimd";
 import { fetchClientMetadataResource } from "@better-auth/cimd/node";
 import { mcp, type McpOptions } from "@better-auth/mcp";
+import { verifyOAuthQueryParams } from "@better-auth/oauth-provider";
 import type { Config } from "../../../../../packages/config/src/index.ts";
 
 // Orbit as OAuth 2.1 authorization server for MCP clients (Track M, WP-M1).
@@ -27,6 +28,13 @@ export const MCP_SCOPES = [
 
 /** Access-token claim naming the workspace the user granted (consent referenceId). */
 export const ORBIT_WORKSPACE_CLAIM = "orbit_workspace_id";
+
+/**
+ * Consent reference used while the session's selection is still pending. No
+ * consent is ever stored under it, so Better Auth always shows the consent
+ * page instead of issuing a code for a grant that is not active.
+ */
+export const PENDING_REFERENCE_PREFIX = "pending:";
 
 type PostLoginArgs = { session: { id: string }; user: { id: string } };
 
@@ -107,7 +115,9 @@ export function mcpAuthPluginOptions(config: Config, deps: McpAuthDeps) {
         deps.consentReference({ session, user }),
     },
     customAccessTokenClaims: ({ referenceId }) =>
-      typeof referenceId === "string" && referenceId !== ""
+      typeof referenceId === "string" &&
+      referenceId !== "" &&
+      !referenceId.startsWith(PENDING_REFERENCE_PREFIX)
         ? { [ORBIT_WORKSPACE_CLAIM]: referenceId }
         : {},
     allowDynamicClientRegistration: dcr,
@@ -136,14 +146,26 @@ export function mcpAuthPlugins(config: Config, deps: McpAuthDeps) {
 
 /** Grant bookkeeping the global hooks hand off to (implemented in grants.ts). */
 export type McpHookDeps = {
-  /** A consent was answered; the client comes from the provider's request state. */
-  onConsent: (args: {
+  /**
+   * The user accepted the consent page (before the provider stores consent
+   * and issues the code): the session's selection must become active here.
+   */
+  onConsentAccepted: (args: {
     userId: string;
     sessionId: string;
-    accepted: boolean;
-    scope?: string;
+    clientId: string;
+    scopes: string[];
   }) => Promise<void>;
-  /** An authorization code went to the client for this session's authorization. */
+  /** The user denied; the client comes from the provider's request state. */
+  onConsentDenied: (args: {
+    userId: string;
+    sessionId: string;
+  }) => Promise<void>;
+  /**
+   * An authorization code went to the client for this session's
+   * authorization. Throws (an APIError) unless the selection is active, which
+   * withholds the code.
+   */
   onCodeIssued: (args: { sessionId: string }) => Promise<void>;
   /** A rotated refresh token was replayed after the reuse window. */
   onRefreshReplay: (args: {
@@ -209,7 +231,8 @@ function carriesCode(target: string | undefined) {
  *   (the library would otherwise issue an opaque token without audience);
  * - before `/oauth2/token` (refresh): remembers who owns a presented, already
  *   rotated refresh token, because the library deletes the family on replay;
- * - after: hands consent answers, issued codes and refresh replays to `deps`.
+ * - before `/oauth2/consent` (accepted): activates the session's selection;
+ * - after: hands denials, issued codes and refresh replays to `deps`.
  */
 export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
   const presentedRefresh = new WeakMap<
@@ -233,6 +256,43 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
             error: "invalid_target",
             error_description: "resource must be the Orbit MCP resource",
           });
+        return;
+      }
+      if (ctx.path === "/oauth2/consent") {
+        // Activate before the provider stores consent and issues the code, so
+        // a code is only ever issued for an active grant. Requests the
+        // provider will reject (bad signature, scope not requested, claims)
+        // are left to it and activate nothing.
+        const body = ctx.body as {
+          accept?: unknown;
+          oauth_query?: unknown;
+          scope?: unknown;
+          claims?: unknown;
+        };
+        if (
+          body?.accept !== true ||
+          typeof body.oauth_query !== "string" ||
+          body.claims !== undefined ||
+          !(await verifyOAuthQueryParams(body.oauth_query, ctx.context.secret))
+        )
+          return;
+        const query = new URLSearchParams(body.oauth_query);
+        const clientId = query.get("client_id");
+        const requested = (query.get("scope") ?? "").split(" ").filter(Boolean);
+        const scopes =
+          typeof body.scope === "string"
+            ? body.scope.split(" ").filter(Boolean)
+            : requested;
+        if (!clientId || scopes.some((scope) => !requested.includes(scope)))
+          return;
+        const session = await getSessionFromCtx(ctx);
+        if (!session) return;
+        await deps.onConsentAccepted({
+          userId: session.user.id,
+          sessionId: session.session.id,
+          clientId,
+          scopes,
+        });
         return;
       }
       if (ctx.path !== "/oauth2/token" || !ctx.request) return;
@@ -283,24 +343,14 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
       if (!mayIssueCode(ctx) || oauthError(returned)) return;
       const target = redirectTarget(returned, ctx.context.responseHeaders);
       const consentAnswered = ctx.path === "/oauth2/consent";
-      if (!consentAnswered && !carriesCode(target)) return;
+      const denied =
+        consentAnswered && (ctx.body as { accept?: unknown })?.accept !== true;
+      if (!denied && !carriesCode(target)) return;
       const session = await getSessionFromCtx(ctx);
       if (!session) return;
       const sessionId = session.session.id;
-      if (consentAnswered) {
-        const body = ctx.body as { accept?: unknown; scope?: unknown };
-        const accepted = body?.accept === true;
-        // An accepted consent that did not end in a code (e.g. a fresh login
-        // is required first) activates nothing yet.
-        if (accepted && !carriesCode(target)) return;
-        await deps.onConsent({
-          userId: session.user.id,
-          sessionId,
-          accepted,
-          ...(typeof body?.scope === "string" ? { scope: body.scope } : {}),
-        });
-        if (!accepted) return;
-      }
+      if (denied)
+        return deps.onConsentDenied({ userId: session.user.id, sessionId });
       await deps.onCodeIssued({ sessionId });
     }),
   };

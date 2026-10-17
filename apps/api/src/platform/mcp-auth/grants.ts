@@ -7,7 +7,11 @@ import {
 } from "../../../../../packages/db/src/index.ts";
 import { DomainError } from "../shared.ts";
 import { recordGrantEvent } from "./events.ts";
-import type { McpAuthDeps, McpHookDeps } from "./plugins.ts";
+import {
+  PENDING_REFERENCE_PREFIX,
+  type McpAuthDeps,
+  type McpHookDeps,
+} from "./plugins.ts";
 
 // MCP grants (Track M, WP-M1): which workspace, projects and scopes a user
 // gave an MCP client. A grant only narrows what the user may do in the UI; it
@@ -16,9 +20,14 @@ import type { McpAuthDeps, McpHookDeps } from "./plugins.ts";
 // Lifecycle:
 // - The selection on /connect is a grant row bound to the browser session
 //   (`sessionId`). Without an active grant for (user, client, workspace) it is
-//   `pending` for SELECTION_TTL_SECONDS and an accepted consent activates it.
-//   With an active grant the selection replaces it at once (the stored consent
-//   usually covers the request, so Better Auth skips the consent page).
+//   `pending` for SELECTION_TTL_SECONDS and an accepted consent activates it
+//   (before the provider stores the consent and issues the code). With an
+//   active grant the selection replaces it at once (the stored consent usually
+//   covers the request, so Better Auth skips the consent page).
+// - A code is only issued for an active selection: a pending one answers the
+//   consent reference with a placeholder no consent is stored under, so the
+//   consent page always runs, and a code seen for anything but an active
+//   selection is withheld.
 // - Issuing the authorization code consumes the selection: `sessionId` is
 //   cleared, so a later authorization in the same session selects again.
 // - Revocation (Task 5) and denial set `revoked`; rows are never deleted here.
@@ -91,8 +100,7 @@ const isUniqueViolation = (error: unknown) =>
 /**
  * Records the workspace/project selection for the client named by the signed
  * OAuth query. Replaces an active grant for (user, client, workspace) at once;
- * otherwise creates a pending grant and drops any stale stored consent for
- * that reference, so the consent step runs.
+ * otherwise creates a pending grant, which the consent step must activate.
  */
 export async function recordSelection(input: {
   userId: string;
@@ -171,14 +179,6 @@ export async function recordSelection(input: {
         );
         return grant;
       }
-      // Without an active grant a stored consent for this reference is stale.
-      await tx.oauthConsent.deleteMany({
-        where: {
-          clientId: input.clientId,
-          userId: input.userId,
-          referenceId: input.workspaceId,
-        },
-      });
       const grant = await tx.mcpGrant.create({
         data: {
           ...base,
@@ -208,12 +208,18 @@ export async function recordSelection(input: {
 }
 
 /**
- * The workspace of this session's current selection for the client; Better
- * Auth's consent reference. Idempotent: it is asked up to three times per
- * authorization.
+ * Better Auth's consent reference for this session's current selection: the
+ * workspace when the selection is an active grant, otherwise a placeholder
+ * under which no consent is ever stored, so the consent page runs instead of
+ * a code being issued. Undefined without a selection. Idempotent: it is asked
+ * up to three times per authorization.
  */
 export async function pendingReference(sessionId: string, clientId: string) {
-  return (await currentSelection(authDb, sessionId, clientId))?.workspaceId;
+  const selection = await currentSelection(authDb, sessionId, clientId);
+  if (!selection) return undefined;
+  return selection.status === "active"
+    ? selection.workspaceId
+    : `${PENDING_REFERENCE_PREFIX}${selection.id}`;
 }
 
 /** Whether this session holds an unconsumed selection for the client. */
@@ -349,14 +355,43 @@ export async function denyGrant(input: {
   });
 }
 
-/** The authorization code was issued: the session's selection for the client is used up. */
+/**
+ * The authorization code was issued: the session's selection for the client
+ * is used up. Only an active selection may end in a code; anything else is
+ * refused (the caller withholds the code). Older pending selections of the
+ * same session and client are closed as `superseded`.
+ */
 export async function consumeSelection(input: {
   sessionId: string;
   clientId: string;
 }) {
-  await authDb.mcpGrant.updateMany({
-    where: { sessionId: input.sessionId, clientId: input.clientId },
-    data: { sessionId: null },
+  const now = new Date();
+  return authDb.$transaction(async (tx) => {
+    const selection = await currentSelection(
+      tx,
+      input.sessionId,
+      input.clientId,
+      now,
+    );
+    if (selection?.status !== "active") return false;
+    await tx.mcpGrant.update({
+      where: { id: selection.id },
+      data: { sessionId: null },
+    });
+    await tx.mcpGrant.updateMany({
+      where: {
+        sessionId: input.sessionId,
+        clientId: input.clientId,
+        status: "pending",
+      },
+      data: {
+        status: "revoked",
+        revokedAt: now,
+        revokedBy: "superseded",
+        sessionId: null,
+      },
+    });
+    return true;
   });
 }
 
@@ -437,33 +472,43 @@ export function grantPostLogin(): Pick<
   };
 }
 
+const grantConflict = () =>
+  new APIError("CONFLICT", {
+    error: "grant_conflict",
+    error_description: "another authorization changed this grant",
+  });
+
 /** Grant bookkeeping for the provider's consent, code and refresh events. */
 export function grantHookDeps(): McpHookDeps {
   return {
-    onConsent: async ({ userId, sessionId, accepted, scope }) => {
-      const request = await providerRequest();
-      if (!request) throw setWorkspace();
-      const { clientId } = request;
-      if (!accepted) return denyGrant({ userId, sessionId, clientId });
-      const scopes = (scope ?? request.scope ?? "").split(" ").filter(Boolean);
+    onConsentAccepted: async (input) => {
       try {
-        await activateGrant({ userId, sessionId, clientId, scopes });
+        await activateGrant(input);
       } catch (error) {
         // Inside a Better Auth hook only an APIError becomes an OAuth answer.
         if (error instanceof DomainError && error.code === "NO_SELECTION")
           throw setWorkspace();
         if (error instanceof DomainError && error.code === "GRANT_CONFLICT")
-          throw new APIError("CONFLICT", {
-            error: "grant_conflict",
-            error_description: "another authorization changed this grant",
-          });
+          throw grantConflict();
         throw error;
       }
     },
+    onConsentDenied: async ({ userId, sessionId }) => {
+      const request = await providerRequest();
+      if (!request) throw setWorkspace();
+      await denyGrant({ userId, sessionId, clientId: request.clientId });
+    },
     onCodeIssued: async ({ sessionId }) => {
       const request = await providerRequest();
-      if (request)
-        await consumeSelection({ sessionId, clientId: request.clientId });
+      const consumed = request
+        ? await consumeSelection({ sessionId, clientId: request.clientId })
+        : false;
+      // Fail closed: the code never reaches the client without an active grant.
+      if (!consumed)
+        throw new APIError("BAD_REQUEST", {
+          error: "consent_required",
+          error_description: "the selection is not an active grant",
+        });
     },
     onRefreshReplay: recordRefreshReplay,
   };

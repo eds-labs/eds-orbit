@@ -36,6 +36,8 @@ const CLIENT_ID = "https://client.test/client.json";
 const OTHER_CLIENT_ID = "https://client.test/other.json";
 const DENY_CLIENT_ID = "https://client.test/deny.json";
 const EXPIRED_CLIENT_ID = "https://client.test/expired.json";
+const TWO_SESSIONS_CLIENT_ID = "https://client.test/two-sessions.json";
+const FAILED_CONSENT_CLIENT_ID = "https://client.test/failed-consent.json";
 const PKJWT_CLIENT_ID = "https://client.test/pkjwt.json";
 const REDIRECT_URI = "https://client.test/cb";
 const SCOPES = "openid email profile offline_access orbit:read orbit:propose";
@@ -80,6 +82,8 @@ const documents: Record<string, Json> = {
   [OTHER_CLIENT_ID]: metadata(OTHER_CLIENT_ID),
   [DENY_CLIENT_ID]: metadata(DENY_CLIENT_ID),
   [EXPIRED_CLIENT_ID]: metadata(EXPIRED_CLIENT_ID),
+  [TWO_SESSIONS_CLIENT_ID]: metadata(TWO_SESSIONS_CLIENT_ID),
+  [FAILED_CONSENT_CLIENT_ID]: metadata(FAILED_CONSENT_CLIENT_ID),
   [PKJWT_CLIENT_ID]: metadata(PKJWT_CLIENT_ID, {
     token_endpoint_auth_method: "private_key_jwt",
     jwks: { keys: [clientKey.jwk] },
@@ -187,6 +191,8 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   let config: ReturnType<typeof loadConfig>;
   let cookie: string;
+  /** A second session of the same user. */
+  let secondCookie: string;
   let userId: string;
   let sessionId: string;
   let workspaceId: string, emptyWorkspaceId: string, foreignWorkspaceId: string;
@@ -198,6 +204,8 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     OTHER_CLIENT_ID,
     DENY_CLIENT_ID,
     EXPIRED_CLIENT_ID,
+    TWO_SESSIONS_CLIENT_ID,
+    FAILED_CONSENT_CLIENT_ID,
     PKJWT_CLIENT_ID,
   ];
 
@@ -326,6 +334,17 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
       }).toString(),
     });
 
+  /** Runs `fn` as the user's second session. */
+  async function inSecondSession<T>(fn: () => Promise<T>) {
+    const first = cookie;
+    cookie = secondCookie;
+    try {
+      return await fn();
+    } finally {
+      cookie = first;
+    }
+  }
+
   const grants = (clientId = CLIENT_ID) =>
     authDb.mcpGrant.findMany({
       where: { userId, clientId },
@@ -396,17 +415,21 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     foreignProject = foreign.projects[0]!.id;
     workspaces.push(workspaceId, emptyWorkspaceId, foreignWorkspaceId);
 
-    const signIn = await inject({
-      method: "POST",
-      url: "/api/auth/sign-in/email",
-      session: false,
-      payload: { email, password },
-    });
-    expect(signIn.statusCode).toBe(200);
-    const set = signIn.headers["set-cookie"];
-    cookie = (Array.isArray(set) ? set : [set!])
-      .map((v) => v.split(";")[0])
-      .join("; ");
+    const signIn = async () => {
+      const r = await inject({
+        method: "POST",
+        url: "/api/auth/sign-in/email",
+        session: false,
+        payload: { email, password },
+      });
+      expect(r.statusCode).toBe(200);
+      const set = r.headers["set-cookie"];
+      return (Array.isArray(set) ? set : [set!])
+        .map((v) => v.split(";")[0])
+        .join("; ");
+    };
+    secondCookie = await signIn();
+    cookie = await signIn();
     const session = await inject({ url: "/api/auth/get-session" });
     sessionId = session.json().session.id;
   });
@@ -708,6 +731,82 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
       { replaced: granted!.id },
       { updated: true },
     ]);
+  });
+
+  it("a pending selection never yields a code through another session's consent", async () => {
+    // Session 1 selects project A and leaves the consent page open.
+    const first = await authorize({ client_id: TWO_SESSIONS_CLIENT_ID });
+    const selected = await select(queryOf(first.location!));
+    expect(new URL(selected.json().next, origin).pathname).toBe("/connect");
+    // Session 2 grants A and B; its consent is stored for the workspace.
+    const second = await inSecondSession(() =>
+      connect({
+        clientId: TWO_SESSIONS_CLIENT_ID,
+        selection: { projectIds: [projectA, projectB] },
+      }),
+    );
+    expect(second.final.searchParams.get("code")).toBeTruthy();
+    const [broad] = (await grants(TWO_SESSIONS_CLIENT_ID)).filter(
+      (g) => g.status === "active",
+    );
+    expect(broad!.projectIds.sort()).toEqual([projectA, projectB].sort());
+    // Session 1 authorizes again: its selection is still pending, so the
+    // stored consent of session 2 must not hand out a code; consent runs.
+    const again = await authorize({ client_id: TWO_SESSIONS_CLIENT_ID });
+    expect(again.location?.pathname).toBe("/connect");
+    expect(again.location?.searchParams.get("code")).toBeNull();
+    expect(again.location?.searchParams.get("ba_pl")).toBe(sessionId);
+    // Accepting makes session 1's narrower choice the one active grant.
+    const consented = await consent(queryOf(again.location!));
+    expect(consented.statusCode).toBe(200);
+    expect(
+      new URL(consented.json().redirect).searchParams.get("code"),
+    ).toBeTruthy();
+    const active = (await grants(TWO_SESSIONS_CLIENT_ID)).filter(
+      (g) => g.status === "active",
+    );
+    expect(active).toHaveLength(1);
+    expect(active[0]!.projectIds).toEqual([projectA]);
+    expect(
+      (await grants(TWO_SESSIONS_CLIENT_ID)).find((g) => g.id === broad!.id),
+    ).toMatchObject({ status: "revoked", revokedBy: "replaced" });
+    // No pending row of this flow is left behind a code.
+    expect(
+      (await grants(TWO_SESSIONS_CLIENT_ID)).filter(
+        (g) => g.status === "pending" && g.sessionId === null,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it("an accepted consent that ends without a code leaves no pending grant behind a later code", async () => {
+    const { location } = await authorize({
+      client_id: FAILED_CONSENT_CLIENT_ID,
+    });
+    const selected = await select(queryOf(location!));
+    const next = new URL(selected.json().next, origin);
+    expect(next.pathname).toBe("/connect");
+    // The client is disabled while the user consents: the library stores the
+    // consent, then its authorize pass fails without issuing a code.
+    await authDb.oauthClient.update({
+      where: { clientId: FAILED_CONSENT_CLIENT_ID },
+      data: { disabled: true },
+    });
+    const failed = await consent(queryOf(next));
+    const redirect =
+      failed.statusCode === 200 ? new URL(failed.json().redirect) : undefined;
+    expect(redirect?.searchParams.get("code") ?? null).toBeNull();
+    await authDb.oauthClient.update({
+      where: { clientId: FAILED_CONSENT_CLIENT_ID },
+      data: { disabled: false },
+    });
+    // The accepted consent activated the selection before the provider
+    // stored it, so the later code is backed by the one active grant.
+    const later = await authorize({ client_id: FAILED_CONSENT_CLIENT_ID });
+    expect(later.location?.searchParams.get("code")).toBeTruthy();
+    const rows = await grants(FAILED_CONSENT_CLIENT_ID);
+    expect(rows.filter((g) => g.status === "active")).toHaveLength(1);
+    expect(rows.filter((g) => g.status === "pending")).toHaveLength(0);
+    expect(rows.every((g) => g.sessionId === null)).toBe(true);
   });
 
   it("re-consent replaces the active grant", async () => {
