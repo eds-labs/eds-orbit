@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { oauthProviderAuthServerMetadata } from "@better-auth/oauth-provider";
 import type { Config } from "../../../../../packages/config/src/index.ts";
+import { isTrustedPeer } from "../../client-ip.ts";
 import { oauthApi } from "./plugins.ts";
 
 // HTTP surface of the OAuth authorization server (Track M, WP-M1): which
@@ -70,6 +71,42 @@ export function authRequestBody(
   )
     return req.body;
   return JSON.stringify(req.body);
+}
+
+/** Set by the web proxy only: the browser's own `Sec-Fetch-Mode`. */
+export const PROXY_SEC_FETCH_MODE_HEADER = "x-orbit-sec-fetch-mode";
+const FETCH_MODES = new Set([
+  "navigate",
+  "cors",
+  "no-cors",
+  "same-origin",
+  "websocket",
+]);
+
+/**
+ * The headers to hand to Better Auth. Node's fetch in the web proxy always
+ * sends `Sec-Fetch-Mode: cors`, and Better Auth answers a "browser fetch" with
+ * `{redirect:true,url}` JSON instead of a 302
+ * (`isBrowserFetchRequest` in @better-auth/core utils/fetch-metadata and
+ * `handleRedirect` in @better-auth/oauth-provider: only `sec-fetch-mode:
+ * cors` counts; `sec-fetch-dest` is not read). With the OAuth server on, the
+ * proxy's copy of the browser's real mode replaces it so an authorization
+ * opened by navigation gets its redirect. The copy is believed only from a
+ * trusted peer and only when it is a known value; with the header absent
+ * (direct calls) the headers are unchanged. The proxy-only header never
+ * reaches Better Auth.
+ */
+export function authRequestHeaders(config: OAuthFlags, req: FastifyRequest) {
+  const headers = fromNodeHeaders(req.headers);
+  if (config.ORBIT_MCP_OAUTH !== "true") return headers;
+  const proxied = headers
+    .get(PROXY_SEC_FETCH_MODE_HEADER)
+    ?.trim()
+    .toLowerCase();
+  headers.delete(PROXY_SEC_FETCH_MODE_HEADER);
+  if (proxied && FETCH_MODES.has(proxied) && isTrustedPeer(req))
+    headers.set("sec-fetch-mode", proxied);
+  return headers;
 }
 
 /** Sends a Web `Response` through Fastify; cookies keep their separate headers. */

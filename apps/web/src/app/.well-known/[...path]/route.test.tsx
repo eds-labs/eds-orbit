@@ -37,6 +37,7 @@ describe("well-known route", () => {
       cookie: "a=b",
       accept: "application/json",
       "x-forwarded-for": "198.51.100.4",
+      "sec-fetch-mode": "navigate",
     });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ issuer: "x" });
@@ -47,6 +48,7 @@ describe("well-known route", () => {
       .headers as Headers;
     expect(sent.get("accept")).toBe("application/json");
     expect(sent.get("x-orbit-client-ip")).toBe("198.51.100.4");
+    expect(sent.get("x-orbit-sec-fetch-mode")).toBe("navigate");
     expect(sent.has("authorization")).toBe(false);
     expect(sent.has("cookie")).toBe(false);
 

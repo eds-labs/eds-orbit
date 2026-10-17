@@ -80,6 +80,7 @@ import { authDb, scoped, jsonSafe } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import {
   authRequestBody,
+  authRequestHeaders,
   isOriginExemptOAuth,
   oauthAuthPaths,
   pathOf,
@@ -90,13 +91,7 @@ import { registerMcpConnectRoutes } from "./platform/mcp-auth/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { setFact } from "./platform/knowledge/engine.ts";
-import {
-  makeAuth,
-  renewedSessionCookies,
-  scopeFor,
-  userFor,
-  fromNodeHeaders,
-} from "./auth.ts";
+import { makeAuth, renewedSessionCookies, scopeFor, userFor } from "./auth.ts";
 import { clientIp, pinClientIpHeader } from "./client-ip.ts";
 import {
   data,
@@ -447,7 +442,7 @@ export async function buildServer(
         await auth.handler(
           new Request(new URL(req.url, config.APP_ORIGIN), {
             method: req.method,
-            headers: fromNodeHeaders(req.headers),
+            headers: authRequestHeaders(config, req),
             ...(body === undefined ? {} : { body }),
           }),
         ),

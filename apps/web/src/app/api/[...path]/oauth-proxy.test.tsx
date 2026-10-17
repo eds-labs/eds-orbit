@@ -68,6 +68,37 @@ describe("API proxy", () => {
     expect(sentHeaders().get("x-orbit-client-ip")).toBe("198.51.100.4");
   });
 
+  it("carries the browser's sec-fetch-mode in the proxy-only header on every path", async () => {
+    // Node's fetch always sends sec-fetch-mode: cors upstream, which would turn
+    // Better Auth's redirect for a browser navigation into JSON.
+    await call(GET, ["auth", "oauth2", "authorize"], {
+      headers: { "sec-fetch-mode": "navigate", "sec-fetch-dest": "document" },
+    });
+    expect(sentHeaders().get("x-orbit-sec-fetch-mode")).toBe("navigate");
+    expect(sentHeaders().has("sec-fetch-mode")).toBe(false);
+
+    for (const path of [["auth", "sign-in", "email"], ["projects"]]) {
+      fetchMock.mockClear();
+      await call(GET, path, { headers: { "sec-fetch-mode": "cors" } });
+      expect(sentHeaders().get("x-orbit-sec-fetch-mode")).toBe("cors");
+    }
+  });
+
+  it("drops a browser-supplied x-orbit-sec-fetch-mode and sets none without sec-fetch-mode", async () => {
+    await call(GET, ["auth", "oauth2", "authorize"], {
+      headers: { "x-orbit-sec-fetch-mode": "navigate" },
+    });
+    expect(sentHeaders().has("x-orbit-sec-fetch-mode")).toBe(false);
+    fetchMock.mockClear();
+    await call(GET, ["auth", "oauth2", "authorize"], {
+      headers: {
+        "x-orbit-sec-fetch-mode": "navigate",
+        "sec-fetch-mode": "cors",
+      },
+    });
+    expect(sentHeaders().get("x-orbit-sec-fetch-mode")).toBe("cors");
+  });
+
   it("rejects dot segments and answers 502 for an unusable upstream", async () => {
     expect((await call(GET, ["auth", ".."])).status).toBe(400);
     process.env.ORBIT_API_ORIGIN = "ftp://api.internal";

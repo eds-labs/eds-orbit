@@ -65,6 +65,12 @@ export async function forwardToApi(
     // Set by the proxy only; a value sent by the browser is not on the list.
     const client = clientIp(request);
     if (client) headers.set("x-orbit-client-ip", client);
+    // Node's fetch always sends `Sec-Fetch-Mode: cors` upstream, which makes
+    // Better Auth answer JSON instead of a 302 to a browser navigation. The
+    // browser's real value travels in a proxy-only header (sent for every
+    // path; the API reads it only under /api/auth/* with the OAuth server on).
+    const mode = request.headers.get("sec-fetch-mode");
+    if (mode) headers.set("x-orbit-sec-fetch-mode", mode);
     const upstream = await fetch(target, {
       method: request.method,
       headers,
