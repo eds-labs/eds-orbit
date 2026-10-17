@@ -1,4 +1,11 @@
 {
+  "DELETE /api/mcp-grants/{grantId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
   "GET /.well-known/oauth-authorization-server/api/auth": {
     "anonymous": "allowed:200",
     "outsider": "allowed:200",
@@ -33,6 +40,13 @@
     "viewer": "allowed:400",
     "editor": "allowed:400",
     "owner": "allowed:400"
+  },
+  "GET /api/mcp-grants": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
   },
   "GET /api/me": {
     "anonymous": "unauthenticated",
@@ -487,6 +501,13 @@
     "outsider": "allowed:200",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/workspaces/{workspaceId}/mcp-grants": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:200"
   },
   "GET /health": {

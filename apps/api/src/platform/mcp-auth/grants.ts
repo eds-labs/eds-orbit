@@ -8,6 +8,7 @@ import {
 import { DomainError } from "../shared.ts";
 import { recordGrantEvent } from "./events.ts";
 import {
+  ORBIT_WORKSPACE_CLAIM,
   PENDING_REFERENCE_PREFIX,
   type McpAuthDeps,
   type McpHookDeps,
@@ -30,10 +31,15 @@ import {
 //   selection is withheld.
 // - Issuing the authorization code consumes the selection: `sessionId` is
 //   cleared, so a later authorization in the same session selects again.
-// - Revocation (Task 5) and denial set `revoked`; rows are never deleted here.
+// - Revocation and denial set `revoked`; grant rows are never deleted here.
+//   Invariant: stored consent and refresh tokens for (user, client, workspace)
+//   exist only while an active grant does, so every path that ends an active
+//   grant also deletes them (`dropStoredAuthorization`).
 
 /** The signed OAuth query and the authorization code share this lifetime (codeExpiresIn). */
 export const SELECTION_TTL_SECONDS = 600;
+
+const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
 
 type Db = DbTx | typeof authDb;
 export type ProjectSelection = string[] | "all_current";
@@ -305,6 +311,26 @@ export async function activateGrant(input: {
 }
 
 /**
+ * Deletes what lets a client act for (user, workspace): the stored consent,
+ * the refresh tokens and any stored access tokens. Deleting the refresh rows
+ * also drops the cached reuse-window replay response, so a token rotated a
+ * moment ago cannot be replayed after this.
+ */
+async function dropStoredAuthorization(
+  tx: DbTx,
+  input: { userId: string; clientId: string; workspaceId: string },
+) {
+  const reference = {
+    clientId: input.clientId,
+    userId: input.userId,
+    referenceId: input.workspaceId,
+  };
+  await tx.oauthConsent.deleteMany({ where: reference });
+  await tx.oauthRefreshToken.deleteMany({ where: reference });
+  await tx.oauthAccessToken.deleteMany({ where: reference });
+}
+
+/**
  * Applies a denied consent: the current selection is revoked as `denied`
  * (also when it had replaced an active grant, together with that reference's
  * stored consent and refresh tokens), so it can never become active.
@@ -333,15 +359,12 @@ export async function denyGrant(input: {
           sessionId: null,
         },
       });
-      if (own.status === "active") {
-        const reference = {
-          clientId: input.clientId,
+      if (own.status === "active")
+        await dropStoredAuthorization(tx, {
           userId: input.userId,
-          referenceId: own.workspaceId,
-        };
-        await tx.oauthConsent.deleteMany({ where: reference });
-        await tx.oauthRefreshToken.deleteMany({ where: reference });
-      }
+          clientId: input.clientId,
+          workspaceId: own.workspaceId,
+        });
     }
     await recordGrantEvent(
       {
@@ -507,4 +530,174 @@ export function grantHookDeps(): McpHookDeps {
     },
     onRefreshReplay: recordRefreshReplay,
   };
+}
+
+/**
+ * Revokes an active grant. Allowed for the grant's own user and for an owner
+ * of its workspace. A grant that does not exist, is not active (already
+ * revoked, denied or pending) or whose workspace the actor does not belong to
+ * answers NOT_FOUND (404; revoking twice is not idempotent on purpose, so the
+ * answer never tells outsiders which ids exist); a member who is neither the
+ * grant's user nor an owner gets FORBIDDEN (403). The status change, the
+ * stored authorization and the audit event share one transaction, so the
+ * client fails on its very next call, also inside the refresh reuse window.
+ */
+export async function revokeGrant(
+  actor: { userId: string },
+  grantId: string,
+): Promise<void> {
+  if (!UUID.test(grantId)) throw new DomainError("NOT_FOUND", 404);
+  const now = new Date();
+  await authDb.$transaction(async (tx) => {
+    const grant = await tx.mcpGrant.findFirst({
+      where: { id: grantId, status: "active" },
+    });
+    if (!grant) throw new DomainError("NOT_FOUND", 404);
+    const own = grant.userId === actor.userId;
+    if (!own) {
+      const membership = await tx.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: grant.workspaceId,
+            userId: actor.userId,
+          },
+        },
+      });
+      if (!membership) throw new DomainError("NOT_FOUND", 404);
+      if (membership.role !== "owner") throw new DomainError("FORBIDDEN", 403);
+    }
+    // The guard on status keeps a concurrent revocation from writing twice.
+    const changed = await tx.mcpGrant.updateMany({
+      where: { id: grant.id, status: "active" },
+      data: {
+        status: "revoked",
+        revokedAt: now,
+        revokedBy: actor.userId,
+        sessionId: null,
+      },
+    });
+    if (!changed.count) throw new DomainError("NOT_FOUND", 404);
+    await dropStoredAuthorization(tx, grant);
+    await recordGrantEvent(
+      {
+        action: "grant.revoked",
+        userId: grant.userId,
+        clientId: grant.clientId,
+        grantId: grant.id,
+        workspaceId: grant.workspaceId,
+        detail: { by: own ? "user" : "owner" },
+      },
+      tx,
+    );
+  });
+}
+
+export type GrantRow = {
+  id: string;
+  clientId: string;
+  clientName: string;
+  userId: string;
+  userEmail: string;
+  workspaceId: string;
+  projectIds: string[];
+  allCurrentProjects: boolean;
+  scopes: string[];
+  createdAt: Date;
+  lastUsedAt: Date | null;
+};
+
+/**
+ * Active grants as listed on the settings page: `mine` is the viewer's own;
+ * `workspaceId` is every user's grants in that workspace, for its owners only
+ * (FORBIDDEN for other members, NOT_FOUND for non-members). Rows carry
+ * identifiers and display names only, never token or code values.
+ */
+export async function listGrants(
+  viewer: { userId: string },
+  filter: { mine: true } | { workspaceId: string },
+): Promise<GrantRow[]> {
+  if ("workspaceId" in filter) {
+    const membership = UUID.test(filter.workspaceId)
+      ? await authDb.workspaceMember.findUnique({
+          where: {
+            workspaceId_userId: {
+              workspaceId: filter.workspaceId,
+              userId: viewer.userId,
+            },
+          },
+        })
+      : null;
+    if (!membership) throw new DomainError("NOT_FOUND", 404);
+    if (membership.role !== "owner") throw new DomainError("FORBIDDEN", 403);
+  }
+  const grants = await authDb.mcpGrant.findMany({
+    where: {
+      status: "active",
+      ...("workspaceId" in filter
+        ? { workspaceId: filter.workspaceId }
+        : { userId: viewer.userId }),
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "asc" }],
+  });
+  if (!grants.length) return [];
+  const [clients, users] = await Promise.all([
+    authDb.oauthClient.findMany({
+      where: { clientId: { in: [...new Set(grants.map((g) => g.clientId))] } },
+      select: { clientId: true, name: true },
+    }),
+    authDb.user.findMany({
+      where: { id: { in: [...new Set(grants.map((g) => g.userId))] } },
+      select: { id: true, email: true },
+    }),
+  ]);
+  const clientNames = new Map(clients.map((c) => [c.clientId, c.name]));
+  const emails = new Map(users.map((u) => [u.id, u.email]));
+  return grants.map((g) => ({
+    id: g.id,
+    clientId: g.clientId,
+    clientName: clientNames.get(g.clientId) || g.clientId,
+    userId: g.userId,
+    userEmail: emails.get(g.userId) ?? "",
+    workspaceId: g.workspaceId,
+    projectIds: g.projectIds,
+    allCurrentProjects: g.allCurrentProjects,
+    scopes: g.scopes,
+    createdAt: g.createdAt,
+    lastUsedAt: g.lastUsedAt,
+  }));
+}
+
+/**
+ * The grant behind a verified access token, for the gateway to call on every
+ * request: the active grant for (sub, azp, workspace claim) whose user still
+ * belongs to that workspace, else null. Claims are taken as the verified JWT
+ * gives them; a missing or empty workspace claim never matches. It does not
+ * touch `lastUsedAt`: a write per request is the gateway's call (WP-M2).
+ */
+export async function activeGrantForToken(claims: {
+  sub: string;
+  azp: string;
+  [ORBIT_WORKSPACE_CLAIM]?: string | null;
+}) {
+  const workspaceId = claims[ORBIT_WORKSPACE_CLAIM];
+  if (
+    !claims.sub ||
+    !claims.azp ||
+    typeof workspaceId !== "string" ||
+    !UUID.test(workspaceId)
+  )
+    return null;
+  const grant = await authDb.mcpGrant.findFirst({
+    where: {
+      userId: claims.sub,
+      clientId: claims.azp,
+      workspaceId,
+      status: "active",
+    },
+  });
+  if (!grant) return null;
+  const membership = await authDb.workspaceMember.findUnique({
+    where: { workspaceId_userId: { workspaceId, userId: claims.sub } },
+  });
+  return membership ? grant : null;
 }

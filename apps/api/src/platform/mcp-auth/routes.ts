@@ -6,11 +6,17 @@ import { authDb } from "../../../../../packages/db/src/index.ts";
 import type { Config } from "../../../../../packages/config/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../shared.ts";
-import { sessionFor, type Auth } from "../tenancy/auth.ts";
-import { connectWorkspaces, recordSelection } from "./grants.ts";
+import { sessionFor, userFor, type Auth } from "../tenancy/auth.ts";
+import {
+  connectWorkspaces,
+  listGrants,
+  recordSelection,
+  revokeGrant,
+} from "./grants.ts";
 
 // The /connect page's API (Track M, WP-M1): the signed OAuth request, the
-// workspace/project selection and the consent answer. Session required;
+// workspace/project selection and the consent answer, plus listing and
+// revoking grants for the settings page. Session required;
 // non-GET requests pass the usual browser Origin check. None of these routes
 // exists while ORBIT_MCP_OAUTH is off (Fastify answers 404).
 
@@ -161,4 +167,31 @@ export function registerMcpConnectRoutes(
     );
     return { redirect };
   });
+
+  app.get("/api/mcp-grants", async (req) => {
+    const user = await userFor(auth, req);
+    return { grants: await listGrants({ userId: user.id }, { mine: true }) };
+  });
+
+  app.get<{ Params: { workspaceId: string } }>(
+    "/api/workspaces/:workspaceId/mcp-grants",
+    async (req) => {
+      const user = await userFor(auth, req);
+      return {
+        grants: await listGrants(
+          { userId: user.id },
+          { workspaceId: req.params.workspaceId },
+        ),
+      };
+    },
+  );
+
+  app.delete<{ Params: { grantId: string } }>(
+    "/api/mcp-grants/:grantId",
+    async (req, reply) => {
+      const user = await userFor(auth, req);
+      await revokeGrant({ userId: user.id }, req.params.grantId);
+      return reply.code(204).send();
+    },
+  );
 }

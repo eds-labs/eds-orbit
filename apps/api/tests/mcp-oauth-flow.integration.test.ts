@@ -1,5 +1,4 @@
 import {
-  createHash,
   createSign,
   generateKeyPairSync,
   randomBytes,
@@ -17,11 +16,25 @@ import {
 } from "vitest";
 import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 import { makeAuth } from "../src/auth.ts";
-import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import { ORBIT_WORKSPACE_CLAIM } from "../src/platform/mcp-auth/plugins.ts";
 import { recordSelection } from "../src/platform/mcp-auth/grants.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
+import {
+  cimdFetchFor,
+  clientIp,
+  createFlowDriver,
+  ISSUER,
+  jwtPayload,
+  metadata,
+  origin,
+  pkce,
+  queryOf,
+  REDIRECT_URI,
+  SCOPES,
+  withFlags as baseWithFlags,
+  type Json,
+} from "./mcp-oauth-flow-helpers.ts";
 
 // Track M WP-M1, Task 4: workspace/project grants and the consent flow
 // (authorize -> /connect selection -> consent -> code -> token) through the
@@ -30,8 +43,6 @@ import { loadConfig } from "../../../packages/config/src/index.ts";
 // Tests run in order and share one session (sign-in is limited per file).
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
-const origin = process.env.APP_ORIGIN!;
-const ISSUER = `${origin}/api/auth`;
 const CLIENT_ID = "https://client.test/client.json";
 const OTHER_CLIENT_ID = "https://client.test/other.json";
 const DENY_CLIENT_ID = "https://client.test/deny.json";
@@ -41,16 +52,6 @@ const FAILED_CONSENT_CLIENT_ID = "https://client.test/failed-consent.json";
 const REFUSAL_CLIENT_ID = "https://client.test/refusal.json";
 const CLAIMS_CLIENT_ID = "https://client.test/claims.json";
 const PKJWT_CLIENT_ID = "https://client.test/pkjwt.json";
-const REDIRECT_URI = "https://client.test/cb";
-const SCOPES = "openid email profile offline_access orbit:read orbit:propose";
-const KEYS = [
-  "ORBIT_MCP_OAUTH",
-  "ORBIT_MCP_DCR",
-  "ORBIT_MCP_CIMD_HOSTS",
-] as const;
-const FORM = { "content-type": "application/x-www-form-urlencoded" };
-
-type Json = Record<string, any>;
 
 /** ES256 key pair with the public half as a JWK for the CIMD document. */
 function es256Key(kid: string) {
@@ -68,17 +69,6 @@ function es256Key(kid: string) {
 const clientKey = es256Key("client-key");
 const wrongKey = es256Key("client-key");
 
-const metadata = (clientId: string, extra: Json = {}) => ({
-  client_id: clientId,
-  client_name: `Synthetic ${new URL(clientId).pathname}`,
-  client_uri: "https://client.test",
-  redirect_uris: [REDIRECT_URI],
-  grant_types: ["authorization_code", "refresh_token"],
-  response_types: ["code"],
-  token_endpoint_auth_method: "none",
-  scope: SCOPES,
-  ...extra,
-});
 const documents: Record<string, Json> = {
   [CLIENT_ID]: metadata(CLIENT_ID),
   [OTHER_CLIENT_ID]: metadata(OTHER_CLIENT_ID),
@@ -93,55 +83,10 @@ const documents: Record<string, Json> = {
     jwks: { keys: [clientKey.jwk] },
   }),
 };
-const cimdFetch = (async (input: string | URL | Request) => {
-  const url =
-    typeof input === "string"
-      ? input
-      : input instanceof URL
-        ? input.href
-        : input.url;
-  const document = documents[url];
-  return document
-    ? new Response(JSON.stringify(document), {
-        headers: {
-          "content-type": "application/json",
-          "cache-control": "max-age=3600",
-        },
-      })
-    : new Response("not found", { status: 404 });
-}) as typeof fetch;
+const cimdFetch = cimdFetchFor(documents);
+const withFlags = (flags: Parameters<typeof baseWithFlags>[0]) =>
+  baseWithFlags(flags, cimdFetch);
 
-/** Builds the app (and Better Auth) with the given flags, then restores the env. */
-async function withFlags(
-  flags: Partial<Record<(typeof KEYS)[number], string>>,
-) {
-  const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
-  for (const k of KEYS) delete process.env[k];
-  Object.assign(process.env, flags);
-  try {
-    return {
-      app: await buildServer(undefined, { cimdFetch }),
-      auth: makeAuth({ cimdFetch }),
-      config: loadConfig(),
-    };
-  } finally {
-    for (const k of KEYS)
-      if (saved[k] === undefined) delete process.env[k];
-      else process.env[k] = saved[k];
-  }
-}
-
-const clientIp = () =>
-  `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`;
-const pkce = () => {
-  const verifier = randomBytes(32).toString("base64url");
-  return {
-    verifier,
-    challenge: createHash("sha256").update(verifier).digest("base64url"),
-  };
-};
-const jwtPayload = (token: string) =>
-  JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"));
 const b64url = (value: unknown) =>
   Buffer.from(JSON.stringify(value)).toString("base64url");
 
@@ -215,130 +160,15 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     PKJWT_CLIENT_ID,
   ];
 
-  const inject = (opts: {
-    method?: "GET" | "POST";
-    url: string;
-    payload?: unknown;
-    headers?: Record<string, string>;
-    session?: boolean;
-    noOrigin?: boolean;
-  }) =>
-    app.inject({
-      method: opts.method ?? "GET",
-      url: opts.url,
-      headers: {
-        [CLIENT_IP_HEADER]: clientIp(),
-        ...(opts.method === "POST" && !opts.noOrigin ? { origin } : {}),
-        ...(opts.session === false ? {} : { cookie }),
-        ...opts.headers,
-      },
-      ...(opts.payload === undefined ? {} : { payload: opts.payload as never }),
-    });
-
-  /** GET /oauth2/authorize; returns where Better Auth sends the browser. */
-  async function authorize(overrides: Record<string, string | null> = {}) {
-    const { verifier, challenge } = pkce();
-    const params = new URLSearchParams();
-    const values: Record<string, string | null> = {
-      client_id: CLIENT_ID,
-      redirect_uri: REDIRECT_URI,
-      response_type: "code",
-      scope: SCOPES,
-      state: "st-1",
-      code_challenge: challenge,
-      code_challenge_method: "S256",
-      resource: config.MCP_RESOURCE,
-      ...overrides,
-    };
-    for (const [k, v] of Object.entries(values))
-      if (v !== null) params.set(k, v);
-    const response = await inject({
-      url: `/api/auth/oauth2/authorize?${params}`,
-    });
-    const location = response.headers.location as string | undefined;
-    return {
-      response,
-      verifier,
-      location: location ? new URL(location, origin) : undefined,
-    };
-  }
-
-  const queryOf = (url: URL) => url.search.slice(1);
-
-  async function select(oauthQuery: string, body: Json = {}) {
-    return inject({
-      method: "POST",
-      url: "/api/mcp-connect/selection",
-      payload: { oauthQuery, workspaceId, projectIds: [projectA], ...body },
-    });
-  }
-
-  async function consent(oauthQuery: string, body: Json = {}) {
-    return inject({
-      method: "POST",
-      url: "/api/mcp-connect/consent",
-      payload: { oauthQuery, accept: true, scopes: SCOPES.split(" "), ...body },
-    });
-  }
-
-  type Flow = { steps: string[]; final: URL; verifier: string };
-  /** Drives the whole browser flow up to the client's redirect_uri. */
-  async function connect(
-    options: { clientId?: string; selection?: Json; consent?: Json } = {},
-  ): Promise<Flow> {
-    const { location, verifier } = await authorize({
-      client_id: options.clientId ?? CLIENT_ID,
-    });
-    expect(location?.pathname).toBe("/connect");
-    const steps = ["select"];
-    const request = await inject({
-      url: `/api/mcp-connect/request?${queryOf(location!)}`,
-    });
-    expect(request.statusCode).toBe(200);
-    const selected = await select(queryOf(location!), options.selection);
-    expect(selected.statusCode).toBe(200);
-    let next = new URL(selected.json().next, origin);
-    if (next.pathname === "/connect") {
-      steps.push("consent");
-      const consented = await consent(queryOf(next), options.consent);
-      expect(consented.statusCode).toBe(200);
-      next = new URL(consented.json().redirect);
-    }
-    steps.push("redirect_uri");
-    return { steps, final: next, verifier };
-  }
-
-  const exchange = (flow: Flow, extra: Record<string, string> = {}) =>
-    inject({
-      method: "POST",
-      url: "/api/auth/oauth2/token",
-      session: false,
-      noOrigin: true,
-      headers: FORM,
-      payload: new URLSearchParams({
-        grant_type: "authorization_code",
-        code: flow.final.searchParams.get("code")!,
-        redirect_uri: REDIRECT_URI,
-        client_id: CLIENT_ID,
-        code_verifier: flow.verifier,
-        resource: config.MCP_RESOURCE,
-        ...extra,
-      }).toString(),
-    });
-
-  const refresh = (refreshToken: string, clientId = CLIENT_ID) =>
-    inject({
-      method: "POST",
-      url: "/api/auth/oauth2/token",
-      session: false,
-      noOrigin: true,
-      headers: FORM,
-      payload: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: clientId,
-      }).toString(),
-    });
+  const driver = createFlowDriver({
+    app: () => app,
+    config: () => config,
+    cookie: () => cookie,
+    selection: () => ({ workspaceId, projectIds: [projectA] }),
+    defaultClientId: CLIENT_ID,
+  });
+  const { inject, authorize, select, consent, connect, exchange, refresh } =
+    driver;
 
   /** Runs `fn` as the user's second session. */
   async function inSecondSession<T>(fn: () => Promise<T>) {
