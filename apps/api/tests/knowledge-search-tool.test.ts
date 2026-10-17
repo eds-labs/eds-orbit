@@ -60,8 +60,11 @@ describe("knowledge_search tool", () => {
         scope,
         { query: "beta" },
         { retrievalJobKey: "chat:r1:knowledge:2", budgetRunKey: "chat:r1" },
+        // The platform assistant names no module: shared sources only (WP3.5).
+        undefined,
       ],
     ]);
+    expect(searches.calls[0]).toHaveLength(4);
   });
 
   it("reserves a specialist's search under its task and assignment run", async () => {
@@ -84,6 +87,8 @@ describe("knowledge_search tool", () => {
           retrievalJobKey: "agent:t1:knowledge:0",
           budgetRunKey: "assignment-run:r1",
         },
+        // Specialists search as marketing (WP3.5).
+        "marketing",
       ],
     ]);
   });

@@ -412,6 +412,7 @@ const postizAnalyticsTool = defineTool({
  */
 const knowledgeSearch: OrbitTool = knowledgeSearchTool({
   feature: "agents",
+  consumer: "marketing",
   budget(context) {
     if (!context.agentTask)
       throw new DomainError("AGENT_TOOL_NOT_ALLOWED", 403);

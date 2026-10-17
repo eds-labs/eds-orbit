@@ -24,6 +24,8 @@ export function knowledgeSearchTool(options: {
   feature?: OrbitTool["feature"];
   deferLoading?: boolean;
   alwaysOffered?: true;
+  /** The module searching (WP3.5); without it, shared sources only. */
+  consumer?: string;
 }): OrbitTool {
   return defineTool({
     name: "knowledge_search",
@@ -49,6 +51,7 @@ export function knowledgeSearchTool(options: {
         context.scope,
         dropNullFields(args),
         budget,
+        options.consumer,
       );
       const checked = checkToolResult(
         knowledgeSearchResult,
@@ -63,7 +66,8 @@ export function knowledgeSearchTool(options: {
 /**
  * The assistant's search: it reserves a search's query embedding under the
  * chat run, and it is offered whatever modules are on, because the
- * knowledge services belong to the platform (WP3.3).
+ * knowledge services belong to the platform (WP3.3). It names no consumer
+ * module, so it searches only sources open to all modules (WP3.5).
  */
 export const assistantKnowledgeSearch = knowledgeSearchTool({
   budget: (context) => ({
