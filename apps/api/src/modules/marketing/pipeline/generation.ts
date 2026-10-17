@@ -368,6 +368,7 @@ async function generateMissionDraft(
       purpose: "public",
       forModel: true,
       at: new Date(),
+      consumer: "marketing",
     },
     "mission:" + jobId,
     // A content package shares one run key, so one per-run limit covers all its drafts.

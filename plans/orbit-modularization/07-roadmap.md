@@ -493,6 +493,7 @@
 - **Effort:** 2–3 PT.
 
 ### WP3.5 Source audiences (optional)
+- **Status:** implemented 2026-10-17 (draft PR, not merged). Mario's Q-13 decision (support runs inside the uLiquid project) made it a support prerequisite. The manifest check: audiences are not part of the chunk manifest and a change keeps the source generation, so the evaluation manifest hash is unchanged. Details: `docs/IMPLEMENTATION_STATUS.md`.
 - **Goal / result:** Sources can be limited to the modules that may use them.
 - **Components:** `packages/knowledge` `SourceData` and `retrieve` filter, the source editor UI.
 - **Changes:**

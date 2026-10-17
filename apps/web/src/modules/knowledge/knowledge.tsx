@@ -185,6 +185,35 @@ export function Knowledge({ tab }: { tab: KnowledgeTab }) {
     </>
   );
 }
+/**
+ * Who may retrieve a source (WP3.5). Each option is a comma-separated list
+ * of module ids; a source without audiences is open to all modules.
+ */
+function audienceOptions(de: boolean) {
+  return [
+    { value: "all", label: de ? "Alle Module" : "All modules" },
+    { value: "marketing", label: de ? "Nur Marketing" : "Marketing only" },
+    { value: "support", label: de ? "Nur Support" : "Support only" },
+    {
+      value: "marketing,support",
+      label: de ? "Marketing und Support" : "Marketing and support",
+    },
+  ];
+}
+function audienceValue(audiences: unknown) {
+  return Array.isArray(audiences) &&
+    audiences.length &&
+    !audiences.includes("all")
+    ? [...audiences].map(String).sort().join(",")
+    : "all";
+}
+function audienceLabel(audiences: unknown, de: boolean) {
+  const current = audienceValue(audiences);
+  return (
+    audienceOptions(de).find((o) => o.value === current)?.label ??
+    current.split(",").join(", ")
+  );
+}
 function Sources() {
   const { t, locale, project, canEdit, isOwner, refresh } = useWorkspace();
   const resource = useCollection("sources");
@@ -192,11 +221,13 @@ function Sources() {
     [selected, setSelected] = useState<Entity | null>(null),
     [create, setCreate] = useState(false),
     [importing, setImporting] = useState(false),
-    [revoke, setRevoke] = useState(false);
+    [revoke, setRevoke] = useState(false),
+    [audiences, setAudiences] = useState(false);
   const mutation = useMutation(() => {
     refresh();
     resource.refresh();
   });
+  const de = locale === "de";
   const current =
     resource.data?.items.find((e) => e.id === selected?.id) || selected;
   const items = (resource.data?.items || []).filter((e) =>
@@ -299,6 +330,15 @@ function Sources() {
                     ? "Model processing allowed"
                     : "No model processing"}
                 </Badge>
+                <Badge
+                  tone={
+                    audienceValue(current.data.audiences) === "all"
+                      ? "neutral"
+                      : "warning"
+                  }
+                >
+                  {audienceLabel(current.data.audiences, de)}
+                </Badge>
               </div>
               <h3>{t("scope")}</h3>
               <p className="break-all">
@@ -357,6 +397,10 @@ function Sources() {
                       ? "Resume source"
                       : "Pause source"}
                   </Button>
+                  <Button variant="outline" onClick={() => setAudiences(true)}>
+                    <ShieldCheck data-icon="inline-start" />
+                    {de ? "Zielgruppe ändern" : "Change audience"}
+                  </Button>
                   <Button variant="destructive" onClick={() => setRevoke(true)}>
                     <Trash2 data-icon="inline-start" />
                     {locale === "de" ? "Zugriff widerrufen" : "Revoke access"}
@@ -372,6 +416,45 @@ function Sources() {
       {create && <SourceEditor onClose={() => setCreate(false)} />}
       {importing && current && (
         <ImportSource source={current} onClose={() => setImporting(false)} />
+      )}
+      {audiences && current && (
+        <Modal
+          title={de ? "Zielgruppe der Quelle" : "Source audience"}
+          description={
+            de
+              ? "Legt fest, welche Module diese Quelle abrufen dürfen. Eine Einschränkung macht Belege und abhängige Inhalte ungültig, die auf der Quelle beruhen; der Index bleibt gültig."
+              : "Sets which modules may retrieve this source. Narrowing it invalidates the evidence and dependent content built on the source; the index stays valid."
+          }
+          onClose={() => setAudiences(false)}
+        >
+          <DataForm
+            fields={[
+              {
+                name: "audience",
+                label: de ? "Zielgruppe" : "Audience",
+                type: "select",
+                value: audienceValue(current.data.audiences),
+                options: audienceOptions(de),
+              },
+            ]}
+            pending={mutation.pending}
+            error={mutation.error}
+            submitLabel={de ? "Speichern" : "Save audience"}
+            onCancel={() => setAudiences(false)}
+            onSubmit={(v) =>
+              mutation
+                .run(() =>
+                  action(project.id, "source-audiences", {
+                    sourceId: current.id,
+                    audiences: str(v, "audience").split(","),
+                  }),
+                )
+                .then((result) => {
+                  if (result) setAudiences(false);
+                })
+            }
+          />
+        </Modal>
       )}
       {revoke && current && (
         <Modal
@@ -484,6 +567,16 @@ function SourceEditor({ onClose }: { onClose: () => void }) {
     },
     { name: "publicUse", label: t("publicUse"), type: "checkbox" },
     { name: "modelUse", label: t("modelUse"), type: "checkbox" },
+    {
+      name: "audience",
+      label: de ? "Zielgruppe" : "Audience",
+      type: "select",
+      value: "all",
+      options: audienceOptions(de),
+      hint: de
+        ? "Nur die gewählten Module dürfen diese Quelle abrufen."
+        : "Only the selected modules may retrieve this source.",
+    },
   ];
   return (
     <Modal title={t("addSource")} onClose={onClose}>
@@ -509,6 +602,10 @@ function SourceEditor({ onClose }: { onClose: () => void }) {
                   : {}),
                 publicUse: v.publicUse === true,
                 modelUse: v.modelUse === true,
+                // "all" sends nothing: the default shape of existing sources.
+                ...(str(v, "audience") && str(v, "audience") !== "all"
+                  ? { audiences: str(v, "audience").split(",") }
+                  : {}),
                 status: "active",
                 generation: 1,
               }),

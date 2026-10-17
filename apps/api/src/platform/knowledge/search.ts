@@ -47,12 +47,14 @@ function clipped(value: unknown, max = 500) {
  * The knowledge search of the assistant and the specialists (WP3.2): current
  * public, model-authorized Verified Facts and passages with their sources.
  * With `budget` it runs the paid hybrid retrieval under those keys;
- * without, the lexical retrieval only.
+ * without, the lexical retrieval only. `consumer` is the module searching
+ * (WP3.5); without it only sources open to all modules are searched.
  */
 export async function knowledgeSearch(
   scope: Scope,
   raw: unknown,
   budget?: SearchBudget,
+  consumer?: string,
 ): Promise<{ result: unknown; cards: ChatCard[] }> {
   const input = knowledgeSearchInput.parse(raw);
   const language = await scoped(
@@ -73,6 +75,7 @@ export async function knowledgeSearch(
     forModel: true,
     at: new Date(),
     topK: 6,
+    ...(consumer ? { consumer } : {}),
   };
   const evidence = budget
     ? await retrieveHybrid(

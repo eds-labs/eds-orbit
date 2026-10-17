@@ -240,6 +240,7 @@ describe("module contributions", () => {
       "run-mission",
       "slack-configure",
       "slack-digest",
+      "source-audiences",
       "source-pause",
       "start-approved-live-draft-batch",
       "start-approved-live-draft-once",
