@@ -1,5 +1,28 @@
 # Implementation status
 
+## Module-level roles: WP4.5 (2026-10-17, local; flag off)
+
+Branch `claude/wp45-module-roles`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: an authorization change, behind `ORBIT_MODULE_ROLES` (default `false`).
+
+- **Data.** Migration `202610170005_project_member_module_role`: an additive table with RLS, `orbit_auth` only, cascading with the membership.
+- **Resolution.** `platform/tenancy/module-roles.ts`:
+  - The membership carries a non-owner's overrides.
+  - `effectiveRole` and `moduleScope` give a module's code the member's role there; `none` answers 404 `MODULE_NOT_AVAILABLE`.
+  - `visibleModules` filters tools, prompt fragments and conversation sections like activation does.
+- **Gates.**
+  - Module routes, actions and collections.
+  - Assistant tools, offered and executed per tool owner.
+  - Prompt fragments and conversation sections.
+  - `GET /modules` with `access`, so the web shell hides `none`.
+- **Management.**
+  - `GET/PUT /api/projects/:id/members/:userId/module-roles`: owners only, audited, refused for owners and unknown modules, 404 while the flag is off.
+  - "Module roles" per member in the web.
+- **Tests.**
+  - `module-roles.integration.test.ts`: refusals; `none` in routes, collections, actions and the module list; a viewer raised to editor in knowledge only; stored rows ignored with the flag off; removal.
+  - `module-roles-assistant.integration.test.ts`: tools and a forged call.
+  - Shell and form unit tests; the RLS matrix includes the new table.
+- **Production.** Migration and flag need Mario's approval; the flag also needs the security review (`docs/SECURITY_REVIEW.md`). The migration alone changes nothing.
+
 ## Project lock measurement: WP4.3 Part A (2026-10-17, local)
 
 Branch `claude/wp43-lock-measurement`. Report: [docs/evidence/lock-measurement-2026-10-17.md](evidence/lock-measurement-2026-10-17.md).
