@@ -1,6 +1,7 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { knowledgeActions } from "./actions.ts";
 import { knowledgeRoutes } from "./routes.ts";
+import { knowledgeActionPermissions } from "./permissions.ts";
 
 /**
  * What the knowledge module plugs into the platform (WP2.1f, WP3.3): its
@@ -10,5 +11,6 @@ import { knowledgeRoutes } from "./routes.ts";
  */
 export const knowledgeContributions: ModuleContributions = {
   actions: knowledgeActions,
+  actionPermissions: knowledgeActionPermissions,
   routes: knowledgeRoutes,
 };

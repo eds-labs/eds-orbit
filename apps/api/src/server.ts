@@ -3,18 +3,13 @@ import {
   PROJECT_WRITE,
   platformActionPermissions,
 } from "./platform/tenancy/permissions.ts";
-import {
-  knowledgeActionPermissions,
-  knowledgeCollectionPermissions,
-} from "./modules/knowledge/permissions.ts";
-import {
-  marketingActionPermissions,
-  marketingCollectionPermissions,
-} from "./modules/marketing/permissions.ts";
+import { knowledgeCollectionPermissions } from "./modules/knowledge/permissions.ts";
+import { marketingCollectionPermissions } from "./modules/marketing/permissions.ts";
 import { moduleRegistry, registerModules } from "./modules/registry.ts";
 import {
   registeredAction,
   registeredActionOwner,
+  registeredActionPermission,
   registeredRegistry,
   registeredRoutesByOwner,
 } from "./platform/modules/contributions.ts";
@@ -163,8 +158,7 @@ const TELEGRAM_WEBHOOK_PATH = new RegExp(
 function actionPermission(action: string) {
   return (
     platformActionPermissions[action] ??
-    knowledgeActionPermissions[action] ??
-    marketingActionPermissions[action] ??
+    registeredActionPermission(action) ??
     PROJECT_WRITE
   );
 }
@@ -955,7 +949,9 @@ export async function buildServer(
   );
   app.get("/api/projects/:projectId/:collection", async (req) => {
     const { projectId, collection } = req.params as any;
-    schemas.collection.parse(collection);
+    // A module may expose its own kinds for reading (EntityKindDef.collection).
+    if (!registeredRegistry().collectionKinds.includes(collection))
+      schemas.collection.parse(collection);
     const scope = await scopeFor(auth, req, projectId);
     return scoped(scope.workspaceId, projectId, async (tx) => {
       await assertModuleEnabled(tx, scope, collectionOwner(collection));

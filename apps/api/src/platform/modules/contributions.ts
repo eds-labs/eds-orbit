@@ -1,5 +1,6 @@
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import type { ImpactHandler } from "../../../../../packages/knowledge/src/index.ts";
+import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
 import type { ActionDefinition } from "../../modules/action-requests.ts";
 import type {
@@ -79,6 +80,11 @@ export type ModuleContributions = {
    * engine's transaction (WP3.1). Runs regardless of module activation.
    */
   knowledgeImpact?: ImpactHandler;
+  /**
+   * The permission each of the module's actions needs, by action name
+   * (WP4.1); an action without one needs the writer level.
+   */
+  actionPermissions?: Readonly<Record<string, PermissionDef>>;
 };
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
@@ -107,6 +113,7 @@ type Registered = {
     string,
     ConnectionProvider & { owner: string }
   >;
+  actionPermissions: ReadonlyMap<string, PermissionDef>;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
     tools: ReadonlyMap<string, string>;
@@ -224,6 +231,18 @@ export function registerContributions(
       publicViews.set(kind, view);
     }
   }
+  // A module sets the permissions of its own actions only.
+  const actionPermissions = new Map<string, PermissionDef>();
+  for (const [owner, c] of ordered)
+    for (const [name, permission] of Object.entries(
+      c.actionPermissions ?? {},
+    )) {
+      if (owners.actions.get(name) !== owner)
+        problems.push(
+          `${owner} sets the permission of action ${name} it does not own`,
+        );
+      actionPermissions.set(name, permission);
+    }
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -238,6 +257,7 @@ export function registerContributions(
     telegramCallbacks,
     notifications,
     connectionProviders,
+    actionPermissions,
     owners,
   };
 }
@@ -363,6 +383,13 @@ export function workerStartHooks(): Array<() => void> {
   return [...current().byModule.values()]
     .map((c) => c.onWorkerStart)
     .filter((h): h is () => void => Boolean(h));
+}
+
+/** The permission a module declared for its action, or undefined. */
+export function registeredActionPermission(
+  name: string,
+): PermissionDef | undefined {
+  return current().actionPermissions.get(name);
 }
 
 /** The handler of a project action, or undefined for an unknown name. */
