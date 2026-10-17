@@ -1,4 +1,5 @@
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import type { FetchLike } from "../../../../../packages/connectors/src/index.ts";
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import type { ImpactHandler } from "../../../../../packages/knowledge/src/index.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
@@ -113,8 +114,16 @@ export type PublicRoute = {
   }): Promise<unknown>;
 };
 
-/** A provider whose signed webhooks a module processes (WP4.2). */
-export type WebhookProvider = {
+/**
+ * A provider whose webhooks reach the platform's route (WP4.2): either
+ * stored and queued (`SignedWebhookProvider`) or answered within the request
+ * (`DirectWebhookProvider`).
+ */
+export type WebhookProvider = SignedWebhookProvider | DirectWebhookProvider;
+
+/** A provider whose signed webhooks a module processes in its worker job. */
+export type SignedWebhookProvider = {
+  direct?: undefined;
   /** The connection provider whose connection holds the signing secret. */
   connectionProvider: string;
   /** True when the signature over the raw body is valid for the credential. */
@@ -131,6 +140,34 @@ export type WebhookProvider = {
   }): string | null;
   /** The worker queue class that processes the stored message. */
   queueClass: string;
+};
+
+/**
+ * A provider that must answer within the request, such as Slack's
+ * interactions and the owner's Telegram bot (WP4.2 follow-up). The platform
+ * owns the path, flag, size, media type and rate limit; the provider checks
+ * its own secret against its own connection and answers. It never sees a
+ * session or cookie.
+ */
+export type DirectWebhookProvider = {
+  direct: true;
+  /** Accepted bodies: JSON and/or form-encoded. */
+  bodies: readonly ("json" | "form")[];
+  handle(input: {
+    workspaceId: string;
+    projectId: string;
+    connectionId: string;
+    /** The body exactly as received. */
+    rawBody: string;
+    headers: Readonly<Record<string, string | undefined>>;
+    /** For the provider calls of the answer; tests replace it. */
+    fetch?: FetchLike;
+  }): Promise<{
+    status: 200 | 400 | 401 | 403 | 404 | 409;
+    /** The error code of a refusal; a default per status otherwise. */
+    code?: string;
+    body?: unknown;
+  }>;
 };
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
@@ -318,7 +355,13 @@ export function registerContributions(
         problems.push(`invalid webhook provider ${name}`);
       if (webhooks.has(name))
         problems.push(`webhook provider ${name} registered twice`);
-      if (!jobs.has(provider.queueClass))
+      if (provider.direct) {
+        if (
+          !provider.bodies.length ||
+          provider.bodies.some((b) => b !== "json" && b !== "form")
+        )
+          problems.push(`webhook provider ${name} accepts no known body`);
+      } else if (!jobs.has(provider.queueClass))
         problems.push(
           `webhook provider ${name} uses unknown queue class ${provider.queueClass}`,
         );

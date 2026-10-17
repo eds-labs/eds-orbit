@@ -21,6 +21,7 @@ import { stopCallback } from "./agents/telegram-stop.ts";
 import { marketingNotifications } from "./agents/notification-messages.ts";
 import { marketingConnections } from "./publishing/connection-providers.ts";
 import { invalidateMarketingForKnowledge } from "./pipeline/knowledge-impact.ts";
+import { slackWebhook } from "./publishing/slack.ts";
 
 /**
  * What the marketing module plugs into the platform (WP1.6). Transitional:
@@ -52,6 +53,8 @@ export const marketingContributions: ModuleContributions = {
   notifications: marketingNotifications,
   // Postiz, Matomo and Slack connections and their checks (WP2.5c).
   connections: marketingConnections,
+  // Slack interactions through the platform's hooks route as well (WP4.2).
+  webhooks: { slack: slackWebhook },
   // Content, approvals, publications, insights and jobs on revoked or
   // changed knowledge (WP3.1).
   knowledgeImpact: invalidateMarketingForKnowledge,

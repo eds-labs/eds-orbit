@@ -104,7 +104,15 @@ No cross-project bypass was identified in the reviewed scoped paths; local role/
    - No cookie or session is read, and every other write keeps the Origin check (tested).
 5. **Data.**
    - Stored messages are the platform kind `inbound_webhooks`, excluded from the export.
-   - Retention for these rows is a follow-up before a real provider uses the route.
+   - Retention: these rows are deleted after 30 days, and expired public sessions one hour after expiry (`platform/http/ingress-retention.ts`, hourly and in the retention action).
+6. **Direct providers** (follow-up, same flag). `slack` and `telegram` answer within the request.
+   - They reuse their old handlers unchanged: Slack's signature over the form body, actor mapping and replay claim; the bot's constant-time secret check.
+   - Two checks are added: the path's connection must be the project's selected Slack connector, and the path's workspace must be the Telegram project's.
+   - What the review checks:
+     - a forged or missing signature never reaches the module;
+     - a foreign connection or workspace answers like an unknown one;
+     - the media type is limited per provider;
+     - the old routes stay the registered URLs (cutover in `docs/PUBLIC_INGRESS.md`).
 
 ## Public ingress: public module API (WP4.2b, prepared 2026-10-17; review open)
 

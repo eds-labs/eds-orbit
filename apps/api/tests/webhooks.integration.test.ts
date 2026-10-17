@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   authDb,
@@ -224,5 +224,78 @@ describe.skipIf(!enabled)("signed provider webhooks", () => {
     });
     expect(response.statusCode).toBe(403);
     expect(response.json().error.code).toBe("ORIGIN_REQUIRED");
+  });
+
+  it("takes Slack interactions as signed forms, with the same checks (WP4.2)", async () => {
+    process.env.ORBIT_PUBLIC_INGRESS = "true";
+    const signingSecret = "synthetic-slack-signing-secret";
+    const slackId = await run((tx) =>
+      create(tx, scope, "connectors", {
+        provider: "slack",
+        status: "configured",
+        confirmChannelMandate: true,
+        teamId: "TEAM1",
+        channelId: "C1",
+        // Mapped to a user who is no owner of this project.
+        actors: [{ slackUserId: "USER1", orbitUserId: randomUUID() }],
+        validUntil: new Date(Date.now() + 86_400_000).toISOString(),
+        encryptedCredential: encrypt(
+          JSON.stringify({ botToken: "synthetic-bot", signingSecret }),
+          credentialKey(),
+        ),
+      }),
+    ).then((row) => row.id);
+    const form = new URLSearchParams({
+      payload: JSON.stringify({
+        type: "block_actions",
+        team: { id: "TEAM1" },
+        channel: { id: "C1" },
+        user: { id: "USER1" },
+        actions: [{ action_id: "orbit_approve", value: randomUUID() }],
+      }),
+    }).toString();
+    const slack = (
+      options: {
+        connection?: string;
+        secret?: string;
+        type?: string;
+        signed?: boolean;
+      } = {},
+    ) => {
+      const timestamp = String(Math.floor(Date.now() / 1000));
+      const signature =
+        "v0=" +
+        createHmac("sha256", options.secret ?? signingSecret)
+          .update(`v0:${timestamp}:${form}`)
+          .digest("hex");
+      return app.inject({
+        method: "POST",
+        url: `/api/hooks/slack/${scope.workspaceId}/${scope.projectId}/${options.connection ?? slackId}`,
+        headers: {
+          "content-type": options.type ?? "application/x-www-form-urlencoded",
+          ...(options.signed === false
+            ? {}
+            : {
+                "x-slack-request-timestamp": timestamp,
+                "x-slack-signature": signature,
+              }),
+        },
+        payload: form,
+      });
+    };
+    const stored = await count("inbound_webhooks");
+    expect((await slack({ type: "application/json" })).statusCode).toBe(415);
+    expect((await slack({ signed: false })).statusCode).toBe(401);
+    // Only the project's Slack connector.
+    expect((await slack({ connection: connectionId })).statusCode).toBe(404);
+    const forged = await slack({ secret: "wrong" });
+    expect(forged.statusCode).toBe(403);
+    expect(forged.json().error.code).toBe("SLACK_SIGNATURE_INVALID");
+    // A valid signature reaches the actor check: USER1 is no owner here.
+    const signed = await slack();
+    expect(signed.statusCode).toBe(403);
+    expect(signed.json().error.code).toBe("SLACK_ACTOR_UNAUTHORIZED");
+    // Nothing of it is stored as a queued webhook.
+    expect(await count("inbound_webhooks")).toBe(stored);
   });
 });

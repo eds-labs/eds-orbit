@@ -1,5 +1,42 @@
 # Implementation status
 
+## Public ingress follow-ups (2026-10-17, local; flag off)
+
+Branch `claude/phase4-followups`. Everything stays behind `ORBIT_PUBLIC_INGRESS` (default `false`). The operating guide is `docs/PUBLIC_INGRESS.md`.
+
+- **Retention.** `platform/http/ingress-retention.ts` deletes rows for good, with their versions:
+  - public sessions one hour after they expire;
+  - received webhooks after 30 days.
+  
+  It runs hourly per project as the platform's periodic task `public-ingress-cleanup` and also inside the project's retention action, whose audit entry counts both. It purges regardless of the flag, so rows from an earlier "on" go too.
+- **Owner UI for public keys.** Project access has a new "Public keys" dialog (`components/public-keys.tsx`): list, create (module, exact origins) and revoke.
+  - `GET …/public-keys` also returns the modules a key can be issued for.
+  - Production has none, so the dialog says so.
+- **Slack and Telegram through the hooks route.** The webhook contract has a second variant, `DirectWebhookProvider`, for providers that must answer within the request. The platform owns the path, flag, media type, size and rate limit; the provider checks its own secret against its own connection.
+  - `telegram` (platform): `/api/hooks/telegram/<workspace>/<project>/<connection>`. Same handler and secret check as the bot's own route, and the path's workspace must be the project's.
+  - `slack` (marketing): `/api/hooks/slack/<workspace>/<project>/<connector>`, form-encoded. Same signature, mapping and replay checks, and the connector must be the project's selected Slack connector.
+  
+  The old routes stay the registered URLs. The cutover is a later production step (`docs/PUBLIC_INGRESS.md`).
+- **Tests.**
+  - `ingress-retention.integration.test.ts`: cleanup, project isolation, the hourly throttle and the retention action.
+  - The Telegram hooks path in `telegram.integration.test.ts`: flag, secret, foreign workspace, media type and linking.
+  - The Slack hooks path in `webhooks.integration.test.ts`: media type, missing and forged signature, foreign connector, and a valid signature reaching the actor check.
+  - Registry checks in `module-contributions.test.ts`; the origin parser in `public-keys.test.tsx`.
+- **Deployment record of Phase 4** (below).
+
+## Phase 4 in production: WP4.1–WP4.2b (2026-10-17)
+
+Each step was merged into `main` on Mario's approval, after green CI and outside the 10:00/17:00 slots. Both flags (`ORBIT_MODULE_ROLES`, `ORBIT_PUBLIC_INGRESS`) stayed `false`. After every deploy, `/api/health/ready` (database ok, worker ready) and `/api/health/postiz` were ok.
+
+| WP | PR | Merge commit | Merged | Live | Check |
+|---|---|---|---|---|---|
+| WP4.1 fixture module, open contracts | #133 | `cc1b128` | 10:15 | 10:19 | health |
+| WP4.4 cross-module operator eval | #134 | `ae12c7c` | 10:50 | 10:51 | health |
+| WP4.3 Part A lock measurement | #135 | `f654ab8` | 11:51 | 11:55 | health |
+| WP4.5 module roles (migration `202610170005`) | #136 | `b5e07f6` | 12:23 | 12:27 | `/modules` returns `access`; module-roles API 404 |
+| WP4.2a signed webhooks | #137 | `3fd782d` | 12:56 | 13:00 | `/api/hooks/...` 404 |
+| WP4.2b public API (migration `202610170006`) | #138 | `bff9a83` | 13:30 | about 13:40 | `/api/public/...` answers the flag's 404 instead of `ORIGIN_REQUIRED` |
+
 ## Public module API: WP4.2b (2026-10-17, local; flag off)
 
 Branch `claude/wp42b-public-api` (on top of WP4.2a). Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, default `false`).

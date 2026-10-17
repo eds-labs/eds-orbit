@@ -17,7 +17,7 @@ import { publicIngressEnabled } from "./webhooks.ts";
 // ORBIT_PUBLIC_INGRESS is "true".
 
 export const SESSION_KIND = "public_sessions";
-const SESSION_HOURS = 12;
+export const SESSION_HOURS = 12;
 const MAX_BODY = 65_536;
 /** A public API path: module, key, then the route. */
 export const PUBLIC_URL =
@@ -270,6 +270,13 @@ export async function createPublicKey(scope: Scope, raw: unknown) {
     }),
   );
   return publicView(row);
+}
+
+/** The modules a key can be issued for: registered with a public API. */
+export function publicApiModules() {
+  return registeredRegistry().order.filter((id) =>
+    registeredPublicRoutes().has(id),
+  );
 }
 
 export async function listPublicKeys(scope: Scope) {
