@@ -32,6 +32,9 @@ Object.assign(process.env, {
   FILES_S3_ACCESS_KEY_ID: "synthetic-access-key",
   FILES_S3_SECRET_ACCESS_KEY: "synthetic-secret-key",
   FILES_ENCRYPTION_KEY: "0".repeat(64),
+  // E-mail and member notifications (WP4.7); nothing is sent in test mode.
+  ORBIT_EMAIL: "true",
+  ORBIT_NOTIFICATIONS: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });

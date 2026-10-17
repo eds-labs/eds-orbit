@@ -70,6 +70,7 @@ describe("module contributions", () => {
         "agent",
         "analytics",
         "chat",
+        "email_send",
         "embedding",
         "generation",
         "image",
@@ -107,8 +108,12 @@ describe("module contributions", () => {
       "connectors",
       "drive_connection",
       "drive_oauth_state",
+      // E-mail (WP4.7): messages, inbound mail and the IMAP position.
+      "email_inbound_state",
+      "email_messages",
       "evidence",
       // Raw provider webhooks (WP4.2a): operational data, never exported.
+      "inbound_emails",
       "inbound_webhooks",
       // Public client sessions with hashed tokens (WP4.2b).
       "public_sessions",
@@ -164,6 +169,7 @@ describe("module contributions", () => {
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
       "public-ingress-cleanup",
       "file-cleanup",
+      "email-inbound",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",
@@ -197,6 +203,7 @@ describe("module contributions", () => {
       "connector-health",
       "correct-metric",
       "editorial-propose-brief",
+      "email-connect",
       "embed-document",
       "evaluate-experiment",
       "evaluate-index",
@@ -317,12 +324,15 @@ describe("module contributions", () => {
   });
 
   it("offers marketing's connection providers in their former order (WP2.5c)", () => {
+    // The platform's mailbox (WP4.7) comes first.
     expect(registeredConnectionProviderIds()).toEqual([
+      "email",
       "postiz",
       "matomo",
       "slack",
     ]);
-    for (const id of registeredConnectionProviderIds())
+    expect(registeredConnectionProvider("email")?.owner).toBe("platform");
+    for (const id of registeredConnectionProviderIds().slice(1))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

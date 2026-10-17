@@ -165,6 +165,9 @@ try {
     "AgentSpan",
     // Platform files (WP4.6).
     "File",
+    // Member notifications (WP4.7), private per member by RLS.
+    "Notification",
+    "NotificationPreference",
     // Support (WP5.1).
     "SupportInbox",
     "SupportContact",

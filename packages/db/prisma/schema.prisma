@@ -295,6 +295,36 @@ model File {
   @@index([workspaceId, projectId, moduleId])
 }
 
+/// An in-app notice for one member (WP4.7); private to that member by RLS.
+model Notification {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  userId      String
+  moduleId    String
+  kind        String
+  title       String
+  body        String    @default("")
+  link        String?
+  readAt      DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([workspaceId, projectId, userId, createdAt])
+}
+
+/// A member's choice per notification kind (WP4.7).
+model NotificationPreference {
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  userId      String
+  kind        String
+  inApp       Boolean
+  email       Boolean
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@id([projectId, userId, kind])
+}
+
 /// Support (WP5.1): the tables of the support module. Same-project composite
 /// foreign keys and the full-text trigger live in the migration's SQL.
 model SupportInbox {

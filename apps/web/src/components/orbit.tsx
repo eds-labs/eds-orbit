@@ -30,6 +30,7 @@ import {
   type FormValues,
 } from "@/platform/ui/form";
 import { WorkspaceContext } from "./workspace-context";
+import { NotificationBell } from "./notification-bell";
 import {
   activeNavKey,
   crumbs,
@@ -555,6 +556,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               )}
             </div>
             <div className="topbar-actions">
+              <NotificationBell project={project} locale={locale} />
               {languageControl}
               <span className="avatar" title={`${me.user.name} · ${role}`}>
                 {me.user.name.slice(0, 1).toUpperCase()}

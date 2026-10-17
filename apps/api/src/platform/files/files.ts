@@ -130,7 +130,11 @@ export async function storeFile(
   input: { moduleId: string; bytes: Uint8Array; mime: string; name?: unknown },
 ) {
   const config = requireFiles();
-  if (!registeredRegistry().order.includes(input.moduleId))
+  // "platform" holds the platform's own files, such as raw inbound e-mail.
+  if (
+    input.moduleId !== "platform" &&
+    !registeredRegistry().order.includes(input.moduleId)
+  )
     throw new DomainError("MODULE_UNKNOWN", 409);
   if (!input.bytes.byteLength) throw new DomainError("FILE_EMPTY", 400);
   if (input.bytes.byteLength > config.maxBytes)
