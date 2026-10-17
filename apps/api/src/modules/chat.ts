@@ -5,6 +5,7 @@ import { type Scope } from "../../../../packages/schemas/src/index.ts";
 import { data, create, DomainError, entity, update } from "../shared.ts";
 import { enqueue } from "../platform/jobs/enqueue.ts";
 import { registeredConversationSections } from "../platform/modules/contributions.ts";
+import { visibleModules } from "../platform/tenancy/module-roles.ts";
 import { enabledModules } from "../platform/modules/enforcement.ts";
 
 export const sendInput = z
@@ -207,8 +208,9 @@ export async function getConversation(scope: Scope, id: string) {
       proposals: linked,
     };
     // Only enabled modules add their fields (WP2.4).
+    // A module the member has no access to adds nothing either (WP4.5).
     for (const add of registeredConversationSections(
-      await enabledModules(tx, scope),
+      visibleModules(scope, await enabledModules(tx, scope)),
     ))
       Object.assign(read, await add(tx, scope, id, messages));
     return read as {

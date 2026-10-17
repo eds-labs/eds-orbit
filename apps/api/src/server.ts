@@ -1,4 +1,5 @@
 import {
+  authorize,
   PROJECT_OWN,
   PROJECT_WRITE,
   platformActionPermissions,
@@ -6,6 +7,13 @@ import {
 import { knowledgeCollectionPermissions } from "./modules/knowledge/permissions.ts";
 import { marketingCollectionPermissions } from "./modules/marketing/permissions.ts";
 import { moduleRegistry, registerModules } from "./modules/registry.ts";
+import {
+  effectiveRole,
+  memberModuleRoles,
+  moduleRolesEnabled,
+  moduleScope,
+  setMemberModuleRoles,
+} from "./platform/tenancy/module-roles.ts";
 import {
   registeredAction,
   registeredActionOwner,
@@ -542,11 +550,16 @@ export async function buildServer(
   app.get("/api/projects/:projectId/modules", async (req) => {
     const { projectId } = req.params as any;
     const scope = await scopeFor(auth, req, projectId);
+    const states = await scoped(scope.workspaceId, projectId, (tx) =>
+      listModuleStates(tx, scope, moduleRegistry()),
+    );
     return {
       switchable: moduleSwitchingEnabled(),
-      modules: await scoped(scope.workspaceId, projectId, (tx) =>
-        listModuleStates(tx, scope, moduleRegistry()),
-      ),
+      // The requesting member's role per module (WP4.5): "none" hides it.
+      modules: states.map((state) => ({
+        ...state,
+        access: effectiveRole(scope, state.id),
+      })),
     };
   });
   app.put("/api/projects/:projectId/modules/:moduleId", async (req) => {
@@ -671,6 +684,8 @@ export async function buildServer(
   for (const [owner, routes] of registeredRoutesByOwner())
     await app.register(async (child) => {
       child.addHook("preHandler", async (req) => {
+        // scopeFor gives the module's routes the member's role in the module (WP4.5).
+        (req as { orbitModule?: string }).orbitModule = owner;
         if (!moduleSwitchingEnabled()) return;
         if (!req.routeOptions.url?.startsWith("/api/projects/:projectId/"))
           return;
@@ -725,6 +740,30 @@ export async function buildServer(
       }),
     };
   });
+  // A member's module roles (WP4.5): owners only, while ORBIT_MODULE_ROLES is on.
+  app.get(
+    "/api/projects/:projectId/members/:userId/module-roles",
+    async (req) => {
+      const { projectId, userId } = req.params as {
+        projectId: string;
+        userId: string;
+      };
+      await scopeFor(auth, req, projectId, PROJECT_OWN);
+      if (!moduleRolesEnabled()) throw new DomainError("NOT_FOUND", 404);
+      return { userId, roles: await memberModuleRoles(projectId, userId) };
+    },
+  );
+  app.put(
+    "/api/projects/:projectId/members/:userId/module-roles",
+    async (req) => {
+      const { projectId, userId } = req.params as {
+        projectId: string;
+        userId: string;
+      };
+      const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+      return setMemberModuleRoles(scope, userId, req.body);
+    },
+  );
   // Owner-only Telegram bot setup (Orbit Agents). The token goes in once and never comes back.
   app.get("/api/projects/:projectId/telegram", async (req) => {
     if (!telegramEnabled()) throw new DomainError("NOT_FOUND", 404);
@@ -952,7 +991,10 @@ export async function buildServer(
     // A module may expose its own kinds for reading (EntityKindDef.collection).
     if (!registeredRegistry().collectionKinds.includes(collection))
       schemas.collection.parse(collection);
-    const scope = await scopeFor(auth, req, projectId);
+    const scope = moduleScope(
+      await scopeFor(auth, req, projectId),
+      collectionOwner(collection),
+    );
     return scoped(scope.workspaceId, projectId, async (tx) => {
       await assertModuleEnabled(tx, scope, collectionOwner(collection));
       return {
@@ -966,12 +1008,11 @@ export async function buildServer(
   });
   app.post("/api/projects/:projectId/:collection", async (req, reply) => {
     const { projectId, collection } = req.params as any;
-    const scope = await scopeFor(
-      auth,
-      req,
-      projectId,
-      collectionWritePermission(collection),
+    const scope = moduleScope(
+      await scopeFor(auth, req, projectId),
+      collectionOwner(collection),
     );
+    authorize(scope, collectionWritePermission(collection));
     const result = await scoped(scope.workspaceId, projectId, async (tx) => {
       await assertModuleEnabled(tx, scope, collectionOwner(collection));
       if (collection === "facts")
@@ -1057,19 +1098,16 @@ export async function buildServer(
     const { projectId, action } = req.params as any;
     // Every action declares its permission in the owning module's catalogue;
     // an unknown name needs the writer level, as before (WP1.5).
-    const scope = await scopeFor(
-      auth,
-      req,
-      projectId,
-      actionPermission(action),
-    );
+    // The member's role in the action's module decides (WP4.5).
+    const owner = registeredActionOwner(action);
+    const scope = moduleScope(await scopeFor(auth, req, projectId), owner);
+    authorize(scope, actionPermission(action));
     const input = object.parse(req.body);
     // Handlers come from the platform and the modules (WP2.1f).
     const handler = registeredAction(action);
     if (!handler) throw new DomainError("ACTION_NOT_SUPPORTED", 400);
     const ctx = { scope, input, config, auth };
     // A disabled module's actions answer 404 MODULE_DISABLED (WP2.4).
-    const owner = registeredActionOwner(action);
     if (handler.transaction === "own") {
       await assertModuleEnabledFor(scope, owner);
       return handler.run(ctx);

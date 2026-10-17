@@ -1,5 +1,6 @@
 import { authDb } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { moduleRolesEnabled } from "./module-roles.ts";
 
 /**
  * A user's current access to a project: workspace owners act as project
@@ -17,7 +18,11 @@ export async function projectMembership(projectId: string, userId: string) {
       ],
     },
     include: {
-      members: { where: { userId } },
+      members: {
+        where: { userId },
+        // Module-level roles (WP4.5), read only while the flag is on.
+        ...(moduleRolesEnabled() ? { include: { moduleRoles: true } } : {}),
+      },
       workspace: { include: { members: { where: { userId } } } },
     },
   });
@@ -25,7 +30,25 @@ export async function projectMembership(projectId: string, userId: string) {
   const role = project.workspace.members.find((x) => x.role === "owner")
     ? "owner"
     : (project.members[0]?.role as Scope["role"] | undefined);
-  return { workspaceId: project.workspaceId, role };
+  // Owners keep their role in every module; overrides apply to the others.
+  const rows =
+    role && role !== "owner"
+      ? ((
+          project.members[0] as {
+            moduleRoles?: Array<{ moduleId: string; role: string }>;
+          }
+        )?.moduleRoles ?? [])
+      : [];
+  const moduleRoles = rows.length
+    ? (Object.fromEntries(rows.map((r) => [r.moduleId, r.role])) as NonNullable<
+        Scope["moduleRoles"]
+      >)
+    : undefined;
+  return {
+    workspaceId: project.workspaceId,
+    role,
+    ...(moduleRoles ? { moduleRoles } : {}),
+  };
 }
 
 /**
@@ -39,5 +62,11 @@ export async function actorScope(
 ): Promise<Scope | null> {
   const membership = await projectMembership(projectId, userId);
   if (!membership?.role || membership.workspaceId !== workspaceId) return null;
-  return { workspaceId, projectId, userId, role: membership.role };
+  return {
+    workspaceId,
+    projectId,
+    userId,
+    role: membership.role,
+    ...(membership.moduleRoles ? { moduleRoles: membership.moduleRoles } : {}),
+  };
 }
