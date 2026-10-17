@@ -3,6 +3,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import { audit, DomainError } from "../shared.ts";
+import { moduleAvailable } from "./contributions.ts";
 
 /** Owners may switch modules (ORBIT_MODULES); activation is not yet enforced. */
 export function moduleSwitchingEnabled() {
@@ -22,8 +23,9 @@ export type ModuleState = {
 };
 
 /**
- * Every registered module with its state in the project, in dependency
- * order. A module without a ProjectModule row has its registry default.
+ * Every available module with its state in the project, in dependency
+ * order. A module without a ProjectModule row has its registry default; an
+ * unavailable module (WP5.1) is left out, so it also counts as disabled.
  */
 export async function listModuleStates(
   tx: DbTx,
@@ -33,7 +35,7 @@ export async function listModuleStates(
   const rows = await tx.projectModule.findMany({
     where: { workspaceId: scope.workspaceId, projectId: scope.projectId },
   });
-  return registry.order.map((id) => {
+  return registry.order.filter(moduleAvailable).map((id) => {
     const module = registry.modules.find((m) => m.id === id)!;
     const row = rows.find((r) => r.moduleId === id);
     return {
@@ -62,7 +64,8 @@ export async function setModuleEnabled(
   enabled: boolean,
 ): Promise<ModuleState[]> {
   const module = registry.modules.find((m) => m.id === moduleId);
-  if (!module) throw new DomainError("MODULE_NOT_FOUND", 404);
+  if (!module || !moduleAvailable(moduleId))
+    throw new DomainError("MODULE_NOT_FOUND", 404);
   const states = await listModuleStates(tx, scope, registry);
   const current = states.find((s) => s.id === moduleId)!;
   if (enabled) {
@@ -113,14 +116,16 @@ export async function recordDefaultModules(
   registry: ValidatedRegistry,
 ) {
   await tx.projectModule.createMany({
-    data: registry.modules.map((m) => ({
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      moduleId: m.id,
-      enabled: m.defaultEnabled,
-      moduleVersion: m.version,
-      changedBy: scope.userId,
-    })),
+    data: registry.modules
+      .filter((m) => moduleAvailable(m.id))
+      .map((m) => ({
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        moduleId: m.id,
+        enabled: m.defaultEnabled,
+        moduleVersion: m.version,
+        changedBy: scope.userId,
+      })),
     skipDuplicates: true,
   });
 }

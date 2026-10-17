@@ -52,6 +52,9 @@ export const configSchema = z.object({
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.
   ORBIT_PUBLIC_INGRESS: z.enum(["false", "true"]).default("false"),
+  // Support module (WP5.1): off until the pilot is approved. Even when "true",
+  // support works only in projects whose owner enabled the module.
+  ORBIT_SUPPORT: z.enum(["false", "true"]).default("false"),
   // Platform files (WP4.6): an own S3-compatible bucket (R2), never the
   // backup bucket or its credentials. Off until the security review.
   ORBIT_FILES: z.enum(["false", "true"]).default("false"),

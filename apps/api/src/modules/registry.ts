@@ -6,6 +6,8 @@ import {
 import { platformDeclaration } from "../platform/modules/platform-declaration.ts";
 import { knowledgeModule } from "./knowledge/manifest.ts";
 import { marketingModule } from "./marketing/manifest.ts";
+import { supportModule } from "./support/manifest.ts";
+import { supportContributions } from "./support/contributions.ts";
 import { marketingContributions } from "./marketing/contributions.ts";
 import { knowledgeContributions } from "./knowledge/contributions.ts";
 import {
@@ -21,6 +23,7 @@ import { platformContributions } from "../platform/modules/platform-contribution
 export const modules: readonly ServerModule[] = [
   knowledgeModule,
   marketingModule,
+  supportModule,
 ];
 
 type ExtraModule = {
@@ -59,6 +62,7 @@ export function registerModules(): ValidatedRegistry {
   registerContributions(registry, platformContributions, {
     knowledge: knowledgeContributions,
     marketing: marketingContributions,
+    support: supportContributions,
     ...Object.fromEntries(
       testModules.map((m) => [m.module.id, m.contributions]),
     ),

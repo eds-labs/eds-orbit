@@ -98,6 +98,12 @@ export type ModuleContributions = {
    * public session's bearer token.
    */
   publicRoutes?: readonly PublicRoute[];
+  /**
+   * False while the module is switched off for the whole installation, such
+   * as support without ORBIT_SUPPORT (WP5.1): projects neither see it in the
+   * module list nor can enable it. Absent: always available.
+   */
+  available?: () => boolean;
 };
 
 /** One route of a module's public API (WP4.2b). */
@@ -413,6 +419,13 @@ function fromOwners<T>(
     .filter(([owner]) => ownerEnabled(owner, enabled))
     .map(([, c]) => pick(c))
     .filter((v): v is T => Boolean(v));
+}
+/**
+ * True unless the module's contributions report it unavailable for this
+ * installation (WP5.1). Before registration every module counts available.
+ */
+export function moduleAvailable(id: string) {
+  return registered?.byModule.get(id)?.available?.() ?? true;
 }
 /** The validated registry the contributions were registered for. */
 export function registeredRegistry(): ValidatedRegistry {

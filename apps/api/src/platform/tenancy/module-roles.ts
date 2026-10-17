@@ -3,7 +3,10 @@ import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../shared.ts";
-import { registeredRegistry } from "../modules/contributions.ts";
+import {
+  moduleAvailable,
+  registeredRegistry,
+} from "../modules/contributions.ts";
 
 // Module-level roles (WP4.5, plans/orbit-modularization/07): a member's role
 // in one module overrides the project role there; "none" hides the module.
@@ -73,7 +76,8 @@ export const moduleRolesInput = z
 
 /**
  * Sets a member's module roles (project owners only, while the flag is on).
- * Owners cannot get overrides; unknown modules are refused. Audited.
+ * Owners cannot get overrides; unknown and unavailable modules are refused.
+ * Audited.
  */
 export async function setMemberModuleRoles(
   owner: Scope,
@@ -83,7 +87,7 @@ export async function setMemberModuleRoles(
   if (!moduleRolesEnabled()) throw new DomainError("NOT_FOUND", 404);
   if (owner.role !== "owner") throw new DomainError("OWNER_REQUIRED", 403);
   const { roles } = moduleRolesInput.parse(raw);
-  const known = new Set(registeredRegistry().order);
+  const known = new Set(registeredRegistry().order.filter(moduleAvailable));
   for (const id of Object.keys(roles))
     if (!known.has(id)) throw new DomainError("MODULE_NOT_FOUND", 404);
   const member = await authDb.projectMember.findUnique({
