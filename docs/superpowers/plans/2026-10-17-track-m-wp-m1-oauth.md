@@ -13,7 +13,7 @@
 ## Risk, environment, profile
 
 - **Risk:** high (new authentication surface). AGENTS.md requires risk analysis, test strategy and rollback before implementation; they are in this plan (§ Risk analysis, the tests in each task, § Rollback).
-- **Environment:** local only until the merge. Merging to `main` auto-deploys and therefore applies to production regardless of the flag: the additive migration `202610170007_mcp_oauth` (ten new tables, one partial unique index, `orbit_auth` grants) and the Better Auth patch upgrade 1.7.5 → 1.7.10 (with `better-call` 1.4.2 and `@better-auth/utils` 0.5.0). Under AGENTS.md that is a production migration plus a dependency change, so the merge itself needs Mario's explicit approval. The flag flip, the Traefik and route decisions and the ChatGPT run remain WP-M5.
+- **Environment:** local only until the merge. Merging to `main` auto-deploys and therefore applies to production regardless of the flag: the additive migration `202610170008_mcp_oauth` (ten new tables, one partial unique index, `orbit_auth` grants) and the Better Auth patch upgrade 1.7.5 → 1.7.10 (with `better-call` 1.4.2 and `@better-auth/utils` 0.5.0). Under AGENTS.md that is a production migration plus a dependency change, so the merge itself needs Mario's explicit approval. The flag flip, the Traefik and route decisions and the ChatGPT run remain WP-M5.
 - **Post-deploy smoke test (after the merge, flag off):** sign in; `GET /api/auth/get-session` returns the session; a request after the renewal threshold sets a renewed (sliding) session cookie; sign out; Settings loads with the Connected apps tab hidden; `GET /api/health/ready` is ok.
 - **App profile:** `backend-api` primary; `web-frontend` for the consent and Connected apps views; security rules from `.agentic/security/`.
 - **Workflow:** `.agentic/workflows/feature.md` plus `migration.md` for the additive schema.
@@ -125,7 +125,7 @@ Starts only after Mario approves D1 to D7.
 
 **Files:**
 - Modify: `packages/db/prisma/schema.prisma`
-- Create: `packages/db/prisma/migrations/202610170007_mcp_oauth/migration.sql`
+- Create: `packages/db/prisma/migrations/202610170008_mcp_oauth/migration.sql`
 - Modify: `scripts/db-deploy.ts` (`authTables`, lines 131-143)
 - Modify: `apps/api/tests/rls-matrix.integration.test.ts` expectations if it lists auth tables
 - Test: `apps/api/tests/mcp-oauth-schema.integration.test.ts`
