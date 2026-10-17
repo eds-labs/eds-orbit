@@ -17,7 +17,10 @@ Branch `claude/wp56-support-ai`, stacked on WP5.5. Guide: `docs/SUPPORT.md` (Sup
   - `support-ai.integration.test.ts`, 7 tests, with a mocked model and retrieval, mutation-checked for placeholders;
   - the eval (3 tests);
   - the render test.
-- **Not run:** a paid model eval of triage accuracy and citation quality. It needs a budget approval.
+- **Paid eval.** Approved by Mario on 2026-10-17, capped at 3 USD. `pnpm eval:support` (`evals/support/live.eval.ts`) ran once on commit `15eacc3`, with real model calls only and synthetic evidence. Result: **FAIL** (`docs/evidence/support-ai-eval-2026-10-17.json`), cost **$0.0227**.
+  - Triage: category 12/12, language 12/12, sensitive recall 4/4.
+  - Drafts: 6/6 answered with citations; 0 forbidden phrases; 0 errors.
+  - Handoff on unanswerable questions: 1/2, which missed the pre-registered rule. D04 ("Solana deposits?") produced a draft that cites the supported-networks fact instead of handing off. The case note allows a draft that says Solana is not listed, but the pass rule demanded a handoff. The rule was not changed afterwards.
 
 ## Support notifications and automations: WP5.5 (2026-10-17, local; flags off)
 
