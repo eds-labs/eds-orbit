@@ -100,6 +100,34 @@ The API keeps Fastify's `trustProxy` off and believes `X-Orbit-Client-IP` only f
 
 Trust assumptions: (1) the API publishes no host port, so only Orbit containers on the internal Compose networks can reach it; (2) web is reachable only through Traefik, otherwise a client could choose its own bucket by sending `X-Forwarded-For`. If a CDN or a second proxy (for example a proxied Cloudflare record) sits in front of Traefik, the right-most entry is that proxy's address, and all users behind one edge share a bucket again; Traefik must then trust that proxy's ranges (`forwardedHeaders.trustedIPs`) and the web proxy must skip those hops. IPv6 clients are bucketed per address, not per /64.
 
+## Support (Phase 5)
+
+Support runs only with `ORBIT_SUPPORT=true` **and** the module enabled in the project. The guide is `docs/SUPPORT.md`; app teams use `docs/SUPPORT_WIDGET.md`.
+
+**Mail outage** (the mailbox is down, or IMAP/SMTP fail):
+1. **Diagnose.** `GET /api/projects/:id/email` shows `inbound.lastError`. Agent replies end as `not_sent`, `rejected` or `unknown` on the message; the ticket shows it.
+2. **Inbound mail.** It waits in the mailbox; Orbit only reads it and fetches it again once the mailbox is back.
+3. **Unknown sends.** A reply marked `unknown` is never resent automatically. An agent decides; the owner gets the `EMAIL_OUTCOME_UNKNOWN` exception.
+4. **During a long outage.** Answer through the widget, or remove `email` from the inbox's channels.
+
+**Widget abuse** (spam, floods):
+1. **Built-in limits.**
+   - Platform: 20 new sessions per minute per IP and key; 120 calls per minute per session.
+   - Support: 5 conversations per anonymous session; 20 customer messages per conversation in 10 minutes; 10 new e-mail tickets per sender and hour (`support.email.rate_limited` in the audit).
+2. **If abuse continues.** Revoke the inbox's widget key (Settings, then Support, then "Widget embed" issues a new one and revokes the old; or the public keys dialog). Then let the app embed the new key, or remove `widget` from the inbox for the time being.
+3. **A leaked widget secret.** Use "New widget secret" on the inbox. Old signatures stop working at once. Mario stores the new secret in the app's backend.
+
+**AI kill switch:**
+- **One inbox:** set `aiMode` to `off`. No triage or draft job is queued from then on.
+- **The whole project:** pause the project. The worker blocks the support AI jobs and no paid call starts.
+- **Paid calls are never retried** after a transmit (`SUPPORT_CALL_UNKNOWN`).
+- **Spend** shows under category `support_text` and as AI cost per ticket.
+
+**Privacy operations:**
+- **Data-subject requests.** In Support, then Contacts, the owner can "Export data" (JSON with tickets, messages, internal notes marked, and attachment references) or "Erase contact". Erasure removes the tickets, messages, attachments with their files, identities, widget sessions, and the mailbox rows of their mails.
+- **Retention** runs daily (`support-retention`) with the project's settings. Closed tickets go after 24 months, unsent AI drafts after 90 days, widget sessions 30 days after last seen, contacts once they have no tickets, and the raw files of recorded mails after 90 days. The audit entry `support.retention.applied` holds the counts.
+- **Backups** keep erased data until they rotate out; the privacy notice says so.
+
 ## Failure and recovery
 
 Pause before intervention. Unknown publication or Slack handoff must remain unknown until observed; do not create a fresh job to resend it. Known publication IDs are read-polled at most eight times with bounded delay. Postiz group cancellation remains a visible manual provider action, because current group scope cannot be proven safely from the list contract.

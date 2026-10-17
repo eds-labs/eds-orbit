@@ -1,6 +1,7 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { supportSwitchedOn } from "./gate.ts";
 import { supportRoutes } from "./routes.ts";
+import { supportRetentionTask } from "./privacy.ts";
 import { runSupportTask, SUPPORT_DRAFT, SUPPORT_TRIAGE } from "./ai.ts";
 import { supportTools } from "./tools.ts";
 import { widgetRoutes } from "./widget.ts";
@@ -37,7 +38,7 @@ export const supportContributions: ModuleContributions = {
     },
   ],
   tools: supportTools,
-  periodic: [supportEmailDelivery],
+  periodic: [supportEmailDelivery, supportRetentionTask],
   // The livechat widget's public API (WP5.4).
   publicRoutes: widgetRoutes,
   // Notifications and automations (WP5.5).

@@ -28,6 +28,7 @@ import {
 } from "./permissions.ts";
 import { supportAgents } from "./agents.ts";
 import { statsCsv, supportStats } from "./stats.ts";
+import { eraseContact, exportContact } from "./privacy.ts";
 import { enableWidgetKey } from "./widget.ts";
 import {
   contactDetail,
@@ -155,6 +156,22 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
       ticketSummary(tx, scope),
     ),
   );
+  // Data-subject requests (WP5.8): owners only.
+  app.get(`${BASE}/contacts/:contactId/export`, (req) =>
+    inSupport(auth, req, SUPPORT_SETTINGS_MANAGE, (tx, scope, p) =>
+      exportContact(tx, scope, contact(p)),
+    ),
+  );
+  app.post(`${BASE}/contacts/:contactId/erase`, async (req) => {
+    const params = req.params as Params;
+    const scope = await scopeFor(
+      auth,
+      req,
+      params.projectId,
+      SUPPORT_SETTINGS_MANAGE,
+    );
+    return eraseContact(scope, contact(params));
+  });
   app.get(`${BASE}/agents`, (req) =>
     inSupport(auth, req, SUPPORT_TICKETS_READ, async (_tx, scope) => ({
       items: await supportAgents(scope),

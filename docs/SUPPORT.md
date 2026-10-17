@@ -264,6 +264,32 @@ Numbers are computed on read over the tickets **created in the range**, at most 
 
 The web view sits under Support > Statistics: last 7, 30 or 90 days, per inbox, with a CSV download. There are no rollups yet; they come once measurements show a need.
 
+## Privacy and operations (WP5.8)
+
+**Owner routes:**
+- `GET /contacts/:id/export`: JSON for a data-subject request;
+- `POST /contacts/:id/erase`: deletes the tickets with their messages, attachments and events, the attachment files, identities and widget sessions, the mailbox rows of the contact's sent and received mails, the raw mail files, and the contact itself.
+
+Both are audited with counts only.
+
+**Retention.** The daily periodic task `support-retention` applies the Q-12b settings:
+- closed tickets after `closedTicketMonths`;
+- unsent AI drafts after `aiDraftDays`;
+- widget sessions after `widgetSessionDays` since last seen;
+- contacts without tickets;
+- the raw files of mails support recorded, after `rawEmailDays`. The mailbox row keeps only what dedupe needs.
+
+**Abuse caps:**
+- 5 conversations per anonymous widget session;
+- 20 customer messages per conversation in 10 minutes;
+- 10 new e-mail tickets per sender and hour.
+
+These come on top of the platform's rate limits.
+
+**No content in telemetry.** A canary test checks that no message text or address reaches the audit, events, agent runs, spans or notifications.
+
+**Runbook:** `docs/OPERATIONS.md`, section Support (mail outage, widget abuse, AI kill switch).
+
 ## Tickets and channels
 
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:

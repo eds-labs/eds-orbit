@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
+import { api } from "@/lib/api";
 import { patch, post, supportPath, type Contact } from "./api";
 import { supportText } from "./labels";
 
@@ -86,6 +87,21 @@ export function SupportContacts() {
   );
 }
 
+/** Saves the contact's export as a JSON file in the browser. */
+async function downloadExport(projectId: string, id: string) {
+  const data = await api<unknown>(
+    supportPath(projectId, `/contacts/${id}/export`),
+  );
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }),
+  );
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `support-contact-${id}.json`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function ContactDetail({
   id,
   canEdit,
@@ -97,7 +113,8 @@ function ContactDetail({
   onChanged: () => void;
   onMerged: (into: string) => void;
 }) {
-  const { project, locale } = useWorkspace();
+  const { project, locale, isOwner } = useWorkspace();
+  const privacy = useMutation(onChanged);
   const t = supportText(locale);
   const detail = useResource<Contact>(
     supportPath(project.id, `/contacts/${id}`),
@@ -149,6 +166,32 @@ function ContactDetail({
           </Button>
           {save.error && <Alert kind="error">{save.error}</Alert>}
         </form>
+      )}
+      {isOwner && (
+        <div className="support-privacy-actions">
+          <Button
+            size="sm"
+            variant="outline"
+            type="button"
+            onClick={() => privacy.run(() => downloadExport(project.id, id))}
+          >
+            {t.privacy.export}
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            type="button"
+            onClick={() => {
+              if (window.confirm(t.privacy.eraseConfirm))
+                privacy.run(() =>
+                  post(supportPath(project.id, `/contacts/${id}/erase`), {}),
+                );
+            }}
+          >
+            {t.privacy.erase}
+          </Button>
+          {privacy.error && <Alert kind="error">{privacy.error}</Alert>}
+        </div>
       )}
       <h3>{t.tickets}</h3>
       <ul>

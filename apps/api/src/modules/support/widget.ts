@@ -44,6 +44,10 @@ import {
 export const WIDGET_SESSION_KIND = "support_widget_sessions";
 /** A visitor seen this recently counts as online: replies stay in the widget. */
 const ONLINE_MS = 120_000;
+// Abuse caps (WP5.8): conversations per anonymous session, and customer
+// messages per conversation in ten minutes.
+const MAX_ANONYMOUS_CONVERSATIONS = 5;
+const MAX_MESSAGES_PER_10_MIN = 20;
 
 /** The inbox's public key for the widget; a new one revokes the old one. */
 export async function enableWidgetKey(scope: Scope, inboxId: string) {
@@ -315,6 +319,11 @@ async function openConversation(ctx: PublicRouteContext) {
   return scoped(ctx.scope.workspaceId, ctx.scope.projectId, async (tx) => {
     const visitor = await visitorOf(tx, ctx, true);
     if (!visitor.contactId) throw new DomainError("IDENTITY_REQUIRED", 409);
+    if (
+      !visitor.verified &&
+      visitor.ticketIds.length >= MAX_ANONYMOUS_CONVERSATIONS
+    )
+      throw new DomainError("TOO_MANY_CONVERSATIONS", 429);
     const created = await createTicket(tx, ctx.scope, {
       inboxId: visitor.inboxId,
       channel: "widget",
@@ -363,6 +372,15 @@ async function sendMessage(ctx: PublicRouteContext) {
   return scoped(ctx.scope.workspaceId, ctx.scope.projectId, async (tx) => {
     const visitor = await visitorOf(tx, ctx, true);
     const ticket = await visibleTicket(tx, ctx.scope, visitor, input.ticketId);
+    const recent = await tx.supportMessage.count({
+      where: {
+        ticketId: ticket.id,
+        kind: "customer",
+        createdAt: { gte: new Date(Date.now() - 600_000) },
+      },
+    });
+    if (recent >= MAX_MESSAGES_PER_10_MIN)
+      throw new DomainError("MESSAGE_RATE_LIMIT", 429);
     await appendCustomerMessage(tx, ctx.scope, ticket, {
       bodyText: input.bodyText,
       channel: "widget",

@@ -26,6 +26,7 @@ import { supportSettings } from "../common.ts";
 import { effectiveRules } from "../settings.ts";
 import { supportActive } from "../gate.ts";
 import { appendCustomerMessage, createTicket } from "../tickets.ts";
+import { allowNewTicket } from "../privacy.ts";
 
 // The support e-mail channel (WP5.3) on the project's WP4.7 mailbox.
 // Inbound: the platform polls IMAP, stores each message as an
@@ -331,6 +332,17 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
       const ticket = await threadedTicket(tx, scope, mail);
       if (!ticket && mail.automatic) {
         await audit(tx, scope, "support.email.ignored_automatic", inboundId, {
+          inboundId,
+        });
+        throw new UnroutedMail();
+      }
+      if (
+        !ticket &&
+        mail.from &&
+        !(await allowNewTicket(tx, scope, mail.from))
+      ) {
+        // Abuse cap (WP5.8): too many new tickets from one sender this hour.
+        await audit(tx, scope, "support.email.rate_limited", inboundId, {
           inboundId,
         });
         throw new UnroutedMail();

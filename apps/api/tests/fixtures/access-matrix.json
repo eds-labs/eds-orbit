@@ -545,6 +545,13 @@
     "editor": "not_found:MODULE_DISABLED",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "GET /api/projects/{projectId}/support/contacts/{contactId}/export": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/support/inboxes": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1552,6 +1559,13 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/support/contacts/{contactId}/erase": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/contacts/{contactId}/merge": {
     "anonymous": "unauthenticated",
