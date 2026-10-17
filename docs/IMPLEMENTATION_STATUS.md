@@ -23,6 +23,7 @@ Branch `claude/dazzling-tesla-875f58`. Mario decided on 2026-10-17 (Q-13) that s
   - A mutation check (SQL filter removed) failed both integration tests.
   - `knowledge-search-tool.test.ts`: the specialists search as `marketing`, the assistant without a module.
   - The access matrix and action list contain `source-audiences`.
+  - Full suite on an isolated test DB (`orbit_test_wp35`): 171 files, 1473 tests green, including the WP0.4 characterization snapshots (unchanged) and the RLS matrix. Typecheck (api and web), source check and boundaries pass.
 
 **Deploy note.** Marketing's hybrid retrieval now hashes `consumer` into its retrieval-run input. A generation job that retrieved before the deploy and retries after it would get `RETRIEVAL_JOB_CHANGED`. Deploy outside the assignment run windows (04:00 Berlin and the drafting that follows).
 

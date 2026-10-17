@@ -47,12 +47,10 @@ export function knowledgeSearchTool(options: {
     ...(options.alwaysOffered ? { alwaysOffered: true as const } : {}),
     async execute(context, args) {
       const budget = options.budget(context);
-      const read = await knowledgeSearch(
-        context.scope,
-        dropNullFields(args),
-        budget,
-        options.consumer,
-      );
+      const input = dropNullFields(args);
+      const read = options.consumer
+        ? await knowledgeSearch(context.scope, input, budget, options.consumer)
+        : await knowledgeSearch(context.scope, input, budget);
       const checked = checkToolResult(
         knowledgeSearchResult,
         read.result,
