@@ -46,6 +46,9 @@ const CHAT_TABLES = [
   "ChatMessage",
   "ChatProposal",
   "ChatRun",
+  // Member notifications (WP4.7): private per member the same way.
+  "Notification",
+  "NotificationPreference",
 ];
 // RLS for the business role, full control only for orbit_auth.
 const TENANCY_TABLES = [
@@ -267,6 +270,12 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         projectId: s.projectId,
         userId: s.userId,
       };
+      await tx.notification.create({
+        data: { ...owner, moduleId: "knowledge", kind: "rls_seed", title: "x" },
+      });
+      await tx.notificationPreference.create({
+        data: { ...owner, kind: "rls_seed", inApp: true, email: false },
+      });
       const conversation = await tx.chatConversation.create({ data: owner });
       const conversationId = conversation.id;
       await tx.chatMessage.create({

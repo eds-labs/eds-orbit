@@ -116,7 +116,32 @@ export const tasksContributions: ModuleContributions = {
       queueClass: "fixture_webhook",
     },
   },
+  // Inbound e-mail of the project's mailbox becomes a task (WP4.7).
+  emailInbound: { queueClass: "fixture_email" },
+  // A notice to members when a task is assigned (WP4.7).
+  userNotifications: {
+    task_assigned: {
+      label: { en: "Task assigned", de: "Aufgabe zugewiesen" },
+      emailDefault: false,
+    },
+  },
   jobs: [
+    {
+      queueClass: "fixture_email",
+      async handler({ scope, job }) {
+        await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+          const mail = data(
+            await entity(tx, scope, "inbound_emails", job.resourceId),
+          );
+          // Auto-replies are never answered or turned into work.
+          if (mail.automatic) return;
+          await create(tx, scope, "fixture_tasks", {
+            title: String(mail.subject || "E-mail task"),
+            emailId: job.resourceId,
+          });
+        });
+      },
+    },
     {
       queueClass: "fixture_webhook",
       async handler({ scope, job }) {

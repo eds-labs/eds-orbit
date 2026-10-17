@@ -10,6 +10,13 @@ import { pauseCallback, telegramWebhook } from "../connections/telegram.ts";
 import { sendNotification } from "../notifications/sender.ts";
 import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
 import { fileCleanup } from "../files/files.ts";
+import { emailConnectionProvider } from "../email/connection.ts";
+import {
+  EMAIL_QUEUE,
+  sendQueuedEmail,
+  skipEmailForPause,
+} from "../email/send.ts";
+import { emailInbound } from "../email/inbound.ts";
 
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
@@ -22,7 +29,10 @@ export const platformContributions: ModuleContributions = {
   // Public sessions and received webhooks are purged on their own (WP4.2).
   retention: ingressRetention,
   // Files whose removal failed are retried hourly (WP4.6).
-  periodic: [ingressCleanup, fileCleanup],
+  // Inbound e-mail every two minutes per project with a mailbox (WP4.7).
+  periodic: [ingressCleanup, fileCleanup, emailInbound],
+  // The project's mailbox over SMTP and IMAP (WP4.7).
+  connections: { providers: { email: emailConnectionProvider } },
   jobs: [
     {
       queueClass: "chat",
@@ -60,6 +70,15 @@ export const platformContributions: ModuleContributions = {
       leaseMs: 180000,
       handler: ({ scope, jobId }) =>
         sendNotification(scope, jobId).then(() => undefined),
+    },
+    {
+      // One outbound e-mail through the project's mailbox (WP4.7). Never
+      // sent twice: the message row records whether it may have left.
+      queueClass: EMAIL_QUEUE,
+      handler: ({ scope, job }) =>
+        sendQueuedEmail(scope, job.resourceId).then(() => undefined),
+      // A pause stops it for good; the message says so.
+      onBlockedByPause: (tx, job) => skipEmailForPause(tx, job),
     },
     {
       queueClass: "index_evaluation",
