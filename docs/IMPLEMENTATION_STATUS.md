@@ -17,6 +17,35 @@ Branch `claude/amazing-hawking-253a3e`. In the uLiquid runs of 2026-10-16 (63f76
 
 **Rollback.** Revert the merge commit and redeploy.
 
+## Source audiences: WP3.5 (2026-10-17, local)
+
+Branch `claude/dazzling-tesla-875f58`. Mario decided on 2026-10-17 (Q-13) that support runs inside the uLiquid project next to marketing; support AI drafts (WP5.6) may only draw on sources whose audience includes support. Roadmap: `plans/orbit-modularization/07-roadmap.md` §WP3.5. Contract: `docs/KNOWLEDGE_ARCHITECTURE.md` (Retrieval and facts).
+
+- **Attribute.** `SourceData.audiences` is optional. Absent or `["all"]` means every module, so every existing source keeps its results. The API (`schemas.sourceAudiences`) accepts `all`, `marketing` and `support`; `all` cannot be combined.
+- **Consumer.** `RetrieveInput.consumer` names the retrieving module. `servesConsumer` decides; the same predicate filters facts, excluded sources (`audience_excluded`) and both SQL branches (`index.ts`, `eligible`). A caller without a consumer gets open sources only (fail closed).
+  - Marketing names `marketing` in mission retrieval, generation and the specialists' `knowledge_search`.
+  - The platform assistant's `knowledge_search` names no module (open sources only).
+  - The knowledge `retrieve` action takes an optional `consumer` for previews.
+- **Evidence.** It records `consumer` only when named, so evidence and retrieval-run hashes of shared-only retrieval are unchanged. `validateEvidence` adds `source_audience_changed`.
+- **Changing audiences.** `setSourceAudiences`, owner action `source-audiences`.
+  - It keeps the source generation, so documents, chunks, index generations and evaluations stay valid.
+  - Narrowing invalidates the evidence and dependent records built on the source (reason `source_audience_changed`); widening invalidates nothing.
+  - `["all"]` removes the attribute again.
+- **Manifest check.** The index manifest (`indexes.ts`, `manifest`) is chunk id, version id, source id, source generation and chunk hash, filtered by status, model use, authority and generation. Audiences are not in it, and the evaluation SQL is unchanged. The live uLiquid index (generation 5, eval set `uliquid-website-2026-10-12.v1`) keeps its manifest hash, and its sources have no audiences.
+- **Web.** The source editor has an audience select (`all` sends nothing). The source inspector shows the audience and an owner "Change audience" dialog.
+- **Tests:**
+  - `algorithms.test.ts`: the `servesConsumer` rule.
+  - `knowledge.integration`: lexical and vector filtering per consumer, facts, malformed audiences, consumer recorded only when named, narrowing and widening without a generation change.
+  - `index-generations.integration`: after narrowing, both generations activate (the current manifest still matches), and manifest hash and evaluation are unchanged.
+  - A mutation check (SQL filter removed) failed both integration tests.
+  - `knowledge-search-tool.test.ts`: the specialists search as `marketing`, the assistant without a module.
+  - The access matrix and action list contain `source-audiences`.
+  - Full suite on an isolated test DB (`orbit_test_wp35`): 171 files, 1473 tests green, including the WP0.4 characterization snapshots (unchanged) and the RLS matrix. Typecheck (api and web), source check and boundaries pass.
+
+**Deploy note.** Marketing's hybrid retrieval now hashes `consumer` into its retrieval-run input. A generation job that retrieved before the deploy and retries after it would get `RETRIEVAL_JOB_CHANGED`. Deploy outside the assignment run windows (04:00 Berlin and the drafting that follows).
+
+**Rollback.** Revert. There is no migration. Sources whose audiences were set keep the attribute in their JSON; after a revert it is ignored, which opens them to every caller again. So unset restrictions before a revert.
+
 ## Phase 4 in production, part 2: follow-ups, WP4.6, WP4.7 (2026-10-17)
 
 Merged on Mario's approval, after green CI and outside the 10:00/17:00 slots. Every flag stayed `false`: `ORBIT_PUBLIC_INGRESS`, `ORBIT_FILES`, `ORBIT_EMAIL` and `ORBIT_NOTIFICATIONS`.

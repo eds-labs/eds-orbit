@@ -11,6 +11,7 @@ import {
   revokeSource,
 } from "../apps/api/src/platform/knowledge/engine.ts";
 import { registerModules } from "../apps/api/src/modules/registry.ts";
+import { isLocalTestDatabase } from "./test-database.ts";
 // A composition root like the API: knowledge changes need the registered
 // impact handlers (WP3.1).
 registerModules();
@@ -22,14 +23,13 @@ const required = (name: string) => {
 const source = required("TEST_MIGRATION_DATABASE_URL"),
   appUrl = required("TEST_DATABASE_URL"),
   authUrl = required("TEST_AUTH_DATABASE_URL");
+// The shared orbit_test or a worktree's own orbit_test_<slug>
+// (scripts/test-db-for-worktree.ts); all three roles on the same database.
+const sourceDatabase = source.pathname.slice(1);
 for (const url of [source, appUrl, authUrl])
-  if (
-    url.hostname !== "127.0.0.1" ||
-    url.port !== "55432" ||
-    url.pathname !== "/orbit_test"
-  )
+  if (!isLocalTestDatabase(url) || url.pathname !== source.pathname)
     throw new Error(
-      "Restore acceptance is restricted to 127.0.0.1:55432/orbit_test",
+      "Restore acceptance is restricted to a local test database (orbit_test or orbit_test_<worktree>) at 127.0.0.1:55432",
     );
 const suffix = process.env.ORBIT_RESTORE_TEST_SUFFIX ?? "";
 if (suffix && !/^[a-z0-9_]{1,24}$/.test(suffix))
@@ -182,7 +182,7 @@ try {
       container,
       "pg_dump",
       "--username=orbit_migrator",
-      "--dbname=orbit_test",
+      "--dbname=" + sourceDatabase,
       "--format=custom",
       "--no-owner",
       "--no-privileges",
@@ -312,7 +312,7 @@ try {
   const evidence = {
     status: "PASS_TEST",
     executedAt: new Date().toISOString(),
-    sourceDatabase: "orbit_test",
+    sourceDatabase,
     restoredDatabase: targetDatabase,
     dumpBytes: dump.length,
     dumpSha256: createHash("sha256").update(dump).digest("hex"),

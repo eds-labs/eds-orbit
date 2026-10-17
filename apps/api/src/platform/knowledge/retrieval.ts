@@ -42,6 +42,9 @@ export async function retrieveHybrid(
     market: input.market,
     topK: input.topK,
     profile: input.profile,
+    // Only when named: canonical() hashes an undefined key as null, and
+    // shared-only retrievals must keep their hash (WP3.5).
+    ...(input.consumer === undefined ? {} : { consumer: input.consumer }),
   });
   if (jobKey) {
     const cached = await scoped(

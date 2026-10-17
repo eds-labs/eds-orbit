@@ -157,3 +157,4 @@ Mindestens zu prüfen sind `.agentic/quality-gates/definition-of-done.md`, `.age
 - The 2026-09-17 request authorizes new local application auth/schema/policy code, isolated migrations, test credentials and dependency installation required by this stack. It does not authorize production changes or copying existing secrets.
 - Documentation and code comments are English; user communication may be German.
 - Check docs/IMPLEMENTATION_STATUS.md and docs/REQUIREMENTS_TRACEABILITY.md before continuing.
+- Integration tests in a worktree use its own local test database: run `node scripts/test-db-for-worktree.ts` before the suite (README, "Parallel worktrees"); never redeploy or reset the shared `orbit_test` for another branch.
