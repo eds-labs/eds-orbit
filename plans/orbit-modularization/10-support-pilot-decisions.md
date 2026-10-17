@@ -140,3 +140,5 @@ WP5.1 (skeleton and data model) does not depend on the open answers, as long as:
 - the inbox carries `aiMode` with the default `off`.
 
 Code work can therefore start. The pilot itself (WP5.9) stays blocked until §1.2 and §1.3 are confirmed.
+
+WP5.1 is planned in `docs/superpowers/plans/2026-10-17-wp51-support-skeleton.md` and documented in `docs/SUPPORT.md`.
