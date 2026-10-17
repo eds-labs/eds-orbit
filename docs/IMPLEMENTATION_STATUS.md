@@ -1,5 +1,17 @@
 # Implementation status
 
+## Cross-module operator eval: WP4.4 (2026-10-17, local)
+
+Branch `claude/wp44-operator-eval` (on top of WP4.1).
+
+- **Dataset.** `evals/operator/cases-v3.json` replays recorded model steps through the real chat runner, with knowledge, marketing and the test-only fixture module registered:
+  - JC30: tools of all three modules in one run, with two task proposals as two pending ActionRequests;
+  - JC31: a viewer is offered no module write, and a forged `propose_tasks` is refused (`CHAT_TOOL_NOT_ALLOWED`);
+  - JC32: with the tasks module off, its tool is neither offered nor callable;
+  - JC33: with every module off, the assistant is offered exactly `knowledge_search` and still searches the existing sources.
+- **Harness.** New optional `disabledModules` and `actionRequests` fields. `cases-v1.json` and `cases-v2.json` are unchanged, and so are their hashes.
+- **Verification.** All 14 operator cases are green offline; no network call and no paid call.
+
 ## A third module through the contracts alone: WP4.1 (2026-10-17, local)
 
 Branch `claude/wp41-extensibility`, the first work package of Phase 4. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`.

@@ -79,13 +79,25 @@ Risk: low (tests plus one test-only hook and one type widening). Rollback: rever
 
 ---
 
+## WP4.4 Cross-module operator eval (detailed)
+
+Risk: none (offline eval). It builds on WP4.1's fixture module.
+
+- **Dataset.** `evals/operator/cases-v3.json`, a new dataset, so the v1 and v2 hashes stay comparable:
+  - JC30: cross-module tool choice, ending in two ActionRequests.
+  - JC31: a viewer gets no module write, and a forged call is refused.
+  - JC32: a switched-off module offers nothing.
+  - JC33: with every module off, only the platform's `knowledge_search` is offered.
+- **Harness.** `disabledModules` (switched off in order, with `ORBIT_MODULES` on) and the check `actionRequests` (by action type). Dataset version 3.
+- **Runner.** `evals/operator/cross-module.test.ts` registers the fixture module and replays the steps through the real chat runner. After every case, no fixture task exists, because proposals wait for a decision.
+- **Done.** All 14 operator cases (v1, v2, v3) are green offline.
+
 ## WP4.2–WP4.7 (outline; each gets a detailed plan before it starts)
 
 | WP | Content | Gate before starting |
 |---|---|---|
 | 4.2 Public ingress | `/api/hooks/:provider/:connectionId` (signature, store, enqueue, idempotent) and `/api/public/<module>/:publicKey/...` (CORS per key, session token, no cookies); per-client rate limits | Security review plan; F-02 fix is live |
 | 4.3 Real-time | Lock wait measurement, `scopedRead()` for proven read-only paths, Redis pub/sub per project and stream with `Last-Event-ID` replay | Measurement report first |
-| 4.4 Operator eval | Offline cases: tool choice across modules, permission-filtered sets, one ActionRequest per write (uses the fixture module) | none |
 | 4.5 Module roles | `ProjectMemberModuleRole`, `can()` resolves module role first, `none` hides the module; members UI matrix | Security review; auth change |
 | 4.6 Files | `File` table with FORCE RLS, S3-compatible adapter (own bucket and credentials), streaming upload, authorized download, retention | Mario approves the bucket and credentials (Q-19) |
 | 4.7 E-mail and notifications | Provider adapter (send, inbound via 4.2, bounces), `Notification` and preferences, in-app bell, e-mail channel | Mario chooses the provider (Q-16); DNS change |
