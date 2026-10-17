@@ -7,6 +7,8 @@ import {
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { registerModules } from "../src/modules/registry.ts";
+import { enabledModules } from "../src/platform/modules/enforcement.ts";
+import { ownerEnabled } from "../src/platform/modules/contributions.ts";
 import { createInbox, archiveInbox } from "../src/modules/support/inboxes.ts";
 import { createTicket } from "../src/modules/support/tickets.ts";
 import type { NormalizedInbound } from "../src/modules/support/channels/adapter.ts";
@@ -248,5 +250,97 @@ describe.skipIf(!enabled)("support ticket creation", () => {
     await expect(
       ticket(a, { attachments: [{ ...attachment, fileId: foreign.id }] }),
     ).rejects.toThrow(/foreign key/i);
+  });
+
+  it("never reuses a ticket number, even after the newest ticket is deleted", async () => {
+    const first = await ticket(a);
+    const second = await ticket(a);
+    expect(second.number).toBe(first.number + 1);
+    await run(a, (tx) =>
+      tx.supportTicket.delete({ where: { id: second.ticketId } }),
+    );
+    expect((await ticket(a)).number).toBe(second.number + 1);
+  });
+
+  it("binds a verified widget user to an existing contact only by a verified e-mail", async () => {
+    const widgetInbox = await run(a, async (tx) => {
+      const { inbox } = await createInbox(tx, a, {
+        name: "Widget",
+        channels: ["widget"],
+        allowedOrigins: ["https://desk.example.invalid"],
+      });
+      return inbox.id;
+    });
+    const viaWidget = (contact: NormalizedInbound["contact"]) =>
+      run(a, (tx) =>
+        createTicket(tx, a, {
+          inboxId: widgetInbox,
+          channel: "widget",
+          inbound: inbound({ externalId: null, contact }),
+        }),
+      );
+    const byMail = await ticket(a, {
+      contact: { email: "victim@example.invalid" },
+    });
+    // The host app passed an e-mail it did not verify: a separate contact.
+    const claimed = await viaWidget({
+      email: "victim@example.invalid",
+      externalUserId: "user-unverified",
+    });
+    expect(claimed.contactId).not.toBe(byMail.contactId);
+    // The same user later stays on that separate contact.
+    const again = await viaWidget({
+      email: "victim@example.invalid",
+      externalUserId: "user-unverified",
+    });
+    expect(again.contactId).toBe(claimed.contactId);
+    // A verified e-mail joins the existing contact.
+    const verified = await viaWidget({
+      email: "victim@example.invalid",
+      emailVerified: true,
+      externalUserId: "user-verified",
+    });
+    expect(verified.contactId).toBe(byMail.contactId);
+  });
+
+  it("counts support off where it was never enabled, even without module switching", async () => {
+    delete process.env.ORBIT_MODULES;
+    delete process.env.ORBIT_SUPPORT;
+    expect(ownerEnabled("support")).toBe(false);
+    expect(ownerEnabled("marketing")).toBe(true);
+    process.env.ORBIT_SUPPORT = "true";
+    expect(ownerEnabled("support")).toBe(true);
+    const on = await run(a, (tx) => enabledModules(tx, a));
+    expect(on?.has("support")).toBe(true);
+    expect(on?.has("marketing")).toBe(true);
+    const bare = await (async () => {
+      const user = await authDb.user.create({
+        data: {
+          id: randomUUID(),
+          name: "Synthetic bare",
+          email: `${randomUUID()}@example.invalid`,
+        },
+      });
+      users.push(user.id);
+      const workspace = await authDb.workspace.create({
+        data: {
+          name: "Synthetic bare",
+          members: { create: { userId: user.id, role: "owner" } },
+        },
+      });
+      workspaces.push(workspace.id);
+      const row = await authDb.project.create({
+        data: { workspaceId: workspace.id, name: "Synthetic bare" },
+      });
+      return {
+        workspaceId: workspace.id,
+        projectId: row.id,
+        userId: user.id,
+        role: "owner",
+      } satisfies Scope;
+    })();
+    const off = await run(bare, (tx) => enabledModules(tx, bare));
+    expect(off?.has("support")).toBe(false);
+    expect(off?.has("knowledge")).toBe(true);
   });
 });

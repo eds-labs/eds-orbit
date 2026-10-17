@@ -10,7 +10,7 @@ import { supportSettingsDefaults, supportSettingsSchema } from "./settings.ts";
 
 // Ticket creation (WP5.1): the one entry the channels use for a new
 // conversation. Runs in the caller's project transaction, which holds the
-// project lock, so per-project numbers are allocated without gaps or races.
+// project lock, so per-project numbers come from the counter without races.
 // Message text, subjects and addresses stay in the support tables; audit and
 // event rows carry ids and field values only (Q-12a).
 
@@ -26,7 +26,12 @@ export type CreatedTicket = {
   duplicate: boolean;
 };
 
-/** The contact for an inbound message: by verified identity, then by e-mail. */
+/**
+ * The contact for an inbound message: by verified identity, then by e-mail.
+ * A verified identity joins an existing contact by e-mail only when the
+ * channel verified that e-mail too; otherwise anyone who can type an address
+ * into the host app could attach themselves to another customer's history.
+ */
 async function contactFor(
   tx: DbTx,
   scope: Scope,
@@ -52,7 +57,10 @@ async function contactFor(
       if (known) return known.id;
     }
   }
-  const existing = email
+  const matchByEmail =
+    Boolean(email) &&
+    (!contact.externalUserId || contact.emailVerified === true);
+  const existing = matchByEmail
     ? await tx.supportContact.findFirst({
         where: { ...base, email, deletedAt: null },
       })
@@ -64,7 +72,9 @@ async function contactFor(
         data: {
           id: randomUUID(),
           ...base,
-          email,
+          ...(matchByEmail || !email
+            ? { email }
+            : { email: null, claimedEmail: email }),
           name: contact.name?.trim().slice(0, 200) || null,
           locale: contact.locale?.slice(0, 20) || null,
         },
@@ -150,15 +160,17 @@ export async function createTicket(
     supportSettingsDefaults,
   );
   const sla = settings.sla.normal;
-  const highest = await tx.supportTicket.aggregate({
-    where: base,
-    _max: { number: true },
+  // Never max(number)+1: a deleted newest ticket must not hand on its number.
+  const counter = await tx.supportTicketCounter.upsert({
+    where: { projectId: scope.projectId },
+    create: { ...base, lastNumber: 1 },
+    update: { lastNumber: { increment: 1 } },
   });
   const ticket = await tx.supportTicket.create({
     data: {
       id: randomUUID(),
       ...base,
-      number: (highest._max.number ?? 0) + 1,
+      number: counter.lastNumber,
       inboxId: inbox.id,
       contactId,
       subject: inbound.subject.trim().slice(0, SUBJECT_MAX) || "(no subject)",

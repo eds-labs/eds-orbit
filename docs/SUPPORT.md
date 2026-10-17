@@ -19,9 +19,10 @@ Support is opt-in twice:
 1. **Installation:** `ORBIT_SUPPORT=true`. The default is `false`.
 2. **Project:** an owner enables the module, which writes an explicit `ProjectModule` row with `enabled = true`. Enabling modules needs `ORBIT_MODULES=true`.
 
-The explicit row is required because, while `ORBIT_MODULES` is off, the platform counts every module as enabled.
+The explicit row is required because, while `ORBIT_MODULES` is off, the platform counts every module as enabled, except modules that are off by default: those count only where an owner enabled them. This is how the platform's enabled set treats support's tools, jobs and similar contributions too.
 
 While `ORBIT_SUPPORT` is off, the module is **unavailable**:
+- none of its contributions count anywhere, not even while `ORBIT_MODULES` is off;
 - projects do not list it;
 - owners cannot enable it;
 - members cannot get a module role for it;
@@ -31,17 +32,18 @@ A project where support is not enabled gets 404 `SUPPORT_DISABLED`, or `MODULE_D
 
 ## Data
 
-There are seven project tables (migration `202610180001_support_core`). All of them have FORCE RLS, the `project_scope` policy and grants for `orbit_app`.
+There are eight project tables (migration `202610180001_support_core`). All of them have FORCE RLS, the `project_scope` policy and grants for `orbit_app`.
 
 | Table | Holds |
 |---|---|
 | `SupportInbox` | Entry points: an e-mail address and/or a widget with its allowed origins, an encrypted widget secret, defaults and the AI mode |
-| `SupportContact` | Customers per project: e-mail stored lowercased and unique while live, plus a tombstone `deletedAt` |
+| `SupportContact` | Customers per project: the correspondence e-mail, stored lowercased and unique while live; a `claimedEmail` that a widget user typed but nobody verified, which is never used for matching; a tombstone `deletedAt` |
 | `SupportContactIdentity` | A host app's user id per inbox and channel, verified by the widget's HMAC (WP5.4) |
 | `SupportTicket` | Tickets: the per-project number, status, priority, category, tags, assignee, SLA due times and AI state |
 | `SupportMessage` | The timeline: customer messages, replies, internal notes, AI drafts and system entries, with a full-text vector (`simple` configuration) |
 | `SupportAttachment` | Links from messages to platform files (`docs/PLATFORM_FILES.md`) |
 | `SupportTicketEvent` | Status, priority, assignee and category changes, with field values only |
+| `SupportTicketCounter` | The last ticket number per project, so numbers are never reused, even after deletions |
 
 Foreign key checks bypass RLS. Every reference between support rows is therefore a composite `("projectId", id)` key, so a row can only point at rows of its own project. Attachments reference `File` the same way.
 
@@ -100,8 +102,8 @@ Further rules:
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:
 1. checks that support is active, the inbox is live and the inbox has the channel;
 2. returns the existing ticket for a channel message id it has already seen;
-3. finds the contact by verified identity, then by e-mail, skipping deleted contacts, or creates one;
-4. allocates the next number of the project under the project lock, so numbers have no gaps;
+3. finds the contact by verified identity, then by e-mail, skipping deleted contacts, or creates one. A verified user id joins an existing contact by e-mail only when the channel also verified the e-mail (`emailVerified`); otherwise anyone could attach themselves to another customer's history.
+4. takes the next number from the project's counter under the project lock, so numbers are never reused;
 5. sets the SLA due times from the settings;
 6. writes the message, its attachments, the `created` event and the audit entry.
 

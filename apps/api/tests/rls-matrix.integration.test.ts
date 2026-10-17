@@ -46,6 +46,7 @@ const PROJECT_TABLES = [
   "SupportInbox",
   "SupportMessage",
   "SupportTicket",
+  "SupportTicketCounter",
   "SupportTicketEvent",
 ];
 // Project scope plus the chat owner (app.user_id).
@@ -366,6 +367,13 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           name: "rls.txt",
           mime: "text/plain",
           size: 1,
+        },
+      });
+      await tx.supportTicketCounter.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          lastNumber: 1,
         },
       });
       await tx.supportTicketEvent.create({

@@ -8,6 +8,7 @@ import {
 import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
+import { credentialKey, decrypt } from "../src/shared.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -344,5 +345,48 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
     expect((await call("editor", "GET", "/support/inboxes")).statusCode).toBe(
       404,
     );
+  });
+
+  it("drops the widget secret when the widget channel is removed", async () => {
+    await switchOn();
+    const created = (
+      await call("owner", "POST", "/support/inboxes", inbox)
+    ).json();
+    const url = `/support/inboxes/${created.inbox.id}`;
+    const mailOnly = await call("owner", "PATCH", url, {
+      version: 1,
+      channels: ["email"],
+    });
+    expect(mailOnly.json().hasWidgetSecret).toBe(false);
+    const back = await call("owner", "PATCH", url, {
+      version: 2,
+      channels: ["email", "widget"],
+    });
+    expect(back.json().hasWidgetSecret).toBe(true);
+    const stored = await scoped(workspaceId, projectId, (tx) =>
+      tx.supportInbox.findUniqueOrThrow({ where: { id: created.inbox.id } }),
+    );
+    // The old, possibly leaked secret does not come back.
+    expect(decrypt(stored.widgetSecretEnc!, credentialKey())).not.toBe(
+      created.widgetSecret,
+    );
+  });
+
+  it("fills settings saved by an older version with today's defaults", async () => {
+    await switchOn();
+    const current = (await call("owner", "GET", "/support/settings")).json();
+    const { autoAck: _dropped, ...older } = current.settings;
+    const { widgetSessionDays: _gone, ...olderRetention } =
+      current.settings.retention;
+    await scoped(workspaceId, projectId, (tx) =>
+      tx.projectModule.updateMany({
+        where: { projectId, moduleId: "support" },
+        data: { settings: { ...older, retention: olderRetention } },
+      }),
+    );
+    const read = await call("viewer", "GET", "/support/settings");
+    expect(read.statusCode).toBe(200);
+    expect(read.json().settings.autoAck).toBe(true);
+    expect(read.json().settings.retention.widgetSessionDays).toBe(30);
   });
 });

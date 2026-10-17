@@ -17,9 +17,10 @@ The operating guide is `docs/SUPPORT.md`.
   - seven permissions, `support.settings.manage` owner-only;
   - the settings schema with the Q-12b defaults.
 - **Opt-in twice.**
-  - `ORBIT_SUPPORT` (default `false`) must be on. New: `ModuleContributions.available` hides a module from the module list, enabling, the enabled set and module roles while it is unavailable.
+  - `ORBIT_SUPPORT` (default `false`) must be on. New: `ModuleContributions.available`. While a module is unavailable, it is left out of the module list, enabling and module roles, and `ownerEnabled` refuses its contributions.
+  - Modules that are off by default count only where an owner enabled them, even while `ORBIT_MODULES` is off (`enabledModules`).
   - The project needs an explicit enabled `ProjectModule` row.
-- **Data.** Migration `202610180001_support_core` adds seven tables:
+- **Data.** Migration `202610180001_support_core` adds eight tables, including a per-project ticket counter:
   - FORCE RLS and `orbit_app` grants;
   - same-project composite foreign keys, plus a new unique key on `File` (`projectId`, `id`);
   - a full-text trigger on messages.
@@ -27,18 +28,18 @@ The operating guide is `docs/SUPPORT.md`.
   It is additive.
 - **API.** Settings (`platform/modules/settings.ts`, generic, versioned, audited without values) and inbox management. The widget secret is encrypted, shown once and never audited.
 - **Domain.** `createTicket`:
-  - gapless numbers per project under the project lock;
-  - contacts by identity or e-mail;
+  - numbers from the per-project counter, never reused;
+  - contacts by identity or e-mail; a verified user id joins a contact by e-mail only when the e-mail is verified too;
   - idempotent per channel message;
   - SLA due times from the settings;
   - attachments only from the same project's files.
 
   The `SupportChannelAdapter` contract consists of types only.
 - **Tests:**
-  - `support-inboxes.integration.test.ts`, 6 tests: the gate states, the secret shown once, validation, versions, settings and roles;
-  - `support-tickets.integration.test.ts`, 7 tests: parallel numbering, contacts, idempotency, SLA, the gate, attachments, and no text in audit or event rows;
+  - `support-inboxes.integration.test.ts`, 8 tests: the gate states, the secret shown once and dropped with the widget channel, validation, versions, settings (older saved settings filled with defaults) and roles;
+  - `support-tickets.integration.test.ts`, 10 tests: parallel numbering, no reuse after deletion, contacts, verified-only e-mail binding, idempotency, SLA, the gate, the opt-in enabled set, attachments, and no text in audit or event rows;
   - `settings.test.ts`;
-  - the RLS matrix: seven tables seeded, a cross-project insert, a foreign key across projects refused, and a project deleted with its support rows;
+  - the RLS matrix: eight tables seeded, a cross-project insert, a foreign key across projects refused, and a project deleted with its support rows;
   - the access matrix: seven new routes, all closed;
   - the module activation and roles tests, while support is unavailable.
 - **Production.**

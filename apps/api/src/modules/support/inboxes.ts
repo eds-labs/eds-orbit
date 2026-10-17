@@ -156,11 +156,13 @@ export async function updateInbox(
     throw new DomainError("INBOX_VERSION_CONFLICT", 409);
   const next = { ...current, ...changes };
   assertChannels(next);
-  // A widget added later gets its secret now; it is shown by a rotation.
-  const widgetSecretEnc =
-    next.channels.includes("widget") && !current.widgetSecretEnc
-      ? encrypt(newSecret(), credentialKey())
-      : current.widgetSecretEnc;
+  // Removing the widget drops its secret, so a re-added widget never revives
+  // an old (possibly leaked) one; a new secret is shown by a rotation.
+  const widgetSecretEnc = !next.channels.includes("widget")
+    ? null
+    : current.channels.includes("widget") && current.widgetSecretEnc
+      ? current.widgetSecretEnc
+      : encrypt(newSecret(), credentialKey());
   const updated = await tx.supportInbox.updateMany({
     where: { id, projectId: scope.projectId, version },
     data: { ...changes, widgetSecretEnc, version: version + 1 },

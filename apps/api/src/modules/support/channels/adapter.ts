@@ -14,6 +14,12 @@ export type NormalizedInbound = {
   externalId: string | null;
   contact: {
     email?: string;
+    /**
+     * True when the channel verified that the customer owns the e-mail (for
+     * example a host app's signed claim). A verified user id is joined to an
+     * existing contact by e-mail only then.
+     */
+    emailVerified?: boolean;
     name?: string;
     locale?: string;
     /** The host app's user id, verified by the widget's HMAC. */

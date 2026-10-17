@@ -19,6 +19,7 @@ import {
   registeredPeriodicTasks,
   registeredRetention,
   registeredRoutes,
+  registeredRoutesByOwner,
   registeredSchedulers,
   registeredTelegramCallback,
   registeredToolOwner,
@@ -328,13 +329,23 @@ describe("module contributions", () => {
   });
 
   it("lets knowledge, marketing and support register their HTTP routes (WP2.1f, WP3.3, WP5.1)", () => {
-    // Registry order: knowledge before marketing, which depends on it; support
-    // depends on nothing. Support's routes answer 404 while it is off.
-    expect(registeredRoutes()).toEqual([
-      knowledgeRoutes,
-      supportRoutes,
-      marketingRoutes,
-    ]);
+    // Registry order: knowledge before marketing, which depends on it.
+    // Support counts only while ORBIT_SUPPORT is on; the server registers
+    // its routes regardless and they answer 404 while it is off.
+    expect(registeredRoutes()).toEqual([knowledgeRoutes, marketingRoutes]);
+    process.env.ORBIT_SUPPORT = "true";
+    try {
+      expect(registeredRoutes()).toEqual([
+        knowledgeRoutes,
+        supportRoutes,
+        marketingRoutes,
+      ]);
+    } finally {
+      delete process.env.ORBIT_SUPPORT;
+    }
+    expect(registeredRoutesByOwner().map(([owner]) => owner)).toContain(
+      "support",
+    );
     expect(registeredToolOwner("knowledge_search")).toBe("platform");
   });
 

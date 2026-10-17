@@ -1,5 +1,5 @@
 -- Support module core (Phase 5, WP5.1; plans/orbit-modularization 06 §3.1).
--- Seven project tables like "File": the business role reads and writes them
+-- Eight project tables like "File": the business role reads and writes them
 -- within the project scope (FORCE RLS). Foreign key checks bypass RLS, so
 -- every reference between support rows is a composite ("projectId", id) key:
 -- a row can only point at rows of its own project. Additive; nothing existing
@@ -40,12 +40,27 @@ CREATE TABLE "SupportInbox" (
 );
 CREATE INDEX "SupportInbox_workspaceId_projectId_idx" ON "SupportInbox"("workspaceId", "projectId");
 
+-- The last ticket number per project. Numbers are never reused, even after
+-- the newest ticket is deleted (retention, erasure).
+CREATE TABLE "SupportTicketCounter" (
+  "workspaceId" UUID NOT NULL,
+  "projectId" UUID NOT NULL,
+  "lastNumber" INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT "SupportTicketCounter_pkey" PRIMARY KEY ("projectId"),
+  CONSTRAINT "SupportTicketCounter_project_fkey" FOREIGN KEY ("workspaceId", "projectId") REFERENCES "Project"("workspaceId", "id") ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT "SupportTicketCounter_lastNumber_check" CHECK ("lastNumber" >= 0)
+);
+
 CREATE TABLE "SupportContact" (
   "id" UUID NOT NULL,
   "workspaceId" UUID NOT NULL,
   "projectId" UUID NOT NULL,
   "name" TEXT,
+  -- The address Orbit corresponds with; unique per project while live.
   "email" TEXT,
+  -- An address a widget user typed but the host app did not verify. Never
+  -- used to match or merge contacts (WP5.4 decides how to confirm it).
+  "claimedEmail" TEXT,
   "locale" TEXT,
   "notes" TEXT,
   "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -80,7 +95,7 @@ CREATE TABLE "SupportTicket" (
   "id" UUID NOT NULL,
   "workspaceId" UUID NOT NULL,
   "projectId" UUID NOT NULL,
-  -- Per project, allocated under the project lock.
+  -- Per project, from "SupportTicketCounter" under the project lock.
   "number" INTEGER NOT NULL,
   "inboxId" UUID NOT NULL,
   "contactId" UUID NOT NULL,
@@ -242,5 +257,11 @@ CREATE POLICY project_scope ON "SupportAttachment"
 ALTER TABLE "SupportTicketEvent" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "SupportTicketEvent" FORCE ROW LEVEL SECURITY;
 CREATE POLICY project_scope ON "SupportTicketEvent"
+  USING ("workspaceId"=nullif(current_setting('app.workspace_id',true),'')::uuid AND "projectId"=nullif(current_setting('app.project_id',true),'')::uuid)
+  WITH CHECK ("workspaceId"=nullif(current_setting('app.workspace_id',true),'')::uuid AND "projectId"=nullif(current_setting('app.project_id',true),'')::uuid);
+
+ALTER TABLE "SupportTicketCounter" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE "SupportTicketCounter" FORCE ROW LEVEL SECURITY;
+CREATE POLICY project_scope ON "SupportTicketCounter"
   USING ("workspaceId"=nullif(current_setting('app.workspace_id',true),'')::uuid AND "projectId"=nullif(current_setting('app.project_id',true),'')::uuid)
   WITH CHECK ("workspaceId"=nullif(current_setting('app.workspace_id',true),'')::uuid AND "projectId"=nullif(current_setting('app.project_id',true),'')::uuid);

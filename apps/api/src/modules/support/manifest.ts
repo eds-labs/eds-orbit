@@ -21,6 +21,7 @@ export const supportModule: ServerModule = {
     "SupportMessage",
     "SupportAttachment",
     "SupportTicketEvent",
+    "SupportTicketCounter",
   ],
   permissions: supportPermissions,
 };

@@ -30,7 +30,24 @@ export async function readModuleSettings<T>(
   const stored = row?.settings as Record<string, unknown> | undefined;
   if (!row || !stored || !Object.keys(stored).length)
     return { settings: defaults(), version: row?.settingsVersion ?? 1 };
-  return { settings: schema.parse(stored), version: row.settingsVersion };
+  // Settings saved by an older module version lack later keys: today's
+  // defaults fill them, so a deploy that adds a setting stops nothing.
+  return {
+    settings: schema.parse(withDefaults(defaults(), stored)),
+    version: row.settingsVersion,
+  };
+}
+
+const plain = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Stored values over the defaults, object by object; arrays are replaced. */
+function withDefaults(defaults: unknown, stored: unknown): unknown {
+  if (!plain(defaults) || !plain(stored)) return stored;
+  const merged: Record<string, unknown> = { ...defaults };
+  for (const [key, value] of Object.entries(stored))
+    merged[key] = key in defaults ? withDefaults(defaults[key], value) : value;
+  return merged;
 }
 
 /**
