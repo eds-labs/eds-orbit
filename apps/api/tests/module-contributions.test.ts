@@ -81,6 +81,7 @@ describe("module contributions", () => {
         "reconciliation",
         "reindex",
         "slack_notification",
+        "support_email_inbound",
         "telegram_notification",
       ].sort(),
     );
@@ -170,6 +171,7 @@ describe("module contributions", () => {
       "public-ingress-cleanup",
       "file-cleanup",
       "email-inbound",
+      "support-email-delivery",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",

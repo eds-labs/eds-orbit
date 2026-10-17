@@ -4,6 +4,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../shared.ts";
 import { supportAgents } from "./agents.ts";
+import { deliverMessage } from "./channels/deliver.ts";
 import {
   attachFiles,
   dueTimes,
@@ -200,6 +201,7 @@ export async function replyToTicket(
     },
   });
   const attachments = await attachFiles(tx, scope, message.id, files);
+  await deliverMessage(tx, scope, ticket, message);
   const status = ["new", "open", "resolved", "closed"].includes(ticket.status)
     ? "pending_customer"
     : ticket.status;
@@ -226,7 +228,10 @@ export async function replyToTicket(
     messageId: message.id,
     attachments: attachments.length,
   });
-  return { ...message, attachments };
+  const delivered = await tx.supportMessage.findUniqueOrThrow({
+    where: { id: message.id },
+  });
+  return { ...delivered, attachments };
 }
 
 const noteInput = z

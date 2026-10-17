@@ -60,6 +60,7 @@ const en = {
     not_sent: "Not sent",
     rejected: "Rejected",
     unknown: "Delivery unknown",
+    bounced: "Bounced",
   } as Record<string, string>,
   event: {
     created: "Ticket created",
@@ -181,6 +182,7 @@ const de: SupportText = {
     not_sent: "Nicht gesendet",
     rejected: "Abgelehnt",
     unknown: "Zustellung unklar",
+    bounced: "Unzustellbar",
   },
   event: {
     created: "Ticket erstellt",

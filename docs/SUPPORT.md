@@ -122,6 +122,27 @@ These routes also sit below `/api/projects/:projectId/support`, and every one of
 
 The module is opt-in in the web shell too. It stays hidden until the server lists it as enabled, so it never shows while `ORBIT_SUPPORT` is off.
 
+## E-mail channel (WP5.3)
+
+The channel uses the project's mailbox from WP4.7 (`ORBIT_EMAIL`, SMTP and IMAP; see `docs/EMAIL_AND_NOTIFICATIONS.md`) and platform files for the raw MIME and the attachments.
+
+- **Inbound.** The platform polls IMAP, stores each mail and queues `support_email_inbound`. Support then does the following:
+  1. **Routing.** It routes the mail to the live e-mail inbox whose address is among the recipients, else to the only one. An unroutable mail is audited and dropped.
+  2. **Threading.** It threads by `In-Reply-To` and `References` against the ticket's Message-IDs (merges followed), then by the subject token `[#<number>]`, but only from the ticket's own contact.
+  3. **Reopening.** A customer answer to a ticket that is waiting on the customer, resolved or closed reopens it, while `reopenOnReply` is on.
+  4. **Attachments.** Allowed types only (images, PDF, text, CSV), at most 10 per mail. Others are skipped and counted.
+  5. **Dedupe.** Each mail is recorded once per Message-ID.
+- **Loop protection.**
+  - Automatic mail (auto-replies, lists, bulk, mailer daemons) never opens a ticket, reopens one or gets an acknowledgement. When it threads, it is only appended.
+  - Bounces are the platform's.
+- **Acknowledgement.** New tickets get an automatic mail in the inbox's language with the ticket number, while `autoAck` is on, at most 3 per contact in 24 hours.
+- **Outbound.**
+  - Replies and acknowledgements go through `queueEmail` with `Re: <subject> [#<number>]`, `In-Reply-To` and `References`. The message's `externalId` is the Orbit Message-ID.
+  - The platform job never resends after an ambiguous transmit.
+  - The periodic `support-email-delivery` copies the outcome onto the message: `pending`, `sent`, `rejected`, `not_sent`, `unknown`, or `bounced` (migration `202610180002`).
+  - Without the e-mail flag, a verified mailbox or a contact address, a reply is `not_sent`.
+- **Not in the MVP.** HTML bodies are not kept; the text part is. A reply token in the address (`support+token@`) is not used, because the mailbox may not support plus-addressing.
+
 ## Tickets and channels
 
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:

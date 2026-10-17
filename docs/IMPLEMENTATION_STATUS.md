@@ -1,5 +1,17 @@
 # Implementation status
 
+## Support e-mail channel: WP5.3 (2026-10-17, local; flags off)
+
+Branch `claude/wp53-support-email`, stacked on WP5.2. Guide: `docs/SUPPORT.md` (E-mail channel).
+
+- **Inbound.** A `support_email_inbound` job on the WP4.7 mailbox:
+  - routing, threading by headers or by subject token (only from the ticket's contact), and reopening;
+  - attachments from the raw MIME;
+  - dedupe, loop protection and capped acknowledgements.
+- **Outbound.** `deliverMessage` queues replies through `queueEmail`, and the periodic `support-email-delivery` maps the outcome. Migration `202610180002_support_bounced` widens one check constraint.
+- **Tests.** `support-email.integration.test.ts`, 9 tests, with IMAP and SMTP stubs and an object store double.
+- **Production.** Receiving needs `ORBIT_EMAIL`, `ORBIT_FILES` and the mailbox, plus `ORBIT_SUPPORT` and the module. Each is a separate approval.
+
 ## Support agent workspace: WP5.2 (2026-10-17, local; flag off)
 
 Branch `claude/wp52-support-workspace`, stacked on WP5.1. Plan: `docs/superpowers/plans/2026-10-17-phase5-support-mvp.md`. Guide: `docs/SUPPORT.md` (Agent workspace).
