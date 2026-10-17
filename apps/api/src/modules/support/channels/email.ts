@@ -192,11 +192,14 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
     // Headers are easy to copy: they thread only from the ticket's own
     // contact; anyone else opens a new ticket (review fix 1).
     if (ticketId) {
-      const owner = await tx.supportTicket.findFirst({ where: { id: ticketId } });
+      const owner = await tx.supportTicket.findFirst({
+        where: { id: ticketId },
+      });
       const contact = owner
         ? await tx.supportContact.findFirst({ where: { id: owner.contactId } })
         : null;
-      if (!contact?.email || contact.email !== lower(mail.from)) ticketId = null;
+      if (!contact?.email || contact.email !== lower(mail.from))
+        ticketId = null;
     }
   }
   if (!ticketId) {
@@ -212,8 +215,7 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
         : null;
       // The token alone is guessable: it counts only from the ticket's contact.
       const from = lower(mail.from);
-      if (candidate && from && contact?.email === from)
-        ticketId = candidate.id;
+      if (candidate && from && contact?.email === from) ticketId = candidate.id;
     }
   }
   // Follow merges to the ticket that holds the conversation now.

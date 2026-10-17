@@ -339,9 +339,14 @@ describe.skipIf(!enabled)("support workspace API", () => {
     const a = await ticket({ contact: { email: "merge-a@example.invalid" } });
     const b = await ticket({ contact: { email: "merge-b@example.invalid" } });
     // Two customers' conversations never end up in one ticket (review fix 2).
-    const across = await call("editor", "POST", `/tickets/${a.ticketId}/merge`, {
-      intoTicketId: b.ticketId,
-    });
+    const across = await call(
+      "editor",
+      "POST",
+      `/tickets/${a.ticketId}/merge`,
+      {
+        intoTicketId: b.ticketId,
+      },
+    );
     expect(across.statusCode).toBe(409);
     expect(across.json().error.code).toBe("MERGE_CONTACT_MISMATCH");
 
@@ -365,11 +370,21 @@ describe.skipIf(!enabled)("support workspace API", () => {
     const tomb = await run((tx) =>
       tx.supportContact.findUniqueOrThrow({ where: { id: a.contactId } }),
     );
-    expect(tomb).toMatchObject({ email: null, name: null, claimedEmail: null, notes: null });
-
-    const merged = await call("editor", "POST", `/tickets/${a.ticketId}/merge`, {
-      intoTicketId: b.ticketId,
+    expect(tomb).toMatchObject({
+      email: null,
+      name: null,
+      claimedEmail: null,
+      notes: null,
     });
+
+    const merged = await call(
+      "editor",
+      "POST",
+      `/tickets/${a.ticketId}/merge`,
+      {
+        intoTicketId: b.ticketId,
+      },
+    );
     expect(merged.statusCode).toBe(200);
     const source = await call("viewer", "GET", `/tickets/${a.ticketId}`);
     expect(source.json().ticket).toMatchObject({

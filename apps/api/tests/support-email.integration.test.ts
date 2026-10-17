@@ -494,15 +494,26 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
         inboxId: widgetInbox,
         channel: "widget",
         contactId: claimed.id,
-        inbound: { externalId: null, contact: {}, subject: "Hi", bodyText: "Hi", attachments: [] },
+        inbound: {
+          externalId: null,
+          contact: {},
+          subject: "Hi",
+          bodyText: "Hi",
+          attachments: [],
+        },
       }),
     );
     await flush();
     sent.length = 0;
     const reply = await run((tx) =>
-      replyToTicket(tx, { ...scope, userId: "agent-1" }, widgetTicket.ticketId, {
-        bodyText: "Widget answer",
-      }),
+      replyToTicket(
+        tx,
+        { ...scope, userId: "agent-1" },
+        widgetTicket.ticketId,
+        {
+          bodyText: "Widget answer",
+        },
+      ),
     );
     await flush();
     expect(sent.filter((m) => m.to.includes("victim@example.org"))).toEqual([]);
@@ -511,16 +522,24 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
     // A stranger answering with the headers of Anna's thread opens a new ticket.
     const raw = mime({ Subject: "Anna thread" });
     await receive(raw);
-    const annaTicket = (await tickets()).find((t) => t.subject === "Anna thread")!;
+    const annaTicket = (await tickets()).find(
+      (t) => t.subject === "Anna thread",
+    )!;
     const annaId = /Message-ID: (<[^>]+>)/.exec(raw.toString())![1]!;
     await receive(
       mime(
-        { From: "Mallory <mallory@example.org>", Subject: "Re: Anna thread", "In-Reply-To": annaId },
+        {
+          From: "Mallory <mallory@example.org>",
+          Subject: "Re: Anna thread",
+          "In-Reply-To": annaId,
+        },
         "Injected",
       ),
     );
     expect(
-      (await messagesOf(annaTicket.id)).some((m) => m.bodyText.includes("Injected")),
+      (await messagesOf(annaTicket.id)).some((m) =>
+        m.bodyText.includes("Injected"),
+      ),
     ).toBe(false);
   });
 });

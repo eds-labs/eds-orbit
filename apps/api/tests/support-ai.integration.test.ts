@@ -23,7 +23,9 @@ import {
   supportSettingsDefaults,
   supportSettingsSchema,
 } from "../src/modules/support/settings.ts";
-import { runSupportTask } from "../src/modules/support/ai.ts";
+import { runSupportTask, withPlaceholders } from "../src/modules/support/ai.ts";
+import { readModuleSettings } from "../src/platform/modules/settings.ts";
+import { create } from "../src/shared.ts";
 import { createPackageProject } from "./support/package-project.ts";
 
 const mocked = vi.hoisted(() => ({
@@ -381,6 +383,196 @@ describe.skipIf(!enabled)("support AI", () => {
       ).toBe(false);
       expect((await ticketRow(t.ticketId)).aiState).toBe("handed_off");
     }
+  });
+
+  it("replaces every form of the contact's name and any e-mail address (review fix 3)", () => {
+    const out = withPlaceholders(
+      "Hi, I'm ANNA. anna customer here, reach me at anna.c@other.org or anna@example.org. -- Anna",
+      { name: "Anna Customer", email: "anna@example.org" },
+    );
+    expect(out.toLowerCase()).not.toContain("anna");
+    expect(out).not.toContain("@");
+    // Short tokens and other words stay.
+    expect(withPlaceholders("Jo said hi", { name: "Jo Li" })).toBe(
+      "Jo said hi",
+    );
+  });
+
+  it("screens triage before any model call (review fix 4)", async () => {
+    const t = await ticket(
+      "Someone asked me for my seed phrase in a DM, is that you?",
+    );
+    await runSupportTask(worker(), { task: "triage", ticketId: t.ticketId });
+    expect(mocked.requests).toHaveLength(0);
+    const event = await run((tx) =>
+      tx.supportTicketEvent.findFirst({
+        where: { ticketId: t.ticketId, type: "ai_triage" },
+      }),
+    );
+    expect(event!.after).toMatchObject({ sensitive: true, model: false });
+    expect((await ticketRow(t.ticketId)).aiState).toBe("handed_off");
+  });
+
+  it("never repeats the paid call of a job (review fix 5)", async () => {
+    const t = await ticket("How long does a deposit take?");
+    mocked.search.mockResolvedValue(ready);
+    mocked.validate.mockRejectedValue(new Error("database hiccup"));
+    mocked.replies.push({
+      reply: "Deposits arrive within an hour.",
+      citations: ["fact:fact-1"],
+      confidence: "high",
+      handoff: false,
+      handoffReason: "",
+    });
+    const job = {
+      task: "draft" as const,
+      ticketId: t.ticketId,
+      attemptKey: randomUUID(),
+    };
+    await expect(runSupportTask(worker(), job)).rejects.toMatchObject({
+      code: "SUPPORT_TASK_NOT_RETRIED",
+    });
+    // The worker retried the job: the call it already paid for is not made again.
+    await expect(runSupportTask(worker(), job)).rejects.toMatchObject({
+      code: "SUPPORT_CALL_UNKNOWN",
+    });
+    expect(mocked.requests).toHaveLength(1);
+  });
+
+  it("drafts on an agent's request even after a handoff, and scrubs the query from the evidence (review fixes 8, 11)", async () => {
+    const t = await ticket("How long does a deposit take for Anna Customer?");
+    await run((tx) =>
+      tx.supportTicket.update({
+        where: { id: t.ticketId },
+        data: { aiState: "handed_off" },
+      }),
+    );
+    const pack = await run((tx) =>
+      create(tx, project.owner, "evidence", {
+        status: "ready",
+        query: "How long does a deposit take for [customer name]?",
+      }),
+    );
+    mocked.search.mockResolvedValue({
+      ...ready,
+      result: {
+        ...ready.result,
+        retrieval: { mode: "hybrid", evidenceId: pack.id },
+      },
+    });
+    mocked.validate.mockResolvedValue({ valid: true, reasons: [] });
+    mocked.replies.push({
+      reply: "Deposits arrive within an hour.",
+      citations: ["fact:fact-1"],
+      confidence: "high",
+      handoff: false,
+      handoffReason: "",
+    });
+    // An automatic job does nothing after a handoff; an agent's request drafts.
+    await runSupportTask(worker(), { task: "draft", ticketId: t.ticketId });
+    expect(mocked.requests).toHaveLength(0);
+    await runSupportTask(worker(), {
+      task: "draft",
+      ticketId: t.ticketId,
+      manual: true,
+    });
+    expect(
+      (await messages(t.ticketId)).some((m) => m.kind === "ai_draft"),
+    ).toBe(true);
+    const evidence = await run((tx) =>
+      tx.entity.findUniqueOrThrow({ where: { id: pack.id } }),
+    );
+    expect(JSON.stringify(evidence.data)).not.toContain("deposit take");
+    const versions = await run((tx) =>
+      tx.entityVersion.findMany({ where: { entityId: pack.id } }),
+    );
+    expect(JSON.stringify(versions)).not.toContain("deposit take");
+  });
+
+  it("queues no AI for anonymous widget visitors and caps support AI spend per day (review fix 6)", async () => {
+    const widgetInbox = await run(
+      async (tx) =>
+        (
+          await createInbox(tx, project.owner, {
+            name: "Widget",
+            channels: ["widget"],
+            allowedOrigins: ["https://desk.example.invalid"],
+            aiMode: "draft",
+          })
+        ).inbox.id,
+    );
+    const anonymous = await run((tx) =>
+      tx.supportContact.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          claimedEmail: "anon@example.org",
+        },
+      }),
+    );
+    const created = await run((tx) =>
+      createTicket(tx, project.owner, {
+        inboxId: widgetInbox,
+        channel: "widget",
+        contactId: anonymous.id,
+        inbound: {
+          externalId: null,
+          contact: {},
+          subject: "Hi",
+          bodyText: "Deposit?",
+          attachments: [],
+        },
+      }),
+    );
+    const jobs = (await run((tx) => list(tx, project.owner, "jobs"))).filter(
+      (j) => data(j).resourceId === created.ticketId,
+    );
+    expect(jobs).toEqual([]);
+
+    const current = await run((tx) =>
+      readModuleSettings(
+        tx,
+        project.owner,
+        "support",
+        supportSettingsSchema,
+        supportSettingsDefaults,
+      ),
+    );
+    await run((tx) =>
+      writeModuleSettings(
+        tx,
+        project.owner,
+        "support",
+        supportSettingsSchema,
+        { ...current.settings, aiDailyBudgetMicros: 1 },
+        current.version,
+      ),
+    );
+    const t = await ticket("Where is my deposit?");
+    await expect(
+      runSupportTask(worker(), { task: "triage", ticketId: t.ticketId }),
+    ).rejects.toMatchObject({ code: "SUPPORT_AI_BUDGET_EXCEEDED" });
+    expect(mocked.requests).toHaveLength(0);
+    const after = await run((tx) =>
+      readModuleSettings(
+        tx,
+        project.owner,
+        "support",
+        supportSettingsSchema,
+        supportSettingsDefaults,
+      ),
+    );
+    await run((tx) =>
+      writeModuleSettings(
+        tx,
+        project.owner,
+        "support",
+        supportSettingsSchema,
+        { ...after.settings, aiDailyBudgetMicros: 2_000_000 },
+        after.version,
+      ),
+    );
   });
 
   it("stops while the project is paused and when the budget is exhausted", async () => {

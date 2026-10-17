@@ -27,14 +27,25 @@ export const supportContributions: ModuleContributions = {
     {
       queueClass: SUPPORT_TRIAGE,
       leaseMs: 180_000,
-      handler: ({ scope, job }) =>
-        runSupportTask(scope, { task: "triage", ticketId: job.resourceId }),
+      handler: ({ scope, job, jobId }) =>
+        runSupportTask(scope, {
+          task: "triage",
+          ticketId: job.resourceId,
+          attemptKey: jobId,
+        }),
     },
     {
       queueClass: SUPPORT_DRAFT,
       leaseMs: 180_000,
-      handler: ({ scope, job }) =>
-        runSupportTask(scope, { task: "draft", ticketId: job.resourceId }),
+      handler: ({ scope, job, jobId }) =>
+        runSupportTask(scope, {
+          task: "draft",
+          ticketId: job.resourceId,
+          attemptKey: jobId,
+          manual: String(job.idempotencyKey ?? "").startsWith(
+            "support-draft-manual:",
+          ),
+        }),
     },
   ],
   tools: supportTools,

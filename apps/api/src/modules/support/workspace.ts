@@ -619,7 +619,7 @@ export async function requestDraft(tx: DbTx, scope: Scope, id: string) {
     scope,
     SUPPORT_DRAFT,
     id,
-    `support-draft:${message.id}:${Date.now()}`,
+    `support-draft-manual:${message.id}:${Date.now()}`,
   );
   return { queued: true };
 }
