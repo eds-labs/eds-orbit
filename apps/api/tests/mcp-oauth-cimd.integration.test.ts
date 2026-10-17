@@ -536,6 +536,73 @@ describe.skipIf(!enabled)("CIMD client policy and audit", () => {
     });
   });
 
+  describe("an outstanding authorization code dies with its grant", () => {
+    const issuedFor = (id: string) => ({
+      clientId: id,
+      userId,
+      referenceId: workspaceId,
+    });
+    const expectNoTokens = async (id: string) => {
+      expect(
+        await authDb.oauthRefreshToken.count({ where: issuedFor(id) }),
+      ).toBe(0);
+      expect(
+        await authDb.oauthAccessToken.count({ where: issuedFor(id) }),
+      ).toBe(0);
+    };
+
+    it("code issued, then the client document changes: the exchange fails and mints nothing", async () => {
+      const id = client("code-changed-");
+      const flow = await connect({ clientId: id });
+      expect(flow.final.searchParams.get("code")).toBeTruthy();
+      documents[id] = doc(id, {
+        redirect_uris: ["https://client.test/cb", "https://client.test/other"],
+      });
+      const r = await exchange(flow, { client_id: id });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toBe("invalid_grant");
+      await expectNoTokens(id);
+      expect((await grantOf(id)).status).toBe("revoked");
+      // A later grant starts clean (token times have one-second precision).
+      await new Promise((resolve) => setTimeout(resolve, 1100));
+      const again = await tokensFor(id);
+      expect((await refresh(again.refresh_token, id)).statusCode).toBe(200);
+    });
+
+    it("code issued, then the user revokes the grant: the exchange fails and mints nothing", async () => {
+      const id = client("code-revoked-");
+      const flow = await connect({ clientId: id });
+      const grant = await grantOf(id);
+      const revoked = await inject({
+        method: "DELETE",
+        url: `/api/mcp-grants/${grant.id}`,
+      });
+      expect(revoked.statusCode).toBe(204);
+      const r = await exchange(flow, { client_id: id });
+      expect(r.statusCode).toBe(400);
+      expect(r.json().error).toBe("invalid_grant");
+      await expectNoTokens(id);
+    });
+
+    it("a code of another client or workspace is left alone", async () => {
+      const id = client("code-own-");
+      const other = client("code-other-");
+      const flow = await connect({ clientId: other });
+      await tokensFor(id);
+      await revokeClientGrants(id, "client_changed");
+      const r = await exchange(flow, { client_id: other });
+      expect(r.statusCode).toBe(200);
+    });
+
+    it("the normal code exchange still works", async () => {
+      const id = client("code-ok-");
+      const flow = await connect({ clientId: id });
+      const r = await exchange(flow, { client_id: id });
+      expect(r.statusCode).toBe(200);
+      expect(r.json().refresh_token).toBeTruthy();
+    });
+  });
+
   describe("refresh needs an active grant", () => {
     it("a normal refresh still works", async () => {
       const id = client("refresh-ok-");

@@ -33,9 +33,10 @@ import {
 // - Issuing the authorization code consumes the selection: `sessionId` is
 //   cleared, so a later authorization in the same session selects again.
 // - Revocation and denial set `revoked`; grant rows are never deleted here.
-//   Invariant: stored consent and refresh tokens for (user, client, workspace)
-//   exist only while an active grant does, so every path that ends an active
-//   grant also deletes them (`dropStoredAuthorization`).
+//   Invariant: stored consent, refresh tokens and outstanding authorization
+//   codes for (user, client, workspace) exist only while an active grant does,
+//   so every path that ends an active grant also deletes them
+//   (`dropStoredAuthorization`).
 
 /** The signed OAuth query and the authorization code share this lifetime (codeExpiresIn). */
 export const SELECTION_TTL_SECONDS = 600;
@@ -327,10 +328,56 @@ export async function activateGrant(input: {
 }
 
 /**
- * Deletes what lets a client act for (user, workspace): the stored consent,
- * the refresh tokens and any stored access tokens. Deleting the refresh rows
- * also drops the cached reuse-window replay response, so a token rotated a
- * moment ago cannot be replayed after this.
+ * Deletes outstanding authorization codes issued to this client for (user,
+ * workspace). A code is a `verification` row whose identifier is the hashed
+ * code and whose JSON value names the user, the reference and the client, so
+ * the rows are found by those values. Without this, a code issued before a
+ * revocation would still be exchanged for tokens afterwards.
+ */
+async function dropAuthorizationCodes(
+  tx: DbTx,
+  input: { userId: string; clientId: string; workspaceId: string },
+) {
+  const candidates = await tx.verification.findMany({
+    where: {
+      AND: [
+        { value: { contains: input.userId } },
+        { value: { contains: input.workspaceId } },
+        { value: { contains: "authorization_code" } },
+      ],
+    },
+    select: { id: true, value: true },
+  });
+  const ids = candidates
+    .filter(({ value }) => {
+      try {
+        const code = JSON.parse(value) as {
+          type?: unknown;
+          userId?: unknown;
+          referenceId?: unknown;
+          query?: { client_id?: unknown };
+        };
+        return (
+          code.type === "authorization_code" &&
+          code.userId === input.userId &&
+          code.referenceId === input.workspaceId &&
+          code.query?.client_id === input.clientId
+        );
+      } catch {
+        return false;
+      }
+    })
+    .map(({ id }) => id);
+  if (ids.length)
+    await tx.verification.deleteMany({ where: { id: { in: ids } } });
+}
+
+/**
+ * Deletes what lets a client act for (user, workspace): outstanding
+ * authorization codes, the stored consent, the refresh tokens and any stored
+ * access tokens. Deleting the refresh rows also drops the cached reuse-window
+ * replay response, so a token rotated a moment ago cannot be replayed after
+ * this.
  */
 async function dropStoredAuthorization(
   tx: DbTx,
@@ -341,6 +388,7 @@ async function dropStoredAuthorization(
     userId: input.userId,
     referenceId: input.workspaceId,
   };
+  await dropAuthorizationCodes(tx, input);
   await tx.oauthConsent.deleteMany({ where: reference });
   await tx.oauthRefreshToken.deleteMany({ where: reference });
   await tx.oauthAccessToken.deleteMany({ where: reference });
