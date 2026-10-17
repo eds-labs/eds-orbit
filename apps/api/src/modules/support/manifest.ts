@@ -12,7 +12,13 @@ export const supportModule: ServerModule = {
   displayName: { en: "Support", de: "Support" },
   dependsOn: [],
   defaultEnabled: false,
-  entityKinds: [],
+  entityKinds: [
+    {
+      kind: "support_widget_sessions",
+      description: "Widget visitors bound to public sessions",
+      exported: false,
+    },
+  ],
   tables: [
     "SupportInbox",
     "SupportContact",

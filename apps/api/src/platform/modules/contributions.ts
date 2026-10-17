@@ -118,18 +118,34 @@ export type ModuleContributions = {
   available?: () => boolean;
 };
 
+/** What a public route's handler receives (WP4.2b). */
+export type PublicRouteContext = {
+  /** The project, as the public client sees it: role viewer, no member. */
+  scope: Scope;
+  session: { id: string; keyId: string };
+  body: unknown;
+  query: Readonly<Record<string, string>>;
+};
+
 /** One route of a module's public API (WP4.2b). */
 export type PublicRoute = {
   method: "GET" | "POST";
   /** Below the key, such as "/requests"; lowercase segments only. */
   path: string;
-  handler(ctx: {
-    /** The project, as the public client sees it: role viewer, no member. */
-    scope: Scope;
-    session: { id: string; keyId: string };
-    body: unknown;
-    query: Readonly<Record<string, string>>;
-  }): Promise<unknown>;
+  /**
+   * A GET route may stream instead (WP5.4): `stream` authorizes and returns
+   * the event stream's project, name and replay; the platform serves it
+   * with the key's CORS answer and Last-Event-ID resume.
+   */
+  handler(ctx: PublicRouteContext): Promise<unknown>;
+  stream?(ctx: PublicRouteContext): Promise<{
+    projectId: string;
+    stream: string;
+    replay(after: number | null): Promise<{
+      events: Array<{ id: number; event: string; data: unknown }>;
+      done: boolean;
+    }>;
+  }>;
 };
 
 /**

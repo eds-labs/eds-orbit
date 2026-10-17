@@ -16,7 +16,7 @@ const forwardedHeaders = [
   // Telegram authenticates its webhook calls with this header.
   "x-telegram-bot-api-secret-token",
 ];
-/** OAuth clients (MCP) authenticate token, revoke and introspect calls with it. */
+/** OAuth clients (MCP) and public sessions (widgets) authenticate with it. */
 const oauthHeaders = [...forwardedHeaders, "authorization"];
 async function proxy(
   request: NextRequest,
@@ -33,12 +33,14 @@ async function proxy(
       { error: { code: "INVALID_PATH", message: "Invalid API path." } },
       { status: 400 },
     );
-  // Authorization only under /api/auth/oauth2/: nowhere else does the API read it.
+  // Authorization only where the API reads it: OAuth clients under
+  // /api/auth/oauth2/ and public sessions under /api/public/ (WP4.2b, WP5.4).
   const oauth = path[0] === "auth" && path[1] === "oauth2";
+  const publicApi = path[0] === "public";
   return forwardToApi(
     request,
     `/api/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
-    oauth ? oauthHeaders : forwardedHeaders,
+    oauth || publicApi ? oauthHeaders : forwardedHeaders,
   );
 }
 export {

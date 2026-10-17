@@ -43,6 +43,25 @@ export function parseCategories(text: string) {
     }));
 }
 
+/**
+ * The snippet an app embeds for the widget (WP5.4). The config is JSON with
+ * "<" escaped, so no value can close the script element.
+ */
+export function embedSnippet(
+  origin: string,
+  publicKey: string,
+  locale: string,
+) {
+  const config = JSON.stringify({ key: publicKey, locale }).replace(
+    /</g,
+    "\\u003c",
+  );
+  return [
+    `<script>window.OrbitSupportConfig = ${config};</script>`,
+    `<script src="${origin}/widget/v1.js" async></script>`,
+  ].join("\n");
+}
+
 /** The inbox form's values as the API body (origins one per line). */
 export function inboxBody(form: {
   name: string;
@@ -79,6 +98,8 @@ function Inboxes({ t }: { t: SupportText }) {
   );
   const [editing, setEditing] = useState<Inbox | "new" | null>(null);
   const [secret, setSecret] = useState<string | null>(null);
+  const [snippet, setSnippet] = useState<string | null>(null);
+  const { locale } = useWorkspace();
   const action = useMutation(list.refresh);
   return (
     <section className="panel">
@@ -133,6 +154,33 @@ function Inboxes({ t }: { t: SupportText }) {
                     {t.settings.rotate}
                   </Button>
                 )}
+                {inbox.channels.includes("widget") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={async () => {
+                      const result = await action.run(() =>
+                        post<{ publicKey: string }>(
+                          supportPath(
+                            project.id,
+                            `/inboxes/${inbox.id}/widget-key`,
+                          ),
+                          {},
+                        ),
+                      );
+                      if (result)
+                        setSnippet(
+                          embedSnippet(
+                            window.location.origin,
+                            result.publicKey,
+                            locale,
+                          ),
+                        );
+                    }}
+                  >
+                    {t.settings.widgetKey}
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
@@ -153,6 +201,21 @@ function Inboxes({ t }: { t: SupportText }) {
         ))}
       </ul>
       {action.error && <Alert kind="error">{action.error}</Alert>}
+      {snippet && (
+        <Modal
+          title={t.settings.widgetKey}
+          onClose={() => setSnippet(null)}
+          wide
+        >
+          <p>{t.settings.snippetHint}</p>
+          <Textarea
+            readOnly
+            rows={4}
+            value={snippet}
+            onFocus={(e) => e.target.select()}
+          />
+        </Modal>
+      )}
       {secret && (
         <Modal title={t.settings.rotate} onClose={() => setSecret(null)}>
           <Alert kind="warning">{t.settings.secretOnce}</Alert>

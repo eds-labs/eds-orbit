@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TimelineItem } from "./ticket";
-import { inboxBody, parseCategories } from "./settings";
+import { embedSnippet, inboxBody, parseCategories } from "./settings";
 import { supportText } from "./labels";
 
 const render = (entry: Parameters<typeof TimelineItem>[0]["entry"]) =>
@@ -102,5 +102,16 @@ describe("support ticket view (WP5.2)", () => {
         language: "de",
       }).allowedOrigins,
     ).toEqual([]);
+  });
+
+  it("builds the widget embed snippet with the key and the script origin", () => {
+    const snippet = embedSnippet("https://orbit.example", "pk_abc", "de");
+    expect(snippet).toContain('src="https://orbit.example/widget/v1.js"');
+    expect(snippet).toContain('"key":"pk_abc"');
+    expect(snippet).toContain('"locale":"de"');
+    // Values are JSON-encoded: no way to break out of the script.
+    const hostile = embedSnippet("https://o.example", "pk_</script>", "en");
+    expect(hostile).not.toContain("pk_</script>");
+    expect(hostile).toContain("pk_\\u003c/script>");
   });
 });

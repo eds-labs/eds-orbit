@@ -601,6 +601,27 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/public/support/{publicKey}/conversations": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/public/support/{publicKey}/messages": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/public/support/{publicKey}/stream": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/setup": {
     "anonymous": "allowed:200",
     "outsider": "allowed:200",
@@ -621,6 +642,13 @@
     "viewer": "public",
     "editor": "public",
     "owner": "public"
+  },
+  "OPTIONS /api/public/support/{publicKey}/{*}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
   },
   "PATCH /api/projects/{projectId}/content/{id}": {
     "anonymous": "unauthenticated",
@@ -1539,6 +1567,13 @@
     "editor": "not_found:MODULE_DISABLED",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "POST /api/projects/{projectId}/support/inboxes/{inboxId}/widget-key": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/support/tickets/{ticketId}/merge": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1587,6 +1622,41 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/public/support/{publicKey}/conversations": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/handoff": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/identify": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/messages": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/session": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
   },
   "POST /api/setup": {
     "anonymous": "allowed:400",

@@ -7,6 +7,7 @@ import { requireSupport } from "./gate.ts";
 import { loadInbox } from "./inboxes.ts";
 import {
   attachFiles,
+  conversationChanged,
   dueTimes,
   supportFiles,
   supportSettings,
@@ -36,7 +37,7 @@ export type CreatedTicket = {
  * channel verified that e-mail too; otherwise anyone who can type an address
  * into the host app could attach themselves to another customer's history.
  */
-async function contactFor(
+export async function resolveContact(
   tx: DbTx,
   scope: Scope,
   inboxId: string,
@@ -116,6 +117,8 @@ export async function createTicket(
     channel: SupportChannel;
     inbound: NormalizedInbound;
     now?: Date;
+    /** The contact a channel already resolved (the widget's session). */
+    contactId?: string;
   },
 ): Promise<CreatedTicket> {
   await requireSupport(tx, scope);
@@ -149,13 +152,9 @@ export async function createTicket(
   }
 
   const now = input.now ?? new Date();
-  const contactId = await contactFor(
-    tx,
-    scope,
-    inbox.id,
-    input.channel,
-    inbound.contact,
-  );
+  const contactId =
+    input.contactId ??
+    (await resolveContact(tx, scope, inbox.id, input.channel, inbound.contact));
   const settings = await supportSettings(tx, scope);
   // Adapters store files first; only live support files of the project count.
   const files = await supportFiles(
@@ -220,6 +219,7 @@ export async function createTicket(
     },
     createdAt: now,
   });
+  conversationChanged(tx, scope, ticket.id);
   await audit(tx, scope, "support.ticket.created", ticket.id, {
     ticketId: ticket.id,
     number: ticket.number,
@@ -232,4 +232,80 @@ export async function createTicket(
     messageId: message.id,
     duplicate: false,
   };
+}
+
+type TicketRow = Awaited<ReturnType<DbTx["supportTicket"]["findFirstOrThrow"]>>;
+
+/**
+ * The customer's next message on an existing ticket, from any channel:
+ * reopens a ticket waiting on the customer, resolved or closed (unless the
+ * message is automatic or `reopenOnReply` is off).
+ */
+export async function appendCustomerMessage(
+  tx: DbTx,
+  scope: Scope,
+  ticket: TicketRow,
+  input: {
+    bodyText: string;
+    channel: SupportChannel;
+    externalId: string | null;
+    files?: Array<{ fileId: string; name: string }>;
+    automatic?: boolean;
+  },
+) {
+  await requireSupport(tx, scope);
+  const now = new Date();
+  const message = await tx.supportMessage.create({
+    data: {
+      id: randomUUID(),
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      ticketId: ticket.id,
+      kind: "customer",
+      authorContactId: ticket.contactId,
+      bodyText: input.bodyText,
+      channel: input.channel,
+      externalId: input.externalId,
+      visibleToCustomer: true,
+      createdAt: now,
+    },
+  });
+  const files = await supportFiles(
+    tx,
+    scope,
+    (input.files ?? []).map((f) => f.fileId),
+  );
+  await attachFiles(
+    tx,
+    scope,
+    message.id,
+    files.map((file, i) => ({
+      ...file,
+      name: input.files![i]!.name || file.name,
+    })),
+  );
+  const settings = await supportSettings(tx, scope);
+  const reopen =
+    !input.automatic &&
+    settings.reopenOnReply &&
+    ["pending_customer", "resolved", "closed"].includes(ticket.status);
+  await tx.supportTicket.update({
+    where: { id: ticket.id },
+    data: {
+      lastCustomerMessageAt: now,
+      ...(reopen ? { status: "open", resolvedAt: null, closedAt: null } : {}),
+    },
+  });
+  if (reopen)
+    await ticketEvent(tx, scope, {
+      ticketId: ticket.id,
+      type: "status",
+      actorKind: "contact",
+      actorId: ticket.contactId,
+      before: { status: ticket.status },
+      after: { status: "open" },
+      createdAt: now,
+    });
+  conversationChanged(tx, scope, ticket.id);
+  return message;
 }
