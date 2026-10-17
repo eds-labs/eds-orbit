@@ -97,6 +97,31 @@ Further rules:
 - An e-mail inbox needs an address, and a widget inbox needs at least one exact origin.
 - The AI mode is `off` (the default) or `draft`. A widget answer without a human follows only with WP5.6, after Q-17.
 
+## Agent workspace (WP5.2)
+
+These routes also sit below `/api/projects/:projectId/support`, and every one of them goes through the support gate.
+
+| Route | Permission | Notes |
+|---|---|---|
+| `GET /tickets` | read | `view` is `mine`, `unassigned` or `all`. Filters are `status`, `inboxId`, `category` and `priority`. `q` searches the subject, the contact, and the message full text including internal notes. Results come with a keyset `cursor` and `limit` ≤ 50. |
+| `GET /tickets/:ticketId` | read | The ticket, its contact and inbox, and a timeline of messages (with attachments) and events. |
+| `POST /tickets/:ticketId/replies` | reply | Stored as `pending`; the channel jobs (WP5.3/WP5.4) deliver it. Sets the first response and moves the ticket to "waiting on customer". Attachments must be live support files. |
+| `POST /tickets/:ticketId/notes` | notes | Internal; never shown to the customer. |
+| `PATCH /tickets/:ticketId` | assign | Status, priority, category, tags and assignee, with one event per change. A priority change recomputes the pending due times. The assignee must be a support agent. |
+| `POST /tickets/:ticketId/merge` | assign | Moves the messages and closes the source ticket. |
+| `GET /contacts`, `GET /contacts/:id` | read | Live contacts; a contact comes with its tickets. |
+| `PATCH /contacts/:id`, `POST /contacts/:id/merge` | contacts | A merge moves the tickets and identities, then tombstones the duplicate. |
+| `GET /agents` | read | Members whose support role is owner or editor. |
+| `GET /summary` | read | Open, unassigned, at-risk (due within 60 minutes) and overdue counts. |
+
+**Web module** (`apps/web/src/modules/support`):
+- the inbox, which shows the open ticket beside it on wide screens and alone on phones (`?ticket=`);
+- the contacts page;
+- the "Support" settings tab with inboxes (the widget secret is shown once), categories, SLA and retention;
+- a home tile.
+
+The module is opt-in in the web shell too. It stays hidden until the server lists it as enabled, so it never shows while `ORBIT_SUPPORT` is off.
+
 ## Tickets and channels
 
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:

@@ -13,6 +13,17 @@ import {
 // Helpers shared by ticket creation, the workspace and the channels.
 
 const MINUTE = 60_000;
+/** A pending due time this close (or past) counts as at risk. */
+export const SLA_AT_RISK_MINUTES = 60;
+/** Statuses whose SLA clocks run: waiting on the team. */
+export const SLA_ACTIVE_STATUSES = ["new", "open", "pending_internal"];
+/** Statuses of a ticket that is not finished. */
+export const OPEN_STATUSES = [
+  "new",
+  "open",
+  "pending_customer",
+  "pending_internal",
+];
 
 /** The project's support settings, today's defaults where none are saved. */
 export async function supportSettings(tx: DbTx, scope: Scope) {

@@ -35,6 +35,7 @@ import {
   noteOnTicket,
   replyToTicket,
   ticketDetail,
+  ticketSummary,
   updateContact,
   updateTicket,
 } from "./workspace.ts";
@@ -124,6 +125,11 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
   app.post(`${BASE}/contacts/:contactId/merge`, (req) =>
     inSupport(auth, req, SUPPORT_CONTACTS_MANAGE, (tx, scope, p) =>
       mergeContact(tx, scope, contact(p), req.body),
+    ),
+  );
+  app.get(`${BASE}/summary`, (req) =>
+    inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope) =>
+      ticketSummary(tx, scope),
     ),
   );
   app.get(`${BASE}/agents`, (req) =>

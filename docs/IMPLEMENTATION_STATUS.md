@@ -1,5 +1,25 @@
 # Implementation status
 
+## Support agent workspace: WP5.2 (2026-10-17, local; flag off)
+
+Branch `claude/wp52-support-workspace`, stacked on WP5.1. Plan: `docs/superpowers/plans/2026-10-17-phase5-support-mvp.md`. Guide: `docs/SUPPORT.md` (Agent workspace).
+
+- **API.**
+  - Ticket lists with views, filters, search and a cursor; the timeline.
+  - Replies (pending until the channels deliver them) and internal notes.
+  - Field changes with events, and SLA recomputed on a priority change.
+  - Ticket and contact merges, agents and the summary.
+  - Attachments, inbound ones included, must be live support files of the project.
+- **Web.**
+  - The `support` module: inbox, ticket view, composer, contacts, settings tab and home tile.
+  - New: `WebModule.optIn` and `moduleShown`. A module the loaded states do not list is hidden, and opt-in modules stay hidden until the states load. Before, such a module counted as enabled.
+- **Tests:**
+  - `support-workspace.integration.test.ts`, 8 tests;
+  - the web helper and render tests, 6 tests (mutation-checked);
+  - shell visibility and navigation;
+  - the access matrix (12 new closed routes).
+- **Not run:** the Playwright support flow. It comes with WP5.4, the first public channel that creates tickets.
+
 ## Support module skeleton: WP5.1 (2026-10-17, local; flag off)
 
 Branch `claude/phase-5-support-mvp-pilot-201bc2`, the first work package of Phase 5. Plan: `docs/superpowers/plans/2026-10-17-wp51-support-skeleton.md`. The decision note is `plans/orbit-modularization/10-support-pilot-decisions.md`.

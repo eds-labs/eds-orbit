@@ -7,6 +7,9 @@ import { supportAgents } from "./agents.ts";
 import {
   attachFiles,
   dueTimes,
+  OPEN_STATUSES,
+  SLA_ACTIVE_STATUSES,
+  SLA_AT_RISK_MINUTES,
   supportFiles,
   supportSettings,
   ticketEvent,
@@ -531,4 +534,37 @@ export async function mergeContact(
     intoContactId,
   });
   return contactDetail(tx, scope, intoContactId);
+}
+
+/**
+ * Counts for the home tile: open and unassigned tickets, and tickets whose
+ * pending first response or resolution is due within the at-risk window
+ * (at risk) or already overdue (breached).
+ */
+export async function ticketSummary(tx: DbTx, scope: Scope, now = new Date()) {
+  const soon = new Date(now.getTime() + SLA_AT_RISK_MINUTES * 60_000);
+  const base = { projectId: scope.projectId, mergedIntoTicketId: null };
+  const active = { ...base, status: { in: SLA_ACTIVE_STATUSES } };
+  const due = (range: object) => ({
+    OR: [
+      { firstRespondedAt: null, firstResponseDueAt: range },
+      { resolvedAt: null, resolutionDueAt: range },
+    ],
+  });
+  const [open, unassigned, breached, atRisk] = await Promise.all([
+    tx.supportTicket.count({
+      where: { ...base, status: { in: OPEN_STATUSES } },
+    }),
+    tx.supportTicket.count({
+      where: { ...base, status: { in: OPEN_STATUSES }, assigneeUserId: null },
+    }),
+    tx.supportTicket.count({ where: { ...active, ...due({ lt: now }) } }),
+    tx.supportTicket.count({
+      where: {
+        ...active,
+        AND: [due({ gte: now, lt: soon }), { NOT: due({ lt: now }) }],
+      },
+    }),
+  ]);
+  return { open, unassigned, atRisk, breached };
 }

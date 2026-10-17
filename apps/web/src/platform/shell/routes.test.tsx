@@ -7,6 +7,7 @@ import {
   defaultProject,
   keptSuffix,
   locate,
+  moduleShown,
   moduleUsable,
   navOrder,
   pickerHref,
@@ -68,11 +69,13 @@ describe("Web route registry", () => {
 
   it("keeps the sidebar and mobile order of the old navigation", () => {
     const nav = navOrder(table.routes.filter((r) => r.nav));
+    // Support (WP5.2) joins the sidebar only; the mobile bar stays as it was.
     expect(nav.map((r) => r.key)).toEqual([
       "home",
       "missions",
       "chat",
       "content",
+      "support",
       "calendar",
       "knowledge",
       "assets",
@@ -238,6 +241,19 @@ describe("Web route registry", () => {
     expect(moduleUsable({ enabled: true, access: "viewer" })).toBe(true);
     expect(moduleUsable({ enabled: true, access: "none" })).toBe(false);
     expect(moduleUsable({ enabled: false, access: "editor" })).toBe(false);
+  });
+
+  it("hides a module the loaded states leave out, and opt-in modules until they load (WP5.1)", () => {
+    const states = [{ id: "knowledge", enabled: true }];
+    // States loaded: a module the server does not list (unavailable) is off.
+    expect(moduleShown(states, "support")).toBe(false);
+    expect(moduleShown(states, "knowledge")).toBe(true);
+    // Not loaded yet or failed: modules count as on, opt-in modules as off.
+    expect(moduleShown(undefined, "marketing")).toBe(true);
+    expect(moduleShown(undefined, "support", true)).toBe(false);
+    expect(
+      moduleShown([{ id: "support", enabled: true }], "support", true),
+    ).toBe(true);
   });
 
   it("rejects conflicting registries", () => {

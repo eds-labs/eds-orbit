@@ -433,4 +433,26 @@ describe.skipIf(!enabled)("support workspace API", () => {
     delete process.env.ORBIT_SUPPORT;
     expect((await call("owner", "GET", "/tickets")).statusCode).toBe(404);
   });
+
+  it("summarizes open, unassigned, at-risk and breached tickets", async () => {
+    const before = (await call("viewer", "GET", "/summary")).json();
+    const risky = await ticket();
+    const late = await ticket();
+    const now = Date.now();
+    await run(async (tx) => {
+      await tx.supportTicket.update({
+        where: { id: risky.ticketId },
+        data: { firstResponseDueAt: new Date(now + 30 * 60_000) },
+      });
+      await tx.supportTicket.update({
+        where: { id: late.ticketId },
+        data: { firstResponseDueAt: new Date(now - 60_000) },
+      });
+    });
+    const after = (await call("viewer", "GET", "/summary")).json();
+    expect(after.open - before.open).toBe(2);
+    expect(after.unassigned - before.unassigned).toBe(2);
+    expect(after.atRisk - before.atRisk).toBe(1);
+    expect(after.breached - before.breached).toBe(1);
+  });
 });

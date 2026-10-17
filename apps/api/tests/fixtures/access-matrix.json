@@ -559,6 +559,13 @@
     "editor": "not_found:MODULE_DISABLED",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "GET /api/projects/{projectId}/support/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/support/tickets": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
