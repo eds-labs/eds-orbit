@@ -1021,6 +1021,13 @@
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:409"
   },
+  "POST /api/projects/{projectId}/actions/source-audiences": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/actions/source-pause": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

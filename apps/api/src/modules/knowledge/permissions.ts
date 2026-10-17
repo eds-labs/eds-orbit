@@ -16,6 +16,7 @@ export const knowledgeActionPermissions = actionPermissions("knowledge", {
     "revoke-document",
     "revoke-source",
     "rollback-index",
+    "source-audiences",
     "source-pause",
     "withdraw-fact",
   ],
