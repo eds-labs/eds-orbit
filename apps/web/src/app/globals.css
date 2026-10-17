@@ -4254,3 +4254,23 @@ svg.agent-graph {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.support-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+.support-stat {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel);
+}
+.support-stat dt {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.support-stat dd {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}

@@ -1,5 +1,16 @@
 # Implementation status
 
+## Support statistics: WP5.7 (2026-10-17, local; flag off)
+
+Branch `claude/wp57-support-stats`, stacked on WP5.6. Guide: `docs/SUPPORT.md` (Statistics).
+
+- **Aggregation.** `modules/support/stats.ts` computes on read over tickets, events, messages and reservations: volume, first-response and resolution medians and means, backlog ages, reopen rate, SLA attainment and breaches, AI use (drafts used, unchanged or edited, withheld, handoffs) and AI cost. It applies the filters for range, inbox, category and agent.
+- **Routes.** `GET /stats` and `GET /stats/export` (CSV).
+- **Web.** Support > Statistics.
+- **Tests.**
+  - `support-stats.integration.test.ts` checks a hand-computed fixture with 4 tickets, the filters and the CSV.
+  - The web helper tests cover the range, durations and rates.
+
 ## Support AI: WP5.6 (2026-10-17, local; flags off)
 
 Branch `claude/wp56-support-ai`, stacked on WP5.5. Guide: `docs/SUPPORT.md` (Support AI). Decisions: Q-12a option B (OpenAI with safeguards) and Q-17 (drafts only).

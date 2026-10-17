@@ -21,11 +21,13 @@ import {
   SUPPORT_CONTACTS_MANAGE,
   SUPPORT_NOTES_WRITE,
   SUPPORT_SETTINGS_MANAGE,
+  SUPPORT_STATS_READ,
   SUPPORT_TICKETS_ASSIGN,
   SUPPORT_TICKETS_READ,
   SUPPORT_TICKETS_REPLY,
 } from "./permissions.ts";
 import { supportAgents } from "./agents.ts";
+import { statsCsv, supportStats } from "./stats.ts";
 import { enableWidgetKey } from "./widget.ts";
 import {
   contactDetail,
@@ -134,6 +136,20 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
       mergeContact(tx, scope, contact(p), req.body),
     ),
   );
+  app.get(`${BASE}/stats`, (req) =>
+    inSupport(auth, req, SUPPORT_STATS_READ, (tx, scope) =>
+      supportStats(tx, scope, req.query ?? {}),
+    ),
+  );
+  app.get(`${BASE}/stats/export`, async (req, reply) => {
+    const stats = await inSupport(auth, req, SUPPORT_STATS_READ, (tx, scope) =>
+      supportStats(tx, scope, req.query ?? {}),
+    );
+    return reply
+      .header("Content-Type", "text/csv; charset=utf-8")
+      .header("Content-Disposition", 'attachment; filename="support-stats.csv"')
+      .send(statsCsv(stats));
+  });
   app.get(`${BASE}/summary`, (req) =>
     inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope) =>
       ticketSummary(tx, scope),
