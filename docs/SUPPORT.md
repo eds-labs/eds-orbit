@@ -231,7 +231,17 @@ Without evidence, an internal gap note replaces the draft and the ticket is hand
 
 **The Orbit Assistant** gets `support_insights`, which returns counts only: no ticket content reaches the assistant's model.
 
-**Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17) and a paid model eval for triage accuracy (it needs a budget approval like D3).
+**Paid eval** (`pnpm eval:support`, manual):
+- 12 triage and 8 draft cases, synthetic;
+- the routes as in production;
+- a hard 3 USD ceiling, also enforced by the eval project's spend mandate, and a confirmation hash;
+- the key from the keychain (`orbit-eval-openai`);
+- a local database;
+- a report of ids and numbers only.
+
+The first run on 2026-10-17 cost $0.0227 and FAILED on one handoff case; see `docs/evidence/support-ai-eval-2026-10-17.json` and the status entry.
+
+**Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17).
 
 ## Statistics (WP5.7)
 
