@@ -275,6 +275,25 @@ model PublicClientKey {
   @@index([workspaceId, projectId])
 }
 
+/// A platform file (WP4.6): metadata of one encrypted object in object storage.
+model File {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  moduleId    String
+  key         String    @unique
+  name        String?
+  mime        String
+  size        Int
+  sha256      String
+  encryption  String
+  createdBy   String
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  deletedAt   DateTime? @db.Timestamptz(3)
+
+  @@index([workspaceId, projectId, moduleId])
+}
+
 /// A member's role in one module (WP4.5): editor, viewer or none.
 model ProjectMemberModuleRole {
   workspaceId String        @db.Uuid

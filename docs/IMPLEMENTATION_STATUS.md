@@ -1,5 +1,26 @@
 # Implementation status
 
+## Platform files: WP4.6 (2026-10-17, local; flag off)
+
+Branch `claude/wp46-platform-files` (on top of the public ingress follow-ups). Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Mario approved the bucket and token on 2026-10-17 (Q-19: an own R2 bucket next to the backup bucket). The operating guide is `docs/PLATFORM_FILES.md`.
+
+- **Data.** Migration `202610170007_platform_file` adds the `File` table: FORCE RLS project policy and `orbit_app` grants, declared as a platform table. Additive.
+- **Object store.** `platform/files/s3.ts` is a SigV4 client without an SDK (PUT, GET, DELETE), pinned by the AWS test vector.
+- **Encryption.** `platform/files/crypto.ts`: AES-256-GCM, with the file id as additional data.
+- **Service.** `platform/files/files.ts`: `storeFile`, `readFile`, `deleteFile` and the hourly `file-cleanup` task.
+  - Limits: allowlisted types, signature checks for images and PDF, `FILES_MAX_BYTES`.
+- **Routes.** `platform/files/routes.ts`: upload, download and delete, with module access and the module switch. They answer 404 while off or not configured.
+- **Configuration.** `ORBIT_FILES` and `FILES_*` in config, compose and `.env.example`. The compose check pins that file and backup credentials never mix.
+- **Tests:**
+  - `files.integration.test.ts`, against a bucket double that checks every signature: round trip, encryption at rest, permissions, limits, the module switch, project isolation, a swapped or missing object, the cleanup retry, and off/unconfigured;
+  - unit tests for SigV4 and encryption;
+  - the RLS matrix (`File` seeded, cross-project insert refused);
+  - the access matrix (three routes).
+- **Production.**
+  - Merging brings the migration (approval).
+  - Mario then creates the bucket and token and sets the variables.
+  - The flag waits for the security review (`docs/SECURITY_REVIEW.md`).
+
 ## Public ingress follow-ups (2026-10-17, local; flag off)
 
 Branch `claude/phase4-followups`. Everything stays behind `ORBIT_PUBLIC_INGRESS` (default `false`). The operating guide is `docs/PUBLIC_INGRESS.md`.

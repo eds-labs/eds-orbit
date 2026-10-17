@@ -65,6 +65,7 @@ export const platformDeclaration: PlatformDeclaration = {
     "ProjectMember",
     "ProjectMemberModuleRole",
     "PublicClientKey",
+    "File",
     "ProjectModule",
     "Entity",
     "EntityVersion",

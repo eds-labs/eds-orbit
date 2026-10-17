@@ -161,6 +161,7 @@ describe("module contributions", () => {
     // platform's ingress cleanup comes first (WP4.2 follow-up).
     expect(registeredPeriodicTasks().map((t) => t.name)).toEqual([
       "public-ingress-cleanup",
+      "file-cleanup",
       "matomo-schedule",
       "postiz-queue",
       "drive-asset-retry",

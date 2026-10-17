@@ -52,6 +52,28 @@ export const configSchema = z.object({
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.
   ORBIT_PUBLIC_INGRESS: z.enum(["false", "true"]).default("false"),
+  // Platform files (WP4.6): an own S3-compatible bucket (R2), never the
+  // backup bucket or its credentials. Off until the security review.
+  ORBIT_FILES: z.enum(["false", "true"]).default("false"),
+  FILES_S3_ENDPOINT: z.url().optional(),
+  FILES_S3_BUCKET: z
+    .string()
+    .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/)
+    .optional(),
+  FILES_S3_REGION: z.string().min(1).default("auto"),
+  FILES_S3_ACCESS_KEY_ID: z.string().min(1).optional(),
+  FILES_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  // 32 bytes as hex, separate from CREDENTIAL_KEY.
+  FILES_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[a-fA-F0-9]{64}$/)
+    .optional(),
+  FILES_MAX_BYTES: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(50 * 1024 * 1024)
+    .default(20 * 1024 * 1024),
 });
 export function loadConfig() {
   return configSchema.parse(process.env);

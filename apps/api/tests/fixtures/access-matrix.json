@@ -1,4 +1,11 @@
 {
+  "DELETE /api/projects/{projectId}/files/{fileId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/google-drive/callback": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
@@ -257,6 +264,13 @@
     "viewer": "allowed:200",
     "editor": "allowed:200",
     "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/files/{fileId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
   },
   "GET /api/projects/{projectId}/followup_plans": {
     "anonymous": "unauthenticated",
@@ -1159,6 +1173,13 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/files": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/followup_plans": {
