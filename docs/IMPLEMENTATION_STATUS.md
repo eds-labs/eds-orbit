@@ -1,5 +1,25 @@
 # Implementation status
 
+## Signed provider webhooks: WP4.2a (2026-10-17, local; flag off)
+
+Branch `claude/wp42-public-ingress`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: a new unauthenticated surface, behind `ORBIT_PUBLIC_INGRESS` (default `false`).
+
+- **Route.** `POST /api/hooks/:provider/:workspaceId/:projectId/:connectionId` (`platform/http/webhooks.ts`):
+  - the raw JSON body is kept as received for the signature;
+  - 415 and 413 limits;
+  - 120 requests per minute per connection;
+  - exempt from the Origin check by exact path pattern.
+- **Contract.** A module contributes `webhooks[provider] = { connectionProvider, verify, messageId, queueClass }`. The registry refuses duplicate names and unknown queue classes.
+- **Flow.** Inside the project transaction:
+  - the connection must belong to the provider (404 otherwise);
+  - the signature is checked (401 otherwise, audited);
+  - the message id is required (400 otherwise);
+  - a replay gets 409 (audited);
+  - the message is stored as `inbound_webhooks` and the module's job is enqueued; the answer is 200 at once.
+- **Fixture.** The test module `tasks` signs with HMAC-SHA256, and its job turns the message into a task.
+- **Tests.** `webhooks.integration.test.ts` covers the flag off, every rejection path, storing, the job, replay, the per-connection rate limit and the unchanged Origin check. A mutation check confirmed it: with the signature check disabled, 4 tests fail.
+- **Production.** Mario's approval for the flag, after the security review (`docs/SECURITY_REVIEW.md`). Merging alone changes nothing (404 while off). Slack and Telegram stay on their own routes for now.
+
 ## Module-level roles: WP4.5 (2026-10-17, local; flag off)
 
 Branch `claude/wp45-module-roles`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: an authorization change, behind `ORBIT_MODULE_ROLES` (default `false`).
