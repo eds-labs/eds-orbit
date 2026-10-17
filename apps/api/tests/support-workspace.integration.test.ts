@@ -335,9 +335,48 @@ describe.skipIf(!enabled)("support workspace API", () => {
     expect(refused.json().error.code).toBe("ASSIGNEE_NOT_AGENT");
   });
 
-  it("merges tickets and contacts", async () => {
+  it("merges contacts, then their tickets, and never tickets of two contacts", async () => {
     const a = await ticket({ contact: { email: "merge-a@example.invalid" } });
     const b = await ticket({ contact: { email: "merge-b@example.invalid" } });
+    // Two customers' conversations never end up in one ticket (review fix 2).
+    const across = await call(
+      "editor",
+      "POST",
+      `/tickets/${a.ticketId}/merge`,
+      {
+        intoTicketId: b.ticketId,
+      },
+    );
+    expect(across.statusCode).toBe(409);
+    expect(across.json().error.code).toBe("MERGE_CONTACT_MISMATCH");
+
+    const contactMerge = await call(
+      "editor",
+      "POST",
+      `/contacts/${a.contactId}/merge`,
+      { intoContactId: b.contactId },
+    );
+    expect(contactMerge.statusCode).toBe(200);
+    const contact = await call("viewer", "GET", `/contacts/${b.contactId}`);
+    expect(
+      contact
+        .json()
+        .tickets.map((t: any) => t.id)
+        .sort(),
+    ).toEqual([a.ticketId, b.ticketId].sort());
+    const list = await call("viewer", "GET", "/contacts?q=merge-a");
+    expect(list.json().items).toEqual([]);
+    // The tombstone keeps nothing personal.
+    const tomb = await run((tx) =>
+      tx.supportContact.findUniqueOrThrow({ where: { id: a.contactId } }),
+    );
+    expect(tomb).toMatchObject({
+      email: null,
+      name: null,
+      claimedEmail: null,
+      notes: null,
+    });
+
     const merged = await call(
       "editor",
       "POST",
@@ -363,23 +402,6 @@ describe.skipIf(!enabled)("support workspace API", () => {
         })
       ).statusCode,
     ).toBe(409);
-
-    const contactMerge = await call(
-      "editor",
-      "POST",
-      `/contacts/${a.contactId}/merge`,
-      { intoContactId: b.contactId },
-    );
-    expect(contactMerge.statusCode).toBe(200);
-    const contact = await call("viewer", "GET", `/contacts/${b.contactId}`);
-    expect(
-      contact
-        .json()
-        .tickets.map((t: any) => t.id)
-        .sort(),
-    ).toEqual([a.ticketId, b.ticketId].sort());
-    const list = await call("viewer", "GET", "/contacts?q=merge-a");
-    expect(list.json().items).toEqual([]);
     const renamed = await call("editor", "PATCH", `/contacts/${b.contactId}`, {
       name: "Bea Merged",
       notes: "VIP",
@@ -412,12 +434,12 @@ describe.skipIf(!enabled)("support workspace API", () => {
   });
 
   it("answers 404 while support is off and keeps text out of audit and events", async () => {
-    const t = await ticket({ bodyText: "Private body 9182" });
+    const t = await ticket({ bodyText: "Private body zqxmarker" });
     await call("editor", "POST", `/tickets/${t.ticketId}/replies`, {
-      bodyText: "Private reply 9182",
+      bodyText: "Private reply zqxmarker",
     });
     await call("editor", "POST", `/tickets/${t.ticketId}/notes`, {
-      bodyText: "Private note 9182",
+      bodyText: "Private note zqxmarker",
     });
     const rows = await run(async (tx) => ({
       audits: await tx.auditEvent.findMany({
@@ -430,7 +452,8 @@ describe.skipIf(!enabled)("support workspace API", () => {
         where: { projectId: owner.projectId },
       }),
     }));
-    expect(JSON.stringify(rows)).not.toMatch(/9182|anna@example/);
+    // A marker with letters beyond hex never matches a random id by chance.
+    expect(JSON.stringify(rows)).not.toMatch(/zqxmarker|anna@example/);
     delete process.env.ORBIT_SUPPORT;
     expect((await call("owner", "GET", "/tickets")).statusCode).toBe(404);
   });

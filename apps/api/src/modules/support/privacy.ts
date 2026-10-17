@@ -186,10 +186,42 @@ export async function eraseContact(scope: Scope, contactId: string) {
       await tx.entity.deleteMany({
         where: { id: { in: sessions.map((s) => s.id) } },
       });
-      await tx.supportMessage.updateMany({
+      // What they wrote in other tickets goes too (review fix 2).
+      const authored = await tx.supportMessage.findMany({
         where: { authorContactId: contactId },
-        data: { authorContactId: null },
+        select: { id: true },
       });
+      const authoredFiles = await tx.supportAttachment.findMany({
+        where: { messageId: { in: authored.map((m) => m.id) } },
+        select: { fileId: true },
+      });
+      await tx.supportMessage.deleteMany({
+        where: { authorContactId: contactId },
+      });
+      // Mail from their addresses that never became a message (review fix 8).
+      const addresses = [contact.email, contact.claimedEmail].filter(
+        (v): v is string => Boolean(v),
+      );
+      const unlinked = addresses.length
+        ? await tx.entity.findMany({
+            where: {
+              projectId: scope.projectId,
+              kind: INBOUND_KIND,
+              OR: addresses.map((a) => ({
+                data: { path: ["from"], equals: a },
+              })),
+            },
+          })
+        : [];
+      await tx.entity.deleteMany({
+        where: { id: { in: unlinked.map((r) => r.id) } },
+      });
+      removed.files.push(
+        ...authoredFiles.map((a) => a.fileId),
+        ...unlinked
+          .map((r) => data(r).fileId)
+          .filter((v): v is string => typeof v === "string"),
+      );
       await tx.supportContact.delete({ where: { id: contactId } });
       await audit(tx, scope, "support.contact.erased", contactId, {
         contactId,
@@ -296,39 +328,38 @@ export async function supportRetention(scope: Scope, now = new Date()) {
       // Raw mail of messages support recorded: the file goes, the row keeps
       // only what dedupe needs.
       const rawCutoff = new Date(now.getTime() - retention.rawEmailDays * DAY);
-      const recorded = await tx.supportMessage.findMany({
-        where: {
-          projectId: scope.projectId,
-          channel: "email",
-          kind: "customer",
-          externalId: { not: null },
-          createdAt: { lt: rawCutoff },
-        },
-        select: { externalId: true },
-        take: 500,
-      });
-      const rawRows = recorded.length
-        ? await tx.entity.findMany({
-            where: {
-              projectId: scope.projectId,
-              kind: INBOUND_KIND,
-              OR: recorded.map((m) => ({
-                data: { path: ["messageId"], equals: m.externalId! },
-              })),
-            },
-          })
-        : [];
+      // Mailbox rows of recorded mail not yet reduced, oldest first, so the
+      // pass never stalls on rows it already handled (review fix 7).
+      const rawRows = await tx.$queryRaw<Array<{ id: string; data: unknown }>>`
+        SELECT e.id, e.data FROM "Entity" e
+         WHERE e."projectId" = ${scope.projectId}::uuid
+           AND e.kind = ${INBOUND_KIND}
+           AND NOT (e.data ? 'retainedUntil')
+           AND e.data->>'messageId' IN (
+             SELECT m."externalId" FROM "SupportMessage" m
+              WHERE m."projectId" = ${scope.projectId}::uuid
+                AND m.channel = 'email' AND m.kind = 'customer'
+                AND m."createdAt" < ${rawCutoff})
+         ORDER BY e."createdAt"
+         LIMIT 500`;
       const rawFiles: string[] = [];
       for (const row of rawRows) {
-        const d = data(row);
-        if (!d.fileId && !d.text) continue;
+        const d = row.data as Record<string, unknown>;
         if (typeof d.fileId === "string") rawFiles.push(d.fileId);
-        await update(tx, scope, row, {
-          ...d,
-          fileId: null,
-          text: "",
-          retainedUntil: now.toISOString(),
+        // Only what dedupe needs stays; the history goes with the rest.
+        await tx.entity.update({
+          where: { id: row.id },
+          data: {
+            data: {
+              messageId: d.messageId ?? null,
+              connectionId: d.connectionId ?? null,
+              uid: d.uid ?? null,
+              uidValidity: d.uidValidity ?? null,
+              retainedUntil: now.toISOString(),
+            },
+          },
         });
+        await tx.entityVersion.deleteMany({ where: { entityId: row.id } });
       }
       const counts = {
         tickets: old.length,

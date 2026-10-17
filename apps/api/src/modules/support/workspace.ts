@@ -393,6 +393,10 @@ export async function mergeTicket(
   const target = await loadTicket(tx, scope, intoTicketId);
   if (source.mergedIntoTicketId || target.mergedIntoTicketId)
     throw new DomainError("TICKET_MERGED", 409);
+  // Two customers' conversations never share a ticket: merge the contacts
+  // first (review fix 2).
+  if (source.contactId !== target.contactId)
+    throw new DomainError("MERGE_CONTACT_MISMATCH", 409);
   const now = new Date();
   await tx.supportMessage.updateMany({
     where: { projectId: scope.projectId, ticketId: id },
@@ -544,7 +548,14 @@ export async function mergeContact(
   // The tombstone frees the address before the target takes it over.
   await tx.supportContact.update({
     where: { id },
-    data: { deletedAt: new Date(), email: null },
+    data: {
+      deletedAt: new Date(),
+      email: null,
+      claimedEmail: null,
+      name: null,
+      notes: null,
+      locale: null,
+    },
   });
   if (!target.email && source.email)
     await tx.supportContact.update({
@@ -608,7 +619,7 @@ export async function requestDraft(tx: DbTx, scope: Scope, id: string) {
     scope,
     SUPPORT_DRAFT,
     id,
-    `support-draft:${message.id}:${Date.now()}`,
+    `support-draft-manual:${message.id}:${Date.now()}`,
   );
   return { queued: true };
 }

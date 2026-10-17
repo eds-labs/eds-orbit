@@ -1,5 +1,23 @@
 # Implementation status
 
+## Support review fixes (2026-10-17, local; flags off)
+
+Branch `claude/support-review-fixes`, stacked on WP5.8. A fresh review of WP5.2–WP5.8 found no critical issue and 12 important ones. All 12 are fixed, each with a test that failed first:
+1. Claimed addresses are never mailed. Header and token threading need the ticket contact's own address.
+2. Tickets of two contacts are not merged. Erasure also removes the contact's messages in other tickets.
+3. Placeholders cover every form of the name and the e-mail local parts.
+4. Triage screens before calling the model.
+5. A job's paid call is keyed to the job and never repeated.
+6. A daily support AI cap applies, and anonymous widget visitors get no AI.
+7. Raw-mail retention keeps only dedupe fields, drops the history, and does not stall.
+8. Erasure covers unlinked inbound mail and contact tombstones; the evidence query is scrubbed after a draft.
+9. The delivery sync is ordered and bounded.
+10. The widget key's origins follow the inbox, and the key is revoked with the widget.
+11. An agent's draft request works after a handoff.
+12. Last-seen is throttled and unversioned.
+
+The minor findings are deferred and listed in the PR.
+
 ## Support privacy and operations: WP5.8 (2026-10-17, local; flag off)
 
 Branch `claude/wp58-support-privacy`, stacked on WP5.7. Guides: `docs/SUPPORT.md` (Privacy and operations) and `docs/OPERATIONS.md` (Support runbook).
@@ -44,6 +62,9 @@ Branch `claude/wp56-support-ai`, stacked on WP5.5. Guide: `docs/SUPPORT.md` (Sup
   - Triage: category 12/12, language 12/12, sensitive recall 4/4.
   - Drafts: 6/6 answered with citations; 0 forbidden phrases; 0 errors.
   - Handoff on unanswerable questions: 1/2, which missed the pre-registered rule. D04 ("Solana deposits?") produced a draft that cites the supported-networks fact instead of handing off. The case note allows a draft that says Solana is not listed, but the pass rule demanded a handoff. The rule was not changed afterwards.
+  - Run 2 on commit `ed6096b`, after the review fixes and a sharpened instruction (never answer from what the evidence does not name; hand off). Result: **FAIL** (`docs/evidence/support-ai-eval-2026-10-17-run2.json`), cost **$0.0221**. The total spent so far is $0.0448.
+    - Handoff: 2/2, so D04 is fixed. Drafts: 6/6 with citations; 0 forbidden phrases; 0 errors; sensitive recall 4/4.
+    - Triage category and language: 10/12. The misses are T09 (`trading`) and T11 (`billing`). Review fix 4 hands both off before the model is called, so they have no model category or language. This was checked locally with `screenCustomerText`. The eval's scoring predates fix 4. The rule was again not changed afterwards.
 
 ## Support notifications and automations: WP5.5 (2026-10-17, local; flags off)
 

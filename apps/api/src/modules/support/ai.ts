@@ -56,12 +56,29 @@ export function withPlaceholders(
     claimedEmail?: string | null;
   },
 ) {
-  let out = text;
-  for (const name of [contact.name].filter((v): v is string =>
-    Boolean(v && v.trim().length > 1),
-  ))
-    out = out.split(name).join(NAME);
-  return out.replace(ANY_EMAIL, EMAIL);
+  // E-mail addresses first, then the full name and every part of the name
+  // or of the address's local part with three or more letters, in any case,
+  // on word boundaries (review fix 3).
+  let out = text.replace(ANY_EMAIL, EMAIL);
+  const name = contact.name?.trim() ?? "";
+  const locals = [contact.email, contact.claimedEmail]
+    .filter((v): v is string => Boolean(v))
+    .map((e) => e.split("@")[0]!);
+  const tokens = [
+    name,
+    ...name.split(/\s+/),
+    ...locals.flatMap((l) => l.split(/[._+-]+/)),
+  ].filter((t) => t.length >= 3);
+  for (const token of [...new Set(tokens)].sort(
+    (a, b) => b.length - a.length,
+  )) {
+    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(
+      new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu"),
+      NAME,
+    );
+  }
+  return out;
 }
 
 /** Puts the contact's name back into a draft for the agent. */
@@ -119,6 +136,7 @@ const DRAFT_INSTRUCTIONS = [
   RULES,
   "Use only the evidence given. Cite every evidence id you use as listed (fact:<id> or chunk:<id>).",
   "If the evidence does not answer the question, say so in the reply and set handoff to true.",
+  "If the customer asks about something the evidence does not name (a network, asset, product, feature, fee, limit or date), never conclude from its absence whether it is supported: reply that a colleague will check, and set handoff to true and confidence to low.",
   "Answer in the customer's language, briefly and kindly.",
 ].join("\n");
 
@@ -136,6 +154,14 @@ export async function queueSupportAi(
     where: { id: ticket.inboxId },
   });
   if (inbox?.aiMode !== "draft" || ticket.aiState === "handed_off") return;
+  // Anonymous widget visitors get no paid AI: only verified app users do
+  // (review fix 6).
+  if (ticket.channel === "widget") {
+    const verified = await tx.supportContactIdentity.count({
+      where: { contactId: ticket.contactId, channel: "widget" },
+    });
+    if (!verified) return;
+  }
   if (options.triage)
     await enqueue(
       tx,
@@ -186,6 +212,8 @@ async function modelCall<T>(
     instructions: string;
     content: string;
     schema: z.ZodType<T>;
+    attemptKey: string;
+    state: { paid: boolean };
   },
 ): Promise<T> {
   const routeVersion = await scoped(scope.workspaceId, scope.projectId, (tx) =>
@@ -223,10 +251,13 @@ async function modelCall<T>(
           route.maxOutputTokens,
           runtime,
         );
+        await assertDailySupportBudget(tx, scope, estimate);
+        // One key per job attempt: a retried job finds its call already
+        // reserved and never pays twice (review fix 5).
         const reservation = await reserve(
           tx,
           scope,
-          `support:${input.ticketId}:${input.task}:${randomUUID()}`,
+          `support:${input.ticketId}:${input.task}:${input.attemptKey}`,
           CATEGORY,
           estimate,
           mandate.limits,
@@ -245,6 +276,7 @@ async function modelCall<T>(
     );
     reservationId = prepared.reservationId;
     model = prepared.route.model;
+    input.state.paid = true;
     const result = await respond({
       route: prepared.route,
       instructions: input.instructions,
@@ -322,8 +354,39 @@ async function modelCall<T>(
       );
     }
     await finishRun(scope, agentRunId, "blocked", errorCode(error));
+    if (errorCode(error) === "RESERVATION_ALREADY_USED")
+      throw new DomainError("SUPPORT_CALL_UNKNOWN", 409);
     throw error;
   }
+}
+
+/**
+ * A per-project daily ceiling for support AI (review fix 6), so customer
+ * traffic cannot use up the budget marketing and agents share.
+ */
+async function assertDailySupportBudget(
+  tx: DbTx,
+  scope: Scope,
+  estimate: number,
+) {
+  const { aiDailyBudgetMicros } = await supportSettings(tx, scope);
+  const dayStart = new Date();
+  dayStart.setUTCHours(0, 0, 0, 0);
+  const today = await tx.budgetReservation.findMany({
+    where: {
+      projectId: scope.projectId,
+      category: { in: [CATEGORY, "query_embedding"] },
+      key: { contains: "support:" },
+      createdAt: { gte: dayStart },
+    },
+    select: { amountMicros: true, settledMicros: true },
+  });
+  const spent = today.reduce(
+    (sum, r) => sum + Number(r.settledMicros ?? r.amountMicros),
+    0,
+  );
+  if (spent + estimate > aiDailyBudgetMicros)
+    throw new DomainError("SUPPORT_AI_BUDGET_EXCEEDED", 409);
 }
 
 function finalText(output: unknown[]) {
@@ -357,9 +420,34 @@ async function loadContext(scope: Scope, ticketId: string) {
   });
 }
 
-async function triage(scope: Scope, ticketId: string) {
+async function triage(scope: Scope, ticketId: string, run: RunOptions) {
   const ctx = await loadContext(scope, ticketId);
   if (!ctx.message) return;
+  // Hard rules first, for triage too: a sensitive message (for example a
+  // seed phrase) never reaches the model (review fix 4).
+  const screenedFirst = screenCustomerText(ctx.message.bodyText);
+  if (screenedFirst.sensitive) {
+    await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      await ticketEvent(tx, scope, {
+        ticketId,
+        type: "ai_triage",
+        actorKind: "ai",
+        actorId: null,
+        after: {
+          sensitive: true,
+          reasons: screenedFirst.reasons,
+          model: false,
+        },
+      });
+      await handOff(
+        tx,
+        scope,
+        ctx.ticket,
+        `sensitive:${screenedFirst.reasons[0]}`,
+      );
+    });
+    return;
+  }
   const categories = ctx.settings.categories.map((c) => c.key);
   const content = [
     `Subject: ${withPlaceholders(ctx.ticket.subject, ctx.contact)}`,
@@ -372,6 +460,8 @@ async function triage(scope: Scope, ticketId: string) {
     instructions: TRIAGE_INSTRUCTIONS(categories),
     content,
     schema: triageOutput,
+    attemptKey: run.attemptKey,
+    state: run.state,
   });
   const screened = screenCustomerText(ctx.message.bodyText);
   const category =
@@ -399,6 +489,7 @@ async function triage(scope: Scope, ticketId: string) {
         priority: result.priority,
         sentiment: result.sentiment,
         sensitive: result.sensitive || screened.sensitive,
+        model: true,
       },
     });
     await tx.supportMessage.create({
@@ -460,9 +551,11 @@ async function storeDraft(
   });
 }
 
-async function draft(scope: Scope, ticketId: string) {
+async function draft(scope: Scope, ticketId: string, run: RunOptions) {
   const ctx = await loadContext(scope, ticketId);
-  if (!ctx.message || ctx.ticket.aiState === "handed_off") return;
+  if (!ctx.message) return;
+  // After a handoff only an agent's request drafts (review fix 11).
+  if (ctx.ticket.aiState === "handed_off" && !run.manual) return;
   // Hard rules first: a sensitive question never reaches the model.
   const screened = screenCustomerText(ctx.message.bodyText);
   if (screened.sensitive) {
@@ -479,7 +572,7 @@ async function draft(scope: Scope, ticketId: string) {
     scope,
     { query },
     {
-      retrievalJobKey: `support:${ticketId}:retrieval:${ctx.message.id}:${randomUUID()}`,
+      retrievalJobKey: `support:${ticketId}:retrieval:${run.attemptKey}`,
       budgetRunKey: `support:${ticketId}`,
     },
     "support",
@@ -490,6 +583,7 @@ async function draft(scope: Scope, ticketId: string) {
     facts?: Array<{ id: string; key: string; value: unknown }>;
     passages?: Array<{ chunkId: string; title: string; text: string }>;
   };
+  run.state.evidenceId = evidence.retrieval?.evidenceId;
   const ids = [
     ...(evidence.facts ?? []).map((f) => `fact:${f.id}`),
     ...(evidence.passages ?? []).map((p) => `chunk:${p.chunkId}`),
@@ -521,6 +615,8 @@ async function draft(scope: Scope, ticketId: string) {
     instructions: DRAFT_INSTRUCTIONS,
     content,
     schema: draftOutput,
+    attemptKey: run.attemptKey,
+    state: run.state,
   });
   // Deterministic checks on the answer before an agent ever sees it.
   const problems: string[] = [];
@@ -559,13 +655,68 @@ async function draft(scope: Scope, ticketId: string) {
   );
 }
 
-/** Runs one support AI task of a ticket (the job handlers' entry). */
+type RunOptions = {
+  attemptKey: string;
+  manual: boolean;
+  state: { paid: boolean; evidenceId?: string };
+};
+
+/**
+ * Runs one support AI task of a ticket (the job handlers' entry). The
+ * attempt key is the job's id, so a retried job never pays twice; once a
+ * call was paid, any later failure ends the job without a retry.
+ */
 export async function runSupportTask(
   scope: Scope,
-  input: { task: "triage" | "draft"; ticketId: string },
+  input: {
+    task: "triage" | "draft";
+    ticketId: string;
+    attemptKey?: string;
+    manual?: boolean;
+  },
 ) {
-  if (input.task === "triage") return triage(scope, input.ticketId);
-  return draft(scope, input.ticketId);
+  const run: RunOptions = {
+    attemptKey: input.attemptKey ?? randomUUID(),
+    manual: input.manual === true,
+    state: { paid: false },
+  };
+  try {
+    if (input.task === "triage") await triage(scope, input.ticketId, run);
+    else await draft(scope, input.ticketId, run);
+  } catch (error) {
+    // A retried job whose retrieval was already reserved: never pay again.
+    if ((error as { code?: string }).code === "RESERVATION_ALREADY_USED")
+      throw new DomainError("SUPPORT_CALL_UNKNOWN", 409);
+    if (
+      run.state.paid &&
+      !String((error as { code?: string }).code ?? "").startsWith("SUPPORT_")
+    )
+      throw new DomainError("SUPPORT_TASK_NOT_RETRIED", 409);
+    throw error;
+  } finally {
+    if (run.state.evidenceId)
+      await scrubEvidence(scope, run.state.evidenceId).catch(() => undefined);
+  }
+}
+
+/**
+ * The evidence pack keeps the customer's (placeholdered) question as its
+ * query; it goes once the draft is done, with the pack's history (review
+ * fix 8).
+ */
+async function scrubEvidence(scope: Scope, evidenceId: string) {
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const row = await tx.entity.findFirst({
+      where: { id: evidenceId, projectId: scope.projectId, kind: "evidence" },
+    });
+    if (!row) return;
+    const d = row.data as Record<string, unknown>;
+    await tx.entity.update({
+      where: { id: row.id },
+      data: { data: { ...d, query: "[support query removed]" } as never },
+    });
+    await tx.entityVersion.deleteMany({ where: { entityId: row.id } });
+  });
 }
 
 /** Sum of the ticket's AI spend (settled where known, else reserved). */

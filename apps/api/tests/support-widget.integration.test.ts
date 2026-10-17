@@ -9,7 +9,7 @@ import {
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
-import { createInbox } from "../src/modules/support/inboxes.ts";
+import { createInbox, updateInbox } from "../src/modules/support/inboxes.ts";
 import { enableWidgetKey } from "../src/modules/support/widget.ts";
 import {
   noteOnTicket,
@@ -31,6 +31,7 @@ describe.skipIf(!enabled)("support widget public API", () => {
   let owner: Scope;
   let publicKey = "";
   let widgetSecret = "";
+  let widgetInboxId = "";
   const workspaces: string[] = [];
   const run = <T>(fn: (tx: DbTx) => Promise<T>) =>
     scoped(owner.workspaceId, owner.projectId, fn);
@@ -96,6 +97,7 @@ describe.skipIf(!enabled)("support widget public API", () => {
       widgetSecret = created.widgetSecret!;
       return created.inbox.id;
     });
+    widgetInboxId = inboxId;
     publicKey = (await enableWidgetKey(owner, inboxId)).publicKey;
   });
   afterEach(() => {
@@ -349,5 +351,54 @@ describe.skipIf(!enabled)("support widget public API", () => {
       );
     expect(statuses.slice(0, 5)).toEqual([200, 200, 200, 200, 200]);
     expect(statuses[5]).toBe(429);
+  });
+
+  it("touches a session's last-seen time without a new version per request (review fix 12)", async () => {
+    const token = await visitor();
+    await call("POST", "/identify", {
+      token,
+      payload: { email: "seen@example.org" },
+    });
+    for (let i = 0; i < 5; i++) await call("GET", "/conversations", { token });
+    const versions = await run(async (tx) => {
+      const row = await tx.entity.findFirstOrThrow({
+        where: { kind: "support_widget_sessions" },
+        orderBy: { createdAt: "desc" },
+      });
+      return tx.entityVersion.count({ where: { entityId: row.id } });
+    });
+    expect(versions).toBeLessThanOrEqual(2);
+  });
+
+  it("keeps the widget key's origins in step with the inbox and revokes it with the widget (review fix 10)", async () => {
+    const NEW_SITE = "https://app.example.invalid";
+    const inbox = await run((tx) =>
+      tx.supportInbox.findUniqueOrThrow({ where: { id: widgetInboxId } }),
+    );
+    await run((tx) =>
+      updateInbox(tx, owner, widgetInboxId, {
+        version: inbox.version,
+        allowedOrigins: [NEW_SITE],
+      }),
+    );
+    expect((await call("POST", "/session", { origin: SITE })).statusCode).toBe(
+      403,
+    );
+    expect(
+      (await call("POST", "/session", { origin: NEW_SITE })).statusCode,
+    ).toBe(201);
+    const current = await run((tx) =>
+      tx.supportInbox.findUniqueOrThrow({ where: { id: widgetInboxId } }),
+    );
+    await run((tx) =>
+      updateInbox(tx, owner, widgetInboxId, {
+        version: current.version,
+        channels: ["email"],
+        emailAddress: "w@example.invalid",
+      }),
+    );
+    expect(
+      (await call("POST", "/session", { origin: NEW_SITE })).statusCode,
+    ).toBe(404);
   });
 });

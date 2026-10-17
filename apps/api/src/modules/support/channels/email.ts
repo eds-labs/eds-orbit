@@ -189,6 +189,18 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
       orderBy: { createdAt: "desc" },
     });
     ticketId = hit?.ticketId ?? null;
+    // Headers are easy to copy: they thread only from the ticket's own
+    // contact; anyone else opens a new ticket (review fix 1).
+    if (ticketId) {
+      const owner = await tx.supportTicket.findFirst({
+        where: { id: ticketId },
+      });
+      const contact = owner
+        ? await tx.supportContact.findFirst({ where: { id: owner.contactId } })
+        : null;
+      if (!contact?.email || contact.email !== lower(mail.from))
+        ticketId = null;
+    }
   }
   if (!ticketId) {
     const token = TOKEN.exec(mail.subject ?? "");
@@ -203,12 +215,7 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
         : null;
       // The token alone is guessable: it counts only from the ticket's contact.
       const from = lower(mail.from);
-      if (
-        candidate &&
-        from &&
-        (contact?.email === from || contact?.claimedEmail === from)
-      )
-        ticketId = candidate.id;
+      if (candidate && from && contact?.email === from) ticketId = candidate.id;
     }
   }
   // Follow merges to the ticket that holds the conversation now.
@@ -420,9 +427,18 @@ export async function syncEmailDelivery(scope: Scope) {
         projectId: scope.projectId,
         channel: { in: ["email", "widget"] },
         kind: { not: "customer" },
-        deliveryState: { in: ["pending", "sent"] },
         externalId: { startsWith: "<orbit." },
+        // Pending always; sent ones only while a bounce can still come
+        // (30 days), newest first, so the sync never starves (review fix 9).
+        OR: [
+          { deliveryState: "pending" },
+          {
+            deliveryState: "sent",
+            createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) },
+          },
+        ],
       },
+      orderBy: { createdAt: "desc" },
       take: 200,
     });
     let changed = 0;

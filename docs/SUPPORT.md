@@ -108,9 +108,9 @@ These routes also sit below `/api/projects/:projectId/support`, and every one of
 | `POST /tickets/:ticketId/replies` | reply | Stored as `pending`; the channel jobs (WP5.3/WP5.4) deliver it. Sets the first response and moves the ticket to "waiting on customer". Attachments must be live support files. |
 | `POST /tickets/:ticketId/notes` | notes | Internal; never shown to the customer. |
 | `PATCH /tickets/:ticketId` | assign | Status, priority, category, tags and assignee, with one event per change. A priority change recomputes the pending due times. The assignee must be a support agent. |
-| `POST /tickets/:ticketId/merge` | assign | Moves the messages and closes the source ticket. |
+| `POST /tickets/:ticketId/merge` | assign | Moves the messages and closes the source ticket. Both tickets must belong to the same contact (`MERGE_CONTACT_MISMATCH`): merge the contacts first. |
 | `GET /contacts`, `GET /contacts/:id` | read | Live contacts; a contact comes with its tickets. |
-| `PATCH /contacts/:id`, `POST /contacts/:id/merge` | contacts | A merge moves the tickets and identities, then tombstones the duplicate. |
+| `PATCH /contacts/:id`, `POST /contacts/:id/merge` | contacts | A merge moves the tickets and identities, then tombstones the duplicate. The tombstone keeps no name, address or notes. |
 | `GET /agents` | read | Members whose support role is owner or editor. |
 | `GET /summary` | read | Open, unassigned, at-risk (due within 60 minutes) and overdue counts. |
 
@@ -128,7 +128,7 @@ The channel uses the project's mailbox from WP4.7 (`ORBIT_EMAIL`, SMTP and IMAP;
 
 - **Inbound.** The platform polls IMAP, stores each mail and queues `support_email_inbound`. Support then does the following:
   1. **Routing.** It routes the mail to the live e-mail inbox whose address is among the recipients, else to the only one. An unroutable mail is audited and dropped.
-  2. **Threading.** It threads by `In-Reply-To` and `References` against the ticket's Message-IDs (merges followed), then by the subject token `[#<number>]`, but only from the ticket's own contact.
+  2. **Threading.** It threads by `In-Reply-To` and `References` against the ticket's Message-IDs (merges followed), then by the subject token `[#<number>]`. Both count only when the sender is the ticket contact's correspondence address; anyone else opens a new ticket.
   3. **Reopening.** A customer answer to a ticket that is waiting on the customer, resolved or closed reopens it, while `reopenOnReply` is on.
   4. **Attachments.** Allowed types only (images, PDF, text, CSV), at most 10 per mail. Others are skipped and counted.
   5. **Dedupe.** Each mail is recorded once per Message-ID.
@@ -164,7 +164,7 @@ The widget's public API lives at `/api/public/support/<publicKey>/…`. It is mo
 
 **Delivery of agent replies.**
 - While the visitor was seen in the last 2 minutes, the reply is `sent` in the widget.
-- Otherwise it is also mailed to the contact's address or claimed address, threaded so a mail answer lands in the same ticket.
+- Otherwise it is also mailed, but only to the contact's correspondence address. A claimed (typed, unverified) address is never mailed.
 
 **Owners** create the embed key with `POST /inboxes/:inboxId/widget-key`. A new key revokes the old one.
 
@@ -222,7 +222,14 @@ Without evidence, an internal gap note replaces the draft and the ticket is hand
 - The platform always sends `store: false`, and there is no trace export.
 - Telemetry stores input hashes only.
 
+**Who gets AI.** Anonymous widget visitors get no AI jobs; verified app users and e-mail customers do. An agent's "AI draft" also works after a handoff.
+
 **Cost and limits.**
+- A per-project daily support AI cap, `aiDailyBudgetMicros` (default 2 USD), on top of the project's mandate (`SUPPORT_AI_BUDGET_EXCEEDED`).
+- A job's paid call is keyed to the job: a retried job never pays twice (`SUPPORT_CALL_UNKNOWN`), and a failure after a paid call ends the job (`SUPPORT_TASK_NOT_RETRIED`).
+- Sensitive messages skip the triage call as well.
+- The model never sees the contact's name in any form (full, parts, any case) or any e-mail address.
+- The evidence pack loses the customer's query, and its history, once the draft is done.
 - Category `support_text` under the project's spend mandate, with run budget `support:<ticketId>`.
 - `AgentRun` kind `support` (migration `202610180004`).
 - The ticket view shows the AI cost per ticket.
@@ -240,6 +247,8 @@ Without evidence, an internal gap note replaces the draft and the ticket is hand
 - a report of ids and numbers only.
 
 The first run on 2026-10-17 cost $0.0227 and FAILED on one handoff case; see `docs/evidence/support-ai-eval-2026-10-17.json` and the status entry.
+
+The second run on 2026-10-17, after the handoff instruction was sharpened, cost $0.0221 (`docs/evidence/support-ai-eval-2026-10-17-run2.json`). It handed off 2/2 but still FAILED: triage category and language reached only 10/12. The two misses, T09 and T11, are sensitive questions that the hard rules now hand off before any model call (review fix 4), so they get no model category or language by design. The eval still scores them as model triage.
 
 **Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17).
 
@@ -277,7 +286,7 @@ Both are audited with counts only.
 - unsent AI drafts after `aiDraftDays`;
 - widget sessions after `widgetSessionDays` since last seen;
 - contacts without tickets;
-- the raw files of mails support recorded, after `rawEmailDays`. The mailbox row keeps only what dedupe needs.
+- the raw files of mails support recorded, after `rawEmailDays`. The mailbox row keeps only `messageId`, `connectionId`, `uid` and `uidValidity`, and its history goes.
 
 **Abuse caps:**
 - 5 conversations per anonymous widget session;
