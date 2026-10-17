@@ -1,0 +1,831 @@
+import {
+  createHash,
+  createSign,
+  generateKeyPairSync,
+  randomBytes,
+  randomUUID,
+  type KeyObject,
+} from "node:crypto";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
+import { makeAuth } from "../src/auth.ts";
+import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
+import { buildServer } from "../src/server.ts";
+import { ORBIT_WORKSPACE_CLAIM } from "../src/platform/mcp-auth/plugins.ts";
+import { recordSelection } from "../src/platform/mcp-auth/grants.ts";
+import { loadConfig } from "../../../packages/config/src/index.ts";
+
+// Track M WP-M1, Task 4: workspace/project grants and the consent flow
+// (authorize -> /connect selection -> consent -> code -> token) through the
+// real Fastify app with ORBIT_MCP_OAUTH=true. CIMD clients are served
+// in-process through the `cimdFetch` seam; nothing leaves the process.
+// Tests run in order and share one session (sign-in is limited per file).
+
+const enabled = Boolean(process.env.TEST_DATABASE_URL);
+const origin = process.env.APP_ORIGIN!;
+const ISSUER = `${origin}/api/auth`;
+const CLIENT_ID = "https://client.test/client.json";
+const OTHER_CLIENT_ID = "https://client.test/other.json";
+const DENY_CLIENT_ID = "https://client.test/deny.json";
+const EXPIRED_CLIENT_ID = "https://client.test/expired.json";
+const PKJWT_CLIENT_ID = "https://client.test/pkjwt.json";
+const REDIRECT_URI = "https://client.test/cb";
+const SCOPES = "openid email profile offline_access orbit:read orbit:propose";
+const KEYS = [
+  "ORBIT_MCP_OAUTH",
+  "ORBIT_MCP_DCR",
+  "ORBIT_MCP_CIMD_HOSTS",
+] as const;
+const FORM = { "content-type": "application/x-www-form-urlencoded" };
+
+type Json = Record<string, any>;
+
+/** ES256 key pair with the public half as a JWK for the CIMD document. */
+function es256Key(kid: string) {
+  const { privateKey, publicKey } = generateKeyPairSync("ec", {
+    namedCurve: "P-256",
+  });
+  const jwk = {
+    ...publicKey.export({ format: "jwk" }),
+    kid,
+    alg: "ES256",
+    use: "sig",
+  };
+  return { privateKey, jwk };
+}
+const clientKey = es256Key("client-key");
+const wrongKey = es256Key("client-key");
+
+const metadata = (clientId: string, extra: Json = {}) => ({
+  client_id: clientId,
+  client_name: `Synthetic ${new URL(clientId).pathname}`,
+  client_uri: "https://client.test",
+  redirect_uris: [REDIRECT_URI],
+  grant_types: ["authorization_code", "refresh_token"],
+  response_types: ["code"],
+  token_endpoint_auth_method: "none",
+  scope: SCOPES,
+  ...extra,
+});
+const documents: Record<string, Json> = {
+  [CLIENT_ID]: metadata(CLIENT_ID),
+  [OTHER_CLIENT_ID]: metadata(OTHER_CLIENT_ID),
+  [DENY_CLIENT_ID]: metadata(DENY_CLIENT_ID),
+  [EXPIRED_CLIENT_ID]: metadata(EXPIRED_CLIENT_ID),
+  [PKJWT_CLIENT_ID]: metadata(PKJWT_CLIENT_ID, {
+    token_endpoint_auth_method: "private_key_jwt",
+    jwks: { keys: [clientKey.jwk] },
+  }),
+};
+const cimdFetch = (async (input: string | URL | Request) => {
+  const url =
+    typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.href
+        : input.url;
+  const document = documents[url];
+  return document
+    ? new Response(JSON.stringify(document), {
+        headers: {
+          "content-type": "application/json",
+          "cache-control": "max-age=3600",
+        },
+      })
+    : new Response("not found", { status: 404 });
+}) as typeof fetch;
+
+/** Builds the app (and Better Auth) with the given flags, then restores the env. */
+async function withFlags(
+  flags: Partial<Record<(typeof KEYS)[number], string>>,
+) {
+  const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+  for (const k of KEYS) delete process.env[k];
+  Object.assign(process.env, flags);
+  try {
+    return {
+      app: await buildServer(undefined, { cimdFetch }),
+      auth: makeAuth({ cimdFetch }),
+      config: loadConfig(),
+    };
+  } finally {
+    for (const k of KEYS)
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+  }
+}
+
+const clientIp = () =>
+  `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`;
+const pkce = () => {
+  const verifier = randomBytes(32).toString("base64url");
+  return {
+    verifier,
+    challenge: createHash("sha256").update(verifier).digest("base64url"),
+  };
+};
+const jwtPayload = (token: string) =>
+  JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString("utf8"));
+const b64url = (value: unknown) =>
+  Buffer.from(JSON.stringify(value)).toString("base64url");
+
+/** A private_key_jwt client assertion (RFC 7523) signed with ES256. */
+function clientAssertion(clientId: string, key: KeyObject) {
+  const now = Math.floor(Date.now() / 1000);
+  const input = `${b64url({ alg: "ES256", kid: "client-key", typ: "JWT" })}.${b64url(
+    {
+      iss: clientId,
+      sub: clientId,
+      aud: `${ISSUER}/oauth2/token`,
+      jti: randomUUID(),
+      iat: now,
+      exp: now + 60,
+    },
+  )}`;
+  const signature = createSign("SHA256")
+    .update(input)
+    .sign({ key, dsaEncoding: "ieee-p1363" })
+    .toString("base64url");
+  return `${input}.${signature}`;
+}
+
+describe.skipIf(!enabled)("MCP grants and consent, flag off", () => {
+  let app: Awaited<ReturnType<typeof buildServer>>;
+  beforeAll(async () => {
+    ({ app } = await withFlags({ ORBIT_MCP_OAUTH: "false" }));
+  });
+  afterAll(async () => {
+    await app?.close();
+  });
+
+  it("the connect routes do not exist while the flag is off", async () => {
+    for (const [method, url] of [
+      ["GET", "/api/mcp-connect/request?client_id=x"],
+      ["POST", "/api/mcp-connect/selection"],
+      ["POST", "/api/mcp-connect/consent"],
+    ] as const) {
+      const r = await app.inject({
+        method,
+        url,
+        headers: { origin },
+        ...(method === "POST" ? { payload: {} } : {}),
+      });
+      expect(r.statusCode).toBe(404);
+    }
+  });
+});
+
+describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
+  let app: Awaited<ReturnType<typeof buildServer>>;
+  let config: ReturnType<typeof loadConfig>;
+  let cookie: string;
+  let userId: string;
+  let sessionId: string;
+  let workspaceId: string, emptyWorkspaceId: string, foreignWorkspaceId: string;
+  let projectA: string, projectB: string, foreignProject: string;
+  const users: string[] = [];
+  const workspaces: string[] = [];
+  const clientIds = [
+    CLIENT_ID,
+    OTHER_CLIENT_ID,
+    DENY_CLIENT_ID,
+    EXPIRED_CLIENT_ID,
+    PKJWT_CLIENT_ID,
+  ];
+
+  const inject = (opts: {
+    method?: "GET" | "POST";
+    url: string;
+    payload?: unknown;
+    headers?: Record<string, string>;
+    session?: boolean;
+    noOrigin?: boolean;
+  }) =>
+    app.inject({
+      method: opts.method ?? "GET",
+      url: opts.url,
+      headers: {
+        [CLIENT_IP_HEADER]: clientIp(),
+        ...(opts.method === "POST" && !opts.noOrigin ? { origin } : {}),
+        ...(opts.session === false ? {} : { cookie }),
+        ...opts.headers,
+      },
+      ...(opts.payload === undefined ? {} : { payload: opts.payload as never }),
+    });
+
+  /** GET /oauth2/authorize; returns where Better Auth sends the browser. */
+  async function authorize(overrides: Record<string, string | null> = {}) {
+    const { verifier, challenge } = pkce();
+    const params = new URLSearchParams();
+    const values: Record<string, string | null> = {
+      client_id: CLIENT_ID,
+      redirect_uri: REDIRECT_URI,
+      response_type: "code",
+      scope: SCOPES,
+      state: "st-1",
+      code_challenge: challenge,
+      code_challenge_method: "S256",
+      resource: config.MCP_RESOURCE,
+      ...overrides,
+    };
+    for (const [k, v] of Object.entries(values))
+      if (v !== null) params.set(k, v);
+    const response = await inject({
+      url: `/api/auth/oauth2/authorize?${params}`,
+    });
+    const location = response.headers.location as string | undefined;
+    return {
+      response,
+      verifier,
+      location: location ? new URL(location, origin) : undefined,
+    };
+  }
+
+  const queryOf = (url: URL) => url.search.slice(1);
+
+  async function select(oauthQuery: string, body: Json = {}) {
+    return inject({
+      method: "POST",
+      url: "/api/mcp-connect/selection",
+      payload: { oauthQuery, workspaceId, projectIds: [projectA], ...body },
+    });
+  }
+
+  async function consent(oauthQuery: string, body: Json = {}) {
+    return inject({
+      method: "POST",
+      url: "/api/mcp-connect/consent",
+      payload: { oauthQuery, accept: true, scopes: SCOPES.split(" "), ...body },
+    });
+  }
+
+  type Flow = { steps: string[]; final: URL; verifier: string };
+  /** Drives the whole browser flow up to the client's redirect_uri. */
+  async function connect(
+    options: { clientId?: string; selection?: Json; consent?: Json } = {},
+  ): Promise<Flow> {
+    const { location, verifier } = await authorize({
+      client_id: options.clientId ?? CLIENT_ID,
+    });
+    expect(location?.pathname).toBe("/connect");
+    const steps = ["select"];
+    const request = await inject({
+      url: `/api/mcp-connect/request?${queryOf(location!)}`,
+    });
+    expect(request.statusCode).toBe(200);
+    const selected = await select(queryOf(location!), options.selection);
+    expect(selected.statusCode).toBe(200);
+    let next = new URL(selected.json().next, origin);
+    if (next.pathname === "/connect") {
+      steps.push("consent");
+      const consented = await consent(queryOf(next), options.consent);
+      expect(consented.statusCode).toBe(200);
+      next = new URL(consented.json().redirect);
+    }
+    steps.push("redirect_uri");
+    return { steps, final: next, verifier };
+  }
+
+  const exchange = (flow: Flow, extra: Record<string, string> = {}) =>
+    inject({
+      method: "POST",
+      url: "/api/auth/oauth2/token",
+      session: false,
+      noOrigin: true,
+      headers: FORM,
+      payload: new URLSearchParams({
+        grant_type: "authorization_code",
+        code: flow.final.searchParams.get("code")!,
+        redirect_uri: REDIRECT_URI,
+        client_id: CLIENT_ID,
+        code_verifier: flow.verifier,
+        resource: config.MCP_RESOURCE,
+        ...extra,
+      }).toString(),
+    });
+
+  const refresh = (refreshToken: string, clientId = CLIENT_ID) =>
+    inject({
+      method: "POST",
+      url: "/api/auth/oauth2/token",
+      session: false,
+      noOrigin: true,
+      headers: FORM,
+      payload: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: clientId,
+      }).toString(),
+    });
+
+  const grants = (clientId = CLIENT_ID) =>
+    authDb.mcpGrant.findMany({
+      where: { userId, clientId },
+      orderBy: { createdAt: "asc" },
+    });
+  const events = (clientId = CLIENT_ID) =>
+    authDb.mcpGrantEvent.findMany({
+      where: { userId, clientId },
+      orderBy: { createdAt: "asc" },
+    });
+
+  beforeAll(async () => {
+    let auth: ReturnType<typeof makeAuth>;
+    ({ app, auth, config } = await withFlags({
+      ORBIT_MCP_OAUTH: "true",
+      ORBIT_MCP_CIMD_HOSTS: "client.test",
+    }));
+    await authDb.oauthClient.deleteMany({
+      where: { clientId: { in: clientIds } },
+    });
+    const password = randomBytes(24).toString("base64url");
+    const email = `${randomUUID()}@example.invalid`;
+    const created = await auth.api.signUpEmail({
+      body: { email, name: "Synthetic MCP flow user", password },
+    });
+    userId = created.user.id;
+    users.push(userId);
+    const stranger = await auth.api.signUpEmail({
+      body: {
+        email: `${randomUUID()}@example.invalid`,
+        name: "Synthetic MCP stranger",
+        password,
+      },
+    });
+    users.push(stranger.user.id);
+
+    const workspace = await authDb.workspace.create({
+      data: {
+        name: "Synthetic MCP workspace",
+        members: { create: { userId, role: "owner" } },
+        projects: {
+          create: [{ name: "Synthetic A" }, { name: "Synthetic B" }],
+        },
+      },
+      include: { projects: true },
+    });
+    workspaceId = workspace.id;
+    projectA = workspace.projects.find((p) => p.name === "Synthetic A")!.id;
+    projectB = workspace.projects.find((p) => p.name === "Synthetic B")!.id;
+    // A workspace the user belongs to, with a project the user is not in.
+    const empty = await authDb.workspace.create({
+      data: {
+        name: "Synthetic MCP empty workspace",
+        members: { create: { userId, role: "viewer" } },
+        projects: { create: { name: "Synthetic hidden" } },
+      },
+    });
+    emptyWorkspaceId = empty.id;
+    const foreign = await authDb.workspace.create({
+      data: {
+        name: "Synthetic MCP foreign workspace",
+        members: { create: { userId: stranger.user.id, role: "owner" } },
+        projects: { create: { name: "Synthetic foreign" } },
+      },
+      include: { projects: true },
+    });
+    foreignWorkspaceId = foreign.id;
+    foreignProject = foreign.projects[0]!.id;
+    workspaces.push(workspaceId, emptyWorkspaceId, foreignWorkspaceId);
+
+    const signIn = await inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      session: false,
+      payload: { email, password },
+    });
+    expect(signIn.statusCode).toBe(200);
+    const set = signIn.headers["set-cookie"];
+    cookie = (Array.isArray(set) ? set : [set!])
+      .map((v) => v.split(";")[0])
+      .join("; ");
+    const session = await inject({ url: "/api/auth/get-session" });
+    sessionId = session.json().session.id;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterAll(async () => {
+    await authDb.mcpGrantEvent.deleteMany({ where: { userId: { in: users } } });
+    await authDb.workspace.deleteMany({ where: { id: { in: workspaces } } });
+    await authDb.user.deleteMany({ where: { id: { in: users } } });
+    await authDb.oauthClient.deleteMany({
+      where: { clientId: { in: clientIds } },
+    });
+    await app?.close();
+    await closeDatabase();
+  });
+
+  let firstFlowTokens: Json;
+
+  it("full flow issues an audience-bound token", async () => {
+    const flow = await connect();
+    expect(flow.steps).toEqual(["select", "consent", "redirect_uri"]);
+    expect(`${flow.final.origin}${flow.final.pathname}`).toBe(REDIRECT_URI);
+    expect(flow.final.searchParams.get("code")).toBeTruthy();
+    expect(flow.final.searchParams.get("state")).toBe("st-1");
+    expect(flow.final.searchParams.get("iss")).toBe(ISSUER);
+
+    const token = await exchange(flow);
+    expect(token.statusCode).toBe(200);
+    firstFlowTokens = token.json();
+    expect(firstFlowTokens.refresh_token).toBeTruthy();
+    const access = jwtPayload(firstFlowTokens.access_token);
+    expect(access.aud).toContain(config.MCP_RESOURCE);
+    expect(access.exp - access.iat).toBe(600);
+    expect(access[ORBIT_WORKSPACE_CLAIM]).toBe(workspaceId);
+    expect(access.azp).toBe(CLIENT_ID);
+    expect(access.iss).toBe(ISSUER);
+
+    const rows = await grants();
+    const active = rows.filter((g) => g.status === "active");
+    expect(active).toHaveLength(1);
+    expect(active[0]).toMatchObject({
+      workspaceId,
+      projectIds: [projectA],
+      allCurrentProjects: false,
+      scopes: SCOPES.split(" "),
+      expiresAt: null,
+    });
+    expect(active[0]!.activatedAt).toBeInstanceOf(Date);
+    // Issuing the code consumed the selection: it no longer belongs to the session.
+    expect(active[0]!.sessionId).toBeNull();
+    const actions = (await events()).filter((e) => e.grantId === active[0]!.id);
+    expect(actions.map((e) => e.action)).toEqual([
+      "grant.selected",
+      "grant.activated",
+    ]);
+    // Events never carry token material.
+    const serialized = JSON.stringify(await events());
+    expect(serialized).not.toContain(firstFlowTokens.refresh_token);
+    expect(serialized).not.toContain(flow.final.searchParams.get("code")!);
+  });
+
+  it("the request route describes the client, the scopes and the user's workspaces", async () => {
+    const { location } = await authorize();
+    const r = await inject({
+      url: `/api/mcp-connect/request?${queryOf(location!)}`,
+    });
+    expect(r.statusCode).toBe(200);
+    const body = r.json();
+    expect(body.client).toEqual({
+      id: CLIENT_ID,
+      name: "Synthetic /client.json",
+      uri: "https://client.test",
+    });
+    expect(body.scopes).toEqual(SCOPES.split(" "));
+    const mine = body.workspaces.find((w: Json) => w.id === workspaceId);
+    expect(mine.role).toBe("owner");
+    expect(mine.projects.map((p: Json) => p.id).sort()).toEqual(
+      [projectA, projectB].sort(),
+    );
+    const empty = body.workspaces.find((w: Json) => w.id === emptyWorkspaceId);
+    expect(empty.projects).toEqual([]);
+    expect(
+      body.workspaces.find((w: Json) => w.id === foreignWorkspaceId),
+    ).toBeUndefined();
+  });
+
+  it("UserInfo returns sub, email and email_verified", async () => {
+    const r = await inject({
+      url: "/api/auth/oauth2/userinfo",
+      session: false,
+      headers: { authorization: `Bearer ${firstFlowTokens.access_token}` },
+    });
+    expect(r.statusCode).toBe(200);
+    const info = r.json();
+    expect(info.sub).toBe(userId);
+    expect(info.email).toMatch(/@example\.invalid$/);
+    expect(info.email_verified).toBe(false);
+  });
+
+  it("a new client always reaches the consent step", async () => {
+    const client = await authDb.oauthClient.findUnique({
+      where: { clientId: OTHER_CLIENT_ID },
+    });
+    expect(client).toBeNull();
+    const flow = await connect({ clientId: OTHER_CLIENT_ID });
+    expect(flow.steps).toEqual(["select", "consent", "redirect_uri"]);
+    const stored = await authDb.oauthClient.findUniqueOrThrow({
+      where: { clientId: OTHER_CLIENT_ID },
+    });
+    expect(stored.skipConsent).not.toBe(true);
+    expect(
+      (await grants(OTHER_CLIENT_ID)).filter((g) => g.status === "active"),
+    ).toHaveLength(1);
+  });
+
+  it("selection for one client does not carry over to another client", async () => {
+    // A selection for CLIENT_ID in this session ...
+    const first = await authorize();
+    const selected = await select(queryOf(first.location!));
+    expect(selected.statusCode).toBe(200);
+    expect(new URL(selected.json().next).searchParams.get("code")).toBeTruthy();
+    // ... does not let OTHER_CLIENT_ID continue past the selection step.
+    const other = await authorize({ client_id: OTHER_CLIENT_ID });
+    expect(other.location?.pathname).toBe("/connect");
+    const resumed = await inject({
+      method: "POST",
+      url: "/api/auth/oauth2/continue",
+      headers: { accept: "application/json" },
+      payload: { postLogin: true, oauth_query: queryOf(other.location!) },
+    });
+    expect(resumed.statusCode).toBe(200);
+    const next = new URL(resumed.json().url, origin);
+    expect(next.pathname).toBe("/connect");
+    expect(next.searchParams.get("ba_pl")).toBeNull();
+    // Without a selection the consent endpoint refuses to record consent.
+    const direct = await inject({
+      method: "POST",
+      url: "/api/auth/oauth2/consent",
+      headers: { accept: "application/json" },
+      payload: { accept: true, oauth_query: queryOf(other.location!) },
+    });
+    expect(direct.statusCode).toBe(400);
+    expect(direct.json().error).toBe("set_workspace");
+    // The selection for CLIENT_ID ended in a code (its consent was stored),
+    // which consumed it: nothing of this session carries over.
+    expect(
+      (await grants()).filter((g) => g.sessionId === sessionId),
+    ).toHaveLength(0);
+  });
+
+  it("private_key_jwt client authenticates with a signed assertion", async () => {
+    const flow = await connect({ clientId: PKJWT_CLIENT_ID });
+    const form = (key: KeyObject) => ({
+      client_id: PKJWT_CLIENT_ID,
+      client_assertion_type:
+        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+      client_assertion: clientAssertion(PKJWT_CLIENT_ID, key),
+    });
+    const wrong = await exchange(flow, form(wrongKey.privateKey));
+    expect(wrong.json().error).toBe("invalid_client");
+    const right = await exchange(flow, form(clientKey.privateKey));
+    expect(right.statusCode).toBe(200);
+    expect(jwtPayload(right.json().access_token).azp).toBe(PKJWT_CLIENT_ID);
+  });
+
+  it("wrong code_verifier is invalid_grant", async () => {
+    const flow = await connect();
+    const r = await exchange(flow, { code_verifier: pkce().verifier });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error).toBe("invalid_grant");
+  });
+
+  it("unregistered redirect_uri is rejected without redirecting", async () => {
+    const { response, location } = await authorize({
+      redirect_uri: "https://evil.test/cb",
+    });
+    // Better Auth shows its own error page instead of redirecting to the client.
+    expect(response.statusCode).toBe(302);
+    expect(location!.origin).toBe(origin);
+    expect(location!.pathname).toBe("/api/auth/error");
+    expect(location!.searchParams.get("error")).toBe("invalid_redirect");
+    expect(String(location)).not.toContain("evil.test");
+  });
+
+  it("missing resource is invalid_target without a redirect", async () => {
+    for (const resource of [
+      null,
+      "https://evil.test/mcp",
+      `${config.MCP_RESOURCE}/x`,
+    ]) {
+      const { response, location } = await authorize({ resource });
+      expect(response.statusCode).toBe(400);
+      expect(location).toBeUndefined();
+      expect(response.json().error).toBe("invalid_target");
+    }
+    // Nothing was issued: no token with the MCP audience exists for a request
+    // without resource, because no code was issued at all.
+  });
+
+  it("tampered signed query returns 400 OAUTH_REQUEST_INVALID", async () => {
+    const { location } = await authorize();
+    const tampered = new URLSearchParams(queryOf(location!));
+    tampered.set("state", "other");
+    const request = await inject({
+      url: `/api/mcp-connect/request?${tampered}`,
+    });
+    expect(request.statusCode).toBe(400);
+    expect(request.json().error.code).toBe("OAUTH_REQUEST_INVALID");
+    const before = (await grants()).length;
+    const selected = await select(tampered.toString());
+    expect(selected.statusCode).toBe(400);
+    expect(selected.json().error.code).toBe("OAUTH_REQUEST_INVALID");
+    expect((await grants()).length).toBe(before);
+    const consented = await consent(tampered.toString());
+    expect(consented.statusCode).toBe(400);
+    expect(consented.json().error.code).toBe("OAUTH_REQUEST_INVALID");
+    const missing = await inject({ url: "/api/mcp-connect/request" });
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json().error.code).toBe("OAUTH_REQUEST_INVALID");
+  });
+
+  it("expired signed query activates nothing", async () => {
+    const { location } = await authorize({ client_id: EXPIRED_CLIENT_ID });
+    const selected = await select(queryOf(location!));
+    expect(selected.statusCode).toBe(200);
+    const next = new URL(selected.json().next, origin);
+    expect(next.pathname).toBe("/connect");
+    const [pending] = await grants(EXPIRED_CLIENT_ID);
+    expect(pending!.status).toBe("pending");
+    expect(pending!.sessionId).toBe(sessionId);
+    expect(pending!.expiresAt!.getTime() - pending!.createdAt.getTime()).toBe(
+      600_000,
+    );
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 601_000);
+    const r = await consent(queryOf(next));
+    expect(r.statusCode).toBe(400);
+    expect(r.json().error.code).toBe("OAUTH_REQUEST_EXPIRED");
+    const request = await inject({
+      url: `/api/mcp-connect/request?${queryOf(next)}`,
+    });
+    expect(request.json().error.code).toBe("OAUTH_REQUEST_EXPIRED");
+    vi.useRealTimers();
+
+    const after = await grants(EXPIRED_CLIENT_ID);
+    expect(after).toHaveLength(1);
+    expect(after[0]!.status).toBe("pending");
+    expect((await events(EXPIRED_CLIENT_ID)).map((e) => e.action)).toEqual([
+      "grant.selected",
+    ]);
+  });
+
+  it("deny keeps no access: the pending grant is revoked as denied", async () => {
+    const { location } = await authorize({ client_id: DENY_CLIENT_ID });
+    const selected = await select(queryOf(location!));
+    const next = new URL(selected.json().next, origin);
+    const denied = await consent(queryOf(next), { accept: false, scopes: [] });
+    expect(denied.statusCode).toBe(200);
+    const redirect = new URL(denied.json().redirect);
+    expect(redirect.searchParams.get("error")).toBe("access_denied");
+    expect(redirect.searchParams.get("code")).toBeNull();
+    const rows = await grants(DENY_CLIENT_ID);
+    const newest = rows.at(-1)!;
+    expect(newest).toMatchObject({ status: "revoked", revokedBy: "denied" });
+    expect(rows.some((g) => g.status === "active")).toBe(false);
+    const actions = (await events(DENY_CLIENT_ID)).map((e) => e.action);
+    expect(actions.at(-1)).toBe("grant.denied");
+  });
+
+  it("a consent for an already active grant updates its scopes", async () => {
+    const narrow = SCOPES.split(" ").filter((x) => x !== "orbit:propose");
+    const first = await connect({
+      clientId: DENY_CLIENT_ID,
+      consent: { scopes: narrow },
+    });
+    expect(first.steps).toEqual(["select", "consent", "redirect_uri"]);
+    const [granted] = (await grants(DENY_CLIENT_ID)).filter(
+      (g) => g.status === "active",
+    );
+    expect(granted!.scopes).toEqual(narrow);
+    // The stored consent lacks orbit:propose, so after the selection replaced
+    // the grant the consent page runs again and widens the active grant.
+    const second = await connect({ clientId: DENY_CLIENT_ID });
+    expect(second.steps).toEqual(["select", "consent", "redirect_uri"]);
+    const active = (await grants(DENY_CLIENT_ID)).filter(
+      (g) => g.status === "active",
+    );
+    expect(active).toHaveLength(1);
+    expect(active[0]!.id).not.toBe(granted!.id);
+    expect(active[0]!.scopes).toEqual(SCOPES.split(" "));
+    const updates = (await events(DENY_CLIENT_ID)).filter(
+      (e) => e.grantId === active[0]!.id && e.action === "grant.activated",
+    );
+    expect(updates.map((e) => e.detail)).toEqual([
+      { replaced: granted!.id },
+      { updated: true },
+    ]);
+  });
+
+  it("re-consent replaces the active grant", async () => {
+    const [old] = (await grants()).filter((g) => g.status === "active");
+    expect(old).toBeDefined();
+    const flow = await connect({
+      selection: { projectIds: [projectA, projectB] },
+    });
+    // The stored consent covers the request, so the selection itself replaced the grant.
+    expect(flow.steps).toEqual(["select", "redirect_uri"]);
+    expect(flow.final.searchParams.get("code")).toBeTruthy();
+    const rows = await grants();
+    const active = rows.filter((g) => g.status === "active");
+    expect(active).toHaveLength(1);
+    expect(active[0]!.id).not.toBe(old!.id);
+    expect(active[0]!.projectIds.sort()).toEqual([projectA, projectB].sort());
+    expect(active[0]!.scopes).toEqual(old!.scopes);
+    const replaced = rows.find((g) => g.id === old!.id)!;
+    expect(replaced).toMatchObject({
+      status: "revoked",
+      revokedBy: "replaced",
+    });
+    expect(replaced.revokedAt).toBeInstanceOf(Date);
+    const activated = (await events()).filter(
+      (e) => e.grantId === active[0]!.id && e.action === "grant.activated",
+    );
+    expect(activated).toHaveLength(1);
+    expect(activated[0]!.detail).toMatchObject({ replaced: old!.id });
+
+    const token = await exchange(flow);
+    expect(token.statusCode).toBe(200);
+    expect(jwtPayload(token.json().access_token)[ORBIT_WORKSPACE_CLAIM]).toBe(
+      workspaceId,
+    );
+
+    // "All current projects" is stored as a flag, evaluated at call time.
+    const all = await connect({ selection: { projectIds: "all_current" } });
+    expect(all.final.searchParams.get("code")).toBeTruthy();
+    const [current] = (await grants()).filter((g) => g.status === "active");
+    expect(current).toMatchObject({ allCurrentProjects: true, projectIds: [] });
+  });
+
+  it("an unconsumed selection serves one authorization, then selection runs again", async () => {
+    // A selection whose continuation never ran (e.g. the page was closed).
+    const selection = await recordSelection({
+      userId,
+      sessionId,
+      clientId: CLIENT_ID,
+      workspaceId,
+      projectIds: [projectA],
+    });
+    expect(selection.status).toBe("active");
+    // The next authorization of that client uses it; the stored consent
+    // covers the request, so the code comes straight from authorize ...
+    const { location } = await authorize();
+    expect(`${location!.origin}${location!.pathname}`).toBe(REDIRECT_URI);
+    expect(location!.searchParams.get("code")).toBeTruthy();
+    // ... and issuing it consumed the selection.
+    expect(
+      (await grants()).filter((g) => g.sessionId === sessionId),
+    ).toHaveLength(0);
+    const again = await authorize();
+    expect(again.location?.pathname).toBe("/connect");
+    expect(again.location?.searchParams.get("ba_pl")).toBeNull();
+  });
+
+  it("workspace without projects cannot be granted", async () => {
+    const { location } = await authorize();
+    const before = (await grants()).length;
+    const empty = await select(queryOf(location!), {
+      workspaceId: emptyWorkspaceId,
+      projectIds: "all_current",
+    });
+    expect(empty.statusCode).toBe(409);
+    expect(empty.json().error.code).toBe("NO_PROJECTS");
+    const foreign = await select(queryOf(location!), {
+      workspaceId: foreignWorkspaceId,
+      projectIds: [foreignProject],
+    });
+    expect(foreign.statusCode).toBe(404);
+    const outside = await select(queryOf(location!), {
+      projectIds: [foreignProject],
+    });
+    expect(outside.statusCode).toBe(404);
+    expect((await grants()).length).toBe(before);
+  });
+
+  it("refresh rotates; replay after 30 s revokes the family", async () => {
+    const flow = await connect();
+    const first = (await exchange(flow)).json();
+    const rotated = await refresh(first.refresh_token);
+    expect(rotated.statusCode).toBe(200);
+    const second = rotated.json();
+    expect(second.refresh_token).not.toBe(first.refresh_token);
+    expect(jwtPayload(second.access_token)[ORBIT_WORKSPACE_CLAIM]).toBe(
+      workspaceId,
+    );
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 31_000);
+    const replay = await refresh(first.refresh_token);
+    expect(replay.statusCode).toBe(400);
+    expect(replay.json().error).toBe("invalid_grant");
+    const newer = await refresh(second.refresh_token);
+    expect(newer.statusCode).toBe(400);
+    expect(newer.json().error).toBe("invalid_grant");
+    vi.useRealTimers();
+
+    const replays = (await events()).filter(
+      (e) => e.action === "token.refresh_replay",
+    );
+    expect(replays).toHaveLength(1);
+    expect(replays[0]).toMatchObject({
+      workspaceId,
+      detail: { error: "invalid_grant" },
+    });
+    const serialized = JSON.stringify(replays);
+    expect(serialized).not.toContain(first.refresh_token);
+    expect(serialized).not.toContain(second.refresh_token);
+  });
+});

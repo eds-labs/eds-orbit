@@ -1,5 +1,10 @@
+import { createHash } from "node:crypto";
 import { betterAuth } from "better-auth";
-import { APIError } from "better-auth/api";
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+} from "better-auth/api";
 import { jwt } from "better-auth/plugins";
 import { cimd } from "@better-auth/cimd";
 import { fetchClientMetadataResource } from "@better-auth/cimd/node";
@@ -127,6 +132,178 @@ export function mcpAuthPluginOptions(config: Config, deps: McpAuthDeps) {
 export function mcpAuthPlugins(config: Config, deps: McpAuthDeps) {
   const options = mcpAuthPluginOptions(config, deps);
   return [jwt(options.jwt), mcp(options.mcp), cimd(options.cimd)] as const;
+}
+
+/** Grant bookkeeping the global hooks hand off to (implemented in grants.ts). */
+export type McpHookDeps = {
+  /** A consent was answered; the client comes from the provider's request state. */
+  onConsent: (args: {
+    userId: string;
+    sessionId: string;
+    accepted: boolean;
+    scope?: string;
+  }) => Promise<void>;
+  /** An authorization code went to the client for this session's authorization. */
+  onCodeIssued: (args: { sessionId: string }) => Promise<void>;
+  /** A rotated refresh token was replayed after the reuse window. */
+  onRefreshReplay: (args: {
+    userId: string;
+    clientId: string;
+    referenceId?: string;
+    error: string;
+  }) => Promise<void>;
+};
+
+/**
+ * Endpoints whose answer can carry an authorization code to the client. The
+ * provider's internal authorize passes (marked by `authorizeSettings`) run
+ * inside continue and consent, whose hooks see their code; only a top-level
+ * authorize counts on its own (an unconsumed selection with stored consent).
+ * A sign-in that resumes an authorization never issues a code here: its new
+ * session has no selection yet.
+ */
+function mayIssueCode(ctx: { path: string; authorizeSettings?: unknown }) {
+  if (ctx.path === "/oauth2/authorize")
+    return ctx.authorizeSettings === undefined;
+  return ctx.path === "/oauth2/continue" || ctx.path === "/oauth2/consent";
+}
+
+type Returned = {
+  statusCode?: unknown;
+  body?: { error?: unknown };
+  redirect?: unknown;
+  url?: unknown;
+};
+
+/** The OAuth error code of a failed endpoint result, if it failed. */
+function oauthError(returned: unknown) {
+  const r = returned as Returned | undefined;
+  return typeof r?.statusCode === "number" &&
+    r.statusCode >= 400 &&
+    typeof r.body?.error === "string"
+    ? r.body.error
+    : undefined;
+}
+
+/** Where the endpoint sends the browser: a JSON redirect or a Location header. */
+function redirectTarget(returned: unknown, headers: Headers | undefined) {
+  const r = returned as Returned | undefined;
+  if (r?.redirect === true && typeof r.url === "string") return r.url;
+  return headers?.get("location") ?? undefined;
+}
+
+/** Whether the redirect hands an authorization code to the client (absolute URL with `code`). */
+function carriesCode(target: string | undefined) {
+  if (!target) return false;
+  try {
+    return new URL(target).searchParams.has("code");
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Global Better Auth hooks of the OAuth server, registered only while
+ * ORBIT_MCP_OAUTH is on:
+ * - before `/oauth2/authorize`: `resource` must be exactly MCP_RESOURCE
+ *   (the library would otherwise issue an opaque token without audience);
+ * - before `/oauth2/token` (refresh): remembers who owns a presented, already
+ *   rotated refresh token, because the library deletes the family on replay;
+ * - after: hands consent answers, issued codes and refresh replays to `deps`.
+ */
+export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
+  const presentedRefresh = new WeakMap<
+    Request,
+    { userId: string; clientId: string; referenceId?: string }
+  >();
+  return {
+    before: createAuthMiddleware(async (ctx) => {
+      if (ctx.path === "/oauth2/authorize") {
+        // A top-level POST reads its parameters from the form body; the
+        // provider's internal passes (after selection, consent or sign-in)
+        // re-dispatch the verified signed query as `ctx.query`.
+        const internal =
+          (ctx as { authorizeSettings?: unknown }).authorizeSettings !==
+          undefined;
+        const params = (
+          ctx.method === "POST" && !internal ? ctx.body : ctx.query
+        ) as Record<string, unknown> | undefined;
+        if (params?.resource !== config.MCP_RESOURCE)
+          throw new APIError("BAD_REQUEST", {
+            error: "invalid_target",
+            error_description: "resource must be the Orbit MCP resource",
+          });
+        return;
+      }
+      if (ctx.path !== "/oauth2/token" || !ctx.request) return;
+      const body = ctx.body as {
+        grant_type?: unknown;
+        refresh_token?: unknown;
+      };
+      if (
+        body?.grant_type !== "refresh_token" ||
+        typeof body.refresh_token !== "string"
+      )
+        return;
+      // Refresh tokens are stored as their unsalted SHA-256 (base64url).
+      const row = await ctx.context.adapter.findOne<{
+        userId: string;
+        clientId: string;
+        referenceId?: string | null;
+        revoked?: Date | null;
+      }>({
+        model: "oauthRefreshToken",
+        where: [
+          {
+            field: "token",
+            value: createHash("sha256")
+              .update(body.refresh_token)
+              .digest("base64url"),
+          },
+        ],
+      });
+      if (row?.revoked)
+        presentedRefresh.set(ctx.request, {
+          userId: row.userId,
+          clientId: row.clientId,
+          ...(row.referenceId ? { referenceId: row.referenceId } : {}),
+        });
+    }),
+    after: createAuthMiddleware(async (ctx) => {
+      const returned = ctx.context.returned;
+      if (ctx.path === "/oauth2/token") {
+        const presented = ctx.request
+          ? presentedRefresh.get(ctx.request)
+          : undefined;
+        const error = oauthError(returned);
+        if (presented && error === "invalid_grant")
+          await deps.onRefreshReplay({ ...presented, error });
+        return;
+      }
+      if (!mayIssueCode(ctx) || oauthError(returned)) return;
+      const target = redirectTarget(returned, ctx.context.responseHeaders);
+      const consentAnswered = ctx.path === "/oauth2/consent";
+      if (!consentAnswered && !carriesCode(target)) return;
+      const session = await getSessionFromCtx(ctx);
+      if (!session) return;
+      const sessionId = session.session.id;
+      if (consentAnswered) {
+        const body = ctx.body as { accept?: unknown; scope?: unknown };
+        const accepted = body?.accept === true;
+        // An accepted consent that did not end in a code (e.g. a fresh login
+        // is required first) activates nothing yet.
+        if (accepted && !carriesCode(target)) return;
+        await deps.onConsent({
+          userId: session.user.id,
+          sessionId,
+          accepted,
+          ...(typeof body?.scope === "string" ? { scope: body.scope } : {}),
+        });
+        if (!accepted) return;
+      }
+      await deps.onCodeIssued({ sessionId });
+    }),
+  };
 }
 
 export type McpAuthPlugins = ReturnType<typeof mcpAuthPlugins>;

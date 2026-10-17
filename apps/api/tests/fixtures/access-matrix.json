@@ -1,4 +1,11 @@
 {
+  "GET /.well-known/oauth-authorization-server/api/auth": {
+    "anonymous": "allowed:200",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
   "GET /api/google-drive/callback": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
@@ -19,6 +26,13 @@
     "viewer": "public",
     "editor": "public",
     "owner": "public"
+  },
+  "GET /api/mcp-connect/request": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
   },
   "GET /api/me": {
     "anonymous": "unauthenticated",
@@ -486,6 +500,20 @@
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/mcp-connect/consent": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/mcp-connect/selection": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
     "editor": "allowed:400",
     "owner": "allowed:400"
   },

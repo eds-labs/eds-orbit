@@ -86,6 +86,7 @@ import {
   registerOAuthDiscovery,
   sendWebResponse,
 } from "./platform/mcp-auth/http.ts";
+import { registerMcpConnectRoutes } from "./platform/mcp-auth/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { setFact } from "./platform/knowledge/engine.ts";
@@ -189,12 +190,17 @@ function collectionWritePermission(collection: string) {
 }
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
-  options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
+  options?: {
+    logStream?: NodeJS.WritableStream;
+    telegramFetch?: FetchLike;
+    /** Test seam: the CIMD metadata transport (see makeAuth). */
+    cimdFetch?: typeof fetch;
+  },
 ) {
   // A broken module manifest stops the API before it serves anything.
   registerModules();
   const config = loadConfig(),
-    auth = makeAuth();
+    auth = makeAuth({ cimdFetch: options?.cimdFetch });
   const app = Fastify({
     bodyLimit: 1500000,
     // req.ip stays the TCP peer; the forwarded client address is resolved by
@@ -449,6 +455,7 @@ export async function buildServer(
     },
   });
   registerOAuthDiscovery(app, auth, config);
+  registerMcpConnectRoutes(app, auth, config);
   app.get("/api/me", async (req) => {
     const user = await userFor(auth, req);
     const memberships = await authDb.workspaceMember.findMany({

@@ -11,10 +11,16 @@ import { projectMembership } from "./member-scope.ts";
 import { authorize, PROJECT_READ } from "./permissions.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import { CLIENT_IP_HEADER } from "../../client-ip.ts";
-import { mcpAuthDeps, mcpAuthPlugins } from "../mcp-auth/plugins.ts";
+import {
+  mcpAuthDeps,
+  mcpAuthHooks,
+  mcpAuthPlugins,
+} from "../mcp-auth/plugins.ts";
+import { grantHookDeps, grantPostLogin } from "../mcp-auth/grants.ts";
 // `cimdFetch` is a test seam for the Client ID Metadata Document transport.
 export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
   const config = loadConfig();
+  const oauth = config.ORBIT_MCP_OAUTH === "true";
   return betterAuth({
     database: prismaAdapter(authDb, { provider: "postgresql" }),
     secret: config.AUTH_SECRET,
@@ -23,10 +29,16 @@ export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
     trustedOrigins: [config.APP_ORIGIN],
     // jwt() would otherwise expose a session JWT at GET /api/auth/token.
     disabledPaths: ["/token"],
-    plugins:
-      config.ORBIT_MCP_OAUTH === "true"
-        ? [...mcpAuthPlugins(config, mcpAuthDeps(options))]
-        : [],
+    plugins: oauth
+      ? [
+          ...mcpAuthPlugins(config, {
+            ...mcpAuthDeps(options),
+            ...grantPostLogin(),
+          }),
+        ]
+      : [],
+    // Global hooks exist only for the OAuth server; flag off keeps none.
+    ...(oauth ? { hooks: mcpAuthHooks(config, grantHookDeps()) } : {}),
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,
@@ -62,7 +74,8 @@ export type Auth = ReturnType<typeof makeAuth>;
 // A session renewed while checking a request must reach the browser too, or
 // its cookie ends 8 hours after sign-in although the session slides.
 const renewedCookies = new WeakMap<FastifyRequest, string[]>();
-export async function userFor(auth: Auth, req: FastifyRequest) {
+/** The caller's session and user; UNAUTHENTICATED (401) without a session. */
+export async function sessionFor(auth: Auth, req: FastifyRequest) {
   const { headers, response: session } = await auth.api.getSession({
     headers: fromNodeHeaders(req.headers),
     returnHeaders: true,
@@ -70,7 +83,10 @@ export async function userFor(auth: Auth, req: FastifyRequest) {
   const cookies = headers?.getSetCookie() ?? [];
   if (cookies.length) renewedCookies.set(req, cookies);
   if (!session) throw new DomainError("UNAUTHENTICATED", 401);
-  return session.user;
+  return session;
+}
+export async function userFor(auth: Auth, req: FastifyRequest) {
+  return (await sessionFor(auth, req)).user;
 }
 export function renewedSessionCookies(req: FastifyRequest) {
   return renewedCookies.get(req) ?? [];
