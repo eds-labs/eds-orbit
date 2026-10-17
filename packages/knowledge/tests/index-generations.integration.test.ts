@@ -22,6 +22,7 @@ import {
 import {
   ingest,
   revokeSource,
+  setSourceAudiences,
 } from "../../../apps/api/src/platform/knowledge/engine.ts";
 const suite =
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL
@@ -356,6 +357,46 @@ suite("isolated index generations / synthetic SQL mechanics only", () => {
     expect((back.data as unknown as EvidenceData).items[0]?.chunkId).toBe(
       publicChunk,
     );
+  });
+  it("source audience changes keep the manifest, the evaluation and retrieval by consumer", async () => {
+    const before = await run((tx) =>
+      tx.knowledgeIndex.findUniqueOrThrow({ where: { id: smallId } }),
+    );
+    await run((tx) => setSourceAudiences(tx, s, publicSource, ["support"]));
+    await run((tx) => setSourceAudiences(tx, s, privateSource, ["marketing"]));
+    // Activation re-reads the current manifest (INDEX_CORPUS_CHANGED on any
+    // difference) and needs the stored evaluation to stay current.
+    await run((tx) =>
+      rollbackIndexGeneration(tx, s, largeId, { allowSyntheticForTest: true }),
+    );
+    await run((tx) =>
+      rollbackIndexGeneration(tx, s, smallId, { allowSyntheticForTest: true }),
+    );
+    const after = await run((tx) =>
+      tx.knowledgeIndex.findUniqueOrThrow({ where: { id: smallId } }),
+    );
+    expect(after.manifestHash).toBe(before.manifestHash);
+    expect(after.evaluation).toEqual(before.evaluation);
+    const items = async (consumer?: string) =>
+      (
+        (
+          await run((tx) =>
+            retrieve(tx, s, {
+              query: "INDEXGEN728",
+              purpose: "public",
+              queryVector: vector(1536),
+              profile: EMBEDDING_PROFILE,
+              ...(consumer ? { consumer } : {}),
+            }),
+          )
+        ).data as unknown as EvidenceData
+      ).items.map((i) => i.chunkId);
+    expect(await items("support")).toEqual([publicChunk]);
+    expect(await items("marketing")).toEqual([]);
+    expect(await items()).toEqual([]);
+    await run((tx) => setSourceAudiences(tx, s, publicSource, ["all"]));
+    await run((tx) => setSourceAudiences(tx, s, privateSource, ["all"]));
+    expect(await items()).toEqual([publicChunk]);
   });
   it("revocation purges every vector generation and prevents stale build activation or rollback", async () => {
     const building = await run((tx) => beginIndexBuild(tx, s, LARGE));

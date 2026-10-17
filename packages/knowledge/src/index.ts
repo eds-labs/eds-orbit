@@ -7,11 +7,13 @@ import {
   normalizeText,
   overlap,
   rrf,
+  servesConsumer,
   tokenEstimate,
   validAt,
   validateVector,
 } from "./algorithms.js";
 import {
+  ALL_AUDIENCES,
   EMBEDDING_PROFILE,
   KnowledgeError,
   LIMITS,
@@ -577,6 +579,8 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
         throw new KnowledgeError("public_use_forbidden");
       if (forModel && !d.modelUse)
         throw new KnowledgeError("model_use_forbidden");
+      if (!servesConsumer(d.audiences, input.consumer))
+        throw new KnowledgeError("audience_excluded");
       allowed.set(source.id, d);
     } catch (e) {
       excluded.push({
@@ -670,7 +674,9 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
   const sourceFilter = input.sourceIds?.length
     ? Prisma.sql`AND s.id IN (${Prisma.join(input.sourceIds.map((id) => Prisma.sql`${id}::uuid`))})`
     : Prisma.empty;
-  const eligible = Prisma.sql`FROM "KnowledgeChunk" c JOIN "DocumentVersion" v ON v.id=c."documentVersionId" AND v."workspaceId"=c."workspaceId" AND v."projectId"=c."projectId" JOIN "KnowledgeDocument" d ON d.id=v."documentId" AND d."workspaceId"=v."workspaceId" AND d."projectId"=v."projectId" JOIN "Entity" s ON s.id=d."sourceId" AND s."workspaceId"=d."workspaceId" AND s."projectId"=d."projectId" WHERE c."workspaceId"=${s.workspaceId}::uuid AND c."projectId"=${s.projectId}::uuid ${sourceFilter} AND s.kind='sources' AND s.data->>'status'='active' AND s.data->>'authority' IN ('official','website','research') AND v.state='active' AND d."activeVersionId"=v.id AND v."sourceGeneration"=(s.data->>'generation')::int AND v."validFrom"<=${at} AND (v."validUntil" IS NULL OR v."validUntil">${at}) AND v."fetchedAt"+((s.data->>'maxAgeHours')::double precision*interval '1 hour')>${at} AND c.language=${language} AND (${input.purpose !== "public"} OR (s.data->>'publicUse'='true' AND (s.data->>'embargoUntil' IS NULL OR (s.data->>'embargoUntil')::timestamptz<=${at}))) AND (${!forModel} OR s.data->>'modelUse'='true')`;
+  // Mirrors servesConsumer: absent (or null) audiences serve every caller.
+  const audienceFilter = Prisma.sql`AND (COALESCE(s.data->'audiences','null'::jsonb)='null'::jsonb OR (jsonb_typeof(s.data->'audiences')='array' AND (s.data->'audiences' @> '["all"]'::jsonb OR (${input.consumer !== undefined} AND s.data->'audiences' @> jsonb_build_array(${input.consumer ?? ""}::text)))))`;
+  const eligible = Prisma.sql`FROM "KnowledgeChunk" c JOIN "DocumentVersion" v ON v.id=c."documentVersionId" AND v."workspaceId"=c."workspaceId" AND v."projectId"=c."projectId" JOIN "KnowledgeDocument" d ON d.id=v."documentId" AND d."workspaceId"=v."workspaceId" AND d."projectId"=v."projectId" JOIN "Entity" s ON s.id=d."sourceId" AND s."workspaceId"=d."workspaceId" AND s."projectId"=d."projectId" WHERE c."workspaceId"=${s.workspaceId}::uuid AND c."projectId"=${s.projectId}::uuid ${sourceFilter} AND s.kind='sources' AND s.data->>'status'='active' AND s.data->>'authority' IN ('official','website','research') AND v.state='active' AND d."activeVersionId"=v.id AND v."sourceGeneration"=(s.data->>'generation')::int AND v."validFrom"<=${at} AND (v."validUntil" IS NULL OR v."validUntil">${at}) AND v."fetchedAt"+((s.data->>'maxAgeHours')::double precision*interval '1 hour')>${at} AND c.language=${language} AND (${input.purpose !== "public"} OR (s.data->>'publicUse'='true' AND (s.data->>'embargoUntil' IS NULL OR (s.data->>'embargoUntil')::timestamptz<=${at}))) AND (${!forModel} OR s.data->>'modelUse'='true') ${audienceFilter}`;
   const columns = Prisma.sql`c.id,c."documentVersionId",d."sourceId",v."sourceGeneration",s.data->>'authority' AS authority,v.title,c.text,c.heading,c.anchor,d."canonicalUrl",c."chunkHash",v."fetchedAt",v."validUntil",(s.data->>'publicUse'='true') AS "publicUse",(s.data->>'modelUse'='true') AS "modelUse"`;
   const lexical = await tx.$queryRaw<Candidate[]>(
     Prisma.sql`SELECT ${columns},ts_rank_cd(c."searchVector",websearch_to_tsquery(${config}::regconfig,${input.query}))+ts_rank_cd(c."identifierVector",websearch_to_tsquery('simple',${input.query})) AS rank ${eligible} AND (c."searchVector" @@ websearch_to_tsquery(${config}::regconfig,${input.query}) OR c."identifierVector" @@ websearch_to_tsquery('simple',${input.query}) OR position(lower(${input.query}) in lower(c.text))>0) ORDER BY CASE s.data->>'authority' WHEN 'official' THEN 0 WHEN 'website' THEN 1 ELSE 2 END,rank DESC,c.id LIMIT ${LIMITS.candidates}`,
@@ -742,6 +748,8 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
     estimatedTokens:
       tokenEstimate(items.map((c) => c.text).join("\n")) +
       tokenEstimate(JSON.stringify(facts)),
+    // Only set when named, so evidence of shared-only retrieval keeps its shape.
+    ...(input.consumer === undefined ? {} : { consumer: input.consumer }),
   };
   data.hash = hash(JSON.stringify({ ...data, durationMs: undefined }));
   return tx.entity.create({
@@ -789,6 +797,8 @@ export async function validateEvidence(
         (source.embargoUntil && new Date(source.embargoUntil) > point)
       )
         reasons.push("source_rights_changed");
+      if (!servesConsumer(source.audiences, d.consumer))
+        reasons.push("source_audience_changed");
     } catch {
       reasons.push("source_unavailable");
     }
@@ -968,6 +978,71 @@ export async function setSourceRights(
     generation: next.generation,
     impact,
     reindexRequired: true,
+  };
+}
+const AUDIENCE_ID = /^[a-z][a-z0-9_-]{0,39}$/;
+/**
+ * Sets which modules may retrieve a source (WP3.5). `"all"` (or an empty
+ * restriction list) stores no `audiences`, the default shape. Unlike a rights
+ * change it keeps the source generation: audiences are not part of the index
+ * manifest, so documents, chunks and index generations stay valid. Narrowing
+ * invalidates the evidence and dependent records built on the source, since
+ * they may have been retrieved by a module that is now excluded; widening
+ * invalidates nothing.
+ */
+export async function setSourceAudiences(
+  tx: DbTx,
+  s: Scope,
+  handlers: readonly ImpactHandler[],
+  id: string,
+  audiences: readonly string[],
+) {
+  if (
+    !audiences.length ||
+    audiences.length > 10 ||
+    audiences.some((a) => !AUDIENCE_ID.test(a))
+  )
+    throw new KnowledgeError("INVALID_SOURCE_AUDIENCES");
+  const source = await tx.entity.findFirst({
+    where: { ...where(s), id, kind: "sources" },
+  });
+  if (!source) throw new KnowledgeError("SOURCE_UNAVAILABLE");
+  const old = source.data as unknown as SourceData;
+  if (old.status === "revoked") throw new KnowledgeError("SOURCE_REVOKED");
+  const restricted = audiences.includes(ALL_AUDIENCES)
+    ? undefined
+    : [...new Set(audiences)].sort();
+  const before = servesConsumer(old.audiences, undefined)
+    ? undefined
+    : [...new Set(Array.isArray(old.audiences) ? old.audiences : [])].sort();
+  if (JSON.stringify(before) === JSON.stringify(restricted))
+    return {
+      sourceId: id,
+      audiences: restricted ?? [ALL_AUDIENCES],
+      unchanged: true,
+    };
+  const { audiences: _previous, ...rest } = old;
+  await revise(
+    tx,
+    s,
+    id,
+    restricted ? { ...rest, audiences: restricted } : rest,
+  );
+  const narrowed =
+    restricted !== undefined &&
+    (before === undefined || before.some((a) => !restricted.includes(a)));
+  const impact = narrowed
+    ? await invalidate(tx, s, handlers, id, "source_audience_changed")
+    : { evidenceIds: [], contentIds: [] };
+  await audit(tx, s, "knowledge.audiences_changed", id, {
+    audiences: restricted ?? [ALL_AUDIENCES],
+    narrowed,
+  });
+  return {
+    sourceId: id,
+    audiences: restricted ?? [ALL_AUDIENCES],
+    unchanged: false,
+    impact,
   };
 }
 export async function revokeDocument(

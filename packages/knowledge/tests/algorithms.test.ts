@@ -7,6 +7,7 @@ import {
   validateVector,
   overlap,
   normalizeText,
+  servesConsumer,
 } from "../src/algorithms.js";
 import {
   extractDocument,
@@ -226,4 +227,23 @@ describe("versioned extraction and ranking", () => {
     expect(() => validateDocxArchive(Buffer.from("PK fake"))).toThrow(
       "INVALID_DOCX",
     ));
+});
+describe("source audiences (WP3.5)", () => {
+  it("serves every caller without audiences or with all", () => {
+    for (const audiences of [undefined, null, ["all"], ["support", "all"]])
+      for (const consumer of [undefined, "marketing", "support"])
+        expect(servesConsumer(audiences, consumer)).toBe(true);
+  });
+  it("serves only the named modules of a restricted source", () => {
+    expect(servesConsumer(["support"], "support")).toBe(true);
+    expect(servesConsumer(["support"], "marketing")).toBe(false);
+    expect(servesConsumer(["marketing", "support"], "marketing")).toBe(true);
+  });
+  it("fails closed for callers without a module and malformed audiences", () => {
+    expect(servesConsumer(["support"], undefined)).toBe(false);
+    expect(servesConsumer([], "support")).toBe(false);
+    expect(servesConsumer("support" as unknown as string[], "support")).toBe(
+      false,
+    );
+  });
 });

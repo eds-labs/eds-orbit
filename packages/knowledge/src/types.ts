@@ -34,6 +34,11 @@ export const LIMITS = {
   contextTokens: 6000,
 };
 export type Purpose = "public" | "internal";
+/**
+ * The audience that lets every module use a source (WP3.5). A source without
+ * `audiences` has it implicitly, so existing sources keep their behaviour.
+ */
+export const ALL_AUDIENCES = "all";
 export type SourceData = {
   status: "active" | "paused" | "revoked";
   generation: number;
@@ -44,6 +49,12 @@ export type SourceData = {
   allowedOrigins: string[];
   allowedPaths: string[];
   embargoUntil?: string;
+  /**
+   * Module ids that may retrieve this source, or `["all"]` (WP3.5). Absent
+   * means all modules. It is not part of the index manifest and changing it
+   * keeps the source generation, so it never invalidates an index.
+   */
+  audiences?: string[];
 };
 export type FactInput = {
   id?: string;
@@ -131,6 +142,8 @@ export type EvidenceData = {
   hash: string;
   durationMs: number;
   estimatedTokens: number;
+  /** The module that retrieved this evidence; absent for shared-only retrieval. */
+  consumer?: string;
 };
 export type IngestInput = {
   sourceId: string;
@@ -159,6 +172,13 @@ export type RetrieveInput = {
   profile?: string;
   forModel?: boolean;
   topK?: number;
+  /**
+   * The consumer module (WP3.5). Only sources whose audiences include it, or
+   * all modules, are eligible. Without it, only sources open to all modules
+   * are eligible, so a caller that names no module never reads a restricted
+   * source.
+   */
+  consumer?: string;
 };
 export class KnowledgeError extends Error {
   constructor(public readonly code: string) {
