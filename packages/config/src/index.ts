@@ -13,6 +13,10 @@ export const embeddingProfile = {
   metric: "cosine",
   generation: 1,
 } as const;
+// Compose passes an unset optional variable as "" (`${NAME:-}`); for a
+// validated optional value that means "not set", never an invalid value.
+const unset = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === "" ? undefined : value), schema);
 export const configSchema = z.object({
   DATABASE_URL: z.string().min(1),
   AUTH_DATABASE_URL: z.string().min(1),
@@ -55,19 +59,23 @@ export const configSchema = z.object({
   // Platform files (WP4.6): an own S3-compatible bucket (R2), never the
   // backup bucket or its credentials. Off until the security review.
   ORBIT_FILES: z.enum(["false", "true"]).default("false"),
-  FILES_S3_ENDPOINT: z.url().optional(),
-  FILES_S3_BUCKET: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/)
-    .optional(),
+  FILES_S3_ENDPOINT: unset(z.url().optional()),
+  FILES_S3_BUCKET: unset(
+    z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/)
+      .optional(),
+  ),
   FILES_S3_REGION: z.string().min(1).default("auto"),
-  FILES_S3_ACCESS_KEY_ID: z.string().min(1).optional(),
-  FILES_S3_SECRET_ACCESS_KEY: z.string().min(1).optional(),
+  FILES_S3_ACCESS_KEY_ID: unset(z.string().min(1).optional()),
+  FILES_S3_SECRET_ACCESS_KEY: unset(z.string().min(1).optional()),
   // 32 bytes as hex, separate from CREDENTIAL_KEY.
-  FILES_ENCRYPTION_KEY: z
-    .string()
-    .regex(/^[a-fA-F0-9]{64}$/)
-    .optional(),
+  FILES_ENCRYPTION_KEY: unset(
+    z
+      .string()
+      .regex(/^[a-fA-F0-9]{64}$/)
+      .optional(),
+  ),
   // E-mail over SMTP/IMAP and member notifications (WP4.7); off until the
   // security review. Sending also needs EXECUTION_MODE=live and external writes.
   ORBIT_EMAIL: z.enum(["false", "true"]).default("false"),
