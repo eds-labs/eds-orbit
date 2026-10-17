@@ -21,6 +21,7 @@ Object.assign(process.env, {
   ORBIT_CONTENT_PACKAGES: "true",
   ORBIT_TOOL_SEARCH: "true",
   ORBIT_MODULES: "true",
+  ORBIT_MODULE_ROLES: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });

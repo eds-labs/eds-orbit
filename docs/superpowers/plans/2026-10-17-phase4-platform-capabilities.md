@@ -115,12 +115,54 @@ Risk class high: invariants may rely on the per-project advisory lock in `scoped
   - if Redis is down, it falls back to slow polling.
 - Chat SSE onto pub/sub (optional, if the report shows the poll matters).
 
+**Decision (Mario, 2026-10-17).** No `scopedRead()` now. Redis pub/sub for streams waits until Support starts (Phase 5), with the measurement repeated on the production host against a staging copy first.
+
+## WP4.5 Module-level roles (detailed)
+
+Risk class **high**: this is an authorization change. It is built and tested locally behind `ORBIT_MODULE_ROLES` (default `false`). Production gets it only after the security review below and Mario's approval of the flag. With the flag off, or with no override rows, every check behaves exactly as before.
+
+**Model.**
+- **Table.** `ProjectMemberModuleRole(workspaceId, projectId, userId, moduleId, role)`, with `role` ∈ `editor | viewer | none` and primary key `(projectId, userId, moduleId)`.
+  - It is a tenancy table like `ProjectMember`: RLS project scope, `auth_control` for `orbit_auth`, no grant to `orbit_app`.
+  - A foreign key to `ProjectMember`: overrides disappear with the membership.
+- **Who it applies to.** Project owners and workspace owners always keep their owner role. An override never raises a member above `editor` and never applies to an owner.
+- **Effective role.** In a module, the effective role is the override, else the project role. `none` means the module does not exist for that member.
+
+**Where it applies.** These are the WP2.4 module gates, so a member's module role works like activation per member:
+1. **Module routes.** The route group's guard marks the request with its owner module, and `scopeFor` returns the effective role. `none` answers 404 `MODULE_NOT_AVAILABLE`.
+2. **Actions.** The dispatch scope takes the action owner's effective role before the permission check.
+3. **Collections.** The kind owner's effective role applies to reads and writes.
+4. **Assistant.**
+   - Tools are offered and executed with the tool owner's effective role.
+   - Prompt fragments and conversation sections come only from modules the member can use.
+5. **Web.** `GET /modules` returns the member's `access` per module, and the shell hides a module whose access is `none`.
+6. **Management.**
+   - `GET` and `PUT /api/projects/:id/members/:userId/module-roles`: project owners only, audited (`member.module_role_changed`), refused while the flag is off.
+   - A matrix in the members settings.
+
+**Not covered (documented).**
+- Worker jobs re-read the queuing user's project role (`member-scope.ts`). Module jobs queued by a member before an override still run.
+- Telegram callbacks are owner-only already.
+
+**Security review (before the flag goes on in production).**
+- Every module entry point resolves the effective role (route, action, collection, tool offer, tool execution, prompt fragments, conversation sections). This is checked by a matrix test over routes × roles × overrides.
+- An override cannot grant more than the project role allows for owners. It can raise a viewer to editor in a module (S-R6: support agents), and only an owner can set it.
+- The new table is invisible to `orbit_app` and protected by RLS (RLS matrix test).
+- No escalation through the assistant: a forged tool call executes with the owner module's effective role.
+- Audit events for every change; no secrets in them.
+
+**Tasks.**
+1. Migration, Prisma model, RLS matrix classification, `ORBIT_MODULE_ROLES` config.
+2. `platform/tenancy/module-roles.ts`: load overrides with the membership, `effectiveRole(scope, moduleId)`, `moduleScope(scope, moduleId)`; then wire routes, actions and collections. Matrix test.
+3. Assistant: tool offer and execution, fragments and sections per effective role. A viewer-to-editor override and `none` tests.
+4. Management API and `GET /modules` access; web shell hides `none` modules; members matrix UI.
+5. Docs (`MODULE_ACTIVATION.md`, `SECURITY_REVIEW.md`), full checks, PR.
+
 ## WP4.2–WP4.7 (outline; each gets a detailed plan before it starts)
 
 | WP | Content | Gate before starting |
 |---|---|---|
 | 4.2 Public ingress | `/api/hooks/:provider/:connectionId` (signature, store, enqueue, idempotent) and `/api/public/<module>/:publicKey/...` (CORS per key, session token, no cookies); per-client rate limits | Security review plan; F-02 fix is live |
-| 4.5 Module roles | `ProjectMemberModuleRole`, `can()` resolves module role first, `none` hides the module; members UI matrix | Security review; auth change |
 | 4.6 Files | `File` table with FORCE RLS, S3-compatible adapter (own bucket and credentials), streaming upload, authorized download, retention | Mario approves the bucket and credentials (Q-19) |
 | 4.7 E-mail and notifications | Provider adapter (send, inbound via 4.2, bounces), `Notification` and preferences, in-app bell, e-mail channel | Mario chooses the provider (Q-16); DNS change |
 

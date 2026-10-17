@@ -265,6 +265,8 @@ export type Scope = {
   projectId: string;
   userId: string;
   role: "owner" | "editor" | "viewer";
+  /** The member's roles in single modules (WP4.5); absent without overrides. */
+  moduleRoles?: Readonly<Record<string, "editor" | "viewer" | "none">>;
 };
 export type EntityView = {
   id: string;

@@ -61,6 +61,31 @@ A bounded run of 40 API liveness reads at concurrency eight returned only HTTP 2
 
 No cross-project bypass was identified in the reviewed scoped paths; local role/RLS negative tests passed. This does not certify absence of every authorization defect. Existing Desk, Forecast, Postiz, Matomo and Chatwoot infrastructure stayed unchanged. Both temporary container projects were shut down after testing while preserving their test volumes; the primary local development stack remains separate.
 
+## Module-level roles (WP4.5, prepared 2026-10-17; review open)
+
+`ORBIT_MODULE_ROLES` stays `false` in production until this review is done and Mario approves the flag. What the review checks:
+
+1. **Every module entry point uses the member's role in that module.** Covered:
+   - routes (`scopeFor`, marked by the route group);
+   - actions and collections (by owner);
+   - assistant tools (offer and execution per tool owner);
+   - prompt fragments and conversation sections (`visibleModules`);
+   - the shell (`GET /modules` access).
+   
+   Tests: `module-roles.integration.test.ts`, `module-roles-assistant.integration.test.ts`.
+2. **No escalation.**
+   - Owners never get an override, and only owners set overrides.
+   - An override can raise a viewer to editor in one module (S-R6), never to owner.
+   - A forged tool call runs with the owner module's role.
+3. **Data.**
+   - `ProjectMemberModuleRole` is a tenancy table: RLS project scope, `orbit_auth` only, no grant to `orbit_app` (RLS matrix).
+   - Rows cascade with the membership.
+4. **Audit.** `member.module_role_changed` records the actor, the change and the resulting roles; no secrets.
+5. **Known limits.**
+   - Worker jobs re-read only the queuing member's project role and module roles, at run time (`actorScope`).
+   - A job a member queued before losing module access still runs once.
+   - Telegram callbacks are owner-only.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

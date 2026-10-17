@@ -13,12 +13,18 @@ import { Badge, Button, Modal, Loading } from "./ui/primitives";
 import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
+import { ModuleRoles } from "./module-roles";
 export function ProjectAdministration() {
   const { project, isOwner, t, refresh } = useWorkspace();
   const members = useResource<{ items: Array<Record<string, unknown>> }>(
     isOwner ? collectionPath(project.id, "members") : null,
   );
   const [mode, setMode] = useState<"project" | "member" | null>(null);
+  const [rolesFor, setRolesFor] = useState<{
+    userId: string;
+    name: string;
+    projectRole: string;
+  } | null>(null);
   const mutation = useMutation(() => {
     refresh();
     members.refresh();
@@ -57,13 +63,33 @@ export function ProjectAdministration() {
                   <strong>{String(user?.name || m.name || "Member")}</strong>
                   <small>{String(user?.email || m.email || "")}</small>
                 </div>
-                <Badge>{String(m.role || "member")}</Badge>
+                <div className="page-actions">
+                  <Badge>{String(m.role || "member")}</Badge>
+                  {m.role !== "owner" && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setRolesFor({
+                          userId: String(m.userId),
+                          name: String(user?.name || "Member"),
+                          projectRole: String(m.role),
+                        })
+                      }
+                    >
+                      Module roles
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       ) : (
         <p className="panel-note">No additional members.</p>
+      )}
+      {rolesFor && (
+        <ModuleRoles {...rolesFor} onClose={() => setRolesFor(null)} />
       )}
       {mode && (
         <Modal

@@ -79,3 +79,21 @@ A module plugs in through its manifest (`ServerModule`) and its contributions (`
 - action types and a scheduler contribution.
 
 Writes to the generic collection route stay per-kind code; a module writes through its own actions and routes. Tests add modules with `registerTestModules()`; production never calls it.
+
+## Module roles per member (WP4.5)
+
+With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module:
+- `editor` or `viewer` replaces the project role in that module;
+- `none` hides the module for that member, like switching it off for them alone.
+
+**Where it applies.** The same places as activation:
+- module routes, actions and collections (`MODULE_NOT_AVAILABLE` for `none`);
+- assistant tools and prompt fragments;
+- conversation sections;
+- the shell (`GET /modules` returns `access`).
+
+**Rules.**
+- Owners always keep their role.
+- The API is `GET/PUT /api/projects/:id/members/:userId/module-roles` (owners only, audited); the UI is "Module roles" in the members list.
+- With the flag off, stored rows are ignored and the API answers 404.
+- The flag stays off in production until the security review in `docs/SECURITY_REVIEW.md` is done.
