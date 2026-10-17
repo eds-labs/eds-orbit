@@ -19,6 +19,8 @@
 
 ## Decisions needed before Task 0 (AD-21 approval)
 
+**Approved by Mario on 2026-10-17 as recommended (D1–D7), execution with subagents.** The approval covers local implementation and the dependency changes in D1, not a production deployment.
+
 | # | Decision | Recommendation |
 |---|---|---|
 | D1 | Dependencies (see table below) | Approve all four at exactly 1.7.10. |
