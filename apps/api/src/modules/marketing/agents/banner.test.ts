@@ -15,9 +15,11 @@ import {
   bannerBackgroundPrompt,
   bannerInstruction,
   bannerTextProblems,
+  ctaButton,
   DEFAULT_BANNER_STYLE,
   footerDomain,
   officialFooter,
+  withCtaButton,
 } from "./banner.ts";
 
 // An assignment as stored before R78: no banner.
@@ -124,7 +126,7 @@ describe("banner copy checks (R78)", () => {
     expect(bannerTextProblems(undefined, layout)).toEqual([
       BANNER_TEXT_MISSING,
     ]);
-    expect(bannerTextProblems({ ...text, button: "" }, layout)).toEqual([
+    expect(bannerTextProblems({ ...text, headline1: "" }, layout)).toEqual([
       BANNER_TEXT_MISSING,
     ]);
     expect(bannerInstruction(text, [BANNER_TEXT_OVERFLOW])).toMatch(
@@ -233,5 +235,46 @@ describe("banner copy checks (R78)", () => {
     expect(
       bannerBackgroundPrompt({ template: "brand_landscape", style: "Warmer" }),
     ).toBe(`${DEFAULT_BANNER_STYLE}\nOwner's style notes: Warmer`);
+  });
+});
+
+// Production uLiquid, 2026-10-17 (run f610945b): the banner button "Explore
+// Desk" competed with the mission CTA "Create your beta account".
+describe("banner button from the mission CTA", () => {
+  it("is the mission CTA without closing punctuation", () => {
+    expect(ctaButton("Create your beta account")).toBe(
+      "Create your beta account",
+    );
+    expect(ctaButton("Learn more.")).toBe("Learn more");
+    expect(withCtaButton(text, "Create your beta account")).toEqual({
+      ...text,
+      button: "Create your beta account",
+    });
+  });
+
+  it("is left out when the CTA does not fit, or there is none", () => {
+    expect(
+      ctaButton("Explore the whole trading desk right now for free today"),
+    ).toBe("");
+    expect(ctaButton(undefined)).toBe("");
+    // No button is valid copy: the banner is composed without one.
+    expect(bannerTextProblems({ ...text, button: "" }, layout)).toEqual([]);
+  });
+
+  it("checks the approved CTA on the button as campaign copy, not as a claim", () => {
+    const presale = { ...text, button: "Join the presale" };
+    expect(bannerTextProblems(presale, layout)).toEqual([
+      BANNER_UNSUPPORTED_CLAIM,
+    ]);
+    expect(
+      bannerTextProblems(presale, { ...layout, cta: "Join the presale." }),
+    ).toEqual([]);
+    // The rest of the copy is still checked.
+    expect(
+      bannerTextProblems(
+        { ...presale, headline1: "Beta is live." },
+        { ...layout, cta: "Join the presale." },
+      ),
+    ).toEqual([BANNER_UNSUPPORTED_CLAIM]);
   });
 });

@@ -37,6 +37,7 @@ import {
   currentMarketingProfile,
   officialTargetLink,
 } from "../brand/marketing-profile.ts";
+import { withinGuardrails } from "../policy/fact-guardrails.ts";
 import { activePolicy } from "../policy/policy.ts";
 import { resolveChannelRules } from "../publishing/channel-rules.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
@@ -104,12 +105,25 @@ async function usableFacts(tx: DbTx, scope: Scope, keys: string[], at: Date) {
   );
 }
 
-/** Every key that has a usable Verified Fact at `at` (same rules as a package), sorted by key; a key whose copies disagree is left out. */
+/**
+ * Every key that has a usable Verified Fact at `at` (same rules as a
+ * package), sorted by key; a key whose copies disagree is left out, and so is
+ * a fact whose value the profile's guardrails or prohibited wording forbid
+ * (`factGuardrailConflict`): no brief or draft is built on it.
+ */
 export async function listUsableFacts(tx: DbTx, scope: Scope, at: Date) {
-  return knowledgeFacts.listUsableFacts(
+  const rows = await knowledgeFacts.listUsableFacts(
     tx,
     scope,
     await factQuery(tx, scope, at),
+  );
+  const profile = await currentMarketingProfile(tx, scope);
+  const guardrails = (profile?.data as { guardrails?: unknown } | null)
+    ?.guardrails;
+  return withinGuardrails(
+    rows,
+    Array.isArray(guardrails) ? guardrails.map(String) : [],
+    (row) => String(data(row).value?.amount ?? data(row).value ?? ""),
   );
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   brandTermsOf,
   factClaimMatches,
+  factMismatchInstruction,
   LEGACY_BRAND_TERMS,
   presaleLivePattern,
 } from "./fact-claims.ts";
@@ -125,5 +126,21 @@ describe("brand vocabulary from the marketing profile (WP3.4)", () => {
     ]);
     expect("Presale is now live".match(acme)).toEqual(["Presale is now live"]);
     expect("The live Desk presale".match(acme)).toBeNull();
+  });
+});
+
+describe("fact mismatch revision instruction", () => {
+  // Production uLiquid, 2026-10-17 (run f610945b).
+  it("names each failing claim with its fact key and value", () => {
+    const instruction = factMismatchInstruction([
+      {
+        claim: "Subscription payment remains USDC",
+        key: "pricing.payment_remains_usdc",
+        value: "true",
+      },
+    ]);
+    expect(instruction).toContain('"Subscription payment remains USDC"');
+    expect(instruction).toContain("pricing.payment_remains_usdc = true");
+    expect(instruction).toMatch(/no word that is not in the fact key/i);
   });
 });
