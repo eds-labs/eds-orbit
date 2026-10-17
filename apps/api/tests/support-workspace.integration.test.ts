@@ -434,12 +434,12 @@ describe.skipIf(!enabled)("support workspace API", () => {
   });
 
   it("answers 404 while support is off and keeps text out of audit and events", async () => {
-    const t = await ticket({ bodyText: "Private body 9182" });
+    const t = await ticket({ bodyText: "Private body zqxmarker" });
     await call("editor", "POST", `/tickets/${t.ticketId}/replies`, {
-      bodyText: "Private reply 9182",
+      bodyText: "Private reply zqxmarker",
     });
     await call("editor", "POST", `/tickets/${t.ticketId}/notes`, {
-      bodyText: "Private note 9182",
+      bodyText: "Private note zqxmarker",
     });
     const rows = await run(async (tx) => ({
       audits: await tx.auditEvent.findMany({
@@ -452,7 +452,8 @@ describe.skipIf(!enabled)("support workspace API", () => {
         where: { projectId: owner.projectId },
       }),
     }));
-    expect(JSON.stringify(rows)).not.toMatch(/9182|anna@example/);
+    // A marker with letters beyond hex never matches a random id by chance.
+    expect(JSON.stringify(rows)).not.toMatch(/zqxmarker|anna@example/);
     delete process.env.ORBIT_SUPPORT;
     expect((await call("owner", "GET", "/tickets")).statusCode).toBe(404);
   });
