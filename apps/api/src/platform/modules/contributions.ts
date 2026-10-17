@@ -1,3 +1,4 @@
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import type { ImpactHandler } from "../../../../../packages/knowledge/src/index.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
@@ -90,6 +91,26 @@ export type ModuleContributions = {
    * POST /api/hooks/:provider/... route (WP4.2), by provider name.
    */
   webhooks?: Readonly<Record<string, WebhookProvider>>;
+  /**
+   * The module's public API for browsers on a key's allowed origins (WP4.2b),
+   * mounted at /api/public/<module>/:publicKey<path>; every call carries a
+   * public session's bearer token.
+   */
+  publicRoutes?: readonly PublicRoute[];
+};
+
+/** One route of a module's public API (WP4.2b). */
+export type PublicRoute = {
+  method: "GET" | "POST";
+  /** Below the key, such as "/requests"; lowercase segments only. */
+  path: string;
+  handler(ctx: {
+    /** The project, as the public client sees it: role viewer, no member. */
+    scope: Scope;
+    session: { id: string; keyId: string };
+    body: unknown;
+    query: Readonly<Record<string, string>>;
+  }): Promise<unknown>;
 };
 
 /** A provider whose signed webhooks a module processes (WP4.2). */
@@ -140,6 +161,7 @@ type Registered = {
   >;
   actionPermissions: ReadonlyMap<string, PermissionDef>;
   webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
+  publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
     tools: ReadonlyMap<string, string>;
@@ -269,6 +291,25 @@ export function registerContributions(
         );
       actionPermissions.set(name, permission);
     }
+  // Public routes: modules only, distinct method and path per module.
+  const publicRoutes = new Map<string, readonly PublicRoute[]>();
+  for (const [owner, c] of ordered) {
+    if (!c.publicRoutes?.length) continue;
+    if (owner === "platform")
+      problems.push("the platform has no public routes");
+    const seen = new Set<string>();
+    for (const route of c.publicRoutes) {
+      if (!/^(\/[a-z][a-z0-9-]{0,30}){1,4}$/.test(route.path))
+        problems.push(`${owner} public route ${route.path} is invalid`);
+      if (route.path === "/session")
+        problems.push(`${owner} public route /session is the platform's`);
+      const id = `${route.method} ${route.path}`;
+      if (seen.has(id))
+        problems.push(`${owner} public route ${id} registered twice`);
+      seen.add(id);
+    }
+    publicRoutes.set(owner, c.publicRoutes);
+  }
   // Webhook providers: unique names, a queue class that exists.
   const webhooks = new Map<string, WebhookProvider & { owner: string }>();
   for (const [owner, c] of ordered)
@@ -299,6 +340,7 @@ export function registerContributions(
     connectionProviders,
     actionPermissions,
     webhooks,
+    publicRoutes,
     owners,
   };
 }
@@ -424,6 +466,14 @@ export function workerStartHooks(): Array<() => void> {
   return [...current().byModule.values()]
     .map((c) => c.onWorkerStart)
     .filter((h): h is () => void => Boolean(h));
+}
+
+/** The public routes of every module that has some, by module. */
+export function registeredPublicRoutes(): ReadonlyMap<
+  string,
+  readonly PublicRoute[]
+> {
+  return current().publicRoutes;
 }
 
 /** A webhook provider with its owner, or undefined for an unknown name. */

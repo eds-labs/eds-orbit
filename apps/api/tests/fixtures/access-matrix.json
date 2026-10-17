@@ -440,6 +440,13 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/public-keys": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/publications": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1272,6 +1279,20 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/public-keys": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/public-keys/{keyId}/revoke": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/publications": {
     "anonymous": "unauthenticated",
