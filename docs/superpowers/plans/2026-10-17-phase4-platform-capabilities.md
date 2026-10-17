@@ -80,6 +80,19 @@ Risk: low (tests plus one test-only hook and one type widening). Rollback: rever
 ---
 
 
+## WP4.4 Cross-module operator eval (detailed)
+
+Risk: none (offline eval). It builds on WP4.1's fixture module.
+
+- **Dataset.** `evals/operator/cases-v3.json`, a new dataset, so the v1 and v2 hashes stay comparable:
+  - JC30: cross-module tool choice, ending in two ActionRequests.
+  - JC31: a viewer gets no module write, and a forged call is refused.
+  - JC32: a switched-off module offers nothing.
+  - JC33: with every module off, only the platform's `knowledge_search` is offered.
+- **Harness.** `disabledModules` (switched off in order, with `ORBIT_MODULES` on) and the check `actionRequests` (by action type). Dataset version 3.
+- **Runner.** `evals/operator/cross-module.test.ts` registers the fixture module and replays the steps through the real chat runner. After every case, no fixture task exists, because proposals wait for a decision.
+- **Done.** All 14 operator cases (v1, v2, v3) are green offline.
+
 ## WP4.3 Lock measurement and real-time fan-out (detailed)
 
 Risk class high: invariants may rely on the per-project advisory lock in `scoped()` (`packages/db/src/index.ts`). This WP therefore runs in two gated parts. Part A changes nothing in behaviour. Part B starts only after Mario has seen the measurement report.
