@@ -7,18 +7,18 @@ datasource db {
 }
 
 model User {
-  id                 String            @id
+  id                 String             @id
   name               String
-  email              String            @unique
-  emailVerified      Boolean           @default(false)
+  email              String             @unique
+  emailVerified      Boolean            @default(false)
   image              String?
-  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
   sessions           Session[]
   accounts           Account[]
   memberships        WorkspaceMember[]
   projectMemberships ProjectMember[]
-  chatConversations ChatConversation[]
+  chatConversations  ChatConversation[]
 
   @@map("user")
 }
@@ -91,28 +91,28 @@ model WorkspaceMember {
 }
 
 model Project {
-  id               String              @id @default(uuid()) @db.Uuid
-  workspaceId      String              @db.Uuid
-  name             String
-  timezone         String              @default("UTC")
-  language         String              @default("en")
-  mode             String              @default("observe")
-  paused           Boolean             @default(false)
-  generation       Int                 @default(1)
-  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
+  id                String                   @id @default(uuid()) @db.Uuid
+  workspaceId       String                   @db.Uuid
+  name              String
+  timezone          String                   @default("UTC")
+  language          String                   @default("en")
+  mode              String                   @default("observe")
+  paused            Boolean                  @default(false)
+  generation        Int                      @default(1)
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(3)
   /// Earliest time the worker must process this project; maintained by triggers and the worker.
-  workDueAt        DateTime            @default(now()) @db.Timestamptz(3)
-  workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  members          ProjectMember[]
-  entities         Entity[]
-  outbox           Outbox[]
-  budgets          BudgetReservation[]
-  audits           AuditEvent[]
-  knowledgeIndexes KnowledgeIndex[]
-  marketingProfile ProjectMarketingProfile?
+  workDueAt         DateTime                 @default(now()) @db.Timestamptz(3)
+  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members           ProjectMember[]
+  entities          Entity[]
+  outbox            Outbox[]
+  budgets           BudgetReservation[]
+  audits            AuditEvent[]
+  knowledgeIndexes  KnowledgeIndex[]
+  marketingProfile  ProjectMarketingProfile?
   chatConversations ChatConversation[]
-  agentRuns        AgentRun[]
-  modules          ProjectModule[]
+  agentRuns         AgentRun[]
+  modules           ProjectModule[]
 
   @@unique([workspaceId, id])
   @@index([workDueAt])
@@ -138,15 +138,15 @@ model ProjectModule {
 }
 
 model ChatConversation {
-  id          String   @id @default(uuid()) @db.Uuid
-  workspaceId String   @db.Uuid
-  projectId   String   @db.Uuid
+  id          String         @id @default(uuid()) @db.Uuid
+  workspaceId String         @db.Uuid
+  projectId   String         @db.Uuid
   userId      String
-  title       String   @default("New conversation")
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
-  project     Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String         @default("New conversation")
+  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @db.Timestamptz(3)
+  project     Project        @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages    ChatMessage[]
   runs        ChatRun[]
   proposals   ChatProposal[]
@@ -219,14 +219,14 @@ model ChatProposal {
 }
 
 model ProjectMarketingProfile {
-  id          String   @id @default(uuid()) @db.Uuid
-  workspaceId String   @db.Uuid
-  projectId   String   @unique @db.Uuid
-  version     Int      @default(1)
+  id          String                           @id @default(uuid()) @db.Uuid
+  workspaceId String                           @db.Uuid
+  projectId   String                           @unique @db.Uuid
+  version     Int                              @default(1)
   data        Json
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
-  project     Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  createdAt   DateTime                         @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime                         @updatedAt @db.Timestamptz(3)
+  project     Project                          @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
   versions    ProjectMarketingProfileVersion[]
 
   @@unique([workspaceId, projectId])
@@ -235,12 +235,12 @@ model ProjectMarketingProfile {
 }
 
 model ProjectMarketingProfileVersion {
-  profileId   String   @db.Uuid
+  profileId   String                  @db.Uuid
   version     Int
-  workspaceId String   @db.Uuid
-  projectId   String   @db.Uuid
+  workspaceId String                  @db.Uuid
+  projectId   String                  @db.Uuid
   data        Json
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  createdAt   DateTime                @default(now()) @db.Timestamptz(3)
   profile     ProjectMarketingProfile @relation(fields: [workspaceId, projectId, profileId], references: [workspaceId, projectId, id], onDelete: Cascade)
 
   @@id([profileId, version])
@@ -291,7 +291,153 @@ model File {
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   deletedAt   DateTime? @db.Timestamptz(3)
 
+  @@unique([projectId, id])
   @@index([workspaceId, projectId, moduleId])
+}
+
+/// Support (WP5.1): the tables of the support module. Same-project composite
+/// foreign keys and the full-text trigger live in the migration's SQL.
+model SupportInbox {
+  id                    String    @id @db.Uuid
+  workspaceId           String    @db.Uuid
+  projectId             String    @db.Uuid
+  name                  String
+  channels              String[]
+  emailAddress          String?
+  allowedOrigins        String[]  @default([])
+  widgetSecretEnc       String?
+  publicClientKeyId     String?   @db.Uuid
+  defaultCategory       String?
+  assignmentPolicy      String    @default("unassigned")
+  defaultAssigneeUserId String?
+  language              String    @default("en")
+  aiMode                String    @default("off")
+  version               Int       @default(1)
+  createdBy             String
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt            DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([workspaceId, projectId])
+}
+
+model SupportContact {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  name        String?
+  email       String?
+  locale      String?
+  notes       String?
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  deletedAt   DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+}
+
+model SupportContactIdentity {
+  id             String   @id @db.Uuid
+  workspaceId    String   @db.Uuid
+  projectId      String   @db.Uuid
+  contactId      String   @db.Uuid
+  inboxId        String   @db.Uuid
+  channel        String
+  externalUserId String
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, inboxId, channel, externalUserId], map: "SupportContactIdentity_external_key")
+}
+
+model SupportTicket {
+  id                    String    @id @db.Uuid
+  workspaceId           String    @db.Uuid
+  projectId             String    @db.Uuid
+  number                Int
+  inboxId               String    @db.Uuid
+  contactId             String    @db.Uuid
+  subject               String
+  status                String    @default("new")
+  priority              String    @default("normal")
+  category              String?
+  tags                  String[]  @default([])
+  assigneeUserId        String?
+  channel               String
+  firstResponseDueAt    DateTime? @db.Timestamptz(3)
+  resolutionDueAt       DateTime? @db.Timestamptz(3)
+  firstRespondedAt      DateTime? @db.Timestamptz(3)
+  resolvedAt            DateTime? @db.Timestamptz(3)
+  closedAt              DateTime? @db.Timestamptz(3)
+  aiState               String    @default("none")
+  lastCustomerMessageAt DateTime? @db.Timestamptz(3)
+  mergedIntoTicketId    String?   @db.Uuid
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, number])
+  @@index([projectId, status, assigneeUserId])
+  @@index([projectId, inboxId, status])
+  @@index([projectId, contactId])
+  @@index([projectId, firstResponseDueAt])
+  @@index([projectId, resolutionDueAt])
+}
+
+model SupportMessage {
+  id                String                   @id @db.Uuid
+  workspaceId       String                   @db.Uuid
+  projectId         String                   @db.Uuid
+  ticketId          String                   @db.Uuid
+  kind              String
+  authorContactId   String?                  @db.Uuid
+  authorUserId      String?
+  agentRunId        String?                  @db.Uuid
+  bodyText          String
+  bodyHtml          String?
+  channel           String
+  externalId        String?
+  deliveryState     String?
+  visibleToCustomer Boolean
+  searchVector      Unsupported("tsvector")?
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, channel, externalId], map: "SupportMessage_external_key")
+  @@index([projectId, ticketId, createdAt])
+}
+
+model SupportAttachment {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  messageId   String   @db.Uuid
+  fileId      String   @db.Uuid
+  name        String
+  mime        String
+  size        Int
+  scanState   String   @default("not_scanned")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, messageId])
+}
+
+model SupportTicketEvent {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  ticketId    String   @db.Uuid
+  type        String
+  actorKind   String
+  actorId     String?
+  before      Json     @default("{}")
+  after       Json     @default("{}")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, ticketId, createdAt])
 }
 
 /// A member's role in one module (WP4.5): editor, viewer or none.
@@ -377,23 +523,23 @@ model BudgetReservation {
 }
 
 model AgentRun {
-  id          String      @id @db.Uuid
-  workspaceId String      @db.Uuid
-  projectId   String      @db.Uuid
-  kind        String
-  agentName   String
-  taskClass   String
-  subjectType String?
-  subjectId   String?
-  missionId   String?     @db.Uuid
+  id           String      @id @db.Uuid
+  workspaceId  String      @db.Uuid
+  projectId    String      @db.Uuid
+  kind         String
+  agentName    String
+  taskClass    String
+  subjectType  String?
+  subjectId    String?
+  missionId    String?     @db.Uuid
   routeVersion Int?
-  status      String      @default("running")
-  errorCode   String?
-  startedAt   DateTime    @default(now()) @db.Timestamptz(3)
-  endedAt     DateTime?   @db.Timestamptz(3)
-  durationMs  Int?
-  project     Project     @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
-  spans       AgentSpan[]
+  status       String      @default("running")
+  errorCode    String?
+  startedAt    DateTime    @default(now()) @db.Timestamptz(3)
+  endedAt      DateTime?   @db.Timestamptz(3)
+  durationMs   Int?
+  project      Project     @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  spans        AgentSpan[]
 
   @@unique([workspaceId, projectId, id])
   @@index([workspaceId, projectId, startedAt(sort: Desc)])

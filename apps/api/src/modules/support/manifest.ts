@@ -13,6 +13,14 @@ export const supportModule: ServerModule = {
   dependsOn: [],
   defaultEnabled: false,
   entityKinds: [],
-  tables: [],
+  tables: [
+    "SupportInbox",
+    "SupportContact",
+    "SupportContactIdentity",
+    "SupportTicket",
+    "SupportMessage",
+    "SupportAttachment",
+    "SupportTicketEvent",
+  ],
   permissions: supportPermissions,
 };

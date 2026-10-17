@@ -165,6 +165,14 @@ try {
     "AgentSpan",
     // Platform files (WP4.6).
     "File",
+    // Support (WP5.1).
+    "SupportInbox",
+    "SupportContact",
+    "SupportContactIdentity",
+    "SupportTicket",
+    "SupportMessage",
+    "SupportAttachment",
+    "SupportTicketEvent",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,
