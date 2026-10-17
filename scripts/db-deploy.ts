@@ -137,6 +137,17 @@ try {
     "WorkspaceMember",
     "Project",
     "ProjectMember",
+    // OAuth provider for MCP clients (Track M, WP-M1): auth role only.
+    "jwks",
+    "oauthClient",
+    "oauthAccessToken",
+    "oauthRefreshToken",
+    "oauthConsent",
+    "oauthClientAssertion",
+    "oauthResource",
+    "oauthClientResource",
+    "McpGrant",
+    "McpGrantEvent",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${authTables.map(identifier).join(",")} TO orbit_auth`,

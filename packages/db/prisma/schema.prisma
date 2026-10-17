@@ -19,6 +19,11 @@ model User {
   memberships        WorkspaceMember[]
   projectMemberships ProjectMember[]
   chatConversations ChatConversation[]
+  oauthClients       OauthClient[]
+  oauthAccessTokens  OauthAccessToken[]
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthConsents      OauthConsent[]
+  mcpGrants          McpGrant[]
 
   @@map("user")
 }
@@ -33,6 +38,8 @@ model Session {
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  oauthAccessTokens  OauthAccessToken[]
+  oauthRefreshTokens OauthRefreshToken[]
 
   @@index([userId])
   @@map("session")
@@ -77,6 +84,7 @@ model Workspace {
   createdAt DateTime          @default(now()) @db.Timestamptz(3)
   members   WorkspaceMember[]
   projects  Project[]
+  mcpGrants McpGrant[]
 }
 
 model WorkspaceMember {
@@ -497,4 +505,240 @@ model KnowledgeIndex {
   @@unique([workspaceId, projectId, generation])
   @@unique([workspaceId, projectId, profile, generation])
   @@index([workspaceId, projectId, state])
+}
+
+// OAuth 2.1 authorization server for MCP clients (Track M, WP-M1). These are
+// Better Auth's own models (jwt + oauth-provider + cimd plugins, version 1.7.10),
+// so field names stay verbatim; the drift test in
+// apps/api/tests/mcp-oauth-schema.integration.test.ts compares them with
+// getAuthTables(). They belong to the auth set: orbit_auth only, no RLS, no
+// orbit_app access. The Prisma adapter reaches them by the delegate name, which
+// is the model name with a lower-case first letter (prisma.oauthClient).
+
+/// Signing keys of the jwt plugin; the private key is stored encrypted.
+model Jwks {
+  id         String    @id
+  publicKey  String
+  privateKey String
+  createdAt  DateTime  @db.Timestamptz(3)
+  expiresAt  DateTime? @db.Timestamptz(3)
+  alg        String?
+  crv        String?
+
+  @@map("jwks")
+}
+
+model OauthClient {
+  id                               String                @id
+  clientId                         String                @unique
+  clientSecret                     String?
+  clientDiscoveryId                String?
+  disabled                         Boolean?              @default(false)
+  skipConsent                      Boolean?
+  enableEndSession                 Boolean?
+  subjectType                      String?
+  scopes                           String[]
+  clientCredentialsScopes          String[]
+  userId                           String?
+  user                             User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt                        DateTime?             @db.Timestamptz(3)
+  updatedAt                        DateTime?             @db.Timestamptz(3)
+  name                             String?
+  uri                              String?
+  icon                             String?
+  contacts                         String[]
+  tos                              String?
+  policy                           String?
+  softwareId                       String?
+  softwareVersion                  String?
+  softwareStatement                String?
+  redirectUris                     String[]
+  postLogoutRedirectUris           String[]
+  backchannelLogoutUri             String?
+  backchannelLogoutSessionRequired Boolean?
+  tokenEndpointAuthMethod          String?
+  applicationType                  String?
+  jwks                             String?
+  jwksUri                          String?
+  grantTypes                       String[]
+  responseTypes                    String[]
+  requirePKCE                      Boolean?
+  dpopBoundAccessTokens            Boolean?              @default(false)
+  referenceId                      String?
+  metadata                         Json?
+  accessTokens                     OauthAccessToken[]
+  refreshTokens                    OauthRefreshToken[]
+  consents                         OauthConsent[]
+  resources                        OauthClientResource[]
+
+  @@index([userId])
+  @@map("oauthClient")
+}
+
+model OauthRefreshToken {
+  id                      String             @id
+  token                   String             @unique
+  clientId                String
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  expiresAt               DateTime           @db.Timestamptz(3)
+  createdAt               DateTime           @db.Timestamptz(3)
+  revoked                 DateTime?          @db.Timestamptz(3)
+  rotatedAt               DateTime?          @db.Timestamptz(3)
+  rotationReplayResponse  String?
+  rotationReplayExpiresAt DateTime?          @db.Timestamptz(3)
+  authTime                DateTime?          @db.Timestamptz(3)
+  confirmation            Json?
+  scopes                  String[]
+  accessTokens            OauthAccessToken[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@map("oauthRefreshToken")
+}
+
+model OauthAccessToken {
+  id                      String             @id
+  token                   String             @unique
+  clientId                String
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String?
+  user                    User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  refreshId               String?
+  refresh                 OauthRefreshToken? @relation(fields: [refreshId], references: [id], onDelete: Cascade)
+  expiresAt               DateTime           @db.Timestamptz(3)
+  createdAt               DateTime           @db.Timestamptz(3)
+  revoked                 DateTime?          @db.Timestamptz(3)
+  confirmation            Json?
+  scopes                  String[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@index([refreshId])
+  @@map("oauthAccessToken")
+}
+
+/// A user's consent for one client; `referenceId` is the workspace that was granted.
+model OauthConsent {
+  id                      String      @id
+  clientId                String
+  client                  OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  userId                  String?
+  user                    User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  scopes                  String[]
+  createdAt               DateTime    @db.Timestamptz(3)
+  updatedAt               DateTime    @db.Timestamptz(3)
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauthConsent")
+}
+
+/// Used private_key_jwt assertions (jti is the id); rows only need to live until expiresAt.
+model OauthClientAssertion {
+  id        String   @id
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@map("oauthClientAssertion")
+}
+
+model OauthResource {
+  id                            String                @id
+  identifier                    String                @unique
+  name                          String
+  accessTokenTtl                Int?
+  refreshTokenTtl               Int?
+  signingAlgorithm              String?
+  signingKeyId                  String?
+  allowedScopes                 String[]
+  customClaims                  Json?
+  dpopBoundAccessTokensRequired Boolean?              @default(false)
+  disabled                      Boolean?              @default(false)
+  createdAt                     DateTime?             @db.Timestamptz(3)
+  updatedAt                     DateTime?             @db.Timestamptz(3)
+  policyVersion                 Int?                  @default(1)
+  metadata                      Json?
+  clients                       OauthClientResource[]
+
+  @@map("oauthResource")
+}
+
+model OauthClientResource {
+  id         String        @id
+  clientId   String
+  client     OauthClient   @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  resourceId String
+  resource   OauthResource @relation(fields: [resourceId], references: [identifier], onDelete: Cascade)
+  metadata   Json?
+  createdAt  DateTime?     @db.Timestamptz(3)
+
+  @@unique([clientId, resourceId])
+  @@index([clientId])
+  @@index([resourceId])
+  @@map("oauthClientResource")
+}
+
+/// What a user let an MCP client do in one workspace. Grants only narrow what the
+/// user may do in the UI (docs 09 section 4.2); they never add rights.
+/// `status` is pending | active | revoked. A partial unique index in the migration
+/// (SQL only, Prisma cannot express it) allows one active grant per user, client
+/// and workspace. `modules` empty means no module restriction. `clientId` and
+/// `sessionId` are plain text: clients can be pruned and sessions rotate, while
+/// grants and their events are kept as the record of what was allowed.
+model McpGrant {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId           String
+  workspaceId        String    @db.Uuid
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectIds         String[]  @db.Uuid
+  allCurrentProjects Boolean   @default(false)
+  scopes             String[]
+  modules            String[]
+  status             String
+  sessionId          String?
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  activatedAt        DateTime? @db.Timestamptz(3)
+  expiresAt          DateTime? @db.Timestamptz(3)
+  revokedAt          DateTime? @db.Timestamptz(3)
+  revokedBy          String?
+  lastUsedAt         DateTime? @db.Timestamptz(3)
+
+  @@index([userId, clientId, workspaceId, status])
+}
+
+/// Append-only record of grant changes. No foreign keys: it outlives grants,
+/// users and workspaces.
+model McpGrantEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  grantId     String?  @db.Uuid
+  userId      String
+  clientId    String
+  workspaceId String?  @db.Uuid
+  action      String
+  detail      Json     @default("{}")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([workspaceId, createdAt])
 }
