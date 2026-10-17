@@ -34,7 +34,7 @@ import { NotificationBell } from "./notification-bell";
 import {
   activeNavKey,
   crumbs,
-  moduleUsable,
+  moduleShown,
   defaultProject,
   keptSuffix,
   locate,
@@ -204,7 +204,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     // Until the states load, or if they fail, every module counts as enabled.
     // A module the member has no access to (WP4.5) is hidden like a disabled one.
     const enabled = (id: string) =>
-      moduleUsable(states?.find((m) => m.id === id));
+      moduleShown(
+        states,
+        id,
+        registry.modules.find((m) => m.id === id)?.optIn === true,
+      );
     const nav = navOrder(table.routes.filter((r) => r.nav));
     const active = registry.modules.filter((m) => enabled(m.id));
     return {

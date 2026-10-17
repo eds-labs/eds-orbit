@@ -249,7 +249,7 @@ describe.skipIf(!enabled)("support ticket creation", () => {
     const foreign = await file(b);
     await expect(
       ticket(a, { attachments: [{ ...attachment, fileId: foreign.id }] }),
-    ).rejects.toThrow(/foreign key/i);
+    ).rejects.toMatchObject({ code: "ATTACHMENT_INVALID" });
   });
 
   it("never reuses a ticket number, even after the newest ticket is deleted", async () => {
