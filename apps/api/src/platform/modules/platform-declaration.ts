@@ -74,6 +74,18 @@ export const platformDeclaration: PlatformDeclaration = {
     "session",
     "account",
     "verification",
+    // OAuth authorization server for MCP clients (Track M, WP-M1): Better
+    // Auth's provider tables and Orbit's grants, all in the auth table set.
+    "jwks",
+    "oauthClient",
+    "oauthAccessToken",
+    "oauthRefreshToken",
+    "oauthConsent",
+    "oauthClientAssertion",
+    "oauthResource",
+    "oauthClientResource",
+    "McpGrant",
+    "McpGrantEvent",
     "Workspace",
     "WorkspaceMember",
     "Project",

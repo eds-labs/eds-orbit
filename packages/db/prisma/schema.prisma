@@ -7,18 +7,23 @@ datasource db {
 }
 
 model User {
-  id                 String             @id
+  id                 String            @id
   name               String
-  email              String             @unique
-  emailVerified      Boolean            @default(false)
+  email              String            @unique
+  emailVerified      Boolean           @default(false)
   image              String?
-  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
+  createdAt          DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
   sessions           Session[]
   accounts           Account[]
   memberships        WorkspaceMember[]
   projectMemberships ProjectMember[]
-  chatConversations  ChatConversation[]
+  chatConversations ChatConversation[]
+  oauthClients       OauthClient[]
+  oauthAccessTokens  OauthAccessToken[]
+  oauthRefreshTokens OauthRefreshToken[]
+  oauthConsents      OauthConsent[]
+  mcpGrants          McpGrant[]
 
   @@map("user")
 }
@@ -33,6 +38,8 @@ model Session {
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  oauthAccessTokens  OauthAccessToken[]
+  oauthRefreshTokens OauthRefreshToken[]
 
   @@index([userId])
   @@map("session")
@@ -77,6 +84,7 @@ model Workspace {
   createdAt DateTime          @default(now()) @db.Timestamptz(3)
   members   WorkspaceMember[]
   projects  Project[]
+  mcpGrants McpGrant[]
 }
 
 model WorkspaceMember {
@@ -91,28 +99,28 @@ model WorkspaceMember {
 }
 
 model Project {
-  id                String                   @id @default(uuid()) @db.Uuid
-  workspaceId       String                   @db.Uuid
-  name              String
-  timezone          String                   @default("UTC")
-  language          String                   @default("en")
-  mode              String                   @default("observe")
-  paused            Boolean                  @default(false)
-  generation        Int                      @default(1)
-  createdAt         DateTime                 @default(now()) @db.Timestamptz(3)
+  id               String              @id @default(uuid()) @db.Uuid
+  workspaceId      String              @db.Uuid
+  name             String
+  timezone         String              @default("UTC")
+  language         String              @default("en")
+  mode             String              @default("observe")
+  paused           Boolean             @default(false)
+  generation       Int                 @default(1)
+  createdAt        DateTime            @default(now()) @db.Timestamptz(3)
   /// Earliest time the worker must process this project; maintained by triggers and the worker.
-  workDueAt         DateTime                 @default(now()) @db.Timestamptz(3)
-  workspace         Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  members           ProjectMember[]
-  entities          Entity[]
-  outbox            Outbox[]
-  budgets           BudgetReservation[]
-  audits            AuditEvent[]
-  knowledgeIndexes  KnowledgeIndex[]
-  marketingProfile  ProjectMarketingProfile?
+  workDueAt        DateTime            @default(now()) @db.Timestamptz(3)
+  workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members          ProjectMember[]
+  entities         Entity[]
+  outbox           Outbox[]
+  budgets          BudgetReservation[]
+  audits           AuditEvent[]
+  knowledgeIndexes KnowledgeIndex[]
+  marketingProfile ProjectMarketingProfile?
   chatConversations ChatConversation[]
-  agentRuns         AgentRun[]
-  modules           ProjectModule[]
+  agentRuns        AgentRun[]
+  modules          ProjectModule[]
 
   @@unique([workspaceId, id])
   @@index([workDueAt])
@@ -138,15 +146,15 @@ model ProjectModule {
 }
 
 model ChatConversation {
-  id          String         @id @default(uuid()) @db.Uuid
-  workspaceId String         @db.Uuid
-  projectId   String         @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
   userId      String
-  title       String         @default("New conversation")
-  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime       @updatedAt @db.Timestamptz(3)
-  project     Project        @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title       String   @default("New conversation")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  project     Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   messages    ChatMessage[]
   runs        ChatRun[]
   proposals   ChatProposal[]
@@ -219,14 +227,14 @@ model ChatProposal {
 }
 
 model ProjectMarketingProfile {
-  id          String                           @id @default(uuid()) @db.Uuid
-  workspaceId String                           @db.Uuid
-  projectId   String                           @unique @db.Uuid
-  version     Int                              @default(1)
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @unique @db.Uuid
+  version     Int      @default(1)
   data        Json
-  createdAt   DateTime                         @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime                         @updatedAt @db.Timestamptz(3)
-  project     Project                          @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  project     Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
   versions    ProjectMarketingProfileVersion[]
 
   @@unique([workspaceId, projectId])
@@ -235,12 +243,12 @@ model ProjectMarketingProfile {
 }
 
 model ProjectMarketingProfileVersion {
-  profileId   String                  @db.Uuid
+  profileId   String   @db.Uuid
   version     Int
-  workspaceId String                  @db.Uuid
-  projectId   String                  @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
   data        Json
-  createdAt   DateTime                @default(now()) @db.Timestamptz(3)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
   profile     ProjectMarketingProfile @relation(fields: [workspaceId, projectId, profileId], references: [workspaceId, projectId, id], onDelete: Cascade)
 
   @@id([profileId, version])
@@ -561,23 +569,23 @@ model BudgetReservation {
 }
 
 model AgentRun {
-  id           String      @id @db.Uuid
-  workspaceId  String      @db.Uuid
-  projectId    String      @db.Uuid
-  kind         String
-  agentName    String
-  taskClass    String
-  subjectType  String?
-  subjectId    String?
-  missionId    String?     @db.Uuid
+  id          String      @id @db.Uuid
+  workspaceId String      @db.Uuid
+  projectId   String      @db.Uuid
+  kind        String
+  agentName   String
+  taskClass   String
+  subjectType String?
+  subjectId   String?
+  missionId   String?     @db.Uuid
   routeVersion Int?
-  status       String      @default("running")
-  errorCode    String?
-  startedAt    DateTime    @default(now()) @db.Timestamptz(3)
-  endedAt      DateTime?   @db.Timestamptz(3)
-  durationMs   Int?
-  project      Project     @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
-  spans        AgentSpan[]
+  status      String      @default("running")
+  errorCode   String?
+  startedAt   DateTime    @default(now()) @db.Timestamptz(3)
+  endedAt     DateTime?   @db.Timestamptz(3)
+  durationMs  Int?
+  project     Project     @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+  spans       AgentSpan[]
 
   @@unique([workspaceId, projectId, id])
   @@index([workspaceId, projectId, startedAt(sort: Desc)])
@@ -732,4 +740,240 @@ model KnowledgeIndex {
   @@unique([workspaceId, projectId, generation])
   @@unique([workspaceId, projectId, profile, generation])
   @@index([workspaceId, projectId, state])
+}
+
+// OAuth 2.1 authorization server for MCP clients (Track M, WP-M1). These are
+// Better Auth's own models (jwt + oauth-provider + cimd plugins, version 1.7.10),
+// so field names stay verbatim; the drift test in
+// apps/api/tests/mcp-oauth-schema.integration.test.ts compares them with
+// getAuthTables(). They belong to the auth set: orbit_auth only, no RLS, no
+// orbit_app access. The Prisma adapter reaches them by the delegate name, which
+// is the model name with a lower-case first letter (prisma.oauthClient).
+
+/// Signing keys of the jwt plugin; the private key is stored encrypted.
+model Jwks {
+  id         String    @id
+  publicKey  String
+  privateKey String
+  createdAt  DateTime  @db.Timestamptz(3)
+  expiresAt  DateTime? @db.Timestamptz(3)
+  alg        String?
+  crv        String?
+
+  @@map("jwks")
+}
+
+model OauthClient {
+  id                               String                @id
+  clientId                         String                @unique
+  clientSecret                     String?
+  clientDiscoveryId                String?
+  disabled                         Boolean?              @default(false)
+  skipConsent                      Boolean?
+  enableEndSession                 Boolean?
+  subjectType                      String?
+  scopes                           String[]
+  clientCredentialsScopes          String[]
+  userId                           String?
+  user                             User?                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt                        DateTime?             @db.Timestamptz(3)
+  updatedAt                        DateTime?             @db.Timestamptz(3)
+  name                             String?
+  uri                              String?
+  icon                             String?
+  contacts                         String[]
+  tos                              String?
+  policy                           String?
+  softwareId                       String?
+  softwareVersion                  String?
+  softwareStatement                String?
+  redirectUris                     String[]
+  postLogoutRedirectUris           String[]
+  backchannelLogoutUri             String?
+  backchannelLogoutSessionRequired Boolean?
+  tokenEndpointAuthMethod          String?
+  applicationType                  String?
+  jwks                             String?
+  jwksUri                          String?
+  grantTypes                       String[]
+  responseTypes                    String[]
+  requirePKCE                      Boolean?
+  dpopBoundAccessTokens            Boolean?              @default(false)
+  referenceId                      String?
+  metadata                         Json?
+  accessTokens                     OauthAccessToken[]
+  refreshTokens                    OauthRefreshToken[]
+  consents                         OauthConsent[]
+  resources                        OauthClientResource[]
+
+  @@index([userId])
+  @@map("oauthClient")
+}
+
+model OauthRefreshToken {
+  id                      String             @id
+  token                   String             @unique
+  clientId                String
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String
+  user                    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  expiresAt               DateTime           @db.Timestamptz(3)
+  createdAt               DateTime           @db.Timestamptz(3)
+  revoked                 DateTime?          @db.Timestamptz(3)
+  rotatedAt               DateTime?          @db.Timestamptz(3)
+  rotationReplayResponse  String?
+  rotationReplayExpiresAt DateTime?          @db.Timestamptz(3)
+  authTime                DateTime?          @db.Timestamptz(3)
+  confirmation            Json?
+  scopes                  String[]
+  accessTokens            OauthAccessToken[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@map("oauthRefreshToken")
+}
+
+model OauthAccessToken {
+  id                      String             @id
+  token                   String             @unique
+  clientId                String
+  client                  OauthClient        @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  sessionId               String?
+  session                 Session?           @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  userId                  String?
+  user                    User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  authorizationCodeId     String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  refreshId               String?
+  refresh                 OauthRefreshToken? @relation(fields: [refreshId], references: [id], onDelete: Cascade)
+  expiresAt               DateTime           @db.Timestamptz(3)
+  createdAt               DateTime           @db.Timestamptz(3)
+  revoked                 DateTime?          @db.Timestamptz(3)
+  confirmation            Json?
+  scopes                  String[]
+
+  @@index([clientId])
+  @@index([sessionId])
+  @@index([userId])
+  @@index([authorizationCodeId])
+  @@index([refreshId])
+  @@map("oauthAccessToken")
+}
+
+/// A user's consent for one client; `referenceId` is the workspace that was granted.
+model OauthConsent {
+  id                      String      @id
+  clientId                String
+  client                  OauthClient @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  userId                  String?
+  user                    User?       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  referenceId             String?
+  resources               String[]
+  requestedUserInfoClaims String[]
+  scopes                  String[]
+  createdAt               DateTime    @db.Timestamptz(3)
+  updatedAt               DateTime    @db.Timestamptz(3)
+
+  @@index([clientId])
+  @@index([userId])
+  @@map("oauthConsent")
+}
+
+/// Used private_key_jwt assertions (jti is the id); rows only need to live until expiresAt.
+model OauthClientAssertion {
+  id        String   @id
+  expiresAt DateTime @db.Timestamptz(3)
+
+  @@map("oauthClientAssertion")
+}
+
+model OauthResource {
+  id                            String                @id
+  identifier                    String                @unique
+  name                          String
+  accessTokenTtl                Int?
+  refreshTokenTtl               Int?
+  signingAlgorithm              String?
+  signingKeyId                  String?
+  allowedScopes                 String[]
+  customClaims                  Json?
+  dpopBoundAccessTokensRequired Boolean?              @default(false)
+  disabled                      Boolean?              @default(false)
+  createdAt                     DateTime?             @db.Timestamptz(3)
+  updatedAt                     DateTime?             @db.Timestamptz(3)
+  policyVersion                 Int?                  @default(1)
+  metadata                      Json?
+  clients                       OauthClientResource[]
+
+  @@map("oauthResource")
+}
+
+model OauthClientResource {
+  id         String        @id
+  clientId   String
+  client     OauthClient   @relation(fields: [clientId], references: [clientId], onDelete: Cascade)
+  resourceId String
+  resource   OauthResource @relation(fields: [resourceId], references: [identifier], onDelete: Cascade)
+  metadata   Json?
+  createdAt  DateTime?     @db.Timestamptz(3)
+
+  @@unique([clientId, resourceId])
+  @@index([clientId])
+  @@index([resourceId])
+  @@map("oauthClientResource")
+}
+
+/// What a user let an MCP client do in one workspace. Grants only narrow what the
+/// user may do in the UI (docs 09 section 4.2); they never add rights.
+/// `status` is pending | active | revoked. A partial unique index in the migration
+/// (SQL only, Prisma cannot express it) allows one active grant per user, client
+/// and workspace. `modules` empty means no module restriction. `clientId` and
+/// `sessionId` are plain text: clients can be pruned and sessions rotate, while
+/// grants and their events are kept as the record of what was allowed.
+model McpGrant {
+  id                 String    @id @default(uuid()) @db.Uuid
+  userId             String
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clientId           String
+  workspaceId        String    @db.Uuid
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectIds         String[]  @db.Uuid
+  allCurrentProjects Boolean   @default(false)
+  scopes             String[]
+  modules            String[]
+  status             String
+  sessionId          String?
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  activatedAt        DateTime? @db.Timestamptz(3)
+  expiresAt          DateTime? @db.Timestamptz(3)
+  revokedAt          DateTime? @db.Timestamptz(3)
+  revokedBy          String?
+  lastUsedAt         DateTime? @db.Timestamptz(3)
+
+  @@index([userId, clientId, workspaceId, status])
+}
+
+/// Append-only record of grant changes. No foreign keys: it outlives grants,
+/// users and workspaces.
+model McpGrantEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  grantId     String?  @db.Uuid
+  userId      String
+  clientId    String
+  workspaceId String?  @db.Uuid
+  action      String
+  detail      Json     @default("{}")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([workspaceId, createdAt])
 }

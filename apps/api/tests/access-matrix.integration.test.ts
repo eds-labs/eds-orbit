@@ -21,6 +21,7 @@ Object.assign(process.env, {
   ORBIT_CONTENT_PACKAGES: "true",
   ORBIT_TOOL_SEARCH: "true",
   ORBIT_MODULES: "true",
+  ORBIT_MCP_OAUTH: "true",
   ORBIT_MODULE_ROLES: "true",
   ORBIT_PUBLIC_INGRESS: "true",
   // Support (WP5.1): routes exist; the test project never enables the module.
@@ -47,6 +48,8 @@ type Role = (typeof ROLES)[number];
  * The Telegram webhook is public too, but answers 401 without its secret.
  */
 const PUBLIC_ROUTES = [
+  // OAuth authorization server metadata (RFC 8414), public by design.
+  "GET /.well-known/oauth-authorization-server/api/auth",
   "GET /api/google-drive/callback",
   "GET /api/health/postiz",
   "GET /api/health/ready",

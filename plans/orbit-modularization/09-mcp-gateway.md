@@ -144,6 +144,8 @@ flowchart LR
 | **MCP gateway** (resource and endpoint `https://orbit.eds-labs.io/mcp`) | **Own compose service `mcp`** built from the same image with a separate entrypoint (`tsx apps/api/src/mcp-main.ts`). Traefik routes the path `/mcp` and `/.well-known/oauth-protected-resource/mcp` to it, with higher priority than the `web` catch-all (decided by Mario, Q-22). | It bypasses the Next proxy, which forwards neither `Authorization` nor non-`/api` paths and aborts at 45 s. It also isolates failure, rate limits and scaling from the UI API. It reuses the identical platform code, so there is no duplicated logic. |
 | **Platform services** | Unchanged (`apps/api/src/platform/**`) | The gateway calls them in-process. There is no HTTP hop to the API and no second implementation. |
 
+> **Note 2026-10-17 (WP-M1, D2 and D3, approved by Mario).** The issuer is configured as `${APP_ORIGIN}/api/auth` (Better Auth's path issuer), so it will be `https://orbit.eds-labs.io/api/auth` once deployed (nothing is deployed yet), not the bare origin: endpoints are `/api/auth/oauth2/*` and `/api/auth/jwks`, metadata is at `/.well-known/oauth-authorization-server/api/auth` and `/api/auth/.well-known/openid-configuration`. In WP-M1 the endpoints are reached through the existing web proxy plus a small Next route for the root `/.well-known/*` paths, not through a Traefik route; the direct Traefik route is decided with `/mcp` in WP-M2. The issuer is bound into tokens and client configurations and must stay stable. Every configured resource needs `allowedScopes` (a Prisma list column reads back `null` otherwise).
+
 **Rejected alternative:** mount `/mcp` inside the existing `api` process. That means one container fewer, but MCP traffic shares the event loop, the DB pool and the rate limits with the UI.
 
 **Resource identifier (Q-22, decided 2026-10-13):** `https://orbit.eds-labs.io/mcp`. There is no new subdomain and no DNS change. Because the resource has a path, its Protected Resource Metadata is served at `https://orbit.eds-labs.io/.well-known/oauth-protected-resource/mcp` (RFC 9728 path insertion), and the 401 challenge points there explicitly. Some clients probe only the root `/.well-known/oauth-protected-resource`, so that URL is served too and describes the same resource. Verify both in WP-M5. The identifier must be stable forever, because it is bound into tokens and client configurations. Trade-off: the MCP and UI traffic share the hostname, the TLS certificate and Traefik. The service separation still isolates processes and limits.
@@ -190,6 +192,8 @@ flowchart LR
 | Client authentication | `none` (public plus PKCE) and `private_key_jwt` (ChatGPT's JWKS). Secrets only for an explicitly predefined client. |
 | Optional hardening | Verify ChatGPT's mTLS client certificate at Traefik and pass a verified flag to the gateway. Egress IP allowlist as a defence-in-depth signal, never as authentication. |
 | Data | New tables in the **auth** schema: OAuth client, consent, access/refresh tokens and JWKS (Better Auth managed), plus Orbit's `McpGrant`. Owned by `orbit_auth` and added to the grant list in `scripts/db-deploy.ts` (lines 131-143). |
+
+> **Note 2026-10-17 (WP-M1).** Implemented locally behind `ORBIT_MCP_OAUTH` (default off) with the issuer path from §3.1; see `docs/IMPLEMENTATION_STATUS.md` for the endpoints, decisions D1–D7 and the known limitations. In the token, `aud` is an array that includes the resource (and the userinfo endpoint), so the gateway checks inclusion, not equality.
 
 ### 4.2 Scopes and grants
 

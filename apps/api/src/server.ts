@@ -86,16 +86,20 @@ import swagger from "@fastify/swagger";
 import { z } from "zod";
 import { authDb, scoped, jsonSafe } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
+import {
+  authRequestBody,
+  authRequestHeaders,
+  isOriginExemptOAuth,
+  oauthAuthPaths,
+  pathOf,
+  registerOAuthDiscovery,
+  sendWebResponse,
+} from "./platform/mcp-auth/http.ts";
+import { registerMcpConnectRoutes } from "./platform/mcp-auth/routes.ts";
 import * as schemas from "../../../packages/schemas/src/index.ts";
 import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
 import { setFact } from "./platform/knowledge/engine.ts";
-import {
-  makeAuth,
-  renewedSessionCookies,
-  scopeFor,
-  userFor,
-  fromNodeHeaders,
-} from "./auth.ts";
+import { makeAuth, renewedSessionCookies, scopeFor, userFor } from "./auth.ts";
 import { clientIp, pinClientIpHeader } from "./client-ip.ts";
 import {
   data,
@@ -214,12 +218,17 @@ function collectionWritePermission(collection: string) {
 }
 export async function buildServer(
   diagnostic?: (error: unknown) => void,
-  options?: { logStream?: NodeJS.WritableStream; telegramFetch?: FetchLike },
+  options?: {
+    logStream?: NodeJS.WritableStream;
+    telegramFetch?: FetchLike;
+    /** Test seam: the CIMD metadata transport (see makeAuth). */
+    cimdFetch?: typeof fetch;
+  },
 ) {
   // A broken module manifest stops the API before it serves anything.
   registerModules();
   const config = loadConfig(),
-    auth = makeAuth();
+    auth = makeAuth({ cimdFetch: options?.cimdFetch });
   const app = Fastify({
     bodyLimit: 1500000,
     // req.ip stays the TCP peer; the forwarded client address is resolved by
@@ -309,8 +318,10 @@ export async function buildServer(
       !publicIngressEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
-    // Signed provider webhooks carry their own authentication instead of a browser origin.
+    // Signed provider webhooks carry their own authentication instead of a browser origin;
+    // OAuth clients (token, revoke, introspect) authenticate in the request itself.
     if (
+      !isOriginExemptOAuth(config, req.method, req.url) &&
       !/^\/api\/slack\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/interactions$/.test(
         req.url,
       ) &&
@@ -479,34 +490,34 @@ export async function buildServer(
         max: 20,
         timeWindow: "1 minute",
         keyGenerator: (req: import("fastify").FastifyRequest) =>
-          clientIp(req) + ":" + req.method + ":" + req.url.split("?")[0],
+          clientIp(req) + ":" + req.method + ":" + pathOf(req.url),
       },
     },
     handler: async (req, reply) => {
-      const endpoint = req.url.split("?")[0];
+      const endpoint = pathOf(req.url);
       const permitted = [
         "/api/auth/sign-in/email",
         "/api/auth/sign-out",
         "/api/auth/get-session",
+        ...oauthAuthPaths(config),
       ];
-      if (!permitted.includes(endpoint!))
+      if (!permitted.includes(endpoint))
         throw new DomainError("AUTH_ENDPOINT_DISABLED", 403);
-      const response = await auth.handler(
-        new Request(new URL(req.url, config.APP_ORIGIN), {
-          method: req.method,
-          headers: fromNodeHeaders(req.headers),
-          ...(req.body ? { body: JSON.stringify(req.body) } : {}),
-        }),
+      const body = authRequestBody(config, req);
+      return sendWebResponse(
+        reply,
+        await auth.handler(
+          new Request(new URL(req.url, config.APP_ORIGIN), {
+            method: req.method,
+            headers: authRequestHeaders(config, req),
+            ...(body === undefined ? {} : { body }),
+          }),
+        ),
       );
-      reply.code(response.status);
-      response.headers.forEach((v, k) => {
-        if (k !== "set-cookie") reply.header(k, v);
-      });
-      const cookies = response.headers.getSetCookie();
-      if (cookies.length) reply.header("set-cookie", cookies);
-      return reply.send(await response.text());
     },
   });
+  registerOAuthDiscovery(app, auth, config);
+  registerMcpConnectRoutes(app, auth, config);
   app.get("/api/me", async (req) => {
     const user = await userFor(auth, req);
     const memberships = await authDb.workspaceMember.findMany({

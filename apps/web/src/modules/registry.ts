@@ -15,6 +15,7 @@ import {
   Operations,
   ProjectSettings,
 } from "@/components/management";
+import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
 import { ApprovalInbox } from "@/modules/marketing/work";
 import { knowledgeWeb } from "./knowledge/manifest";
 import { marketingWeb } from "./marketing/manifest";
@@ -78,6 +79,32 @@ export const webRegistry: WebRegistry = {
       component: ProjectSettings,
       nav: { label: label("settings"), icon: Settings, order: 120 },
       legacyPaths: ["/settings"],
+    },
+  ],
+  // The OAuth authorization of MCP clients (Track M, WP-M1): Better Auth sends
+  // the browser here; the pages sit outside every project.
+  standalone: [
+    {
+      key: "connect",
+      path: "connect",
+      component: ConnectView,
+      title: label("connectTitle"),
+      session: "required",
+    },
+    {
+      key: "connect-login",
+      path: "connect/login",
+      component: ConnectView,
+      title: label("connectTitle"),
+      session: "required",
+      oauthLogin: true,
+    },
+    {
+      key: "connect-error",
+      path: "connect/error",
+      component: ConnectErrorView,
+      title: label("connectErrorTitle"),
+      session: "none",
     },
   ],
   // Same order as the server registry (apps/api/src/modules/registry.ts).

@@ -137,6 +137,17 @@ try {
     "WorkspaceMember",
     "Project",
     "ProjectMember",
+    // OAuth provider for MCP clients (Track M, WP-M1): auth role only.
+    "jwks",
+    "oauthClient",
+    "oauthAccessToken",
+    "oauthRefreshToken",
+    "oauthConsent",
+    "oauthClientAssertion",
+    "oauthResource",
+    "oauthClientResource",
+    "McpGrant",
+    "McpGrantEvent",
     // Module-level roles (WP4.5): tenancy data, like ProjectMember.
     "ProjectMemberModuleRole",
     // Public client keys (WP4.2b): resolved without a project scope.
