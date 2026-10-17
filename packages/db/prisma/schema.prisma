@@ -299,6 +299,7 @@ model File {
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   deletedAt   DateTime? @db.Timestamptz(3)
 
+  @@unique([projectId, id])
   @@index([workspaceId, projectId, moduleId])
 }
 
@@ -341,6 +342,159 @@ model NotificationPreference {
   updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz(3)
 
   @@id([projectId, userId, kind])
+}
+
+/// Support (WP5.1): the tables of the support module. Same-project composite
+/// foreign keys and the full-text trigger live in the migration's SQL.
+model SupportInbox {
+  id                    String    @id @db.Uuid
+  workspaceId           String    @db.Uuid
+  projectId             String    @db.Uuid
+  name                  String
+  channels              String[]
+  emailAddress          String?
+  allowedOrigins        String[]  @default([])
+  widgetSecretEnc       String?
+  publicClientKeyId     String?   @db.Uuid
+  defaultCategory       String?
+  assignmentPolicy      String    @default("unassigned")
+  defaultAssigneeUserId String?
+  language              String    @default("en")
+  aiMode                String    @default("off")
+  version               Int       @default(1)
+  createdBy             String
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt            DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([workspaceId, projectId])
+}
+
+/// The last ticket number per project; numbers are never reused.
+model SupportTicketCounter {
+  projectId   String @id @db.Uuid
+  workspaceId String @db.Uuid
+  lastNumber  Int    @default(0)
+}
+
+model SupportContact {
+  id           String    @id @db.Uuid
+  workspaceId  String    @db.Uuid
+  projectId    String    @db.Uuid
+  name         String?
+  email        String?
+  claimedEmail String?
+  locale       String?
+  notes        String?
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  deletedAt    DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+}
+
+model SupportContactIdentity {
+  id             String   @id @db.Uuid
+  workspaceId    String   @db.Uuid
+  projectId      String   @db.Uuid
+  contactId      String   @db.Uuid
+  inboxId        String   @db.Uuid
+  channel        String
+  externalUserId String
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, inboxId, channel, externalUserId], map: "SupportContactIdentity_external_key")
+}
+
+model SupportTicket {
+  id                    String    @id @db.Uuid
+  workspaceId           String    @db.Uuid
+  projectId             String    @db.Uuid
+  number                Int
+  inboxId               String    @db.Uuid
+  contactId             String    @db.Uuid
+  subject               String
+  status                String    @default("new")
+  priority              String    @default("normal")
+  category              String?
+  tags                  String[]  @default([])
+  assigneeUserId        String?
+  channel               String
+  firstResponseDueAt    DateTime? @db.Timestamptz(3)
+  resolutionDueAt       DateTime? @db.Timestamptz(3)
+  firstRespondedAt      DateTime? @db.Timestamptz(3)
+  resolvedAt            DateTime? @db.Timestamptz(3)
+  closedAt              DateTime? @db.Timestamptz(3)
+  aiState               String    @default("none")
+  lastCustomerMessageAt DateTime? @db.Timestamptz(3)
+  mergedIntoTicketId    String?   @db.Uuid
+  createdAt             DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, number])
+  @@index([projectId, status, assigneeUserId])
+  @@index([projectId, inboxId, status])
+  @@index([projectId, contactId])
+  @@index([projectId, firstResponseDueAt])
+  @@index([projectId, resolutionDueAt])
+}
+
+model SupportMessage {
+  id                String                   @id @db.Uuid
+  workspaceId       String                   @db.Uuid
+  projectId         String                   @db.Uuid
+  ticketId          String                   @db.Uuid
+  kind              String
+  authorContactId   String?                  @db.Uuid
+  authorUserId      String?
+  agentRunId        String?                  @db.Uuid
+  bodyText          String
+  bodyHtml          String?
+  channel           String
+  externalId        String?
+  deliveryState     String?
+  visibleToCustomer Boolean
+  searchVector      Unsupported("tsvector")?
+  createdAt         DateTime                 @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, channel, externalId], map: "SupportMessage_external_key")
+  @@index([projectId, ticketId, createdAt])
+}
+
+model SupportAttachment {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  messageId   String   @db.Uuid
+  fileId      String   @db.Uuid
+  name        String
+  mime        String
+  size        Int
+  scanState   String   @default("not_scanned")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, messageId])
+}
+
+model SupportTicketEvent {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  ticketId    String   @db.Uuid
+  type        String
+  actorKind   String
+  actorId     String?
+  before      Json     @default("{}")
+  after       Json     @default("{}")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, ticketId, createdAt])
 }
 
 /// A member's role in one module (WP4.5): editor, viewer or none.

@@ -234,7 +234,8 @@ export async function registerPublicApi(app: FastifyInstance) {
 
 // Owners manage their project's keys (while the flag is on).
 
-const origin = z
+/** A browser origin such as https://example.com: https, or http on localhost. */
+export const publicOrigin = z
   .string()
   .max(200)
   .refine((value) => {
@@ -252,7 +253,7 @@ const origin = z
 export const publicKeyInput = z
   .object({
     moduleId: z.string().regex(/^[a-z][a-z0-9_]{1,30}$/),
-    allowedOrigins: z.array(origin).min(1).max(10),
+    allowedOrigins: z.array(publicOrigin).min(1).max(10),
   })
   .strict();
 

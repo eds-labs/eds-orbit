@@ -1,5 +1,51 @@
 # Implementation status
 
+## Support module skeleton: WP5.1 (2026-10-17, local; flag off)
+
+Branch `claude/phase-5-support-mvp-pilot-201bc2`, the first work package of Phase 5. Plan: `docs/superpowers/plans/2026-10-17-wp51-support-skeleton.md`. The decision note is `plans/orbit-modularization/10-support-pilot-decisions.md`.
+
+Mario decided on 2026-10-17:
+- Q-12a option B: OpenAI with mandatory safeguards for support;
+- Q-12b: 24-month retention;
+- Q-13: the uLiquid project with module roles;
+- the pilot starts with the mailbox and the Desk widget.
+
+The operating guide is `docs/SUPPORT.md`.
+
+- **Module.** `modules/support`:
+  - the manifest, which is off by default;
+  - seven permissions, `support.settings.manage` owner-only;
+  - the settings schema with the Q-12b defaults.
+- **Opt-in twice.**
+  - `ORBIT_SUPPORT` (default `false`) must be on. New: `ModuleContributions.available`. While a module is unavailable, it is left out of the module list, enabling and module roles, and `ownerEnabled` refuses its contributions.
+  - Modules that are off by default count only where an owner enabled them, even while `ORBIT_MODULES` is off (`enabledModules`).
+  - The project needs an explicit enabled `ProjectModule` row.
+- **Data.** Migration `202610180001_support_core` adds eight tables, including a per-project ticket counter:
+  - FORCE RLS and `orbit_app` grants;
+  - same-project composite foreign keys, plus a new unique key on `File` (`projectId`, `id`);
+  - a full-text trigger on messages.
+
+  It is additive.
+- **API.** Settings (`platform/modules/settings.ts`, generic, versioned, audited without values) and inbox management. The widget secret is encrypted, shown once and never audited.
+- **Domain.** `createTicket`:
+  - numbers from the per-project counter, never reused;
+  - contacts by identity or e-mail; a verified user id joins a contact by e-mail only when the e-mail is verified too;
+  - idempotent per channel message;
+  - SLA due times from the settings;
+  - attachments only from the same project's files.
+
+  The `SupportChannelAdapter` contract consists of types only.
+- **Tests:**
+  - `support-inboxes.integration.test.ts`, 8 tests: the gate states, the secret shown once and dropped with the widget channel, validation, versions, settings (older saved settings filled with defaults) and roles;
+  - `support-tickets.integration.test.ts`, 10 tests: parallel numbering, no reuse after deletion, contacts, verified-only e-mail binding, idempotency, SLA, the gate, the opt-in enabled set, attachments, and no text in audit or event rows;
+  - `settings.test.ts`;
+  - the RLS matrix: eight tables seeded, a cross-project insert, a foreign key across projects refused, and a project deleted with its support rows;
+  - the access matrix: seven new routes, all closed;
+  - the module activation and roles tests, while support is unavailable.
+- **Production.**
+  - Merging brings the migration, which needs approval. `ORBIT_SUPPORT` stays `false`.
+  - Enabling it belongs to the WP5.9 pilot, after WP5.2–WP5.8 and the legal checks in the decision note.
+
 ## Platform files in the database: WP4.6 backend B (2026-10-17, local; flag off)
 
 Branch `claude/files-database-backend`. Mario chose on 2026-10-17 to keep files, including raw inbound e-mail, on the server instead of in an R2 bucket for the pilot, inside the database.

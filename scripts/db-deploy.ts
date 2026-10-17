@@ -180,6 +180,15 @@ try {
     // Member notifications (WP4.7), private per member by RLS.
     "Notification",
     "NotificationPreference",
+    // Support (WP5.1).
+    "SupportInbox",
+    "SupportContact",
+    "SupportContactIdentity",
+    "SupportTicket",
+    "SupportMessage",
+    "SupportAttachment",
+    "SupportTicketEvent",
+    "SupportTicketCounter",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${business.map(identifier).join(",")} TO orbit_app`,

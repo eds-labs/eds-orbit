@@ -19,6 +19,7 @@ import {
   registeredPeriodicTasks,
   registeredRetention,
   registeredRoutes,
+  registeredRoutesByOwner,
   registeredSchedulers,
   registeredTelegramCallback,
   registeredToolOwner,
@@ -32,6 +33,7 @@ import { knowledgeActionPermissions } from "../src/modules/knowledge/permissions
 import { marketingActionPermissions } from "../src/modules/marketing/permissions.ts";
 import { readiness } from "../src/modules/marketing/readiness/readiness.ts";
 import { marketingRoutes } from "../src/modules/marketing/routes.ts";
+import { supportRoutes } from "../src/modules/support/routes.ts";
 import { knowledgeRoutes } from "../src/modules/knowledge/routes.ts";
 import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
@@ -337,9 +339,24 @@ describe("module contributions", () => {
     expect(registeredConnectionProvider("github")).toBeUndefined();
   });
 
-  it("lets knowledge and marketing register their HTTP routes (WP2.1f, WP3.3)", () => {
+  it("lets knowledge, marketing and support register their HTTP routes (WP2.1f, WP3.3, WP5.1)", () => {
     // Registry order: knowledge before marketing, which depends on it.
+    // Support counts only while ORBIT_SUPPORT is on; the server registers
+    // its routes regardless and they answer 404 while it is off.
     expect(registeredRoutes()).toEqual([knowledgeRoutes, marketingRoutes]);
+    process.env.ORBIT_SUPPORT = "true";
+    try {
+      expect(registeredRoutes()).toEqual([
+        knowledgeRoutes,
+        supportRoutes,
+        marketingRoutes,
+      ]);
+    } finally {
+      delete process.env.ORBIT_SUPPORT;
+    }
+    expect(registeredRoutesByOwner().map(([owner]) => owner)).toContain(
+      "support",
+    );
     expect(registeredToolOwner("knowledge_search")).toBe("platform");
   });
 

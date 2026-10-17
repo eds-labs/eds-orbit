@@ -48,6 +48,8 @@ x-api-environment: &api-environment
   ORBIT_MCP_CIMD_HOSTS: ${ORBIT_MCP_CIMD_HOSTS:-chatgpt.com}
   ORBIT_MODULE_ROLES: ${ORBIT_MODULE_ROLES:-false}
   ORBIT_PUBLIC_INGRESS: ${ORBIT_PUBLIC_INGRESS:-false}
+  # Support module (WP5.1): off until the pilot is approved.
+  ORBIT_SUPPORT: ${ORBIT_SUPPORT:-false}
   # Platform files (WP4.6): an own R2 bucket and token, never the backup ones.
   ORBIT_FILES: ${ORBIT_FILES:-false}
   # Encrypted rows in Postgres (in the database backup) or "s3" for a bucket.

@@ -70,8 +70,30 @@ describe("static module registry", () => {
   const registry = moduleRegistry();
 
   it("validates and orders marketing after knowledge", () => {
-    expect(modules.map((m) => m.id)).toEqual(["knowledge", "marketing"]);
-    expect(registry.order).toEqual(["knowledge", "marketing"]);
+    expect(modules.map((m) => m.id)).toEqual([
+      "knowledge",
+      "marketing",
+      "support",
+    ]);
+    // Modules without pending dependencies are ordered by id.
+    expect(registry.order).toEqual(["knowledge", "support", "marketing"]);
+  });
+
+  it("keeps support off unless a project enables it (WP5.1)", () => {
+    const support = modules.find((m) => m.id === "support")!;
+    expect(support.defaultEnabled).toBe(false);
+    expect(support.permissions.map((p) => p.key).sort()).toEqual([
+      "support.contacts.manage",
+      "support.notes.write",
+      "support.settings.manage",
+      "support.stats.read",
+      "support.tickets.assign",
+      "support.tickets.read",
+      "support.tickets.reply",
+    ]);
+    expect(
+      support.permissions.find((p) => p.key === "support.settings.manage"),
+    ).toMatchObject({ defaultRoles: ["owner"], sensitive: true });
   });
 
   it("gives every entity kind the code uses an owner", () => {

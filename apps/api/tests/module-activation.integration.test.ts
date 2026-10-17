@@ -116,6 +116,7 @@ describe.skipIf(!enabled)("Module activation API", () => {
   });
   afterEach(() => {
     delete process.env.ORBIT_MODULES;
+    delete process.env.ORBIT_SUPPORT;
   });
   afterAll(async () => {
     await authDb.workspace.deleteMany({ where: { id: { in: workspaces } } });
@@ -225,5 +226,33 @@ describe.skipIf(!enabled)("Module activation API", () => {
       ["marketing", false],
     ]);
     await put("owner", "marketing", true);
+  });
+
+  it("offers support only while ORBIT_SUPPORT is on, and off by default", async () => {
+    process.env.ORBIT_MODULES = "true";
+    const hidden = await call(
+      "owner",
+      "GET",
+      `/api/projects/${projectId}/modules`,
+    );
+    expect(Object.keys(modules(hidden))).not.toContain("support");
+    const refused = await put("owner", "support", true);
+    expect(refused.statusCode).toBe(404);
+    expect(refused.json().error.code).toBe("MODULE_NOT_FOUND");
+
+    process.env.ORBIT_SUPPORT = "true";
+    const offered = await call(
+      "owner",
+      "GET",
+      `/api/projects/${projectId}/modules`,
+    );
+    expect(modules(offered).support).toEqual({
+      enabled: false,
+      explicit: false,
+    });
+    const on = await put("owner", "support", true);
+    expect(on.statusCode).toBe(200);
+    expect(modules(on).support).toEqual({ enabled: true, explicit: true });
+    expect((await put("owner", "support", false)).statusCode).toBe(200);
   });
 });

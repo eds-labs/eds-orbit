@@ -110,6 +110,12 @@ export type ModuleContributions = {
    * (WP4.7), by kind name, unique across modules.
    */
   userNotifications?: Readonly<Record<string, UserNotificationKind>>;
+  /**
+   * False while the module is switched off for the whole installation, such
+   * as support without ORBIT_SUPPORT (WP5.1): projects neither see it in the
+   * module list nor can enable it. Absent: always available.
+   */
+  available?: () => boolean;
 };
 
 /** One route of a module's public API (WP4.2b). */
@@ -449,13 +455,16 @@ function current(): Registered {
 
 /**
  * True when an owner's contributions count for a project: the platform's
- * always; a module's when no enabled set is given or it is in it (WP2.4).
+ * always; an unavailable module's never (WP5.1); another module's when no
+ * enabled set is given or it is in it (WP2.4).
  */
 export function ownerEnabled(
   owner: string | undefined,
   enabled?: ReadonlySet<string>,
 ) {
-  return !enabled || !owner || owner === "platform" || enabled.has(owner);
+  if (!owner || owner === "platform") return true;
+  if (!moduleAvailable(owner)) return false;
+  return !enabled || enabled.has(owner);
 }
 function fromOwners<T>(
   pick: (c: ModuleContributions) => T | undefined,
@@ -465,6 +474,13 @@ function fromOwners<T>(
     .filter(([owner]) => ownerEnabled(owner, enabled))
     .map(([, c]) => pick(c))
     .filter((v): v is T => Boolean(v));
+}
+/**
+ * True unless the module's contributions report it unavailable for this
+ * installation (WP5.1). Before registration every module counts available.
+ */
+export function moduleAvailable(id: string) {
+  return registered?.byModule.get(id)?.available?.() ?? true;
 }
 /** The validated registry the contributions were registered for. */
 export function registeredRegistry(): ValidatedRegistry {

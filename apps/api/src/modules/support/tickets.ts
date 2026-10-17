@@ -1,0 +1,243 @@
+import { randomUUID } from "node:crypto";
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { readModuleSettings } from "../../platform/modules/settings.ts";
+import { audit, DomainError } from "../../shared.ts";
+import type { NormalizedInbound, SupportChannel } from "./channels/adapter.ts";
+import { requireSupport } from "./gate.ts";
+import { loadInbox } from "./inboxes.ts";
+import { supportSettingsDefaults, supportSettingsSchema } from "./settings.ts";
+
+// Ticket creation (WP5.1): the one entry the channels use for a new
+// conversation. Runs in the caller's project transaction, which holds the
+// project lock, so per-project numbers come from the counter without races.
+// Message text, subjects and addresses stay in the support tables; audit and
+// event rows carry ids and field values only (Q-12a).
+
+const MINUTE = 60_000;
+const SUBJECT_MAX = 300;
+
+export type CreatedTicket = {
+  ticketId: string;
+  number: number;
+  contactId: string;
+  messageId: string;
+  /** True when the channel message was already recorded; nothing changed. */
+  duplicate: boolean;
+};
+
+/**
+ * The contact for an inbound message: by verified identity, then by e-mail.
+ * A verified identity joins an existing contact by e-mail only when the
+ * channel verified that e-mail too; otherwise anyone who can type an address
+ * into the host app could attach themselves to another customer's history.
+ */
+async function contactFor(
+  tx: DbTx,
+  scope: Scope,
+  inboxId: string,
+  channel: SupportChannel,
+  contact: NormalizedInbound["contact"],
+) {
+  const email = contact.email?.trim().toLowerCase() || null;
+  const base = { workspaceId: scope.workspaceId, projectId: scope.projectId };
+  if (contact.externalUserId) {
+    const identity = await tx.supportContactIdentity.findFirst({
+      where: {
+        ...base,
+        inboxId,
+        channel,
+        externalUserId: contact.externalUserId,
+      },
+    });
+    if (identity) {
+      const known = await tx.supportContact.findFirst({
+        where: { ...base, id: identity.contactId, deletedAt: null },
+      });
+      if (known) return known.id;
+    }
+  }
+  const matchByEmail =
+    Boolean(email) &&
+    (!contact.externalUserId || contact.emailVerified === true);
+  const existing = matchByEmail
+    ? await tx.supportContact.findFirst({
+        where: { ...base, email, deletedAt: null },
+      })
+    : null;
+  const id =
+    existing?.id ??
+    (
+      await tx.supportContact.create({
+        data: {
+          id: randomUUID(),
+          ...base,
+          ...(matchByEmail || !email
+            ? { email }
+            : { email: null, claimedEmail: email }),
+          name: contact.name?.trim().slice(0, 200) || null,
+          locale: contact.locale?.slice(0, 20) || null,
+        },
+      })
+    ).id;
+  if (contact.externalUserId)
+    await tx.supportContactIdentity.upsert({
+      where: {
+        projectId_inboxId_channel_externalUserId: {
+          projectId: scope.projectId,
+          inboxId,
+          channel,
+          externalUserId: contact.externalUserId,
+        },
+      },
+      create: {
+        id: randomUUID(),
+        ...base,
+        contactId: id,
+        inboxId,
+        channel,
+        externalUserId: contact.externalUserId,
+      },
+      update: { contactId: id },
+    });
+  return id;
+}
+
+/** Opens a ticket for a customer's first message on a channel. */
+export async function createTicket(
+  tx: DbTx,
+  scope: Scope,
+  input: {
+    inboxId: string;
+    channel: SupportChannel;
+    inbound: NormalizedInbound;
+    now?: Date;
+  },
+): Promise<CreatedTicket> {
+  await requireSupport(tx, scope);
+  const inbox = await loadInbox(tx, scope, input.inboxId);
+  if (inbox.archivedAt) throw new DomainError("INBOX_ARCHIVED", 409);
+  if (!inbox.channels.includes(input.channel))
+    throw new DomainError("INBOX_CHANNEL_DISABLED", 409);
+  const { inbound } = input;
+  const base = { workspaceId: scope.workspaceId, projectId: scope.projectId };
+
+  if (inbound.externalId) {
+    const seen = await tx.supportMessage.findFirst({
+      where: {
+        ...base,
+        channel: input.channel,
+        externalId: inbound.externalId,
+      },
+    });
+    if (seen) {
+      const ticket = await tx.supportTicket.findFirstOrThrow({
+        where: { ...base, id: seen.ticketId },
+      });
+      return {
+        ticketId: ticket.id,
+        number: ticket.number,
+        contactId: ticket.contactId,
+        messageId: seen.id,
+        duplicate: true,
+      };
+    }
+  }
+
+  const now = input.now ?? new Date();
+  const contactId = await contactFor(
+    tx,
+    scope,
+    inbox.id,
+    input.channel,
+    inbound.contact,
+  );
+  const { settings } = await readModuleSettings(
+    tx,
+    scope,
+    "support",
+    supportSettingsSchema,
+    supportSettingsDefaults,
+  );
+  const sla = settings.sla.normal;
+  // Never max(number)+1: a deleted newest ticket must not hand on its number.
+  const counter = await tx.supportTicketCounter.upsert({
+    where: { projectId: scope.projectId },
+    create: { ...base, lastNumber: 1 },
+    update: { lastNumber: { increment: 1 } },
+  });
+  const ticket = await tx.supportTicket.create({
+    data: {
+      id: randomUUID(),
+      ...base,
+      number: counter.lastNumber,
+      inboxId: inbox.id,
+      contactId,
+      subject: inbound.subject.trim().slice(0, SUBJECT_MAX) || "(no subject)",
+      category: inbox.defaultCategory,
+      channel: input.channel,
+      firstResponseDueAt: new Date(
+        now.getTime() + sla.firstResponseMinutes * MINUTE,
+      ),
+      resolutionDueAt: new Date(now.getTime() + sla.resolutionMinutes * MINUTE),
+      lastCustomerMessageAt: now,
+      createdAt: now,
+    },
+  });
+  const message = await tx.supportMessage.create({
+    data: {
+      id: randomUUID(),
+      ...base,
+      ticketId: ticket.id,
+      kind: "customer",
+      authorContactId: contactId,
+      bodyText: inbound.bodyText,
+      bodyHtml: inbound.bodyHtml ?? null,
+      channel: input.channel,
+      externalId: inbound.externalId,
+      visibleToCustomer: true,
+      createdAt: now,
+    },
+  });
+  for (const file of inbound.attachments)
+    await tx.supportAttachment.create({
+      data: {
+        id: randomUUID(),
+        ...base,
+        messageId: message.id,
+        fileId: file.fileId,
+        name: file.name.slice(0, 200),
+        mime: file.mime,
+        size: file.size,
+      },
+    });
+  await tx.supportTicketEvent.create({
+    data: {
+      id: randomUUID(),
+      ...base,
+      ticketId: ticket.id,
+      type: "created",
+      actorKind: "contact",
+      actorId: contactId,
+      before: {},
+      after: {
+        status: ticket.status,
+        priority: ticket.priority,
+        category: ticket.category,
+      },
+      createdAt: now,
+    },
+  });
+  await audit(tx, scope, "support.ticket.created", ticket.id, {
+    ticketId: ticket.id,
+    number: ticket.number,
+    channel: input.channel,
+  });
+  return {
+    ticketId: ticket.id,
+    number: ticket.number,
+    contactId,
+    messageId: message.id,
+    duplicate: false,
+  };
+}

@@ -524,6 +524,20 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/support/inboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/telegram": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -572,6 +586,13 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
     "owner": "allowed:400"
+  },
+  "PATCH /api/projects/{projectId}/support/inboxes/{inboxId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}": {
     "anonymous": "allowed:400",
@@ -1434,6 +1455,27 @@
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/support/inboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/inboxes/{inboxId}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/inboxes/{inboxId}/rotate-widget-secret": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/telegram/connect": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1524,5 +1566,12 @@
     "viewer": "allowed:400",
     "editor": "allowed:400",
     "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/support/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   }
 }

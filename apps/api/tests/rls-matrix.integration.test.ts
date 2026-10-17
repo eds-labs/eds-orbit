@@ -40,6 +40,15 @@ const PROJECT_TABLES = [
   "ProjectMarketingProfile",
   "ProjectMarketingProfileVersion",
   "ProjectModule",
+  // Support (WP5.1).
+  "SupportAttachment",
+  "SupportContact",
+  "SupportContactIdentity",
+  "SupportInbox",
+  "SupportMessage",
+  "SupportTicket",
+  "SupportTicketCounter",
+  "SupportTicketEvent",
 ];
 // Project scope plus the chat owner (app.user_id).
 const CHAT_TABLES = [
@@ -108,6 +117,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   let a: Scope, b: Scope, c: Scope;
   // An existing row of B, so a cross-project outbox insert can fail only on RLS.
   let bEntityId: string;
+  // Support inboxes per project, for the same-project foreign key checks.
+  const inboxes = new Map<string, string>();
 
   const synthetic = async () => {
     const row = await authDb.user.create({
@@ -168,8 +179,8 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     }
   };
 
-  async function seed(s: Scope) {
-    await asScope(s, async (tx) => {
+  async function seed(s: Scope): Promise<string> {
+    return asScope(s, async (tx) => {
       const fileId = randomUUID();
       await tx.fileBlob.create({
         data: {
@@ -324,6 +335,93 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           payloadHash: "rls",
         },
       });
+      const inbox = await tx.supportInbox.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          name: "Synthetic RLS inbox",
+          channels: ["email"],
+          emailAddress: "support@example.invalid",
+          createdBy: s.userId,
+        },
+      });
+      const contact = await tx.supportContact.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          email: "customer@example.invalid",
+        },
+      });
+      await tx.supportContactIdentity.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          contactId: contact.id,
+          inboxId: inbox.id,
+          channel: "widget",
+          externalUserId: "rls-user",
+        },
+      });
+      const ticket = await tx.supportTicket.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          number: 1,
+          inboxId: inbox.id,
+          contactId: contact.id,
+          subject: "Synthetic RLS ticket",
+          channel: "email",
+        },
+      });
+      const message = await tx.supportMessage.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          ticketId: ticket.id,
+          kind: "customer",
+          authorContactId: contact.id,
+          bodyText: "Synthetic RLS message",
+          channel: "email",
+          visibleToCustomer: true,
+        },
+      });
+      await tx.supportAttachment.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          messageId: message.id,
+          fileId,
+          name: "rls.txt",
+          mime: "text/plain",
+          size: 1,
+        },
+      });
+      await tx.supportTicketCounter.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          lastNumber: 1,
+        },
+      });
+      await tx.supportTicketEvent.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          ticketId: ticket.id,
+          type: "created",
+          actorKind: "system",
+          before: {},
+          after: {},
+        },
+      });
+      return inbox.id;
     });
   }
 
@@ -346,7 +444,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     a = await project(one, userA);
     c = await project(one, userA);
     b = await project(two, userB);
-    for (const s of [a, b, c]) await seed(s);
+    for (const s of [a, b, c]) inboxes.set(s.projectId, await seed(s));
     bEntityId = await asScope(
       b,
       async (tx) =>
@@ -534,6 +632,11 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         [randomUUID(), b.workspaceId, b.projectId],
       ],
       [
+        "SupportTicket",
+        `INSERT INTO "SupportTicket" (id, "workspaceId", "projectId", number, "inboxId", "contactId", subject, channel, "updatedAt") SELECT $1::uuid, $2::uuid, $3::uuid, 99, $4::uuid, $1::uuid, 'x', 'email', now()`,
+        [randomUUID(), b.workspaceId, b.projectId, inboxes.get(b.projectId)],
+      ],
+      [
         "ChatConversation",
         `INSERT INTO "ChatConversation" (id, "workspaceId", "projectId", "userId", "updatedAt") VALUES ($1::uuid, $2::uuid, $3::uuid, $4, now())`,
         [randomUUID(), b.workspaceId, b.projectId, a.userId],
@@ -551,5 +654,33 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         error: "rls",
       });
     }
+  });
+
+  it("keeps support references inside one project, even past RLS", async () => {
+    // Foreign key checks bypass row-level security, so the same-project
+    // composite keys are what stop a ticket of A pointing at B's inbox.
+    const result = await attempt(
+      a,
+      `INSERT INTO "SupportTicket" (id, "workspaceId", "projectId", number, "inboxId", "contactId", subject, channel, "updatedAt")
+       SELECT $1::uuid, $2::uuid, $3::uuid, 98, $4::uuid, c.id, 'x', 'email', now()
+         FROM "SupportContact" c WHERE c."projectId" = $3::uuid LIMIT 1`,
+      randomUUID(),
+      a.workspaceId,
+      a.projectId,
+      inboxes.get(b.projectId),
+    );
+    expect(result.error ?? "inserted").toMatch(/foreign key/);
+  });
+
+  it("deletes a project together with its support rows", async () => {
+    const owner = await synthetic();
+    const doomed = await project(await workspace(owner), owner);
+    await seed(doomed);
+    await authDb.project.delete({ where: { id: doomed.projectId } });
+    for (const table of PROJECT_TABLES.filter((t) => t.startsWith("Support")))
+      expect({ table, rows: await visible(doomed, table, doomed) }).toEqual({
+        table,
+        rows: 0,
+      });
   });
 });
