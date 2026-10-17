@@ -268,6 +268,21 @@ model ProjectMember {
   @@index([workspaceId, userId])
 }
 
+/// A module's public API key for one project (WP4.2b); no secret.
+model PublicClientKey {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  moduleId       String
+  publicKey      String    @unique
+  allowedOrigins String[]  @default([])
+  createdBy      String?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt      DateTime? @db.Timestamptz(3)
+
+  @@index([workspaceId, projectId])
+}
+
 /// A member's role in one module (WP4.5): editor, viewer or none.
 model ProjectMemberModuleRole {
   workspaceId String        @db.Uuid

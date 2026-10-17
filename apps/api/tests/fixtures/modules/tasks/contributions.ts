@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { scoped } from "../../../../../../packages/db/src/index.ts";
 import type { ModuleContributions } from "../../../../src/platform/modules/contributions.ts";
@@ -54,8 +55,83 @@ export const proposeTasks = defineTool({
   },
 });
 
+/** HMAC-SHA256 of the raw body with the connection's secret, hex. */
+export function fixtureSignature(rawBody: string, secret: string) {
+  return createHmac("sha256", secret).update(rawBody).digest("hex");
+}
+
 export const tasksContributions: ModuleContributions = {
   tools: [proposeTasks],
+  // A public API for browsers on a key's origins (WP4.2b): visitors file
+  // requests and see their own.
+  publicRoutes: [
+    {
+      method: "POST",
+      path: "/requests",
+      async handler({ scope, session, body }) {
+        const { title } = z
+          .object({ title: z.string().min(1).max(120) })
+          .strict()
+          .parse(body);
+        const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+          create(tx, scope, "fixture_tasks", {
+            title,
+            source: "public",
+            sessionId: session.id,
+          }),
+        );
+        return { id: row.id, title };
+      },
+    },
+    {
+      method: "GET",
+      path: "/requests",
+      async handler({ scope, session }) {
+        const rows = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+          list(tx, scope, "fixture_tasks"),
+        );
+        return {
+          items: rows
+            .filter((row) => data(row).sessionId === session.id)
+            .map((row) => ({ id: row.id, title: data(row).title })),
+        };
+      },
+    },
+  ],
+  // A signed provider webhook through the platform's route (WP4.2a).
+  webhooks: {
+    fixture: {
+      connectionProvider: "fixture",
+      verify({ rawBody, headers, credential }) {
+        const sent = Buffer.from(headers["x-fixture-signature"] ?? "", "hex");
+        const expected = Buffer.from(
+          fixtureSignature(rawBody, credential),
+          "hex",
+        );
+        return (
+          sent.length === expected.length && timingSafeEqual(sent, expected)
+        );
+      },
+      messageId: ({ headers }) => headers["x-fixture-message-id"] ?? null,
+      queueClass: "fixture_webhook",
+    },
+  },
+  jobs: [
+    {
+      queueClass: "fixture_webhook",
+      async handler({ scope, job }) {
+        await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+          const message = data(
+            await entity(tx, scope, "inbound_webhooks", job.resourceId),
+          );
+          await create(tx, scope, "fixture_tasks", {
+            title: String(message.body?.title ?? "Webhook task"),
+            webhookId: job.resourceId,
+          });
+        });
+      },
+    },
+  ],
   // POST /api/projects/:id/actions/complete-task, for editors and owners.
   actions: {
     "complete-task": sharedTransaction(async (tx, { scope, input }) => {

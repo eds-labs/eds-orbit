@@ -104,6 +104,10 @@ describe("module contributions", () => {
       "drive_connection",
       "drive_oauth_state",
       "evidence",
+      // Raw provider webhooks (WP4.2a): operational data, never exported.
+      "inbound_webhooks",
+      // Public client sessions with hashed tokens (WP4.2b).
+      "public_sessions",
       "telegram_connections",
     ]);
   });

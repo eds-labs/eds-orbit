@@ -150,6 +150,8 @@ try {
     "McpGrantEvent",
     // Module-level roles (WP4.5): tenancy data, like ProjectMember.
     "ProjectMemberModuleRole",
+    // Public client keys (WP4.2b): resolved without a project scope.
+    "PublicClientKey",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${authTables.map(identifier).join(",")} TO orbit_auth`,

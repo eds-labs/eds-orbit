@@ -51,6 +51,7 @@ const TENANCY_TABLES = [
   "Project",
   "ProjectMember",
   "ProjectMemberModuleRole",
+  "PublicClientKey",
   "Workspace",
   "WorkspaceMember",
 ];
@@ -76,6 +77,7 @@ const SYSTEM_TABLES = ["_prisma_migrations"];
 const NO_APP_ACCESS = [
   "ProjectMember",
   "ProjectMemberModuleRole",
+  "PublicClientKey",
   "Workspace",
   "WorkspaceMember",
   ...AUTH_ONLY_TABLES,

@@ -468,6 +468,13 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/public-keys": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/publications": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -528,6 +535,13 @@
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
     "editor": "allowed:400",
     "owner": "allowed:400"
   },
@@ -1314,6 +1328,20 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/public-keys": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/public-keys/{keyId}/revoke": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/publications": {
     "anonymous": "unauthenticated",

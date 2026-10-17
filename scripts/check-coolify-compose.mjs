@@ -43,6 +43,7 @@ for (const key of [
   "MCP_RESOURCE",
   "ORBIT_MCP_CIMD_HOSTS",
   "ORBIT_MODULE_ROLES",
+  "ORBIT_PUBLIC_INGRESS",
 ])
   delete composeEnvironment[key];
 
@@ -125,6 +126,7 @@ for (const name of ["api", "worker"])
     "ORBIT_AGENT_REVIEW_AUTHORITY",
     "ORBIT_MODULES",
     "ORBIT_MODULE_ROLES",
+    "ORBIT_PUBLIC_INGRESS",
   ])
     assert.equal(
       services[name].environment[flag],
@@ -151,6 +153,7 @@ const flagged = JSON.parse(
         MCP_RESOURCE: "https://orbit.example.invalid/mcp",
         ORBIT_MCP_CIMD_HOSTS: "chatgpt.com,example.invalid",
         ORBIT_MODULE_ROLES: "true",
+        ORBIT_PUBLIC_INGRESS: "true",
       },
     },
   ),
@@ -164,6 +167,7 @@ for (const name of ["api", "worker"])
     "ORBIT_AGENT_REVIEW_AUTHORITY",
     "ORBIT_MODULES",
     "ORBIT_MODULE_ROLES",
+    "ORBIT_PUBLIC_INGRESS",
   ])
     assert.equal(
       flagged[name].environment[flag],

@@ -91,6 +91,52 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
 
 **Rollback.** Local and preview: `ORBIT_MCP_OAUTH=false`. Production after the merge (flag still off): the flag needs no change; if the smoke test fails, redeploy the previous `main` commit, which reverts the Better Auth upgrade. The migration is additive and its tables stay (unused with the flag off); dropping them is not part of a rollback. Production after the WP-M5 flip: the flag off disables every OAuth route and the consent UI; issued access tokens expire within 10 minutes and are useless without the gateway.
 
+## Public module API: WP4.2b (2026-10-17, local; flag off)
+
+Branch `claude/wp42b-public-api` (on top of WP4.2a). Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, default `false`).
+
+- **Keys.** Migration `202610170006_public_client_key` adds the `PublicClientKey` table: owners only, audited, exact allowed origins.
+  - API: `GET/POST /api/projects/:id/public-keys` and `POST …/:keyId/revoke`.
+- **Public API.** `platform/http/public-api.ts`, at `/api/public/<module>/:publicKey/...`:
+  - the key is resolved without a project scope;
+  - the Origin check and CORS run per key (manual, no credentials) and preflight is supported;
+  - `POST …/session` issues a bearer token, stored as a hash, valid 12 hours;
+  - module routes need that token;
+  - JSON only, 64 KB, rate limits per key and address, and per session;
+  - the API is off with its module.
+- **Contract.** `ModuleContributions.publicRoutes`. The registry checks paths and refuses `/session` and duplicates. The fixture module serves `/requests`: visitors file requests and see only their own.
+- **Tests.** `public-api.integration.test.ts` covers:
+  - the flag off;
+  - key issuing rules;
+  - unknown, foreign and revoked keys;
+  - a foreign Origin (audited), an allowed Origin without credentials, and preflight;
+  - missing, wrong and expired tokens, and that cookies are ignored;
+  - the token stored as a hash, and visitors seeing only their own requests;
+  - the per-session rate limit and the module switch.
+  
+  A mutation check confirmed it: with the origin comparison disabled, the test fails. The access matrix adds exactly the three owner-only key routes.
+- **Production.** Merging brings the migration (Mario's approval). The flag waits for the security review.
+
+## Signed provider webhooks: WP4.2a (2026-10-17, local; flag off)
+
+Branch `claude/wp42-public-ingress`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: a new unauthenticated surface, behind `ORBIT_PUBLIC_INGRESS` (default `false`).
+
+- **Route.** `POST /api/hooks/:provider/:workspaceId/:projectId/:connectionId` (`platform/http/webhooks.ts`):
+  - the raw JSON body is kept as received for the signature;
+  - 415 and 413 limits;
+  - 120 requests per minute per connection;
+  - exempt from the Origin check by exact path pattern.
+- **Contract.** A module contributes `webhooks[provider] = { connectionProvider, verify, messageId, queueClass }`. The registry refuses duplicate names and unknown queue classes.
+- **Flow.** Inside the project transaction:
+  - the connection must belong to the provider (404 otherwise);
+  - the signature is checked (401 otherwise, audited);
+  - the message id is required (400 otherwise);
+  - a replay gets 409 (audited);
+  - the message is stored as `inbound_webhooks` and the module's job is enqueued; the answer is 200 at once.
+- **Fixture.** The test module `tasks` signs with HMAC-SHA256, and its job turns the message into a task.
+- **Tests.** `webhooks.integration.test.ts` covers the flag off, every rejection path, storing, the job, replay, the per-connection rate limit and the unchanged Origin check. A mutation check confirmed it: with the signature check disabled, 4 tests fail.
+- **Production.** Mario's approval for the flag, after the security review (`docs/SECURITY_REVIEW.md`). Merging alone changes nothing (404 while off). Slack and Telegram stay on their own routes for now.
+
 ## Module-level roles: WP4.5 (2026-10-17, local; flag off)
 
 Branch `claude/wp45-module-roles`. Plan: `docs/superpowers/plans/2026-10-17-phase4-platform-capabilities.md`. Risk class high: an authorization change, behind `ORBIT_MODULE_ROLES` (default `false`).

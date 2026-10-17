@@ -1,3 +1,4 @@
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import type { ImpactHandler } from "../../../../../packages/knowledge/src/index.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
@@ -85,6 +86,51 @@ export type ModuleContributions = {
    * (WP4.1); an action without one needs the writer level.
    */
   actionPermissions?: Readonly<Record<string, PermissionDef>>;
+  /**
+   * Signed provider webhooks the module receives through the platform's
+   * POST /api/hooks/:provider/... route (WP4.2), by provider name.
+   */
+  webhooks?: Readonly<Record<string, WebhookProvider>>;
+  /**
+   * The module's public API for browsers on a key's allowed origins (WP4.2b),
+   * mounted at /api/public/<module>/:publicKey<path>; every call carries a
+   * public session's bearer token.
+   */
+  publicRoutes?: readonly PublicRoute[];
+};
+
+/** One route of a module's public API (WP4.2b). */
+export type PublicRoute = {
+  method: "GET" | "POST";
+  /** Below the key, such as "/requests"; lowercase segments only. */
+  path: string;
+  handler(ctx: {
+    /** The project, as the public client sees it: role viewer, no member. */
+    scope: Scope;
+    session: { id: string; keyId: string };
+    body: unknown;
+    query: Readonly<Record<string, string>>;
+  }): Promise<unknown>;
+};
+
+/** A provider whose signed webhooks a module processes (WP4.2). */
+export type WebhookProvider = {
+  /** The connection provider whose connection holds the signing secret. */
+  connectionProvider: string;
+  /** True when the signature over the raw body is valid for the credential. */
+  verify(input: {
+    rawBody: string;
+    headers: Readonly<Record<string, string | undefined>>;
+    credential: string;
+    now: Date;
+  }): boolean;
+  /** The provider's id of the message, for idempotency; null rejects it. */
+  messageId(input: {
+    body: unknown;
+    headers: Readonly<Record<string, string | undefined>>;
+  }): string | null;
+  /** The worker queue class that processes the stored message. */
+  queueClass: string;
 };
 
 // A callback_data prefix: short, so signed data stays within 64 bytes.
@@ -114,6 +160,8 @@ type Registered = {
     ConnectionProvider & { owner: string }
   >;
   actionPermissions: ReadonlyMap<string, PermissionDef>;
+  webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
+  publicRoutes: ReadonlyMap<string, readonly PublicRoute[]>;
   /** Owner ("platform" or a module id) of each named contribution (WP2.4). */
   owners: {
     tools: ReadonlyMap<string, string>;
@@ -243,6 +291,39 @@ export function registerContributions(
         );
       actionPermissions.set(name, permission);
     }
+  // Public routes: modules only, distinct method and path per module.
+  const publicRoutes = new Map<string, readonly PublicRoute[]>();
+  for (const [owner, c] of ordered) {
+    if (!c.publicRoutes?.length) continue;
+    if (owner === "platform")
+      problems.push("the platform has no public routes");
+    const seen = new Set<string>();
+    for (const route of c.publicRoutes) {
+      if (!/^(\/[a-z][a-z0-9-]{0,30}){1,4}$/.test(route.path))
+        problems.push(`${owner} public route ${route.path} is invalid`);
+      if (route.path === "/session")
+        problems.push(`${owner} public route /session is the platform's`);
+      const id = `${route.method} ${route.path}`;
+      if (seen.has(id))
+        problems.push(`${owner} public route ${id} registered twice`);
+      seen.add(id);
+    }
+    publicRoutes.set(owner, c.publicRoutes);
+  }
+  // Webhook providers: unique names, a queue class that exists.
+  const webhooks = new Map<string, WebhookProvider & { owner: string }>();
+  for (const [owner, c] of ordered)
+    for (const [name, provider] of Object.entries(c.webhooks ?? {})) {
+      if (!/^[a-z][a-z0-9_-]{1,30}$/.test(name))
+        problems.push(`invalid webhook provider ${name}`);
+      if (webhooks.has(name))
+        problems.push(`webhook provider ${name} registered twice`);
+      if (!jobs.has(provider.queueClass))
+        problems.push(
+          `webhook provider ${name} uses unknown queue class ${provider.queueClass}`,
+        );
+      webhooks.set(name, { ...provider, owner });
+    }
   if (problems.length)
     throw new Error(`MODULE_CONTRIBUTIONS_INVALID: ${problems.join("; ")}`);
   registered = {
@@ -258,6 +339,8 @@ export function registerContributions(
     notifications,
     connectionProviders,
     actionPermissions,
+    webhooks,
+    publicRoutes,
     owners,
   };
 }
@@ -383,6 +466,19 @@ export function workerStartHooks(): Array<() => void> {
   return [...current().byModule.values()]
     .map((c) => c.onWorkerStart)
     .filter((h): h is () => void => Boolean(h));
+}
+
+/** The public routes of every module that has some, by module. */
+export function registeredPublicRoutes(): ReadonlyMap<
+  string,
+  readonly PublicRoute[]
+> {
+  return current().publicRoutes;
+}
+
+/** A webhook provider with its owner, or undefined for an unknown name. */
+export function registeredWebhook(name: string) {
+  return current().webhooks.get(name);
 }
 
 /** The permission a module declared for its action, or undefined. */
