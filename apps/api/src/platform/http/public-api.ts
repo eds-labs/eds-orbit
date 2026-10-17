@@ -5,11 +5,13 @@ import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, create, data, DomainError } from "../shared.ts";
 import {
+  moduleAvailable,
   registeredPublicRoutes,
   registeredRegistry,
 } from "../modules/contributions.ts";
 import { assertModuleEnabled } from "../modules/enforcement.ts";
 import { publicIngressEnabled } from "./webhooks.ts";
+import { serveEventStream } from "../realtime/sse.ts";
 
 // A module's public API (WP4.2b): browsers on a key's allowed origins call
 // /api/public/<module>/:publicKey/... with a public session's bearer token.
@@ -112,7 +114,10 @@ export async function registerPublicApi(app: FastifyInstance) {
         return reply
           .code(204)
           .header("Access-Control-Allow-Methods", "GET, POST")
-          .header("Access-Control-Allow-Headers", "authorization, content-type")
+          .header(
+            "Access-Control-Allow-Headers",
+            "authorization, content-type, last-event-id",
+          )
           .header("Access-Control-Max-Age", "600")
           .send();
       });
@@ -184,7 +189,7 @@ export async function registerPublicApi(app: FastifyInstance) {
               Date.parse(String(data(session).expiresAt)) <= Date.now()
             )
               throw new DomainError("UNAUTHORIZED", 401);
-            return route.handler({
+            const ctx = {
               scope: scopeOf(key, `public:${session.id}`),
               session: { id: session.id, keyId: key.id },
               body: req.body ?? {},
@@ -193,7 +198,17 @@ export async function registerPublicApi(app: FastifyInstance) {
                   (req.query as Record<string, unknown>) ?? {},
                 ).map(([k, v]) => [k, String(v)]),
               ),
-            });
+            };
+            if (route.stream && route.method === "GET") {
+              const stream = await route.stream(ctx);
+              const headers = Object.fromEntries(
+                Object.entries(reply.getHeaders())
+                  .filter(([name]) => /^(access-control-|vary$)/i.test(name))
+                  .map(([name, value]) => [name, String(value)]),
+              );
+              return serveEventStream(req, reply, { ...stream, headers });
+            }
+            return route.handler(ctx);
           },
         });
     }
@@ -249,10 +264,7 @@ const publicView = (row: {
 export async function createPublicKey(scope: Scope, raw: unknown) {
   requireOwner(scope);
   const input = publicKeyInput.parse(raw);
-  if (
-    !registeredRegistry().order.includes(input.moduleId) ||
-    !registeredPublicRoutes().has(input.moduleId)
-  )
+  if (!publicApiModules().includes(input.moduleId))
     throw new DomainError("MODULE_HAS_NO_PUBLIC_API", 409);
   const row = await authDb.publicClientKey.create({
     data: {
@@ -273,10 +285,13 @@ export async function createPublicKey(scope: Scope, raw: unknown) {
   return publicView(row);
 }
 
-/** The modules a key can be issued for: registered with a public API. */
+/**
+ * The modules a key can be issued for: registered with a public API and
+ * available for the installation (support needs ORBIT_SUPPORT, WP5.4).
+ */
 export function publicApiModules() {
-  return registeredRegistry().order.filter((id) =>
-    registeredPublicRoutes().has(id),
+  return registeredRegistry().order.filter(
+    (id) => registeredPublicRoutes().has(id) && moduleAvailable(id),
   );
 }
 

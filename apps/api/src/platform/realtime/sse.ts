@@ -30,6 +30,8 @@ export type EventStreamOptions = {
   fallbackPollMs?: number;
   /** Reconnect delay the client is told to use. */
   retryMs?: number;
+  /** Response headers to send with the stream (CORS of public routes). */
+  headers?: Record<string, string>;
 };
 
 export const STREAM_DEFAULTS = {
@@ -69,6 +71,9 @@ export async function serveEventStream(
   const out = reply.raw;
   reply.hijack();
   out.writeHead(200, {
+    // Headers set on the reply before the hijack, such as a public route's
+    // CORS answer (WP5.4), would be lost otherwise.
+    ...(options.headers ?? {}),
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-store",
     Connection: "keep-alive",

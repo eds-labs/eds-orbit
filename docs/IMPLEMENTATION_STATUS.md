@@ -1,5 +1,27 @@
 # Implementation status
 
+## Support livechat widget: WP5.4 (2026-10-17, local; flags off)
+
+Branch `claude/wp54-support-widget`, stacked on WP5.3. Guides: `docs/SUPPORT.md` (Livechat widget) and `docs/SUPPORT_WIDGET.md` (app teams, Desk pilot checklist for Q-20).
+
+- **Public API.** Identify (anonymous or HMAC-verified), conversations, messages, handoff and a stream with resume. Visitors see only their own conversations.
+- **Widget.** `apps/web/public/widget/v1.js`: framework-free, Shadow DOM, DE/EN, keyboard, stream with a polling fallback, silent on failure. 5.6 KB gzip.
+- **Delivery.**
+  - A reply is `sent` in the widget while the visitor is online, else mailed through WP5.3.
+  - Mail threading now also finds widget messages, and the subject token also accepts the claimed address.
+- **Platform.**
+  - `PublicRoute.stream`, with `serveEventStream` headers.
+  - The web proxy forwards `Authorization` under `/api/public/`. This fixes WP4.2b behind the proxy.
+- **Web.** An owner "Widget embed" button with a snippet (`embedSnippet`, JSON-escaped).
+- **Tests:**
+  - `support-widget.integration.test.ts`, 6 tests: visibility, HMAC, notes never shown, handoff, stream with CORS and resume, identity required, foreign origin, off;
+  - widget script tests, 5;
+  - the snippet test;
+  - the proxy test;
+  - the access matrix.
+- **Not run:** `apps/web/tests/support-widget.spec.ts`, the cross-origin embed and agent reply plus H05. It needs a support-enabled stack (`E2E_SUPPORT=1`).
+- **Not in the MVP:** widget attachments, because the public API takes JSON only.
+
 ## Support e-mail channel: WP5.3 (2026-10-17, local; flags off)
 
 Branch `claude/wp53-support-email`, stacked on WP5.2. Guide: `docs/SUPPORT.md` (E-mail channel).

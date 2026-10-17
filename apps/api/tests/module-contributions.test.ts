@@ -118,6 +118,8 @@ describe("module contributions", () => {
       "inbound_webhooks",
       // Public client sessions with hashed tokens (WP4.2b).
       "public_sessions",
+      // Widget visitors (WP5.4): bound to sessions, never exported.
+      "support_widget_sessions",
       "telegram_connections",
     ]);
   });

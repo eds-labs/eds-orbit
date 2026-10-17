@@ -22,9 +22,9 @@ import {
 } from "../../../platform/files/files.ts";
 import type { PeriodicTask } from "../../../platform/jobs/types.ts";
 import { audit, data } from "../../../shared.ts";
-import { attachFiles, supportSettings, ticketEvent } from "../common.ts";
+import { supportSettings } from "../common.ts";
 import { supportActive } from "../gate.ts";
-import { createTicket } from "../tickets.ts";
+import { appendCustomerMessage, createTicket } from "../tickets.ts";
 
 // The support e-mail channel (WP5.3) on the project's WP4.7 mailbox.
 // Inbound: the platform polls IMAP, stores each message as an
@@ -68,7 +68,7 @@ export async function queueEmailMessage(
   scope: Scope,
   ticket: TicketRow,
   message: MessageRow,
-  options: { automatic?: boolean } = {},
+  options: { automatic?: boolean; to?: string } = {},
 ): Promise<string> {
   const notSent = async () => {
     await tx.supportMessage.update({
@@ -82,19 +82,19 @@ export async function queueEmailMessage(
   const contact = await tx.supportContact.findFirst({
     where: { id: ticket.contactId, deletedAt: null },
   });
-  if (!connection || !contact?.email) return notSent();
+  const to = options.to ?? contact?.email;
+  if (!connection || !to) return notSent();
   const thread = await tx.supportMessage.findMany({
     where: {
       projectId: scope.projectId,
       ticketId: ticket.id,
-      channel: "email",
       externalId: { not: null },
     },
     orderBy: { createdAt: "asc" },
   });
   const lastCustomer = thread.filter((m) => m.kind === "customer").at(-1);
   const row = await queueEmail(tx, scope, {
-    to: [contact.email],
+    to: [to],
     subject: replySubject(ticket.subject, ticket.number),
     text: message.bodyText,
     moduleId: "support",
@@ -182,7 +182,6 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
     const hit = await tx.supportMessage.findFirst({
       where: {
         projectId: scope.projectId,
-        channel: "email",
         externalId: { in: ids },
       },
       orderBy: { createdAt: "desc" },
@@ -201,7 +200,12 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
           })
         : null;
       // The token alone is guessable: it counts only from the ticket's contact.
-      if (candidate && contact?.email && contact.email === lower(mail.from))
+      const from = lower(mail.from);
+      if (
+        candidate &&
+        from &&
+        (contact?.email === from || contact?.claimedEmail === from)
+      )
         ticketId = candidate.id;
     }
   }
@@ -355,7 +359,13 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
         });
         return;
       }
-      await appendCustomerMail(tx, scope, ticket, mail, externalId, files);
+      await appendCustomerMessage(tx, scope, ticket, {
+        bodyText: mail.text || "(no text)",
+        channel: "email",
+        externalId,
+        files,
+        automatic: mail.automatic === true,
+      });
       await audit(tx, scope, "support.email.received", ticket.id, {
         ticketId: ticket.id,
         inboundId,
@@ -371,66 +381,6 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
 }
 
 class UnroutedMail extends Error {}
-
-async function appendCustomerMail(
-  tx: DbTx,
-  scope: Scope,
-  ticket: TicketRow,
-  mail: Inbound,
-  externalId: string,
-  files: Array<{ fileId: string; name: string; mime: string; size: number }>,
-) {
-  const now = new Date();
-  const message = await tx.supportMessage.create({
-    data: {
-      id: randomUUID(),
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      ticketId: ticket.id,
-      kind: "customer",
-      authorContactId: ticket.contactId,
-      bodyText: mail.text || "(no text)",
-      channel: "email",
-      externalId,
-      visibleToCustomer: true,
-      createdAt: now,
-    },
-  });
-  const stored = await tx.file.findMany({
-    where: { id: { in: files.map((f) => f.fileId) } },
-  });
-  await attachFiles(
-    tx,
-    scope,
-    message.id,
-    files.map((f) => ({
-      ...stored.find((s) => s.id === f.fileId)!,
-      name: f.name,
-    })),
-  );
-  const settings = await supportSettings(tx, scope);
-  const reopen =
-    !mail.automatic &&
-    settings.reopenOnReply &&
-    ["pending_customer", "resolved", "closed"].includes(ticket.status);
-  await tx.supportTicket.update({
-    where: { id: ticket.id },
-    data: {
-      lastCustomerMessageAt: now,
-      ...(reopen ? { status: "open", resolvedAt: null, closedAt: null } : {}),
-    },
-  });
-  if (reopen)
-    await ticketEvent(tx, scope, {
-      ticketId: ticket.id,
-      type: "status",
-      actorKind: "contact",
-      actorId: ticket.contactId,
-      before: { status: ticket.status },
-      after: { status: "open" },
-      createdAt: now,
-    });
-}
 
 const STATE: Record<string, string> = {
   queued: "pending",
@@ -455,7 +405,7 @@ export async function syncEmailDelivery(scope: Scope) {
     const messages = await tx.supportMessage.findMany({
       where: {
         projectId: scope.projectId,
-        channel: "email",
+        channel: { in: ["email", "widget"] },
         kind: { not: "customer" },
         deliveryState: { in: ["pending", "sent"] },
         externalId: { startsWith: "<orbit." },

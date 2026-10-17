@@ -52,6 +52,19 @@ describe("API proxy", () => {
     }
   });
 
+  it("forwards the bearer token of a module's public API (WP5.4)", async () => {
+    await call(GET, ["public", "support", "pk_" + "a".repeat(32), "messages"], {
+      headers: { authorization: "Bearer " + "t".repeat(43) },
+    });
+    expect(sentHeaders().get("authorization")).toBe("Bearer " + "t".repeat(43));
+    fetchMock.mockClear();
+    // One decoded segment is not the public prefix.
+    await call(GET, ["public/support", "x"], {
+      headers: { authorization: "Bearer abc" },
+    });
+    expect(sentHeaders().has("authorization")).toBe(false);
+  });
+
   it("passes the form content type and sets only the trusted client address", async () => {
     await call(POST, ["auth", "oauth2", "token"], {
       method: "POST",

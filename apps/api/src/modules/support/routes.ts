@@ -26,6 +26,7 @@ import {
   SUPPORT_TICKETS_REPLY,
 } from "./permissions.ts";
 import { supportAgents } from "./agents.ts";
+import { enableWidgetKey } from "./widget.ts";
 import {
   contactDetail,
   listContacts,
@@ -181,6 +182,16 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
       rotateWidgetSecret(tx, scope, inboxId.parse(params.inboxId)),
     ),
   );
+  app.post(`${BASE}/inboxes/:inboxId/widget-key`, async (req) => {
+    const params = req.params as Params;
+    const scope = await scopeFor(
+      auth,
+      req,
+      params.projectId,
+      SUPPORT_SETTINGS_MANAGE,
+    );
+    return enableWidgetKey(scope, inboxId.parse(params.inboxId));
+  });
   app.post(`${BASE}/inboxes/:inboxId/archive`, (req) =>
     inSupport(auth, req, SUPPORT_SETTINGS_MANAGE, (tx, scope, params) =>
       archiveInbox(tx, scope, inboxId.parse(params.inboxId)),

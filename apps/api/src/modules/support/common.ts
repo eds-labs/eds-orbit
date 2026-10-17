@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { DbTx, Prisma } from "../../../../../packages/db/src/index.ts";
+import {
+  afterCommit,
+  type DbTx,
+  type Prisma,
+} from "../../../../../packages/db/src/index.ts";
+import { publishChange } from "../../platform/realtime/fanout.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { readModuleSettings } from "../../platform/modules/settings.ts";
 import { DomainError } from "../../shared.ts";
@@ -125,5 +130,16 @@ export function ticketEvent(
       after: (input.after ?? {}) as Prisma.InputJsonValue,
       ...(input.createdAt ? { createdAt: input.createdAt } : {}),
     },
+  });
+}
+
+/** The real-time stream of one conversation (WP5.4); carries no content. */
+export const conversationStream = (ticketId: string) =>
+  `support-conversation:${ticketId}`;
+
+/** Wakes the conversation's streams after the transaction commits. */
+export function conversationChanged(tx: DbTx, scope: Scope, ticketId: string) {
+  afterCommit(tx, () => {
+    void publishChange(scope.projectId, conversationStream(ticketId));
   });
 }

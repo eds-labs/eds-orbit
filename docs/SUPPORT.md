@@ -143,6 +143,35 @@ The channel uses the project's mailbox from WP4.7 (`ORBIT_EMAIL`, SMTP and IMAP;
   - Without the e-mail flag, a verified mailbox or a contact address, a reply is `not_sent`.
 - **Not in the MVP.** HTML bodies are not kept; the text part is. A reply token in the address (`support+token@`) is not used, because the mailbox may not support plus-addressing.
 
+## Livechat widget (WP5.4)
+
+The widget's public API lives at `/api/public/support/<publicKey>/…`. It is mounted by the platform (WP4.2b) and needs `ORBIT_PUBLIC_INGRESS`; live updates need `ORBIT_REALTIME`. App teams: see `docs/SUPPORT_WIDGET.md`.
+
+| Route | Purpose |
+|---|---|
+| `POST /session` | Platform: a bearer session, 12 hours. |
+| `POST /identify` | Anonymous with an e-mail, which stays a claim on a contact of this session. Or verified: `externalUserId` plus the HMAC `signature`. |
+| `GET` and `POST /conversations` | The visitor's conversations; open one. |
+| `GET /messages?ticket=&after=` | Messages the customer may see, numbered from 1. Internal notes and AI drafts are never included. |
+| `POST /messages` | The customer's next message. It reopens the ticket like e-mail does. |
+| `POST /handoff` | "Talk to a human": the AI state becomes `handed_off` and the ticket opens. |
+| `GET /stream?ticket=` | Server-sent events with `Last-Event-ID` resume. The platform adds the key's CORS header. |
+
+**Visibility.**
+- A verified user sees their tickets in the inbox.
+- An anonymous visitor sees only the tickets their session opened.
+- Anyone else gets 404.
+
+**Delivery of agent replies.**
+- While the visitor was seen in the last 2 minutes, the reply is `sent` in the widget.
+- Otherwise it is also mailed to the contact's address or claimed address, threaded so a mail answer lands in the same ticket.
+
+**Owners** create the embed key with `POST /inboxes/:inboxId/widget-key`. A new key revokes the old one.
+
+**Platform changes.**
+- A public GET route may `stream` (`PublicRoute.stream`). `serveEventStream` keeps the CORS headers through the hijack.
+- The web proxy now forwards `Authorization` under `/api/public/`. Before, no public session could pass the proxy.
+
 ## Tickets and channels
 
 `createTicket` (`modules/support/tickets.ts`) is the one entry the channels use for a customer's first message. In order, it:

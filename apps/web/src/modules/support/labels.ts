@@ -103,6 +103,9 @@ const en = {
     aiDraft: "Drafts for agents",
     language: "Language",
     rotate: "New widget secret",
+    widgetKey: "Widget embed",
+    snippetHint:
+      "Paste this into the app's pages. The app's backend signs each user id with the widget secret (see docs/SUPPORT_WIDGET.md). A new embed key revokes the old one.",
     archive: "Archive",
     archived: "Archived",
     secretOnce:
@@ -225,6 +228,9 @@ const de: SupportText = {
     aiDraft: "Entwürfe für Agents",
     language: "Sprache",
     rotate: "Neues Widget-Secret",
+    widgetKey: "Widget einbinden",
+    snippetHint:
+      "Füge das in die Seiten der App ein. Das Backend der App signiert jede User-ID mit dem Widget-Secret (siehe docs/SUPPORT_WIDGET.md). Ein neuer Schlüssel widerruft den alten.",
     archive: "Archivieren",
     archived: "Archiviert",
     secretOnce:
