@@ -123,7 +123,7 @@ Starts only after Mario approves D1 to D7.
 
 **Files:**
 - Modify: `packages/db/prisma/schema.prisma`
-- Create: `packages/db/prisma/migrations/202610170001_mcp_oauth/migration.sql`
+- Create: `packages/db/prisma/migrations/202610170007_mcp_oauth/migration.sql`
 - Modify: `scripts/db-deploy.ts` (`authTables`, lines 131-143)
 - Modify: `apps/api/tests/rls-matrix.integration.test.ts` expectations if it lists auth tables
 - Test: `apps/api/tests/mcp-oauth-schema.integration.test.ts`
