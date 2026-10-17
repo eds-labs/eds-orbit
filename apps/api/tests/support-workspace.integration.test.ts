@@ -234,7 +234,8 @@ describe.skipIf(!enabled)("support workspace API", () => {
     expect(reply.json()).toMatchObject({
       kind: "agent_reply",
       visibleToCustomer: true,
-      deliveryState: "pending",
+      // No mailbox in this project: the e-mail channel cannot send (WP5.3).
+      deliveryState: "not_sent",
       channel: "email",
     });
     const note = await call("editor", "POST", `/tickets/${t.ticketId}/notes`, {

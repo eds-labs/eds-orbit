@@ -132,6 +132,50 @@ The home tile shows open, unassigned, at-risk and breached ticket counts. All of
 
 ---
 
-## WP5.3–WP5.8
+## WP5.3 E-mail channel
 
-Each section is written when its work package starts, from the platform API reference (Explore notes) and the roadmap text, in the same format.
+Risk: high (customer-facing once on).
+
+**Mailbox.** The channel uses the WP4.7 mailbox, polled over IMAP and sent over SMTP:
+- inbound mail arrives as `inbound_emails` rows through the `emailInbound` contribution;
+- outbound mail goes through `queueEmail`, whose platform `email_send` job keeps the `outcome_unknown` semantics.
+
+### Task 1: Inbound, threading, auto-ack and outbound delivery
+
+**Files:**
+- Create: `apps/api/src/modules/support/channels/email.ts`, `apps/api/src/modules/support/channels/deliver.ts`
+- Create: `packages/db/prisma/migrations/202610180002_support_bounced/migration.sql`, which adds `bounced` to `deliveryState`
+- Modify: `workspace.ts` (the reply dispatches through `deliverMessage`), `contributions.ts` (`emailInbound`, `jobs`, `periodic`)
+- Test: `apps/api/tests/support-email.integration.test.ts`. It uses the WP4.7 mailbox and SMTP stubs and the object store double.
+
+**Interfaces:**
+
+| Item | Behaviour |
+|---|---|
+| Queue class `support_email_inbound` | Its handler is `handleInboundEmail(scope, inboundId)`. |
+| Gate | Skipped quietly while support is off. |
+| Inbox routing | The live e-mail inbox whose address is among `to` or `cc`, else the only live e-mail inbox, else audit `support.email.unrouted` and stop. |
+| Threading | First `inReplyTo` and `references` against the `externalId` of the ticket's e-mail messages (merges followed). Then the subject token `[#<number>]`, but only when the sender is that ticket's contact. Otherwise a new ticket. |
+| Reopen | `pending_customer`, `resolved` and `closed` go to `open` with an event when `reopenOnReply` is on. |
+| Automatic mail | `automatic` mail is appended to a threaded ticket without reopening or acknowledgement, and ignored otherwise. |
+| Attachments | Parsed from the raw MIME with postal-mime: at most 10 per mail, stored as support files of an allowed type. Other types are skipped and counted. |
+| Dedupe | By the mail's Message-ID as `externalId`, checked before any file is stored. |
+| Auto-acknowledgement | For a new ticket when `autoAck` is on, at most 3 per contact in 24 hours. It is a `system` message, sent as automatic mail in the inbox's language, with `[#<number>]` in the subject. |
+| `deliverMessage(tx, scope, ticket, message)` | For the e-mail channel it queues the mail through `queueEmail`:<br>- to the contact's e-mail;<br>- subject `Re: <subject> [#<number>]`;<br>- `inReplyTo` set to the last customer Message-ID;<br>- `references` set to the ticket's Message-IDs.<br>The message's `externalId` becomes the Orbit Message-ID. Without e-mail, a verified mailbox or a contact address, the state is `not_sent`. |
+| Periodic `support-email-delivery` | Maps `email_messages` states onto `deliveryState`: queued, sending and retry become `pending`; `sent` stays `sent`; `rejected` stays `rejected`; failed, skipped and test_receipt become `not_sent`; outcome_unknown becomes `unknown`; a bounce becomes `bounced`. |
+
+- [ ] Failing tests:
+  - "creates a ticket from a new mail with attachments and acknowledges it";
+  - "threads a reply by headers and by subject token, and reopens";
+  - "ignores unthreaded automatic mail and never acknowledges it";
+  - "caps acknowledgements per sender";
+  - "routes by the inbox address";
+  - "dedupes a mail fetched twice";
+  - "sends an agent reply in the thread and maps sent, unknown and bounced";
+  - "marks a reply not_sent without a mailbox";
+  - "does nothing while support is off".
+- [ ] Implement, run, commit, open the PR.
+
+## WP5.4–WP5.8
+
+Each section is written when its work package starts, in the same format.
