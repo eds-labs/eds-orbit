@@ -45,7 +45,9 @@ The api and worker containers receive these variables; the backup container does
   | `GET /api/projects/:id/files/:fileId`      | read access in the file's module; sent as an attachment with `nosniff` and a sandboxing CSP                                     |
   | `DELETE /api/projects/:id/files/:fileId`   | write access in the file's module                                                                                               |
 
-  A switched-off module's files answer 404 `MODULE_DISABLED`.
+  A switched-off module's files answer 404 `MODULE_DISABLED`. The platform's own files (module `platform`, such as raw inbound e-mail) are the owner's only, and no member uploads into them.
+
+  The upload checks the session, module, write access and content type before it reads the body. A file's name loses paths, control and bidi characters and ends in an extension of its type (plain text named `run.bat` is stored as `run.bat.txt`).
 
 - **Limits.**
   - Size: `FILES_MAX_BYTES`, default 20 MB, at most 50 MB.
@@ -56,6 +58,6 @@ The api and worker containers receive these variables; the backup container does
 
 ## Limits and follow-ups
 
-- Deleting a whole project removes its rows (cascade) but not its objects. A purge of the project's key prefix is a follow-up.
+- Deleting a whole project removes its rows (cascade) but not its objects. No product path deletes projects yet; one that does must purge the project's files first. A purge of the project's key prefix is a follow-up.
 - There is no virus scanning. Downloads are always attachments, never rendered inline.
 - Key rotation for `FILES_ENCRYPTION_KEY` is not supported yet; changing it makes existing files unreadable.

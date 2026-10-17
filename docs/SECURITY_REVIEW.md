@@ -140,29 +140,64 @@ This uses the same flag as WP4.2a (`ORBIT_PUBLIC_INGRESS`, off in production). W
    - A total limit per key, beyond the per-session limit.
    - An owner UI to manage keys (the API exists).
 
-## Platform files (WP4.6, prepared 2026-10-17; review open)
+## Platform files (WP4.6, prepared 2026-10-17; review done 2026-10-17)
 
-`ORBIT_FILES` stays `false` in production until this review is done and Mario approves the flag. The bucket and token are Mario's (`docs/PLATFORM_FILES.md`). What the review checks:
+`ORBIT_FILES` stays `false` in production until Mario approves the flag. The bucket and token are Mario's (`docs/PLATFORM_FILES.md`). Independent review on 2026-10-17: every suspected hole got a failing test first; the five confirmed ones are fixed with tests (findings below). Result: **the flag can go on** once the bucket, token and key are set, this fix is deployed and the post-switch check below passes.
 
-1. **Credentials.**
+1. **Credentials.** _Pass._
    - The file bucket has its own token, scoped to that bucket. The backup container never receives `FILES_*`, and api/worker never receive `BACKUP_*` (compose check).
-   - No error, log or response carries a key or a signed URL.
-2. **Signing.**
-   - SigV4 is computed with `node:crypto` and pinned by the AWS test vector.
-   - The payload hash is signed, redirects are refused, and plain http is allowed only to localhost.
-   - Object keys are generated and validated: no dot segments, no user input.
-3. **Encryption.** AES-256-GCM, a fresh IV per file, and the file id as additional data. Tag and SHA-256 are verified before a byte is returned; a failure is a 500, audited `file.integrity_failed`.
-4. **Authorization.**
-   - Every route needs a session and membership.
-   - Upload and delete need write access, download read access, all in the file's module (module roles apply).
-   - The module must be on.
+   - No error, log or response carries a key or a signed URL. `ObjectStoreError` carries a code and status only; its `status` is not `statusCode`, so the error handler answers 500 `REQUEST_FAILED` and logs the error name only. Fetch failures are rethrown without their cause. Responses never contain the object key (`fileView`).
+2. **Signing.** _Pass._
+   - SigV4 is computed with `node:crypto` and pinned by four AWS documentation vectors: GET with a range, PUT with a body, extra signed headers and a `$` in the key, and two query-string requests (`?lifecycle`, unsorted `prefix`/`max-keys`). A test pins that the sent request matches what was signed (body hash, length, type).
+   - The payload hash is signed, redirects are refused (`redirect: "error"`), and plain http is allowed only to localhost. The endpoint is operator configuration, not user input, so there is no SSRF path from a member.
+   - Object keys are generated and validated: no dot segments, no user input. Project ids are UUIDs and module ids match `^[a-z][a-z0-9_]{1,30}$`; the key regex refuses anything else before a request is built.
+3. **Encryption.** _Pass._ AES-256-GCM, a fresh 96-bit random IV per file, and the file id as additional data. A swapped, changed or truncated object fails the tag. Tag and SHA-256 are verified over the whole content before a byte is returned; a failure is a 500, audited `file.integrity_failed`.
+4. **Authorization.** _Fix (F-1, F-2)._
+   - Every route needs a session and membership. Uploads now check session, module, write access and content type before the body is read (F-2).
+   - Upload and delete need write access, download read access, all in the file's module (module roles apply: `none` is 404 `MODULE_NOT_AVAILABLE`, a module viewer cannot upload or delete; tested).
+   - The platform's own files (raw inbound e-mail) are the owner's only, like the mailbox view; no member uploads into them (F-1).
+   - The module must be on: uploads, downloads and deletes of a switched-off module's files are 404 `MODULE_DISABLED` (tested).
    - Rows are under FORCE RLS: another project's file is a 404.
-5. **Content.**
-   - Allowlisted types, with a signature check for images and PDF.
-   - Downloads are attachments with `nosniff` and `default-src 'none'; sandbox`.
-   - Names are stripped of paths and control characters.
-   - The size limit is enforced while the body streams in.
-6. **Deletion.** Unreadable at once; object and row follow, and the hourly cleanup retries. Known gap: a deleted project leaves its objects behind.
+5. **Content.** _Fix (F-3, F-4, F-5)._
+   - Allowlisted types, with a signature check for images and PDF (magic bytes only, not a content validation).
+   - Downloads are attachments with `nosniff` and `default-src 'none'; sandbox`; the web proxy passes these headers through (tested), so nothing renders inline.
+   - Names are stripped of paths, control and bidi characters, and end in an extension of their type (F-3). `filename*` is RFC 5987 encoded (F-4).
+   - The size limit is enforced while the body streams in, also without a `Content-Length` (tested); no other parser runs under the file limit (F-2).
+   - The web proxy now forwards `x-file-type` and `x-file-name` (F-5).
+6. **Deletion.** _Pass, with accepted gaps._ Unreadable at once; object and row follow, and the hourly cleanup retries. Concurrent deletes are idempotent; a download that read the row before a delete may still finish. Accepted gaps (R-1).
+
+### Findings (WP4.6 review, 2026-10-17)
+
+| ID  | Severity      | Finding                                                                                                                                                                                                                                                                                                                                  | Evidence (failing test before the fix)                                                                                                    | Fix                                                                                                                                       |
+| --- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| F-1 | Medium        | Raw inbound e-mail is stored as module `platform`, and module checks skip `platform`. Any project viewer could download a mailbox message, any editor delete one, and any editor upload into the platform's space. The mailbox view itself is owner-only. Exploitable once a member learns a file id (for example from a support module). | `files.integration` "keeps the platform's own files (raw e-mail) to the owner": viewer GET was 200.                                       | GET and DELETE of `platform` files need `PROJECT_OWN`; member uploads with `module=platform` are 409 `MODULE_UNKNOWN`.                    |
+| F-2 | Medium        | The upload route raised the body limit to `FILES_MAX_BYTES` (20 MB, at most 50 MB) for every content type, and the body was read and parsed before the session check. A stranger with any `Origin` header could make the API buffer 20 MB per request (100 requests per minute per address, no concurrency cap): memory exhaustion.      | "reads no body before the session, the module and the type are checked": the stream was read for an anonymous 401 and for a viewer's 403. | A route `onRequest` hook checks session, module, write access and `application/octet-stream` before parsing; anything else is 415.       |
+| F-3 | Low           | A download is saved under the stored name, whose extension was free: an editor could upload plain text as `run.bat` for other members, or hide an extension with U+202E.                                                                                                                                                                | "gives a file a name that matches its type, without bidi controls": `run.bat` stayed `run.bat`.                                           | Names lose C1 and bidi controls and get their type's extension when they lack it (`run.bat.txt`).                                         |
+| F-4 | Low           | `filename*` used `encodeURIComponent`, which leaves `'`, `(`, `)` and `*` unescaped (not RFC 5987 `attr-char`).                                                                                                                                                                                                                          | "names downloads with RFC 5987 characters only".                                                                                          | Those characters are percent-encoded.                                                                                                     |
+| F-5 | Low (broken)  | The web proxy forwards an allow-list of request headers that lacked `x-file-type` and `x-file-name`: every upload through orbit.eds-labs.io would have failed with 415.                                                                                                                                                                  | `route.test.tsx` "forwards a file upload's type and name headers".                                                                        | Both headers are on the allow-list; the API validates them.                                                                               |
+
+### Accepted residual risks and follow-ups
+
+- **R-1 Orphaned objects (Low).** No product path deletes a project or workspace today; a manual delete cascades the rows and leaves the objects (encrypted, unreadable without `FILES_ENCRYPTION_KEY`). A crash between the object write and the row insert, or a failed compensating delete, also leaves an object without a row. Before any project or workspace deletion ships, it must purge the project's files first (rows marked, objects removed by key, or a `projects/<id>/` prefix purge, which needs ListObjectsV2 in `s3.ts`).
+- **R-2 Unbounded read (Low).** `get` reads the whole object into memory. Only a holder of the bucket token can plant a large object.
+- **R-3 Endpoint checked at use (Info).** A non-https, non-localhost endpoint fails each request with 500 (`OBJECT_STORE_ENDPOINT_INSECURE`) instead of at startup; this is deliberate after hotfix #144. Incomplete configuration with `ORBIT_FILES=true` keeps files off (404).
+- **R-4 Content (Info).** No virus scanning; CSV files may carry spreadsheet formulas. Downloads are always attachments.
+- **R-5 Cleanup order (Low).** The hourly cleanup takes 50 marked rows per project in no particular order; objects that keep failing can delay others.
+- **R-6 Existence oracle (Info).** For a known file id, `MODULE_NOT_AVAILABLE` or `FORBIDDEN` differs from `NOT_FOUND`. File ids are random UUIDs.
+
+### After switching the flag on (Mario)
+
+Upload a small PNG through the web app, download it, delete it, and check in R2 that the object is gone and that the stored object is not the PNG (encrypted). A 404 on upload means the configuration is incomplete.
+
+### A server-local filesystem instead of R2
+
+The routes, authorization, encryption and integrity checks stay the same behind the `ObjectStore` interface. What changes:
+
+- No SigV4, endpoint or redirect policy; instead the key-to-path mapping must stay under one root (the key regex already refuses dot segments), refuse symlinks (`O_NOFOLLOW` or a `realpath` check), and write atomically (temporary file, `fsync`, `rename`) with mode `0600`.
+- The containers run with a read-only root filesystem: api and worker need a shared named volume (inbound mail is written by the worker and read by the api), which ties both to one host.
+- Backups: R2 keeps file content outside the server; on a local disk the files need their own backup. The objects are already encrypted, so a backup may copy them without `FILES_ENCRYPTION_KEY`; the backup container then mounts the volume read-only, still without `FILES_*`.
+- Capacity: files and Postgres would share the disk. A per-project quota and disk monitoring are needed so uploads cannot fill the database's disk.
+- Orphans become easier: a directory listing finds objects without rows, and a project purge is one directory (R-1).
 
 ## E-mail and member notifications (WP4.7, prepared 2026-10-17; review open)
 

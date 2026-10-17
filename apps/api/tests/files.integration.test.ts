@@ -1,4 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { Readable } from "node:stream";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   authDb,
@@ -375,6 +376,181 @@ describe.skipIf(!enabled)("platform files", () => {
       tx.file.count({ where: { id: file.id } }),
     );
     expect(rows).toBe(0);
+  });
+
+  // Review findings (WP4.6 review, 2026-10-17).
+  it("keeps the platform's own files (raw e-mail) to the owner", async () => {
+    // Inbound mail is stored as a "platform" file (WP4.7).
+    const mail = await storeFile(
+      { ...owner(), userId: "email-inbound" },
+      {
+        moduleId: "platform",
+        bytes: Buffer.from("From: a@example.invalid\r\n\r\nprivate"),
+        mime: "message/rfc822",
+        name: "1.eml",
+      },
+    );
+    expect((await call("viewer", "GET", mail.id)).statusCode).toBe(403);
+    expect((await call("editor", "GET", mail.id)).statusCode).toBe(403);
+    expect((await call("editor", "DELETE", mail.id)).statusCode).toBe(403);
+    expect((await call("owner", "GET", mail.id)).statusCode).toBe(200);
+    // Members cannot write into the platform's space either.
+    const forged = await upload("owner", PNG, { module: "platform" });
+    expect(forged.statusCode).toBe(409);
+    expect(forged.json().error.code).toBe("MODULE_UNKNOWN");
+  });
+
+  it("reads no body before the session, the module and the type are checked", async () => {
+    const stream = () => {
+      const state = { pulled: 0 };
+      let chunks = 0;
+      const body = new Readable({
+        read() {
+          state.pulled++;
+          this.push(chunks++ < 2 ? Buffer.alloc(1024, 1) : null);
+        },
+      });
+      return { state, body };
+    };
+    const send = (
+      who: keyof typeof ids | null,
+      payload: Readable,
+      type = "application/octet-stream",
+    ) =>
+      app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/files?module=knowledge`,
+        headers: {
+          origin,
+          ...(who ? { cookie: cookies[who] } : {}),
+          [CLIENT_IP_HEADER]: ip(),
+          "content-type": type,
+          "x-file-type": "text/plain",
+        },
+        payload,
+      });
+    const stranger = stream();
+    expect((await send(null, stranger.body)).statusCode).toBe(401);
+    expect(stranger.state.pulled).toBe(0);
+    const reader = stream();
+    expect((await send("viewer", reader.body)).statusCode).toBe(403);
+    expect(reader.state.pulled).toBe(0);
+    // Another content type is refused, not parsed under the file limit.
+    const json = stream();
+    const refused = await send("editor", json.body, "application/json");
+    expect(refused.statusCode).toBe(415);
+    expect(refused.json().error.code).toBe("FILE_BODY_REQUIRED");
+    expect(json.state.pulled).toBe(0);
+    // A member with write access still uploads a streamed body.
+    const ok = stream();
+    expect((await send("editor", ok.body)).statusCode).toBe(201);
+  });
+
+  it("stops a streamed body without a length at the limit", async () => {
+    let sent = 0;
+    const body = new Readable({
+      read() {
+        sent += 8 * 1024;
+        this.push(sent <= 256 * 1024 ? Buffer.alloc(8 * 1024, 1) : null);
+      },
+    });
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/files?module=knowledge`,
+      headers: {
+        origin,
+        cookie: cookies.editor,
+        [CLIENT_IP_HEADER]: ip(),
+        "content-type": "application/octet-stream",
+        "x-file-type": "text/plain",
+      },
+      payload: body,
+    });
+    // Fastify counts the chunks and stops buffering at FILES_MAX_BYTES.
+    expect(response.statusCode).toBe(413);
+    expect(response.json().error.code).toBe("REQUEST_FAILED");
+  });
+
+  it("applies module roles and the module switch to downloads", async () => {
+    const file = await storeFile(owner(), {
+      moduleId: "marketing",
+      bytes: PNG,
+      mime: "image/png",
+    });
+    process.env.ORBIT_MODULE_ROLES = "true";
+    const role = (userId: string, value: "viewer" | "none") =>
+      authDb.projectMemberModuleRole.create({
+        data: {
+          workspaceId,
+          projectId,
+          userId,
+          moduleId: "marketing",
+          role: value,
+        },
+      });
+    try {
+      await role(ids.viewer, "none");
+      await role(ids.editor, "viewer");
+      const hidden = await call("viewer", "GET", file.id);
+      expect(hidden.statusCode).toBe(404);
+      expect(hidden.json().error.code).toBe("MODULE_NOT_AVAILABLE");
+      // A module viewer reads but neither uploads nor deletes there.
+      expect((await call("editor", "GET", file.id)).statusCode).toBe(200);
+      expect((await call("editor", "DELETE", file.id)).statusCode).toBe(403);
+      expect(
+        (await upload("editor", PNG, { module: "marketing" })).statusCode,
+      ).toBe(403);
+    } finally {
+      delete process.env.ORBIT_MODULE_ROLES;
+      await authDb.projectMemberModuleRole.deleteMany({ where: { projectId } });
+    }
+    process.env.ORBIT_MODULES = "true";
+    await scoped(workspaceId, projectId, (tx) =>
+      setModuleEnabled(tx, owner(), moduleRegistry(), "marketing", false),
+    );
+    try {
+      const off = await call("owner", "GET", file.id);
+      expect(off.statusCode).toBe(404);
+      expect(off.json().error.code).toBe("MODULE_DISABLED");
+      expect((await call("owner", "DELETE", file.id)).statusCode).toBe(404);
+    } finally {
+      await scoped(workspaceId, projectId, (tx) =>
+        setModuleEnabled(tx, owner(), moduleRegistry(), "marketing", true),
+      );
+    }
+  });
+
+  it("gives a file a name that matches its type, without bidi controls", async () => {
+    const named = async (name: string, mime: string, bytes: Buffer) =>
+      (await storeFile(owner(), { moduleId: "knowledge", bytes, mime, name }))
+        .name;
+    const text = Buffer.from("echo hi");
+    // A script name on plain text would be saved as a script.
+    expect(await named("run.bat", "text/plain", text)).toBe("run.bat.txt");
+    expect(await named("notes.TXT", "text/plain", text)).toBe("notes.TXT");
+    expect(await named("photo", "image/png", PNG)).toBe("photo.png");
+    expect(await named("photo.jpeg", "image/png", PNG)).toBe("photo.jpeg.png");
+    expect(await named("1.eml", "message/rfc822", text)).toBe("1.eml");
+    // U+202E would show "invoice\u202Etxt.exe" as "invoiceexe.txt".
+    expect(await named("invoice\u202Etxt.exe", "text/plain", text)).toBe(
+      "invoicetxt.exe.txt",
+    );
+  });
+
+  it("names downloads with RFC 5987 characters only", async () => {
+    const file = await storeFile(owner(), {
+      moduleId: "knowledge",
+      bytes: Buffer.from("x"),
+      mime: "text/plain",
+      name: "it's (final)*.txt",
+    });
+    const response = await call("viewer", "GET", file.id);
+    expect(response.headers["content-disposition"]).toBe(
+      `attachment; filename="it's (final)*.txt"; filename*=UTF-8''it%27s%20%28final%29%2A.txt`,
+    );
+    expect(response.headers["content-security-policy"]).toBe(
+      "default-src 'none'; sandbox",
+    );
   });
 
   it("does not exist while off or without a bucket", async () => {
