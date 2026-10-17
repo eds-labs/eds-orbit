@@ -47,6 +47,8 @@ import {
   ShellContext,
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
+import { StandaloneContext } from "@/platform/shell/standalone-context";
+import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
 import {
@@ -241,9 +243,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             ? t("projectNotFound")
             : place.kind === "view"
               ? place.route.nav?.label[locale]
-              : place.kind === "notFound"
-                ? t("notFound")
-                : null;
+              : place.kind === "standalone"
+                ? place.view.title[locale]
+                : place.kind === "notFound"
+                  ? t("notFound")
+                  : null;
     document.title = [page, project?.name, "EDS Orbit"]
       .filter(Boolean)
       .join(" · ");
@@ -263,6 +267,41 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       router.push(`/p/${encodeURIComponent(result.id)}`);
     }
   }
+  const languageControl = (
+    <div className="language-control" aria-label="Interface language">
+      <button
+        lang="en"
+        aria-pressed={locale === "en"}
+        onClick={() => setLocale("en")}
+      >
+        EN
+      </button>
+      <button
+        lang="de"
+        aria-pressed={locale === "de"}
+        onClick={() => setLocale("de")}
+      >
+        DE
+      </button>
+    </div>
+  );
+  const standalone = place.kind === "standalone" ? place.view : null;
+  // Pages that must work whatever the state of the session, such as the error
+  // page an OAuth client's refused request ends at.
+  if (standalone?.session === "none")
+    return (
+      <StandaloneContext.Provider value={{ locale, t, identity: null }}>
+        <div className="picker-page">
+          <header>
+            <Brand />
+            <div className="topbar-actions">{languageControl}</div>
+          </header>
+          <main id="main" className="picker-main">
+            <standalone.component />
+          </main>
+        </div>
+      </StandaloneContext.Provider>
+    );
   if (setup.loading || (setup.data?.configured && identity.loading))
     return (
       <div className="boot">
@@ -286,6 +325,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     return (
       <Authentication
         setup={!setup.data?.configured}
+        oauthLogin={Boolean(standalone?.oauthLogin)}
         locale={locale}
         setLocale={setLocale}
         onDone={() => {
@@ -304,24 +344,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       </div>
     );
   const me = identity.data;
-  const languageControl = (
-    <div className="language-control" aria-label="Interface language">
-      <button
-        lang="en"
-        aria-pressed={locale === "en"}
-        onClick={() => setLocale("en")}
-      >
-        EN
-      </button>
-      <button
-        lang="de"
-        aria-pressed={locale === "de"}
-        onClick={() => setLocale("de")}
-      >
-        DE
-      </button>
-    </div>
-  );
   const signoutButton = (
     <button
       className="signout"
@@ -348,6 +370,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       </main>
     </div>
   );
+  if (standalone)
+    return frame(
+      <StandaloneContext.Provider value={{ locale, t, identity: me }}>
+        <standalone.component />
+      </StandaloneContext.Provider>,
+    );
   if (
     place.kind === "start" ||
     place.kind === "legacy" ||
@@ -659,11 +687,14 @@ export function Brand() {
 }
 function Authentication({
   setup,
+  oauthLogin,
   locale,
   setLocale,
   onDone,
 }: {
   setup: boolean;
+  /** Signing in continues the OAuth authorization in the page URL. */
+  oauthLogin: boolean;
   locale: Locale;
   setLocale: (l: Locale) => void;
   onDone: () => void;
@@ -801,9 +832,14 @@ function Authentication({
                       password: String(v.password),
                       setupToken: String(v.setupToken),
                     });
-                  await post("/auth/sign-in/email", {
+                  await signIn({
+                    post,
+                    navigate: (url) => window.location.assign(url),
                     email: str(v, "email"),
                     password: String(v.password),
+                    oauthQuery: oauthLogin
+                      ? signedQuery(window.location.search)
+                      : null,
                   });
                 })
                 .then(() => {})

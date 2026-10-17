@@ -44,6 +44,25 @@ export type ViewDef = {
 };
 
 /**
+ * A page outside any project, such as the OAuth consent of an MCP client at
+ * /connect. It has no navigation entry and none of the project chrome.
+ */
+export type StandaloneView = {
+  key: string;
+  /** Path below the site root, without a leading slash: "connect/login". */
+  path: string;
+  component: ComponentType;
+  title: Label;
+  /**
+   * "required" shows the sign-in first when there is no session; "none" opens
+   * at once (an error page must work whatever the state of the session).
+   */
+  session: "required" | "none";
+  /** Signing in on this page continues the OAuth authorization in its URL. */
+  oauthLogin?: true;
+};
+
+/**
  * A section of the project settings (WP2.3b). Sections join the tab they
  * name; a module section shows above the platform's content of that tab.
  */
@@ -114,4 +133,6 @@ export type WebRegistry = {
   /** Platform pages, mounted at /p/:projectId/<path>. */
   platform: readonly ViewDef[];
   modules: readonly WebModule[];
+  /** Pages outside any project, mounted at their own path. */
+  standalone?: readonly StandaloneView[];
 };

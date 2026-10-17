@@ -3926,6 +3926,75 @@ svg.agent-graph {
   width: 15px;
   height: 15px;
 }
+.connect-card {
+  max-width: 640px;
+  margin: 0 auto;
+}
+.connect-card .panel-head h1 {
+  font-size: 20px;
+}
+.connect-body {
+  padding: 4px 21px 21px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.connect-body h2 {
+  font-size: 17px;
+  margin-top: 6px;
+}
+.connect-lead {
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.connect-identity {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.connect-user {
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.connect-projects {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.connect-scopes {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.connect-choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+}
+.connect-choice .input[type="checkbox"] {
+  margin-top: 2px;
+}
+.connect-choice span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.connect-choice small {
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.connected-app p {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 @media (max-width: 760px) {
   .picker-page {
     padding: 20px 16px;

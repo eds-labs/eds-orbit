@@ -6,6 +6,11 @@ import { ProjectAdministration } from "./project-administration";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
 import { GoogleDriveSettings } from "./google-drive";
+import { labels } from "@/lib/i18n";
+import {
+  ConnectedApps,
+  type McpGrant,
+} from "@/platform/connect/connected-apps";
 import { Fragment, useContext, useEffect, useState } from "react";
 import { WorkspacePause } from "./operator-tools";
 import { TelegramConnection } from "./telegram-connection";
@@ -437,6 +442,18 @@ export function ProjectSettings() {
   );
   const [openAi, setOpenAi] = useState(false),
     [tab, setTab] = useState("project");
+  // The caller's connected MCP apps. The routes exist only while the OAuth
+  // server is on (404 otherwise), and then the tab is not offered.
+  const grants = useResource<{ grants: McpGrant[] }>("/mcp-grants");
+  const appsAvailable = Boolean(
+    grants.data || (grants.error && grants.error.status !== 404),
+  );
+  // A reload empties the resource for a moment; the tab must not vanish then.
+  const [appsSeen, setAppsSeen] = useState(false);
+  useEffect(() => {
+    if (appsAvailable) setAppsSeen(true);
+  }, [appsAvailable]);
+  const connectedApps = appsAvailable || appsSeen;
   const d = dashboard.data;
   const de = locale === "de";
   const setupLinks = useContext(ShellContext)?.setupLinks ?? [];
@@ -459,6 +476,18 @@ export function ProjectSettings() {
       order: 40,
     },
     { key: "modules", label: { en: "Modules", de: "Module" }, order: 50 },
+    ...(connectedApps
+      ? [
+          {
+            key: "apps",
+            label: {
+              en: labels.en.connectedApps,
+              de: labels.de.connectedApps,
+            },
+            order: 60,
+          },
+        ]
+      : []),
   ];
   for (const { section, shown } of modules) {
     if (!shown) continue;
@@ -595,6 +624,7 @@ export function ProjectSettings() {
       {tab === "project" && <ProjectAdministration />}
       {tab === "policy" && <RetentionControl />}
       {tab === "modules" && <ModuleSettings />}
+      {tab === "apps" && <ConnectedApps mine={grants} />}
       {tab === "integrations" && <GoogleDriveSettings />}
       {tab === "integrations" && (
         <section className="panel">
