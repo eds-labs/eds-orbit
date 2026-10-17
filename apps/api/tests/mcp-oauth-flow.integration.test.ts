@@ -52,6 +52,7 @@ const FAILED_CONSENT_CLIENT_ID = "https://client.test/failed-consent.json";
 const REFUSAL_CLIENT_ID = "https://client.test/refusal.json";
 const CLAIMS_CLIENT_ID = "https://client.test/claims.json";
 const PKJWT_CLIENT_ID = "https://client.test/pkjwt.json";
+const SELECTION_CLIENT_ID = "https://client.test/selection.json";
 
 /** ES256 key pair with the public half as a JWK for the CIMD document. */
 function es256Key(kid: string) {
@@ -78,6 +79,7 @@ const documents: Record<string, Json> = {
   [FAILED_CONSENT_CLIENT_ID]: metadata(FAILED_CONSENT_CLIENT_ID),
   [REFUSAL_CLIENT_ID]: metadata(REFUSAL_CLIENT_ID),
   [CLAIMS_CLIENT_ID]: metadata(CLAIMS_CLIENT_ID),
+  [SELECTION_CLIENT_ID]: metadata(SELECTION_CLIENT_ID),
   [PKJWT_CLIENT_ID]: metadata(PKJWT_CLIENT_ID, {
     token_endpoint_auth_method: "private_key_jwt",
     jwks: { keys: [clientKey.jwk] },
@@ -144,6 +146,7 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
   let secondCookie: string;
   let userId: string;
   let sessionId: string;
+  let credentials: { email: string; password: string };
   let workspaceId: string, emptyWorkspaceId: string, foreignWorkspaceId: string;
   let projectA: string, projectB: string, foreignProject: string;
   const users: string[] = [];
@@ -158,6 +161,7 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     REFUSAL_CLIENT_ID,
     CLAIMS_CLIENT_ID,
     PKJWT_CLIENT_ID,
+    SELECTION_CLIENT_ID,
   ];
 
   const driver = createFlowDriver({
@@ -208,6 +212,7 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     });
     userId = created.user.id;
     users.push(userId);
+    credentials = { email, password };
     const stranger = await auth.api.signUpEmail({
       body: {
         email: `${randomUUID()}@example.invalid`,
@@ -343,6 +348,8 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
       uri: "https://client.test",
     });
     expect(body.scopes).toEqual(SCOPES.split(" "));
+    // Nothing selected yet in this session for this authorization.
+    expect(body.selection).toBeNull();
     const mine = body.workspaces.find((w: Json) => w.id === workspaceId);
     expect(mine.role).toBe("owner");
     expect(mine.projects.map((p: Json) => p.id).sort()).toEqual(
@@ -353,6 +360,31 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     expect(
       body.workspaces.find((w: Json) => w.id === foreignWorkspaceId),
     ).toBeUndefined();
+  });
+
+  it("the request route names the session's current selection for the consent step", async () => {
+    const { location } = await authorize({ client_id: SELECTION_CLIENT_ID });
+    const selected = await select(queryOf(location!));
+    const next = new URL(selected.json().next, origin);
+    expect(next.pathname).toBe("/connect");
+    expect(next.searchParams.get("ba_pl")).toBe(sessionId);
+    const r = await inject({
+      url: `/api/mcp-connect/request?${queryOf(next)}`,
+    });
+    expect(r.statusCode).toBe(200);
+    expect(r.json().selection).toEqual({
+      workspaceId,
+      projectIds: [projectA],
+      allCurrentProjects: false,
+    });
+    // Another session of the same user has no selection of its own.
+    const other = await inSecondSession(() =>
+      inject({ url: `/api/mcp-connect/request?${queryOf(next)}` }),
+    );
+    expect(other.json().selection).toBeNull();
+    // Leave nothing pending behind for later tests of this client.
+    const denied = await consent(queryOf(next), { accept: false, scopes: [] });
+    expect(denied.statusCode).toBe(200);
   });
 
   it("UserInfo returns sub, email and email_verified", async () => {
@@ -445,12 +477,50 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     const { response, location } = await authorize({
       redirect_uri: "https://evil.test/cb",
     });
-    // Better Auth shows its own error page instead of redirecting to the client.
+    // Better Auth shows an error page of Orbit's web app (onAPIError.errorURL)
+    // instead of redirecting to the client; /api/auth/error is not reachable.
     expect(response.statusCode).toBe(302);
     expect(location!.origin).toBe(origin);
-    expect(location!.pathname).toBe("/api/auth/error");
+    expect(location!.pathname).toBe("/connect/error");
     expect(location!.searchParams.get("error")).toBe("invalid_redirect");
     expect(String(location)).not.toContain("evil.test");
+  });
+
+  it("an authorization without a session ends at /connect/login and sign-in with the signed query continues it", async () => {
+    const { response, location } = await inject({
+      url: `/api/auth/oauth2/authorize?${new URLSearchParams({
+        client_id: CLIENT_ID,
+        redirect_uri: REDIRECT_URI,
+        response_type: "code",
+        scope: SCOPES,
+        state: "st-login",
+        code_challenge: pkce().challenge,
+        code_challenge_method: "S256",
+        resource: config.MCP_RESOURCE,
+      })}`,
+      session: false,
+    }).then((r) => ({
+      response: r,
+      location: r.headers.location
+        ? new URL(r.headers.location as string, origin)
+        : undefined,
+    }));
+    expect(response.statusCode).toBe(302);
+    expect(location!.pathname).toBe("/connect/login");
+    const signIn = await inject({
+      method: "POST",
+      url: "/api/auth/sign-in/email",
+      session: false,
+      payload: { ...credentials, oauth_query: queryOf(location!) },
+    });
+    expect(signIn.statusCode).toBe(200);
+    // The browser fetch gets the continuation as JSON, not a 302.
+    const body = signIn.json();
+    expect(body.redirect).toBe(true);
+    const next = new URL(body.url, origin);
+    expect(next.pathname).toBe("/connect");
+    expect(next.searchParams.get("sig")).toBeTruthy();
+    expect(signIn.headers["set-cookie"]).toBeTruthy();
   });
 
   it("missing resource is invalid_target without a redirect", async () => {

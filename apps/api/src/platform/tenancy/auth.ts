@@ -39,6 +39,13 @@ export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
       : [],
     // Global hooks exist only for the OAuth server; flag off keeps none.
     ...(oauth ? { hooks: mcpAuthHooks(config, grantHookDeps()) } : {}),
+    // The provider reports a refused authorization (such as an unregistered
+    // redirect_uri) here; /api/auth/error is not reachable through Orbit's
+    // allowlist, so the web app shows the message at /connect/error. Absolute,
+    // like the provider's default, so redirect responses keep their shape.
+    ...(oauth
+      ? { onAPIError: { errorURL: `${config.APP_ORIGIN}/connect/error` } }
+      : {}),
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 12,

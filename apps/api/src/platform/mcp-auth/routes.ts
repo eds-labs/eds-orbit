@@ -12,6 +12,7 @@ import {
   listGrants,
   recordSelection,
   revokeGrant,
+  selectionView,
 } from "./grants.ts";
 
 // The /connect page's API (Track M, WP-M1): the signed OAuth request, the
@@ -110,7 +111,7 @@ export function registerMcpConnectRoutes(
   if (config.ORBIT_MCP_OAUTH !== "true") return;
 
   app.get("/api/mcp-connect/request", async (req) => {
-    const { user } = await sessionFor(auth, req);
+    const { user, session } = await sessionFor(auth, req);
     const request = await readOAuthRequest(auth, req.url.split("?")[1] ?? "");
     const client = await authDb.oauthClient.findUnique({
       where: { clientId: request.clientId },
@@ -121,6 +122,8 @@ export function registerMcpConnectRoutes(
     return {
       client: { id: client.clientId, name: client.name, uri: client.uri },
       scopes: request.scopes,
+      // The selection this session already made (consent step), else null.
+      selection: await selectionView(session.id, request.clientId),
       workspaces: await connectWorkspaces(user.id),
     };
   });

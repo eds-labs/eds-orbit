@@ -228,6 +228,21 @@ export async function pendingReference(sessionId: string, clientId: string) {
     : `${PENDING_REFERENCE_PREFIX}${selection.id}`;
 }
 
+/**
+ * What the consent page shows as chosen: this session's current selection for
+ * the client, or null. Identifiers only; the consent endpoint decides.
+ */
+export async function selectionView(sessionId: string, clientId: string) {
+  const selection = await currentSelection(authDb, sessionId, clientId);
+  return selection
+    ? {
+        workspaceId: selection.workspaceId,
+        projectIds: selection.projectIds,
+        allCurrentProjects: selection.allCurrentProjects,
+      }
+    : null;
+}
+
 /** Whether this session holds an unconsumed selection for the client. */
 export async function hasCurrentSelection(sessionId: string, clientId: string) {
   return Boolean(await currentSelection(authDb, sessionId, clientId));
