@@ -1510,6 +1510,38 @@ td:first-child {
   font-size: 12px;
   color: var(--muted-foreground);
 }
+/* Knowledge overview (UI restructure §5.3). */
+.knowledge-overview-body {
+  padding: 0 21px 18px;
+}
+.knowledge-overview-body .detail-grid {
+  margin: 0;
+}
+.knowledge-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.knowledge-rows .readiness-row > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.knowledge-rows .readiness-row small {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.knowledge-note {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.overview-columns.knowledge-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.knowledge-back {
+  margin-bottom: 10px;
+}
 .inspector-layout {
   display: grid;
   grid-template-columns: 360px 1fr;
@@ -4476,18 +4508,21 @@ a.support-row {
 .support-back {
   display: none;
 }
-.support-home-counts {
+.support-home-counts,
+.knowledge-home-counts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 0 21px 12px;
 }
-.support-home-counts dd {
+.support-home-counts dd,
+.knowledge-home-counts dd {
   font-size: 22px;
   font-weight: 600;
   margin: 0;
 }
-.support-home > a {
+.support-home > a,
+.knowledge-home > a {
   display: block;
   padding: 0 21px 16px;
 }
@@ -4546,7 +4581,8 @@ a.support-row {
   .support-ticket-body {
     grid-template-columns: minmax(0, 1fr);
   }
-  .support-home-counts {
+  .support-home-counts,
+  .knowledge-home-counts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

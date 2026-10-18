@@ -1,5 +1,14 @@
 # Implementation status
 
+## UI restructure, phase 2: module overviews (2026-10-18, local; no flag)
+
+Spec §5.3 and §6. Each module root becomes an overview page; no schema change, no migration, no new permission. Rollback is a revert and redeploy.
+- **Marketing** (`/p/:id/marketing`, `modules/marketing/overview.tsx`): head with "Module" eyebrow and actions, mode band, four metrics (active missions, open approvals, published in 7 days, AI budget of the month), agent run, next posts, missions and readiness. The project home still embeds it until phase 4.
+- **Support** (`/p/:id/support`, `modules/support/overview.tsx`): five metrics, open tickets by due time, inboxes with open counts, new tickets per day, "My tickets"; the inbox moved to `/support/tickets`, and `/support?ticket=<id>` redirects there. API additions: `sort=sla`, `openOnly`, `volume.byDay`, `openByInbox` (see `API_CONTRACT.md`, `SUPPORT.md`).
+- **Knowledge** (`/p/:id/knowledge`, `modules/knowledge/overview.tsx`): four metrics (sources, verified facts, conflicts, active index generation for owners), source freshness sorted by expiry (stale first; `sourceExpiry`: stale without a sync or past `lastSuccessfulSyncAt + maxAgeHours`, expiring within 48 h), open conflicts, index quality of the active generation (owners; a 403 or 404 from `/indexes` hides it) and links to Health, Impact and Inspector. Reads only existing endpoints (`/knowledge-health`, the `sources` and `facts` collections, `/indexes`). The knowledge tab bar is gone: the sidebar entries replace it, and every sub-page shows a back link to the overview. The index generations (`IndexManagement`) live on the Health page only. `modules/knowledge/home.tsx` (`KnowledgeHomeCard`) is ready for the home cards of phase 4.
+- **Shared:** `platform/ui/metric.tsx` is the one metric tile of the three overviews.
+- **Tests:** unit tests per overview and for `Metric`; `workspace.spec.ts` reaches the knowledge pages through the sidebar and the overview links, and its 390 px keyboard check now uses the settings tabs (ruling R8; `components/ui/tab-focus.ts` stays for any tab bar that navigates).
+
 ## UI restructure, phase 1: grouped sidebar (2026-10-18, local; no flag)
 
 Spec `docs/superpowers/specs/2026-10-18-orbit-ui-restructure-design.md`, plan `docs/superpowers/plans/2026-10-18-orbit-ui-restructure.md`. Phase 1 changes the navigation only; the home page, the module overviews, settings and the attention endpoint follow in later phases, each as its own PR. There is no feature flag; rollback is a revert and redeploy.
@@ -720,7 +729,7 @@ Branch `claude/wp33-knowledge-module`. Plan: `docs/superpowers/plans/2026-10-15-
 - **Assistant search.** `assistantKnowledgeSearch` is a platform tool (`alwaysOffered`). Marketing lists it only to keep its place, so the tool list and prompt are unchanged. With knowledge and marketing off, the assistant still offers `knowledge_search`.
 - **Web.**
   - Each knowledge tab is a view at `/p/:id/knowledge/<tab>`; the overview stays the module root.
-  - The tab bar keeps its role, labels, order and keyboard handling, and navigates to the tab's URL.
+  - The tab bar keeps its role, labels, order and keyboard handling, and navigates to the tab's URL. (Removed in the UI restructure, phase 2: the sidebar lists the pages.)
   - `ViewDef.navKey` lets a URL-only view highlight its module's sidebar entry.
 - **Deviations from plan 05 §8, kept for an unchanged product.** "Conflicts" and "impact" stay tabs. Detail URLs with ids, the knowledge settings panel and the home tile are follow-ups.
 

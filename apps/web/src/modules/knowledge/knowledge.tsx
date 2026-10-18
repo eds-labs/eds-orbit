@@ -2,10 +2,10 @@
 import { FactWithdrawal } from "./fact-withdrawal";
 import { IndexManagement } from "./index-management";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useShell } from "@/platform/shell/shell-context";
 import { cn } from "@/lib/utils";
 import {
+  ArrowLeft,
   BookOpen,
   Plus,
   Search,
@@ -40,7 +40,6 @@ import {
   Loading,
   Modal,
   Status,
-  Tabs,
 } from "@/components/ui/primitives";
 import {
   DataForm,
@@ -61,6 +60,8 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { EvidenceItems } from "@/platform/ui/evidence";
+import { AppLink } from "@/platform/ui/app-link";
+import { KnowledgeOverview } from "./overview";
 type Health = Record<string, unknown>;
 /** The knowledge tabs in their order; each has its own URL (WP3.3). */
 export const KNOWLEDGE_TABS = [
@@ -75,25 +76,24 @@ export const KNOWLEDGE_TABS = [
   "impact",
 ] as const;
 export type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number];
+/**
+ * A knowledge page. The overview is the module's root; every other tab is a
+ * page of its own, reached from the sidebar, with a link back to the overview.
+ */
 export function Knowledge({ tab }: { tab: KnowledgeTab }) {
-  const { t, locale, project, revision, canEdit, isOwner } = useWorkspace();
-  const shell = useShell(),
-    router = useRouter();
+  const { t, locale, isOwner } = useWorkspace();
+  const shell = useShell();
   const [add, setAdd] = useState(false);
-  const label: Record<KnowledgeTab, string> = {
-    overview: "Overview",
-    sources: t("sources"),
-    facts: t("factTab"),
-    import: "Import",
-    conflicts: "Conflicts",
-    library: t("library"),
-    health: t("health"),
-    inspector: t("inspector"),
-    impact: t("impact"),
-  };
-  const tabs = KNOWLEDGE_TABS.map((key) => ({ key, label: label[key] }));
+  if (tab === "overview") return <KnowledgeOverview />;
   return (
     <>
+      <AppLink
+        className="text-link knowledge-back"
+        href={shell.hrefOf("knowledge")}
+      >
+        <ArrowLeft aria-hidden />
+        {t("knowledge")}
+      </AppLink>
       <PageHead title={t("knowledge")} description={t("knowledgeHint")}>
         {isOwner && (tab === "sources" || tab === "facts") && (
           <Button onClick={() => setAdd(true)}>
@@ -102,20 +102,7 @@ export function Knowledge({ tab }: { tab: KnowledgeTab }) {
           </Button>
         )}
       </PageHead>
-      <Tabs
-        tabs={tabs}
-        value={tab}
-        onChange={(next) =>
-          router.push(
-            shell.hrefOf(
-              next === "overview" ? "knowledge" : `knowledge-${next}`,
-            ),
-          )
-        }
-      />
-      {tab === "overview" ? (
-        <KnowledgeHealth impact={false} />
-      ) : tab === "sources" ? (
+      {tab === "sources" ? (
         <Sources />
       ) : tab === "facts" ? (
         <Facts />

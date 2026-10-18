@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { AppLink } from "@/platform/ui/app-link";
+import { Metric } from "@/platform/ui/metric";
 import {
   PageHead,
   ResourceError,
@@ -465,30 +466,6 @@ export function MarketingOverview({
       )}
       {create && <MissionEditor onClose={() => setCreate(false)} />}
     </>
-  );
-}
-function Metric({
-  icon: Icon,
-  label,
-  amount,
-  detail,
-}: {
-  icon: typeof Target;
-  label: string;
-  amount: string;
-  detail?: string;
-}) {
-  return (
-    <div className="metric">
-      <span className="metric-icon">
-        <Icon />
-      </span>
-      <div>
-        <span className="metric-label">{label}</span>
-        <strong>{amount}</strong>
-        {detail && <small>{detail}</small>}
-      </div>
-    </div>
   );
 }
 function Readiness({

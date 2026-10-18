@@ -14,6 +14,7 @@ import { Badge, Button, Empty, Skeleton } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
 import { AppLink } from "@/platform/ui/app-link";
+import { Metric } from "@/platform/ui/metric";
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import {
   slaState,
@@ -52,28 +53,6 @@ function pendingDue(ticket: Ticket): string | null {
     ticket.resolvedAt ? null : ticket.resolutionDueAt,
   ].filter((v): v is string => Boolean(v));
   return due.sort()[0] ?? null;
-}
-
-function Metric({
-  icon: Icon,
-  label,
-  amount,
-}: {
-  icon: typeof InboxIcon;
-  label: string;
-  amount: string;
-}) {
-  return (
-    <div className="metric">
-      <span className="metric-icon">
-        <Icon aria-hidden />
-      </span>
-      <div>
-        <span className="metric-label">{label}</span>
-        <strong>{amount}</strong>
-      </div>
-    </div>
-  );
 }
 
 /** One ticket as a link into the inbox, with its status and SLA state. */
