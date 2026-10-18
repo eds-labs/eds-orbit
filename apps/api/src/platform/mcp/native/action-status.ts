@@ -1,7 +1,9 @@
 /**
  * The native MCP `orbit_action_status` tool (Track M, WP-M4, D-M4-12): lets a
- * client poll the state of a proposal it made. It answers for requests of the
- * calling grant only and never leaves anything internal in the answer. It
+ * client poll the state of a proposal it made. It answers for requests the
+ * calling user made through the calling client in this workspace only (also
+ * those of a grant a re-selection replaced) and never leaves anything
+ * internal in the answer. It
  * does not depend on ORBIT_MCP_PROPOSALS, so a client can still see how its
  * proposals ended after the switch was turned off.
  */
@@ -45,7 +47,10 @@ export const actionStatusTool: NativeTool = {
     // 404 NOT_FOUND for a project outside the grant, like every other miss.
     const scope = await projectScope(principal, projectId);
     const status = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      mcpActionRequestStatus(tx, scope, actionRequestId, principal.grantId),
+      mcpActionRequestStatus(tx, scope, actionRequestId, {
+        userId: principal.userId,
+        clientId: principal.clientId,
+      }),
     );
     return { ...status, approveUrl: mcpApproveUrl(projectId) };
   },

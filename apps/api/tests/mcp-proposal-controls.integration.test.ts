@@ -22,7 +22,7 @@ import { registerModules } from "../src/modules/registry.ts";
 import { cancelActionRequest } from "../src/modules/action-requests.ts";
 import { assignmentTools } from "../src/modules/marketing/tools/assignment-tools.ts";
 import { actionStatusTool } from "../src/platform/mcp/native/action-status.ts";
-import { toolFailure } from "../src/platform/mcp/errors.ts";
+import { timeoutResult, toolFailure } from "../src/platform/mcp/errors.ts";
 import {
   McpRateLimiter,
   MCP_PROPOSAL_WINDOW_MS,
@@ -183,6 +183,17 @@ describe("failure retryability by tool risk (errors)", () => {
     expect(
       toolFailure(unavailable, "r", "R0_read").result.structuredContent,
     ).toMatchObject({ retryable: true });
+  });
+
+  it("answers a timeout with a retry hint for reads only", () => {
+    for (const risk of ["P_proposal", "W0_internal"] as const)
+      expect(timeoutResult(risk).structuredContent).toMatchObject({
+        code: "TIMEOUT",
+        retryable: false,
+      });
+    expect(timeoutResult("R0_read").structuredContent).toMatchObject({
+      retryable: true,
+    });
   });
 });
 
@@ -910,7 +921,7 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
       expect(Date.parse(out.decidedAt)).not.toBeNaN();
     });
 
-    it("answers one identical NOT_FOUND for everything outside the grant", async () => {
+    it("answers one identical NOT_FOUND for everything that is not this user's through this client", async () => {
       const mine = await seedRequest(await mcpRequester("editor"));
       const otherGrants = await seedRequest(await mcpRequester("other"));
       const human = await seedRequest({ kind: "user", userId: ids.editor });
@@ -925,6 +936,10 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
           clientId: CLIENT.other,
           grantId: (await grantOf("other")).id,
         }),
+      );
+      // The same client, another user of the workspace.
+      const sameClientOtherUser = await seedRequest(
+        await mcpRequester("editor", { userId: ids.viewer }),
       );
       const foreignRow = await seedRequest(
         {
@@ -945,6 +960,7 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
         await status(human.id),
         await status(agent.id),
         await status(sameUserOtherClient.id),
+        await status(sameClientOtherUser.id),
         // A request of another project, asked with a granted project.
         await status(foreignRow.id),
         // An unknown request.
@@ -962,6 +978,19 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
         });
         expect(refusal.content).toEqual(refusals[0]!.content);
       }
+    });
+
+    it("answers for the same user and client across grants, e.g. after a re-selection replaced the grant", async () => {
+      // A proposal of an earlier grant of this user and client.
+      const earlier = await seedRequest(
+        await mcpRequester("editor", { grantId: randomUUID() }),
+      );
+      const out = await status(earlier.id);
+      expect(out.isError).toBeFalsy();
+      expect(out.structuredContent).toMatchObject({
+        actionRequestId: earlier.id,
+        status: "pending",
+      });
     });
 
     it("refuses a malformed id at the input schema, before the tool runs", async () => {

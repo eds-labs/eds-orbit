@@ -794,13 +794,47 @@ export async function revokeGrant(
 const PROPOSE_SCOPE = "orbit:propose";
 
 /**
+ * Drops `orbit:propose` from the consent Better Auth stored for (user,
+ * client, workspace), so the next authorization that asks for it shows the
+ * consent step again (instead of being skipped because the stored consent
+ * covers it), and an accepted consent can give the scope back
+ * (`activateGrant`). Without this, a reconnect would copy the reduced scopes
+ * of the grant and could never propose again.
+ */
+async function dropProposeConsent(
+  tx: DbTx,
+  grant: { userId: string; clientId: string; workspaceId: string },
+  now: Date,
+) {
+  const consents = await tx.oauthConsent.findMany({
+    where: {
+      clientId: grant.clientId,
+      userId: grant.userId,
+      referenceId: grant.workspaceId,
+    },
+    select: { id: true, scopes: true },
+  });
+  for (const consent of consents)
+    if (consent.scopes.includes(PROPOSE_SCOPE))
+      await tx.oauthConsent.update({
+        where: { id: consent.id },
+        data: {
+          scopes: consent.scopes.filter((scope) => scope !== PROPOSE_SCOPE),
+          updatedAt: now,
+        },
+      });
+}
+
+/**
  * Stops an active grant from proposing (D-M4-9): removes `orbit:propose` from
  * its scopes, so the proposal tools disappear on the client's next request
- * (the gateway intersects token and grant scopes per request), and cancels
- * its pending proposals. Same authorization as `revokeGrant`. Idempotent: a
- * grant without the scope writes no second event, but the cancellation sweep
- * still runs, so repeating it repairs a failed one. Proposing is granted
- * again only by a new consent.
+ * (the gateway intersects token and grant scopes per request), and from the
+ * stored consent of (user, client, workspace), and cancels its pending
+ * proposals. Same authorization as `revokeGrant`. Idempotent: a grant
+ * without the scope writes no second event, but the consent is cleaned and
+ * the cancellation sweep still runs, so repeating it repairs a failed one.
+ * Proposing is granted again only by a new consent: the next connect shows
+ * the consent step, and accepting `orbit:propose` there restores it.
  */
 export async function setGrantProposals(
   actor: { userId: string },
@@ -811,8 +845,10 @@ export async function setGrantProposals(
   // Only stopping exists; the parameter keeps a future enable explicit.
   if (enabled !== false) throw new DomainError("VALIDATION_FAILED", 400);
   if (!UUID.test(grantId)) throw new DomainError("NOT_FOUND", 404);
+  const now = new Date();
   const grant = await authDb.$transaction(async (tx) => {
     const { grant, own } = await changeableGrant(tx, actor, grantId);
+    await dropProposeConsent(tx, grant, now);
     if (!grant.scopes.includes(PROPOSE_SCOPE)) return grant;
     // The guard on status keeps a concurrent revocation from being overwritten.
     const changed = await tx.mcpGrant.updateMany({
@@ -836,25 +872,36 @@ export async function setGrantProposals(
   await cancelGrantProposals(grant, actor, "proposals_disabled", log);
 }
 
+/** Client events are about no particular user; nor is their cancellation. */
+const SYSTEM_ACTOR = "system";
+
+/** Grant changes outside a request log their failures to the process log. */
+const consoleLog: Log = {
+  error: (fields, message) => console.error(`Orbit ${message}`, fields),
+};
+
 /**
  * Revokes every active grant of a client and closes its pending selections,
  * for a client whose security-relevant metadata changed: what the user agreed
  * to was agreed to for the old document. Each active grant loses its stored
  * authorization like a user's revocation does, and gets a `grant.revoked`
- * event. All of it happens in one transaction. Returns the number of active
- * grants revoked.
+ * event. All of it happens in one transaction; after it commits, the pending
+ * MCP proposals of each revoked active grant are canceled
+ * (`cancelGrantProposals`, best effort like `revokeGrant`; an approval stays
+ * refused meanwhile). Returns the number of active grants revoked.
  */
 export async function revokeClientGrants(
   clientId: string,
   reason: "client_changed",
+  log?: Log,
 ): Promise<number> {
   const now = new Date();
-  return authDb.$transaction(async (tx) => {
+  const revoked = await authDb.$transaction(async (tx) => {
     const grants = await tx.mcpGrant.findMany({
       where: { clientId, status: { in: ["active", "pending"] } },
       orderBy: { createdAt: "asc" },
     });
-    let revoked = 0;
+    const ended: typeof grants = [];
     for (const grant of grants) {
       // The guard on status keeps a concurrent change from being written twice.
       const changed = await tx.mcpGrant.updateMany({
@@ -867,7 +914,7 @@ export async function revokeClientGrants(
         },
       });
       if (!changed.count || grant.status !== "active") continue;
-      revoked += 1;
+      ended.push(grant);
       await dropStoredAuthorization(tx, grant);
       await recordGrantEvent(
         {
@@ -881,12 +928,17 @@ export async function revokeClientGrants(
         tx,
       );
     }
-    return revoked;
+    return ended;
   });
+  for (const grant of revoked)
+    await cancelGrantProposals(
+      grant,
+      { userId: SYSTEM_ACTOR },
+      "grant_revoked",
+      log,
+    );
+  return revoked.length;
 }
-
-/** Client events are about no particular user. */
-const SYSTEM_ACTOR = "system";
 
 /** Fields whose change ends the grants given to the previous document. */
 const REVOKING_CLIENT_FIELDS = ["redirect_uris", "jwks_uri", "jwks"];
@@ -925,7 +977,11 @@ export function grantClientDeps(): McpClientDeps {
       let failure: unknown;
       if (changed.some((field) => REVOKING_CLIENT_FIELDS.includes(field)))
         try {
-          revokedGrants = await revokeClientGrants(clientId, "client_changed");
+          revokedGrants = await revokeClientGrants(
+            clientId,
+            "client_changed",
+            consoleLog,
+          );
         } catch (error) {
           failure = error;
           console.error(

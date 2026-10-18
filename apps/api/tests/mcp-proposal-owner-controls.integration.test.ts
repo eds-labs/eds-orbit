@@ -13,6 +13,9 @@ import { buildServer } from "../src/server.ts";
 import { data } from "../src/shared.ts";
 import { registerModules } from "../src/modules/registry.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
+import { revokeClientGrants } from "../src/platform/mcp-auth/grants.ts";
+import { proposeAssignmentFromMcp } from "../src/modules/marketing/agents/assignments.ts";
+import { dropNullFields } from "../src/modules/agents/tools/registry.ts";
 import {
   cimdFetchFor,
   createFlowDriver,
@@ -44,6 +47,10 @@ const names = [
   "replaced",
   "ownerStop",
   "ownerGrant",
+  "reconsent",
+  "clientChanged",
+  "coverage",
+  "race",
 ] as const;
 type Name = (typeof names)[number];
 const CLIENT = Object.fromEntries(
@@ -131,13 +138,18 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
   const run = <T>(work: (tx: DbTx) => Promise<T>) =>
     scoped(project.owner.workspaceId, project.owner.projectId, work);
 
-  async function connect(name: Name, who: Who) {
+  async function connectFlow(name: Name, who: Who) {
     cookie = cookies[who];
     const flow = await driver.connect({ clientId: CLIENT[name] });
     const response = await driver.exchange(flow, { client_id: CLIENT[name] });
     expect(response.statusCode).toBe(200);
-    return (response.json() as Json).access_token as string;
+    return {
+      steps: flow.steps,
+      token: (response.json() as Json).access_token as string,
+    };
   }
+  const connect = async (name: Name, who: Who) =>
+    (await connectFlow(name, who)).token;
 
   function rpc(method: string, params: Json, token: string) {
     return gateway.inject({
@@ -503,13 +515,28 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
   });
 
   it("proposals survive a re-consent that replaces the grant", async () => {
-    const pending = await propose("replaced");
+    const args = { name: `Before replace ${randomUUID()}` };
+    const pending = await propose("replaced", args);
     const before = await grantOf("replaced");
     tokens.replaced = await connect("replaced", "editor");
     const after = await grantOf("replaced");
     expect(after.id).not.toBe(before.id);
     expect(await requestData(pending.actionRequestId as string)).toMatchObject({
       status: "pending",
+    });
+    // The client still sees its own proposal through the new grant, and a
+    // retry with the same arguments returns it instead of a duplicate.
+    expect(
+      (await status("replaced", pending.actionRequestId as string))
+        .structuredContent,
+    ).toMatchObject({
+      status: "pending",
+      actionRequestId: pending.actionRequestId,
+    });
+    const retried = await propose("replaced", args);
+    expect(retried).toMatchObject({
+      actionRequestId: pending.actionRequestId,
+      deduplicated: true,
     });
     const approved = await decide(pending.actionRequestId as string, "approve");
     expect(approved.statusCode).toBe(200);
@@ -581,5 +608,211 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
     expect(
       await events("grant.proposals_disabled", "ownerGrant"),
     ).toMatchObject([{ detail: { by: "user" } }]);
+  });
+
+  it("a reconnect after stopping proposals shows the consent step, and accepting orbit:propose restores proposing", async () => {
+    const before = await propose("reconsent");
+    const grant = await grantOf("reconsent");
+    const reference = {
+      clientId: CLIENT.reconsent,
+      userId: ids.editor,
+      referenceId: project.owner.workspaceId,
+    };
+    expect(
+      (await authDb.oauthConsent.findFirstOrThrow({ where: reference })).scopes,
+    ).toContain("orbit:propose");
+    const stopped = await asUser(
+      "editor",
+      "PATCH",
+      `/api/mcp-grants/${grant.id}`,
+      { proposals: false },
+    );
+    expect(stopped.statusCode).toBe(204);
+    // The stored consent no longer covers proposing; other scopes stay.
+    const consent = await authDb.oauthConsent.findFirstOrThrow({
+      where: reference,
+    });
+    expect(consent.scopes).not.toContain("orbit:propose");
+    expect(consent.scopes).toContain("orbit:read");
+    expect(await listTools("reconsent")).not.toContain(TOOL);
+    // Simulate a cancellation sweep that failed: the old proposal is pending.
+    await run(async (tx) => {
+      const row = await tx.entity.findFirstOrThrow({
+        where: { id: before.actionRequestId as string },
+      });
+      await tx.entity.update({
+        where: { id: row.id },
+        data: { data: { ...data(row), status: "pending" } },
+      });
+    });
+
+    const again = await connectFlow("reconsent", "editor");
+    expect(again.steps).toEqual(["select", "consent", "redirect_uri"]);
+    tokens.reconsent = again.token;
+    const restored = await grantOf("reconsent");
+    expect(restored.id).not.toBe(grant.id);
+    expect(restored.scopes).toContain("orbit:propose");
+    expect(
+      (await authDb.oauthConsent.findFirstOrThrow({ where: reference })).scopes,
+    ).toContain("orbit:propose");
+    expect(await listTools("reconsent")).toContain(TOOL);
+    const fresh = await propose("reconsent", { topicFrame: "After reconsent" });
+    expect(fresh.deduplicated).toBe(false);
+    // The proposal from before the stop never comes back: proposals were
+    // stopped after it was made, whatever the successor grant allows.
+    const late = await decide(before.actionRequestId as string, "approve");
+    expect(late.statusCode).toBe(409);
+    expect(late.json()).toMatchObject({ error: { code: "MCP_GRANT_ENDED" } });
+    expect(
+      (await decide(fresh.actionRequestId as string, "approve")).statusCode,
+    ).toBe(200);
+  });
+
+  it("a client change revokes the successor grant, cancels the proposals, and a later grant never revives them", async () => {
+    const pending = await propose("clientChanged");
+    const unswept = await propose("clientChanged", {
+      topicFrame: "Swept and put back",
+    });
+    const first = await grantOf("clientChanged");
+    // A re-selection: the proposals' grant is replaced by an active one.
+    tokens.clientChanged = await connect("clientChanged", "editor");
+    const successor = await grantOf("clientChanged");
+    expect(successor.id).not.toBe(first.id);
+
+    expect(
+      await revokeClientGrants(CLIENT.clientChanged, "client_changed"),
+    ).toBe(1);
+    for (const out of [pending, unswept])
+      expect(await requestData(out.actionRequestId as string)).toMatchObject({
+        status: "canceled",
+        canceledBy: "system",
+        canceledReason: "grant_revoked",
+      });
+    // Simulate a sweep that failed for one of them.
+    await run(async (tx) => {
+      const row = await tx.entity.findFirstOrThrow({
+        where: { id: unswept.actionRequestId as string },
+      });
+      await tx.entity.update({
+        where: { id: row.id },
+        data: { data: { ...data(row), status: "pending" } },
+      });
+    });
+    // A new connect: an active grant with orbit:propose again.
+    tokens.clientChanged = await connect("clientChanged", "editor");
+    expect((await grantOf("clientChanged")).scopes).toContain("orbit:propose");
+    const late = await decide(unswept.actionRequestId as string, "approve");
+    expect(late.statusCode).toBe(409);
+    expect(late.json()).toMatchObject({ error: { code: "MCP_GRANT_ENDED" } });
+  });
+
+  it("refuses an approval when the grant no longer covers the project or its user lost the membership", async () => {
+    const uncovered = await propose("coverage");
+    const unmember = await propose("coverage", { topicFrame: "Membership" });
+    const grant = await grantOf("coverage");
+    const refused = async (out: Json) => {
+      const response = await decide(out.actionRequestId as string, "approve");
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        error: { code: "MCP_GRANT_ENDED" },
+      });
+    };
+    // The grant names another project only.
+    await authDb.mcpGrant.update({
+      where: { id: grant.id },
+      data: { projectIds: [randomUUID()], allCurrentProjects: false },
+    });
+    await refused(uncovered);
+    await authDb.mcpGrant.update({
+      where: { id: grant.id },
+      data: { projectIds: [projectId()] },
+    });
+    // The proposing user is no longer a member of the project.
+    const { workspaceId } = project.owner;
+    await authDb.projectMember.delete({
+      where: {
+        projectId_userId: { projectId: projectId(), userId: ids.editor },
+      },
+    });
+    try {
+      await refused(unmember);
+    } finally {
+      await authDb.projectMember.create({
+        data: {
+          workspaceId,
+          projectId: projectId(),
+          userId: ids.editor,
+          role: "editor",
+        },
+      });
+    }
+    // Nor of the workspace (which also ends the project membership).
+    await authDb.workspaceMember.delete({
+      where: { workspaceId_userId: { workspaceId, userId: ids.editor } },
+    });
+    try {
+      await refused(unmember);
+    } finally {
+      await authDb.workspaceMember.create({
+        data: { workspaceId, userId: ids.editor, role: "viewer" },
+      });
+      await authDb.projectMember.create({
+        data: {
+          workspaceId,
+          projectId: projectId(),
+          userId: ids.editor,
+          role: "editor",
+        },
+      });
+    }
+    // Restored, the same proposal is approved.
+    expect(
+      (await decide(unmember.actionRequestId as string, "approve")).statusCode,
+    ).toBe(200);
+  });
+
+  it("refuses to create a proposal when the grant stopped proposing after the gateway resolved it", async () => {
+    const grant = await grantOf("race");
+    const scope = {
+      workspaceId: project.owner.workspaceId,
+      projectId: projectId(),
+      userId: ids.editor,
+      role: "editor" as const,
+    };
+    const origin = {
+      tool: TOOL,
+      clientId: CLIENT.race,
+      grantId: grant.id,
+      agentRunId: null,
+    };
+    const count = () =>
+      run((tx) => tx.entity.count({ where: { kind: "action_requests" } }));
+    const before = await count();
+    // The stop committed between the gateway's grant lookup and the
+    // proposal's transaction.
+    await authDb.mcpGrant.update({
+      where: { id: grant.id },
+      data: { scopes: grant.scopes.filter((s) => s !== "orbit:propose") },
+    });
+    await expect(
+      proposeAssignmentFromMcp(
+        scope,
+        origin,
+        dropNullFields(proposeArgs({ topicFrame: "Raced" })),
+      ),
+    ).rejects.toMatchObject({ code: "MCP_GRANT_ENDED", status: 409 });
+    expect(await count()).toBe(before);
+    // With the scope back, the same call creates the proposal.
+    await authDb.mcpGrant.update({
+      where: { id: grant.id },
+      data: { scopes: grant.scopes },
+    });
+    const created = await proposeAssignmentFromMcp(
+      scope,
+      origin,
+      dropNullFields(proposeArgs({ topicFrame: "Raced" })),
+    );
+    expect(created.deduplicated).toBe(false);
+    expect(await count()).toBe(before + 1);
   });
 });

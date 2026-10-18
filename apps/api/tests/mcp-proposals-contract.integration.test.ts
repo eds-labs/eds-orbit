@@ -97,7 +97,8 @@ describe.skipIf(!enabled)("ActionRequests from MCP clients (WP-M4)", () => {
   const find = (over: Record<string, unknown> = {}) =>
     run((tx) =>
       findPendingMcpProposal(tx, owner, {
-        grantId: "grant-1",
+        userId: "user-1",
+        clientId: "https://client.example/metadata.json",
         actionType: "assignment.confirm",
         argsHash: hex("a"),
         now: new Date(),
@@ -217,7 +218,7 @@ describe.skipIf(!enabled)("ActionRequests from MCP clients (WP-M4)", () => {
   });
 
   describe("findPendingMcpProposal", () => {
-    it("finds the newest pending unexpired request of the same grant and args", async () => {
+    it("finds the newest pending unexpired request of the same user, client and args", async () => {
       const args = hex("1");
       const older = await propose(mcpRequester({ argsHash: args }));
       const newer = await propose(mcpRequester({ argsHash: args }));
@@ -230,17 +231,27 @@ describe.skipIf(!enabled)("ActionRequests from MCP clients (WP-M4)", () => {
       expect(await find({ argsHash: hex("9") })).toBeNull();
     });
 
-    it("ignores another grant, other args and another action type", async () => {
+    it("matches user and client across grants, and ignores other users, clients, args and types", async () => {
       const args = hex("2");
-      await propose(mcpRequester({ argsHash: args, grantId: "grant-2" }));
-      expect(await find({ argsHash: args })).toBeNull();
-      expect(await find({ argsHash: args, grantId: "grant-2" })).not.toBeNull();
-      expect(
-        await find({
-          argsHash: args,
-          grantId: "grant-2",
-          actionType: "content.schedule",
+      // A replaced grant of the same user and client: still the same proposer.
+      const replaced = await propose(
+        mcpRequester({ argsHash: args, grantId: "grant-2" }),
+      );
+      expect((await find({ argsHash: args }))?.id).toBe(replaced.id);
+      const otherArgs = hex("b");
+      await propose(mcpRequester({ argsHash: otherArgs, userId: "user-2" }));
+      await propose(
+        mcpRequester({
+          argsHash: otherArgs,
+          clientId: "https://other.example/metadata.json",
         }),
+      );
+      expect(await find({ argsHash: otherArgs })).toBeNull();
+      expect(
+        await find({ argsHash: otherArgs, userId: "user-2" }),
+      ).not.toBeNull();
+      expect(
+        await find({ argsHash: args, actionType: "content.schedule" }),
       ).toBeNull();
     });
 
@@ -249,11 +260,11 @@ describe.skipIf(!enabled)("ActionRequests from MCP clients (WP-M4)", () => {
         createActionRequest(tx, owner, {
           actionType: "assignment.confirm",
           payload: assignment,
-          requestedBy: { kind: "user", userId: "grant-3" },
+          requestedBy: { kind: "user", userId: "user-1" },
         }),
       );
       expect(row).toBeDefined();
-      expect(await find({ grantId: "grant-3", argsHash: hex("3") })).toBeNull();
+      expect(await find({ argsHash: hex("3") })).toBeNull();
     });
 
     it("ignores expired requests", async () => {

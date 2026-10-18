@@ -25,6 +25,7 @@ import {
   cancelActionRequest,
   createActionRequest,
   findPendingMcpProposal,
+  mcpGrantStillProposes,
   type RequestedBy,
 } from "../../action-requests.ts";
 import {
@@ -522,9 +523,14 @@ export type McpProposalOrigin = {
  * An MCP client's proposal (WP-M4): the same role, flag and mandate checks
  * and the same draft and owner request as from chat, but bound to no
  * conversation (`conversationId` null) and requested by the client. A retry
- * with the same normalized arguments from the same grant returns the pending
- * proposal instead of creating another (D-M4-4); only a creation is recorded
- * on the grant (`mcp.proposal`). Nothing runs before the owner confirms.
+ * with the same normalized arguments from the same user and client returns
+ * the pending proposal instead of creating another (D-M4-4), as long as the
+ * grant it came from still stands; only a creation is recorded on the grant
+ * (`mcp.proposal`). Inside the project transaction the grant is checked
+ * again (`mcpGrantStillProposes`): a grant revoked or stopped since the
+ * gateway resolved it refuses with MCP_GRANT_ENDED, and one stopped after
+ * this check waits for the project lock and cancels what this commits.
+ * Nothing runs before the owner confirms.
  */
 export async function proposeAssignmentFromMcp(
   scope: Scope,
@@ -537,13 +543,32 @@ export async function proposeAssignmentFromMcp(
   const argsHash = mcpProposalArgsHash(origin.tool, scope.projectId, content);
   // The project transaction serializes proposals, so a concurrent retry sees the first one.
   return chatScoped(scope, async (tx) => {
+    const now = new Date();
+    const proposer = { userId: scope.userId, clientId: origin.clientId };
+    if (
+      !(await mcpGrantStillProposes(
+        { ...proposer, grantId: origin.grantId },
+        scope,
+        now,
+      ))
+    )
+      throw new DomainError("MCP_GRANT_ENDED", 409);
     const pending = await findPendingMcpProposal(tx, scope, {
-      grantId: origin.grantId,
+      ...proposer,
       actionType: "assignment.confirm",
       argsHash,
-      now: new Date(),
+      now,
     });
-    if (pending)
+    // A hit of a replaced grant counts only while that grant's line stands.
+    if (
+      pending &&
+      (data(pending).requestedBy.grantId === origin.grantId ||
+        (await mcpGrantStillProposes(
+          data(pending).requestedBy,
+          scope,
+          pending.createdAt,
+        )))
+    )
       return {
         assignmentId: String(data(pending).payload.assignmentId),
         actionRequest: pending,

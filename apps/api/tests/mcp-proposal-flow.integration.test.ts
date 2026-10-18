@@ -540,7 +540,7 @@ describe.skipIf(!enabled)(
       });
     });
 
-    it("mcp proposals are deduplicated per grant and arguments", async () => {
+    it("mcp proposals are deduplicated per user, client and arguments", async () => {
       const args = proposeArgs();
       const before = (await assignments()).length;
       const eventsBefore = (await proposalEvents("editor")).length;
@@ -554,7 +554,8 @@ describe.skipIf(!enabled)(
       // Deduplicated calls are not recorded as proposals.
       expect((await proposalEvents("editor")).length).toBe(eventsBefore + 1);
 
-      // Other arguments, or the same arguments from another grant, propose anew.
+      // Other arguments, or the same arguments from another client (its own
+      // grant), propose anew.
       const other = (await propose({ ...args, topicFrame: "Another frame" }))
         .structuredContent;
       expect(other.deduplicated).toBe(false);
