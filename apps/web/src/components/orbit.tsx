@@ -51,6 +51,13 @@ import {
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
 import { StandaloneContext } from "@/platform/shell/standalone-context";
+import { buildNavGroups, mobileEntries } from "@/platform/shell/nav-groups";
+import {
+  readCollapsed,
+  toggleCollapsed,
+  writeCollapsed,
+} from "@/platform/shell/nav-collapse";
+import { SidebarNav } from "@/platform/shell/sidebar-nav";
 import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
@@ -88,7 +95,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     [menu, setMenu] = useState(false),
     [newProject, setNewProject] = useState(false),
     [createdProject, setCreatedProject] = useState(""),
-    [revision, setRevision] = useState(0);
+    [revision, setRevision] = useState(0),
+    [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const setup = useResource<{ configured: boolean }>("/setup");
   const identity = useResource<Identity>(setup.data?.configured ? "/me" : null);
   const t: Text = (key) => labels[locale][key];
@@ -118,6 +126,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       /* Defaults apply without storage. */
     }
     setLocaleLoaded(true);
+    // After mount like the locale, so the server markup matches.
+    setCollapsed(readCollapsed());
   }, []);
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -218,6 +228,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         id: m.id,
         displayName: m.displayName,
         description: m.description,
+        groupOrder: m.groupOrder,
         enabled: enabled(m.id),
         nav: nav.filter((r) => r.moduleId === m.id),
       })),
@@ -427,9 +438,18 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const isOn = (id: string) =>
     Boolean(shell.modules.find((m) => m.id === id)?.enabled);
   const moduleOff = Boolean(route && !routeEnabled(route, isOn));
-  const visibleNav = navOrder(
-    table.routes.filter((r) => r.nav && routeEnabled(r, isOn)),
-  );
+  const navGroups = buildNavGroups(table.routes, shell.modules);
+  const groupLabel = (group: string) =>
+    group === "top"
+      ? undefined
+      : group === "project"
+        ? t("navProject")
+        : shell.modules.find((m) => m.id === group)?.displayName[locale];
+  function toggleGroup(id: string) {
+    const next = toggleCollapsed(collapsed, id);
+    setCollapsed(next);
+    writeCollapsed(next);
+  }
   const homeHref = shell.hrefOf("home");
   function changeProject(id: string) {
     router.push(
@@ -520,23 +540,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               ? `${organization?.name ?? t("organization")} · ${t("switchOrganization")}`
               : t("projects")}
           </Link>
-          <nav aria-label="Workspace">
-            {visibleNav.map((item) => {
-              const Icon = item.nav!.icon;
-              const active = item.key === activeNavKey(route);
-              return (
-                <Link
-                  key={item.key}
-                  href={projectHref(project.id, item)}
-                  className={cn("nav-link", active && "nav-active")}
-                  aria-current={active ? "page" : undefined}
-                >
-                  <Icon aria-hidden="true" />
-                  <span>{label(item)}</span>
-                </Link>
-              );
-            })}
-          </nav>
+          <SidebarNav
+            groups={navGroups}
+            activeKey={activeNavKey(route)}
+            hrefOf={(r) => projectHref(project.id, r)}
+            locale={locale}
+            collapsed={collapsed}
+            onToggle={toggleGroup}
+          />
           <div className="sidebar-footer">
             <p>
               A self-hosted
@@ -573,14 +584,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               <span>{project.name}</span>
               <span>/</span>
               {route ? (
-                crumbs(route, table, locale).map((part, i, all) =>
+                crumbs(route, table, locale, groupLabel).map((part, i, all) =>
                   i < all.length - 1 ? (
-                    <span key={part}>
+                    <span key={i}>
                       {part}
                       <span aria-hidden="true"> / </span>
                     </span>
                   ) : (
-                    <strong key={part}>{part}</strong>
+                    <strong key={i}>{part}</strong>
                   ),
                 )
               ) : (
@@ -644,24 +655,22 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </main>
         </div>
         <nav className="mobile-nav" aria-label="Mobile workspace">
-          {visibleNav
-            .filter((n) => n.nav!.mobile)
-            .map((n) => {
-              const Icon = n.nav!.icon;
-              const mobile = n.nav!.mobile!;
-              return (
-                <Link
-                  key={n.key}
-                  href={projectHref(project.id, n)}
-                  aria-current={
-                    activeNavKey(route) === n.key ? "page" : undefined
-                  }
-                >
-                  <Icon aria-hidden="true" />
-                  <span>{mobile === true ? label(n) : mobile[locale]}</span>
-                </Link>
-              );
-            })}
+          {mobileEntries(table.routes, isOn).map((n) => {
+            const Icon = n.nav!.icon;
+            const mobile = n.nav!.mobile!;
+            return (
+              <Link
+                key={n.key}
+                href={projectHref(project.id, n)}
+                aria-current={
+                  activeNavKey(route) === n.key ? "page" : undefined
+                }
+              >
+                <Icon aria-hidden="true" />
+                <span>{mobile === true ? label(n) : mobile[locale]}</span>
+              </Link>
+            );
+          })}
           <button onClick={() => setMenu(true)}>
             <MoreHorizontal />
             <span>{t("more")}</span>
