@@ -218,6 +218,17 @@ With this PR merged, the flag can go on from the security side. Mario still has 
 - `/api/hooks/slack/...` and `/api/hooks/telegram/...` answer. They are not registered with Slack or Telegram until the cutover.
 - `/api/public/...` and the key routes answer. No module in production has a public API, so no key can be issued yet.
 
+
+### Re-check of the web proxy (2026-10-18)
+
+#157 (WP5.4) made the web proxy forward `Authorization` under `/api/public/`, which the WP4.2b review had not seen. I checked it on main after #162:
+
+- **pass:** `Authorization` reaches only `/api/public/*` and `/api/auth/oauth2/*`. The decision and the upstream path come from the same decoded segments, a segment such as `public/support` does not count, and `.`/`..` and NUL are refused (`oauth-proxy.test.tsx`).
+- **pass:** the client address for the public API's rate limits is set by the proxy alone (`x-orbit-client-ip` from the right-most `X-Forwarded-For` entry). The API believes it only from a private peer (`clientIp()`), so visitors cannot pick their bucket and do not share the proxy's.
+- **pass:** SSE streams are passed through unbuffered. The 45 s upstream timeout ends a stream, and the widget resumes with `Last-Event-ID`.
+- **fix (low):** an Orbit session cookie was still forwarded to `/api/public/`, although the public API never reads one and the widget sends `credentials: "omit"`. It is no longer forwarded there, and a test pins that.
+
+Result: `ORBIT_PUBLIC_INGRESS` may go on, as far as the proxy is concerned, once this fix is deployed.
 ## Platform files (WP4.6, prepared 2026-10-17; review done 2026-10-17)
 
 `ORBIT_FILES` stays `false` in production until Mario approves the flag. The bucket and token are Mario's (`docs/PLATFORM_FILES.md`). Independent review on 2026-10-17: every suspected hole got a failing test first; the five confirmed ones are fixed with tests (findings below). Result: **the flag can go on** once this fix is deployed (with `FILES_BACKEND=database`, the default, nothing else is needed; with `s3`, the bucket and token are set) and the post-switch check below passes. The database backend is reviewed in item 7.

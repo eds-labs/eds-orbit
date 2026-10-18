@@ -24,6 +24,9 @@ const forwardedHeaders = [
  * public API clients send their session's bearer token in it (WP4.2b).
  */
 const oauthHeaders = [...forwardedHeaders, "authorization"];
+// The public API (WP4.2b) authenticates by key, origin and bearer token only
+// and never reads a cookie, so an Orbit session cookie does not travel there.
+const publicHeaders = oauthHeaders.filter((name) => name !== "cookie");
 // A provider's webhook (WP4.2a) is signed with headers of its own choosing
 // (x-hub-signature-256, stripe-signature, webhook-id ...), so under
 // /api/hooks/ every header passes except these. The hooks route reads no
@@ -68,16 +71,17 @@ async function proxy(
     );
   // Authorization only under /api/auth/oauth2/ and /api/public/: nowhere
   // else does the API read it.
-  const bearer =
-    (path[0] === "auth" && path[1] === "oauth2") || path[0] === "public";
+  const oauth = path[0] === "auth" && path[1] === "oauth2";
   return forwardToApi(
     request,
     `/api/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
     path[0] === "hooks"
       ? hookHeaders(request)
-      : bearer
-        ? oauthHeaders
-        : forwardedHeaders,
+      : path[0] === "public"
+        ? publicHeaders
+        : oauth
+          ? oauthHeaders
+          : forwardedHeaders,
   );
 }
 export {
