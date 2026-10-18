@@ -67,7 +67,12 @@ import {
   toggleCollapsed,
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
-import { SidebarNav } from "@/platform/shell/sidebar-nav";
+import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
+import {
+  attentionRenderers,
+  navBadges,
+  useAttentionLoad,
+} from "@/platform/shell/attention";
 import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
@@ -150,6 +155,10 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     lastStates,
     project?.id,
   );
+  // Shared by the sidebar badges and the home page (§4.4), through a 30 s
+  // cache that outlives the remount on navigation (ruling R15).
+  const attention = useAttentionLoad(project?.id, revision, pathname);
+  const renderers = useMemo(() => attentionRenderers(registry), [registry]);
   useEffect(() => {
     try {
       const lang = localStorage.getItem("orbit.locale");
@@ -292,6 +301,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         {},
         ...active.map((m) => m.actionRequests ?? {}),
       ),
+      attention,
+      attentionRenderers: renderers,
       settings: active.flatMap((m) => m.settings ?? []),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),
       connectors: {
@@ -299,7 +310,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
     };
-  }, [project, knownStates, registry, table]);
+  }, [project, knownStates, registry, table, attention, renderers]);
   // The label of a sidebar group, for the breadcrumb and the document title.
   const groupLabel = (group: string) =>
     group === "top"
@@ -494,6 +505,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const navGroups = buildNavGroups(table.routes, shell.modules);
   const mobileBar = mobileEntries(table.routes, isOn);
   const mobileCurrent = mobileCurrentKey(mobileBar, route);
+  // No badges while loading or after a failed load; navigation still works.
+  const badges = navBadges(attention);
   function toggleGroup(id: string) {
     const next = toggleCollapsed(collapsed, id);
     setCollapsed(next);
@@ -593,6 +606,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             groups={navGroups}
             activeKey={activeNavKey(route)}
             hrefOf={(r) => projectHref(project.id, r)}
+            badges={badges.counts}
+            urgent={badges.urgent}
             locale={locale}
             collapsed={collapsed}
             onToggle={toggleGroup}
@@ -725,6 +740,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               >
                 <Icon aria-hidden="true" />
                 <span>{mobile === true ? label(n) : mobile[locale]}</span>
+                <NavBadge
+                  count={badges.counts[n.key] ?? 0}
+                  urgent={badges.urgent.has(n.key)}
+                  locale={locale}
+                />
               </Link>
             );
           })}

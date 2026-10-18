@@ -1,5 +1,14 @@
 # Implementation status
 
+## UI restructure, phase 3: attention (2026-10-18, local; no flag)
+
+Spec §4 and §3.3 (badges). No schema change, no migration, no new permission, no new dependency. Rollback is a revert and redeploy.
+- **API** (`apps/api/src/platform/attention/`, contributions in `modules/{support,marketing,knowledge}/attention.ts`): `GET /api/projects/:id/attention` returns `{items, counts, status}` (see `API_CONTRACT.md`): SLA-breached, at-risk and unassigned tickets; draft releases, content review, open exceptions, paused posts and run problems; stale and expiring sources (at most 3 named per kind, the rest aggregated, ruling R18), conflicts and failed imports; worker down, unclear AI cost and open action requests. Counts sum `count ?? 1` per navKey over all items (R17).
+- **Web data** (`platform/shell/attention.tsx`): `useAttentionLoad` in the shell loads it once per project and workspace revision and again on navigation, through a module-level cache with a 30 s TTL that outlives the shell's remount on every navigation (ruling R15); a revision bump or an expired entry fetches again, a request in flight is shared, errors are not cached. `useAttention()` reads it from `ShellContext`, for the sidebar now and the home page in phase 4.
+- **Texts** (§4.3): `WebModule.attention` and `WebRegistry.attention` (platform, in `modules/registry.ts`) map each kind to `{title, detail?, action}` in EN and DE; `renderAttention` falls back to a generic row (module name, kind, "Open") for kinds this build does not know. Texts carry only what params carry (ticket number and subject, channel, names, codes); due times are left to the home page's pill.
+- **Badges**: the sidebar shows `counts` per entry (navKey = route key) and the sum on a collapsed group header; an entry with a critical item uses the warning colour. Screen readers hear "3 to do" / "3 zu erledigen", plus "urgent" / "dringend" for the warning colour (replaces "open", which clashed with the group's "collapsed"). The mobile bottom bar shows the same badge on its entries (Tickets, Approvals). Loading or a failed load shows no badges; navigation is unaffected.
+- **Tests**: `platform/shell/attention.test.tsx` (generic row, every kind in EN and DE, badges from counts, failed load, the cache).
+
 ## UI restructure, phase 2: module overviews (2026-10-18, local; no flag)
 
 Spec §5.3 and §6. Each module root becomes an overview page; no schema change, no migration, no new permission. Rollback is a revert and redeploy.

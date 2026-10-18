@@ -120,13 +120,13 @@ describe("SidebarNav", () => {
     });
     const header = head(collapsed, "marketing")!;
     expect(header).toContain(">5<");
-    expect(header).toContain(" offen");
+    expect(header).toContain(" zu erledigen<");
     expect(collapsed).not.toContain(href("approvals"));
     // Open, the header has no sum and every entry shows its own badge.
     const open = render({ badges });
     expect(head(open, "marketing")).not.toContain("nav-badge");
     expect(open).toMatch(
-      new RegExp(`${href("approvals")}.*?nav-badge[^>]*>3<.*? open`),
+      new RegExp(`${href("approvals")}.*?nav-badge[^>]*>3<.*? to do<`),
     );
   });
 

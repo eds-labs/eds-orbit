@@ -4,12 +4,24 @@ import type {
   ActionRequestRenderer,
   ChatExtension,
 } from "@/platform/assistant/extensions";
+import type { AttentionItem } from "@/lib/api";
+import type { Locale } from "@/lib/i18n";
 
 // The web side of the module contract (plans/orbit-modularization/03 §10).
 // It lives in the web app rather than packages/module-contracts because it
 // references React components; the server never reads it.
 
 export type Label = { en: string; de: string };
+
+/**
+ * The text of an attention item (UI restructure §4.3), from its kind and
+ * params only: short, and never more than the params carry.
+ */
+export type AttentionText = { title: string; detail?: string; action: Label };
+export type AttentionRenderer = (
+  item: AttentionItem,
+  locale: Locale,
+) => AttentionText;
 
 /** A navigation entry; views without one are reachable by URL only. */
 export type NavEntry = {
@@ -136,6 +148,8 @@ export type WebModule = {
   chat?: ChatExtension;
   /** The approvals inbox view of the module's action request types (WP2.3). */
   actionRequests?: Readonly<Record<string, ActionRequestRenderer>>;
+  /** Texts of the module's attention items, by kind (UI restructure §4.3). */
+  attention?: Readonly<Record<string, AttentionRenderer>>;
   /** Sections of the project settings (WP2.3b). */
   settings?: readonly SettingsSection[];
   /** Setup links of the settings overview, before the platform's own. */
@@ -153,6 +167,8 @@ export type WebRegistry = {
   /** Platform pages, mounted at /p/:projectId/<path>. */
   platform: readonly ViewDef[];
   modules: readonly WebModule[];
+  /** Texts of the platform's own attention items, by kind. */
+  attention?: Readonly<Record<string, AttentionRenderer>>;
   /** Pages outside any project, mounted at their own path. */
   standalone?: readonly StandaloneView[];
 };

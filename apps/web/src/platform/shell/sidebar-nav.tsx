@@ -15,11 +15,38 @@ type Props = {
   hrefOf: (route: Route) => string;
   /** Counts per route key, such as open approvals. */
   badges?: Readonly<Record<string, number>>;
+  /** Route keys with a critical item: their badge shows the warning style. */
+  urgent?: ReadonlySet<string>;
   locale: Locale;
   /** Ids of the collapsed groups; the shell keeps them (nav-collapse). */
   collapsed: ReadonlySet<string>;
   onToggle(id: string): void;
 };
+
+/**
+ * The count of a nav entry, read as "3 to do" by screen readers; with a
+ * critical item it shows the warning colour and adds "urgent". Nothing for 0.
+ */
+export function NavBadge({
+  count,
+  urgent,
+  locale,
+}: {
+  count: number;
+  urgent: boolean;
+  locale: Locale;
+}) {
+  if (count <= 0) return null;
+  const text = labels[locale];
+  return (
+    <span className={cn("nav-badge", urgent && "nav-badge-warning")}>
+      {count}
+      <span className="sr-only">
+        {` ${text.navToDo}${urgent ? `, ${text.navUrgent}` : ""}`}
+      </span>
+    </span>
+  );
+}
 
 /**
  * The sidebar navigation (UI restructure, spec §3.3): the "top" entries, then
@@ -32,6 +59,7 @@ export function SidebarNav({
   activeKey,
   hrefOf,
   badges = {},
+  urgent = new Set(),
   locale,
   collapsed,
   onToggle,
@@ -40,13 +68,9 @@ export function SidebarNav({
   const firstModule = groups.find(
     (g) => g.id !== "top" && g.id !== "project",
   )?.id;
-  const badge = (count: number) =>
-    count > 0 ? (
-      <span className="nav-badge">
-        {count}
-        <span className="sr-only">{` ${text.navOpen}`}</span>
-      </span>
-    ) : null;
+  const badge = (count: number, critical: boolean) => (
+    <NavBadge count={count} urgent={critical} locale={locale} />
+  );
   const link = (route: Route, className: string, withIcon: boolean) => {
     const Icon = route.nav!.icon;
     const active = route.key === activeKey;
@@ -59,7 +83,7 @@ export function SidebarNav({
       >
         {withIcon && <Icon aria-hidden="true" />}
         <span className="nav-entry-label">{route.nav!.label[locale]}</span>
-        {badge(badges[route.key] ?? 0)}
+        {badge(badges[route.key] ?? 0, urgent.has(route.key))}
       </Link>
     );
   };
@@ -96,7 +120,13 @@ export function SidebarNav({
                 <span className="nav-group-label">
                   {group.label?.[locale] ?? group.id}
                 </span>
-                {!open && badge(groupBadge(group, badges))}
+                {!open &&
+                  badge(
+                    groupBadge(group, badges),
+                    group.entries.some(
+                      (r) => urgent.has(r.key) && (badges[r.key] ?? 0) > 0,
+                    ),
+                  )}
                 <ChevronDown className="nav-group-chevron" aria-hidden="true" />
               </button>
               {/* Kept while collapsed, so aria-controls names an element. */}

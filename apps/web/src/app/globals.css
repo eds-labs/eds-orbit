@@ -2394,6 +2394,16 @@ td:first-child {
     color: var(--primary);
     font-weight: 650;
   }
+  /* Over the icon's top right corner, out of the flow: the bar keeps its size. */
+  .mobile-nav .nav-badge {
+    position: absolute;
+    top: 0;
+    left: calc(50% + 5px);
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+  }
   .mobile-nav [aria-current="page"]:after {
     content: "";
     position: absolute;
