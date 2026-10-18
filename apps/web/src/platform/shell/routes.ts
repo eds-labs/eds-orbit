@@ -53,6 +53,14 @@ export function routeTable(registry: WebRegistry): RouteTable {
         !moduleIds.includes(view.navGroup)
       )
         problems.push(`${view.key}: unknown navGroup "${view.navGroup}"`);
+      else if (
+        !moduleId &&
+        moduleIds.includes(view.navGroup) &&
+        view.requiresModule !== view.navGroup
+      )
+        problems.push(
+          `${view.key}: navGroup "${view.navGroup}" needs requiresModule "${view.navGroup}"`,
+        );
     }
     if (view.nav?.mobileRank !== undefined && !view.nav.mobile)
       problems.push(`${view.key}: nav.mobileRank without nav.mobile`);
@@ -257,6 +265,16 @@ export function crumbs(
   const trail = parent ? [parent, own ?? route.key] : [own ?? route.key];
   const group = groupLabel?.(navGroupOf(route));
   return group ? [group, ...trail] : trail;
+}
+
+/** The document title's page part: the breadcrumb trail, joined with " / ". */
+export function pageTitle(
+  route: Route,
+  table: RouteTable,
+  locale: keyof Label,
+  groupLabel?: (group: string) => string | undefined,
+): string {
+  return crumbs(route, table, locale, groupLabel).join(" / ");
 }
 
 /** Routes in sidebar order; routes without a nav entry come last. */

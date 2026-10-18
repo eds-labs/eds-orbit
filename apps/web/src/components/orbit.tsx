@@ -34,6 +34,7 @@ import { NotificationBell } from "./notification-bell";
 import {
   activeNavKey,
   crumbs,
+  pageTitle,
   moduleShown,
   defaultProject,
   navGroupOf,
@@ -52,7 +53,11 @@ import {
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
 import { StandaloneContext } from "@/platform/shell/standalone-context";
-import { buildNavGroups, mobileEntries } from "@/platform/shell/nav-groups";
+import {
+  buildNavGroups,
+  mobileCurrentKey,
+  mobileEntries,
+} from "@/platform/shell/nav-groups";
 import {
   readCollapsed,
   revealGroup,
@@ -271,6 +276,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       },
     };
   }, [project, moduleStates.data, registry, table]);
+  // The label of a sidebar group, for the breadcrumb and the document title.
+  const groupLabel = (group: string) =>
+    group === "top"
+      ? undefined
+      : group === "project"
+        ? t("navProject")
+        : registry.modules.find((m) => m.id === group)?.displayName[locale];
   useEffect(() => {
     const page =
       place.kind === "organizations"
@@ -280,7 +292,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           : projectId && !project
             ? t("projectNotFound")
             : place.kind === "view"
-              ? place.route.nav?.label[locale]
+              ? pageTitle(place.route, table, locale, groupLabel)
               : place.kind === "standalone"
                 ? place.view.title[locale]
                 : place.kind === "notFound"
@@ -456,12 +468,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     Boolean(shell.modules.find((m) => m.id === id)?.enabled);
   const moduleOff = Boolean(route && !routeEnabled(route, isOn));
   const navGroups = buildNavGroups(table.routes, shell.modules);
-  const groupLabel = (group: string) =>
-    group === "top"
-      ? undefined
-      : group === "project"
-        ? t("navProject")
-        : shell.modules.find((m) => m.id === group)?.displayName[locale];
+  const mobileBar = mobileEntries(table.routes, isOn);
+  const mobileCurrent = mobileCurrentKey(mobileBar, route);
   function toggleGroup(id: string) {
     const next = toggleCollapsed(collapsed, id);
     setCollapsed(next);
@@ -672,16 +680,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </main>
         </div>
         <nav className="mobile-nav" aria-label="Mobile workspace">
-          {mobileEntries(table.routes, isOn).map((n) => {
+          {mobileBar.map((n) => {
             const Icon = n.nav!.icon;
             const mobile = n.nav!.mobile!;
             return (
               <Link
                 key={n.key}
                 href={projectHref(project.id, n)}
-                aria-current={
-                  activeNavKey(route) === n.key ? "page" : undefined
-                }
+                aria-current={n.key === mobileCurrent ? "page" : undefined}
               >
                 <Icon aria-hidden="true" />
                 <span>{mobile === true ? label(n) : mobile[locale]}</span>

@@ -134,6 +134,11 @@ test("pickers, project home and every page have their own URL", async ({
     );
     await expect(page.getByText("Page not found")).toHaveCount(0);
   }
+  // The tab title carries the group, so the two "Overview" pages differ.
+  await page.goto(`${base}/knowledge`);
+  await expect(page).toHaveTitle(
+    new RegExp(`^Knowledge / Overview · ${project.name} · EDS Orbit$`),
+  );
   // The module groups and the project group, each with its entries.
   for (const group of ["Marketing", "Knowledge", "Project"])
     await expect(
@@ -359,14 +364,18 @@ test("mobile bar shows Home, Chat and two module entries plus More", async ({
     ),
   ).toBeTruthy();
 
-  // The drawer behind "More" shows the grouped sidebar.
+  // The closed sidebar sits off-screen; "More" opens it as a dialog with the
+  // grouped sidebar.
+  await expect(page.locator("aside.sidebar")).not.toBeInViewport();
   await mobile.getByRole("button", { name: "More" }).click();
-  const drawer = page.getByRole("navigation", { name: "Workspace" });
-  await expect(
-    drawer.getByRole("button", { name: /^Marketing/ }),
-  ).toBeVisible();
-  await expect(
-    drawer.getByRole("button", { name: /^Knowledge/ }),
-  ).toBeVisible();
-  await expect(drawer.getByRole("button", { name: /^Project/ })).toBeVisible();
+  const drawer = page.getByRole("dialog", { name: "Workspace navigation" });
+  await expect(drawer).toBeInViewport();
+  // The drawer scrolls; each group header is reachable in it.
+  for (const group of ["Marketing", "Knowledge", "Project"]) {
+    const header = drawer.getByRole("button", {
+      name: new RegExp(`^${group}`),
+    });
+    await header.scrollIntoViewIfNeeded();
+    await expect(header).toBeInViewport();
+  }
 });

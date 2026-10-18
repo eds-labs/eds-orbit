@@ -11,6 +11,7 @@ import {
   moduleUsable,
   navGroupOf,
   navOrder,
+  pageTitle,
   pickerHref,
   projectHref,
   rewriteLegacyHref,
@@ -113,7 +114,40 @@ describe("Web route registry", () => {
         platform: [view("home", ""), view("a", "a", "nope")],
         modules: [],
       }),
-    ).toThrow(/WEB_ROUTES_INVALID/);
+    ).toThrow(/navGroup/);
+  });
+
+  it("requires a platform page in a module's group to require that module", () => {
+    const view = (key: string, path: string, extra = {}) => ({
+      key,
+      path,
+      component: () => null,
+      nav: { label: { en: key, de: key }, icon: Home, order: 1 },
+      ...extra,
+    });
+    const modules = [
+      {
+        id: "a",
+        displayName: { en: "a", de: "a" },
+        description: { en: "a", de: "a" },
+        views: [{ ...view("a-root", ""), navGroup: undefined }],
+      },
+    ];
+    expect(() =>
+      routeTable({
+        platform: [view("home", ""), view("x", "x", { navGroup: "a" })],
+        modules,
+      }),
+    ).toThrow(/navGroup/);
+    expect(() =>
+      routeTable({
+        platform: [
+          view("home", ""),
+          view("x", "x", { navGroup: "a", requiresModule: "a" }),
+        ],
+        modules,
+      }),
+    ).not.toThrow();
   });
 
   it("rejects a module page in another module's group, and a mobileRank without mobile", () => {
@@ -162,6 +196,15 @@ describe("Web route registry", () => {
       "Quellen",
     ]);
     expect(crumbs(route("home"), table, "de", group)).toHaveLength(1);
+  });
+
+  it("titles a page with its group, as the breadcrumb does", () => {
+    const route = (key: string) => table.routes.find((r) => r.key === key)!;
+    const group = (g: string) => (g === "knowledge" ? "Knowledge" : undefined);
+    expect(pageTitle(route("knowledge"), table, "en", group)).toBe(
+      "Knowledge / Overview",
+    );
+    expect(pageTitle(route("home"), table, "en", group)).toBe("Home");
   });
 
   it("sends a module root to the module's first page", () => {

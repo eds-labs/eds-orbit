@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { webRegistry } from "@/modules/registry";
-import { buildNavGroups, mobileEntries } from "./nav-groups";
+import { buildNavGroups, mobileCurrentKey, mobileEntries } from "./nav-groups";
 import { routeEnabled, routeTable } from "./routes";
 
 const table = routeTable(webRegistry);
@@ -57,5 +57,40 @@ describe("mobileEntries", () => {
   it("only offers routes the enabled check allows", () => {
     for (const r of mobileEntries(table.routes, enabledIn(["marketing"])))
       expect(routeEnabled(r, enabledIn(["marketing"]))).toBe(true);
+  });
+});
+
+describe("mobileCurrentKey", () => {
+  const route = (key: string) => table.routes.find((r) => r.key === key)!;
+  const bar = mobileEntries(table.routes, enabledIn([]));
+  const current = (key: string) => mobileCurrentKey(bar, route(key));
+
+  it("marks the bar entry of the open page", () => {
+    expect(current("home")).toBe("home");
+    expect(current("approvals")).toBe("approvals");
+    expect(current("chat")).toBe("chat");
+  });
+
+  it("keeps a module root current on the pages of its group", () => {
+    // Support is on the bar through its root (Tickets).
+    expect(current("support-contacts")).toBe("support");
+    expect(current("support-stats")).toBe("support");
+    // Knowledge is not on this bar; with its root on the bar, a URL-only page
+    // counts through its navKey and a tab through the group.
+    const withKnowledge = [route("home"), route("knowledge")];
+    expect(mobileCurrentKey(withKnowledge, route("knowledge-health"))).toBe(
+      "knowledge",
+    );
+    expect(mobileCurrentKey(withKnowledge, route("knowledge-sources"))).toBe(
+      "knowledge",
+    );
+  });
+
+  it("marks nothing for a page that no bar entry stands for", () => {
+    // Missions is in Marketing, but the bar carries Content, not the group.
+    expect(current("missions")).toBeUndefined();
+    expect(current("knowledge-sources")).toBeUndefined();
+    expect(current("settings")).toBeUndefined();
+    expect(mobileCurrentKey(bar, null)).toBeUndefined();
   });
 });

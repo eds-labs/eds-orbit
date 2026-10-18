@@ -1,4 +1,11 @@
-import { navGroupOf, navOrder, routeEnabled, type Route } from "./routes";
+import { labels } from "@/lib/i18n";
+import {
+  activeNavKey,
+  navGroupOf,
+  navOrder,
+  routeEnabled,
+  type Route,
+} from "./routes";
 import type { Label } from "./types";
 
 // The grouped navigation model of the sidebar and the mobile bar (UI
@@ -22,7 +29,10 @@ type GroupModule = {
   groupOrder?: number;
 };
 
-const PROJECT_LABEL: Label = { en: "Project", de: "Projekt" };
+const PROJECT_LABEL: Label = {
+  en: labels.en.navProject,
+  de: labels.de.navProject,
+};
 const MOBILE_LIMIT = 4;
 
 /**
@@ -81,4 +91,21 @@ export function mobileEntries(
     )
     .slice(0, MOBILE_LIMIT)
     .map(({ route }) => route);
+}
+
+/**
+ * The bottom-bar entry that is current for the open page: the entry of the
+ * page itself, else the root entry of the page's module (a module's root
+ * stands for the whole module, such as Knowledge on its Sources page).
+ */
+export function mobileCurrentKey(
+  bar: readonly Route[],
+  active: Route | null | undefined,
+): string | undefined {
+  if (!active) return undefined;
+  const key = activeNavKey(active);
+  if (bar.some((n) => n.key === key)) return key;
+  return bar.find(
+    (n) => n.moduleId && n.path === "" && navGroupOf(n) === navGroupOf(active),
+  )?.key;
 }
