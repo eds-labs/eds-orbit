@@ -8,7 +8,8 @@ import { z } from "zod";
 import { scoped } from "../../../../../../packages/db/src/index.ts";
 import { KnowledgeError } from "../../../../../../packages/knowledge/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
-import { activePolicyRecord } from "../../ai/spend-mandate.ts";
+import { requireSpendMandate } from "../../ai/spend-mandate.ts";
+import { DomainError } from "../../shared.ts";
 import { searchForModel, type KnowledgeHit } from "../../knowledge/mcp-read.ts";
 import type { SearchBudget, SearchTrace } from "../../knowledge/search.ts";
 import type { NativeTool, NativeToolContext } from "../native-tools.ts";
@@ -51,17 +52,40 @@ type SearchResult = z.infer<typeof searchOutput>["results"][number];
 /**
  * The paid-search keys of one call in one project (D-M3-2): unique per call,
  * so a per-run limit never accumulates across calls; the project's daily and
- * monthly caps still apply. Null without a spend mandate: then the search is
- * lexical and spends nothing (D-M3-3).
+ * monthly caps still apply. Null unless the project could start a paid query
+ * embedding right now (an active spend mandate that approves paid tests, now
+ * inside its window, and the project not paused): then the search is lexical
+ * and spends nothing, and no `retrieval` run is opened for an attempt that
+ * would fail before any spend (D-M3-3). The paid path re-checks all of it.
  */
 async function budgetFor(
   scope: Scope,
   ctx: NativeToolContext,
 ): Promise<SearchBudget | null> {
-  const mandate = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-    activePolicyRecord(tx, scope),
-  );
-  if (!mandate) return null;
+  const open = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    let mandate;
+    try {
+      mandate = await requireSpendMandate(tx, scope);
+    } catch (error) {
+      // No active policy; a malformed one still fails the call.
+      if (error instanceof DomainError && error.code === "POLICY_REQUIRED")
+        return false;
+      throw error;
+    }
+    const { startAt, endAt, approvedPaidTests } = mandate.limits;
+    const now = Date.now();
+    if (
+      !approvedPaidTests ||
+      now < Date.parse(startAt) ||
+      now >= Date.parse(endAt)
+    )
+      return false;
+    const project = await tx.project.findUniqueOrThrow({
+      where: { id: scope.projectId },
+    });
+    return !project.paused;
+  });
+  if (!open) return null;
   // The request id ties the keys to the logs; the call id keeps them unique
   // per call.
   const runKey = `mcp:${ctx.grantId}:${ctx.requestId}:${ctx.callId}`;

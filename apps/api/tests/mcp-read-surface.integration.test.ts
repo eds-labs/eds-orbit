@@ -27,6 +27,7 @@ import {
   closeDatabase,
   scoped,
   type DbTx,
+  type Prisma,
 } from "../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import { EMBEDDING_PROFILE } from "../../../packages/knowledge/src/index.ts";
@@ -933,6 +934,70 @@ describe.skipIf(!enabled)(
           new RegExp(`^${project.Alpha}:query:mcp:${grant.id}:`),
         );
       });
+
+      it.each([
+        [
+          "an expired mandate",
+          { endAt: new Date(Date.now() - 60000).toISOString() },
+        ],
+        [
+          "a mandate that has not started",
+          { startAt: new Date(Date.now() + HOUR).toISOString() },
+        ],
+        ["a mandate without approved paid tests", { approvedPaidTests: false }],
+        ["a paused project", null],
+      ])(
+        "%s searches lexically and opens no retrieval run or reservation",
+        async (_name, change) => {
+          const alpha = ownerScope("Alpha");
+          const policyRow = await run(alpha, (tx) =>
+            tx.entity.findFirstOrThrow({
+              where: {
+                workspaceId,
+                projectId: project.Alpha,
+                kind: "policies",
+              },
+            }),
+          );
+          const setPolicy = (data: object) =>
+            run(alpha, (tx) =>
+              tx.entity.update({
+                where: { id: policyRow.id },
+                data: { data: data as Prisma.InputJsonObject },
+              }),
+            );
+          const setPaused = (paused: boolean) =>
+            run(alpha, (tx) =>
+              tx.project.update({
+                where: { id: project.Alpha },
+                data: { paused },
+              }),
+            );
+          const calls = embedding.calls;
+          const reservationsBefore = (await reservations("Alpha")).length;
+          const runsBefore = (await runsIn("Alpha", "retrieval")).length;
+          if (change)
+            await setPolicy({ ...(policyRow.data as object), ...change });
+          else await setPaused(true);
+          try {
+            const result = await search({ query: TOKEN }, "two");
+            expect(result.isError).toBeFalsy();
+            // Alpha is still searched, lexically.
+            expect(projectsIn(result)).toEqual(
+              new Set([project.Alpha, project.Beta]),
+            );
+            expect(resultIds(result)).toContain(
+              chunkId("Alpha", "alpha plain"),
+            );
+          } finally {
+            await setPolicy(policyRow.data as object);
+            await setPaused(false);
+          }
+          expect(embedding.calls).toBe(calls);
+          expect(await reservations("Alpha")).toHaveLength(reservationsBefore);
+          expect(await runsIn("Alpha", "retrieval")).toHaveLength(runsBefore);
+        },
+      );
 
       it("a single project without an active index is an empty list", async () => {
         const result = await search({ query: TOKEN }, "charlie");
