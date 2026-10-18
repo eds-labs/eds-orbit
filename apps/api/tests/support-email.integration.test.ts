@@ -413,7 +413,8 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
       (await messagesOf(ticket.id)).filter((m) => m.kind === "customer"),
     ).toHaveLength(2);
 
-    // A bounce report naming the reply marks it bounced.
+    // A bounce report naming the reply and its recipient marks it bounced
+    // (the platform needs both since WP4.7 review fix F-4).
     await receive(
       mime(
         {
@@ -421,7 +422,7 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
           Subject: "Undelivered Mail Returned to Sender",
           "Content-Type": "text/plain",
         },
-        `Delivery failed for message ${stored.externalId}`,
+        `Delivery to anna@example.org failed for message ${stored.externalId}`,
       ),
     );
     await syncEmailDelivery(scope);

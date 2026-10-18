@@ -52,6 +52,8 @@ x-api-environment: &api-environment
   ORBIT_SUPPORT: ${ORBIT_SUPPORT:-false}
   # Platform files (WP4.6): an own R2 bucket and token, never the backup ones.
   ORBIT_FILES: ${ORBIT_FILES:-false}
+  # Encrypted rows in Postgres (in the database backup) or "s3" for a bucket.
+  FILES_BACKEND: ${FILES_BACKEND:-database}
   # E-mail over the project's mailbox and member notifications (WP4.7).
   ORBIT_EMAIL: ${ORBIT_EMAIL:-false}
   ORBIT_NOTIFICATIONS: ${ORBIT_NOTIFICATIONS:-false}
@@ -62,8 +64,11 @@ x-api-environment: &api-environment
   FILES_S3_REGION: ${FILES_S3_REGION:-auto}
   FILES_S3_ACCESS_KEY_ID: ${FILES_S3_ACCESS_KEY_ID:-}
   FILES_S3_SECRET_ACCESS_KEY: ${FILES_S3_SECRET_ACCESS_KEY:-}
-  FILES_ENCRYPTION_KEY: ${FILES_ENCRYPTION_KEY:-}
+  # Generated and kept by Coolify like CREDENTIAL_KEY; losing it makes files unreadable.
+  FILES_ENCRYPTION_KEY: ${FILES_ENCRYPTION_KEY:-${SERVICE_HEX_64_FILESKEY}}
   FILES_MAX_BYTES: ${FILES_MAX_BYTES:-20971520}
+  # All files of one project; see packages/config (backup work space).
+  FILES_PROJECT_QUOTA_BYTES: ${FILES_PROJECT_QUOTA_BYTES:-104857600}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
   OPENAI_VERIFIED_MODELS: ${OPENAI_VERIFIED_MODELS:-}
   OPENAI_RATE_CARD_JSON: ${OPENAI_RATE_CARD_JSON:-}

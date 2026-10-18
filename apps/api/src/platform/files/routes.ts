@@ -8,6 +8,7 @@ import { moduleScope } from "../tenancy/module-roles.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
 import {
   authorize,
+  PROJECT_OWN,
   PROJECT_READ,
   PROJECT_WRITE,
 } from "../tenancy/permissions.ts";
@@ -18,8 +19,10 @@ import { deleteFile, fileRow, readFile, storeFile } from "./files.ts";
 
 // Platform file routes (WP4.6). A file belongs to one module: uploading
 // and deleting need write access there, downloading read access, and the
-// module must be on. Every route answers 404 while files are off or not
-// configured (the server's onRequest hook says so before parsing).
+// module must be on. The platform's own files (raw inbound e-mail) are the
+// owner's only, and no member uploads into them. Every route answers 404
+// while files are off or not configured (the server's onRequest hook says
+// so before parsing).
 
 export const FILE_ROUTE_PREFIX = "/api/projects/:projectId/files";
 const moduleId = z.string().regex(/^[a-z][a-z0-9_]{1,30}$/);
@@ -32,6 +35,8 @@ async function inModule(
 ): Promise<Scope> {
   const effective = moduleScope(scope, module);
   authorize(effective, required);
+  // Platform files hold the mailbox, which only the owner sees (WP4.7).
+  if (module === "platform") authorize(effective, PROJECT_OWN);
   await scoped(scope.workspaceId, scope.projectId, (tx) =>
     assertModuleEnabled(tx, effective, module),
   );
@@ -46,6 +51,15 @@ const moduleOf = (scope: Scope, id: string) =>
     async (tx) => (await fileRow(tx, scope, id)).moduleId,
   );
 
+/** RFC 5987 `attr-char` encoding for `filename*`. */
+const extValue = (value: string) =>
+  encodeURIComponent(value).replace(
+    /['()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+const uploadScope = new WeakMap<object, Scope>();
+
 export async function registerFileRoutes(app: FastifyInstance, auth: Auth) {
   await app.register(async (child) => {
     // The body arrives as raw bytes; Fastify counts it while it streams in
@@ -57,14 +71,33 @@ export async function registerFileRoutes(app: FastifyInstance, auth: Auth) {
     );
     child.post(
       FILE_ROUTE_PREFIX,
-      { bodyLimit: loadConfig().FILES_MAX_BYTES },
+      {
+        bodyLimit: loadConfig().FILES_MAX_BYTES,
+        // Session, module, write access and content type are checked before
+        // a byte of the body is read: no stranger makes the API buffer up
+        // to FILES_MAX_BYTES, and no other parser runs under that limit.
+        onRequest: async (req) => {
+          const { projectId } = req.params as { projectId: string };
+          // The session first: nothing is validated for a stranger.
+          const member = await scopeFor(auth, req, projectId);
+          const query = z.object({ module: moduleId }).parse(req.query ?? {});
+          // The platform writes its own files; members never do.
+          if (query.module === "platform")
+            throw new DomainError("MODULE_UNKNOWN", 409);
+          const scope = await inModule(member, query.module, PROJECT_WRITE);
+          const type = (req.headers["content-type"] ?? "")
+            .split(";")[0]!
+            .trim()
+            .toLowerCase();
+          if (type !== "application/octet-stream")
+            throw new DomainError("FILE_BODY_REQUIRED", 415);
+          uploadScope.set(req, scope);
+        },
+      },
       async (req, reply) => {
-        const { projectId } = req.params as { projectId: string };
-        // The session first: nothing is validated for a stranger.
-        const member = await scopeFor(auth, req, projectId);
         const query = z.object({ module: moduleId }).parse(req.query ?? {});
-        const scope = await inModule(member, query.module, PROJECT_WRITE);
-        if (!Buffer.isBuffer(req.body))
+        const scope = uploadScope.get(req);
+        if (!scope || !Buffer.isBuffer(req.body))
           throw new DomainError("FILE_BODY_REQUIRED", 415);
         const name = req.headers["x-file-name"];
         const stored = await storeFile(scope, {
@@ -104,7 +137,7 @@ export async function registerFileRoutes(app: FastifyInstance, auth: Auth) {
         .header("Content-Length", String(bytes.byteLength))
         .header(
           "Content-Disposition",
-          `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(file.name ?? "file")}`,
+          `attachment; filename="${name}"; filename*=UTF-8''${extValue(file.name ?? "file")}`,
         )
         .header("X-Content-Type-Options", "nosniff")
         .header("Content-Security-Policy", "default-src 'none'; sandbox")

@@ -7,6 +7,7 @@ import { registeredRegistry } from "../modules/contributions.ts";
 import type { PeriodicTask } from "../jobs/types.ts";
 import { decryptFile, encryptFile, FILE_ENCRYPTION } from "./crypto.ts";
 import { s3Store, type ObjectStore } from "./s3.ts";
+import { databaseStore } from "./db-store.ts";
 
 /**
  * Platform files (WP4.6). Binary content is encrypted (crypto.ts) and kept
@@ -38,12 +39,28 @@ const TYPES: Record<string, ((bytes: Uint8Array) => boolean) | null> = {
 const starts = (bytes: Uint8Array, signature: number[]) =>
   signature.every((value, i) => bytes[i] === value);
 
+/** The extensions a name of each type may end in; the first is appended otherwise. */
+const EXTENSIONS: Record<string, string[]> = {
+  "image/png": [".png"],
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/gif": [".gif"],
+  "image/webp": [".webp"],
+  "application/pdf": [".pdf"],
+  "text/plain": [".txt"],
+  "text/csv": [".csv"],
+  "message/rfc822": [".eml"],
+};
+
 export const allowedFileTypes = () => Object.keys(TYPES);
 
 type FilesConfig = {
+  backend: "database" | "s3";
   maxBytes: number;
+  /** What one project may store in all, files marked deleted included. */
+  quotaBytes: number;
   keyHex: string;
-  store: () => ObjectStore;
+  /** The project's store: its rows in the database, or the bucket. */
+  store: (scope: Scope) => ObjectStore;
 };
 
 let override: ObjectStore | null = null;
@@ -52,21 +69,30 @@ export function setObjectStoreForTests(store: ObjectStore | null) {
   override = store;
 }
 
-/** The configuration, or null while files are off or incomplete. */
+/**
+ * The configuration, or null while files are off or incomplete. The
+ * database backend needs only the encryption key; S3 also needs its bucket.
+ */
 export function filesConfig(): FilesConfig | null {
   const c = loadConfig();
-  if (c.ORBIT_FILES !== "true") return null;
+  if (c.ORBIT_FILES !== "true" || !c.FILES_ENCRYPTION_KEY) return null;
+  const base = {
+    backend: c.FILES_BACKEND,
+    maxBytes: c.FILES_MAX_BYTES,
+    quotaBytes: c.FILES_PROJECT_QUOTA_BYTES,
+    keyHex: c.FILES_ENCRYPTION_KEY,
+  };
+  if (c.FILES_BACKEND === "database")
+    return { ...base, store: (scope) => override ?? databaseStore(scope) };
   if (
     !c.FILES_S3_ENDPOINT ||
     !c.FILES_S3_BUCKET ||
     !c.FILES_S3_ACCESS_KEY_ID ||
-    !c.FILES_S3_SECRET_ACCESS_KEY ||
-    !c.FILES_ENCRYPTION_KEY
+    !c.FILES_S3_SECRET_ACCESS_KEY
   )
     return null;
   return {
-    maxBytes: c.FILES_MAX_BYTES,
-    keyHex: c.FILES_ENCRYPTION_KEY,
+    ...base,
     store: () =>
       override ??
       s3Store({
@@ -113,17 +139,42 @@ export const fileView = (row: FileRow) => ({
 const sha256 = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 
-/** A display name without paths or control characters, at most 200 characters. */
-export function cleanFileName(raw: unknown): string | null {
+/**
+ * A display name without paths, control or bidi characters, at most 200
+ * characters, ending in an extension of its type: a download is saved under
+ * this name, so plain text never arrives as "run.bat".
+ */
+export function cleanFileName(raw: unknown, mime: string): string | null {
   if (typeof raw !== "string") return null;
   const base = raw.split(/[\\/]/).pop() ?? "";
-  const clean = base.replace(/[\u0000-\u001f\u007f"]/g, "").trim();
-  return clean ? clean.slice(0, 200) : null;
+  const clean = base
+    .replace(
+      /[\u0000-\u001f\u007f-\u009f"\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g,
+      "",
+    )
+    .trim();
+  if (!clean) return null;
+  const extensions = EXTENSIONS[mime] ?? [];
+  const lower = clean.toLowerCase();
+  if (extensions.some((extension) => lower.endsWith(extension)))
+    return clean.slice(-200);
+  return `${clean.slice(0, 200 - extensions[0]!.length)}${extensions[0]}`;
+}
+
+/** Bytes the project holds, counting files marked deleted until purged. */
+async function projectBytes(tx: DbTx, scope: Scope) {
+  const sum = await tx.file.aggregate({
+    _sum: { size: true },
+    where: { workspaceId: scope.workspaceId, projectId: scope.projectId },
+  });
+  return sum._sum.size ?? 0;
 }
 
 /**
- * Stores one file of a module: checks size and type, encrypts, writes the
- * object, then the row. A failed row removes the object again.
+ * Stores one file of a module: checks size, type and the project's quota,
+ * encrypts, writes the object, then the row. A failed row removes the
+ * object again. The quota bounds the database (and its backup) with the
+ * database backend, and the bucket with S3.
  */
 export async function storeFile(
   scope: Scope,
@@ -143,13 +194,23 @@ export async function storeFile(
   const check = TYPES[mime];
   if (check === undefined || (check && !check(input.bytes)))
     throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
+  const size = input.bytes.byteLength;
+  const overQuota = async (tx: DbTx) =>
+    (await projectBytes(tx, scope)) + size > config.quotaBytes;
+  // Early, so a full project writes no object at all.
+  if (await scoped(scope.workspaceId, scope.projectId, overQuota))
+    throw new DomainError("FILES_QUOTA_EXCEEDED", 413);
   const id = randomUUID();
   const key = `projects/${scope.projectId}/${input.moduleId}/${id}`;
   const digest = sha256(input.bytes);
-  const store = config.store();
+  const store = config.store(scope);
   await store.put(key, encryptFile(input.bytes, id, config.keyHex));
   try {
     const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      // Again in the row's transaction: scoped() holds the project's lock,
+      // so concurrent uploads cannot overshoot.
+      if (await overQuota(tx))
+        throw new DomainError("FILES_QUOTA_EXCEEDED", 413);
       const created = await tx.file.create({
         data: {
           id,
@@ -157,7 +218,7 @@ export async function storeFile(
           projectId: scope.projectId,
           moduleId: input.moduleId,
           key,
-          name: cleanFileName(input.name),
+          name: cleanFileName(input.name, mime),
           mime,
           size: input.bytes.byteLength,
           sha256: digest,
@@ -199,7 +260,7 @@ export async function readFile(scope: Scope, id: string) {
   const row = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     fileRow(tx, scope, id),
   );
-  const sealed = await config.store().get(row.key);
+  const sealed = await config.store(scope).get(row.key);
   if (!sealed) throw new DomainError("FILE_CONTENT_MISSING", 404);
   let bytes: Uint8Array;
   try {
@@ -244,7 +305,7 @@ export async function deleteFile(scope: Scope, id: string) {
     return found;
   });
   // A failure here is retried by the cleanup; the file is gone either way.
-  await purge(scope, config.store(), row);
+  await purge(scope, config.store(scope), row);
   return { id, deleted: true };
 }
 
@@ -271,7 +332,7 @@ export const fileCleanup: PeriodicTask = {
         take: 50,
       }),
     );
-    const store = config.store();
+    const store = config.store(scope);
     for (const row of marked) await purge(scope, store, row);
   },
 };

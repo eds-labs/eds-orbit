@@ -9,6 +9,8 @@ import { marketingCollectionPermissions } from "./modules/marketing/permissions.
 import { moduleRegistry, registerModules } from "./modules/registry.ts";
 import {
   effectiveRole,
+  hiddenKinds,
+  highestRole,
   memberModuleRoles,
   moduleRolesEnabled,
   moduleScope,
@@ -311,10 +313,11 @@ export async function buildServer(
       !notificationsEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
-    // Public ingress (WP4.2) does not exist while its flag is off.
+    // Public ingress (WP4.2) does not exist while its flag is off. The
+    // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
       (req.routeOptions.url === WEBHOOK_PATH ||
-        req.url.startsWith("/api/public/")) &&
+        (req.routeOptions.url ?? "").startsWith("/api/public/")) &&
       !publicIngressEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
@@ -659,20 +662,24 @@ export async function buildServer(
   app.get("/api/projects/:projectId/dashboard", async (req) => {
     const { projectId } = req.params as any;
     const scope = await scopeFor(auth, req, projectId);
+    // A module the member has no access to adds nothing here (WP4.5).
+    const hidden = hiddenKinds(scope);
+    const visible = (kind: string) => !hidden.includes(kind);
     return scoped(scope.workspaceId, projectId, async (tx) => {
       const project = await tx.project.findUnique({ where: { id: projectId } });
       const counts: Record<string, number> = {};
-      for (const kind of schemas.collections)
+      for (const kind of schemas.collections.filter(visible))
         counts[kind] = await tx.entity.count({ where: { projectId, kind } });
       const reservations = await tx.budgetReservation.findMany({
         where: { projectId },
       });
-      const policy = (await list(tx, scope, "policies")).find(
-        (x) => data(x).active,
-      );
-      counts.verifiedFacts = (await list(tx, scope, "facts")).filter(
-        (f) => data(f).status === "verified",
-      ).length;
+      const policy = visible("policies")
+        ? (await list(tx, scope, "policies")).find((x) => data(x).active)
+        : undefined;
+      if (visible("facts"))
+        counts.verifiedFacts = (await list(tx, scope, "facts")).filter(
+          (f) => data(f).status === "verified",
+        ).length;
       counts.connectedConnectors = (await list(tx, scope, "connectors")).filter(
         (c) => connectionVerified(data(c).status),
       ).length;
@@ -681,7 +688,9 @@ export async function buildServer(
         project,
         counts,
         exceptions: await list(tx, scope, "exceptions"),
-        publications: await list(tx, scope, "publications"),
+        publications: visible("publications")
+          ? await list(tx, scope, "publications")
+          : [],
         jobs: await list(tx, scope, "jobs"),
         budget: {
           reservedMicros: reservations
@@ -1094,12 +1103,15 @@ export async function buildServer(
       ),
     };
   });
-  // Decision on one exact action request; role and checks come from its action type.
+  // Decision on one exact action request; role and checks come from its
+  // action type and the member's role in the type's module (WP4.5).
   app.post(
     "/api/projects/:projectId/action-requests/:id/decide",
     async (req) => {
       const { projectId, id } = req.params as { projectId: string; id: string };
-      const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
+      const scope = await scopeFor(auth, req, projectId);
+      // Writers only, in at least one module; the type's module decides next.
+      authorize({ role: highestRole(scope) }, PROJECT_WRITE);
       const decided = await scoped(scope.workspaceId, projectId, (tx) =>
         decideActionRequest(tx, scope, z.uuid().parse(id), req.body),
       );

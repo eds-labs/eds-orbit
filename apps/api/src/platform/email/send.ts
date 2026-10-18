@@ -33,6 +33,8 @@ import {
 
 export const EMAIL_KIND = "email_messages";
 export const EMAIL_QUEUE = "email_send";
+/** Received messages (inbound.ts); here for the reply check. */
+export const INBOUND_KIND = "inbound_emails";
 const MAX_ATTEMPTS = 3;
 
 export const outgoingEmail = z
@@ -64,6 +66,22 @@ export const ORBIT_MESSAGE_ID =
 export async function queueEmail(tx: DbTx, scope: Scope, raw: unknown) {
   if (!emailEnabled()) throw new DomainError("NOT_FOUND", 404);
   const input = outgoingEmail.parse(raw);
+  // RFC 3834: automatic mail (auto-replies, lists, bounces) is never
+  // answered, or two auto-responders mail each other forever.
+  if (input.inReplyTo) {
+    const original = await tx.entity.findFirst({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: INBOUND_KIND,
+        AND: [
+          { data: { path: ["messageId"], equals: input.inReplyTo } },
+          { data: { path: ["automatic"], equals: true } },
+        ],
+      },
+    });
+    if (original) throw new DomainError("EMAIL_REPLY_TO_AUTOMATIC", 409);
+  }
   const row = await create(tx, scope, EMAIL_KIND, {
     ...input,
     status: "queued",

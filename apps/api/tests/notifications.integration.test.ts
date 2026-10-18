@@ -221,6 +221,10 @@ describe.skipIf(!enabled)("member notifications", () => {
       status: "queued",
     });
     // No access to the module: no notice either.
+    expect(await notify([ids.editor], "Before")).toEqual({
+      inApp: 1,
+      email: 0,
+    });
     process.env.ORBIT_MODULE_ROLES = "true";
     await authDb.projectMemberModuleRole.create({
       data: {
@@ -235,6 +239,66 @@ describe.skipIf(!enabled)("member notifications", () => {
       inApp: 0,
       email: 0,
     });
+    // Notices from before the change are hidden too, and do not count.
+    expect((await call("editor", "GET", "/notifications")).json()).toEqual({
+      unread: 0,
+      items: [],
+    });
+  });
+
+  it("refuses links that a browser would take off Orbit", async () => {
+    // "/\t/x" and "/\n/x" become "//x" in a browser (tabs and line breaks
+    // are dropped), "/\x" becomes "//x" (backslash is a slash).
+    for (const link of [
+      "/\t/evil.example",
+      "/\n/evil.example",
+      "/\\evil.example",
+    ])
+      await expect(
+        scoped(scope.workspaceId, scope.projectId, (tx) =>
+          notifyMembers(tx, scope, {
+            kind: "task_assigned",
+            userIds: [ids.editor],
+            title: "Link",
+            link,
+          }),
+        ),
+      ).rejects.toThrow();
+    // The database refuses them as well, whoever writes the row.
+    for (const link of ["/\t/evil.example", "/\\evil.example"])
+      await expect(
+        scoped(scope.workspaceId, scope.projectId, async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.user_id',${ids.editor},true)`;
+          await tx.notification.create({
+            data: {
+              workspaceId: scope.workspaceId,
+              projectId: scope.projectId,
+              userId: ids.editor,
+              moduleId: "tasks",
+              kind: "task_assigned",
+              title: "Direct",
+              link,
+            },
+          });
+        }),
+      ).rejects.toThrow();
+  });
+
+  it("e-mails a title with a line break as one subject line instead of failing", async () => {
+    process.env.ORBIT_EMAIL = "true";
+    // The viewer chose e-mail in the test above; a title from user input
+    // with a line break must not make the module's whole action fail.
+    expect(await notify([ids.viewer], "Fix the\r\nlogin page")).toEqual({
+      inApp: 0,
+      email: 1,
+    });
+    const queued = (
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        list(tx, scope, "email_messages"),
+      )
+    ).map((row) => data(row));
+    // Newest first.
+    expect(queued[0]).toMatchObject({ subject: "Fix the login page" });
   });
 
   it("does not exist while off", async () => {

@@ -303,6 +303,17 @@ model File {
   @@index([workspaceId, projectId, moduleId])
 }
 
+/// The encrypted content of a platform file with FILES_BACKEND=database (WP4.6).
+model FileBlob {
+  key         String   @id
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  data        Bytes
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([workspaceId, projectId])
+}
+
 /// An in-app notice for one member (WP4.7); private to that member by RLS.
 model Notification {
   id          String    @id @default(uuid()) @db.Uuid

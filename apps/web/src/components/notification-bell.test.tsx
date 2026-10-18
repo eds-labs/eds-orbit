@@ -36,6 +36,10 @@ describe("notification bell (WP4.7)", () => {
       "//evil.example",
       "https://evil.example",
       "/\\evil",
+      // Browsers drop tabs and line breaks in URLs: "/\t/x" becomes "//x".
+      "/\t/evil.example",
+      "/\n/evil.example",
+      "/\r/evil.example",
       null,
     ])
       expect(safeLink(bad)).toBeNull();

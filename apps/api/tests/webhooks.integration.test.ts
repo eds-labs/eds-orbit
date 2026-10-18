@@ -55,17 +55,18 @@ describe.skipIf(!enabled)("signed provider webhooks", () => {
   ) => {
     const body = options.body ?? JSON.stringify({ title: "From webhook" });
     const target = options.target ?? scope;
+    const messageId = options.messageId ?? randomUUID();
     return app.inject({
       method: "POST",
       url: `/api/hooks/${options.provider ?? "fixture"}/${target.workspaceId}/${target.projectId}/${options.connection ?? connectionId}`,
       headers: {
         "content-type": options.contentType ?? "application/json",
-        "x-fixture-signature": fixtureSignature(body, options.secret ?? SECRET),
-        ...(options.messageId === ""
-          ? {}
-          : {
-              "x-fixture-message-id": options.messageId ?? randomUUID(),
-            }),
+        "x-fixture-signature": fixtureSignature(
+          messageId,
+          body,
+          options.secret ?? SECRET,
+        ),
+        ...(messageId === "" ? {} : { "x-fixture-message-id": messageId }),
       },
       payload: body,
     });

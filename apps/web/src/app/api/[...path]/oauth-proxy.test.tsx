@@ -52,17 +52,54 @@ describe("API proxy", () => {
     }
   });
 
-  it("forwards the bearer token of a module's public API (WP5.4)", async () => {
-    await call(GET, ["public", "support", "pk_" + "a".repeat(32), "messages"], {
-      headers: { authorization: "Bearer " + "t".repeat(43) },
+  it("forwards Authorization under /api/public/ for public sessions' bearer tokens", async () => {
+    await call(POST, ["public", "support", "pk_x", "requests"], {
+      method: "POST",
+      headers: { authorization: "Bearer t", cookie: "a=b" },
+      body: "{}",
     });
-    expect(sentHeaders().get("authorization")).toBe("Bearer " + "t".repeat(43));
+    expect(sentHeaders().get("authorization")).toBe("Bearer t");
     fetchMock.mockClear();
     // One decoded segment is not the public prefix.
     await call(GET, ["public/support", "x"], {
-      headers: { authorization: "Bearer abc" },
+      headers: { authorization: "Bearer t" },
     });
     expect(sentHeaders().has("authorization")).toBe(false);
+  });
+
+  it("forwards a provider's own headers under /api/hooks/, never cookies or proxy-only ones", async () => {
+    await call(POST, ["hooks", "fixture", "w", "p", "c"], {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-fixture-signature": "abc",
+        "stripe-signature": "t=1,v1=def",
+        "webhook-id": "msg_1",
+        authorization: "Basic eA==",
+        cookie: "orbit.session_token=x",
+        "x-orbit-client-ip": "192.0.2.1",
+        "x-forwarded-host": "evil.example",
+        "x-forwarded-for": "198.51.100.4",
+      },
+      body: "{}",
+    });
+    const sent = sentHeaders();
+    expect(sent.get("x-fixture-signature")).toBe("abc");
+    expect(sent.get("stripe-signature")).toBe("t=1,v1=def");
+    expect(sent.get("webhook-id")).toBe("msg_1");
+    expect(sent.get("authorization")).toBe("Basic eA==");
+    expect(sent.get("content-type")).toBe("application/json");
+    expect(sent.has("cookie")).toBe(false);
+    expect(sent.has("x-forwarded-host")).toBe(false);
+    expect(sent.get("x-orbit-client-ip")).toBe("198.51.100.4");
+    // Elsewhere, unknown headers stay behind.
+    fetchMock.mockClear();
+    await call(POST, ["projects", "p1", "content"], {
+      method: "POST",
+      headers: { "x-fixture-signature": "abc" },
+      body: "{}",
+    });
+    expect(sentHeaders().has("x-fixture-signature")).toBe(false);
   });
 
   it("passes the form content type and sets only the trusted client address", async () => {

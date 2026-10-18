@@ -5,7 +5,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../shared.ts";
 import { userScoped } from "../tenancy/scope.ts";
 import { projectMembership } from "../tenancy/member-scope.ts";
-import { effectiveRole } from "../tenancy/module-roles.ts";
+import { effectiveRole, hiddenModules } from "../tenancy/module-roles.ts";
 import {
   ownerEnabled,
   registeredUserNotification,
@@ -32,6 +32,9 @@ export type UserNotificationKind = {
   emailDefault: boolean;
 };
 
+/** A same-origin path; the database and the bell check the same rule. */
+export const ORBIT_PATH = /^\/(?![/\\])[^\s\\\u0000-\u001f\u007f]*$/;
+
 export function notificationsEnabled() {
   return loadConfig().ORBIT_NOTIFICATIONS === "true";
 }
@@ -42,12 +45,11 @@ const notice = z
     userIds: z.array(z.string().min(1).max(200)).min(1).max(200),
     title: z.string().trim().min(1).max(200),
     body: z.string().max(2000).default(""),
-    /** An Orbit path, such as /projects/<id>/tasks. */
-    link: z
-      .string()
-      .max(500)
-      .regex(/^\/[^/]/)
-      .optional(),
+    /**
+     * An Orbit path, such as /projects/<id>/tasks. No backslash, space or
+     * control character: browsers read "/\\x" and "/<tab>/x" as "//x".
+     */
+    link: z.string().max(500).regex(ORBIT_PATH).optional(),
   })
   .strict();
 
@@ -131,7 +133,9 @@ export async function notifyMembers(tx: DbTx, scope: Scope, raw: unknown) {
       const origin = loadConfig().APP_ORIGIN.replace(/\/+$/, "");
       await queueEmail(tx, scope, {
         to: [user.email],
-        subject: input.title,
+        // A title may come from user input with line breaks; a subject is
+        // one line (queueEmail refuses anything else).
+        subject: input.title.replace(/\s+/g, " "),
         text: [
           input.body || input.title,
           input.link ? `${origin}${input.link}` : "",
@@ -151,7 +155,10 @@ export async function notifyMembers(tx: DbTx, scope: Scope, raw: unknown) {
 
 const LIST_LIMIT = 50;
 
-/** The member's latest notices and the unread count. */
+/**
+ * The member's latest notices and the unread count, without those of
+ * modules the member no longer has access to (WP4.5).
+ */
 export async function myNotifications(scope: Scope) {
   if (!notificationsEnabled()) throw new DomainError("NOT_FOUND", 404);
   return userScoped(scope, async (tx) => {
@@ -159,6 +166,7 @@ export async function myNotifications(scope: Scope) {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       userId: scope.userId,
+      moduleId: { notIn: hiddenModules(scope) },
     };
     const [items, unread] = await Promise.all([
       tx.notification.findMany({
