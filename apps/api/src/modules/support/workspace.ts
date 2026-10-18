@@ -39,6 +39,7 @@ const listInput = z
     status: z.enum(STATUSES).optional(),
     inboxId: z.uuid().optional(),
     category: z.string().max(41).optional(),
+    tag: z.string().max(41).optional(),
     priority: z.enum(PRIORITIES).optional(),
     q: z.string().trim().min(1).max(200).optional(),
     cursor: z.string().max(200).optional(),
@@ -87,6 +88,7 @@ export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
   if (input.status) and.push({ status: input.status });
   if (input.inboxId) and.push({ inboxId: input.inboxId });
   if (input.category) and.push({ category: input.category });
+  if (input.tag) and.push({ tags: { has: input.tag } });
   if (input.priority) and.push({ priority: input.priority });
   if (input.q) {
     const { contactIds, ticketIds } = await searchMatches(tx, scope, input.q);
@@ -319,6 +321,16 @@ export async function updateTicket(
     !settings.categories.some((c) => c.key === input.category)
   )
     throw new DomainError("CATEGORY_UNKNOWN", 409);
+  // New tags come from the project's list; ones already on the ticket may
+  // stay after the list changed.
+  if (
+    input.tags?.some(
+      (tag) =>
+        !ticket.tags.includes(tag) &&
+        !settings.tags.some((defined) => defined.key === tag),
+    )
+  )
+    throw new DomainError("TAG_UNKNOWN", 409);
   if (input.assigneeUserId) {
     const agents = await supportAgents(scope);
     if (!agents.some((a) => a.userId === input.assigneeUserId))

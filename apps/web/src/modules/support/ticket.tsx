@@ -26,6 +26,7 @@ import {
   type TimelineEntry,
 } from "./api";
 import { supportText, type SupportText } from "./labels";
+import { TagPicker, useSupportLists } from "./tags";
 
 export const SLA_TONE = {
   ok: "success",
@@ -265,7 +266,7 @@ function TicketControls({
     mutation.run(() =>
       patch(supportPath(project.id, `/tickets/${ticket.id}`), data),
     );
-  const [tags, setTags] = useState(ticket.tags.join(", "));
+  const lists = useSupportLists();
   return (
     <div className="support-controls">
       <label>
@@ -308,30 +309,34 @@ function TicketControls({
           ))}
         </select>
       </label>
-      <form
-        className="support-tags"
-        onSubmit={(e) => {
-          e.preventDefault();
-          update({
-            tags: tags
-              .split(",")
-              .map((x) => x.trim())
-              .filter(Boolean),
-          });
-        }}
-      >
-        <label>
-          <span>{t.tags}</span>
-          <input
-            className="input"
-            value={tags}
-            onChange={(e) => setTags(e.target.value)}
-          />
-        </label>
-        <Button size="sm" variant="outline" type="submit">
-          {t.save}
-        </Button>
-      </form>
+      <label>
+        <span>{t.category}</span>
+        <select
+          value={ticket.category ?? ""}
+          onChange={(e) => update({ category: e.target.value || null })}
+        >
+          <option value="">{t.noCategory}</option>
+          {lists.categories.map((c) => (
+            <option key={c.key} value={c.key}>
+              {c.label}
+            </option>
+          ))}
+          {ticket.category &&
+            !lists.categories.some((c) => c.key === ticket.category) && (
+              <option value={ticket.category}>{ticket.category}</option>
+            )}
+        </select>
+      </label>
+      <div className="support-tags">
+        <span>{t.tags}</span>
+        <TagPicker
+          defs={lists.tags}
+          value={ticket.tags}
+          t={t}
+          disabled={mutation.pending}
+          onChange={(tags) => update({ tags })}
+        />
+      </div>
       {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
     </div>
   );
