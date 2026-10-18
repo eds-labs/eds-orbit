@@ -81,6 +81,8 @@ const assignmentConfirm: ActionDefinition<Record<string, unknown>> = {
   riskClass: "W0_internal",
   approvalMode: "approval_required",
   deciderRole: "owner",
+  // The only type an MCP client may propose (WP-M4); the owner still decides.
+  mcpProposable: true,
   ttlMs: 7 * 24 * 3600000,
   payload: z.record(z.string(), z.unknown()),
   costCeilingMicros: () => 0,

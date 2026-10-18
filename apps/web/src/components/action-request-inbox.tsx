@@ -29,6 +29,35 @@ export function channelLabel(summary: {
     : summary.channelName;
 }
 
+type Requester = { kind: string; userId: string; clientId?: string };
+
+/** The host of an MCP client's id (a URL), else the id as written; null for other requesters. */
+export function mcpClientHost(requestedBy: Requester) {
+  if (requestedBy.kind !== "mcp" || !requestedBy.clientId) return null;
+  try {
+    return new URL(requestedBy.clientId).hostname || requestedBy.clientId;
+  } catch {
+    return requestedBy.clientId;
+  }
+}
+
+/** Where an MCP proposal came from, as plain text, so the owner knows before deciding. */
+export function RequestedViaMcp({
+  requestedBy,
+  de,
+}: {
+  requestedBy: Requester;
+  de: boolean;
+}) {
+  const host = mcpClientHost(requestedBy);
+  if (!host) return null;
+  return (
+    <p className="chat-package-note">
+      {de ? "über MCP-Client" : "via MCP client"} {host}
+    </p>
+  );
+}
+
 type ActionRequestItem = {
   id: string;
   version: number;
@@ -36,7 +65,7 @@ type ActionRequestItem = {
   packageHash: string;
   costCeilingMicros: number;
   expiresAt: string;
-  requestedBy: { kind: string; userId: string };
+  requestedBy: Requester;
   summary: {
     prompt?: string;
     model?: string;
@@ -96,13 +125,17 @@ export function ActionRequestInbox() {
       {items.map((item) => {
         const view = renderers[item.actionType];
         return view?.accepts(item) ? (
-          <view.component
-            key={item.id}
-            item={item}
-            de={de}
-            pending={Boolean(pending)}
-            decide={(decision, consent) => void decide(item, decision, consent)}
-          />
+          <div key={item.id}>
+            <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
+            <view.component
+              item={item}
+              de={de}
+              pending={Boolean(pending)}
+              decide={(decision, consent) =>
+                void decide(item, decision, consent)
+              }
+            />
+          </div>
         ) : (
           <article key={item.id} className="action-request">
             <div className="chat-proposal-head">
@@ -137,6 +170,7 @@ export function ActionRequestInbox() {
                 </Badge>
               )}
             </div>
+            <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
             {item.summary.packageGoal && (
               <p>
                 {de ? "Paket" : "Package"}: {item.summary.packageGoal}

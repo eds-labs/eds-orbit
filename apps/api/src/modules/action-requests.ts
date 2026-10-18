@@ -42,6 +42,18 @@ export const requestedBy = z.discriminatedUnion("kind", [
       agentRunId: z.string().nullable(),
     })
     .strict(),
+  // A proposal from an MCP client (WP-M4): the client and grant it came from,
+  // and the hash of its arguments, never the arguments themselves.
+  z
+    .object({
+      kind: z.literal("mcp"),
+      userId: z.string().min(1),
+      clientId: z.string().min(1),
+      grantId: z.string().min(1),
+      agentRunId: z.string().nullable(),
+      argsHash: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .strict(),
 ]);
 export type RequestedBy = z.infer<typeof requestedBy>;
 
@@ -59,6 +71,11 @@ export type ActionDefinition<P> = {
   riskClass: "C1" | "C2" | "W2" | "W0_internal";
   approvalMode: "approval_required";
   deciderRole: "owner" | "editor";
+  /**
+   * An MCP client may only propose types that set this (WP-M4); hard floors
+   * and unreviewed types never do. The decision stays with the decider role.
+   */
+  mcpProposable?: true;
   ttlMs: number;
   payload: z.ZodType<P>;
   costCeilingMicros: (payload: P) => number;
@@ -88,21 +105,66 @@ export async function createActionRequest(
   input: { actionType: ActionType; payload: unknown; requestedBy: RequestedBy },
 ) {
   const type = definition(input.actionType);
+  const requester = requestedBy.parse(input.requestedBy);
+  if (requester.kind === "mcp" && type.mcpProposable !== true)
+    throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
   const payload = type.payload.parse(input.payload);
   const policy = await activePolicyRecord(tx, scope);
   if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
-  return create(tx, scope, KIND, {
+  const packageHash = hash({ actionType: input.actionType, payload });
+  const row = await create(tx, scope, KIND, {
     actionType: input.actionType,
     riskClass: type.riskClass,
     approvalMode: type.approvalMode,
     policy: { id: policy.id, version: policy.version },
-    requestedBy: requestedBy.parse(input.requestedBy),
+    requestedBy: requester,
     payload,
-    packageHash: hash({ actionType: input.actionType, payload }),
+    packageHash,
     costCeilingMicros: type.costCeilingMicros(payload),
     status: "pending",
     expiresAt: new Date(Date.now() + type.ttlMs).toISOString(),
   });
+  // Never the payload: who proposed which exact package is enough to trace it.
+  if (requester.kind === "mcp")
+    await audit(tx, scope, "action_request.proposed", row.id, {
+      actionType: input.actionType,
+      packageHash,
+      clientId: requester.clientId,
+      grantId: requester.grantId,
+    });
+  return row;
+}
+
+/**
+ * The newest pending, unexpired MCP proposal of this grant for the same type
+ * and arguments, so a retried call returns it instead of proposing twice
+ * (D-M4-4). Bounded: only the newest matches are inspected.
+ */
+export async function findPendingMcpProposal(
+  tx: DbTx,
+  scope: Scope,
+  input: { grantId: string; actionType: string; argsHash: string; now: Date },
+): Promise<Row | null> {
+  const rows = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: KIND,
+      AND: [
+        { data: { path: ["status"], equals: "pending" } },
+        { data: { path: ["actionType"], equals: input.actionType } },
+        { data: { path: ["requestedBy", "kind"], equals: "mcp" } },
+        { data: { path: ["requestedBy", "grantId"], equals: input.grantId } },
+        { data: { path: ["requestedBy", "argsHash"], equals: input.argsHash } },
+      ],
+    },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+  });
+  return (
+    rows.find((row) => Date.parse(data(row).expiresAt) > input.now.getTime()) ??
+    null
+  );
 }
 
 /** Records an authenticated user's decision on the exact version and hash that were shown. */

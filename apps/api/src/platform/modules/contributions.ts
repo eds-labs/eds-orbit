@@ -548,6 +548,13 @@ export function registeredTools(
 export function registeredActionType(type: string) {
   return current().actionTypes.get(type);
 }
+/** Every registered action type, for registry-wide checks such as the MCP-proposable set. */
+export function registeredActionTypes(): ReadonlyMap<
+  string,
+  ActionDefinition<any>
+> {
+  return current().actionTypes;
+}
 export function registeredJobs(): ReadonlyMap<string, JobDef> {
   return current().jobs;
 }
