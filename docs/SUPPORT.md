@@ -136,6 +136,7 @@ The channel uses the project's mailbox from WP4.7 (`ORBIT_EMAIL`, SMTP and IMAP;
   - Automatic mail (auto-replies, lists, bulk, mailer daemons) never opens a ticket, reopens one or gets an acknowledgement. When it threads, it is only appended.
   - Bounces are the platform's.
 - **Acknowledgement.** New tickets get an automatic mail in the inbox's language with the ticket number, while `autoAck` is on, at most 3 per contact in 24 hours.
+  - Mail from the mailbox's first sync (`backlog`, unread mail from before the connection) opens tickets, but it gets no acknowledgement.
 - **Outbound.**
   - Replies and acknowledgements go through `queueEmail` with `Re: <subject> [#<number>]`, `In-Reply-To` and `References`. The message's `externalId` is the Orbit Message-ID.
   - The platform job never resends after an ambiguous transmit.

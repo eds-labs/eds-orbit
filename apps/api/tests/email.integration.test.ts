@@ -86,7 +86,10 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
   let scope: Scope;
   const sent: OutgoingMail[] = [];
   let sendError: MailSendError | null = null;
-  let inbox: { uidValidity: string; messages: FetchedMessage[] } = {
+  let inbox: {
+    uidValidity: string;
+    messages: (FetchedMessage & { seen?: boolean })[];
+  } = {
     uidValidity: "1",
     messages: [],
   };
@@ -112,6 +115,22 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
     }),
     mailbox: () => ({
       verify: async () => undefined,
+      scan: async () => ({
+        uidValidity: inbox.uidValidity,
+        top: Math.max(0, ...inbox.messages.map((m) => m.uid)),
+        unseen: inbox.messages.filter((m) => !m.seen).map((m) => m.uid),
+      }),
+      fetchUids: async (uids, maxBytes) => {
+        const picked = inbox.messages.filter((m) => uids.includes(m.uid));
+        return {
+          messages: picked
+            .filter((m) => m.source.length <= maxBytes)
+            .map(({ uid, source }) => ({ uid, source })),
+          skipped: picked
+            .filter((m) => m.source.length > maxBytes)
+            .map((m) => m.uid),
+        };
+      },
       fetchNew: async (state, limits) => {
         const from =
           inbox.uidValidity === state.uidValidity ? state.lastUid : 0;
@@ -737,6 +756,8 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
       }),
       mailbox: () => ({
         verify: async () => void logins++,
+        scan: async () => ({ uidValidity: "1", top: 0, unseen: [] }),
+        fetchUids: async () => ({ messages: [], skipped: [] }),
         fetchNew: async () => ({ uidValidity: "1", messages: [], skipped: [] }),
       }),
     });
@@ -752,6 +773,71 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
     } finally {
       setMailFactoriesForTests(factories);
     }
+  });
+
+  it("takes only unread mail on the first sync and marks it as backlog", async () => {
+    // A mailbox connected for the first time: no inbound state yet.
+    await run((tx) =>
+      tx.entity.deleteMany({
+        where: { projectId: scope.projectId, kind: "email_inbound_state" },
+      }),
+    );
+    const msg = (uid: number, seen: boolean) => ({
+      uid,
+      seen,
+      source: mime({ "Message-ID": `<backlog-${uid}@example.org>` }),
+    });
+    inbox = {
+      uidValidity: "30",
+      messages: [
+        msg(10, true),
+        msg(11, false),
+        msg(12, true),
+        // More unread mail than one pass takes (25).
+        ...Array.from({ length: 26 }, (_, i) => msg(20 + i, false)),
+      ],
+    };
+    const rowsOf = async () =>
+      (await run((tx) => list(tx, scope, "inbound_emails")))
+        .map((r) => data(r))
+        .filter((r) => String(r.messageId).startsWith("<backlog-"));
+    expect(await fetchInbound(scope)).toMatchObject({ stored: 25 });
+    expect(await fetchInbound(scope)).toMatchObject({ stored: 2 });
+    const rows = await rowsOf();
+    // Read mail from before the first sync is never fetched.
+    expect(
+      rows.map((r) => r.uid).sort((a, b) => Number(a) - Number(b)),
+    ).toEqual([11, ...Array.from({ length: 26 }, (_, i) => 20 + i)]);
+    expect(rows.every((r) => r.backlog === true)).toBe(true);
+    // After the backlog, new mail is fetched read or not, and is not backlog.
+    inbox.messages.push(msg(50, true));
+    expect(await fetchInbound(scope)).toMatchObject({ stored: 1 });
+    const fresh = (await rowsOf()).find((r) => r.uid === 50)!;
+    expect(fresh.backlog).toBeUndefined();
+    expect(await fetchInbound(scope)).toMatchObject({ stored: 0 });
+  });
+
+  it("starts over with unread mail only after a UIDVALIDITY change", async () => {
+    inbox = {
+      uidValidity: "31",
+      messages: [
+        {
+          uid: 1,
+          seen: true,
+          source: mime({ "Message-ID": "<reset-read@example.org>" }),
+        },
+        {
+          uid: 2,
+          source: mime({ "Message-ID": "<reset-unread@example.org>" }),
+        },
+      ],
+    };
+    expect(await fetchInbound(scope)).toMatchObject({ stored: 1 });
+    const ids = (await run((tx) => list(tx, scope, "inbound_emails"))).map(
+      (r) => data(r).messageId,
+    );
+    expect(ids).toContain("<reset-unread@example.org>");
+    expect(ids).not.toContain("<reset-read@example.org>");
   });
 
   it("fetches nothing without platform files", async () => {

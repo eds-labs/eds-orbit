@@ -43,7 +43,8 @@ Hosts must be public DNS names that resolve to public addresses only. IP literal
 
 ## Receiving
 
-- **Fetching.** Every two minutes per project with a verified connection, new INBOX messages are fetched read-only: nothing is flagged, moved or deleted. At most 25 per pass, 10 MB each; larger ones are skipped and counted. A new UIDVALIDITY starts over; the Message-ID check keeps it free of duplicates.
+- **Fetching.** Every two minutes per project with a verified connection, new INBOX messages are fetched read-only: nothing is flagged, moved or deleted. At most 25 per pass, 10 MB each; larger ones are skipped and counted. After a new UIDVALIDITY, Orbit starts over in the same way as on the first sync; the Message-ID check keeps it free of duplicates.
+- **First sync.** On the first sync of a mailbox, and again after a UIDVALIDITY change, Orbit takes only the unread mail up to the INBOX's highest UID at that moment (the backlog). It takes it in batches of 25, and read mail from before is never fetched. The inbound rows of this mail carry `backlog: true`. After the backlog, every new message is fetched, read or not. The unread flags stay unchanged, because Orbit reads the mailbox read-only.
 - **Storage.** Each message is kept twice:
   - the raw MIME as an encrypted platform file (`docs/PLATFORM_FILES.md`; by default stored in the database), so receiving needs `ORBIT_FILES=true`;
   - a normalized `inbound_emails` row: sender, recipients, subject, date, text (20,000 characters), threading headers, attachment count and the file id. Every field is bounded and free of control characters.

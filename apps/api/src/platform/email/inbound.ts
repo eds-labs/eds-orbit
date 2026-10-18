@@ -17,7 +17,11 @@ import {
   verifiedEmailConnection,
 } from "./connection.ts";
 import { EMAIL_KIND, INBOUND_KIND, ORBIT_MESSAGE_ID } from "./send.ts";
-import { mailFactories, MailSendError } from "./transport.ts";
+import {
+  mailFactories,
+  MailSendError,
+  type MailboxReader,
+} from "./transport.ts";
 
 // Inbound e-mail (WP4.7): every two minutes per project with a verified
 // e-mail connection, new INBOX messages are fetched over IMAP (read-only,
@@ -171,6 +175,49 @@ async function stateOf(tx: DbTx, scope: Scope, connectionId: string) {
   );
 }
 
+/**
+ * The messages of one pass. The first sync of a mailbox (and the first after
+ * a UIDVALIDITY change) takes only the unread mail up to the INBOX's highest
+ * UID at that moment, the "backlog", in batches; read mail from before is
+ * never fetched. After the backlog, every new message is fetched, read or
+ * not. Backlog mail is marked so modules do not treat it as just arrived.
+ */
+async function nextBatch(
+  reader: MailboxReader,
+  state: { uidValidity?: string; lastUid: number; backlogUntil?: number },
+  maxBytes: number,
+) {
+  if (state.uidValidity !== undefined && state.backlogUntil === undefined) {
+    const fresh = await reader.fetchNew(state, { max: MAX_PER_PASS, maxBytes });
+    if (fresh.uidValidity === state.uidValidity)
+      return {
+        ...fresh,
+        from: state.lastUid,
+        backlog: false,
+        through: undefined,
+        backlogUntil: undefined,
+      };
+  }
+  const scan = await reader.scan();
+  const restart = scan.uidValidity !== state.uidValidity;
+  const until = restart ? scan.top : (state.backlogUntil ?? scan.top);
+  const from = restart ? 0 : state.lastUid;
+  const pending = scan.unseen.filter((uid) => uid > from && uid <= until);
+  const take = pending.slice(0, MAX_PER_PASS);
+  const done = pending.length <= MAX_PER_PASS;
+  const got = take.length
+    ? await reader.fetchUids(take, maxBytes)
+    : { messages: [], skipped: [] };
+  return {
+    uidValidity: scan.uidValidity,
+    ...got,
+    from,
+    backlog: true,
+    through: done ? until : take.at(-1)!,
+    backlogUntil: done ? undefined : until,
+  };
+}
+
 /** One pass for one project; returns what it did, for tests and status. */
 export async function fetchInbound(scope: Scope) {
   if (!emailEnabled()) return { status: "disabled" as const };
@@ -201,14 +248,22 @@ export async function fetchInbound(scope: Scope) {
     return { status: "files_not_configured" as const };
   }
   const d = setup.state ? data(setup.state) : {};
-  let batch;
+  const maxBytes = Math.min(MAX_BYTES, files.maxBytes);
+  let batch: Awaited<ReturnType<typeof nextBatch>>;
   try {
-    batch = await mailFactories()
-      .mailbox(accountOf(data(connection)), decryptCredential(data(connection)))
-      .fetchNew(
-        { uidValidity: d.uidValidity, lastUid: Number(d.lastUid ?? 0) },
-        { max: MAX_PER_PASS, maxBytes: Math.min(MAX_BYTES, files.maxBytes) },
-      );
+    batch = await nextBatch(
+      mailFactories().mailbox(
+        accountOf(data(connection)),
+        decryptCredential(data(connection)),
+      ),
+      {
+        uidValidity: d.uidValidity as string | undefined,
+        lastUid: Number(d.lastUid ?? 0),
+        backlogUntil:
+          d.backlogUntil == null ? undefined : Number(d.backlogUntil),
+      },
+      maxBytes,
+    );
   } catch (error) {
     await recordState({
       lastError: error instanceof MailSendError ? error.code : "IMAP_ERROR",
@@ -216,8 +271,7 @@ export async function fetchInbound(scope: Scope) {
     return { status: "error" as const };
   }
   // A new UIDVALIDITY starts over; the Message-ID check keeps it idempotent.
-  let lastUid =
-    batch.uidValidity === d.uidValidity ? Number(d.lastUid ?? 0) : 0;
+  let lastUid = batch.from;
   let stored = 0;
   let bounced = 0;
   for (const message of batch.messages) {
@@ -304,6 +358,7 @@ export async function fetchInbound(scope: Scope) {
           uidValidity: batch.uidValidity,
           ...fields,
           bounceOf,
+          ...(batch.backlog ? { backlog: true } : {}),
           ...(echo ? { ownMessage: true } : {}),
           fileId: file.id,
           receivedAt: new Date().toISOString(),
@@ -327,9 +382,11 @@ export async function fetchInbound(scope: Scope) {
     lastUid = Math.max(lastUid, message.uid);
   }
   for (const uid of batch.skipped) lastUid = Math.max(lastUid, uid);
+  if (batch.through !== undefined) lastUid = Math.max(lastUid, batch.through);
   await recordState({
     uidValidity: batch.uidValidity,
     lastUid,
+    backlogUntil: batch.backlogUntil ?? null,
     lastError: null,
     ...(batch.skipped.length ? { lastSkipped: batch.skipped.length } : {}),
   });
