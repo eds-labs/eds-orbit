@@ -60,41 +60,15 @@ const FINISHED = [
 ];
 
 /**
- * The instant the current month began in `timeZone`, as an ISO string, so the
- * month's spend counts from the project's own midnight.
+ * The start of the budget month that contains `now`, as an ISO string: the
+ * first of the month at 00:00 UTC, the rule the server's monthly limit counts
+ * from (`budgetMonthStart` in apps/api/src/platform/ai/budget.ts).
  */
-export function monthStart(now: number, timeZone: string): string {
-  const wall = (ms: number) => {
-    const part = Object.fromEntries(
-      new Intl.DateTimeFormat("en-US", {
-        timeZone,
-        hourCycle: "h23",
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-        hour: "numeric",
-        minute: "numeric",
-        second: "numeric",
-      })
-        .formatToParts(new Date(ms))
-        .map((p) => [p.type, Number(p.value)]),
-    ) as Record<string, number>;
-    return Date.UTC(
-      part.year!,
-      part.month! - 1,
-      part.day!,
-      part.hour!,
-      part.minute!,
-      part.second!,
-    );
-  };
-  // The zone's offset at an instant: its wall clock read as UTC, minus the instant.
-  const offset = (ms: number) => wall(ms) - Math.floor(ms / 1000) * 1000;
-  const first = new Date(wall(now));
-  const local = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1);
-  // A second pass covers a month whose first day has another offset than `local`.
-  const guess = local - offset(local);
-  return new Date(local - offset(guess)).toISOString();
+export function monthStart(now: number): string {
+  const at = new Date(now);
+  return new Date(
+    Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), 1),
+  ).toISOString();
 }
 
 /** Publications that went out in the last `days` days. */
@@ -128,13 +102,29 @@ export function nextPosts(publications: Entity[], days: number, now: number) {
 const brief = (text: string, max = 120) =>
   text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
 
-/** The month's settled AI spend in micros; null while or when unknown. */
-function settledSpend(
-  cost: { rows: { settledMicros: string }[] } | null,
-): number | null {
-  return cost
-    ? cost.rows.reduce((sum, row) => sum + Number(row.settledMicros), 0)
-    : null;
+/** One row of `/ai-cost`; `reservedMicros` includes reservations in flight. */
+type CostRow = {
+  settledMicros: string;
+  reservedMicros: string;
+  unknownMicros: string;
+};
+
+/**
+ * The month's AI spend in micros as the monthly limit counts it: settled plus
+ * reserved, in-flight and unclear reservations. `pending` is the part not yet
+ * settled. Null while or when unknown.
+ */
+function monthSpend(
+  cost: { rows: CostRow[] } | null,
+): { total: number; pending: number } | null {
+  if (!cost) return null;
+  let settled = 0;
+  let pending = 0;
+  for (const row of cost.rows) {
+    settled += Number(row.settledMicros);
+    pending += Number(row.reservedMicros) + Number(row.unknownMicros);
+  }
+  return { total: settled + pending, pending };
 }
 
 /** One row of the next-posts panel. */
@@ -246,17 +236,17 @@ export function MarketingOverview({
   // One instant per load, so the cost request keeps its path between renders.
   const now = useMemo(() => Date.now(), [project.id, revision]);
   // The AI cost route is for editors; a viewer's budget stays unknown.
-  const cost = useResource<{ rows: { settledMicros: string }[] }>(
+  const cost = useResource<{ rows: CostRow[] }>(
     canEdit
       ? collectionPath(
           project.id,
-          `ai-cost?from=${encodeURIComponent(monthStart(now, project.timezone))}&to=${encodeURIComponent(new Date(now).toISOString())}`,
+          `ai-cost?from=${encodeURIComponent(monthStart(now))}&to=${encodeURIComponent(new Date(now).toISOString())}`,
         )
       : null,
   );
   const [create, setCreate] = useState(false);
   const d = dashboard.data;
-  const spent = settledSpend(cost.data);
+  const spent = monthSpend(cost.data);
   const limit = d?.budget.monthlyLimitMicros ?? null;
   return (
     <>
@@ -358,13 +348,19 @@ export function MarketingOverview({
               <Metric
                 icon={Wallet}
                 label={t("aiBudgetMonth")}
-                amount={spent !== null && limit !== null ? usd(spent) : "—"}
+                amount={spent ? usd(spent.total) : "—"}
                 detail={
-                  spent === null
-                    ? undefined
-                    : limit === null
-                      ? `${usd(spent)} ${t("aiBudgetSpent")} · ${t("aiBudgetNoLimit")}`
-                      : `${t("aiBudgetOf")} ${usd(limit)}`
+                  spent
+                    ? [
+                        limit === null
+                          ? t("aiBudgetNoLimit")
+                          : `${t("aiBudgetOf")} ${usd(limit)}`,
+                        spent.pending > 0 &&
+                          `${t("aiBudgetIncl")} ${usd(spent.pending)} ${t("aiBudgetReserved")}`,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")
+                    : undefined
                 }
               />
             </div>

@@ -7,11 +7,14 @@ vi.mock("next/navigation", () => ({
 // Every resource the page reads, by a part of its path. A path without an
 // entry answers 404, as a route of a switched-off module does.
 const answers = vi.hoisted(() => ({}) as Record<string, unknown>);
+// Every path the page asked for, in order.
+const requested = vi.hoisted(() => [] as string[]);
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
     useResource: (path: string | null) => {
+      if (path) requested.push(path);
       const key = Object.keys(answers).find((part) => path?.includes(part));
       const found = key === undefined ? undefined : answers[key];
       const failed = found === undefined || found instanceof Error;
@@ -117,6 +120,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   for (const key of Object.keys(answers)) delete answers[key];
+  requested.length = 0;
 });
 afterEach(() => vi.useRealTimers());
 
@@ -152,7 +156,7 @@ describe("MarketingOverview", () => {
     expect(amounts.slice(0, 4)).toEqual(["1", "1", "0", "—"]);
   });
 
-  it("counts the open exceptions with the approvals and shows the month's spend against the limit", () => {
+  it("counts the open exceptions with the approvals and shows what the limit counts against it", () => {
     answers["/dashboard"] = dashboard({
       monthlyLimitMicros: 10_000_000,
       exceptions: [
@@ -164,14 +168,59 @@ describe("MarketingOverview", () => {
     answers["/content"] = { items: [entity("c1", { status: "draft" })] };
     answers["/ai-cost"] = {
       rows: [
-        { key: "2026-10-02", settledMicros: "1000000" },
-        { key: "2026-10-17", settledMicros: "500000" },
+        {
+          key: "2026-10-02",
+          settledMicros: "1000000",
+          reservedMicros: "0",
+          unknownMicros: "0",
+        },
+        {
+          key: "2026-10-17",
+          settledMicros: "500000",
+          reservedMicros: "250000",
+          unknownMicros: "250000",
+        },
+      ],
+    };
+    const html = render();
+    // Settled, reserved (incl. in flight) and unclear reservations all count
+    // against the monthly limit, as the server enforces it.
+    expect(html).toContain("<strong>$2.00</strong>");
+    expect(html).toContain("of $10.00 · incl. $0.50 reserved");
+    expect(html).toMatch(/<strong>2<\/strong>/);
+    expect(render("de")).toContain("von $10.00 · inkl. $0.50 reserviert");
+  });
+
+  it("asks for the spend of the UTC calendar month the limit counts", () => {
+    answers["/dashboard"] = dashboard();
+    answers["/missions"] = { items: [] };
+    answers["/content"] = { items: [] };
+    answers["/ai-cost"] = { rows: [] };
+    render();
+    const path = requested.find((p) => p.includes("/ai-cost"));
+    expect(path).toContain(
+      `from=${encodeURIComponent("2026-10-01T00:00:00.000Z")}`,
+    );
+  });
+
+  it("shows the spend when no monthly limit is set", () => {
+    answers["/dashboard"] = dashboard({ monthlyLimitMicros: null });
+    answers["/missions"] = { items: [] };
+    answers["/content"] = { items: [] };
+    answers["/ai-cost"] = {
+      rows: [
+        {
+          key: "2026-10-02",
+          settledMicros: "1200000",
+          reservedMicros: "300000",
+          unknownMicros: "0",
+        },
       ],
     };
     const html = render();
     expect(html).toContain("<strong>$1.50</strong>");
-    expect(html).toContain("of $10.00");
-    expect(html).toMatch(/<strong>2<\/strong>/);
+    expect(html).toContain("No monthly limit set · incl. $0.30 reserved");
+    expect(html).not.toContain(">—<");
   });
 
   it("lists at most six next posts sorted by time", () => {
@@ -260,20 +309,17 @@ describe("MarketingOverview", () => {
 });
 
 describe("overview helpers", () => {
-  it("starts the month at local midnight of the project's timezone", () => {
-    expect(
-      monthStart(Date.parse("2026-10-18T10:00:00Z"), "Europe/Berlin"),
-    ).toBe("2026-09-30T22:00:00.000Z");
-    expect(
-      monthStart(Date.parse("2026-11-03T10:00:00Z"), "Europe/Berlin"),
-    ).toBe("2026-10-31T23:00:00.000Z");
-    expect(monthStart(Date.parse("2026-10-18T10:00:00Z"), "UTC")).toBe(
+  it("starts the month at 00:00 UTC on the first, as the budget does", () => {
+    expect(monthStart(Date.parse("2026-10-18T10:00:00Z"))).toBe(
       "2026-10-01T00:00:00.000Z",
     );
-    // Late on the 31st in UTC is already the next month in Berlin.
-    expect(
-      monthStart(Date.parse("2026-10-31T23:30:00Z"), "Europe/Berlin"),
-    ).toBe("2026-10-31T23:00:00.000Z");
+    // Late on the 31st in UTC is still October, whatever the project's zone.
+    expect(monthStart(Date.parse("2026-10-31T23:30:00Z"))).toBe(
+      "2026-10-01T00:00:00.000Z",
+    );
+    expect(monthStart(Date.parse("2026-11-01T00:00:00Z"))).toBe(
+      "2026-11-01T00:00:00.000Z",
+    );
   });
 
   it("counts published posts of the last days only", () => {
