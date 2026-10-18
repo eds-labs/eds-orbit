@@ -19,7 +19,7 @@ import {
 import { DataForm, options, str } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
-type IndexGeneration = {
+export type IndexGeneration = {
   id: string;
   generation: number;
   profile: string;

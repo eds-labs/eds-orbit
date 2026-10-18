@@ -62,7 +62,7 @@ test("a visitor on another origin chats with an agent", async ({
 
   // The agent answers in the workspace.
   const user = await signIn(page);
-  await page.goto(`/p/${user.projectId}/support`);
+  await page.goto(`/p/${user.projectId}/support/tickets`);
   await page
     .getByRole("button", { name: /E2E: where is my deposit\?/ })
     .first()

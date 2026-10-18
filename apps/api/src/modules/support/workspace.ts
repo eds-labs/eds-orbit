@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import { Prisma, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../shared.ts";
 import { supportAgents } from "./agents.ts";
@@ -14,6 +14,9 @@ import {
   OPEN_STATUSES,
   SLA_ACTIVE_STATUSES,
   SLA_AT_RISK_MINUTES,
+  SLA_DUE_AT_SQL,
+  slaDueAt,
+  slaWhere,
   supportFiles,
   supportSettings,
   ticketEvent,
@@ -41,6 +44,8 @@ const listInput = z
     category: z.string().max(41).optional(),
     tag: z.string().max(41).optional(),
     priority: z.enum(PRIORITIES).optional(),
+    sort: z.enum(["updated", "sla"]).default("updated"),
+    openOnly: z.enum(["true", "false"]).default("false"),
     q: z.string().trim().min(1).max(200).optional(),
     cursor: z.string().max(200).optional(),
     limit: z.coerce.number().int().min(1).max(50).default(25),
@@ -53,6 +58,26 @@ function parseCursor(raw: string) {
   const [at, id] = Buffer.from(raw, "base64url").toString("utf8").split("|");
   const date = new Date(at ?? "");
   if (Number.isNaN(date.getTime()) || !z.uuid().safeParse(id).success)
+    throw new DomainError("CURSOR_INVALID", 400);
+  return { at: date, id: id! };
+}
+
+// The "sla" order has its own cursor: "sla|<due time or ->|<id>". Its first
+// part keeps it apart from an "updated" cursor, which starts with a date.
+const slaCursorOf = (row: Parameters<typeof slaDueAt>[0] & { id: string }) =>
+  Buffer.from(`sla|${slaDueAt(row)?.toISOString() ?? "-"}|${row.id}`).toString(
+    "base64url",
+  );
+function parseSlaCursor(raw: string) {
+  const [kind, at, id] = Buffer.from(raw, "base64url")
+    .toString("utf8")
+    .split("|");
+  const date = at === "-" ? null : new Date(at ?? "");
+  if (
+    kind !== "sla" ||
+    (date && Number.isNaN(date.getTime())) ||
+    !z.uuid().safeParse(id).success
+  )
     throw new DomainError("CURSOR_INVALID", 400);
   return { at: date, id: id! };
 }
@@ -79,27 +104,71 @@ async function searchMatches(tx: DbTx, scope: Scope, q: string) {
   };
 }
 
-/** Tickets of the project, newest change first, with a keyset cursor. */
+/** A LIKE pattern matching `q` anywhere, with its wildcards taken literally. */
+const likeContains = (q: string) => `%${q.replace(/[\\%_]/g, "\\$&")}%`;
+
+/**
+ * Tickets of the project, newest change first (`sort=sla`: earliest pending
+ * due time first, nulls last), with a keyset cursor.
+ */
 export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
   const input = listInput.parse(raw);
+  const sla = input.sort === "sla";
+  const search = input.q
+    ? await searchMatches(tx, scope, input.q)
+    : { contactIds: [], ticketIds: [] };
+  const { rows, more } = sla
+    ? await slaPage(tx, scope, input, search)
+    : await updatedPage(tx, scope, input, search);
+  const page = rows.slice(0, input.limit);
+  const contacts = await tx.supportContact.findMany({
+    where: { id: { in: [...new Set(page.map((t) => t.contactId))] } },
+    select: { id: true, name: true, email: true },
+  });
+  return {
+    items: page.map((t) => ({
+      ...t,
+      contact: contacts.find((c) => c.id === t.contactId) ?? null,
+    })),
+    // An empty page with more behind it (all its tickets erased between the
+    // reads) has no row to continue from; paging ends there.
+    nextCursor:
+      more && page.length
+        ? sla
+          ? slaCursorOf(page.at(-1)!)
+          : cursorOf(page.at(-1)!)
+        : null,
+  };
+}
+
+type ListInput = z.infer<typeof listInput>;
+type Search = { contactIds: string[]; ticketIds: string[] };
+
+/** One page of tickets, newest change first, and whether more follow. */
+async function updatedPage(
+  tx: DbTx,
+  scope: Scope,
+  input: ListInput,
+  search: Search,
+) {
   const and: object[] = [{ projectId: scope.projectId }];
   if (input.view === "mine") and.push({ assigneeUserId: scope.userId });
   if (input.view === "unassigned") and.push({ assigneeUserId: null });
   if (input.status) and.push({ status: input.status });
+  if (input.openOnly === "true")
+    and.push({ status: { in: OPEN_STATUSES }, mergedIntoTicketId: null });
   if (input.inboxId) and.push({ inboxId: input.inboxId });
   if (input.category) and.push({ category: input.category });
   if (input.tag) and.push({ tags: { has: input.tag } });
   if (input.priority) and.push({ priority: input.priority });
-  if (input.q) {
-    const { contactIds, ticketIds } = await searchMatches(tx, scope, input.q);
+  if (input.q)
     and.push({
       OR: [
         { subject: { contains: input.q, mode: "insensitive" } },
-        { contactId: { in: contactIds } },
-        { id: { in: ticketIds } },
+        { contactId: { in: search.contactIds } },
+        { id: { in: search.ticketIds } },
       ],
     });
-  }
   if (input.cursor) {
     const c = parseCursor(input.cursor);
     and.push({
@@ -111,17 +180,68 @@ export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: input.limit + 1,
   });
-  const page = rows.slice(0, input.limit);
-  const contacts = await tx.supportContact.findMany({
-    where: { id: { in: [...new Set(page.map((t) => t.contactId))] } },
-    select: { id: true, name: true, email: true },
+  return { rows, more: rows.length > input.limit };
+}
+
+/**
+ * One page of tickets by their earliest pending due time, nulls last, then
+ * id, and whether more follow. The page's ids come from SQL (the order is computed); the
+ * rows are then loaded the usual way and put back in that order.
+ */
+async function slaPage(
+  tx: DbTx,
+  scope: Scope,
+  input: ListInput,
+  search: Search,
+) {
+  const where = [
+    Prisma.sql`"projectId" = ${scope.projectId}::uuid`,
+    Prisma.sql`"mergedIntoTicketId" IS NULL`,
+    Prisma.sql`"status" = ANY(${SLA_ACTIVE_STATUSES}::text[])`,
+  ];
+  if (input.view === "mine")
+    where.push(Prisma.sql`"assigneeUserId" = ${scope.userId}`);
+  if (input.view === "unassigned")
+    where.push(Prisma.sql`"assigneeUserId" IS NULL`);
+  if (input.status) where.push(Prisma.sql`"status" = ${input.status}`);
+  if (input.openOnly === "true")
+    where.push(Prisma.sql`"status" = ANY(${OPEN_STATUSES}::text[])`);
+  if (input.inboxId) where.push(Prisma.sql`"inboxId" = ${input.inboxId}::uuid`);
+  if (input.category) where.push(Prisma.sql`"category" = ${input.category}`);
+  if (input.tag) where.push(Prisma.sql`${input.tag} = ANY("tags")`);
+  if (input.priority) where.push(Prisma.sql`"priority" = ${input.priority}`);
+  if (input.q)
+    where.push(Prisma.sql`("subject" ILIKE ${likeContains(input.q)}
+      OR "contactId" = ANY(${search.contactIds}::uuid[])
+      OR "id" = ANY(${search.ticketIds}::uuid[]))`);
+  if (input.cursor) {
+    const c = parseSlaCursor(input.cursor);
+    // After the cursor: a later due time, the same one with a later id, or
+    // (past all dated tickets) no due time at all.
+    where.push(
+      c.at
+        ? Prisma.sql`(${SLA_DUE_AT_SQL} > ${c.at}::timestamptz
+            OR (${SLA_DUE_AT_SQL} = ${c.at}::timestamptz AND "id" > ${c.id}::uuid)
+            OR ${SLA_DUE_AT_SQL} IS NULL)`
+        : Prisma.sql`(${SLA_DUE_AT_SQL} IS NULL AND "id" > ${c.id}::uuid)`,
+    );
+  }
+  const found = await tx.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "SupportTicket"
+     WHERE ${Prisma.join(where, " AND ")}
+     ORDER BY ${SLA_DUE_AT_SQL} ASC NULLS LAST, "id" ASC
+     LIMIT ${input.limit + 1}`;
+  // Whether more follow is decided by the ids found, so a ticket erased
+  // before the reload does not end paging early.
+  const ids = found.slice(0, input.limit).map((r) => r.id);
+  const rows = await tx.supportTicket.findMany({
+    where: { projectId: scope.projectId, id: { in: ids } },
   });
+  // In SLA order; a ticket erased between the two reads is left out.
+  const byId = new Map(rows.map((t) => [t.id, t]));
   return {
-    items: page.map((t) => ({
-      ...t,
-      contact: contacts.find((c) => c.id === t.contactId) ?? null,
-    })),
-    nextCursor: rows.length > input.limit ? cursorOf(page.at(-1)!) : null,
+    rows: ids.flatMap((id) => byId.get(id) ?? []),
+    more: found.length > input.limit,
   };
 }
 
@@ -584,34 +704,42 @@ export async function mergeContact(
 /**
  * Counts for the home tile: open and unassigned tickets, and tickets whose
  * pending first response or resolution is due within the at-risk window
- * (at risk) or already overdue (breached).
+ * (at risk) or already overdue (breached). `openByInbox` counts the open
+ * tickets of each inbox.
  */
 export async function ticketSummary(tx: DbTx, scope: Scope, now = new Date()) {
   const soon = new Date(now.getTime() + SLA_AT_RISK_MINUTES * 60_000);
   const base = { projectId: scope.projectId, mergedIntoTicketId: null };
   const active = { ...base, status: { in: SLA_ACTIVE_STATUSES } };
-  const due = (range: object) => ({
-    OR: [
-      { firstRespondedAt: null, firstResponseDueAt: range },
-      { resolvedAt: null, resolutionDueAt: range },
-    ],
-  });
-  const [open, unassigned, breached, atRisk] = await Promise.all([
+  const [open, unassigned, breached, atRisk, perInbox] = await Promise.all([
     tx.supportTicket.count({
       where: { ...base, status: { in: OPEN_STATUSES } },
     }),
     tx.supportTicket.count({
       where: { ...base, status: { in: OPEN_STATUSES }, assigneeUserId: null },
     }),
-    tx.supportTicket.count({ where: { ...active, ...due({ lt: now }) } }),
+    tx.supportTicket.count({ where: { ...active, ...slaWhere({ lt: now }) } }),
     tx.supportTicket.count({
       where: {
         ...active,
-        AND: [due({ gte: now, lt: soon }), { NOT: due({ lt: now }) }],
+        AND: [slaWhere({ gte: now, lt: soon }), { NOT: slaWhere({ lt: now }) }],
       },
     }),
+    tx.supportTicket.groupBy({
+      by: ["inboxId"],
+      where: { ...base, status: { in: OPEN_STATUSES } },
+      _count: { _all: true },
+    }),
   ]);
-  return { open, unassigned, atRisk, breached };
+  return {
+    open,
+    unassigned,
+    atRisk,
+    breached,
+    openByInbox: Object.fromEntries(
+      perInbox.map((row) => [row.inboxId, row._count._all]),
+    ),
+  };
 }
 
 /** Asks the AI for a new draft of the latest customer message (agents). */

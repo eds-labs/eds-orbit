@@ -496,6 +496,14 @@ pre {
   color: var(--muted-foreground);
   margin-top: 5px;
 }
+.page-head .page-eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
 .page-actions {
   display: flex;
   gap: 10px;
@@ -637,6 +645,30 @@ pre {
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 20px;
+}
+.metrics-strip.metrics-four {
+  grid-template-columns: repeat(4, 1fr);
+}
+.metrics-strip.metrics-five {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.metrics-four .metric > div,
+.metrics-five .metric > div {
+  min-width: 0;
+}
+@media (max-width: 1200px) {
+  .metrics-strip.metrics-four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .metrics-strip.metrics-five {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .metrics-four .metric:nth-child(even),
+  .metrics-five .metric:nth-child(even) {
+    border-right: 0;
+  }
 }
 .metric {
   display: flex;
@@ -1477,6 +1509,38 @@ td:first-child {
 .health-case p {
   font-size: 12px;
   color: var(--muted-foreground);
+}
+/* Knowledge overview (UI restructure §5.3). */
+.knowledge-overview-body {
+  padding: 0 21px 18px;
+}
+.knowledge-overview-body .detail-grid {
+  margin: 0;
+}
+.knowledge-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.knowledge-rows .readiness-row > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.knowledge-rows .readiness-row small {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.knowledge-note {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.overview-columns.knowledge-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.knowledge-back {
+  margin-bottom: 10px;
 }
 .inspector-layout {
   display: grid;
@@ -4221,6 +4285,9 @@ svg.agent-graph {
 .support-row-active {
   border-color: var(--primary);
 }
+a.support-row {
+  text-decoration: none;
+}
 .support-row-title {
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -4441,18 +4508,21 @@ svg.agent-graph {
 .support-back {
   display: none;
 }
-.support-home-counts {
+.support-home-counts,
+.knowledge-home-counts {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 0 21px 12px;
 }
-.support-home-counts dd {
+.support-home-counts dd,
+.knowledge-home-counts dd {
   font-size: 22px;
   font-weight: 600;
   margin: 0;
 }
-.support-home > a {
+.support-home > a,
+.knowledge-home > a {
   display: block;
   padding: 0 21px 16px;
 }
@@ -4463,6 +4533,33 @@ svg.agent-graph {
 }
 .support-sla-table input {
   max-width: 110px;
+}
+.support-overview-body {
+  padding: 0 21px 18px;
+}
+.support-inbox-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.support-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 120px;
+}
+.support-bar {
+  flex: 1 1 0;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--primary);
+}
+.support-bars-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
 }
 .support-inbox-row {
   display: flex;
@@ -4484,7 +4581,8 @@ svg.agent-graph {
   .support-ticket-body {
     grid-template-columns: minmax(0, 1fr);
   }
-  .support-home-counts {
+  .support-home-counts,
+  .knowledge-home-counts {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

@@ -125,6 +125,32 @@ const VIEW = {
 } as const;
 const open = (page: Page, projectId: string, view: keyof typeof VIEW) =>
   page.goto(`/p/${projectId}/${VIEW[view]}`);
+// The knowledge pages are entries of the sidebar's Knowledge group (UI
+// restructure); on a phone the sidebar opens from the menu button first.
+async function knowledgePage(page: Page, name: string) {
+  const menu = page.getByRole("button", {
+    name: "Open navigation",
+    exact: true,
+  });
+  if (await menu.isVisible()) await menu.click();
+  await page
+    .getByRole("navigation", { name: "Workspace" })
+    .locator("#nav-group-knowledge")
+    .getByRole("link", { name, exact: true })
+    .click();
+}
+// Health, Impact and Inspector have no sidebar entry: the overview links them,
+// and a knowledge sub-page leads back to the overview first.
+async function knowledgeDiagnostic(page: Page, name: string) {
+  const back = page
+    .locator("#main")
+    .getByRole("link", { name: "Knowledge", exact: true });
+  if (await back.count()) await back.click();
+  await page
+    .locator("#main")
+    .getByRole("link", { name: new RegExp(`^${name}\\b`) })
+    .click();
+}
 test.describe("Authenticated Orbit workspace, real local API", () => {
   test("knowledge → mission → review → approved test publication → revoke, with actual persistent state", async ({
     page,
@@ -141,7 +167,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByRole("heading", { name: "Knowledge", exact: true }),
     ).toBeVisible();
-    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    await knowledgePage(page, "Sources");
     await page.screenshot({
       path: testInfo.outputPath("knowledge-desktop.png"),
       fullPage: true,
@@ -192,7 +218,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       },
     );
     expect(unconfirmedEmbedding.status()).toBe(400);
-    await page.getByRole("tab", { name: "Library", exact: true }).click();
+    await knowledgePage(page, "Library");
     await page
       .getByRole("button", {
         name: "Synthetic public product documentation",
@@ -210,7 +236,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     ).toBeVisible();
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     await dialog.getByRole("button", { name: "Close dialog" }).click();
-    await page.getByRole("tab", { name: "Facts", exact: true }).click();
+    await knowledgePage(page, "Facts");
     await page
       .getByRole("button", { name: "Add fact", exact: true })
       .first()
@@ -453,7 +479,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toHaveCount(0);
     await open(page, projectId, "knowledge");
-    await page.getByRole("tab", { name: "Inspector", exact: true }).click();
+    await knowledgeDiagnostic(page, "Inspector");
     await page.getByLabel("Test question").fill("orbit.browser.status");
     await page.getByRole("button", { name: "Retrieve evidence" }).click();
     await expect(page.locator(".evidence-items")).toContainText(
@@ -600,7 +626,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .toBe("published_test");
     await dialog.getByRole("button", { name: "Close dialog" }).click();
     await open(page, projectId, "knowledge");
-    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    await knowledgePage(page, "Sources");
     await page
       .locator(".source-row")
       .filter({ hasText: "Browser acceptance source" })
@@ -680,31 +706,48 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "de");
     await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.emulateMedia({ reducedMotion: "reduce" });
+    // Tabs move the focus with Arrow, Home and End (the settings tabs; no tab
+    // bar navigates between pages since the knowledge tabs became pages).
+    await open(page, projectId, "settings");
+    const tabs = page.getByRole("tab");
+    await page.getByRole("tab", { name: "Project", exact: true }).focus();
+    await page.keyboard.press("End");
+    await expect(tabs.last()).toBeFocused();
+    await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
+    await page.keyboard.press("Home");
+    await expect(
+      page.getByRole("tab", { name: "Project", exact: true }),
+    ).toBeFocused();
+    await page.keyboard.press("ArrowRight");
+    await expect(tabs.nth(1)).toBeFocused();
+    await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
     await open(page, projectId, "knowledge");
     await expect(
       page.getByRole("heading", { name: "Knowledge", exact: true }),
     ).toBeVisible();
-    await page.getByRole("tab", { name: "Sources", exact: true }).focus();
-    await page.keyboard.press("End");
-    // The tab is a page of its own: the focus must survive the navigation.
-    await expect(page).toHaveURL(
-      new RegExp(`/p/${projectId}/knowledge/impact$`),
-    );
-    await expect(
-      page.getByRole("tab", { name: "Impact", exact: true }),
-    ).toHaveAttribute("aria-selected", "true");
-    await expect(
-      page.getByRole("tab", { name: "Impact", exact: true }),
-    ).toBeFocused();
+    await expect(page.getByRole("tablist")).toHaveCount(0);
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBeTruthy();
-    await page.getByRole("tab", { name: "Sources", exact: true }).click();
+    await page.screenshot({
+      path: testInfo.outputPath("knowledge-overview-mobile.png"),
+      fullPage: true,
+    });
+    await knowledgePage(page, "Sources");
+    await expect(page).toHaveURL(
+      new RegExp(`/p/${projectId}/knowledge/sources$`),
+    );
     await expect(
       page.getByRole("heading", { name: "Build your source of truth" }),
     ).toBeVisible();
+    // The sub-page leads back to the overview.
+    await expect(
+      page
+        .locator("#main")
+        .getByRole("link", { name: "Knowledge", exact: true }),
+    ).toHaveAttribute("href", `/p/${projectId}/knowledge`);
     await page.screenshot({
       path: testInfo.outputPath("knowledge-mobile.png"),
       fullPage: true,
@@ -952,7 +995,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
     },
   );
   await open(page, projectId, "knowledge");
-  await page.getByRole("tab", { name: "Facts", exact: true }).click();
+  await knowledgePage(page, "Facts");
   await page
     .getByRole("button", { name: "editorial.export.status", exact: true })
     .click();
@@ -971,7 +1014,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
   expect(
     facts.items.find((f: { id: string }) => f.id === fact.id).data.status,
   ).toBe("revoked");
-  await page.getByRole("tab", { name: "Health", exact: true }).click();
+  await knowledgeDiagnostic(page, "Health");
   await expect(
     page.getByRole("heading", { name: "Embedding index generations" }),
   ).toBeVisible();
@@ -992,7 +1035,7 @@ test("editable local brief, private community groups, calendar blocks and owner 
   await page.keyboard.press("Escape");
   await page.setViewportSize({ width: 390, height: 844 });
   await open(page, projectId, "knowledge");
-  await page.getByRole("tab", { name: "Health", exact: true }).click();
+  await knowledgeDiagnostic(page, "Health");
   await expect(
     page.getByRole("heading", { name: "Embedding index generations" }),
   ).toBeVisible();
@@ -1045,6 +1088,7 @@ test("index activation is offered only after evaluation", async ({ page }) => {
     }),
   );
   await open(page, projectId, "knowledge");
+  await knowledgeDiagnostic(page, "Health");
   const evaluated = page
     .locator(".index-generation")
     .filter({ hasText: "Generation 2" });
@@ -1213,4 +1257,36 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
     maxOutputTokens: 4000,
   });
   expect(view.routeVersion).toEqual(expect.any(Number));
+});
+
+test("an old support notification link opens the ticket", async ({ page }) => {
+  // The notification links of stored mail and chat messages point at the
+  // module root; the overview forwards them to the inbox. Needs a stack with
+  // the support module on, like support-widget.spec.ts.
+  test.skip(
+    process.env.E2E_SUPPORT !== "1",
+    "needs a support-enabled stack (E2E_SUPPORT=1)",
+  );
+  test.setTimeout(120_000);
+  await login(page);
+  const { projectId } = account();
+  const list = await page.request.get(
+    `/api/projects/${projectId}/support/tickets?limit=1`,
+  );
+  expect(list.ok()).toBeTruthy();
+  const first = (await list.json()).items[0] as
+    { id: string; subject: string } | undefined;
+  // Without a ticket the redirect itself is still checked, with an unknown id.
+  const id = first?.id ?? randomUUID();
+
+  await page.goto(`/p/${projectId}/support?ticket=${id}`);
+  await expect(page).toHaveURL(
+    new RegExp(`/p/${projectId}/support/tickets\\?ticket=${id}$`),
+  );
+  await expect(
+    page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Tickets", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  if (first) await expect(page.getByText(first.subject).first()).toBeVisible();
 });

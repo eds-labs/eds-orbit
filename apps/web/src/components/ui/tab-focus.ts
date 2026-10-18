@@ -1,4 +1,4 @@
-// A tab change can navigate (the knowledge tabs are pages of their own). The
+// A tab change can navigate (when its tabs are pages of their own). The
 // page under the optional catch-all route remounts on every navigation, so the
 // tab bar is rebuilt and the focused tab is removed: the focus falls to
 // <body>. The bar remembers which tab the user moved to; the next mount of the

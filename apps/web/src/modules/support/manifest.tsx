@@ -1,10 +1,11 @@
-import { ChartColumn, LifeBuoy, Users } from "lucide-react";
+import { ChartColumn, LayoutDashboard, LifeBuoy, Users } from "lucide-react";
 import { labels } from "@/lib/i18n";
 import type { Label } from "@/platform/shell/types";
 import type { WebModule } from "@/platform/shell/types";
 import { SupportContacts } from "./contacts";
 import { SupportHome } from "./home";
 import { SupportInbox } from "./inbox";
+import { SupportOverview } from "./overview";
 import { SupportStats } from "./stats";
 import { supportSettings } from "./settings";
 
@@ -14,8 +15,8 @@ const label = (key: keyof typeof labels.en): Label => ({
 });
 
 /**
- * Support in the web shell (WP5.2): the inbox with the ticket view, the
- * contacts, a settings tab and a home tile. Opt-in: shown only where the
+ * Support in the web shell (WP5.2): an overview, the inbox with the ticket
+ * view, the contacts, a settings tab and a home tile. Opt-in: shown only where the
  * server lists the module as enabled (ORBIT_SUPPORT and the project row).
  */
 export const supportWeb: WebModule = {
@@ -34,6 +35,12 @@ export const supportWeb: WebModule = {
     {
       key: "support",
       path: "",
+      component: SupportOverview,
+      nav: { label: label("overview"), icon: LayoutDashboard, order: 0 },
+    },
+    {
+      key: "support-tickets",
+      path: "tickets",
       component: SupportInbox,
       nav: {
         label: label("tickets"),

@@ -15,9 +15,10 @@ import {
   KNOWLEDGE_TABS,
   type KnowledgeTab,
 } from "@/modules/knowledge/knowledge";
+import { KnowledgeOverview } from "@/modules/knowledge/overview";
 
 // Each tab but the overview is a page of its own (WP3.3), reachable by URL.
-// Breadcrumb names of the tabs (the tab bar keeps its own labels).
+// Names of the pages in the sidebar and the breadcrumb.
 const TAB_TITLES: Record<Exclude<KnowledgeTab, "overview">, Label> = {
   sources: { en: labels.en.sources, de: labels.de.sources },
   facts: { en: labels.en.factTab, de: labels.de.factTab },
@@ -68,9 +69,7 @@ export const knowledgeWeb: WebModule = {
     {
       key: "knowledge",
       path: "",
-      component: function KnowledgeOverview() {
-        return <Knowledge tab="overview" />;
-      },
+      component: KnowledgeOverview,
       nav: {
         label: { en: labels.en.overview, de: labels.de.overview },
         icon: BookOpen,

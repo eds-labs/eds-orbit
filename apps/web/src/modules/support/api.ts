@@ -91,6 +91,8 @@ export type Summary = {
   unassigned: number;
   atRisk: number;
   breached: number;
+  /** Open tickets (merged ones excluded) per inbox id; inboxes without any are absent. */
+  openByInbox: Record<string, number>;
 };
 
 export const STATUSES = [

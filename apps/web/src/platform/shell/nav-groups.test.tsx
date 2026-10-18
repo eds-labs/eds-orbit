@@ -35,6 +35,18 @@ describe("buildNavGroups", () => {
     ).toBe(false);
   });
 
+  it("orders the support group Overview, Tickets, Contacts, Statistics", () => {
+    const support = buildNavGroups(table.routes, modulesWith()).find(
+      (g) => g.id === "support",
+    )!;
+    expect(support.entries.map((r) => r.key)).toEqual([
+      "support",
+      "support-tickets",
+      "support-contacts",
+      "support-stats",
+    ]);
+  });
+
   it("puts approvals into marketing after calendar", () => {
     const marketing = buildNavGroups(table.routes, modulesWith()).find(
       (g) => g.id === "marketing",
@@ -48,7 +60,7 @@ describe("mobileEntries", () => {
   it("picks four by rank", () => {
     expect(
       mobileEntries(table.routes, enabledIn([])).map((r) => r.key),
-    ).toEqual(["home", "chat", "support", "approvals"]);
+    ).toEqual(["home", "chat", "support-tickets", "approvals"]);
     expect(
       mobileEntries(table.routes, enabledIn(["support"])).map((r) => r.key),
     ).toEqual(["home", "chat", "approvals", "content"]);
@@ -71,10 +83,20 @@ describe("mobileCurrentKey", () => {
     expect(current("chat")).toBe("chat");
   });
 
+  it("marks the module's only bar entry on the module's other pages", () => {
+    // Rulings R12/R12b: Support is on the bar through its inbox (Tickets), not
+    // through its root (the overview), so Tickets stands for the module.
+    expect(current("support-tickets")).toBe("support-tickets");
+    expect(current("support")).toBe("support-tickets");
+    expect(current("support-contacts")).toBe("support-tickets");
+    expect(current("support-stats")).toBe("support-tickets");
+    // Approvals sits in the Marketing group but is a platform page, not
+    // Marketing's: it never stands for Missions, Content and the rest.
+    for (const key of ["marketing-overview", "missions", "content", "calendar"])
+      expect(current(key), key).toBeUndefined();
+  });
+
   it("keeps a module root current on the pages of its group", () => {
-    // Support is on the bar through its root (Tickets).
-    expect(current("support-contacts")).toBe("support");
-    expect(current("support-stats")).toBe("support");
     // Knowledge is not on this bar; with its root on the bar, a URL-only page
     // counts through its navKey and a tab through the group.
     const withKnowledge = [route("home"), route("knowledge")];
@@ -87,10 +109,19 @@ describe("mobileCurrentKey", () => {
   });
 
   it("marks nothing for a page that no bar entry stands for", () => {
-    // Missions is in Marketing, but the bar carries Content, not the group.
-    expect(current("missions")).toBeUndefined();
+    // Knowledge and the project group have no entry on this bar.
+    expect(current("knowledge")).toBeUndefined();
     expect(current("knowledge-sources")).toBeUndefined();
     expect(current("settings")).toBeUndefined();
     expect(mobileCurrentKey(bar, null)).toBeUndefined();
+  });
+
+  it("lets Content stand for Marketing when support is off", () => {
+    // With support off the bar carries Approvals (a platform page) and
+    // Content, Marketing's only own entry on the bar (R12b).
+    const noSupport = mobileEntries(table.routes, enabledIn(["support"]));
+    expect(mobileCurrentKey(noSupport, route("missions"))).toBe("content");
+    expect(mobileCurrentKey(noSupport, route("approvals"))).toBe("approvals");
+    expect(mobileCurrentKey(noSupport, route("settings"))).toBeUndefined();
   });
 });
