@@ -44,14 +44,26 @@ const tally = (values: Array<string | null>) =>
     return acc;
   }, {});
 
-/** "YYYY-MM-DD" of an instant on the calendar of a timezone. */
-function localDay(at: Date, timezone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: timezone,
+/**
+ * "YYYY-MM-DD" of an instant on the calendar of `timezone`, or of UTC for a
+ * zone Intl does not know. One formatter per request, not per ticket.
+ */
+function dayFormat(timezone: string): (at: Date) => string {
+  const options = {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(at);
+  } as const;
+  let format: Intl.DateTimeFormat;
+  try {
+    format = new Intl.DateTimeFormat("en-CA", {
+      ...options,
+      timeZone: timezone,
+    });
+  } catch {
+    format = new Intl.DateTimeFormat("en-CA", { ...options, timeZone: "UTC" });
+  }
+  return (at) => format.format(at);
 }
 
 /** Zero-filling stops here; longer ranges list only days with tickets. */
@@ -62,15 +74,10 @@ const MAX_FILLED_DAYS = 400;
  * `[from, to)` is present, zeros included.
  */
 function perDay(dates: Date[], from: Date, to: Date, timezone: string) {
-  let zone = timezone;
-  try {
-    localDay(from, zone);
-  } catch {
-    zone = "UTC";
-  }
+  const localDay = dayFormat(timezone);
   const counts: Record<string, number> = {};
-  const first = localDay(from, zone);
-  const last = localDay(new Date(to.getTime() - 1), zone);
+  const first = localDay(from);
+  const last = localDay(new Date(to.getTime() - 1));
   // Calendar arithmetic on the date strings: no 24-hour steps across DST.
   const cursor = new Date(`${first}T00:00:00.000Z`);
   for (
@@ -82,7 +89,7 @@ function perDay(dates: Date[], from: Date, to: Date, timezone: string) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   for (const at of dates) {
-    const day = localDay(at, zone);
+    const day = localDay(at);
     counts[day] = (counts[day] ?? 0) + 1;
   }
   return Object.fromEntries(
