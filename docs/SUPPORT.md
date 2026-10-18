@@ -106,7 +106,7 @@ These routes also sit below `/api/projects/:projectId/support`, and every one of
 
 | Route | Permission | Notes |
 |---|---|---|
-| `GET /tickets` | read | `view` is `mine`, `unassigned` or `all`. Filters are `status`, `inboxId`, `category`, `tag` and `priority`. `q` searches the subject, the contact, and the message full text including internal notes. Results come with a keyset `cursor` and `limit` ≤ 50. |
+| `GET /tickets` | read | `view` is `mine`, `unassigned` or `all`. Filters are `status`, `inboxId`, `category`, `tag` and `priority`; `openOnly=true` keeps only open statuses (new, open, pending customer, pending internal) and leaves out merged tickets. `sort=updated` (default) lists the newest change first; `sort=sla` lists the SLA-active statuses (new, open, pending internal; no merged tickets) by their earliest pending due time (the first-response clock until the first response, the resolution clock until resolved), no due time last, then by id, with its own `sla|<time or ->|<id>` cursor (a cursor of the other sort is `CURSOR_INVALID`, 400). `q` searches the subject, the contact, and the message full text including internal notes. Results come with a keyset `cursor` and `limit` ≤ 50. |
 | `GET /tickets/:ticketId` | read | The ticket, its contact and inbox, and a timeline of messages (with attachments) and events. |
 | `POST /tickets/:ticketId/replies` | reply | Stored as `pending`; the channel jobs (WP5.3/WP5.4) deliver it. Sets the first response and moves the ticket to "waiting on customer". Attachments must be live support files. |
 | `POST /tickets/:ticketId/notes` | notes | Internal; never shown to the customer. |
@@ -115,7 +115,7 @@ These routes also sit below `/api/projects/:projectId/support`, and every one of
 | `GET /contacts`, `GET /contacts/:id` | read | Live contacts; a contact comes with its tickets. |
 | `PATCH /contacts/:id`, `POST /contacts/:id/merge` | contacts | A merge moves the tickets and identities, then tombstones the duplicate. The tombstone keeps no name, address or notes. |
 | `GET /agents` | read | Members whose support role is owner or editor. |
-| `GET /summary` | read | Open, unassigned, at-risk (due within 60 minutes) and overdue counts. |
+| `GET /summary` | read | Open, unassigned, at-risk (due within 60 minutes) and overdue counts, and `openByInbox`: open tickets (merged ones excluded) per inbox id, inboxes without any absent. |
 
 **Web module** (`apps/web/src/modules/support`):
 - the inbox, which shows the open ticket beside it on wide screens and alone on phones (`?ticket=`);
@@ -260,7 +260,7 @@ The second run on 2026-10-17, after the handoff instruction was sharpened, cost 
 ## Statistics (WP5.7)
 
 There are two routes:
-- `GET /stats?from=&to=[&inboxId=&category=&tag=&agent=]` (permission `support.stats.read`);
+- `GET /stats?from=&to=[&inboxId=&category=&tag=&agent=]` (permission `support.stats.read`); `volume.byDay` counts the tickets created per calendar day of the project's timezone as `{"YYYY-MM-DD": count}`, zero days included (ranges over 400 days list only days with tickets);
 - `GET /stats/export` with the same query, which returns CSV (`metric,value`).
 
 Numbers are computed on read over the tickets **created in the range**, at most 5,000 (`truncated` says when the cap was hit).

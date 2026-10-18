@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   afterCommit,
   type DbTx,
-  type Prisma,
+  Prisma,
 } from "../../../../../packages/db/src/index.ts";
 import { publishChange } from "../../platform/realtime/fanout.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -29,6 +29,41 @@ export const OPEN_STATUSES = [
   "pending_customer",
   "pending_internal",
 ];
+
+type SlaClocks = {
+  firstResponseDueAt: Date | null;
+  firstRespondedAt: Date | null;
+  resolutionDueAt: Date | null;
+  resolvedAt: Date | null;
+};
+
+/**
+ * The earliest due time that is still pending: the first-response clock runs
+ * until the first response, the resolution clock until the ticket is
+ * resolved. Null where neither runs or has a due time.
+ */
+export function slaDueAt(ticket: SlaClocks): Date | null {
+  const pending = [
+    ticket.firstRespondedAt ? null : ticket.firstResponseDueAt,
+    ticket.resolvedAt ? null : ticket.resolutionDueAt,
+  ].filter((due): due is Date => due !== null);
+  if (!pending.length) return null;
+  return new Date(Math.min(...pending.map((due) => due.getTime())));
+}
+
+/**
+ * Prisma filter for tickets with a pending due time inside `range`; the
+ * Prisma form of {@link slaDueAt} (a due time of either running clock).
+ */
+export const slaWhere = (range: { lt?: Date; gte?: Date }) => ({
+  OR: [
+    { firstRespondedAt: null, firstResponseDueAt: range },
+    { resolvedAt: null, resolutionDueAt: range },
+  ],
+});
+
+/** SQL form of {@link slaDueAt}: LEAST ignores NULLs, so none left is NULL. */
+export const SLA_DUE_AT_SQL = Prisma.sql`LEAST(CASE WHEN "firstRespondedAt" IS NULL THEN "firstResponseDueAt" END, CASE WHEN "resolvedAt" IS NULL THEN "resolutionDueAt" END)`;
 
 /** The project's support settings, today's defaults where none are saved. */
 export async function supportSettings(tx: DbTx, scope: Scope) {
