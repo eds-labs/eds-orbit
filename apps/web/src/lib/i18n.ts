@@ -2,6 +2,13 @@ export type Locale = "en" | "de";
 export const labels = {
   en: {
     overview: "Overview",
+    tickets: "Tickets",
+    contacts: "Contacts",
+    statistics: "Statistics",
+    navModules: "Modules",
+    navProject: "Project",
+    navOpen: "open",
+    conflicts: "Conflicts",
     missions: "Missions",
     chat: "Orbit Chat",
     content: "Content Studio",
@@ -197,6 +204,13 @@ export const labels = {
   },
   de: {
     overview: "Übersicht",
+    tickets: "Tickets",
+    contacts: "Kontakte",
+    statistics: "Statistik",
+    navModules: "Module",
+    navProject: "Projekt",
+    navOpen: "offen",
+    conflicts: "Konflikte",
     missions: "Missionen",
     chat: "Orbit Chat",
     content: "Content Studio",

@@ -19,6 +19,11 @@ export type NavEntry = {
   order: number;
   /** Shown in the mobile bottom bar, optionally with a shorter label. */
   mobile?: true | Label;
+  /**
+   * Position in the mobile bottom bar (UI restructure); required in effect
+   * for every entry with `mobile`, and invalid without it.
+   */
+  mobileRank?: number;
 };
 
 /** A page of the platform or of a module. */
@@ -29,6 +34,12 @@ export type ViewDef = {
   path: string;
   component: ComponentType;
   nav?: NavEntry;
+  /**
+   * The sidebar group of the page (UI restructure): "top" or "project" for
+   * platform pages, else the owning module's id, which is the default for a
+   * module page. A module page cannot name another module's group.
+   */
+  navGroup?: string;
   /** Paths from before WP1.7 that redirect here, such as "/missions". */
   legacyPaths?: readonly string[];
   /**
@@ -115,6 +126,8 @@ export type WebModule = {
   optIn?: true;
   displayName: Label;
   description: Label;
+  /** Position of the module's group in the sidebar (UI restructure). */
+  groupOrder?: number;
   views: readonly ViewDef[];
   /** A section of the project home, ordered by homeOrder. */
   home?: ComponentType;

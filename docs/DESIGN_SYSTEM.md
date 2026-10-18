@@ -34,9 +34,9 @@ The typography uses system Inter fallbacks, 0 tracking, fixed breakpoint-specifi
 
 ## Composition
 
-The desktop uses a 232 px glass navigation rail, 64 px header and 30 px workspace gutters. The overview places its objective above a single navy operating-state strip, then three factual metrics, a mission/readiness pair and an activity list. Knowledge uses a wide source list and a 300 px inspector. Tables, lists, forms and content previews share a stable reading surface; there are no animated fictional agents or fabricated analytics.
+The desktop uses a 232 px glass navigation rail, 64 px header and 30 px workspace gutters. The rail is grouped: Home and Orbit Chat on top, then one collapsible group per enabled module under "Modules" (Marketing with its approvals, Support, Knowledge), then a collapsible Project group (connections, operations, settings). A group header is a button with `aria-expanded`; a collapsed group hides its entries and shows the sum of their badges. All groups start open, and opening a page opens its group. The overview places its objective above a single navy operating-state strip, then three factual metrics, a mission/readiness pair and an activity list. Knowledge uses a wide source list and a 300 px inspector. Tables, lists, forms and content previews share a stable reading surface; there are no animated fictional agents or fabricated analytics.
 
-At 760 px and below, navigation moves to a focus-managed drawer and a five-item bottom bar. Forms and inspectors stack; primary actions remain visible. Tab rows scroll without stretching the page. Schedule editing uses an accessible form rather than requiring drag and drop. The project timezone is displayed; datetime fields explicitly use browser-local time and submit UTC instants.
+At 760 px and below, navigation moves to a focus-managed drawer with the same grouped rail and a five-item bottom bar (four entries chosen by priority from the enabled ones, plus More). Forms and inspectors stack; primary actions remain visible. Tab rows scroll without stretching the page. Schedule editing uses an accessible form rather than requiring drag and drop. The project timezone is displayed; datetime fields explicitly use browser-local time and submit UTC instants.
 
 ## Components and behavior
 
@@ -44,7 +44,7 @@ The code-owned UI primitives use shadcn-compatible composition (CVA Button varia
 
 Every data view has loading, empty and API error states. Mutations have a pending lock, server-derived errors and success feedback. A project-scoped React context controls role presentation; server authorization remains authoritative. Viewer controls are read-only. Source/fact/policy/credential and brand-rights changes use owner controls matching API permissions.
 
-No displayed conversion rate, spend limit or outcome is seeded or invented. Unknown values render as unavailable (`—`). Local storage contains only the interface locale and last selected project ID, never content, approvals or credentials.
+No displayed conversion rate, spend limit or outcome is seeded or invented. Unknown values render as unavailable (`—`). Local storage contains only the interface locale, the last selected project ID and the ids of the collapsed sidebar groups (`orbit.nav.collapsed`), never content, approvals or credentials.
 
 ## Accessibility and reduced effects
 

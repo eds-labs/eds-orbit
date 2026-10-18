@@ -9,7 +9,9 @@ import {
   locate,
   moduleShown,
   moduleUsable,
+  navGroupOf,
   navOrder,
+  pageTitle,
   pickerHref,
   projectHref,
   rewriteLegacyHref,
@@ -67,35 +69,142 @@ describe("Web route registry", () => {
     });
   });
 
-  it("keeps the sidebar and mobile order of the old navigation", () => {
+  it("groups the navigation by module", () => {
+    const route = (key: string) => table.routes.find((r) => r.key === key)!;
+    expect(navGroupOf(route("home"))).toBe("top");
+    expect(navGroupOf(route("chat"))).toBe("top");
+    expect(navGroupOf(route("approvals"))).toBe("marketing");
+    for (const key of ["connectors", "operations", "settings"])
+      expect(navGroupOf(route(key)), key).toBe("project");
+    expect(navGroupOf(route("missions"))).toBe("marketing");
+    expect(navGroupOf(route("knowledge-sources"))).toBe("knowledge");
+    for (const key of ["support-contacts", "support-stats"])
+      expect(route(key).nav, key).toBeTruthy();
     const nav = navOrder(table.routes.filter((r) => r.nav));
-    // Support (WP5.2) joins the sidebar only; the mobile bar stays as it was.
-    expect(nav.map((r) => r.key)).toEqual([
-      "home",
-      "missions",
-      "chat",
-      "content",
-      "support",
-      "calendar",
-      "knowledge",
-      "assets",
-      "approvals",
-      "analytics",
-      "memory",
-      "connectors",
-      "operations",
-      "settings",
-    ]);
-    expect(nav.filter((r) => r.nav!.mobile).map((r) => r.key)).toEqual([
-      "home",
-      "chat",
-      "content",
-      "knowledge",
-    ]);
     for (const r of nav) {
       expect(r.nav!.label.en, r.key).toBeTruthy();
       expect(r.nav!.label.de, r.key).toBeTruthy();
     }
+    // The mobile bar is ranked explicitly, independent of the sidebar order.
+    expect(
+      nav
+        .filter((r) => r.nav!.mobile)
+        .sort((a, b) => a.nav!.mobileRank! - b.nav!.mobileRank!)
+        .map((r) => r.key),
+    ).toEqual(["home", "chat", "support", "approvals", "content", "knowledge"]);
+    expect(webRegistry.modules.map((m) => [m.id, m.groupOrder])).toEqual(
+      expect.arrayContaining([
+        ["marketing", 10],
+        ["support", 20],
+        ["knowledge", 30],
+      ]),
+    );
+  });
+
+  it("rejects an unknown navGroup", () => {
+    const view = (key: string, path: string, navGroup?: string) => ({
+      key,
+      path,
+      component: () => null,
+      navGroup,
+      nav: { label: { en: key, de: key }, icon: Home, order: 1 },
+    });
+    expect(() =>
+      routeTable({
+        platform: [view("home", ""), view("a", "a", "nope")],
+        modules: [],
+      }),
+    ).toThrow(/navGroup/);
+  });
+
+  it("requires a platform page in a module's group to require that module", () => {
+    const view = (key: string, path: string, extra = {}) => ({
+      key,
+      path,
+      component: () => null,
+      nav: { label: { en: key, de: key }, icon: Home, order: 1 },
+      ...extra,
+    });
+    const modules = [
+      {
+        id: "a",
+        displayName: { en: "a", de: "a" },
+        description: { en: "a", de: "a" },
+        views: [{ ...view("a-root", ""), navGroup: undefined }],
+      },
+    ];
+    expect(() =>
+      routeTable({
+        platform: [view("home", ""), view("x", "x", { navGroup: "a" })],
+        modules,
+      }),
+    ).toThrow(/navGroup/);
+    expect(() =>
+      routeTable({
+        platform: [
+          view("home", ""),
+          view("x", "x", { navGroup: "a", requiresModule: "a" }),
+        ],
+        modules,
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects a module page in another module's group, and a mobileRank without mobile", () => {
+    const view = (key: string, path: string) => ({
+      key,
+      path,
+      component: () => null,
+      nav: { label: { en: key, de: key }, icon: Home, order: 1 },
+    });
+    const mod = (id: string, navGroup?: string) => ({
+      id,
+      displayName: { en: id, de: id },
+      description: { en: id, de: id },
+      views: [{ ...view(`${id}-root`, ""), navGroup }],
+    });
+    expect(() =>
+      routeTable({
+        platform: [view("home", "")],
+        modules: [mod("a", "b"), mod("b")],
+      }),
+    ).toThrow(/WEB_ROUTES_INVALID/);
+    expect(() =>
+      routeTable({
+        platform: [view("home", "")],
+        modules: [mod("a", "a"), mod("b")],
+      }),
+    ).not.toThrow();
+    expect(() =>
+      routeTable({
+        platform: [
+          {
+            ...view("home", ""),
+            nav: { ...view("home", "").nav, mobileRank: 1 },
+          },
+        ],
+        modules: [],
+      }),
+    ).toThrow(/mobileRank/);
+  });
+
+  it("crumbs show the group", () => {
+    const route = (key: string) => table.routes.find((r) => r.key === key)!;
+    const group = (g: string) => (g === "knowledge" ? "Wissen" : undefined);
+    expect(crumbs(route("knowledge-sources"), table, "de", group)).toEqual([
+      "Wissen",
+      "Quellen",
+    ]);
+    expect(crumbs(route("home"), table, "de", group)).toHaveLength(1);
+  });
+
+  it("titles a page with its group, as the breadcrumb does", () => {
+    const route = (key: string) => table.routes.find((r) => r.key === key)!;
+    const group = (g: string) => (g === "knowledge" ? "Knowledge" : undefined);
+    expect(pageTitle(route("knowledge"), table, "en", group)).toBe(
+      "Knowledge / Overview",
+    );
+    expect(pageTitle(route("home"), table, "en", group)).toBe("Home");
   });
 
   it("sends a module root to the module's first page", () => {
@@ -180,16 +289,32 @@ describe("Web route registry", () => {
       expect(place.kind, tab).toBe("view");
       if (place.kind !== "view") continue;
       expect(place.route.key).toBe(`knowledge-${tab}`);
-      expect(place.route.navKey).toBe("knowledge");
-      expect(activeNavKey(place.route)).toBe("knowledge");
-      expect(place.route.nav).toBeUndefined();
+      // Content tabs have their own sidebar entry (UI restructure); the
+      // diagnostic ones highlight the overview.
+      if (["health", "inspector", "impact"].includes(tab)) {
+        expect(place.route.navKey).toBe("knowledge");
+        expect(activeNavKey(place.route)).toBe("knowledge");
+        expect(place.route.nav).toBeUndefined();
+      } else {
+        expect(place.route.nav, tab).toBeTruthy();
+        expect(activeNavKey(place.route)).toBe(`knowledge-${tab}`);
+      }
       expect(href(`knowledge-${tab}`)).toBe(`/p/${P}/knowledge/${tab}`);
     }
-    // The overview stays the module root and its only sidebar entry.
+    // The overview stays the module root.
     expect(href("knowledge")).toBe(`/p/${P}/knowledge`);
     expect(
-      table.routes.filter((r) => r.moduleId === "knowledge" && r.nav),
-    ).toHaveLength(1);
+      navOrder(
+        table.routes.filter((r) => r.moduleId === "knowledge" && r.nav),
+      ).map((r) => r.key),
+    ).toEqual([
+      "knowledge",
+      "knowledge-sources",
+      "knowledge-facts",
+      "knowledge-conflicts",
+      "knowledge-import",
+      "knowledge-library",
+    ]);
   });
 
   it("knows the standalone pages of the OAuth authorization outside any project", () => {
@@ -219,17 +344,17 @@ describe("Web route registry", () => {
     );
   });
 
-  it("names a knowledge tab in the breadcrumb under its entry, never by its key", () => {
+  it("names a diagnostic knowledge tab in the breadcrumb under its entry, never by its key", () => {
     const route = (key: string) => table.routes.find((r) => r.key === key)!;
-    expect(crumbs(route("knowledge-facts"), table, "de")).toEqual([
-      "Wissen",
-      "Fakten",
+    expect(crumbs(route("knowledge-health"), table, "de")).toEqual([
+      "Übersicht",
+      "Gesundheit",
     ]);
-    expect(crumbs(route("knowledge-conflicts"), table, "en")).toEqual([
-      "Knowledge",
-      "Conflicts",
+    expect(crumbs(route("knowledge-impact"), table, "en")).toEqual([
+      "Overview",
+      "Impact",
     ]);
-    expect(crumbs(route("knowledge"), table, "de")).toEqual(["Wissen"]);
+    expect(crumbs(route("knowledge"), table, "de")).toEqual(["Übersicht"]);
     for (const r of table.routes)
       for (const part of crumbs(r, table, "en"))
         expect(part, r.key).not.toBe(r.key);

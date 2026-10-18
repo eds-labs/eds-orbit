@@ -1,10 +1,17 @@
-import { LifeBuoy } from "lucide-react";
+import { ChartColumn, LifeBuoy, Users } from "lucide-react";
+import { labels } from "@/lib/i18n";
+import type { Label } from "@/platform/shell/types";
 import type { WebModule } from "@/platform/shell/types";
 import { SupportContacts } from "./contacts";
 import { SupportHome } from "./home";
 import { SupportInbox } from "./inbox";
 import { SupportStats } from "./stats";
 import { supportSettings } from "./settings";
+
+const label = (key: keyof typeof labels.en): Label => ({
+  en: labels.en[key],
+  de: labels.de[key],
+});
 
 /**
  * Support in the web shell (WP5.2): the inbox with the ticket view, the
@@ -21,6 +28,7 @@ export const supportWeb: WebModule = {
   },
   home: SupportHome,
   homeOrder: 5,
+  groupOrder: 20,
   settings: supportSettings,
   views: [
     {
@@ -28,24 +36,24 @@ export const supportWeb: WebModule = {
       path: "",
       component: SupportInbox,
       nav: {
-        label: { en: "Support", de: "Support" },
+        label: label("tickets"),
         icon: LifeBuoy,
-        order: 30,
+        order: 10,
+        mobile: true,
+        mobileRank: 20,
       },
     },
     {
       key: "support-contacts",
       path: "contacts",
       component: SupportContacts,
-      title: { en: "Contacts", de: "Kontakte" },
-      navKey: "support",
+      nav: { label: label("contacts"), icon: Users, order: 20 },
     },
     {
       key: "support-stats",
       path: "stats",
       component: SupportStats,
-      title: { en: "Statistics", de: "Statistik" },
-      navKey: "support",
+      nav: { label: label("statistics"), icon: ChartColumn, order: 30 },
     },
   ],
 };
