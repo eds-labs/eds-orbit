@@ -4,7 +4,7 @@ import {
   PROJECT_OWN,
   PROJECT_WRITE,
 } from "../platform/tenancy/permissions.ts";
-import type { DbTx } from "../../../../packages/db/src/index.ts";
+import { authDb, type DbTx } from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   audit,
@@ -214,6 +214,49 @@ export async function mcpActionRequestStatus(
   };
 }
 
+/** Grants that ended by being replaced or superseded keep their authorization (see mcp-auth/grants.ts). */
+const GRANT_CONTINUES = ["replaced", "superseded"];
+
+/**
+ * Whether the authorization an MCP proposal came from still allows
+ * proposing: its grant is active with `orbit:propose`, or was replaced by a
+ * newer active grant of the same user, client and workspace that has it. A
+ * revoked grant or one whose proposals were stopped never does, so deciding
+ * an old proposal cannot run what the owner has since cut off.
+ */
+async function mcpGrantStillProposes(
+  by: { grantId: string },
+  workspaceId: string,
+) {
+  const select = {
+    status: true,
+    revokedBy: true,
+    scopes: true,
+    userId: true,
+    clientId: true,
+    workspaceId: true,
+  } as const;
+  let grant = await authDb.mcpGrant.findUnique({
+    where: { id: by.grantId },
+    select,
+  });
+  if (!grant || grant.workspaceId !== workspaceId) return false;
+  if (
+    grant.status === "revoked" &&
+    GRANT_CONTINUES.includes(grant.revokedBy ?? "")
+  )
+    grant = await authDb.mcpGrant.findFirst({
+      where: {
+        userId: grant.userId,
+        clientId: grant.clientId,
+        workspaceId,
+        status: "active",
+      },
+      select,
+    });
+  return grant?.status === "active" && grant.scopes.includes("orbit:propose");
+}
+
 /** Records an authenticated user's decision on the exact version and hash that were shown. */
 export async function decideActionRequest(
   tx: DbTx,
@@ -248,6 +291,14 @@ export async function decideActionRequest(
   if (Date.parse(d.expiresAt) <= Date.now())
     throw new DomainError("ACTION_REQUEST_EXPIRED", 409);
   const approve = input.decision === "approve";
+  // An approval executes: it needs the proposing grant to still stand. This
+  // holds even when the cancellation at revocation did not run (D-M4-10).
+  if (
+    approve &&
+    d.requestedBy?.kind === "mcp" &&
+    !(await mcpGrantStillProposes(d.requestedBy, scope.workspaceId))
+  )
+    throw new DomainError("MCP_GRANT_ENDED", 409);
   if (approve) await type.revalidate(tx, scope, type.payload.parse(d.payload));
   const decided = await update(tx, scope, row, {
     ...d,
@@ -313,8 +364,17 @@ export async function consumeActionRequest(
   });
 }
 
-/** Withdraws a request before it is used; a consumed request is returned unchanged. */
-export async function cancelActionRequest(tx: DbTx, scope: Scope, id: string) {
+/**
+ * Withdraws a request before it is used; a consumed request is returned
+ * unchanged. A `reason` (a short code) is recorded on the request and its
+ * audit event.
+ */
+export async function cancelActionRequest(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  reason?: string,
+) {
   const row = await entity(tx, scope, KIND, id);
   const d = data(row);
   if (!["pending", "approved"].includes(d.status)) return row;
@@ -323,10 +383,67 @@ export async function cancelActionRequest(tx: DbTx, scope: Scope, id: string) {
     status: "canceled",
     canceledBy: scope.userId,
     canceledAt: new Date().toISOString(),
+    ...(reason ? { canceledReason: reason } : {}),
   });
   await audit(tx, scope, "action_request.canceled", row.id, {
     actionType: d.actionType,
+    ...(reason ? { reason } : {}),
   });
+  return canceled;
+}
+
+/** Pending requests canceled per round; the loop ends when a round finds fewer. */
+const CANCEL_BATCH = 100;
+const CANCEL_ROUNDS = 20;
+
+/**
+ * Cancels the PENDING proposals an MCP client made for one user in this
+ * project (WP-M4, D-M4-10): used when the user's grant for the client is
+ * revoked or stops proposing. Matches on user and client, not on the grant
+ * id, so proposals of an earlier grant that was replaced go too. Approved
+ * requests are not touched: their approval already ran. The scope's user is
+ * the actor who withdrew the grant and no role is checked; the caller has
+ * authorized the grant change. Returns the number canceled.
+ */
+export async function cancelMcpProposals(
+  tx: DbTx,
+  scope: Scope,
+  proposer: { userId: string; clientId: string },
+  reason: string,
+) {
+  let canceled = 0;
+  for (let round = 0; round < CANCEL_ROUNDS; round += 1) {
+    const rows = await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: KIND,
+        AND: [
+          { data: { path: ["status"], equals: "pending" } },
+          { data: { path: ["requestedBy", "kind"], equals: "mcp" } },
+          {
+            data: {
+              path: ["requestedBy", "userId"],
+              equals: proposer.userId,
+            },
+          },
+          {
+            data: {
+              path: ["requestedBy", "clientId"],
+              equals: proposer.clientId,
+            },
+          },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+      take: CANCEL_BATCH,
+    });
+    for (const row of rows) {
+      await cancelActionRequest(tx, scope, row.id, reason);
+      canceled += 1;
+    }
+    if (rows.length < CANCEL_BATCH) break;
+  }
   return canceled;
 }
 

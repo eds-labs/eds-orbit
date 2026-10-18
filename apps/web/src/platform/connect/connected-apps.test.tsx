@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { labels, type Locale } from "@/lib/i18n";
-import { GrantList, revokeGrant, type McpGrant } from "./connected-apps";
+import {
+  GrantList,
+  revokeGrant,
+  stopProposals,
+  type McpGrant,
+} from "./connected-apps";
 
 const t = (locale: Locale) => (key: keyof typeof labels.en) =>
   labels[locale][key];
@@ -37,6 +42,9 @@ function render(
       confirm={null}
       onConfirm={() => {}}
       onRevoke={() => {}}
+      stopConfirm={null}
+      onStopConfirm={() => {}}
+      onStopProposals={() => {}}
       pending={false}
       error={null}
       {...props}
@@ -89,8 +97,37 @@ describe("Connected apps", () => {
     );
   });
 
+  it("offers Stop proposals only for a grant that can still propose", () => {
+    const withScope = render();
+    expect(withScope).toContain("Stop proposals");
+    expect(withScope).not.toContain("<dialog");
+    const without = render({
+      grants: [grant({ scopes: ["openid", "orbit:read"] })],
+    });
+    expect(without).not.toContain("Stop proposals");
+    expect(without).toContain("Revoke");
+  });
+
+  it("asks before stopping proposals and names the app", () => {
+    const html = render({ stopConfirm: grant() });
+    expect(html).toContain("<dialog");
+    expect(html).toContain("Stop proposals from Synthetic MCP Client?");
+    expect(html).toContain("withdrawn");
+  });
+
+  it("stops proposals with PATCH { proposals: false } only when called", async () => {
+    const patch = vi.fn().mockResolvedValue(undefined);
+    expect(patch).not.toHaveBeenCalled();
+    await stopProposals(patch, grant());
+    expect(patch).toHaveBeenCalledWith(
+      "/mcp-grants/3f1c0d1e-0000-4000-8000-000000000001",
+      { proposals: false },
+    );
+  });
+
   it("renders in German", () => {
     expect(render({}, "de")).toContain("Nie genutzt");
+    expect(render({}, "de")).toContain("Vorschläge stoppen");
     expect(render({ confirm: grant() }, "de")).toContain(
       "Zugriff widerrufen für Synthetic MCP Client?",
     );

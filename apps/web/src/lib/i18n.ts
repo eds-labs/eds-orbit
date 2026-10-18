@@ -199,6 +199,11 @@ export const labels = {
     connectedRevokeHint:
       "Revoking signs the app out and ends its access to this workspace immediately. It has to ask you again to reconnect.",
     connectedRevokeConfirm: "Revoke access",
+    connectedStopProposals: "Stop proposals",
+    connectedStopProposalsTitle: "Stop proposals from",
+    connectedStopProposalsHint:
+      "The app can still read, but it can no longer propose actions for you to approve. Proposals it already made and that are waiting are withdrawn. It can propose again only after it asks you to connect again.",
+    connectedStopProposalsConfirm: "Stop proposals",
     connectedAllProjects: "All current projects",
     connectedScopes: "Permissions",
   },
@@ -403,6 +408,11 @@ export const labels = {
     connectedRevokeHint:
       "Widerrufen meldet die App ab und beendet sofort ihren Zugriff auf diesen Workspace. Zum erneuten Verbinden muss sie dich wieder fragen.",
     connectedRevokeConfirm: "Zugriff widerrufen",
+    connectedStopProposals: "Vorschläge stoppen",
+    connectedStopProposalsTitle: "Vorschläge stoppen für",
+    connectedStopProposalsHint:
+      "Die App kann weiter lesen, aber keine Aktionen mehr zur Freigabe vorschlagen. Bereits gemachte, noch wartende Vorschläge werden zurückgezogen. Sie kann erst wieder vorschlagen, nachdem sie dich beim erneuten Verbinden fragt.",
+    connectedStopProposalsConfirm: "Vorschläge stoppen",
     connectedAllProjects: "Alle aktuellen Projekte",
     connectedScopes: "Berechtigungen",
   },

@@ -3,8 +3,10 @@ import { getOAuthProviderState } from "@better-auth/oauth-provider";
 import {
   authDb,
   Prisma,
+  scoped,
   type DbTx,
 } from "../../../../../packages/db/src/index.ts";
+import { cancelMcpProposals } from "../../modules/action-requests.ts";
 import { DomainError } from "../shared.ts";
 import { recordGrantEvent } from "./events.ts";
 import {
@@ -646,40 +648,120 @@ export function grantHookDeps(): McpHookDeps {
   };
 }
 
+type Log = {
+  error: (fields: Record<string, unknown>, message: string) => void;
+};
+
 /**
- * Revokes an active grant. Allowed for the grant's own user and for an owner
- * of its workspace. A grant that does not exist, is not active (already
- * revoked, denied or pending) or whose workspace the actor does not belong to
- * answers NOT_FOUND (404; revoking twice is not idempotent on purpose, so the
- * answer never tells outsiders which ids exist); a member who is neither the
- * grant's user nor an owner gets FORBIDDEN (403). The status change, the
- * stored authorization and the audit event share one transaction, so the
- * client fails on its very next call, also inside the refresh reuse window.
+ * The active grant the actor may change: their own, or any grant of a
+ * workspace they own. A grant that does not exist, is not active or whose
+ * workspace the actor does not belong to answers NOT_FOUND (404, the same for
+ * all, so the answer never tells outsiders which ids exist); a member who is
+ * neither the grant's user nor an owner gets FORBIDDEN (403).
+ */
+async function changeableGrant(
+  tx: DbTx,
+  actor: { userId: string },
+  id: string,
+) {
+  const grant = await tx.mcpGrant.findFirst({
+    where: { id, status: "active" },
+  });
+  if (!grant) throw new DomainError("NOT_FOUND", 404);
+  const own = grant.userId === actor.userId;
+  if (!own) {
+    const membership = await tx.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: {
+          workspaceId: grant.workspaceId,
+          userId: actor.userId,
+        },
+      },
+    });
+    if (!membership) throw new DomainError("NOT_FOUND", 404);
+    if (membership.role !== "owner") throw new DomainError("FORBIDDEN", 403);
+  }
+  return { grant, own };
+}
+
+/**
+ * Cancels the pending MCP proposals a grant's user made through its client,
+ * in every project of the grant's workspace (D-M4-10). It runs after the
+ * grant change has committed, in project transactions on the other database
+ * role, so it cannot share the grant's transaction. Failure never undoes the
+ * grant change: it is logged at error level and the remaining projects still
+ * run. Deciding such a proposal stays refused meanwhile, because an approval
+ * re-checks the grant (action-requests.ts `mcpGrantStillProposes`), and
+ * repeating the owner action runs the sweep again.
+ */
+async function cancelGrantProposals(
+  grant: { id: string; userId: string; clientId: string; workspaceId: string },
+  actor: { userId: string },
+  reason: "grant_revoked" | "proposals_disabled",
+  log?: Log,
+) {
+  let projects: { id: string }[] = [];
+  try {
+    projects = await authDb.project.findMany({
+      where: { workspaceId: grant.workspaceId },
+      select: { id: true },
+    });
+  } catch (error) {
+    log?.error(
+      { code: "MCP_PROPOSAL_CANCEL_FAILED", grantId: grant.id, reason },
+      `mcp proposal cancellation failed: ${failureName(error)}`,
+    );
+    return;
+  }
+  for (const { id: projectId } of projects) {
+    try {
+      // The actor withdraws; no role is checked here, the grant change was
+      // authorized by changeableGrant.
+      const scope = {
+        workspaceId: grant.workspaceId,
+        projectId,
+        userId: actor.userId,
+        role: "owner" as const,
+      };
+      await scoped(grant.workspaceId, projectId, (tx) =>
+        cancelMcpProposals(
+          tx,
+          scope,
+          { userId: grant.userId, clientId: grant.clientId },
+          reason,
+        ),
+      );
+    } catch (error) {
+      log?.error(
+        {
+          code: "MCP_PROPOSAL_CANCEL_FAILED",
+          grantId: grant.id,
+          projectId,
+          reason,
+        },
+        `mcp proposal cancellation failed: ${failureName(error)}`,
+      );
+    }
+  }
+}
+
+/**
+ * Revokes an active grant (who may: `changeableGrant`; revoking twice is not
+ * idempotent on purpose). The status change, the stored authorization and
+ * the audit event share one transaction, so the client fails on its very next
+ * call, also inside the refresh reuse window. Its pending MCP proposals are
+ * canceled right after (`cancelGrantProposals`); the grant stays revoked if
+ * that fails.
  */
 export async function revokeGrant(
   actor: { userId: string },
   grantId: string,
+  log?: Log,
 ): Promise<void> {
   if (!UUID.test(grantId)) throw new DomainError("NOT_FOUND", 404);
   const now = new Date();
-  await authDb.$transaction(async (tx) => {
-    const grant = await tx.mcpGrant.findFirst({
-      where: { id: grantId, status: "active" },
-    });
-    if (!grant) throw new DomainError("NOT_FOUND", 404);
-    const own = grant.userId === actor.userId;
-    if (!own) {
-      const membership = await tx.workspaceMember.findUnique({
-        where: {
-          workspaceId_userId: {
-            workspaceId: grant.workspaceId,
-            userId: actor.userId,
-          },
-        },
-      });
-      if (!membership) throw new DomainError("NOT_FOUND", 404);
-      if (membership.role !== "owner") throw new DomainError("FORBIDDEN", 403);
-    }
+  const grant = await authDb.$transaction(async (tx) => {
+    const { grant, own } = await changeableGrant(tx, actor, grantId);
     // The guard on status keeps a concurrent revocation from writing twice.
     const changed = await tx.mcpGrant.updateMany({
       where: { id: grant.id, status: "active" },
@@ -703,7 +785,55 @@ export async function revokeGrant(
       },
       tx,
     );
+    return grant;
   });
+  await cancelGrantProposals(grant, actor, "grant_revoked", log);
+}
+
+/** The scope that lets a client propose (WP-M4); removed when proposals stop. */
+const PROPOSE_SCOPE = "orbit:propose";
+
+/**
+ * Stops an active grant from proposing (D-M4-9): removes `orbit:propose` from
+ * its scopes, so the proposal tools disappear on the client's next request
+ * (the gateway intersects token and grant scopes per request), and cancels
+ * its pending proposals. Same authorization as `revokeGrant`. Idempotent: a
+ * grant without the scope writes no second event, but the cancellation sweep
+ * still runs, so repeating it repairs a failed one. Proposing is granted
+ * again only by a new consent.
+ */
+export async function setGrantProposals(
+  actor: { userId: string },
+  grantId: string,
+  enabled: false,
+  log?: Log,
+): Promise<void> {
+  // Only stopping exists; the parameter keeps a future enable explicit.
+  if (enabled !== false) throw new DomainError("VALIDATION_FAILED", 400);
+  if (!UUID.test(grantId)) throw new DomainError("NOT_FOUND", 404);
+  const grant = await authDb.$transaction(async (tx) => {
+    const { grant, own } = await changeableGrant(tx, actor, grantId);
+    if (!grant.scopes.includes(PROPOSE_SCOPE)) return grant;
+    // The guard on status keeps a concurrent revocation from being overwritten.
+    const changed = await tx.mcpGrant.updateMany({
+      where: { id: grant.id, status: "active" },
+      data: { scopes: grant.scopes.filter((scope) => scope !== PROPOSE_SCOPE) },
+    });
+    if (!changed.count) throw new DomainError("NOT_FOUND", 404);
+    await recordGrantEvent(
+      {
+        action: "grant.proposals_disabled",
+        userId: grant.userId,
+        clientId: grant.clientId,
+        grantId: grant.id,
+        workspaceId: grant.workspaceId,
+        detail: { by: own ? "user" : "owner" },
+      },
+      tx,
+    );
+    return grant;
+  });
+  await cancelGrantProposals(grant, actor, "proposals_disabled", log);
 }
 
 /**

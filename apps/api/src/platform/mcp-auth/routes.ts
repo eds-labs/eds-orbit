@@ -13,6 +13,7 @@ import {
   recordSelection,
   revokeGrant,
   selectionView,
+  setGrantProposals,
 } from "./grants.ts";
 
 // The /connect page's API (Track M, WP-M1): the signed OAuth request, the
@@ -32,6 +33,7 @@ const selectionInput = z
     ]),
   })
   .strict();
+const grantPatch = z.object({ proposals: z.literal(false) }).strict();
 const consentInput = z
   .object({
     oauthQuery,
@@ -193,7 +195,24 @@ export function registerMcpConnectRoutes(
     "/api/mcp-grants/:grantId",
     async (req, reply) => {
       const user = await userFor(auth, req);
-      await revokeGrant({ userId: user.id }, req.params.grantId);
+      await revokeGrant({ userId: user.id }, req.params.grantId, req.log);
+      return reply.code(204).send();
+    },
+  );
+
+  // Stops the grant from proposing (WP-M4); proposing comes back only with a
+  // new consent, so `proposals: true` is not accepted.
+  app.patch<{ Params: { grantId: string } }>(
+    "/api/mcp-grants/:grantId",
+    async (req, reply) => {
+      const user = await userFor(auth, req);
+      const body = grantPatch.parse(req.body);
+      await setGrantProposals(
+        { userId: user.id },
+        req.params.grantId,
+        body.proposals,
+        req.log,
+      );
       return reply.code(204).send();
     },
   );

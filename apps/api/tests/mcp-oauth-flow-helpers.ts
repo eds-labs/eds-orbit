@@ -111,7 +111,7 @@ export function createFlowDriver(ctx: {
   defaultClientId: string;
 }) {
   const inject = (opts: {
-    method?: "GET" | "POST" | "DELETE";
+    method?: "GET" | "POST" | "PATCH" | "DELETE";
     url: string;
     payload?: unknown;
     headers?: Record<string, string>;
