@@ -17,6 +17,12 @@ import { reserve, settle, markTransmitted } from "../../modules/budget.ts";
 import { data, DomainError, create, entity, hash } from "../../shared.ts";
 import { recordSpan, startRun, tracedRun } from "../../modules/telemetry.ts";
 /**
+ * The budget key a paid query reserves under for its retrieval job key
+ * (before `reserve` qualifies it with the project): a caller can tell
+ * whether a call already reserved.
+ */
+export const queryReservationKey = (queryKey: string) => "query:" + queryKey;
+/**
  * `trace` is set by a caller that owns an agent run (generation): the query
  * reservation and embedding span then join that run and no retrieval run is
  * opened. Without it, a standalone `retrieval` run wraps the paid call.
@@ -107,7 +113,7 @@ export async function retrieveHybrid(
         const reservation = await reserve(
           tx,
           scope,
-          "query:" + queryKey,
+          queryReservationKey(queryKey),
           "query_embedding",
           amount,
           approved,

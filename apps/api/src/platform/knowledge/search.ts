@@ -11,6 +11,8 @@ import type { ChatCard } from "../assistant/cards.ts";
 
 /** Keys a paid search reserves under: its retrieval run and the budget run. */
 export type SearchBudget = { retrievalJobKey: string; budgetRunKey: string };
+/** The agent run a paid search joins instead of opening its own retrieval run. */
+export type SearchTrace = { agentRunId: string; taskClass: string };
 
 export const knowledgeSearchInput = z
   .object({
@@ -49,12 +51,14 @@ function clipped(value: unknown, max = 500) {
  * With `budget` it runs the paid hybrid retrieval under those keys;
  * without, the lexical retrieval only. `consumer` is the module searching
  * (WP3.5); without it only sources open to all modules are searched.
+ * `trace` attributes a paid search to the caller's agent run.
  */
 export async function knowledgeSearch(
   scope: Scope,
   raw: unknown,
   budget?: SearchBudget,
   consumer?: string,
+  trace?: SearchTrace,
 ): Promise<{ result: unknown; cards: ChatCard[] }> {
   const input = knowledgeSearchInput.parse(raw);
   const language = await scoped(
@@ -83,6 +87,7 @@ export async function knowledgeSearch(
         request,
         budget.retrievalJobKey,
         budget.budgetRunKey,
+        trace,
       )
     : await scoped(scope.workspaceId, scope.projectId, (tx) =>
         retrieve(tx, scope, request),
