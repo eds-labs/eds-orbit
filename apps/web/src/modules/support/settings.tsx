@@ -11,7 +11,15 @@ import {
 } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import type { SettingsSection } from "@/platform/shell/types";
-import { patch, post, put, supportPath, PRIORITIES, type Inbox } from "./api";
+import {
+  patch,
+  post,
+  put,
+  supportPath,
+  PRIORITIES,
+  type Inbox,
+  type Mailbox,
+} from "./api";
 import { supportText, type SupportText } from "./labels";
 import { TagEditor, finalizeTags, type TagDef } from "./tags";
 
@@ -101,11 +109,12 @@ function validOrigin(value: string) {
   }
 }
 
-/** What the API would refuse about the widget origins, in words; or null. */
+/** What the API would refuse about the mailbox or widget origins, in words; or null. */
 export function inboxFormProblem(
   form: Parameters<typeof inboxBody>[0],
   t: SupportText,
 ): string | null {
+  if (form.email && !form.emailConnectionId) return t.settings.mailboxMissing;
   const { allowedOrigins } = inboxBody(form);
   if (!form.widget) return null;
   if (!allowedOrigins.length) return t.settings.originsMissing;
@@ -117,7 +126,8 @@ export function inboxBody(form: {
   name: string;
   email: boolean;
   widget: boolean;
-  emailAddress: string;
+  /** The mailbox the inbox answers from; its address is the inbox's. */
+  emailConnectionId: string;
   origins: string;
   aiMode: string;
   language: string;
@@ -131,7 +141,9 @@ export function inboxBody(form: {
   return {
     name: form.name.trim(),
     channels,
-    emailAddress: form.email ? form.emailAddress.trim() || null : null,
+    ...(form.email
+      ? { emailConnectionId: form.emailConnectionId || null }
+      : { emailConnectionId: null, emailAddress: null }),
     allowedOrigins: form.widget
       ? form.origins
           .split("\n")
@@ -303,11 +315,14 @@ function InboxForm({
   onSaved: (widgetSecret?: string) => void;
 }) {
   const { project } = useWorkspace();
+  const mailboxes = useResource<{ items: Mailbox[] }>(
+    supportPath(project.id, "/mailboxes"),
+  );
   const [form, setForm] = useState({
     name: inbox?.name ?? "",
     email: inbox ? inbox.channels.includes("email") : true,
     widget: inbox ? inbox.channels.includes("widget") : false,
-    emailAddress: inbox?.emailAddress ?? "",
+    emailConnectionId: inbox?.emailConnectionId ?? "",
     origins: (inbox?.allowedOrigins ?? []).join("\n"),
     aiMode: inbox?.aiMode ?? "off",
     rules: {
@@ -321,16 +336,28 @@ function InboxForm({
   const [problem, setProblem] = useState<string | null>(null);
   const set = (patchValue: Partial<typeof form>) =>
     setForm({ ...form, ...patchValue });
+  const items = mailboxes.data?.items ?? [];
+  // An inbox from before the binding: preselect the mailbox of its address.
+  const chosen =
+    form.emailConnectionId ||
+    (inbox?.emailAddress
+      ? (items.find(
+          (m) =>
+            m.verified &&
+            m.address.toLowerCase() === inbox.emailAddress!.toLowerCase(),
+        )?.id ?? "")
+      : "");
   return (
     <Modal title={inbox ? inbox.name : t.settings.newInbox} onClose={onClose}>
       <form
         className="support-form"
         onSubmit={async (e) => {
           e.preventDefault();
-          const problem = inboxFormProblem(form, t);
+          const values = { ...form, emailConnectionId: chosen };
+          const problem = inboxFormProblem(values, t);
           setProblem(problem);
           if (problem) return;
-          const body = inboxBody(form);
+          const body = inboxBody(values);
           const result = await save.run(() =>
             inbox
               ? patch(supportPath(project.id, `/inboxes/${inbox.id}`), {
@@ -369,12 +396,36 @@ function InboxForm({
         </fieldset>
         {form.email && (
           <label>
-            <span>{t.settings.address}</span>
-            <Input
-              type="email"
-              value={form.emailAddress}
-              onChange={(e) => set({ emailAddress: e.target.value })}
-            />
+            <span>{t.settings.mailbox}</span>
+            <select
+              value={chosen}
+              onChange={(e) => set({ emailConnectionId: e.target.value })}
+            >
+              <option value="">{t.settings.mailboxChoose}</option>
+              {items.map((m) => {
+                const taken = m.inboxId !== null && m.inboxId !== inbox?.id;
+                const notes = [
+                  m.isDefault ? t.settings.mailboxDefault : null,
+                  !m.verified ? t.settings.mailboxUnverified : null,
+                  taken ? t.settings.mailboxTaken : null,
+                ].filter(Boolean);
+                return (
+                  <option
+                    key={m.id}
+                    value={m.id}
+                    disabled={!m.verified || taken}
+                  >
+                    {m.address}
+                    {notes.length ? ` (${notes.join(", ")})` : ""}
+                  </option>
+                );
+              })}
+            </select>
+            <small>
+              {mailboxes.data && !items.some((m) => m.verified)
+                ? t.settings.mailboxNone
+                : t.settings.mailboxHint}
+            </small>
           </label>
         )}
         {form.widget && (

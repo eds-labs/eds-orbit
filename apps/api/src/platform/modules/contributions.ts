@@ -1,4 +1,5 @@
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { FetchLike } from "../../../../../packages/connectors/src/index.ts";
 import type { UserNotificationKind } from "../notifications/members.ts";
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
@@ -106,8 +107,11 @@ export type ModuleContributions = {
    * Inbound e-mail of the project's mailbox (WP4.7): the platform stores
    * each message as `inbound_emails` and enqueues this queue class with the
    * row's id. Bounces are the platform's and never handed over.
+   * `mailboxUse` tells the platform whether the module still uses a mailbox
+   * (a removal is refused then) and lets go of the uses that do not block,
+   * right before the mailbox is removed.
    */
-  emailInbound?: { queueClass: string };
+  emailInbound?: { queueClass: string; mailboxUse?: MailboxUse };
   /**
    * Member notification kinds the module sends with `notifyMembers`
    * (WP4.7), by kind name, unique across modules.
@@ -119,6 +123,14 @@ export type ModuleContributions = {
    * module list nor can enable it. Absent: always available.
    */
   available?: () => boolean;
+};
+
+/** How a module uses the project's mailboxes (several mailboxes per project). */
+export type MailboxUse = {
+  /** How many live uses block removing the mailbox. */
+  inUse: (tx: DbTx, scope: Scope, connectionId: string) => Promise<number>;
+  /** Drops the remaining (non-blocking) uses, in the removal's transaction. */
+  release: (tx: DbTx, scope: Scope, connectionId: string) => Promise<void>;
 };
 
 /** What a public route's handler receives (WP4.2b). */
@@ -241,7 +253,11 @@ type Registered = {
   >;
   actionPermissions: ReadonlyMap<string, PermissionDef>;
   webhooks: ReadonlyMap<string, WebhookProvider & { owner: string }>;
-  emailInbound: readonly { owner: string; queueClass: string }[];
+  emailInbound: readonly {
+    owner: string;
+    queueClass: string;
+    mailboxUse?: MailboxUse;
+  }[];
   userNotifications: ReadonlyMap<
     string,
     UserNotificationKind & { owner: string; kind: string }
@@ -422,14 +438,14 @@ export function registerContributions(
       webhooks.set(name, { ...provider, owner });
     }
   // Inbound e-mail consumers: a queue class that exists.
-  const emailInbound: { owner: string; queueClass: string }[] = [];
+  const emailInbound: Registered["emailInbound"][number][] = [];
   for (const [owner, c] of ordered)
     if (c.emailInbound) {
       if (!jobs.has(c.emailInbound.queueClass))
         problems.push(
           `${owner} takes inbound e-mail with unknown queue class ${c.emailInbound.queueClass}`,
         );
-      emailInbound.push({ owner, queueClass: c.emailInbound.queueClass });
+      emailInbound.push({ owner, ...c.emailInbound });
     }
   // Member notification kinds: valid, unique names.
   const userNotifications = new Map<

@@ -25,7 +25,8 @@ import {
 } from "./transport.ts";
 
 // Outbound e-mail (WP4.7). One `email_messages` row per message, sent by
-// the `email_send` job through the project's verified mailbox. States:
+// the `email_send` job through the mailbox it names (`connectionId`), else
+// the project's default mailbox (connection.ts). States:
 // queued → sending → sent | rejected | retry → failed | outcome_unknown,
 // or test_receipt outside live mode. A message that may have left (an
 // error after the hand-over, or a crash while "sending") is never sent
@@ -52,6 +53,8 @@ export const outgoingEmail = z
     automatic: z.boolean().default(false),
     inReplyTo: z.string().max(998).optional(),
     references: z.array(z.string().max(998)).max(50).optional(),
+    /** The mailbox to send through; left out, the default mailbox. */
+    connectionId: z.uuid().optional(),
   })
   .strict();
 
@@ -116,7 +119,11 @@ export async function sendQueuedEmail(scope: Scope, messageId: string) {
       if (!["queued", "retry"].includes(d.status)) return null;
       if (!emailEnabled())
         return finish({ status: "skipped", code: "DISABLED" });
-      const connection = await verifiedEmailConnection(tx, scope);
+      const connection = await verifiedEmailConnection(
+        tx,
+        scope,
+        d.connectionId as string | undefined,
+      );
       if (!connection)
         return finish({ status: "failed", code: "EMAIL_NOT_CONNECTED" });
       const account = accountOf(data(connection));

@@ -88,7 +88,7 @@ describe("support ticket view (WP5.2)", () => {
         name: " Desk ",
         email: true,
         widget: true,
-        emailAddress: " support@example.invalid ",
+        emailConnectionId: "mailbox-1",
         origins: "https://desk.example.invalid\n\n",
         aiMode: "off",
         language: "en",
@@ -96,7 +96,7 @@ describe("support ticket view (WP5.2)", () => {
     ).toEqual({
       name: "Desk",
       channels: ["email", "widget"],
-      emailAddress: "support@example.invalid",
+      emailConnectionId: "mailbox-1",
       allowedOrigins: ["https://desk.example.invalid"],
       aiMode: "off",
       language: "en",
@@ -106,7 +106,7 @@ describe("support ticket view (WP5.2)", () => {
         name: "Mail",
         email: true,
         widget: false,
-        emailAddress: "a@example.invalid",
+        emailConnectionId: "mailbox-1",
         origins: "https://x.example",
         aiMode: "draft",
         language: "de",
@@ -158,7 +158,7 @@ describe("support ticket view (WP5.2)", () => {
       name: "Support",
       email: true,
       widget: true,
-      emailAddress: "support@example.invalid",
+      emailConnectionId: "mailbox-1",
       origins: "",
       aiMode: "off",
       language: "en",
@@ -182,5 +182,19 @@ describe("support ticket view (WP5.2)", () => {
     ).toBeNull();
     // Without the widget, origins do not matter.
     expect(inboxFormProblem({ ...base, widget: false }, t)).toBeNull();
+    // An e-mail inbox needs its mailbox; without e-mail it needs none.
+    expect(
+      inboxFormProblem({ ...base, widget: false, emailConnectionId: "" }, t),
+    ).toBe(t.settings.mailboxMissing);
+    expect(
+      inboxFormProblem(
+        { ...base, email: false, widget: false, emailConnectionId: "" },
+        t,
+      ),
+    ).toBeNull();
+    // Without e-mail the body clears the mailbox and the address.
+    expect(
+      inboxBody({ ...base, email: false, origins: "https://x.example" }),
+    ).toMatchObject({ emailConnectionId: null, emailAddress: null });
   });
 });

@@ -27,6 +27,7 @@ import { runSupportTask, withPlaceholders } from "../src/modules/support/ai.ts";
 import { readModuleSettings } from "../src/platform/modules/settings.ts";
 import { create } from "../src/shared.ts";
 import { createPackageProject } from "./support/package-project.ts";
+import { createMailInbox } from "./fixtures/mailbox.ts";
 
 const mocked = vi.hoisted(() => ({
   requests: [] as any[],
@@ -168,7 +169,7 @@ describe.skipIf(!enabled)("support AI", () => {
         1,
       );
       inboxId = (
-        await createInbox(tx, project.owner, {
+        await createMailInbox(tx, project.owner, {
           name: "Mail",
           channels: ["email"],
           emailAddress: "support@example.invalid",
@@ -206,7 +207,7 @@ describe.skipIf(!enabled)("support AI", () => {
     const off = await run(
       async (tx) =>
         (
-          await createInbox(tx, project.owner, {
+          await createMailInbox(tx, project.owner, {
             name: "Plain",
             channels: ["email"],
             emailAddress: "plain@example.invalid",
