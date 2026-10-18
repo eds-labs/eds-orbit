@@ -14,6 +14,18 @@ const slaTarget = z
  * (06 §3.1). Retention defaults are Mario's decision Q-12b (2026-10-17);
  * owners may shorten them, closed tickets up to 72 months.
  */
+/** The colours a ticket tag can have; the web maps each to a token. */
+export const TAG_COLORS = [
+  "gray",
+  "blue",
+  "green",
+  "yellow",
+  "orange",
+  "red",
+  "purple",
+  "pink",
+] as const;
+
 export const supportSettingsSchema = z
   .object({
     categories: z
@@ -29,6 +41,22 @@ export const supportSettingsSchema = z
       .refine(
         (items) => new Set(items.map((c) => c.key)).size === items.length,
         "Category keys must be unique",
+      ),
+    // Ticket tags, like Chatwoot labels: several per ticket, from this list.
+    tags: z
+      .array(
+        z
+          .object({
+            key: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/),
+            label: z.string().trim().min(1).max(40),
+            color: z.enum(TAG_COLORS),
+          })
+          .strict(),
+      )
+      .max(50)
+      .refine(
+        (items) => new Set(items.map((t) => t.key)).size === items.length,
+        "Tag keys must be unique",
       ),
     sla: z
       .object(
@@ -68,6 +96,7 @@ const FIRST_RESPONSE: Record<SupportPriority, number> = {
 export function supportSettingsDefaults(): SupportSettings {
   return {
     categories: [],
+    tags: [],
     sla: Object.fromEntries(
       PRIORITIES.map((p) => [
         p,

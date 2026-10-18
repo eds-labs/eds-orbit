@@ -34,7 +34,7 @@ describe.skipIf(!enabled)("support workspace API", () => {
     `198.18.${randomBytes(1)[0]}.${(randomBytes(1)[0]! % 254) + 1}`;
   const call = (
     who: keyof typeof ids,
-    method: "GET" | "POST" | "PATCH",
+    method: "GET" | "POST" | "PATCH" | "PUT",
     url: string,
     payload?: object,
   ) =>
@@ -268,11 +268,72 @@ describe.skipIf(!enabled)("support workspace API", () => {
     ).toBe(403);
   });
 
+  /** Saves the project's tag list (owner), keeping the other settings. */
+  const defineTags = async (
+    tags: Array<{ key: string; label: string; color: string }>,
+  ) => {
+    const current = (await call("owner", "GET", "/settings")).json();
+    return call("owner", "PUT", "/settings", {
+      settings: { ...current.settings, tags },
+      version: current.version,
+    });
+  };
+
+  it("keeps a coloured tag list; tickets take listed tags and filter by them", async () => {
+    // Only the fixed palette is accepted.
+    expect(
+      (await defineTags([{ key: "vip", label: "VIP", color: "chartreuse" }]))
+        .statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await defineTags([
+          { key: "vip", label: "VIP", color: "purple" },
+          { key: "bug", label: "Bug", color: "red" },
+        ])
+      ).statusCode,
+    ).toBe(200);
+    const one = await ticket({ subject: "Tagged one" });
+    const two = await ticket({ subject: "Tagged two" });
+    const unknown = await call("editor", "PATCH", `/tickets/${one.ticketId}`, {
+      tags: ["vip", "nope"],
+    });
+    expect(unknown.statusCode).toBe(409);
+    expect(unknown.json().error.code).toBe("TAG_UNKNOWN");
+    expect(
+      (
+        await call("editor", "PATCH", `/tickets/${one.ticketId}`, {
+          tags: ["vip"],
+        })
+      ).json().tags,
+    ).toEqual(["vip"]);
+    // A tag the list no longer has may stay on a ticket; only new ones are checked.
+    await run((tx) =>
+      tx.supportTicket.update({
+        where: { id: two.ticketId },
+        data: { tags: ["legacy"] },
+      }),
+    );
+    expect(
+      (
+        await call("editor", "PATCH", `/tickets/${two.ticketId}`, {
+          tags: ["legacy", "bug"],
+        })
+      ).statusCode,
+    ).toBe(200);
+    const vip = (await call("editor", "GET", "/tickets?tag=vip")).json();
+    expect(vip.items.map((i: { id: string }) => i.id)).toContain(one.ticketId);
+    expect(vip.items.map((i: { id: string }) => i.id)).not.toContain(
+      two.ticketId,
+    );
+  });
+
   it("changes fields with one event each and recomputes SLA on priority", async () => {
     const t = await ticket();
     const before = await run((tx) =>
       tx.supportTicket.findUniqueOrThrow({ where: { id: t.ticketId } }),
     );
+    await defineTags([{ key: "payout", label: "Payout", color: "blue" }]);
     const changed = await call("editor", "PATCH", `/tickets/${t.ticketId}`, {
       priority: "urgent",
       tags: ["payout"],

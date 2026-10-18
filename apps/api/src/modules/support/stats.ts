@@ -14,6 +14,7 @@ export const statsInput = z
     to: z.iso.datetime(),
     inboxId: z.uuid().optional(),
     category: z.string().max(41).optional(),
+    tag: z.string().max(41).optional(),
     agent: z.string().max(100).optional(),
   })
   .strict();
@@ -59,6 +60,7 @@ export async function supportStats(
     mergedIntoTicketId: null,
     ...(input.inboxId ? { inboxId: input.inboxId } : {}),
     ...(input.category ? { category: input.category } : {}),
+    ...(input.tag ? { tags: { has: input.tag } } : {}),
     ...(input.agent ? { assigneeUserId: input.agent } : {}),
   };
   const tickets = await tx.supportTicket.findMany({
@@ -170,6 +172,7 @@ export async function supportStats(
       byChannel: tally(tickets.map((t) => t.channel)),
       byInbox: tally(tickets.map((t) => t.inboxId)),
       byCategory: tally(tickets.map((t) => t.category)),
+      byTag: tally(tickets.flatMap((t) => t.tags)),
     },
     firstResponse,
     resolution,

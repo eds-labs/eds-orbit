@@ -101,6 +101,8 @@ export function ticketQuery(filters: {
   status?: string | null;
   inboxId?: string | null;
   priority?: string | null;
+  tag?: string | null;
+  category?: string | null;
   q?: string | null;
   cursor?: string | null;
 }) {
