@@ -275,10 +275,12 @@ async function runCall(
         "mcp tool call failed",
       );
   }
-  // A run still being created is awaited (it never rejects), so the record
-  // names it; after this the call's attribution is closed.
-  await call.runStart;
+  // The call's attribution is closed first, so no run can start after this
+  // point; a run still being created is awaited (it never rejects), so the
+  // record names it.
+  const pending = call.runStart;
   call.settled = true;
+  await pending;
   await notify(state, {
     tool,
     projectId: call.projectId,

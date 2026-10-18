@@ -689,7 +689,10 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(response.statusCode).toBe(200);
       const tools = rpcBody(response).result.tools as Json[];
       expect(tools.map((t) => t.name)).toEqual([
+        "fetch",
+        "orbit_profile",
         "orbit_projects",
+        "search",
         "tasks_suggest_task",
         "tasks_task_digest",
       ]);
@@ -744,7 +747,10 @@ describe.skipIf(!enabled)("MCP gateway", () => {
 
     it("follows the user's role: a viewer gets no proposal tool", async () => {
       expect(await toolNames(tokens.viewer)).toEqual([
+        "fetch",
+        "orbit_profile",
         "orbit_projects",
+        "search",
         "tasks_task_digest",
       ]);
     });
@@ -987,7 +993,10 @@ describe.skipIf(!enabled)("MCP gateway", () => {
 
       const list = rpcBody(await legacy("tools/list", {}, tokens.legacy));
       expect(list.result.tools.map((t: Json) => t.name)).toEqual([
+        "fetch",
+        "orbit_profile",
         "orbit_projects",
+        "search",
         "tasks_suggest_task",
         "tasks_task_digest",
       ]);
@@ -1004,7 +1013,13 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         rpcBody(await legacy("tools/list", {}, tokens.viewer)).result.tools.map(
           (t: Json) => t.name,
         ),
-      ).toEqual(["orbit_projects", "tasks_task_digest"]);
+      ).toEqual([
+        "fetch",
+        "orbit_profile",
+        "orbit_projects",
+        "search",
+        "tasks_task_digest",
+      ]);
     });
   });
 
@@ -1525,7 +1540,10 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         expect(mcpToolsNeedActivationRows()).toBe(true);
         // Same list with and without the read.
         expect(await toolNames(tokens["editor-two"])).toEqual([
+          "fetch",
+          "orbit_profile",
           "orbit_projects",
+          "search",
           "tasks_suggest_task",
           "tasks_task_digest",
         ]);
@@ -1533,7 +1551,10 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         delete process.env.ORBIT_MODULES;
       }
       expect(await toolNames(tokens["editor-two"])).toEqual([
+        "fetch",
+        "orbit_profile",
         "orbit_projects",
+        "search",
         "tasks_suggest_task",
         "tasks_task_digest",
       ]);

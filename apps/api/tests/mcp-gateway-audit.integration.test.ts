@@ -872,10 +872,13 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       const token = tokens["limit-window"];
       const search = (opts: RpcOptions = { token }) =>
         call(app, "search", { query: "x" }, opts);
-      // The tool arrives with WP-M3 Task 3: until then the SDK answers
-      // "unknown tool", but the request is counted before it gets there.
-      expect((await search()).statusCode).not.toBe(429);
-      expect((await search()).statusCode).not.toBe(429);
+      for (let i = 0; i < 2; i++) {
+        const passed = await search();
+        expect(passed.statusCode).toBe(200);
+        expect(rpcBody(passed).result.structuredContent).toEqual({
+          results: [],
+        });
+      }
       const limited = await search();
       expect(limited.statusCode).toBe(429);
       expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
@@ -885,18 +888,14 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
         (await call(app, "orbit_projects", {}, { token })).statusCode,
       ).toBe(200);
       // Another grant has its own search bucket.
-      expect(
-        (
-          await call(
-            app,
-            "search",
-            { query: "x" },
-            {
-              token: tokens["limit-user-2"],
-            },
-          )
-        ).statusCode,
-      ).not.toBe(429);
+      const other = await call(
+        app,
+        "search",
+        { query: "x" },
+        { token: tokens["limit-user-2"] },
+      );
+      expect(other.statusCode).toBe(200);
+      expect(rpcBody(other).result.isError).toBeFalsy();
       // Only a tools/call of search is counted in it.
       for (let i = 0; i < 3; i++)
         expect((await rpc(app, "ping", {}, { token })).statusCode).not.toBe(
