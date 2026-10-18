@@ -20,6 +20,7 @@ import {
 } from "../src/modules/support/workspace.ts";
 import { supportScheduler } from "../src/modules/support/automations.ts";
 import type { NormalizedInbound } from "../src/modules/support/channels/adapter.ts";
+import { createMailInbox } from "./fixtures/mailbox.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -120,7 +121,7 @@ describe.skipIf(!enabled)("support notifications and automations", () => {
         },
       });
       mailInbox = (
-        await createInbox(tx, owner, {
+        await createMailInbox(tx, owner, {
           name: "Mail",
           channels: ["email"],
           emailAddress: "support@example.invalid",
@@ -152,7 +153,7 @@ describe.skipIf(!enabled)("support notifications and automations", () => {
     const fixed = await run(
       async (tx) =>
         (
-          await createInbox(tx, owner, {
+          await createMailInbox(tx, owner, {
             name: "Fixed",
             channels: ["email"],
             emailAddress: "fixed@example.invalid",
@@ -171,7 +172,7 @@ describe.skipIf(!enabled)("support notifications and automations", () => {
     const robin = await run(
       async (tx) =>
         (
-          await createInbox(tx, owner, {
+          await createMailInbox(tx, owner, {
             name: "Robin",
             channels: ["email"],
             emailAddress: "robin@example.invalid",
@@ -275,7 +276,7 @@ describe.skipIf(!enabled)("support notifications and automations", () => {
     const keep = await run(
       async (tx) =>
         (
-          await createInbox(tx, owner, {
+          await createMailInbox(tx, owner, {
             name: "Keep",
             channels: ["email"],
             emailAddress: "keep@example.invalid",
@@ -299,7 +300,7 @@ describe.skipIf(!enabled)("support notifications and automations", () => {
 
   it("switches rules per inbox and keeps the inbox version", async () => {
     const inbox = await run((tx) =>
-      createInbox(tx, owner, {
+      createMailInbox(tx, owner, {
         name: "Rules",
         channels: ["email"],
         emailAddress: "rules@example.invalid",

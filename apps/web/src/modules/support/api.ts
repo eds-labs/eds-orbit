@@ -63,6 +63,8 @@ export type Inbox = {
   name: string;
   channels: string[];
   emailAddress: string | null;
+  /** The mailbox the inbox answers from (e-mail channel). */
+  emailConnectionId?: string | null;
   allowedOrigins: string[];
   defaultCategory: string | null;
   assignmentPolicy: string;
@@ -72,6 +74,16 @@ export type Inbox = {
   version: number;
   archivedAt: string | null;
   hasWidgetSecret: boolean;
+};
+/** A project mailbox as the inbox form offers it (no credentials). */
+export type Mailbox = {
+  id: string;
+  address: string;
+  name: string | null;
+  verified: boolean;
+  isDefault: boolean;
+  /** The live inbox answering from it, if any. */
+  inboxId: string | null;
 };
 export type Agent = { userId: string; name: string };
 export type Summary = {

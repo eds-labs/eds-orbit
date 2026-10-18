@@ -117,8 +117,10 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
   let a: Scope, b: Scope, c: Scope;
   // An existing row of B, so a cross-project outbox insert can fail only on RLS.
   let bEntityId: string;
-  // Support inboxes per project, for the same-project foreign key checks.
+  // Support inboxes and their mailboxes per project, for the same-project
+  // foreign key checks.
   const inboxes = new Map<string, string>();
+  const mailboxes = new Map<string, string>();
 
   const synthetic = async () => {
     const row = await authDb.user.create({
@@ -335,6 +337,20 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           payloadHash: "rls",
         },
       });
+      // The inbox answers from its project's mailbox (a connector entity).
+      const mailbox = await tx.entity.create({
+        data: {
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          kind: "connectors",
+          data: {
+            provider: "email",
+            fromAddress: "support@example.invalid",
+            status: "read_verified",
+          },
+        },
+      });
+      mailboxes.set(s.projectId, mailbox.id);
       const inbox = await tx.supportInbox.create({
         data: {
           id: randomUUID(),
@@ -343,6 +359,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
           name: "Synthetic RLS inbox",
           channels: ["email"],
           emailAddress: "support@example.invalid",
+          emailConnectionId: mailbox.id,
           createdBy: s.userId,
         },
       });
@@ -670,6 +687,14 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       inboxes.get(b.projectId),
     );
     expect(result.error ?? "inserted").toMatch(/foreign key/);
+    // Nor can an inbox of A answer from B's mailbox.
+    const bound = await attempt(
+      a,
+      `UPDATE "SupportInbox" SET "emailConnectionId" = $1::uuid WHERE id = $2::uuid`,
+      mailboxes.get(b.projectId),
+      inboxes.get(a.projectId),
+    );
+    expect(bound.error ?? "updated").toMatch(/foreign key/);
   });
 
   it("deletes a project together with its support rows", async () => {

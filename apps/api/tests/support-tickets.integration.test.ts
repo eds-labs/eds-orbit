@@ -12,6 +12,7 @@ import { ownerEnabled } from "../src/platform/modules/contributions.ts";
 import { createInbox, archiveInbox } from "../src/modules/support/inboxes.ts";
 import { createTicket } from "../src/modules/support/tickets.ts";
 import type { NormalizedInbound } from "../src/modules/support/channels/adapter.ts";
+import { createMailInbox } from "./fixtures/mailbox.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -89,7 +90,7 @@ describe.skipIf(!enabled)("support ticket creation", () => {
           moduleVersion: "1.0.0",
         },
       });
-      const { inbox } = await createInbox(tx, scope, {
+      const { inbox } = await createMailInbox(tx, scope, {
         name: "Mail",
         channels: ["email"],
         emailAddress: "support@example.invalid",
