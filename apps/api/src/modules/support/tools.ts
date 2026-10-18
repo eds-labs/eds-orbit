@@ -107,9 +107,14 @@ export const supportInsights = defineTool({
           Object.fromEntries(
             rows.map((r) => [String(r[key] ?? "none"), r._count]),
           );
+        // Only the four counts: the summary's per-inbox map (for the web
+        // overview) stays out of the tool's strict output.
         return {
           available: true,
-          ...summary,
+          open: summary.open,
+          unassigned: summary.unassigned,
+          atRisk: summary.atRisk,
+          breached: summary.breached,
           byStatus: counts(byStatus, "status"),
           byPriority: counts(byPriority, "priority"),
           byCategory: counts(byCategory, "category"),
