@@ -195,13 +195,8 @@ describe("KnowledgeOverview", () => {
         entity("s2", { name: "b", lastSuccessfulSyncAt: ago(1) }),
       ],
     };
-    answers["/facts"] = {
-      items: [
-        entity("f1", { key: "k1", status: "verified" }),
-        entity("f2", { key: "k2", status: "candidate" }),
-        entity("f3", { key: "k3", status: "verified" }),
-      ],
-    };
+    // Ruling R13: the exact count from /dashboard, beyond a list page's cap.
+    answers["/dashboard"] = { counts: { verifiedFacts: 742 } };
     answers["/knowledge-health"] = {
       conflicts: [entity("f4", { key: "pricing.plan", status: "conflicting" })],
       staleSources: [],
@@ -219,8 +214,30 @@ describe("KnowledgeOverview", () => {
     const amounts = [...html.matchAll(/<strong>([^<]*)<\/strong>/g)].map(
       (m) => m[1],
     );
-    expect(amounts.slice(0, 4)).toEqual(["2", "2", "1", "1"]);
+    expect(amounts.slice(0, 4)).toEqual(["2", "742", "1", "1"]);
     expect(html).toContain("pricing.plan");
+    // The capped facts collection is not read any more.
+    expect(requested.some((p) => p.includes("/facts"))).toBe(false);
+  });
+
+  it("shows — and the error when the verified count cannot be read", () => {
+    answers["/dashboard"] = new Error("forbidden");
+    const html = render(<KnowledgeOverview />);
+    const amounts = [...html.matchAll(/<strong>([^<]*)<\/strong>/g)].map(
+      (m) => m[1],
+    );
+    expect(amounts[1]).toBe("—");
+    expect(html).toContain('role="alert"');
+  });
+
+  it("shows — for a dashboard without the verified count", () => {
+    answers["/dashboard"] = { counts: {} };
+    const html = render(<KnowledgeOverview />);
+    const amounts = [...html.matchAll(/<strong>([^<]*)<\/strong>/g)].map(
+      (m) => m[1],
+    );
+    expect(amounts[1]).toBe("—");
+    expect(html).not.toContain('role="alert"');
   });
 
   it("shows the index quality of the active generation to owners", () => {
@@ -329,14 +346,13 @@ describe("KnowledgeHomeCard", () => {
       conflicts: [entity("f4", { key: "x", status: "conflicting" })],
     };
     answers["/sources"] = { items: [entity("s1", { name: "a" })] };
-    answers["/facts"] = {
-      items: [entity("f1", { key: "k1", status: "verified" })],
-    };
+    answers["/dashboard"] = { counts: { verifiedFacts: 612 } };
     answers["/indexes"] = {
       items: [{ id: "i1", generation: 3, state: "active", profile: "p" }],
     };
     const html = render(<KnowledgeHomeCard />);
     expect(html).toContain("Knowledge");
+    expect(html).toContain("<dd>612</dd>");
     expect(html).toContain("<dd>3</dd>");
     expect(html).toContain('href="/p/p1/knowledge"');
   });

@@ -18,6 +18,7 @@ import {
   value,
   when,
   type ApiError,
+  type Dashboard,
   type Entity,
 } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
@@ -177,8 +178,9 @@ const shown = (error: ApiError | null, ignore: number[] = [404]) =>
 
 /**
  * The reads behind the knowledge overview and the home card, from existing
- * endpoints only: /knowledge-health, the sources and facts collections and,
- * for owners, /indexes (403 and 404 count as "not known").
+ * endpoints only: /knowledge-health, the sources collection, the exact
+ * verified-fact count of /dashboard (ruling R13) and, for owners, /indexes
+ * (403 and 404 count as "not known").
  */
 export function useKnowledgeData() {
   const { project, revision, isOwner } = useWorkspace();
@@ -186,7 +188,9 @@ export function useKnowledgeData() {
     collectionPath(project.id, `knowledge-health?revision=${revision}`),
   );
   const sources = useCollection("sources");
-  const facts = useCollection("facts");
+  const dashboard = useResource<Dashboard>(
+    collectionPath(project.id, `dashboard?revision=${revision}`),
+  );
   const indexes = useResource<{ items: IndexGeneration[] }>(
     isOwner ? collectionPath(project.id, `indexes?revision=${revision}`) : null,
   );
@@ -196,14 +200,11 @@ export function useKnowledgeData() {
   return {
     health,
     sources,
-    facts,
+    dashboard,
     indexes,
     /** The sources that still sync: revoked ones never get current again. */
     listed,
-    verified: facts.data
-      ? facts.data.items.filter((fact) => fact.data.status === "verified")
-          .length
-      : null,
+    verified: dashboard.data?.counts.verifiedFacts ?? null,
     conflicts: health.data?.conflicts ?? null,
     active: indexes.data
       ? (indexes.data.items.find((index) => index.state === "active") ?? null)
@@ -428,8 +429,8 @@ export function KnowledgeOverview() {
         eyebrow={t("moduleEyebrow")}
       />
       <ResourceError
-        error={shown(data.facts.error)}
-        retry={data.facts.refresh}
+        error={shown(data.dashboard.error)}
+        retry={data.dashboard.refresh}
       />
       <div className="metrics-strip metrics-four">
         <Metric
