@@ -7,6 +7,7 @@
  * (chat-runner) and adds exposure, grant and scope checks; it never widens
  * what the user may do in the UI.
  */
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
@@ -98,6 +99,10 @@ async function enabledForTools(
  * as if tool search were on: a module gates a feature on tool search only
  * because the assistant loads its deferred tools that way, while MCP lists
  * every tool directly (WP-M4; before, such features stayed off over MCP).
+ * Proposal tools (P_proposal) are also gated by the central switch
+ * ORBIT_MCP_PROPOSALS, read on every call: this one check backs the list and
+ * every call, so turning the switch off takes effect at once and a hidden
+ * tool is refused like any other unlisted one.
  */
 async function allowedTools(
   principal: McpPrincipal,
@@ -107,9 +112,11 @@ async function allowedTools(
   const features = registeredAssistants(enabled).flatMap((assistant) =>
     assistant.features({ toolSearch: true }),
   );
+  const proposals = loadConfig().ORBIT_MCP_PROPOSALS === "true";
   return registeredTools(enabled)
     .filter((tool) => {
       if (!exposedToMcp(tool)) return false;
+      if (tool.risk === "P_proposal" && !proposals) return false;
       const owner = registeredToolOwner(tool.name);
       // A module restriction admits only the listed modules' tools.
       if (

@@ -281,7 +281,11 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       rpcBody(await mcp("tools/list", {}, { token })).result.tools as Json[]
     ).map((tool) => tool.name as string);
 
+  let savedProposals: string | undefined;
   beforeAll(async () => {
+    // The central proposal switch (WP-M4) is off by default; these tests use proposal tools.
+    savedProposals = process.env.ORBIT_MCP_PROPOSALS;
+    process.env.ORBIT_MCP_PROPOSALS = "true";
     await withEnv(FLAGS, async () => {
       config = loadConfig();
       api = await buildServer(undefined, { cimdFetch });
@@ -395,6 +399,8 @@ describe.skipIf(!enabled)("MCP gateway", () => {
     vi.restoreAllMocks();
   });
   afterAll(async () => {
+    if (savedProposals === undefined) delete process.env.ORBIT_MCP_PROPOSALS;
+    else process.env.ORBIT_MCP_PROPOSALS = savedProposals;
     await gateway?.close();
     await api?.close();
     if (workspaceId)
@@ -691,6 +697,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(tools.map((t) => t.name)).toEqual([
         "fetch",
         "marketing_project_status",
+        "orbit_action_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -750,6 +757,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(await toolNames(tokens.viewer)).toEqual([
         "fetch",
         "marketing_project_status",
+        "orbit_action_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -997,6 +1005,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(list.result.tools.map((t: Json) => t.name)).toEqual([
         "fetch",
         "marketing_project_status",
+        "orbit_action_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -1019,6 +1028,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       ).toEqual([
         "fetch",
         "marketing_project_status",
+        "orbit_action_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -1546,6 +1556,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         expect(await toolNames(tokens["editor-two"])).toEqual([
           "fetch",
           "marketing_project_status",
+          "orbit_action_status",
           "orbit_profile",
           "orbit_projects",
           "search",
@@ -1558,6 +1569,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(await toolNames(tokens["editor-two"])).toEqual([
         "fetch",
         "marketing_project_status",
+        "orbit_action_status",
         "orbit_profile",
         "orbit_projects",
         "search",

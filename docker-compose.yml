@@ -49,6 +49,7 @@ x-api-environment: &api-environment
   ORBIT_MCP_GATEWAY: ${ORBIT_MCP_GATEWAY:-false}
   MCP_PORT: ${MCP_PORT:-4312}
   ORBIT_MCP_ALLOWED_ORIGINS: ${ORBIT_MCP_ALLOWED_ORIGINS:-}
+  ORBIT_MCP_PROPOSALS: ${ORBIT_MCP_PROPOSALS:-false}
   ORBIT_MODULE_ROLES: ${ORBIT_MODULE_ROLES:-false}
   ORBIT_PUBLIC_INGRESS: ${ORBIT_PUBLIC_INGRESS:-false}
   # Support module (WP5.1): off until the pilot is approved.

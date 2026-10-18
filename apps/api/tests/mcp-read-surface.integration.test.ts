@@ -528,6 +528,7 @@ describe.skipIf(!enabled)(
         expect(tools.map((tool) => tool.name)).toEqual([
           "fetch",
           "marketing_project_status",
+          "orbit_action_status",
           "orbit_profile",
           "orbit_projects",
           "search",

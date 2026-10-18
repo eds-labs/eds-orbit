@@ -119,6 +119,7 @@ describe.skipIf(!enabled)(
     const users: string[] = [];
     const tokens = {} as Record<Name, string>;
     let savedAgents: string | undefined;
+    let savedProposals: string | undefined;
 
     const driver = createFlowDriver({
       app: () => api,
@@ -245,7 +246,10 @@ describe.skipIf(!enabled)(
 
     beforeAll(async () => {
       savedAgents = process.env.ORBIT_AGENTS;
+      savedProposals = process.env.ORBIT_MCP_PROPOSALS;
       process.env.ORBIT_AGENTS = "true";
+      // The central proposal switch (WP-M4 Task 3) is off by default.
+      process.env.ORBIT_MCP_PROPOSALS = "true";
       await withFlags(async () => {
         config = loadConfig();
         api = await buildServer(undefined, { cimdFetch });
@@ -308,6 +312,8 @@ describe.skipIf(!enabled)(
     afterAll(async () => {
       if (savedAgents === undefined) delete process.env.ORBIT_AGENTS;
       else process.env.ORBIT_AGENTS = savedAgents;
+      if (savedProposals === undefined) delete process.env.ORBIT_MCP_PROPOSALS;
+      else process.env.ORBIT_MCP_PROPOSALS = savedProposals;
       await gateway?.close();
       await api?.close();
       await project?.cleanup();

@@ -1,12 +1,13 @@
 /**
  * Gateway-native MCP tools (Track M, WP-M2 D-M2-4, WP-M3): workspace-level
  * tools that are not registry tools: `orbit_projects`, `orbit_profile`,
- * `search` and `fetch` (in native/). Module tools reach MCP only through the
+ * `search`, `fetch` and `orbit_action_status` (in native/). Module tools reach MCP only through the
  * adapter and `exposure.mcp`.
  */
 import type { FastifyBaseLogger } from "fastify";
 import type { z } from "zod";
 import type { ToolRisk } from "../../modules/agents/tools/registry.ts";
+import { actionStatusTool } from "./native/action-status.ts";
 import { fetchTool } from "./native/fetch.ts";
 import { orbitProfile } from "./native/profile.ts";
 import { orbitProjects } from "./native/projects.ts";
@@ -60,4 +61,5 @@ export const nativeTools: readonly NativeTool[] = [
   orbitProfile,
   searchTool,
   fetchTool,
+  actionStatusTool,
 ];

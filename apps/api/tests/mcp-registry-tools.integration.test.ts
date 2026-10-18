@@ -430,6 +430,7 @@ describe.skipIf(!enabled)(
         expect(await listed("alpha")).toEqual([
           "fetch",
           "marketing_project_status",
+          "orbit_action_status",
           "orbit_profile",
           "orbit_projects",
           "search",
@@ -440,6 +441,7 @@ describe.skipIf(!enabled)(
         expect(await listed("beta")).toEqual([
           "fetch",
           "marketing_project_status",
+          "orbit_action_status",
           "orbit_profile",
           "orbit_projects",
           "search",

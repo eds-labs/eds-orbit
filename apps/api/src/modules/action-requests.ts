@@ -167,6 +167,53 @@ export async function findPendingMcpProposal(
   );
 }
 
+export const MCP_ACTION_STATUSES = [
+  "pending",
+  "approved",
+  "rejected",
+  "consumed",
+  "canceled",
+  "expired",
+] as const;
+export type McpActionStatus = (typeof MCP_ACTION_STATUSES)[number];
+
+/**
+ * What an MCP client may learn about its own proposal (WP-M4, D-M4-12):
+ * type, status, times. Never the payload, hash, policy or any user id.
+ * NOT_FOUND, with one body, unless the request is in this project and was
+ * proposed through this very grant, so a client cannot probe other requests.
+ * `expired` is derived: only a request that is still pending can expire; an
+ * approved one has already run (the approval executes it) and stays approved.
+ */
+export async function mcpActionRequestStatus(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  grantId: string,
+  now: Date = new Date(),
+) {
+  const row = await entity(tx, scope, KIND, id);
+  const d = data(row);
+  if (d.requestedBy?.kind !== "mcp" || d.requestedBy.grantId !== grantId)
+    throw new DomainError("NOT_FOUND", 404);
+  const stored = String(d.status) as McpActionStatus;
+  const status: McpActionStatus =
+    stored === "pending" && Date.parse(d.expiresAt) <= now.getTime()
+      ? "expired"
+      : stored;
+  return {
+    actionRequestId: row.id,
+    actionType: String(d.actionType),
+    status,
+    createdAt: row.createdAt.toISOString(),
+    expiresAt: String(d.expiresAt),
+    decidedAt:
+      typeof d.decision?.decidedAt === "string"
+        ? (d.decision.decidedAt as string)
+        : null,
+  };
+}
+
 /** Records an authenticated user's decision on the exact version and hash that were shown. */
 export async function decideActionRequest(
   tx: DbTx,

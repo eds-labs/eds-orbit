@@ -59,6 +59,20 @@ describe("configuration as Compose passes it", () => {
       "https://a.example,https://b.example",
     );
   });
+  it("defaults MCP proposals off and accepts Compose's empty string (WP-M4)", () => {
+    expect(configSchema.parse({ ...BASE }).ORBIT_MCP_PROPOSALS).toBe("false");
+    expect(
+      configSchema.parse({ ...BASE, ORBIT_MCP_PROPOSALS: "" })
+        .ORBIT_MCP_PROPOSALS,
+    ).toBe("false");
+    expect(
+      configSchema.parse({ ...BASE, ORBIT_MCP_PROPOSALS: "true" })
+        .ORBIT_MCP_PROPOSALS,
+    ).toBe("true");
+    expect(() =>
+      configSchema.parse({ ...BASE, ORBIT_MCP_PROPOSALS: "yes" }),
+    ).toThrow();
+  });
   it("refuses an invalid gateway flag or port", () => {
     expect(() =>
       configSchema.parse({ ...BASE, ORBIT_MCP_GATEWAY: "yes" }),

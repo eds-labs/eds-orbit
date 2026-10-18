@@ -146,6 +146,8 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
   };
 
   beforeAll(async () => {
+    // The central proposal switch (WP-M4) is off by default; these tests use proposal tools.
+    process.env.ORBIT_MCP_PROPOSALS = "true";
     ids.owner = await user();
     const workspace = await authDb.workspace.create({
       data: {
@@ -201,6 +203,7 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
     ).id;
   });
   afterAll(async () => {
+    delete process.env.ORBIT_MCP_PROPOSALS;
     delete process.env.ORBIT_MODULES;
     delete process.env.ORBIT_MODULE_ROLES;
     for (const id of workspaces)

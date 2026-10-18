@@ -10,6 +10,7 @@ import { createResourceServerChallenge } from "@better-auth/oauth-provider";
 import { APIError } from "better-auth/api";
 import { ZodError } from "zod";
 import { KnowledgeError } from "../../../../../packages/knowledge/src/index.ts";
+import type { ToolRisk } from "../../modules/agents/tools/registry.ts";
 import { DomainError } from "../shared.ts";
 
 /** Tool-result `_meta` key that carries a WWW-Authenticate challenge (ChatGPT links from it). */
@@ -23,12 +24,40 @@ export class McpToolTimeoutError extends Error {
   }
 }
 
+/**
+ * Thrown by the adapter when a grant has used up its proposal quota (WP-M4,
+ * D-M4-8). Carries nothing: the answer is fixed text.
+ */
+export class McpProposalQuotaError extends Error {
+  constructor() {
+    super("PROPOSAL_QUOTA_EXCEEDED");
+    this.name = "McpProposalQuotaError";
+  }
+}
+
+/** The code and fixed text of a refused proposal (quota used up). */
+export const PROPOSAL_QUOTA_CODE = "PROPOSAL_QUOTA_EXCEEDED";
+export const proposalQuotaResult = () =>
+  errorResult({
+    code: PROPOSAL_QUOTA_CODE,
+    message: "the proposal quota of this connection is used up for now",
+    retryable: false,
+  });
+
+/**
+ * Whether a client may retry a call that failed in a transient way (timeout,
+ * 429, 5xx). Never for proposals and internal writes (WP-M4, D-M4-11): the
+ * work may have completed, and a retry could create it twice.
+ */
+export const transientRetryable = (risk: ToolRisk | undefined) =>
+  risk !== "P_proposal" && risk !== "W0_internal";
+
 /** The fixed answer to a call that outlived its limit; the work may still finish. */
-export const timeoutResult = () =>
+export const timeoutResult = (risk?: ToolRisk) =>
   errorResult({
     code: "TIMEOUT",
     message: "the tool did not finish in time; its work may still complete",
-    retryable: true,
+    retryable: transientRetryable(risk),
   });
 
 /** `structuredContent` of every gateway error result. */
@@ -75,17 +104,24 @@ function safePaths(error: ZodError): string[] {
  * and audit. DomainError and KnowledgeError keep their code (AD-14, the REST
  * codes); a ZodError (the tool's own validation) names paths only; anything
  * else is REQUEST_FAILED with the request id, its message never sent.
+ * `risk` is the tool's: transient failures are retryable only for reads.
  */
 export function toolFailure(
   error: unknown,
   requestId: string,
+  risk?: ToolRisk,
 ): { result: CallToolResult; code: string } {
   if (error instanceof McpToolTimeoutError)
-    return { result: timeoutResult(), code: "TIMEOUT" };
+    return { result: timeoutResult(risk), code: "TIMEOUT" };
+  if (error instanceof McpProposalQuotaError)
+    return { result: proposalQuotaResult(), code: PROPOSAL_QUOTA_CODE };
   if (error instanceof DomainError || error instanceof KnowledgeError) {
     const status = error instanceof DomainError ? error.status : 409;
     return {
-      result: codeResult(error.code, status === 429 || status >= 500),
+      result: codeResult(
+        error.code,
+        (status === 429 || status >= 500) && transientRetryable(risk),
+      ),
       code: error.code,
     };
   }
