@@ -7,6 +7,13 @@ import { randomUUID } from "node:crypto";
 // every page by URL, the grouped and collapsible sidebar, legacy redirects,
 // not-found pages, mobile bar, keyboard and DE/EN labels.
 
+// With the support module on (E2E_SUPPORT=1), its Tickets entry takes the
+// bottom bar's third place (rank 20) and Content drops off.
+const SUPPORT = process.env.E2E_SUPPORT === "1";
+const BAR = SUPPORT
+  ? ["Home", "Orbit Chat", "Tickets", "Approvals"]
+  : ["Home", "Orbit Chat", "Approvals", "Content"];
+
 function account() {
   return JSON.parse(
     readFileSync(resolve(".runtime/e2e-user.json"), "utf8"),
@@ -41,7 +48,14 @@ async function openHome(page: Page, base: string) {
 // Every page of the shell, by its sidebar group, label and URL below the
 // project, in sidebar order: the top entries, the module groups (approvals sit
 // in Marketing), then the project group. Marketing and Knowledge both have an
-// "Overview", so a link is looked up inside its group's list.
+// "Overview", so a link is looked up inside its group's list. The support
+// group (groupOrder 20) shows only on a support-enabled stack.
+const SUPPORT_PAGES: Array<[group: string, name: string, path: string]> = [
+  ["support", "Overview", "/support"],
+  ["support", "Tickets", "/support/tickets"],
+  ["support", "Contacts", "/support/contacts"],
+  ["support", "Statistics", "/support/stats"],
+];
 const PAGES: Array<[group: string, name: string, path: string]> = [
   ["top", "Home", ""],
   ["top", "Orbit Chat", "/assistant"],
@@ -53,6 +67,7 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["marketing", "Assets", "/marketing/assets"],
   ["marketing", "Analytics", "/marketing/analytics"],
   ["marketing", "Memory", "/marketing/memory"],
+  ...(SUPPORT ? SUPPORT_PAGES : []),
   ["knowledge", "Overview", "/knowledge"],
   ["knowledge", "Sources", "/knowledge/sources"],
   ["knowledge", "Facts", "/knowledge/facts"],
@@ -242,29 +257,25 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
   await page.setViewportSize({ width: 390, height: 844 });
   await openHome(page, base);
   const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
-  await expect(mobile.getByRole("link")).toHaveText([
-    "Home",
-    "Orbit Chat",
-    "Approvals",
-    "Content",
-  ]);
+  await expect(mobile.getByRole("link")).toHaveText(BAR);
   await expect(mobile.getByRole("button", { name: "More" })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
-  await mobile.getByRole("link", { name: "Content" }).click();
-  await expect(page).toHaveURL(new RegExp(`${base}/marketing/content$`));
+  await mobile.getByRole("link", { name: BAR[3], exact: true }).click();
+  await expect(page).toHaveURL(
+    new RegExp(`${base}/${SUPPORT ? "approvals" : "marketing/content"}$`),
+  );
 
   // German labels in the shell.
   await page.getByRole("button", { name: "DE", exact: true }).click();
-  await expect(mobile.getByRole("link")).toHaveText([
-    "Start",
-    "Orbit Chat",
-    "Freigaben",
-    "Inhalte",
-  ]);
+  await expect(mobile.getByRole("link")).toHaveText(
+    SUPPORT
+      ? ["Start", "Orbit Chat", "Tickets", "Freigaben"]
+      : ["Start", "Orbit Chat", "Freigaben", "Inhalte"],
+  );
   await expect(mobile.getByRole("button", { name: "Mehr" })).toBeVisible();
   await page.goto(`${base}/nope`);
   await expect(
@@ -365,12 +376,7 @@ test("mobile bar shows Home, Chat and two module entries plus More", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await openHome(page, base);
   const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
-  await expect(mobile.getByRole("link")).toHaveText([
-    "Home",
-    "Orbit Chat",
-    "Approvals",
-    "Content",
-  ]);
+  await expect(mobile.getByRole("link")).toHaveText(BAR);
   await expect(mobile.getByRole("button", { name: "More" })).toBeVisible();
   expect(
     await page.evaluate(
