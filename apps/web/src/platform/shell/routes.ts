@@ -236,18 +236,42 @@ export function moduleShown(
 }
 
 /**
+ * The last settled module-states load of a project: its states, or null when
+ * that load failed.
+ */
+export type SettledModuleStates<T> = { projectId: string; states: T | null };
+
+/**
  * The module states the shell goes by: the ones just loaded, else the last
  * ones loaded for the same project while they load again. A refresh refetches
  * them, and the defaults would hide an opt-in module (support) for a moment
- * and remount the open page. Undefined before the project's first load.
+ * and remount the open page. Undefined before the project's first successful
+ * load.
  */
 export function knownModuleStates<T>(
   current: T | null,
-  last: { projectId: string; states: T } | null,
+  last: SettledModuleStates<T> | null,
   projectId: string | undefined,
 ): T | undefined {
   if (current) return current;
-  return last && last.projectId === projectId ? last.states : undefined;
+  return last && last.projectId === projectId
+    ? (last.states ?? undefined)
+    : undefined;
+}
+
+/**
+ * Whether the open page waits for the project's module states: only until its
+ * first load settles. A failed load renders with the defaults, and so do the
+ * refetches after it, so a refresh never unmounts the page into a loading
+ * state.
+ */
+export function waitsForModuleStates<T>(
+  current: T | null,
+  error: unknown,
+  last: SettledModuleStates<T> | null,
+  projectId: string | undefined,
+): boolean {
+  return !current && !error && !(last && last.projectId === projectId);
 }
 
 /** The navigation entry a page highlights: its own, else its navKey. */

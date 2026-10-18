@@ -7,6 +7,7 @@ import {
   defaultProject,
   keptSuffix,
   knownModuleStates,
+  waitsForModuleStates,
   locate,
   moduleShown,
   moduleUsable,
@@ -590,11 +591,51 @@ describe("knownModuleStates", () => {
     ).toBe(loaded);
   });
 
-  it("knows nothing for another project or before the first load", () => {
+  it("knows nothing after a failed load, for another project or before the first load", () => {
+    expect(
+      knownModuleStates(null, { projectId: "p1", states: null }, "p1"),
+    ).toBeUndefined();
     expect(
       knownModuleStates(null, { projectId: "p2", states: loaded }, "p1"),
     ).toBeUndefined();
     expect(knownModuleStates(null, null, "p1")).toBeUndefined();
     expect(knownModuleStates(null, null, undefined)).toBeUndefined();
+  });
+});
+
+describe("waitsForModuleStates", () => {
+  const loaded = { modules: [{ id: "support", enabled: true }] };
+
+  it("waits only for the project's first load", () => {
+    expect(waitsForModuleStates(null, null, null, "p1")).toBe(true);
+    expect(waitsForModuleStates(loaded, null, null, "p1")).toBe(false);
+    // A failed load renders with the defaults.
+    expect(waitsForModuleStates(null, new Error("x"), null, "p1")).toBe(false);
+    // Another project's states say nothing about this one.
+    expect(
+      waitsForModuleStates(
+        null,
+        null,
+        { projectId: "p2", states: loaded },
+        "p1",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not wait again while a refresh refetches", () => {
+    // After a success the last states stand in.
+    expect(
+      waitsForModuleStates(
+        null,
+        null,
+        { projectId: "p1", states: loaded },
+        "p1",
+      ),
+    ).toBe(false);
+    // After a failure the page keeps rendering with the defaults instead of
+    // unmounting into a loading state (and losing its form state).
+    expect(
+      waitsForModuleStates(null, null, { projectId: "p1", states: null }, "p1"),
+    ).toBe(false);
   });
 });
