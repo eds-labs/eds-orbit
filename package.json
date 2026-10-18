@@ -44,6 +44,7 @@
     "@better-auth/mcp": "1.7.10",
     "@better-auth/oauth-provider": "1.7.10",
     "@better-auth/cimd": "1.7.10",
+    "@modelcontextprotocol/server": "2.3.1",
     "bullmq": "6.3.6",
     "pg": "8.23.0",
     "openai": "7.25.0",
