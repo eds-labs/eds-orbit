@@ -83,7 +83,11 @@ async function contentReviewItems(
   ];
 }
 
-/** One item per open exception code; an unknown outcome of a paid call is critical. */
+/**
+ * One item per open exception code; an unknown outcome of a paid call is
+ * critical. Each is one thing to act on (R19): the number of resources it
+ * affects is a param, not a badge count.
+ */
 async function exceptionItems(
   tx: DbTx,
   scope: Scope,
@@ -105,15 +109,14 @@ async function exceptionItems(
     const d = data(row);
     if (typeof d.code !== "string" || seen.has(d.code)) continue;
     seen.add(d.code);
-    const resources = Array.isArray(d.resourceIds) ? d.resourceIds.length : 0;
+    const affected = Array.isArray(d.resourceIds) ? d.resourceIds.length : 0;
     items.push({
       id: `marketing:exception:${d.code}`,
       moduleId: "marketing",
       kind: "marketing_exception",
       severity: d.code.endsWith("_OUTCOME_UNKNOWN") ? "critical" : "warning",
-      count: Math.max(1, resources),
       since: row.createdAt.toISOString(),
-      params: { code: d.code },
+      params: { code: d.code, affected },
       ...APPROVALS,
     });
   }

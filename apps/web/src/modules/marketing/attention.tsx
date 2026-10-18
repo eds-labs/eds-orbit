@@ -41,7 +41,8 @@ export const marketingAttention: Readonly<Record<string, AttentionRenderer>> = {
   marketing_exception: (item, locale) => {
     const code = String(item.params.code ?? "");
     const de = locale === "de";
-    const n = item.count ?? 1;
+    // One item per code (R19); the resources it affects are a param.
+    const affected = Number(item.params.affected ?? 0);
     return {
       title: `${
         code.endsWith("_OUTCOME_UNKNOWN")
@@ -52,7 +53,12 @@ export const marketingAttention: Readonly<Record<string, AttentionRenderer>> = {
             ? "Offene Ausnahme"
             : "Open exception"
       } · ${code || "—"}`,
-      detail: n > 1 ? (de ? `${n} betroffen` : `${n} affected`) : undefined,
+      detail:
+        affected > 0
+          ? de
+            ? `betrifft ${affected}`
+            : `affects ${affected}`
+          : undefined,
       action: { en: "Check", de: "Prüfen" },
     };
   },

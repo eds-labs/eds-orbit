@@ -353,17 +353,24 @@ describe.skipIf(!enabled)("marketing attention items", () => {
       "marketing:exception:DRIVE_UPLOAD_FAILED",
       "marketing:exception:EMAIL_OUTCOME_UNKNOWN",
     ]);
-    expect(
-      items.find((i) => i.params.code === "EMAIL_OUTCOME_UNKNOWN"),
-    ).toMatchObject({
+    const unknown = items.find(
+      (i) => i.params.code === "EMAIL_OUTCOME_UNKNOWN",
+    );
+    expect(unknown).toMatchObject({
       severity: "critical",
-      count: 2,
+      params: { code: "EMAIL_OUTCOME_UNKNOWN", affected: 2 },
       navKey: "approvals",
       link: "/approvals",
     });
+    // One open exception is one thing to act on, whatever it affects (R19).
+    expect(unknown?.count).toBeUndefined();
     expect(
       items.find((i) => i.params.code === "DRIVE_UPLOAD_FAILED"),
-    ).toMatchObject({ severity: "warning", count: 1 });
+    ).toMatchObject({
+      severity: "warning",
+      params: { code: "DRIVE_UPLOAD_FAILED", affected: 1 },
+    });
+    expect((await attention()).counts.approvals).toBe(2);
   });
 
   it("content review aggregated by status list", async () => {

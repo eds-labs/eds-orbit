@@ -151,6 +151,29 @@ describe("renderAttention", () => {
     ).toBe("Quelle veraltet · Website");
   });
 
+  it("an exception names what it affects, not a count (R19)", () => {
+    const exception = (params: AttentionItem["params"]) =>
+      item({
+        moduleId: "marketing",
+        kind: "marketing_exception",
+        navKey: "approvals",
+        params,
+      });
+    const shown = exception({ code: "EMAIL_OUTCOME_UNKNOWN", affected: 3 });
+    expect(renderAttention(shown, renderers, "en", modules)).toMatchObject({
+      title: "Outcome unclear · EMAIL_OUTCOME_UNKNOWN",
+      detail: "affects 3",
+    });
+    expect(renderAttention(shown, renderers, "de", modules).detail).toBe(
+      "betrifft 3",
+    );
+    // Without affected resources (or an older API) there is no detail.
+    expect(
+      renderAttention(exception({ code: "X" }), renderers, "en", modules)
+        .detail,
+    ).toBeUndefined();
+  });
+
   // Every kind the API emits (Tasks 10–12) has its own text in both languages.
   it.each([
     ["support", "support_sla_breached", { number: 1, subject: "S" }],
