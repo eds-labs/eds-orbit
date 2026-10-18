@@ -235,7 +235,7 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
         await createInbox(tx, scope, {
           name: "Desk",
           channels: ["email"],
-          emailAddress: ACCOUNT.fromAddress,
+          emailConnectionId: connection.id,
         })
       ).inbox.id;
     });
@@ -402,21 +402,26 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
     ).toHaveLength(1);
   });
 
-  it("routes by the inbox address", async () => {
-    const other = await run(
-      async (tx) =>
-        (
-          await createInbox(tx, scope, {
-            name: "Billing",
-            channels: ["email"],
-            emailAddress: "billing@desk.example",
-          })
-        ).inbox.id,
+  it("never routes by an owner-typed address alone", async () => {
+    // An inbox from before the mailbox binding claims an address by what
+    // was typed; mail the bound mailbox receives still goes to its inbox.
+    await run((tx) =>
+      tx.supportInbox.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          name: "Billing",
+          channels: ["email"],
+          emailAddress: "billing@desk.example",
+          createdBy: scope.userId,
+        },
+      }),
     );
     await receive(mime({ To: "Billing@Desk.example", Subject: "Invoice" }));
     expect(
       (await tickets()).find((t) => t.subject === "Invoice")?.inboxId,
-    ).toBe(other);
+    ).toBe(inboxId);
   });
 
   it("sends an agent reply in the thread and maps sent, unknown and bounced", async () => {

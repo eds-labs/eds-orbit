@@ -8,8 +8,11 @@ import {
   data,
   DomainError,
   encrypt,
+  list,
   publicEntity,
+  update,
 } from "../shared.ts";
+import { registeredEmailInbound } from "../modules/contributions.ts";
 import {
   connectionsOf,
   connectionVerified,
@@ -22,14 +25,24 @@ import {
   type EmailAccount,
 } from "./transport.ts";
 
-// The project's e-mail connection (WP4.7): one existing mailbox, reached
-// over SMTP (sending) and IMAP (receiving). Stored like every connection,
-// as a `connectors` row with provider "email"; the password is only kept
-// encrypted. No new e-mail provider and no DNS change by Orbit: SPF, DKIM
-// and DMARC are the mailbox provider's, so Orbit sends only as the
+// The project's e-mail connections (WP4.7): existing mailboxes, each
+// reached over SMTP (sending) and IMAP (receiving). Stored like every
+// connection, as a `connectors` row with provider "email"; the password is
+// only kept encrypted. No new e-mail provider and no DNS change by Orbit:
+// SPF, DKIM and DMARC are the mailbox provider's, so Orbit sends only as the
 // mailbox's own address.
+//
+// A project has one mailbox per address. Connecting another address adds a
+// mailbox; connecting a known address again updates that mailbox in place
+// (it needs a new login check). The default mailbox, which sends mail that
+// names none (member notifications), is the verified mailbox connected
+// first. Older installations may hold several rows of one address; the
+// mailbox is then its oldest verified row (the one used so far), else its
+// oldest row, and the other rows are ignored.
 
 export const EMAIL_PROVIDER = "email";
+/** Receiving state per mailbox, keyed by `connectionId` (inbound.ts). */
+export const INBOUND_STATE_KIND = "email_inbound_state";
 
 export function emailEnabled() {
   return loadConfig().ORBIT_EMAIL === "true";
@@ -79,7 +92,64 @@ export function accountOf(d: Record<string, any>): EmailAccount {
   };
 }
 
-/** Owner only: a new e-mail connection replaces nothing; checks follow. */
+const addressOf = (row: { data: unknown }) =>
+  String(data(row).fromAddress ?? "").toLowerCase();
+
+/**
+ * The project's mailboxes, one per address (see the file comment), in the
+ * order they were connected; verified or not.
+ */
+export async function emailMailboxes(tx: DbTx, scope: Scope) {
+  const rows = (await connectionsOf(tx, scope, EMAIL_PROVIDER)).sort(
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+  );
+  const byAddress = new Map<string, (typeof rows)[number]>();
+  for (const row of rows) {
+    const known = byAddress.get(addressOf(row));
+    if (
+      !known ||
+      (!connectionVerified(data(known).status) &&
+        connectionVerified(data(row).status))
+    )
+      byAddress.set(addressOf(row), row);
+  }
+  return [...byAddress.values()].sort(
+    (a, b) =>
+      a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+  );
+}
+
+/** The verified mailbox connected first: it sends mail that names none. */
+export async function defaultEmailConnection(tx: DbTx, scope: Scope) {
+  return (
+    (await emailMailboxes(tx, scope)).find((row) =>
+      connectionVerified(data(row).status),
+    ) ?? null
+  );
+}
+
+/**
+ * A verified mailbox of the project: the one `connectionId` names, or the
+ * default mailbox without an id. Null when it is not (or no longer) one.
+ */
+export async function verifiedEmailConnection(
+  tx: DbTx,
+  scope: Scope,
+  connectionId?: string | null,
+) {
+  if (!connectionId) return defaultEmailConnection(tx, scope);
+  return (
+    (await emailMailboxes(tx, scope)).find(
+      (row) => row.id === connectionId && connectionVerified(data(row).status),
+    ) ?? null
+  );
+}
+
+/**
+ * Owner only: connects a mailbox. A new address adds one; a known address
+ * updates its mailbox in place, which then needs a new login check.
+ */
 export async function connectEmail(tx: DbTx, scope: Scope, raw: unknown) {
   if (!emailEnabled()) throw new DomainError("NOT_FOUND", 404);
   const { password, ...account } = emailConnectionInput.parse(raw);
@@ -91,18 +161,64 @@ export async function connectEmail(tx: DbTx, scope: Scope, raw: unknown) {
         error instanceof MailSendError ? error.code : "MAIL_HOST_INVALID",
       );
     }
-  const row = await create(tx, scope, CONNECTION_KIND, {
+  const fields = {
     provider: EMAIL_PROVIDER,
     ...account,
     encryptedCredential: encrypt(password, loadConfig().CREDENTIAL_KEY),
     status: "configured",
     capabilities: [],
-  });
-  await audit(tx, scope, "email.connected", row.id, {
+  };
+  const known = (await emailMailboxes(tx, scope)).find(
+    (row) => addressOf(row) === account.fromAddress.toLowerCase(),
+  );
+  const row = known
+    ? await update(tx, scope, known, fields)
+    : await create(tx, scope, CONNECTION_KIND, fields);
+  await audit(tx, scope, known ? "email.updated" : "email.connected", row.id, {
     smtpHost: account.smtpHost,
     imapHost: account.imapHost,
   });
   return publicEntity(row);
+}
+
+/**
+ * Owner only: removes a mailbox (every row of its address) with its
+ * receiving state. Refused while a module still uses it, such as a live
+ * support inbox; modules let go of archived uses first.
+ */
+export async function disconnectEmail(tx: DbTx, scope: Scope, raw: unknown) {
+  if (!emailEnabled()) throw new DomainError("NOT_FOUND", 404);
+  const { connectorId } = z
+    .object({ connectorId: z.uuid() })
+    .strict()
+    .parse(raw);
+  const mailbox = (await emailMailboxes(tx, scope)).find(
+    (row) => row.id === connectorId,
+  );
+  if (!mailbox) throw new DomainError("EMAIL_MAILBOX_NOT_FOUND", 404);
+  for (const { mailboxUse } of registeredEmailInbound())
+    if (mailboxUse && (await mailboxUse.inUse(tx, scope, mailbox.id)) > 0)
+      throw new DomainError("EMAIL_MAILBOX_IN_USE", 409);
+  for (const { mailboxUse } of registeredEmailInbound())
+    await mailboxUse?.release(tx, scope, mailbox.id);
+  const rows = (await connectionsOf(tx, scope, EMAIL_PROVIDER)).filter(
+    (row) => addressOf(row) === addressOf(mailbox),
+  );
+  const ids = rows.map((row) => row.id);
+  const states = (await list(tx, scope, INBOUND_STATE_KIND)).filter((row) =>
+    ids.includes(String(data(row).connectionId)),
+  );
+  await tx.entity.deleteMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      id: { in: [...ids, ...states.map((row) => row.id)] },
+    },
+  });
+  await audit(tx, scope, "email.disconnected", mailbox.id, {
+    rows: ids.length,
+  });
+  return { removed: mailbox.id };
 }
 
 /**
@@ -137,11 +253,3 @@ export const emailConnectionProvider: ConnectionProvider = {
     };
   },
 };
-
-/** The project's newest verified e-mail connection, or null. */
-export async function verifiedEmailConnection(tx: DbTx, scope: Scope) {
-  const rows = (await connectionsOf(tx, scope, EMAIL_PROVIDER)).filter((row) =>
-    connectionVerified(data(row).status),
-  );
-  return rows.at(-1) ?? null;
-}

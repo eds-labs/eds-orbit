@@ -14,6 +14,7 @@ import {
   archiveInbox,
   createInbox,
   listInboxes,
+  listMailboxes,
   rotateWidgetSecret,
   updateInbox,
 } from "./inboxes.ts";
@@ -204,6 +205,12 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
   app.get(`${BASE}/inboxes`, (req) =>
     inSupport(auth, req, SUPPORT_TICKETS_READ, async (tx, scope) => ({
       items: await listInboxes(tx, scope),
+    })),
+  );
+  // The mailboxes an e-mail inbox can answer from (no credentials).
+  app.get(`${BASE}/mailboxes`, (req) =>
+    inSupport(auth, req, SUPPORT_SETTINGS_MANAGE, async (tx, scope) => ({
+      items: await listMailboxes(tx, scope),
     })),
   );
   app.post(`${BASE}/inboxes`, (req) =>

@@ -218,6 +218,7 @@ describe("module contributions", () => {
       "correct-metric",
       "editorial-propose-brief",
       "email-connect",
+      "email-disconnect",
       "embed-document",
       "evaluate-experiment",
       "evaluate-index",

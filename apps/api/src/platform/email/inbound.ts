@@ -14,8 +14,10 @@ import { filesConfig, storeFile } from "../files/files.ts";
 import {
   accountOf,
   emailEnabled,
-  verifiedEmailConnection,
+  emailMailboxes,
+  INBOUND_STATE_KIND,
 } from "./connection.ts";
+import { connectionVerified } from "../connections/connections.ts";
 import { EMAIL_KIND, INBOUND_KIND, ORBIT_MESSAGE_ID } from "./send.ts";
 import {
   mailFactories,
@@ -23,17 +25,16 @@ import {
   type MailboxReader,
 } from "./transport.ts";
 
-// Inbound e-mail (WP4.7): every two minutes per project with a verified
-// e-mail connection, new INBOX messages are fetched over IMAP (read-only,
-// nothing is flagged or deleted). Each is kept twice: the raw MIME as an
+// Inbound e-mail (WP4.7): every two minutes per project, new INBOX messages
+// of every verified mailbox are fetched over IMAP (read-only, nothing is
+// flagged or deleted), each mailbox with its own state and first sync. Each is kept twice: the raw MIME as an
 // encrypted platform file, and a normalized `inbound_emails` row. Modules
 // that registered `emailInbound` get a job per message. Customer mail is
 // untrusted data: it is stored and handed over, never interpreted here.
 // A message that cannot be parsed is kept (raw file, `unreadable` row), so
 // no single message can stop the mailbox from being read.
 
-export { INBOUND_KIND };
-export const INBOUND_STATE_KIND = "email_inbound_state";
+export { INBOUND_KIND, INBOUND_STATE_KIND };
 const INTERVAL_MS = 120_000;
 const MAX_PER_PASS = 25;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -218,17 +219,53 @@ async function nextBatch(
   };
 }
 
-/** One pass for one project; returns what it did, for tests and status. */
+type Connection = Awaited<ReturnType<typeof emailMailboxes>>[number];
+
+/**
+ * One pass for one project over every verified mailbox; returns what it
+ * did, for tests and status. One mailbox failing does not stop the others.
+ */
 export async function fetchInbound(scope: Scope) {
   if (!emailEnabled()) return { status: "disabled" as const };
-  const setup = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-    const connection = await verifiedEmailConnection(tx, scope);
-    if (!connection) return null;
-    const state = await stateOf(tx, scope, connection.id);
-    return { connection, state };
-  });
-  if (!setup) return { status: "not_connected" as const };
-  const { connection } = setup;
+  const connections = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    emailMailboxes(tx, scope).then((rows) =>
+      rows.filter((row) => connectionVerified(data(row).status)),
+    ),
+  );
+  if (!connections.length) return { status: "not_connected" as const };
+  const results: Array<
+    { connectionId: string } & Awaited<ReturnType<typeof fetchMailbox>>
+  > = [];
+  for (const connection of connections)
+    results.push({
+      connectionId: connection.id,
+      ...(await fetchMailbox(scope, connection)),
+    });
+  const sum = (key: "stored" | "bounced" | "skipped") =>
+    results.reduce((n, r) => n + ("stored" in r ? (r[key] ?? 0) : 0), 0);
+  const status = results.some((r) => r.status === "ok")
+    ? ("ok" as const)
+    : results.every((r) => r.status === "files_not_configured")
+      ? ("files_not_configured" as const)
+      : ("error" as const);
+  return {
+    status,
+    stored: sum("stored"),
+    bounced: sum("bounced"),
+    skipped: sum("skipped"),
+    mailboxes: results,
+  };
+}
+
+/** One pass over one mailbox. */
+async function fetchMailbox(scope: Scope, connection: Connection) {
+  const setup = await scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => ({
+      state: await stateOf(tx, scope, connection.id),
+    }),
+  );
   const recordState = (patch: Record<string, unknown>) =>
     scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const current = await stateOf(tx, scope, connection.id);
@@ -327,11 +364,14 @@ export async function fetchInbound(scope: Scope) {
             },
           });
         // A failed-delivery report marks the project's own messages it
-        // names, and only for a recipient it names as well.
+        // names, and only for a recipient it names as well, and only those
+        // this mailbox sent (a report comes back to the sending address).
         const bounceOf: string[] = [];
         for (const id of report?.ids ?? []) {
           const sent = await own(id);
           if (!sent) continue;
+          const sender = data(sent).connectionId;
+          if (sender && sender !== connection.id) continue;
           const to = ((data(sent).to as string[] | undefined) ?? []).map((a) =>
             a.toLowerCase(),
           );

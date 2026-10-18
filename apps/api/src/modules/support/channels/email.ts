@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
+  defaultEmailConnection,
   emailEnabled,
   verifiedEmailConnection,
 } from "../../../platform/email/connection.ts";
@@ -28,12 +29,14 @@ import { supportActive } from "../gate.ts";
 import { appendCustomerMessage, createTicket } from "../tickets.ts";
 import { allowNewTicket } from "../privacy.ts";
 
-// The support e-mail channel (WP5.3) on the project's WP4.7 mailbox.
-// Inbound: the platform polls IMAP, stores each message as an
-// `inbound_emails` row with its raw MIME as a platform file, and queues
-// `support_email_inbound`. Outbound: replies and acknowledgements go through
-// `queueEmail`, whose job never resends after an ambiguous transmit; the
-// periodic sync copies the outcome onto the support message.
+// The support e-mail channel (WP5.3) on the project's WP4.7 mailboxes.
+// Inbound: the platform polls IMAP per mailbox, stores each message as an
+// `inbound_emails` row (with the receiving `connectionId`) and its raw MIME
+// as a platform file, and queues `support_email_inbound`; the mail goes to
+// the inbox bound to the receiving mailbox. Outbound: replies and
+// acknowledgements go through `queueEmail` on the ticket inbox's mailbox,
+// whose job never resends after an ambiguous transmit; the periodic sync
+// copies the outcome onto the support message.
 
 export const SUPPORT_EMAIL_INBOUND = "support_email_inbound";
 const MAX_ATTACHMENTS = 10;
@@ -60,10 +63,24 @@ type MessageRow = Awaited<
 >;
 
 /**
+ * The mailbox a ticket's mail leaves from: its inbox's bound mailbox while
+ * that is verified; an inbox without one (widget-only, from before the
+ * binding, or archived after its mailbox was removed) uses the default.
+ */
+async function ticketMailbox(tx: DbTx, scope: Scope, ticket: TicketRow) {
+  const inbox = await tx.supportInbox.findFirst({
+    where: { id: ticket.inboxId, projectId: scope.projectId },
+  });
+  return inbox?.emailConnectionId
+    ? verifiedEmailConnection(tx, scope, inbox.emailConnectionId)
+    : defaultEmailConnection(tx, scope);
+}
+
+/**
  * Queues one customer-visible message of an e-mail ticket as mail to its
- * contact, threaded on the ticket's earlier mails. Returns the delivery
- * state: "pending" when queued, "not_sent" without e-mail, a verified
- * mailbox or a contact address.
+ * contact, threaded on the ticket's earlier mails, through the inbox's
+ * mailbox. Returns the delivery state: "pending" when queued, "not_sent"
+ * without e-mail, a verified mailbox or a contact address.
  */
 export async function queueEmailMessage(
   tx: DbTx,
@@ -80,7 +97,7 @@ export async function queueEmailMessage(
     return "not_sent";
   };
   if (!emailEnabled()) return notSent();
-  const connection = await verifiedEmailConnection(tx, scope);
+  const connection = await ticketMailbox(tx, scope, ticket);
   const contact = await tx.supportContact.findFirst({
     where: { id: ticket.contactId, deletedAt: null },
   });
@@ -103,6 +120,7 @@ export async function queueEmailMessage(
     automatic: options.automatic ?? false,
     ...(lastCustomer?.externalId ? { inReplyTo: lastCustomer.externalId } : {}),
     references: thread.map((m) => m.externalId!).slice(-20),
+    connectionId: connection.id,
   });
   await tx.supportMessage.update({
     where: { id: message.id },
@@ -115,6 +133,8 @@ export async function queueEmailMessage(
 }
 
 type Inbound = {
+  /** The mailbox that received it (platform). */
+  connectionId?: string;
   messageId?: string | null;
   from?: string | null;
   fromName?: string | null;
@@ -231,20 +251,34 @@ async function threadedTicket(tx: DbTx, scope: Scope, mail: Inbound) {
   return null;
 }
 
-/** The live e-mail inbox the mail was addressed to, else the only one. */
+/**
+ * The live e-mail inbox for a mail: among the inboxes bound to the mailbox
+ * that received it, the one it was addressed to, else the only one. The
+ * receiving mailbox decides, never an owner-typed address alone (WP5.3).
+ * Only while no inbox is bound to it, mail of the default mailbox goes to
+ * the unbound inboxes from before the binding, as it did then: the one it
+ * was addressed to, else the only one.
+ */
 async function routedInbox(tx: DbTx, scope: Scope, mail: Inbound) {
   const inboxes = (
     await tx.supportInbox.findMany({
       where: { projectId: scope.projectId, archivedAt: null },
+      orderBy: { createdAt: "asc" },
     })
   ).filter((i) => i.channels.includes("email"));
   const recipients = new Set(
     [...(mail.to ?? []), ...(mail.cc ?? [])].map(lower),
   );
-  return (
-    inboxes.find((i) => recipients.has(lower(i.emailAddress))) ??
-    (inboxes.length === 1 ? inboxes[0]! : null)
+  const pick = (candidates: typeof inboxes) =>
+    candidates.find((i) => recipients.has(lower(i.emailAddress))) ??
+    (candidates.length === 1 ? candidates[0]! : null);
+  const bound = inboxes.filter(
+    (i) => i.emailConnectionId && i.emailConnectionId === mail.connectionId,
   );
+  if (bound.length) return pick(bound);
+  const fallback = await defaultEmailConnection(tx, scope);
+  if (!fallback || fallback.id !== mail.connectionId) return null;
+  return pick(inboxes.filter((i) => !i.emailConnectionId));
 }
 
 function ackText(language: string, inbox: string, number: number) {

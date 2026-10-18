@@ -1,5 +1,33 @@
 # Implementation status
 
+## Several mailboxes per project (2026-10-18, local; draft PR)
+
+Mario decided on 2026-10-18 that a project connects several real mailboxes (support@, partnerships@, hello@, maybe admin@ of uliquid.vip) and that each support inbox answers from its own address. Branch `claude/multi-mailbox-462e85`, draft PR, not merged; no flag is switched. Guides: `docs/EMAIL_AND_NOTIFICATIONS.md`, `docs/SUPPORT.md`.
+- **Risk:** high. A production migration with a backfill, and the routing of customer mail. Tenant isolation is kept by a same-project composite foreign key.
+- **Platform (`platform/email`).**
+  - One mailbox per address: `email-connect` adds a mailbox for a new address and updates a known address in place (same id, back to `configured` until "Check login").
+  - The default mailbox (member notifications, mail that names none) is the verified mailbox connected first. Today's single-mailbox projects keep the row they used (the oldest verified).
+  - `queueEmail` takes an optional `connectionId`; the job sends From that mailbox with its Message-ID domain, and `EMAIL_NOT_CONNECTED` when it is not a verified mailbox of the project.
+  - `email-inbound` fetches every verified mailbox with its own `email_inbound_state` and its own first sync (the #164 backlog rule); one failing mailbox does not stop the others. A bounce marks only messages the receiving mailbox sent.
+  - New owner action `email-disconnect`: removes a mailbox and its state; refused with `EMAIL_MAILBOX_IN_USE` while a module uses it (`emailInbound.mailboxUse`).
+  - `GET /api/projects/:id/email` lists `mailboxes` (status, default, in-use count, receiving state); `connection` and `inbound` still show the default mailbox.
+- **Support.**
+  - Migration `202610180005_support_inbox_mailbox` (additive): `SupportInbox.emailConnectionId`, a composite foreign key to `Entity("projectId", id)`, and a partial unique index (one live inbox per mailbox). Its backfill binds each live e-mail inbox to the mailbox of its own address.
+  - An e-mail inbox must be bound to a verified mailbox of the project; its address is the mailbox's (`INBOX_MAILBOX_INVALID`, `INBOX_ADDRESS_NOT_MAILBOX`, `INBOX_MAILBOX_TAKEN`).
+  - Routing goes by the receiving mailbox, then by To/Cc among the inboxes bound to it. Unbound inboxes from before keep the old rule, only for the default mailbox and only while no inbox is bound to it.
+  - Replies, acknowledgements and ticket mail go through the ticket inbox's mailbox. New route `GET /support/mailboxes` (settings permission) for the inbox form.
+- **Web.** The connectors page lists the mailboxes (status, default, in use, last fetch) with add, update, check login and remove (disabled while in use). The inbox form picks its mailbox instead of typing an address. German and English copy.
+- **Tests:**
+  - `email-mailboxes.integration.test.ts`: add versus update, the default rule, a named mailbox's From/password/Message-ID, a foreign connection refused, two mailboxes fetched separately with their own first sync, bounces per mailbox, removal.
+  - `support-mailboxes.integration.test.ts`: routing by the receiving mailbox despite a copied To, replies and acknowledgements from the bound address, refused claims, removal refused while in use, the legacy single-mailbox setup before and after the backfill, and no routing by a typed address on a new mailbox.
+  - The RLS matrix covers a cross-project binding (foreign key) and the project delete with a bound inbox. The existing support tests bind their inboxes, and the access matrix and OpenAPI are updated (`openapi.json` was stale on main and is regenerated in full).
+- **Rollout (after approval).**
+  1. Merge; the deploy runs the migration. The existing inbox "Support" (support@uliquid.vip) is bound to its mailbox by the backfill. Without a backfill match it keeps working on the old rule.
+  2. Check: `SELECT name, "emailAddress", "emailConnectionId" FROM "SupportInbox"` shows the binding, and new mail to support@ still opens tickets in "Support".
+  3. Mario adds partnerships@ and hello@ under Connectors → E-mail mailboxes → Add mailbox, then runs "Check login" for each. Each new mailbox's first sync takes only its unread mail as backlog, without acknowledgements.
+  4. Support settings → New inbox → pick the mailbox (e.g. "Partnerships" on partnerships@uliquid.vip).
+- **Rollback.** Redeploy the previous main commit. The column, key and index stay unused. The old code routes by address and sends through the oldest verified mailbox, which is support@ as today. Added mailboxes are then neither fetched nor used, and their inboxes stop receiving. Dropping the column would need its own approved migration.
+
 ## Support tags like Chatwoot labels (2026-10-18, local)
 
 Mario asked for this on 2026-10-18.

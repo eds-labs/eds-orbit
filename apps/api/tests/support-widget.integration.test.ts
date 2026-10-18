@@ -11,6 +11,7 @@ import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import { createInbox, updateInbox } from "../src/modules/support/inboxes.ts";
 import { enableWidgetKey } from "../src/modules/support/widget.ts";
+import { verifiedMailbox } from "./fixtures/mailbox.ts";
 import {
   noteOnTicket,
   replyToTicket,
@@ -390,11 +391,15 @@ describe.skipIf(!enabled)("support widget public API", () => {
     const current = await run((tx) =>
       tx.supportInbox.findUniqueOrThrow({ where: { id: widgetInboxId } }),
     );
-    await run((tx) =>
+    await run(async (tx) =>
       updateInbox(tx, owner, widgetInboxId, {
         version: current.version,
         channels: ["email"],
-        emailAddress: "w@example.invalid",
+        emailConnectionId: await verifiedMailbox(
+          tx,
+          owner,
+          "w@example.invalid",
+        ),
       }),
     );
     expect(

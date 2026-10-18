@@ -24,7 +24,7 @@ import { assertModuleEnabled } from "../modules/enforcement.ts";
 import { pauseProject } from "../governance/pause.ts";
 import { retention } from "../governance/retention.ts";
 import { addProjectMember } from "../tenancy/project-members.ts";
-import { connectEmail } from "../email/connection.ts";
+import { connectEmail, disconnectEmail } from "../email/connection.ts";
 import {
   ownTransaction,
   sharedTransaction,
@@ -100,9 +100,14 @@ export const platformActions: Record<string, ActionHandler> = {
       }),
     );
   }),
-  // The project's mailbox over SMTP and IMAP (WP4.7); checked separately.
+  // A mailbox of the project over SMTP and IMAP (WP4.7); checked
+  // separately. A known address updates its mailbox, a new one adds one.
   "email-connect": sharedTransaction((tx, { scope, input }) =>
     connectEmail(tx, scope, input),
+  ),
+  // Removes a mailbox no live support inbox (or other module) still uses.
+  "email-disconnect": sharedTransaction((tx, { scope, input }) =>
+    disconnectEmail(tx, scope, input),
   ),
   // Checks a connection with its provider and records what it can do; the
   // provider call runs outside any transaction (WP2.5c).
