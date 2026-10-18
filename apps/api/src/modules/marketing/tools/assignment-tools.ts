@@ -15,6 +15,7 @@ import {
   deliveryOf,
   sharedAcrossChannels as sharedAcrossChannelsOf,
   proposeAssignment,
+  proposeAssignmentFromMcp,
   setAssignmentStatus,
   updateAssignment,
 } from "../agents/assignments.ts";
@@ -23,6 +24,7 @@ import {
   dropNullFields,
   type OrbitTool,
 } from "../../agents/tools/registry.ts";
+import { mcpApproveUrl } from "../../../platform/mcp/proposals.ts";
 
 /**
  * Orbit Core's tools for assignments. Every server ruling (OWNER_REQUIRED,
@@ -143,6 +145,25 @@ const proposeParameters = z
     sharedAcrossChannels,
     format,
     banner,
+  })
+  .strict();
+
+// The tool's name for MCP clients (module prefix), part of the proposal's dedupe key.
+const MCP_PROPOSE_NAME = "marketing_assignment_propose";
+
+/**
+ * What an MCP client gets (D-M4-5): the pending request, where the owner
+ * decides, and whether a retry returned an existing proposal. Only the MCP
+ * adapter validates against it; the assistant keeps its own output below.
+ */
+const mcpProposeOutput = z
+  .object({
+    status: z.literal("pending_approval"),
+    actionRequestId: z.string(),
+    assignmentId: z.string(),
+    expiresAt: z.string(),
+    approveUrl: z.string(),
+    deduplicated: z.boolean(),
   })
   .strict();
 
@@ -321,7 +342,42 @@ export const assignmentTools: readonly OrbitTool[] = [
     permission: PROJECT_WRITE,
     feature: "agents",
     deferLoading: true,
+    // MCP clients may propose too (WP-M4); the owner still confirms in Orbit.
+    exposure: { assistant: true, mcp: true },
+    outputSchema: mcpProposeOutput,
     async execute(context, args) {
+      // Double parse, intended: over MCP the SDK and then the adapter parse
+      // `args` with `parameters`, which has no defaults or transforms, so the
+      // second parse changes nothing; the service then parses them with the
+      // authoritative assignmentInput (defaults, limits, cross-field rules),
+      // which decides, as for the assistant.
+      const channel = context.channel;
+      if (channel?.kind === "mcp") {
+        const proposal = await proposeAssignmentFromMcp(
+          context.scope,
+          {
+            tool: MCP_PROPOSE_NAME,
+            clientId: channel.clientId,
+            grantId: channel.grantId,
+            // Without an AgentRun the gateway passes its request id as runId.
+            agentRunId:
+              context.runId === channel.requestId ? null : context.runId,
+          },
+          dropNullFields(args),
+        );
+        // Cards are chat-only; the client gets the pending request instead.
+        return {
+          output: {
+            status: "pending_approval",
+            actionRequestId: proposal.actionRequest.id,
+            assignmentId: proposal.assignmentId,
+            expiresAt: String(data(proposal.actionRequest).expiresAt),
+            approveUrl: mcpApproveUrl(context.scope.projectId),
+            deduplicated: proposal.deduplicated,
+          },
+          cards: [],
+        };
+      }
       const { assignment, actionRequest } = await proposeAssignment(
         context.scope,
         context.conversationId,

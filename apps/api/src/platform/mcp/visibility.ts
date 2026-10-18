@@ -94,8 +94,10 @@ async function enabledForTools(
  * The tools the principal may use with this scope, in name order. Module
  * activation always applies: unlike the assistant it also applies while
  * ORBIT_MODULES is off, so an opt-in module (support) counts only where an
- * owner enabled it. Tool search does not exist over MCP, so features that a
- * module turns on only with tool search stay off.
+ * owner enabled it. Features follow their own switches (ORBIT_AGENTS, ...)
+ * as if tool search were on: a module gates a feature on tool search only
+ * because the assistant loads its deferred tools that way, while MCP lists
+ * every tool directly (WP-M4; before, such features stayed off over MCP).
  */
 async function allowedTools(
   principal: McpPrincipal,
@@ -103,7 +105,7 @@ async function allowedTools(
 ): Promise<OrbitTool[]> {
   const enabled = visibleModules(scope, await enabledForTools(scope));
   const features = registeredAssistants(enabled).flatMap((assistant) =>
-    assistant.features({ toolSearch: false }),
+    assistant.features({ toolSearch: true }),
   );
   return registeredTools(enabled)
     .filter((tool) => {
