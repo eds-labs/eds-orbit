@@ -1600,6 +1600,34 @@ td:first-child {
   gap: 8px;
   align-items: flex-end;
 }
+.mailbox-rows {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mailbox-rows > li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.mailbox-rows .detail-summary {
+  margin: 0;
+  flex-wrap: wrap;
+}
+.mailbox-rows small {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.mailbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
 .operations-band {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

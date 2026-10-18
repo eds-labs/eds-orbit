@@ -9,6 +9,7 @@ import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import { credentialKey, decrypt } from "../src/shared.ts";
+import { verifiedMailbox } from "./fixtures/mailbox.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -42,12 +43,25 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
       headers: { origin, cookie: cookies[who], [CLIENT_IP_HEADER]: ip() },
       ...(payload ? { payload } : {}),
     });
-  const inbox = {
+  // Every e-mail inbox answers from its own verified mailbox.
+  let mailboxes = 0;
+  const mailbox = async () => {
+    const address = `support-${++mailboxes}@example.invalid`;
+    const id = await scoped(workspaceId, projectId, (tx) =>
+      verifiedMailbox(
+        tx,
+        { workspaceId, projectId, userId: ids.owner, role: "owner" },
+        address,
+      ),
+    );
+    return { id, address };
+  };
+  const inbox = async () => ({
     name: "uLiquid Desk",
     channels: ["email", "widget"],
-    emailAddress: "support@example.invalid",
+    emailConnectionId: (await mailbox()).id,
     allowedOrigins: ["https://desk.example.invalid"],
-  };
+  });
   const switchOn = async () => {
     process.env.ORBIT_SUPPORT = "true";
     process.env.ORBIT_MODULES = "true";
@@ -148,7 +162,7 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
         .statusCode,
     ).toBe(200);
     expect(
-      disabled(await call("owner", "POST", "/support/inboxes", inbox)),
+      disabled(await call("owner", "POST", "/support/inboxes", await inbox())),
     ).toEqual({ status: 404, code: true });
     // Enabled earlier, then the installation switched support off again.
     await switchOn();
@@ -161,7 +175,8 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
 
   it("creates an e-mail and widget inbox and shows the widget secret once", async () => {
     await switchOn();
-    const created = await call("owner", "POST", "/support/inboxes", inbox);
+    const payload = await inbox();
+    const created = await call("owner", "POST", "/support/inboxes", payload);
     expect(created.statusCode).toBe(200);
     const body = created.json();
     expect(body.widgetSecret).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -173,6 +188,8 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
       assignmentPolicy: "unassigned",
       version: 1,
       hasWidgetSecret: true,
+      emailConnectionId: payload.emailConnectionId,
+      emailAddress: `support-${mailboxes}@example.invalid`,
     });
     expect(body.inbox.widgetSecretEnc).toBeUndefined();
 
@@ -207,19 +224,27 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
     const auditText = JSON.stringify(audits.map((a) => a.metadata));
     for (const secret of [body.widgetSecret, rotated.json().widgetSecret])
       expect(auditText).not.toContain(secret);
-    expect(auditText).not.toContain("support@example.invalid");
+    expect(auditText).not.toContain("@example.invalid");
     expect(auditText).not.toContain(stored.widgetSecretEnc);
   });
 
   it("validates channels, origins, addresses and the AI mode", async () => {
     await switchOn();
+    const base = await inbox();
     for (const payload of [
-      { ...inbox, allowedOrigins: [] },
-      { ...inbox, emailAddress: undefined },
-      { ...inbox, channels: [] },
-      { ...inbox, channels: ["sms"] },
-      { ...inbox, allowedOrigins: ["https://desk.example.invalid/path"] },
-      { ...inbox, aiMode: "widget_answer" },
+      { ...base, allowedOrigins: [] },
+      // An e-mail inbox needs its mailbox; an address alone claims nothing.
+      { ...base, emailConnectionId: undefined },
+      {
+        ...base,
+        emailConnectionId: undefined,
+        emailAddress: "help@example.invalid",
+      },
+      { ...base, emailAddress: "other@example.invalid" },
+      { ...base, channels: [] },
+      { ...base, channels: ["sms"] },
+      { ...base, allowedOrigins: ["https://desk.example.invalid/path"] },
+      { ...base, aiMode: "widget_answer" },
     ]) {
       const response = await call("owner", "POST", "/support/inboxes", payload);
       expect({ payload, status: response.statusCode }).toEqual({
@@ -227,12 +252,15 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
         status: 400,
       });
     }
+    const help = await mailbox();
     const mailOnly = await call("owner", "POST", "/support/inboxes", {
       name: "Mail only",
       channels: ["email"],
-      emailAddress: "help@example.invalid",
+      emailConnectionId: help.id,
+      emailAddress: help.address.toUpperCase(),
     });
     expect(mailOnly.statusCode).toBe(200);
+    expect(mailOnly.json().inbox.emailAddress).toBe(help.address);
     expect(mailOnly.json().widgetSecret).toBeUndefined();
     expect(mailOnly.json().inbox.hasWidgetSecret).toBe(false);
   });
@@ -240,7 +268,7 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
   it("updates with the current version and refuses a stale one", async () => {
     await switchOn();
     const { inbox: created } = (
-      await call("owner", "POST", "/support/inboxes", inbox)
+      await call("owner", "POST", "/support/inboxes", await inbox())
     ).json();
     const url = `/support/inboxes/${created.id}`;
     const updated = await call("owner", "PATCH", url, {
@@ -314,7 +342,12 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
       200,
     );
     for (const who of ["editor", "viewer"] as const) {
-      const response = await call(who, "POST", "/support/inboxes", inbox);
+      const response = await call(
+        who,
+        "POST",
+        "/support/inboxes",
+        await inbox(),
+      );
       expect({ who, status: response.statusCode }).toEqual({
         who,
         status: 403,
@@ -337,7 +370,8 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
     expect((await roles(ids.editor, "none")).statusCode).toBe(200);
     // A module editor is still no owner: settings stay owner-only.
     expect(
-      (await call("viewer", "POST", "/support/inboxes", inbox)).statusCode,
+      (await call("viewer", "POST", "/support/inboxes", await inbox()))
+        .statusCode,
     ).toBe(403);
     expect((await call("viewer", "GET", "/support/inboxes")).statusCode).toBe(
       200,
@@ -350,7 +384,7 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
   it("drops the widget secret when the widget channel is removed", async () => {
     await switchOn();
     const created = (
-      await call("owner", "POST", "/support/inboxes", inbox)
+      await call("owner", "POST", "/support/inboxes", await inbox())
     ).json();
     const url = `/support/inboxes/${created.inbox.id}`;
     const mailOnly = await call("owner", "PATCH", url, {

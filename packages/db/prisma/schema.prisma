@@ -353,6 +353,9 @@ model SupportInbox {
   name                  String
   channels              String[]
   emailAddress          String?
+  /// The e-mail connection (`connectors` entity) the inbox answers from;
+  /// same-project foreign key and one live inbox per connection in SQL.
+  emailConnectionId     String?   @db.Uuid
   allowedOrigins        String[]  @default([])
   widgetSecretEnc       String?
   publicClientKeyId     String?   @db.Uuid
