@@ -151,7 +151,7 @@ export async function update(
 }
 export async function audit(
   tx: DbTx,
-  scope: Scope,
+  scope: Pick<Scope, "workspaceId" | "projectId" | "userId">,
   action: string,
   resourceId: string,
   metadata: Record<string, unknown> = {},

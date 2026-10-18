@@ -25,11 +25,22 @@ import {
   type McpCallObserver,
   type McpRequestState,
 } from "./adapter.ts";
-import { rpcErrorResponse, unauthenticatedResponse } from "./errors.ts";
+import { createMcpObserver } from "./audit.ts";
+import {
+  methodNotFoundResponse,
+  rateLimitedResponse,
+  rpcErrorResponse,
+  unauthenticatedResponse,
+} from "./errors.ts";
 import {
   assertMcpGatewayEnabled,
   parseAllowedOrigins,
 } from "./gateway-guard.ts";
+import {
+  MCP_RATE_LIMITS,
+  McpRateLimiter,
+  type McpRateLimits,
+} from "./limits.ts";
 import { resolvePrincipal } from "./principal.ts";
 
 /** Request body limit of the gateway (bytes). */
@@ -46,8 +57,14 @@ export type McpServerOptions = {
    * `${APP_ORIGIN}/api/auth/jwks`. Test seam and the knob for an internal URL.
    */
   jwksUrl?: string;
-  /** The audit/telemetry hook for finished tool calls (Task 4). */
+  /** Called after the built-in audit and telemetry for every finished tool call (tests). */
   observe?: McpCallObserver;
+  /** Test seam: replaces MCP_RATE_LIMITS (limits.ts), key by key. */
+  rateLimits?: Partial<McpRateLimits>;
+  /** Test seam: the clock for rate-limit windows and the lastUsedAt pacing. */
+  clock?: () => number;
+  /** Test seam: where the logger writes (default stdout). */
+  logStream?: { write(line: string): void };
 };
 
 // "::ffff:10.0.0.5" and "10.0.0.5" are the same client.
@@ -73,24 +90,48 @@ export function mcpClientIp(req: FastifyRequest): string {
   return isIP(forwarded) ? forwarded : peer;
 }
 
-/** The JSON-RPC method and tool name of a request body, when it is a single message. */
-function peekMessage(body: string): { method?: string; toolName?: string } {
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+const LISTEN_METHOD = "subscriptions/listen";
+
+type PeekedMessage = {
+  method?: string;
+  toolName?: string;
+  /** The raw `arguments` of a tools/call (hashed for audit, never stored). */
+  args?: unknown;
+  id: string | number | null;
+  /** The body (or any message of a batch) asks for subscriptions/listen. */
+  listen: boolean;
+};
+
+/** The JSON-RPC method, tool name and arguments of a request body, when it is a single message. */
+function peekMessage(body: string): PeekedMessage {
+  let message: unknown;
   try {
-    const message = JSON.parse(body) as {
-      method?: unknown;
-      params?: { name?: unknown };
-    };
-    if (!message || typeof message !== "object" || Array.isArray(message))
-      return {};
-    return {
-      ...(typeof message.method === "string" ? { method: message.method } : {}),
-      ...(typeof message.params?.name === "string"
-        ? { toolName: message.params.name }
-        : {}),
-    };
+    message = JSON.parse(body);
   } catch {
-    return {};
+    return { id: null, listen: false };
   }
+  if (Array.isArray(message))
+    return {
+      id: null,
+      listen: message.some(
+        (item) => isRecord(item) && item.method === LISTEN_METHOD,
+      ),
+    };
+  if (!isRecord(message)) return { id: null, listen: false };
+  const params = isRecord(message.params) ? message.params : undefined;
+  const id =
+    typeof message.id === "string" || typeof message.id === "number"
+      ? message.id
+      : null;
+  return {
+    id,
+    listen: message.method === LISTEN_METHOD,
+    ...(typeof message.method === "string" ? { method: message.method } : {}),
+    ...(typeof params?.name === "string" ? { toolName: params.name } : {}),
+    ...(params && "arguments" in params ? { args: params.arguments } : {}),
+  };
 }
 
 const text = (value: unknown) => (typeof value === "string" ? value : "");
@@ -110,6 +151,8 @@ export async function buildMcpServer(
   const resource = config.MCP_RESOURCE;
   const issuer = `${config.APP_ORIGIN}/api/auth`;
   const auth = makeAuth({ cimdFetch: options.cimdFetch });
+  const limits = { ...MCP_RATE_LIMITS, ...options.rateLimits };
+  const limiter = new McpRateLimiter(options.clock);
 
   const app = Fastify({
     bodyLimit: MCP_BODY_LIMIT,
@@ -119,6 +162,7 @@ export async function buildMcpServer(
     genReqId: () => randomUUID(),
     logger: {
       level: process.env.LOG_LEVEL ?? "info",
+      ...(options.logStream ? { stream: options.logStream } : {}),
       redact: {
         paths: ["req.headers.authorization", "req.headers.cookie"],
         censor: "[redacted]",
@@ -175,6 +219,13 @@ export async function buildMcpServer(
     },
   );
 
+  // Audit and telemetry first, then the optional test observer; neither can
+  // fail a call (the built-in one handles its own errors, notify the rest).
+  const builtIn = createMcpObserver({ log: app.log, now: options.clock });
+  const observe: McpCallObserver = async (record) => {
+    await builtIn(record);
+    await options.observe?.(record);
+  };
   const states = new WeakMap<AuthInfo, McpRequestState>();
   const handler = createMcpHandler(
     (ctx) => mcpServerFor(ctx.authInfo && states.get(ctx.authInfo)),
@@ -188,7 +239,7 @@ export async function buildMcpServer(
   app.addHook("onClose", async () => handler.close());
 
   /** Per verified request: resolve the principal again, then hand over to the SDK. */
-  const serve = (req: FastifyRequest) =>
+  const serve = (req: FastifyRequest, startedAt: number) =>
     requireMcpAuth(
       auth,
       async (request: Request, claims: JWTPayload) => {
@@ -198,23 +249,53 @@ export async function buildMcpServer(
         // isError result carrying the challenge; everything else is a 401.
         if (!principal && peek.method !== "tools/call")
           return unauthenticatedResponse(resource);
+        // Authenticated requests are counted per grant, user and client.
+        const userId = text(claims.sub);
+        const clientId = text(claims.azp);
+        const verdict = limiter.take([
+          ...(principal
+            ? [
+                {
+                  key: `grant:${principal.grantId}`,
+                  max: limits.perGrant,
+                  label: "grant",
+                },
+              ]
+            : []),
+          { key: `user:${userId}`, max: limits.perUser, label: "user" },
+          { key: `client:${clientId}`, max: limits.perClient, label: "client" },
+        ]);
+        if (!verdict.allowed) {
+          req.log.warn(
+            { code: "MCP_RATE_LIMITED", bucket: verdict.label },
+            "mcp request rate limited",
+          );
+          return rateLimitedResponse(verdict.retryAfterSeconds);
+        }
+        // subscriptions/listen would keep a stream open that never checks
+        // the principal again; the gateway offers no notifications.
+        if (peek.listen) return methodNotFoundResponse(peek.id);
         const authInfo: AuthInfo = {
           // The raw bearer token stays out of the SDK.
           token: principal ? `grant:${principal.grantId}` : "grant:none",
-          clientId: text(claims.azp),
+          clientId,
           scopes: principal ? [...principal.scopes] : [],
           ...(typeof claims.exp === "number" ? { expiresAt: claims.exp } : {}),
           resource: new URL(resource),
         };
         states.set(authInfo, {
           requestId: req.id,
-          clientId: text(claims.azp),
+          userId,
+          startedAt,
+          clientId,
           clientIp: mcpClientIp(req),
           principal,
-          ...peek,
+          ...(peek.method ? { method: peek.method } : {}),
+          ...(peek.toolName ? { toolName: peek.toolName } : {}),
+          ...("args" in peek ? { args: peek.args } : {}),
           resource,
           log: req.log,
-          ...(options.observe ? { observe: options.observe } : {}),
+          observe,
         });
         return handler.fetch(request, { authInfo });
       },
@@ -239,9 +320,32 @@ export async function buildMcpServer(
       headers,
       body: typeof req.body === "string" ? req.body : "",
     });
+    // Requests without a usable token are counted per client address: those
+    // without credentials before anything is looked at, those whose token
+    // fails verification (a 401) afterwards.
+    const credentials = Boolean(req.headers.authorization);
+    const ipRule = {
+      key: `ip:${mcpClientIp(req)}`,
+      max: limits.unauthenticatedPerIp,
+      label: "ip",
+    };
+    const refuse = (verdict: ReturnType<typeof limiter.take>) => {
+      if (verdict.allowed) return null;
+      req.log.warn(
+        { code: "MCP_RATE_LIMITED", bucket: verdict.label },
+        "mcp request rate limited",
+      );
+      return rateLimitedResponse(verdict.retryAfterSeconds);
+    };
+    if (!credentials) {
+      const refused = refuse(limiter.take([ipRule]));
+      if (refused) return sendWebResponse(reply, refused);
+    }
     let response: Response;
     try {
-      response = await serve(req)(request);
+      response = await serve(req, Date.now())(request);
+      if (credentials && response.status === 401)
+        response = refuse(limiter.take([ipRule])) ?? response;
     } catch (error) {
       // Key-set outages and other failures outside a challenge: no detail.
       req.log.error(

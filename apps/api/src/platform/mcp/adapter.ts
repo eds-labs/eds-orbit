@@ -53,11 +53,14 @@ const PROJECT_ID = "projectId";
 export type McpCallRecord = {
   requestId: string;
   tool: string;
+  /** The token's subject: set even when the grant is gone. */
+  userId: string;
   clientId: string;
   grantId: string | null;
   workspaceId: string | null;
+  /** The project of the call when it is one of the grant's; otherwise null. */
   projectId: string | null;
-  /** "ok" or the error code of the result. */
+  /** "ok" or the error code of the result ("INVALID_PARAMS" when the SDK refused it). */
   outcome: string;
   durationMs: number;
   args: unknown;
@@ -69,6 +72,10 @@ export type McpCallObserver = (record: McpCallRecord) => void | Promise<void>;
 /** What the factory knows about one HTTP request (set by server.ts). */
 export type McpRequestState = {
   requestId: string;
+  /** The token's subject. */
+  userId: string;
+  /** When the HTTP request arrived (ms). */
+  startedAt: number;
   clientId: string;
   clientIp: string;
   /** Null when the token verifies but no active grant matches it any more. */
@@ -76,6 +83,8 @@ export type McpRequestState = {
   /** JSON-RPC method and tool name of the request, when readable. */
   method?: string;
   toolName?: string;
+  /** The raw arguments of a tools/call: for the argument hash only. */
+  args?: unknown;
   resource: string;
   log: FastifyBaseLogger;
   observe?: McpCallObserver;
@@ -218,6 +227,7 @@ async function notify(
     await state.observe({
       ...record,
       requestId: state.requestId,
+      userId: state.userId,
       clientId: state.clientId,
       grantId: state.principal?.grantId ?? null,
       workspaceId: state.principal?.workspaceId ?? null,
@@ -247,7 +257,8 @@ async function executeRegistryTool(
         ? principal.projectIds[0]!
         : undefined;
   if (!projectId) throw new DomainError("PROJECT_REQUIRED", 400);
-  call.projectId = projectId;
+  // Audit rows go to the project only when it is one of the grant's.
+  call.projectId = principal.projectIds.includes(projectId) ? projectId : null;
   const { tool: allowed, scope } = await authorizeMcpCall(
     principal,
     tool.name,
@@ -285,12 +296,26 @@ function unauthenticatedServer(state: McpRequestState): Server {
       tool: String(request.params.name).slice(0, 128),
       projectId: null,
       outcome: "UNAUTHENTICATED",
-      durationMs: 0,
+      durationMs: Date.now() - state.startedAt,
       args: request.params.arguments,
     });
     return unauthenticatedResult(state.resource);
   });
   return server;
+}
+
+/**
+ * The project a call that never reached its tool belongs to: the requested
+ * one if it is the grant's, the only one when none was named, else none.
+ */
+function projectOfRefusedCall(
+  principal: McpPrincipal,
+  args: unknown,
+): string | null {
+  const requested = isPlainObject(args) ? args[PROJECT_ID] : undefined;
+  if (typeof requested === "string")
+    return principal.projectIds.includes(requested) ? requested : null;
+  return principal.projectIds.length === 1 ? principal.projectIds[0]! : null;
 }
 
 type ToolDefinition = {
@@ -357,6 +382,23 @@ export async function mcpServerFor(
       run: (args, call) =>
         executeRegistryTool(principalState, tool, args, call),
     });
+  }
+
+  // A call the SDK will refuse (unknown or unlisted tool, arguments that do
+  // not fit the input schema) never reaches a handler, so it is reported here.
+  if (state.method === "tools/call") {
+    const definition = definitions.get(state.toolName ?? "");
+    if (
+      !definition ||
+      !definition.inputSchema.safeParse(state.args ?? {}).success
+    )
+      await notify(principalState, {
+        tool: String(state.toolName ?? "").slice(0, 128),
+        projectId: projectOfRefusedCall(principal, state.args),
+        outcome: "INVALID_PARAMS",
+        durationMs: Date.now() - state.startedAt,
+        args: state.args,
+      });
   }
 
   // Name order, so clients can cache the list (09 §5.1).

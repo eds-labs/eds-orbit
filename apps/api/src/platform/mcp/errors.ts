@@ -133,6 +133,23 @@ export function rpcErrorResponse(
   );
 }
 
+/** The JSON-RPC answer to a method the gateway does not serve (-32601), as a 200 response. */
+export const methodNotFoundResponse = (id: string | number | null) =>
+  new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      error: { code: -32601, message: "Method not found" },
+    }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+/** 429 with the wait in `Retry-After` (seconds). */
+export const rateLimitedResponse = (retryAfterSeconds: number) =>
+  rpcErrorResponse(429, "Rate limit exceeded", {
+    "retry-after": String(retryAfterSeconds),
+  });
+
 /** 401 with the PRM challenge, shaped like requireMcpAuth's own refusal. */
 export const unauthenticatedResponse = (resource: string) =>
   rpcErrorResponse(401, "the grant is not active", {

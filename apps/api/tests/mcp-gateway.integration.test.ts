@@ -1094,6 +1094,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
           {
             requestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
             tool: "tasks_task_digest",
+            userId: ids.editor,
             clientId: CLIENT["editor-one"],
             grantId: grant.id,
             workspaceId,
@@ -1105,11 +1106,13 @@ describe.skipIf(!enabled)("MCP gateway", () => {
           },
           expect.objectContaining({
             tool: "tasks_task_digest",
-            projectId: missing,
+            // Not one of the grant's projects: never attributed to a project.
+            projectId: null,
             outcome: "NOT_FOUND",
           }),
           expect.objectContaining({
             tool: "tasks_suggest_task",
+            userId: ids.editor,
             clientId: CLIENT.revoke,
             grantId: null,
             workspaceId: null,

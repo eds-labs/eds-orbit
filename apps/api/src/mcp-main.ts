@@ -16,6 +16,7 @@ try {
 const { registerModules } = await import("./modules/registry.ts");
 const { buildMcpServer } = await import("./platform/mcp/server.ts");
 const { closeDatabase } = await import("../../../packages/db/src/index.ts");
+const { makeShutdown } = await import("./platform/mcp/shutdown.ts");
 
 // A broken module manifest stops the gateway before it serves anything.
 registerModules();
@@ -25,9 +26,12 @@ await app.listen({
   host: process.env.BIND_HOST ?? "127.0.0.1",
 });
 console.log("Orbit MCP gateway listening on configured interface");
+// One shutdown however many signals arrive; a failing close is logged by
+// error name and the process still exits.
+const shutdown = makeShutdown({
+  steps: [() => app.close(), () => closeDatabase()],
+  exit: (code) => process.exit(code),
+  log: (...args) => console.error(...args),
+});
 for (const event of ["SIGINT", "SIGTERM"])
-  process.on(event, async () => {
-    await app.close();
-    await closeDatabase();
-    process.exit(0);
-  });
+  process.on(event, () => void shutdown());
