@@ -29,6 +29,8 @@ export type RouteTable = {
 const SEGMENT = /^[a-z][a-z0-9-]*$/;
 // First segments the shell itself uses; no page may claim them.
 const RESERVED = new Set(["o", "p", "api", "admin"]);
+// Sidebar groups that no module owns (UI restructure).
+const PLATFORM_GROUPS = ["top", "project"];
 const STANDALONE_PATH = /^[a-z][a-z0-9-]*(\/[a-z][a-z0-9-]*)*$/;
 
 /** Builds and checks the route table once; throws on any conflict. */
@@ -41,6 +43,19 @@ export function routeTable(registry: WebRegistry): RouteTable {
       problems.push(`${view.key}: invalid path "${view.path}"`);
     if (view.requiresModule && !moduleIds.includes(view.requiresModule))
       problems.push(`${view.key}: unknown module "${view.requiresModule}"`);
+    if (view.navGroup !== undefined) {
+      if (moduleId && view.navGroup !== moduleId)
+        problems.push(
+          `${view.key}: navGroup "${view.navGroup}" differs from module "${moduleId}"`,
+        );
+      else if (
+        !PLATFORM_GROUPS.includes(view.navGroup) &&
+        !moduleIds.includes(view.navGroup)
+      )
+        problems.push(`${view.key}: unknown navGroup "${view.navGroup}"`);
+    }
+    if (view.nav?.mobileRank !== undefined && !view.nav.mobile)
+      problems.push(`${view.key}: nav.mobileRank without nav.mobile`);
     routes.push({
       ...view,
       moduleId,
@@ -219,20 +234,29 @@ export function activeNavKey(
   return route?.navKey ?? route?.key;
 }
 
+/** The sidebar group of a page (UI restructure). */
+export function navGroupOf(route: Route): string {
+  return route.navGroup ?? route.moduleId ?? "top";
+}
+
 /**
- * The breadcrumb of a page: its navigation label, or for a page under
+ * The breadcrumb of a page: the label of its sidebar group when the caller
+ * has one (UI restructure), then its navigation label, or for a page under
  * another entry (navKey) that entry's label and the page's title.
  */
 export function crumbs(
   route: Route,
   table: RouteTable,
   locale: keyof Label,
+  groupLabel?: (group: string) => string | undefined,
 ): string[] {
   const own = route.nav?.label[locale] ?? route.title?.[locale];
   const parent = route.navKey
     ? table.routes.find((r) => r.key === route.navKey)?.nav?.label[locale]
     : undefined;
-  return parent ? [parent, own ?? route.key] : [own ?? route.key];
+  const trail = parent ? [parent, own ?? route.key] : [own ?? route.key];
+  const group = groupLabel?.(navGroupOf(route));
+  return group ? [group, ...trail] : trail;
 }
 
 /** Routes in sidebar order; routes without a nav entry come last. */
