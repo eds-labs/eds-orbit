@@ -85,6 +85,26 @@ type ActionRequestItem = {
   };
 };
 
+/**
+ * The text of a failed decision: a short sentence for codes an owner can act
+ * on, otherwise the error's own message (the code in words).
+ */
+export function decisionErrorText(cause: unknown, de: boolean) {
+  const code =
+    typeof cause === "object" && cause !== null && "code" in cause
+      ? (cause as { code: unknown }).code
+      : undefined;
+  if (code === "MCP_GRANT_ENDED")
+    return de
+      ? "Die App, die das vorgeschlagen hat, darf nicht mehr vorschlagen (Verbindung getrennt, Vorschläge gestoppt oder Zugriff geändert). Du kannst den Vorschlag nur noch ablehnen."
+      : "The app that proposed this may no longer propose (it was disconnected, its proposals were stopped or its access changed). You can only reject it now.";
+  return cause instanceof Error
+    ? cause.message
+    : de
+      ? "Entscheidung fehlgeschlagen"
+      : "Decision failed";
+}
+
 /** Owners decide open action requests here, for example an editor's package image. */
 export function ActionRequestInbox() {
   const { locale, project, isOwner } = useWorkspace();
@@ -108,7 +128,7 @@ export function ActionRequestInbox() {
       await decideRequest(item, decision, imageRightsConsent);
       requests.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Decision failed");
+      setError(decisionErrorText(cause, de));
     } finally {
       setPending("");
     }

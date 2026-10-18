@@ -1,7 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { ApiError } from "@/lib/api";
 import {
   channelLabel,
+  decisionErrorText,
   mcpClientHost,
   RequestedViaMcp,
 } from "./action-request-inbox";
@@ -71,5 +73,30 @@ describe("MCP origin of a decision (WP-M4)", () => {
         <RequestedViaMcp requestedBy={{ kind: "user", userId: "u" }} de />,
       ),
     ).toBe("");
+  });
+});
+
+describe("decision error text (WP-M4)", () => {
+  it("explains MCP_GRANT_ENDED in both languages instead of the raw code", () => {
+    const ended = new ApiError("MCP_GRANT_ENDED", 409);
+    const en = decisionErrorText(ended, false);
+    const de = decisionErrorText(ended, true);
+    expect(en).toContain("may no longer propose");
+    expect(en).toContain("reject");
+    expect(de).toContain("darf nicht mehr vorschlagen");
+    for (const text of [en, de]) {
+      expect(text).not.toContain("MCP_GRANT_ENDED");
+      expect(text).not.toContain("MCP GRANT ENDED");
+    }
+  });
+
+  it("keeps the message of other errors and falls back for non-errors", () => {
+    expect(
+      decisionErrorText(new ApiError("ACTION_REQUEST_STALE", 409), false),
+    ).toBe("ACTION REQUEST STALE");
+    expect(decisionErrorText("nope", false)).toBe("Decision failed");
+    expect(decisionErrorText(undefined, true)).toBe(
+      "Entscheidung fehlgeschlagen",
+    );
   });
 });

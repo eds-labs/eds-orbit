@@ -202,7 +202,7 @@ export const labels = {
     connectedStopProposals: "Stop proposals",
     connectedStopProposalsTitle: "Stop proposals from",
     connectedStopProposalsHint:
-      "The app can still read, but it can no longer propose actions for you to approve. Proposals it already made and that are waiting are withdrawn. It can propose again only after it asks you to connect again.",
+      "The app can still read, but it can no longer propose actions for you to approve. Proposals it already made and that are waiting are withdrawn. The next time it is connected, Orbit asks for consent again; proposing is preselected there and can be unticked.",
     connectedStopProposalsConfirm: "Stop proposals",
     connectedAllProjects: "All current projects",
     connectedScopes: "Permissions",
@@ -425,7 +425,7 @@ export const labels = {
     connectedStopProposals: "Vorschläge stoppen",
     connectedStopProposalsTitle: "Vorschläge stoppen für",
     connectedStopProposalsHint:
-      "Die App kann weiter lesen, aber keine Aktionen mehr zur Freigabe vorschlagen. Bereits gemachte, noch wartende Vorschläge werden zurückgezogen. Sie kann erst wieder vorschlagen, nachdem sie dich beim erneuten Verbinden fragt.",
+      "Die App kann weiter lesen, aber keine Aktionen mehr zur Freigabe vorschlagen. Bereits gemachte, noch wartende Vorschläge werden zurückgezogen. Beim nächsten Verbinden fragt Orbit erneut nach der Zustimmung; Vorschlagen ist dort vorausgewählt und kann abgewählt werden.",
     connectedStopProposalsConfirm: "Vorschläge stoppen",
     connectedAllProjects: "Alle aktuellen Projekte",
     connectedScopes: "Berechtigungen",
