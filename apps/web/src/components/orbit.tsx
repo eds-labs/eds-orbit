@@ -35,6 +35,7 @@ import {
   activeNavKey,
   crumbs,
   pageTitle,
+  knownModuleStates,
   moduleShown,
   defaultProject,
   navGroupOf,
@@ -125,6 +126,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     project
       ? `/projects/${encodeURIComponent(project.id)}/modules?revision=${revision}`
       : null,
+  );
+  // The last states loaded per project, kept while a refresh refetches them.
+  const [lastStates, setLastStates] = useState<{
+    projectId: string;
+    states: ModuleStates;
+  } | null>(null);
+  useEffect(() => {
+    if (project && moduleStates.data)
+      setLastStates({ projectId: project.id, states: moduleStates.data });
+  }, [project?.id, moduleStates.data]);
+  const knownStates = knownModuleStates(
+    moduleStates.data,
+    lastStates,
+    project?.id,
   );
   useEffect(() => {
     try {
@@ -232,7 +247,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   }, [menu]);
   const shell = useMemo((): ShellContextValue | null => {
     if (!project) return null;
-    const states = moduleStates.data?.modules;
+    const states = knownStates?.modules;
     // Until the states load, or if they fail, every module counts as enabled.
     // A module the member has no access to (WP4.5) is hidden like a disabled one.
     const enabled = (id: string) =>
@@ -275,7 +290,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
     };
-  }, [project, moduleStates.data, registry, table]);
+  }, [project, knownStates, registry, table]);
   // The label of a sidebar group, for the breadcrumb and the document title.
   const groupLabel = (group: string) =>
     group === "top"
@@ -666,6 +681,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
                 {!canEdit && route && <Alert>{t("viewer")}</Alert>}
                 {!route ? (
                   <NotFound t={t} homeHref={homeHref} />
+                ) : !knownStates && !moduleStates.error ? (
+                  // The page waits for the project's module states (a failed
+                  // load falls back to the defaults), so it mounts once: no
+                  // "module off" flash and no remount for an opt-in module.
+                  <Loading label={t("loading")} />
                 ) : moduleOff ? (
                   <ModuleOff t={t} homeHref={homeHref} />
                 ) : (

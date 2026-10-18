@@ -6,6 +6,7 @@ import {
   crumbs,
   defaultProject,
   keptSuffix,
+  knownModuleStates,
   locate,
   moduleShown,
   moduleUsable,
@@ -571,5 +572,29 @@ describe("Web route registry", () => {
           table.routes.find((r) => r.key === key)!.moduleId === "marketing",
       ),
     ).toBe(false);
+  });
+});
+
+describe("knownModuleStates", () => {
+  const loaded = { modules: [{ id: "support", enabled: true }] };
+
+  it("prefers the states just loaded", () => {
+    expect(knownModuleStates(loaded, null, "p1")).toBe(loaded);
+  });
+
+  it("keeps the project's last states while they load again", () => {
+    // A refresh refetches them; falling back to the defaults would hide the
+    // opt-in support module for a moment and remount the page.
+    expect(
+      knownModuleStates(null, { projectId: "p1", states: loaded }, "p1"),
+    ).toBe(loaded);
+  });
+
+  it("knows nothing for another project or before the first load", () => {
+    expect(
+      knownModuleStates(null, { projectId: "p2", states: loaded }, "p1"),
+    ).toBeUndefined();
+    expect(knownModuleStates(null, null, "p1")).toBeUndefined();
+    expect(knownModuleStates(null, null, undefined)).toBeUndefined();
   });
 });

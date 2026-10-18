@@ -235,6 +235,21 @@ export function moduleShown(
   return state ? moduleUsable(state) : false;
 }
 
+/**
+ * The module states the shell goes by: the ones just loaded, else the last
+ * ones loaded for the same project while they load again. A refresh refetches
+ * them, and the defaults would hide an opt-in module (support) for a moment
+ * and remount the open page. Undefined before the project's first load.
+ */
+export function knownModuleStates<T>(
+  current: T | null,
+  last: { projectId: string; states: T } | null,
+  projectId: string | undefined,
+): T | undefined {
+  if (current) return current;
+  return last && last.projectId === projectId ? last.states : undefined;
+}
+
 /** The navigation entry a page highlights: its own, else its navKey. */
 export function activeNavKey(
   route: Route | null | undefined,
