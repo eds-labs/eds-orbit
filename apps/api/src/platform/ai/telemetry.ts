@@ -12,7 +12,9 @@ export type RunKind =
   | "evaluation"
   | "image"
   // One specialist task of an assignment run (Orbit Agents).
-  | "agent";
+  | "agent"
+  // Support AI: triage or a draft reply of one ticket (WP5.6).
+  | "support";
 export type SpanInput = {
   type: "model_call" | "tool_call" | "embedding" | "image";
   name: string;

@@ -524,6 +524,83 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/support/agents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/contacts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/contacts/{contactId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/contacts/{contactId}/export": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/inboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/stats": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/stats/export": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/tickets": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/support/tickets/{ticketId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/telegram": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -544,6 +621,27 @@
     "viewer": "allowed:200",
     "editor": "allowed:200",
     "owner": "allowed:200"
+  },
+  "GET /api/public/support/{publicKey}/conversations": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/public/support/{publicKey}/messages": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "GET /api/public/support/{publicKey}/stream": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
   },
   "GET /api/setup": {
     "anonymous": "allowed:200",
@@ -566,12 +664,40 @@
     "editor": "public",
     "owner": "public"
   },
+  "OPTIONS /api/public/support/{publicKey}/{*}": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
   "PATCH /api/projects/{projectId}/content/{id}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
     "owner": "allowed:400"
+  },
+  "PATCH /api/projects/{projectId}/support/contacts/{contactId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/support/inboxes/{inboxId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/support/tickets/{ticketId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}": {
     "anonymous": "allowed:400",
@@ -1434,6 +1560,76 @@
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/support/contacts/{contactId}/erase": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/contacts/{contactId}/merge": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/inboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/inboxes/{inboxId}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/inboxes/{inboxId}/rotate-widget-secret": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/inboxes/{inboxId}/widget-key": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/tickets/{ticketId}/ai-draft": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/tickets/{ticketId}/merge": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/tickets/{ticketId}/notes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/support/tickets/{ticketId}/replies": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/telegram/connect": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1461,6 +1657,41 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/public/support/{publicKey}/conversations": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/handoff": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/identify": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/messages": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/public/support/{publicKey}/session": {
+    "anonymous": "not_found",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "owner": "not_found"
   },
   "POST /api/setup": {
     "anonymous": "allowed:400",
@@ -1524,5 +1755,12 @@
     "viewer": "allowed:400",
     "editor": "allowed:400",
     "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/support/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   }
 }

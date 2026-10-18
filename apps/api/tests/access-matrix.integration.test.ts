@@ -24,6 +24,8 @@ Object.assign(process.env, {
   ORBIT_MCP_OAUTH: "true",
   ORBIT_MODULE_ROLES: "true",
   ORBIT_PUBLIC_INGRESS: "true",
+  // Support (WP5.1): routes exist; the test project never enables the module.
+  ORBIT_SUPPORT: "true",
   // Platform files (WP4.6) with a bucket that is never reached here.
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",
@@ -57,6 +59,17 @@ const PUBLIC_ROUTES = [
   "POST /api/slack/{workspaceId}/{projectId}/interactions",
   // Signed provider webhooks (WP4.2a): the signature authenticates.
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}",
+  // The support widget's public API (WP5.4): the key, its allowed origins and
+  // a bearer session authenticate; a made-up key answers 404 for everybody.
+  "GET /api/public/support/{publicKey}/conversations",
+  "GET /api/public/support/{publicKey}/messages",
+  "GET /api/public/support/{publicKey}/stream",
+  "OPTIONS /api/public/support/{publicKey}/{*}",
+  "POST /api/public/support/{publicKey}/conversations",
+  "POST /api/public/support/{publicKey}/handoff",
+  "POST /api/public/support/{publicKey}/identify",
+  "POST /api/public/support/{publicKey}/messages",
+  "POST /api/public/support/{publicKey}/session",
 ];
 // The collection name is validated before the session: an unknown one is a 400
 // for everybody and reveals nothing about the project.

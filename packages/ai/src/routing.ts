@@ -11,6 +11,9 @@ export const taskClasses = [
   "agent_research",
   "agent_analytics",
   "agent_review",
+  // Support AI (WP5.6): ticket triage and grounded draft replies for agents.
+  "support_triage",
+  "support_draft",
 ] as const;
 export type TaskClass = (typeof taskClasses)[number];
 export const reasoningEfforts = [
@@ -38,6 +41,8 @@ export const taskRoutesSchema = z
     agent_research: modelRouteSchema.optional(),
     agent_analytics: modelRouteSchema.optional(),
     agent_review: modelRouteSchema.optional(),
+    support_triage: modelRouteSchema.optional(),
+    support_draft: modelRouteSchema.optional(),
   })
   .strict();
 export const defaultOutputTokens: Record<TaskClass, number> = {
@@ -48,6 +53,8 @@ export const defaultOutputTokens: Record<TaskClass, number> = {
   agent_research: 3000,
   agent_analytics: 1800,
   agent_review: 1800,
+  support_triage: 800,
+  support_draft: 1800,
 };
 // Tier used when no explicit task route is configured.
 export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
@@ -58,6 +65,8 @@ export const legacyTier: Record<TaskClass, "standard" | "quality"> = {
   agent_research: "standard",
   agent_analytics: "standard",
   agent_review: "quality",
+  support_triage: "standard",
+  support_draft: "quality",
 };
 
 // Blog drafts use the blog route; every other content type uses the social route.

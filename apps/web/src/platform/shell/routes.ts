@@ -194,6 +194,24 @@ export function moduleUsable(state?: { enabled: boolean; access?: string }) {
   return state ? state.enabled && state.access !== "none" : true;
 }
 
+/**
+ * Whether the shell shows a module given the loaded module states (WP5.1).
+ * Once loaded, a module the server does not list (unavailable for the
+ * installation, like support without ORBIT_SUPPORT) is hidden. Until they
+ * load, or if they fail, modules show, except opt-in modules.
+ */
+export function moduleShown(
+  states:
+    | ReadonlyArray<{ id: string; enabled: boolean; access?: string }>
+    | undefined,
+  id: string,
+  optIn = false,
+) {
+  if (!states) return !optIn;
+  const state = states.find((m) => m.id === id);
+  return state ? moduleUsable(state) : false;
+}
+
 /** The navigation entry a page highlights: its own, else its navKey. */
 export function activeNavKey(
   route: Route | null | undefined,

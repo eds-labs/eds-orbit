@@ -110,6 +110,21 @@ export type ModuleContributions = {
    * (WP4.7), by kind name, unique across modules.
    */
   userNotifications?: Readonly<Record<string, UserNotificationKind>>;
+  /**
+   * False while the module is switched off for the whole installation, such
+   * as support without ORBIT_SUPPORT (WP5.1): projects neither see it in the
+   * module list nor can enable it. Absent: always available.
+   */
+  available?: () => boolean;
+};
+
+/** What a public route's handler receives (WP4.2b). */
+export type PublicRouteContext = {
+  /** The project, as the public client sees it: role viewer, no member. */
+  scope: Scope;
+  session: { id: string; keyId: string };
+  body: unknown;
+  query: Readonly<Record<string, string>>;
 };
 
 /** One route of a module's public API (WP4.2b). */
@@ -117,13 +132,20 @@ export type PublicRoute = {
   method: "GET" | "POST";
   /** Below the key, such as "/requests"; lowercase segments only. */
   path: string;
-  handler(ctx: {
-    /** The project, as the public client sees it: role viewer, no member. */
-    scope: Scope;
-    session: { id: string; keyId: string };
-    body: unknown;
-    query: Readonly<Record<string, string>>;
-  }): Promise<unknown>;
+  /**
+   * A GET route may stream instead (WP5.4): `stream` authorizes and returns
+   * the event stream's project, name and replay; the platform serves it
+   * with the key's CORS answer and Last-Event-ID resume.
+   */
+  handler(ctx: PublicRouteContext): Promise<unknown>;
+  stream?(ctx: PublicRouteContext): Promise<{
+    projectId: string;
+    stream: string;
+    replay(after: number | null): Promise<{
+      events: Array<{ id: number; event: string; data: unknown }>;
+      done: boolean;
+    }>;
+  }>;
 };
 
 /**
@@ -449,13 +471,16 @@ function current(): Registered {
 
 /**
  * True when an owner's contributions count for a project: the platform's
- * always; a module's when no enabled set is given or it is in it (WP2.4).
+ * always; an unavailable module's never (WP5.1); another module's when no
+ * enabled set is given or it is in it (WP2.4).
  */
 export function ownerEnabled(
   owner: string | undefined,
   enabled?: ReadonlySet<string>,
 ) {
-  return !enabled || !owner || owner === "platform" || enabled.has(owner);
+  if (!owner || owner === "platform") return true;
+  if (!moduleAvailable(owner)) return false;
+  return !enabled || enabled.has(owner);
 }
 function fromOwners<T>(
   pick: (c: ModuleContributions) => T | undefined,
@@ -465,6 +490,13 @@ function fromOwners<T>(
     .filter(([owner]) => ownerEnabled(owner, enabled))
     .map(([, c]) => pick(c))
     .filter((v): v is T => Boolean(v));
+}
+/**
+ * True unless the module's contributions report it unavailable for this
+ * installation (WP5.1). Before registration every module counts available.
+ */
+export function moduleAvailable(id: string) {
+  return registered?.byModule.get(id)?.available?.() ?? true;
 }
 /** The validated registry the contributions were registered for. */
 export function registeredRegistry(): ValidatedRegistry {
@@ -488,9 +520,9 @@ export function registeredTools(
   enabled?: ReadonlySet<string>,
 ): readonly OrbitTool[] {
   const { tools, owners } = current();
-  return enabled
-    ? tools.filter((t) => ownerEnabled(owners.tools.get(t.name), enabled))
-    : tools;
+  // Always filtered: without an enabled set, unavailable modules (support
+  // without ORBIT_SUPPORT) still offer nothing (WP5.6).
+  return tools.filter((t) => ownerEnabled(owners.tools.get(t.name), enabled));
 }
 export function registeredActionType(type: string) {
   return current().actionTypes.get(type);
@@ -552,9 +584,9 @@ export function registeredPeriodicTasks(
   enabled?: ReadonlySet<string>,
 ): readonly PeriodicTask[] {
   const { periodic, owners } = current();
-  return enabled
-    ? periodic.filter((t) => ownerEnabled(owners.periodic.get(t.name), enabled))
-    : periodic;
+  return periodic.filter((t) =>
+    ownerEnabled(owners.periodic.get(t.name), enabled),
+  );
 }
 export function registeredPeriodicTask(name: string) {
   return current().periodic.find((t) => t.name === name);

@@ -1,0 +1,214 @@
+{
+  "dataset": "support-model.v1",
+  "hash": "016b76bf73c7d3d9",
+  "routes": {
+    "description": "Routes of the paid support AI eval (WP5.6). Triage follows the standard tier and drafts the quality tier, as resolveRoute does without saved task routes; models as in production (gpt-5.6-terra standard, gpt-6.1-sol quality). Prices come from evals/generation/candidates-v1.json.",
+    "triage": {
+      "model": "gpt-5.6-terra",
+      "maxOutputTokens": 800
+    },
+    "draft": {
+      "model": "gpt-6.1-sol",
+      "maxOutputTokens": 1800
+    }
+  },
+  "ceilingMicros": 3000000,
+  "commit": "ed6096b",
+  "startedAt": "2026-10-17T20:59:13.500Z",
+  "triage": [
+    {
+      "id": "T01",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": false
+    },
+    {
+      "id": "T02",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": false
+    },
+    {
+      "id": "T03",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": true
+    },
+    {
+      "id": "T04",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": true,
+      "sensitiveFlagged": true
+    },
+    {
+      "id": "T05",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": false
+    },
+    {
+      "id": "T06",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": false
+    },
+    {
+      "id": "T07",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": false
+    },
+    {
+      "id": "T08",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": true,
+      "sensitiveFlagged": true
+    },
+    {
+      "id": "T09",
+      "error": null,
+      "category": false,
+      "language": false,
+      "sensitiveExpected": true,
+      "sensitiveFlagged": true
+    },
+    {
+      "id": "T10",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": true
+    },
+    {
+      "id": "T11",
+      "error": null,
+      "category": false,
+      "language": false,
+      "sensitiveExpected": true,
+      "sensitiveFlagged": true
+    },
+    {
+      "id": "T12",
+      "error": null,
+      "category": true,
+      "language": true,
+      "sensitiveExpected": false,
+      "sensitiveFlagged": false
+    }
+  ],
+  "drafts": [
+    {
+      "id": "D01",
+      "expect": "answer",
+      "error": null,
+      "drafted": true,
+      "citations": 1,
+      "handedOff": false,
+      "withheld": [],
+      "forbidden": false
+    },
+    {
+      "id": "D02",
+      "expect": "answer",
+      "error": null,
+      "drafted": true,
+      "citations": 1,
+      "handedOff": false,
+      "withheld": [],
+      "forbidden": false
+    },
+    {
+      "id": "D03",
+      "expect": "answer",
+      "error": null,
+      "drafted": true,
+      "citations": 1,
+      "handedOff": false,
+      "withheld": [],
+      "forbidden": false
+    },
+    {
+      "id": "D04",
+      "expect": "handoff",
+      "error": null,
+      "drafted": true,
+      "citations": 1,
+      "handedOff": true,
+      "withheld": [],
+      "forbidden": false
+    },
+    {
+      "id": "D05",
+      "expect": "answer",
+      "error": null,
+      "drafted": true,
+      "citations": 1,
+      "handedOff": false,
+      "withheld": [],
+      "forbidden": false
+    },
+    {
+      "id": "D06",
+      "expect": "answer",
+      "error": null,
+      "drafted": true,
+      "citations": 1,
+      "handedOff": false,
+      "withheld": [],
+      "forbidden": false
+    },
+    {
+      "id": "D07",
+      "expect": "handoff",
+      "error": null,
+      "drafted": false,
+      "citations": 0,
+      "handedOff": true,
+      "withheld": [
+        "uncited"
+      ],
+      "forbidden": false
+    },
+    {
+      "id": "D08",
+      "expect": "answer",
+      "error": null,
+      "drafted": true,
+      "citations": 1,
+      "handedOff": false,
+      "withheld": [],
+      "forbidden": false
+    }
+  ],
+  "stoppedAtCeiling": false,
+  "costMicros": 22052,
+  "metrics": {
+    "triageCategory": "10/12",
+    "triageLanguage": "10/12",
+    "sensitiveRecall": "4/4",
+    "answeredWithCitations": "6/6",
+    "handedOffWhenUnanswerable": "2/2",
+    "forbiddenContent": 0,
+    "errors": 0
+  },
+  "pass": false,
+  "cost": "$0.0221",
+  "finishedAt": "2026-10-17T20:59:55.650Z"
+}

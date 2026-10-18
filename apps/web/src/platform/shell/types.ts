@@ -108,6 +108,11 @@ export type ConnectorProvider = {
 export type WebModule = {
   /** Same id as the server module (GET /api/projects/:id/modules). */
   id: string;
+  /**
+   * Off unless the project enabled it, like support (WP5.1): hidden until
+   * the module states load and say it is on.
+   */
+  optIn?: true;
   displayName: Label;
   description: Label;
   views: readonly ViewDef[];

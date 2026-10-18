@@ -28,3 +28,14 @@ Using the Conversations API or hosted sessions as the state store would reduce l
 ## Consequences
 
 Orbit keeps full control over retention and rehydration. When the user base changes, only configuration defaults (`store`, trace export) need to change, not the architecture. Approved text still leaves the host for OpenAI, as documented in `MODEL_ROUTING.md`.
+
+## Amendment 2026-10-17: support module (Q-12a)
+
+Orbit now plans to hold customer personal data in the support module (Phase 5). Mario decided Q-12a option B on 2026-10-17 (`plans/orbit-modularization/10-support-pilot-decisions.md`). For model calls of the support module, independent of decision D2:
+- `store: false` is mandatory;
+- OpenAI trace export is off;
+- contact e-mail addresses and names are replaced by placeholders before a call;
+- Orbit's own telemetry, logs and audit entries contain no message text.
+
+The rest of this ADR is unchanged for the other modules. EU data residency or zero data retention (option C) remains a later configuration change.
+

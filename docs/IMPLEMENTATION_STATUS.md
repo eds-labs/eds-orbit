@@ -1,5 +1,195 @@
 # Implementation status
 
+## Support module release (2026-10-18; flag off)
+
+Mario approved on 2026-10-18 the merge and deploy of the whole support stack: WP5.1–WP5.8 and the review fixes (#145, #154, #156–#162). It is released as one merge of #162 into main, so production deploys once. The stacked PRs are closed as merged through #162.
+- Migrations `202610180001`–`202610180004` are additive. The support tables are new. The `File` table gets a `(projectId, id)` unique key, and the `SupportMessage` and `AgentRun` check constraints are widened.
+- `ORBIT_SUPPORT` stays `false`, so the support routes, the public widget API, the jobs and the tools stay unavailable.
+- Before the pilot, the open items of `plans/orbit-modularization/10-support-pilot-decisions.md` remain:
+  - the legal checks;
+  - the Desk-side embed and HMAC PR;
+  - the pilot mailbox;
+  - a separate approval to switch the flag on.
+- **Rollback:** redeploy the previous main commit `fe6594f`. The new tables and constraints stay; they are unused while the flag is off.
+
+## Support review fixes (2026-10-17, local; flags off)
+
+Branch `claude/support-review-fixes`, stacked on WP5.8. A fresh review of WP5.2–WP5.8 found no critical issue and 12 important ones. All 12 are fixed, each with a test that failed first:
+1. Claimed addresses are never mailed. Header and token threading need the ticket contact's own address.
+2. Tickets of two contacts are not merged. Erasure also removes the contact's messages in other tickets.
+3. Placeholders cover every form of the name and the e-mail local parts.
+4. Triage screens before calling the model.
+5. A job's paid call is keyed to the job and never repeated.
+6. A daily support AI cap applies, and anonymous widget visitors get no AI.
+7. Raw-mail retention keeps only dedupe fields, drops the history, and does not stall.
+8. Erasure covers unlinked inbound mail and contact tombstones; the evidence query is scrubbed after a draft.
+9. The delivery sync is ordered and bounded.
+10. The widget key's origins follow the inbox, and the key is revoked with the widget.
+11. An agent's draft request works after a handoff.
+12. Last-seen is throttled and unversioned.
+
+The minor findings are deferred and listed in the PR.
+
+## Support privacy and operations: WP5.8 (2026-10-17, local; flag off)
+
+Branch `claude/wp58-support-privacy`, stacked on WP5.7. Guides: `docs/SUPPORT.md` (Privacy and operations) and `docs/OPERATIONS.md` (Support runbook).
+
+- **Export and erasure per contact** (owners). Erasure covers the rows, the files, the mailbox rows of sent and received mail with their raw files, the identities and the widget sessions.
+- **Daily retention by the Q-12b settings** (closed tickets, AI drafts, sessions, orphan contacts, raw mail files).
+- **Abuse caps** for widget conversations and messages, and for e-mail tickets per sender.
+- **The canary test**: no text in audit, events, telemetry or notifications.
+- **A runbook** for mail outage, widget abuse, the AI kill switch and privacy operations.
+- **Tests.** `support-privacy.integration.test.ts`, 5 tests: export, erase, retention, canary, sender cap. Plus the widget conversation cap.
+- **Blocks the pilot until done; now done.** The pilot (WP5.9) still needs the legal checks in the decision note.
+
+## Support statistics: WP5.7 (2026-10-17, local; flag off)
+
+Branch `claude/wp57-support-stats`, stacked on WP5.6. Guide: `docs/SUPPORT.md` (Statistics).
+
+- **Aggregation.** `modules/support/stats.ts` computes on read over tickets, events, messages and reservations: volume, first-response and resolution medians and means, backlog ages, reopen rate, SLA attainment and breaches, AI use (drafts used, unchanged or edited, withheld, handoffs) and AI cost. It applies the filters for range, inbox, category and agent.
+- **Routes.** `GET /stats` and `GET /stats/export` (CSV).
+- **Web.** Support > Statistics.
+- **Tests.**
+  - `support-stats.integration.test.ts` checks a hand-computed fixture with 4 tickets, the filters and the CSV.
+  - The web helper tests cover the range, durations and rates.
+
+## Support AI: WP5.6 (2026-10-17, local; flags off)
+
+Branch `claude/wp56-support-ai`, stacked on WP5.5. Guide: `docs/SUPPORT.md` (Support AI). Decisions: Q-12a option B (OpenAI with safeguards) and Q-17 (drafts only).
+
+- **Task classes.** `support_triage` and `support_draft`, in the routing and the routing settings.
+- **Run kind.** `support`, from migration `202610180004_support_ai`, which widens a check constraint.
+- **`modules/support/ai.ts`.**
+  - Personal-data placeholders, and a paid call with reservation, settlement and telemetry that is never retried after a transmit.
+  - Triage, and drafts grounded in `support`-audience evidence with citation and evidence checks.
+  - The handoff state, the jobs, `queueSupportAi` on new tickets and customer messages, the cost per ticket, and an agent-requested draft.
+- **Hard rules.** `modules/support/hard-rules.ts`, with the offline eval `evals/support/hard-rules-v1.json` (20 customer and 7 draft cases).
+- **Assistant.** The tool `support_insights` (counts only).
+- **Web.** AI draft cards with "Use draft", an "AI draft" button and the AI cost on the ticket.
+- **Tests:**
+  - `support-ai.integration.test.ts`, 7 tests, with a mocked model and retrieval, mutation-checked for placeholders;
+  - the eval (3 tests);
+  - the render test.
+- **Paid eval.** Approved by Mario on 2026-10-17, capped at 3 USD. `pnpm eval:support` (`evals/support/live.eval.ts`) ran once on commit `15eacc3`, with real model calls only and synthetic evidence. Result: **FAIL** (`docs/evidence/support-ai-eval-2026-10-17.json`), cost **$0.0227**.
+  - Triage: category 12/12, language 12/12, sensitive recall 4/4.
+  - Drafts: 6/6 answered with citations; 0 forbidden phrases; 0 errors.
+  - Handoff on unanswerable questions: 1/2, which missed the pre-registered rule. D04 ("Solana deposits?") produced a draft that cites the supported-networks fact instead of handing off. The case note allows a draft that says Solana is not listed, but the pass rule demanded a handoff. The rule was not changed afterwards.
+  - Run 2 on commit `ed6096b`, after the review fixes and a sharpened instruction (never answer from what the evidence does not name; hand off). Result: **FAIL** (`docs/evidence/support-ai-eval-2026-10-17-run2.json`), cost **$0.0221**. The total spent so far is $0.0448.
+    - Handoff: 2/2, so D04 is fixed. Drafts: 6/6 with citations; 0 forbidden phrases; 0 errors; sensitive recall 4/4.
+    - Triage category and language: 10/12. The misses are T09 (`trading`) and T11 (`billing`). Review fix 4 hands both off before the model is called, so they have no model category or language. This was checked locally with `screenCustomerText`. The eval's scoring predates fix 4. The rule was again not changed afterwards.
+
+## Support notifications and automations: WP5.5 (2026-10-17, local; flags off)
+
+Branch `claude/wp55-support-automations`, stacked on WP5.4. Guide: `docs/SUPPORT.md` (Notifications and automations).
+
+- **Notifications.** Seven member notification kinds (WP4.7). Their titles carry no text; e-mail is on by default only for assigned, breached and handoff.
+- **Automations.**
+  - Auto-assign (fixed, round robin).
+  - A scheduler contribution for SLA at risk and breach (once per clock) and auto-close, with `nextDueAt`.
+  - The hooks in ticket creation, customer replies, assignment, mentions and handoff.
+- **Per-inbox switches.** `rules` on the inbox, from migration `202610180003_support_inbox_rules` (additive), with checkboxes in the inbox form.
+- **Tests.** `support-automations.integration.test.ts`, 7 tests, with the sweep run at given times. They cover recipients, auto-assign, mentions, replies, SLA once each, auto-close with its switch, the inbox rules, a muted kind, and the sweep while support is off.
+
+## Support livechat widget: WP5.4 (2026-10-17, local; flags off)
+
+Branch `claude/wp54-support-widget`, stacked on WP5.3. Guides: `docs/SUPPORT.md` (Livechat widget) and `docs/SUPPORT_WIDGET.md` (app teams, Desk pilot checklist for Q-20).
+
+- **Public API.** Identify (anonymous or HMAC-verified), conversations, messages, handoff and a stream with resume. Visitors see only their own conversations.
+- **Widget.** `apps/web/public/widget/v1.js`: framework-free, Shadow DOM, DE/EN, keyboard, stream with a polling fallback, silent on failure. 5.6 KB gzip.
+- **Delivery.**
+  - A reply is `sent` in the widget while the visitor is online, else mailed through WP5.3.
+  - Mail threading now also finds widget messages, and the subject token also accepts the claimed address.
+- **Platform.**
+  - `PublicRoute.stream`, with `serveEventStream` headers.
+  - The web proxy forwards `Authorization` under `/api/public/`. This fixes WP4.2b behind the proxy.
+- **Web.** An owner "Widget embed" button with a snippet (`embedSnippet`, JSON-escaped).
+- **Tests:**
+  - `support-widget.integration.test.ts`, 6 tests: visibility, HMAC, notes never shown, handoff, stream with CORS and resume, identity required, foreign origin, off;
+  - widget script tests, 5;
+  - the snippet test;
+  - the proxy test;
+  - the access matrix.
+- **Not run:** `apps/web/tests/support-widget.spec.ts`, the cross-origin embed and agent reply plus H05. It needs a support-enabled stack (`E2E_SUPPORT=1`).
+- **Not in the MVP:** widget attachments, because the public API takes JSON only.
+
+## Support e-mail channel: WP5.3 (2026-10-17, local; flags off)
+
+Branch `claude/wp53-support-email`, stacked on WP5.2. Guide: `docs/SUPPORT.md` (E-mail channel).
+
+- **Inbound.** A `support_email_inbound` job on the WP4.7 mailbox:
+  - routing, threading by headers or by subject token (only from the ticket's contact), and reopening;
+  - attachments from the raw MIME;
+  - dedupe, loop protection and capped acknowledgements.
+- **Outbound.** `deliverMessage` queues replies through `queueEmail`, and the periodic `support-email-delivery` maps the outcome. Migration `202610180002_support_bounced` widens one check constraint.
+- **Tests.** `support-email.integration.test.ts`, 9 tests, with IMAP and SMTP stubs and an object store double.
+- **Production.** Receiving needs `ORBIT_EMAIL`, `ORBIT_FILES` and the mailbox, plus `ORBIT_SUPPORT` and the module. Each is a separate approval.
+
+## Support agent workspace: WP5.2 (2026-10-17, local; flag off)
+
+Branch `claude/wp52-support-workspace`, stacked on WP5.1. Plan: `docs/superpowers/plans/2026-10-17-phase5-support-mvp.md`. Guide: `docs/SUPPORT.md` (Agent workspace).
+
+- **API.**
+  - Ticket lists with views, filters, search and a cursor; the timeline.
+  - Replies (pending until the channels deliver them) and internal notes.
+  - Field changes with events, and SLA recomputed on a priority change.
+  - Ticket and contact merges, agents and the summary.
+  - Attachments, inbound ones included, must be live support files of the project.
+- **Web.**
+  - The `support` module: inbox, ticket view, composer, contacts, settings tab and home tile.
+  - New: `WebModule.optIn` and `moduleShown`. A module the loaded states do not list is hidden, and opt-in modules stay hidden until the states load. Before, such a module counted as enabled.
+- **Tests:**
+  - `support-workspace.integration.test.ts`, 8 tests;
+  - the web helper and render tests, 6 tests (mutation-checked);
+  - shell visibility and navigation;
+  - the access matrix (12 new closed routes).
+- **Not run:** the Playwright support flow. It comes with WP5.4, the first public channel that creates tickets.
+
+## Support module skeleton: WP5.1 (2026-10-17, local; flag off)
+
+Branch `claude/phase-5-support-mvp-pilot-201bc2`, the first work package of Phase 5. Plan: `docs/superpowers/plans/2026-10-17-wp51-support-skeleton.md`. The decision note is `plans/orbit-modularization/10-support-pilot-decisions.md`.
+
+Mario decided on 2026-10-17:
+- Q-12a option B: OpenAI with mandatory safeguards for support;
+- Q-12b: 24-month retention;
+- Q-13: the uLiquid project with module roles;
+- the pilot starts with the mailbox and the Desk widget.
+
+The operating guide is `docs/SUPPORT.md`.
+
+- **Module.** `modules/support`:
+  - the manifest, which is off by default;
+  - seven permissions, `support.settings.manage` owner-only;
+  - the settings schema with the Q-12b defaults.
+- **Opt-in twice.**
+  - `ORBIT_SUPPORT` (default `false`) must be on. New: `ModuleContributions.available`. While a module is unavailable, it is left out of the module list, enabling and module roles, and `ownerEnabled` refuses its contributions.
+  - Modules that are off by default count only where an owner enabled them, even while `ORBIT_MODULES` is off (`enabledModules`).
+  - The project needs an explicit enabled `ProjectModule` row.
+- **Data.** Migration `202610180001_support_core` adds eight tables, including a per-project ticket counter:
+  - FORCE RLS and `orbit_app` grants;
+  - same-project composite foreign keys, plus a new unique key on `File` (`projectId`, `id`);
+  - a full-text trigger on messages.
+
+  It is additive.
+- **API.** Settings (`platform/modules/settings.ts`, generic, versioned, audited without values) and inbox management. The widget secret is encrypted, shown once and never audited.
+- **Domain.** `createTicket`:
+  - numbers from the per-project counter, never reused;
+  - contacts by identity or e-mail; a verified user id joins a contact by e-mail only when the e-mail is verified too;
+  - idempotent per channel message;
+  - SLA due times from the settings;
+  - attachments only from the same project's files.
+
+  The `SupportChannelAdapter` contract consists of types only.
+- **Tests:**
+  - `support-inboxes.integration.test.ts`, 8 tests: the gate states, the secret shown once and dropped with the widget channel, validation, versions, settings (older saved settings filled with defaults) and roles;
+  - `support-tickets.integration.test.ts`, 10 tests: parallel numbering, no reuse after deletion, contacts, verified-only e-mail binding, idempotency, SLA, the gate, the opt-in enabled set, attachments, and no text in audit or event rows;
+  - `settings.test.ts`;
+  - the RLS matrix: eight tables seeded, a cross-project insert, a foreign key across projects refused, and a project deleted with its support rows;
+  - the access matrix: seven new routes, all closed;
+  - the module activation and roles tests, while support is unavailable.
+- **Production.**
+  - Merging brings the migration, which needs approval. `ORBIT_SUPPORT` stays `false`.
+  - Enabling it belongs to the WP5.9 pilot, after WP5.2–WP5.8 and the legal checks in the decision note.
+
 ## Platform files in the database: WP4.6 backend B (2026-10-17, local; flag off)
 
 Branch `claude/files-database-backend`. Mario chose on 2026-10-17 to keep files, including raw inbound e-mail, on the server instead of in an R2 bucket for the pilot, inside the database.

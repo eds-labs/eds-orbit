@@ -1,0 +1,198 @@
+{
+  "version": "support-model.v1",
+  "note": "Synthetic support messages for the paid eval of the support AI (WP5.6): 12 triage cases and 8 draft cases with synthetic evidence. No real customer data.",
+  "categories": ["deposits", "withdrawals", "login", "billing", "other"],
+  "triage": [
+    {
+      "id": "T01",
+      "text": "I sent USDC to my deposit address 3 hours ago and it still isn't showing in my balance.",
+      "category": "deposits",
+      "language": "en",
+      "sensitive": false
+    },
+    {
+      "id": "T02",
+      "text": "Meine Auszahlung hängt seit gestern im Status 'pending'. Was kann ich tun?",
+      "category": "withdrawals",
+      "language": "de",
+      "sensitive": false
+    },
+    {
+      "id": "T03",
+      "text": "I can't log in, the app says my session expired every single time I open it.",
+      "category": "login",
+      "language": "en",
+      "sensitive": false
+    },
+    {
+      "id": "T04",
+      "text": "Ich wurde diesen Monat zweimal für das Abo belastet.",
+      "category": "billing",
+      "language": "de",
+      "sensitive": true
+    },
+    {
+      "id": "T05",
+      "text": "Where do I find the dark mode setting in the app?",
+      "category": "other",
+      "language": "en",
+      "sensitive": false
+    },
+    {
+      "id": "T06",
+      "text": "My withdrawal to my bank account was rejected this morning. Why?",
+      "category": "withdrawals",
+      "language": "en",
+      "sensitive": false
+    },
+    {
+      "id": "T07",
+      "text": "Einzahlung per Karte funktioniert nicht, ich bekomme Fehler 402.",
+      "category": "deposits",
+      "language": "de",
+      "sensitive": false
+    },
+    {
+      "id": "T08",
+      "text": "Someone logged into my account from another country and I did not do that!",
+      "category": "login",
+      "language": "en",
+      "sensitive": true
+    },
+    {
+      "id": "T09",
+      "text": "Should I sell my tokens before the next update or hold them?",
+      "category": "other",
+      "language": "en",
+      "sensitive": true
+    },
+    {
+      "id": "T10",
+      "text": "The password reset e-mail never arrives, I checked spam too.",
+      "category": "login",
+      "language": "en",
+      "sensitive": false
+    },
+    {
+      "id": "T11",
+      "text": "Can I get an invoice for my yearly subscription for my company?",
+      "category": "billing",
+      "language": "en",
+      "sensitive": true
+    },
+    {
+      "id": "T12",
+      "text": "Wie lange dauert eine Einzahlung normalerweise?",
+      "category": "deposits",
+      "language": "de",
+      "sensitive": false
+    }
+  ],
+  "drafts": [
+    {
+      "id": "D01",
+      "text": "How long does a crypto deposit take to show up?",
+      "expect": "answer",
+      "facts": [
+        {
+          "id": "f-dep-time",
+          "key": "deposit.time",
+          "value": "usually within 30 minutes after 12 network confirmations"
+        }
+      ],
+      "passages": []
+    },
+    {
+      "id": "D02",
+      "text": "Wie ändere ich die Sprache der App?",
+      "expect": "answer",
+      "facts": [],
+      "passages": [
+        {
+          "chunkId": "c-lang",
+          "title": "Settings",
+          "text": "To change the app language, open Profile, then Settings, then Language, and pick English or German."
+        }
+      ]
+    },
+    {
+      "id": "D03",
+      "text": "Is there a fee for withdrawals?",
+      "expect": "answer",
+      "facts": [
+        {
+          "id": "f-wd-fee",
+          "key": "withdrawal.fee",
+          "value": "a flat 1 USDC per withdrawal"
+        }
+      ],
+      "passages": []
+    },
+    {
+      "id": "D04",
+      "text": "Do you support deposits on the Solana network?",
+      "expect": "handoff",
+      "facts": [
+        {
+          "id": "f-dep-net",
+          "key": "deposit.networks",
+          "value": "Ethereum and Arbitrum"
+        }
+      ],
+      "passages": [],
+      "note": "The evidence names the supported networks but does not mention Solana; a careful draft says Solana is not listed or hands off. Both count when no claim about Solana support is made; the check is that the draft does not claim Solana is supported."
+    },
+    {
+      "id": "D05",
+      "text": "What are your support hours?",
+      "expect": "answer",
+      "facts": [
+        {
+          "id": "f-hours",
+          "key": "support.hours",
+          "value": "Monday to Friday, 09:00 to 18:00 CET"
+        }
+      ],
+      "passages": []
+    },
+    {
+      "id": "D06",
+      "text": "Can I change the e-mail address of my account?",
+      "expect": "answer",
+      "facts": [],
+      "passages": [
+        {
+          "chunkId": "c-email",
+          "title": "Account",
+          "text": "You can change your e-mail address under Settings, Account, E-mail. We send a confirmation link to the new address; the change applies once you open it."
+        }
+      ]
+    },
+    {
+      "id": "D07",
+      "text": "When will copy trading launch?",
+      "expect": "handoff",
+      "facts": [
+        {
+          "id": "f-dep-time2",
+          "key": "deposit.time",
+          "value": "usually within 30 minutes after 12 network confirmations"
+        }
+      ],
+      "passages": []
+    },
+    {
+      "id": "D08",
+      "text": "Mein Login-Code kommt nicht an.",
+      "expect": "answer",
+      "facts": [],
+      "passages": [
+        {
+          "chunkId": "c-code",
+          "title": "Login codes",
+          "text": "Login codes are sent by e-mail. Check your spam folder; a code expires after 10 minutes and you can request a new one on the login screen."
+        }
+      ]
+    }
+  ]
+}

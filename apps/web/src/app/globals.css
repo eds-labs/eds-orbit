@@ -4029,3 +4029,248 @@ svg.agent-graph {
     grid-template-columns: 1fr;
   }
 }
+
+/* Support module (WP5.2): inbox list with the open ticket beside it on wide
+   screens, one or the other on narrow ones. */
+.support-page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.support-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.support-list,
+.support-detail {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.support-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.support-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 200px;
+}
+.support-rows {
+  list-style: none;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+}
+.support-row {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--foreground);
+  cursor: pointer;
+}
+.support-row:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.support-row-active {
+  border-color: var(--primary);
+}
+.support-row-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.support-row-meta {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.support-row-badges,
+.support-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.support-ticket {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.support-ticket-head {
+  display: grid;
+  gap: 8px;
+}
+.support-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+}
+.support-controls label,
+.support-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.support-tags {
+  display: flex;
+  gap: 6px;
+  align-items: end;
+}
+.support-ticket-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 14px;
+}
+.support-timeline {
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+}
+.support-message {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--panel);
+}
+.support-message-internal {
+  border-style: dashed;
+  background: var(--muted);
+}
+.support-message-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.support-message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 6px;
+}
+.support-attachments {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.support-event {
+  font-size: 13px;
+  color: var(--muted-foreground);
+  padding-left: 12px;
+}
+.support-contact-panel dl {
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+.support-contact-panel dt {
+  color: var(--muted-foreground);
+}
+.support-contact-panel dd {
+  margin: 0 0 6px;
+  overflow-wrap: anywhere;
+}
+.support-composer {
+  display: grid;
+  gap: 8px;
+}
+.support-composer-hint {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.support-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  align-items: center;
+}
+.support-attach input {
+  max-width: 220px;
+}
+.support-back {
+  display: none;
+}
+.support-home-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 0 21px 12px;
+}
+.support-home-counts dd {
+  font-size: 22px;
+  font-weight: 600;
+  margin: 0;
+}
+.support-home > a {
+  display: block;
+  padding: 0 21px 16px;
+}
+.support-form {
+  display: grid;
+  gap: 12px;
+  padding: 0 21px 18px;
+}
+.support-sla-table input {
+  max-width: 110px;
+}
+.support-inbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 21px;
+}
+@media (max-width: 960px) {
+  .support-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .support-layout-open .support-list {
+    display: none;
+  }
+  .support-back {
+    display: inline-flex;
+  }
+  .support-ticket-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .support-home-counts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.support-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 10px;
+}
+.support-stat {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel);
+}
+.support-stat dt {
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.support-stat dd {
+  margin: 4px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}
