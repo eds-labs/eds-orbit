@@ -72,6 +72,7 @@ The settings are stored versioned in the module's `ProjectModule.settings`. They
 | Setting | Default |
 |---|---|
 | `categories` | none (key and label; at most 50, unique keys) |
+| `tags` | none (key, label and colour from a fixed palette of 8; at most 50, unique keys) |
 | `sla` (first response / resolution, minutes, 24/7) | urgent 240 / 720, high 480 / 1440, normal 1440 / 4320, low 4320 / 12960 |
 | `autoAck`, `reopenOnReply` | on |
 | `autoCloseDays` | 7 |
@@ -105,11 +106,11 @@ These routes also sit below `/api/projects/:projectId/support`, and every one of
 
 | Route | Permission | Notes |
 |---|---|---|
-| `GET /tickets` | read | `view` is `mine`, `unassigned` or `all`. Filters are `status`, `inboxId`, `category` and `priority`. `q` searches the subject, the contact, and the message full text including internal notes. Results come with a keyset `cursor` and `limit` ≤ 50. |
+| `GET /tickets` | read | `view` is `mine`, `unassigned` or `all`. Filters are `status`, `inboxId`, `category`, `tag` and `priority`. `q` searches the subject, the contact, and the message full text including internal notes. Results come with a keyset `cursor` and `limit` ≤ 50. |
 | `GET /tickets/:ticketId` | read | The ticket, its contact and inbox, and a timeline of messages (with attachments) and events. |
 | `POST /tickets/:ticketId/replies` | reply | Stored as `pending`; the channel jobs (WP5.3/WP5.4) deliver it. Sets the first response and moves the ticket to "waiting on customer". Attachments must be live support files. |
 | `POST /tickets/:ticketId/notes` | notes | Internal; never shown to the customer. |
-| `PATCH /tickets/:ticketId` | assign | Status, priority, category, tags and assignee, with one event per change. A priority change recomputes the pending due times. The assignee must be a support agent. |
+| `PATCH /tickets/:ticketId` | assign | Status, priority, category, tags and assignee, with one event per change. A priority change recomputes the pending due times. The assignee must be a support agent. A newly added tag must be in the project's tag list (`TAG_UNKNOWN`). A tag the list has since dropped may stay on a ticket. |
 | `POST /tickets/:ticketId/merge` | assign | Moves the messages and closes the source ticket. Both tickets must belong to the same contact (`MERGE_CONTACT_MISMATCH`): merge the contacts first. |
 | `GET /contacts`, `GET /contacts/:id` | read | Live contacts; a contact comes with its tickets. |
 | `PATCH /contacts/:id`, `POST /contacts/:id/merge` | contacts | A merge moves the tickets and identities, then tombstones the duplicate. The tombstone keeps no name, address or notes. |
@@ -259,14 +260,14 @@ The second run on 2026-10-17, after the handoff instruction was sharpened, cost 
 ## Statistics (WP5.7)
 
 There are two routes:
-- `GET /stats?from=&to=[&inboxId=&category=&agent=]` (permission `support.stats.read`);
+- `GET /stats?from=&to=[&inboxId=&category=&tag=&agent=]` (permission `support.stats.read`);
 - `GET /stats/export` with the same query, which returns CSV (`metric,value`).
 
 Numbers are computed on read over the tickets **created in the range**, at most 5,000 (`truncated` says when the cap was hit).
 
 | Metric | Definition |
 |---|---|
-| Volume | Total, by channel, inbox and category |
+| Volume | Total, by channel, inbox, category and tag |
 | First response | Median and mean minutes from creation to the first agent reply |
 | Resolution | Median and mean minutes from creation to resolution |
 | Backlog | Open tickets now, by age (< 1 d, 1–3 d, 3–7 d, > 7 d) |

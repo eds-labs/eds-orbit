@@ -116,10 +116,15 @@ describe.skipIf(!enabled)("support statistics", () => {
         resolvedAt: at(250),
         status: "closed",
       });
-      await make(widget, "widget", 20, { category: "billing", status: "open" });
+      await make(widget, "widget", 20, {
+        category: "billing",
+        status: "open",
+        tags: ["vip", "bug"],
+      });
       const t4 = await make(widget, "widget", 30, {
         firstRespondedAt: at(40),
         status: "open",
+        tags: ["vip"],
       });
       const event = (ticketId: string, type: string, extra: object = {}) =>
         tx.supportTicketEvent.create({
@@ -194,6 +199,7 @@ describe.skipIf(!enabled)("support statistics", () => {
       byChannel: { email: 2, widget: 2 },
       byInbox: { [mail]: 2, [widget]: 2 },
       byCategory: { deposits: 2, billing: 1, none: 1 },
+      byTag: { vip: 2, bug: 1 },
     });
     // First responses: 30, 120, 10 minutes; median 30, mean 53.3.
     expect(stats.firstResponse).toEqual({
@@ -244,6 +250,10 @@ describe.skipIf(!enabled)("support statistics", () => {
     );
     expect(byCategory.volume.total).toBe(2);
     expect(byCategory.resolution.count).toBe(2);
+    const byTag = await run((tx) =>
+      supportStats(tx, owner, { ...range, tag: "vip" }, at(300)),
+    );
+    expect(byTag.volume.total).toBe(2);
   });
 
   it("exports the numbers as CSV without content", async () => {

@@ -21,9 +21,11 @@ import {
   type Mailbox,
 } from "./api";
 import { supportText, type SupportText } from "./labels";
+import { TagEditor, finalizeTags, type TagDef } from "./tags";
 
 type Settings = {
   categories: Array<{ key: string; label: string }>;
+  tags?: TagDef[];
   sla: Record<
     string,
     { firstResponseMinutes: number; resolutionMinutes: number }
@@ -502,6 +504,7 @@ function Rules({ t }: { t: SupportText }) {
             put(supportPath(project.id, "/settings"), {
               settings: {
                 ...s,
+                tags: finalizeTags(s.tags ?? []),
                 categories:
                   categories === null
                     ? s.categories
@@ -523,6 +526,12 @@ function Rules({ t }: { t: SupportText }) {
             onChange={(e) => setCategories(e.target.value)}
           />
         </label>
+        <TagEditor
+          value={s.tags ?? []}
+          onChange={(tags) => update({ tags })}
+          t={t}
+          disabled={!isOwner}
+        />
         <table className="support-sla-table">
           <thead>
             <tr>

@@ -28,6 +28,14 @@ import {
 } from "../src/modules/support/privacy.ts";
 import { WIDGET_SESSION_KIND } from "../src/modules/support/widget.ts";
 import { createMailInbox } from "./fixtures/mailbox.ts";
+import {
+  readModuleSettings,
+  writeModuleSettings,
+} from "../src/platform/modules/settings.ts";
+import {
+  supportSettingsDefaults,
+  supportSettingsSchema,
+} from "../src/modules/support/settings.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -326,6 +334,27 @@ describe.skipIf(!enabled)("support privacy and operations", () => {
     await run((tx) =>
       noteOnTicket(tx, owner, t.ticketId, { bodyText: `Note ${canary}` }),
     );
+    await run(async (tx) => {
+      // Tickets take only listed tags.
+      const current = await readModuleSettings(
+        tx,
+        owner,
+        "support",
+        supportSettingsSchema,
+        supportSettingsDefaults,
+      );
+      await writeModuleSettings(
+        tx,
+        owner,
+        "support",
+        supportSettingsSchema,
+        {
+          ...current.settings,
+          tags: [{ key: "vip", label: "VIP", color: "purple" }],
+        },
+        current.version,
+      );
+    });
     await run((tx) =>
       updateTicket(tx, owner, t.ticketId, { priority: "high", tags: ["vip"] }),
     );

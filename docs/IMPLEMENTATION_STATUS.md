@@ -28,6 +28,18 @@ Mario decided on 2026-10-18 that a project connects several real mailboxes (supp
   4. Support settings → New inbox → pick the mailbox (e.g. "Partnerships" on partnerships@uliquid.vip).
 - **Rollback.** Redeploy the previous main commit. The column, key and index stay unused. The old code routes by address and sends through the oldest verified mailbox, which is support@ as today. Added mailboxes are then neither fetched nor used, and their inboxes stop receiving. Dropping the column would need its own approved migration.
 
+## Support tags like Chatwoot labels (2026-10-18, local)
+
+Mario asked for this on 2026-10-18.
+- **Tag list.** The support settings get `tags`: a key, a label and a colour from a fixed palette (gray, blue, green, yellow, orange, red, purple, pink), at most 50. Settings saved earlier get an empty list from the defaults.
+- **On tickets.** Tickets take several tags. A newly added tag must be listed (`TAG_UNKNOWN`). A tag the list later dropped may stay. Renaming a tag keeps its key, so tickets keep it.
+- **Filters and statistics.** `GET /tickets` and `GET /stats` filter by `tag`. Volume counts tickets `byTag`.
+- **Web.**
+  - The settings get a tag editor (label and colour; the key comes from the label when it is saved).
+  - The ticket view toggles coloured tags and gets the category select it lacked.
+  - The ticket list filters by category and tag and shows tag chips.
+- **Release.** No migration, because `SupportTicket.tags` already exists. Rolling back is a redeploy.
+
 ## E-mail first sync takes unread mail only (2026-10-18; ORBIT_EMAIL on)
 
 Mario asked for this on 2026-10-18 while connecting support@uliquid.vip, whose INBOX already held old mail.
