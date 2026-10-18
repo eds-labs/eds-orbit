@@ -4,7 +4,7 @@ import type {
   AttentionContribution,
   AttentionItem,
 } from "../../platform/attention/types.ts";
-import { data, list } from "../../shared.ts";
+import { data } from "../../shared.ts";
 import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
 import { agentActivity } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
@@ -16,6 +16,10 @@ import { APPROVAL_STATUSES, isPausedPost } from "./approval-state.ts";
 // only: never a post body or an excerpt.
 
 const APPROVALS = { navKey: "approvals", link: "/approvals" } as const;
+
+/** Open exceptions and paused posts read per request (one open exception per code). */
+const EXCEPTION_LIMIT = 100;
+const PAUSED_POST_LIMIT = 500;
 
 /** Health issues of the agent activity that are a problem to act on now. */
 const RUN_PROBLEM_CODES = ["RUN_FAILED", "BUDGET_EXHAUSTED"];
@@ -83,9 +87,22 @@ async function exceptionItems(
   scope: Scope,
 ): Promise<AttentionItem[]> {
   const items: AttentionItem[] = [];
-  for (const row of await list(tx, scope, "exceptions")) {
+  // Only the open ones: resolved exceptions stay as history and keep growing.
+  const open = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "exceptions",
+      data: { path: ["status"], equals: "open" },
+    },
+    orderBy: { createdAt: "desc" },
+    take: EXCEPTION_LIMIT,
+  });
+  const seen = new Set<string>();
+  for (const row of open) {
     const d = data(row);
-    if (d.status !== "open" || typeof d.code !== "string") continue;
+    if (typeof d.code !== "string" || seen.has(d.code)) continue;
+    seen.add(d.code);
     const resources = Array.isArray(d.resourceIds) ? d.resourceIds.length : 0;
     items.push({
       id: `marketing:exception:${d.code}`,
@@ -112,8 +129,14 @@ async function pausedPostItems(
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       kind: "publications",
-      data: { path: ["status"], equals: "blocked_dependency" },
+      AND: [
+        { data: { path: ["status"], equals: "blocked_dependency" } },
+        { data: { path: ["reason"], equals: "PROJECT_PAUSED" } },
+      ],
     },
+    // The newest first; isPausedPost below keeps the ones still ahead.
+    orderBy: { createdAt: "desc" },
+    take: PAUSED_POST_LIMIT,
   });
   const slots = blocked
     .map((row) => data(row))

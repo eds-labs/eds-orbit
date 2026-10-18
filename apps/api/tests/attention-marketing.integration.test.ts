@@ -28,8 +28,8 @@ const CHANNEL = "x-attention";
 describe.skipIf(!enabled)("marketing attention items", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   let owner: Scope;
-  const ids = { owner: "", viewer: "" };
-  const cookies = { owner: "", viewer: "" };
+  const ids = { owner: "", viewer: "", editor: "" };
+  const cookies = { owner: "", viewer: "", editor: "" };
   const users: string[] = [];
   const workspaces: string[] = [];
   const origin = process.env.APP_ORIGIN!;
@@ -110,7 +110,7 @@ describe.skipIf(!enabled)("marketing attention items", () => {
   beforeAll(async () => {
     app = await buildServer();
     const accounts: Record<string, { email: string; password: string }> = {};
-    for (const who of ["owner", "viewer"] as const) {
+    for (const who of ["owner", "viewer", "editor"] as const) {
       const email = `${randomUUID()}@example.invalid`;
       const password = randomBytes(24).toString("base64url");
       const created = await makeAuth().api.signUpEmail({
@@ -127,6 +127,7 @@ describe.skipIf(!enabled)("marketing attention items", () => {
           create: [
             { userId: ids.owner, role: "owner" },
             { userId: ids.viewer, role: "viewer" },
+            { userId: ids.editor, role: "viewer" },
           ],
         },
       },
@@ -145,6 +146,14 @@ describe.skipIf(!enabled)("marketing attention items", () => {
         projectId: project.id,
         userId: ids.viewer,
         role: "viewer",
+      },
+    });
+    await authDb.projectMember.create({
+      data: {
+        workspaceId: workspace.id,
+        projectId: project.id,
+        userId: ids.editor,
+        role: "editor",
       },
     });
     owner = {
@@ -168,7 +177,7 @@ describe.skipIf(!enabled)("marketing attention items", () => {
         assignedIntegrationIds: [CHANNEL],
       }),
     );
-    for (const who of ["owner", "viewer"] as const) {
+    for (const who of ["owner", "viewer", "editor"] as const) {
       const response = await app.inject({
         method: "POST",
         url: "/api/auth/sign-in/email",
@@ -257,6 +266,60 @@ describe.skipIf(!enabled)("marketing attention items", () => {
     expect(
       items.find((i) => i.kind === "marketing_content_review"),
     ).toMatchObject({ count: 1 });
+  });
+
+  it("an owner sees the draft and a review count of the other content", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    const { draftId } = await awaitingDraft(inHours(3));
+    await content({ status: "review" });
+    await content({ status: "draft" });
+    const items = await marketingItems();
+    expect(
+      items
+        .filter((i) => i.kind === "marketing_draft_release")
+        .map((i) => i.id),
+    ).toEqual([`marketing:draft:${draftId}`]);
+    expect(
+      items.find((i) => i.kind === "marketing_content_review"),
+    ).toMatchObject({ count: 2 });
+  });
+
+  it("an editor gets no draft item; the review count includes the draft", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await awaitingDraft(inHours(3));
+    await content({ status: "review" });
+    await content({ status: "draft" });
+    const items = await marketingItems("editor");
+    expect(items.some((i) => i.kind === "marketing_draft_release")).toBe(false);
+    expect(
+      items.find((i) => i.kind === "marketing_content_review"),
+    ).toMatchObject({ count: 3 });
+  });
+
+  it("many resolved exceptions do not hide an open one", async () => {
+    await run(async (tx) => {
+      for (let i = 0; i < 120; i++)
+        await create(tx, owner, "exceptions", {
+          code: `OLD_${i}`,
+          status: "resolved",
+          count: 1,
+          resourceIds: [`r${i}`],
+          lastSeenAt: new Date().toISOString(),
+        });
+    });
+    await run((tx) =>
+      create(tx, owner, "exceptions", {
+        code: "STILL_OPEN",
+        status: "open",
+        count: 1,
+        resourceIds: ["x"],
+        lastSeenAt: new Date().toISOString(),
+      }),
+    );
+    const items = (await marketingItems()).filter(
+      (i) => i.kind === "marketing_exception",
+    );
+    expect(items.map((i) => i.id)).toEqual(["marketing:exception:STILL_OPEN"]);
   });
 
   it("OUTCOME_UNKNOWN exception is critical", async () => {
