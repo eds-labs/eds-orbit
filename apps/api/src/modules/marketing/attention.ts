@@ -167,7 +167,7 @@ async function pausedPostItems(
 /**
  * Failed runs and exhausted assignment budgets: the `RUN_FAILED` and
  * `BUDGET_EXHAUSTED` health issues of the agent activity, read on their own
- * (R21) with the same rules, in four bounded queries.
+ * (R21) with the same rules, in at most five bounded queries.
  */
 async function runProblemItems(
   tx: DbTx,
