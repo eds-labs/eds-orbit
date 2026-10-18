@@ -9,6 +9,7 @@
  * Tool handlers never throw: the SDK would send a thrown message to the
  * client. Every outcome is a result built here or in errors.ts.
  */
+import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 import {
   McpServer,
@@ -31,10 +32,11 @@ import { moduleScope } from "../tenancy/module-roles.ts";
 import {
   codeResult,
   internalFailure,
+  McpToolTimeoutError,
   toolFailure,
   unauthenticatedResult,
 } from "./errors.ts";
-import { nativeTools } from "./native-tools.ts";
+import { nativeTools, type NativeToolContext } from "./native-tools.ts";
 import type { McpPrincipal } from "./principal.ts";
 import {
   authorizeMcpCall,
@@ -47,6 +49,8 @@ export const MCP_SERVER_INFO = { name: "orbit-mcp-gateway", version: "1.0.0" };
 export const MCP_OUTPUT_LIMIT_BYTES = 64 * 1024;
 /** Cheap bound on argument size the SDK checks before validation. */
 const MAX_TOOL_INPUT_ELEMENTS = 1000;
+/** How long a tool call may take before the client gets TIMEOUT (D-M3-11). */
+export const MCP_TOOL_TIMEOUT_MS = 25_000;
 /** The argument the adapter adds to every project-bound tool. */
 const PROJECT_ID = "projectId";
 
@@ -64,6 +68,8 @@ export type McpCallRecord = {
   workspaceId: string | null;
   /** The project of the call when it is one of the grant's; otherwise null. */
   projectId: string | null;
+  /** The `mcp` AgentRun started before the tool ran; null when none was (refused call, no project). */
+  agentRunId: string | null;
   /** "ok" or the error code of the result ("INVALID_PARAMS" when the SDK refused it). */
   outcome: string;
   durationMs: number;
@@ -72,6 +78,15 @@ export type McpCallRecord = {
 };
 /** The single hook point for Task 4; failures are logged and never change the result. */
 export type McpCallObserver = (record: McpCallRecord) => void | Promise<void>;
+
+/**
+ * Starts the `mcp` AgentRun of a project call (audit.ts). Null when it cannot
+ * be created: telemetry is best effort and never changes a result.
+ */
+export type McpRunStarter = (
+  project: { workspaceId: string; projectId: string },
+  call: { tool: string; clientId: string; grantId: string | null },
+) => Promise<string | null>;
 
 /** What the factory knows about one HTTP request (set by server.ts). */
 export type McpRequestState = {
@@ -92,6 +107,22 @@ export type McpRequestState = {
   resource: string;
   log: FastifyBaseLogger;
   observe?: McpCallObserver;
+  /** Starts the call's AgentRun before the tool runs (absent: no runs). */
+  startRun?: McpRunStarter;
+  /** Overrides MCP_TOOL_TIMEOUT_MS (tests). */
+  toolTimeoutMs?: number;
+};
+
+/** What one call tells the observer about itself while it runs. */
+type CallTrace = {
+  /** Unique per call, even if one HTTP request ever carried several. */
+  id: string;
+  projectId: string | null;
+  agentRunId: string | null;
+  /** The run being started (shared by concurrent `startRun` calls). */
+  runStart: Promise<string | null> | null;
+  /** The call has been answered (finished or timed out): its attribution is closed. */
+  settled: boolean;
 };
 
 /**
@@ -190,14 +221,25 @@ async function runCall(
   tool: string,
   args: unknown,
   outputSchema: z.ZodType,
-  work: (call: { projectId: string | null }) => Promise<unknown>,
+  work: (call: CallTrace) => Promise<unknown>,
 ): Promise<CallToolResult> {
   const started = Date.now();
-  const call = { projectId: null as string | null };
+  const call: CallTrace = {
+    id: randomUUID(),
+    projectId: null,
+    agentRunId: null,
+    runStart: null,
+    settled: false,
+  };
   let result: CallToolResult;
   let outcome = "ok";
   try {
-    const parsed = outputSchema.safeParse(await work(call));
+    const parsed = outputSchema.safeParse(
+      await withToolTimeout(
+        work(call),
+        state.toolTimeoutMs ?? MCP_TOOL_TIMEOUT_MS,
+      ),
+    );
     if (!parsed.success || !isPlainObject(parsed.data)) {
       outcome = "REQUEST_FAILED";
       state.log.error(
@@ -220,6 +262,11 @@ async function runCall(
     const failure = toolFailure(error, state.requestId);
     outcome = failure.code;
     result = failure.result;
+    if (outcome === "TIMEOUT")
+      state.log.warn(
+        { code: "MCP_TOOL_TIMEOUT", tool, requestId: state.requestId },
+        "mcp tool call timed out",
+      );
     // Code only, as in the API: messages may carry user data.
     if (outcome === "REQUEST_FAILED")
       state.log.error(
@@ -232,9 +279,16 @@ async function runCall(
         "mcp tool call failed",
       );
   }
+  // The call's attribution is closed first, so no run can start after this
+  // point; a run still being created is awaited (it never rejects), so the
+  // record names it.
+  const pending = call.runStart;
+  call.settled = true;
+  await pending;
   await notify(state, {
     tool,
     projectId: call.projectId,
+    agentRunId: call.agentRunId,
     outcome,
     durationMs: Date.now() - started,
     args,
@@ -242,17 +296,111 @@ async function runCall(
   return result;
 }
 
+/**
+ * Waits for `work`, but at most `ms`: then it rejects with a timeout error.
+ * The work itself cannot be cancelled and may still finish; its late result
+ * or failure is dropped.
+ */
+export function withToolTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new McpToolTimeoutError()), ms);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * Attributes the call to a project, but only one of the grant's: audit rows
+ * and runs go to a project only then. The first attribution wins: a call has
+ * one audit project and at most one run, so a later, different project (or
+ * any attribution after the call was answered, for example by a tool that
+ * outlived its timeout) is ignored. Returns whether the call is attributed
+ * to `projectId` afterwards.
+ */
+function attributeCall(
+  principal: McpPrincipal,
+  call: CallTrace,
+  projectId: string,
+): boolean {
+  if (call.settled || !principal.projectIds.includes(projectId)) return false;
+  if (call.projectId !== null) return call.projectId === projectId;
+  call.projectId = projectId;
+  return true;
+}
+
+/**
+ * Starts the call's AgentRun in its project before the tool does any work, so
+ * the tool can hand the run id on (`ToolContext.runId`). One run per call:
+ * again for the same project it returns that run's id, for a different
+ * project (see attributeCall) null. Also null when the project is not the
+ * grant's or the run cannot be created.
+ */
+async function startCallRun(
+  state: McpRequestState & { principal: McpPrincipal },
+  call: CallTrace,
+  tool: string,
+  projectId: string,
+): Promise<string | null> {
+  const { principal } = state;
+  if (!attributeCall(principal, call, projectId)) return null;
+  call.runStart ??= (async () => {
+    try {
+      call.agentRunId =
+        (await state.startRun?.(
+          { workspaceId: principal.workspaceId, projectId },
+          { tool, clientId: principal.clientId, grantId: principal.grantId },
+        )) ?? null;
+    } catch {
+      // Best effort: the run id then falls back to the request id.
+      call.agentRunId = null;
+    }
+    return call.agentRunId;
+  })();
+  return call.runStart;
+}
+
+/** The context a native tool receives for one call. */
+function nativeContext(
+  state: McpRequestState & { principal: McpPrincipal },
+  tool: string,
+  call: CallTrace,
+): NativeToolContext {
+  const { principal } = state;
+  return {
+    requestId: state.requestId,
+    callId: call.id,
+    clientId: principal.clientId,
+    grantId: principal.grantId,
+    get agentRunId() {
+      return call.agentRunId;
+    },
+    setAuditProject: (projectId) =>
+      void attributeCall(principal, call, projectId),
+    startRun: (projectId) => startCallRun(state, call, tool, projectId),
+    log: state.log,
+  };
+}
+
 async function notify(
   state: McpRequestState,
   record: Pick<
     McpCallRecord,
     "tool" | "projectId" | "outcome" | "durationMs" | "args"
-  >,
+  > & { agentRunId?: string | null },
 ) {
   if (!state.observe) return;
   try {
     await state.observe({
       ...record,
+      agentRunId: record.agentRunId ?? null,
       requestId: state.requestId,
       userId: state.userId,
       clientId: state.clientId,
@@ -273,7 +421,8 @@ async function executeRegistryTool(
   state: McpRequestState & { principal: McpPrincipal },
   tool: OrbitTool,
   args: Record<string, unknown>,
-  call: { projectId: string | null },
+  call: CallTrace,
+  toolName: string,
 ): Promise<unknown> {
   const { principal, requestId } = state;
   const { [PROJECT_ID]: requested, ...rest } = args;
@@ -285,7 +434,7 @@ async function executeRegistryTool(
         : undefined;
   if (!projectId) throw new DomainError("PROJECT_REQUIRED", 400);
   // Audit rows go to the project only when it is one of the grant's.
-  call.projectId = principal.projectIds.includes(projectId) ? projectId : null;
+  attributeCall(principal, call, projectId);
   const { tool: allowed, scope } = await authorizeMcpCall(
     principal,
     tool.name,
@@ -293,11 +442,14 @@ async function executeRegistryTool(
   );
   // Object-level rules of the tool's own schema apply too.
   const input = allowed.parameters.parse(rest);
+  // The run exists before the tool works, so its spans and costs can hang on
+  // it; without one the request id stands in, as before.
+  const agentRunId = await startCallRun(state, call, toolName, projectId);
   const { output } = await allowed.execute(
     {
       // The tool runs with the member's role in its module (as chat-runner).
       scope: moduleScope(scope, registeredToolOwner(allowed.name)),
-      runId: requestId,
+      runId: agentRunId ?? requestId,
       conversationId: `mcp:${requestId}`,
       callIndex: 0,
       channel: {
@@ -352,10 +504,8 @@ type ToolDefinition = {
   openWorld: boolean;
   inputSchema: z.ZodObject;
   outputSchema: z.ZodObject;
-  run: (
-    args: Record<string, unknown>,
-    call: { projectId: string | null },
-  ) => Promise<unknown>;
+  meta?: Record<string, unknown>;
+  run: (args: Record<string, unknown>, call: CallTrace) => Promise<unknown>;
 };
 
 /**
@@ -389,7 +539,13 @@ export async function mcpServerFor(
         openWorld: false,
         inputSchema: native.inputSchema,
         outputSchema: native.outputSchema,
-        run: () => native.run(principal),
+        ...(native.meta ? { meta: native.meta } : {}),
+        run: (args, call) =>
+          native.run(
+            principal,
+            args,
+            nativeContext(principalState, native.name, call),
+          ),
       });
   const single = principal.projectIds.length === 1;
   for (const tool of await registryToolsFor(principal)) {
@@ -410,7 +566,7 @@ export async function mcpServerFor(
       inputSchema: inputSchemaFor(tool, single),
       outputSchema,
       run: (args, call) =>
-        executeRegistryTool(principalState, tool, args, call),
+        executeRegistryTool(principalState, tool, args, call, name),
     });
   }
 
@@ -443,6 +599,7 @@ export async function mcpServerFor(
         outputSchema: definition.outputSchema,
         annotations: toolAnnotations(definition.risk, definition.openWorld),
         _meta: {
+          ...definition.meta,
           securitySchemes: [
             { type: "oauth2", scopes: [requiredScope(definition)] },
           ],

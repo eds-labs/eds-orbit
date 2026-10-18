@@ -184,6 +184,7 @@ describe("rate limiter", () => {
       perUser: 240,
       perClient: 600,
       unauthenticatedPerIp: 30,
+      searchPerGrant: 30,
     });
   });
 });
@@ -864,6 +865,44 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       expect(again.statusCode).toBe(200);
     }, 120_000);
 
+    it("search has its own bucket per grant (30 a minute); other tools still pass", async () => {
+      const app = await gatewayWith({
+        rateLimits: { searchPerGrant: 2, perGrant: 50 },
+      });
+      const token = tokens["limit-window"];
+      const search = (opts: RpcOptions = { token }) =>
+        call(app, "search", { query: "x" }, opts);
+      for (let i = 0; i < 2; i++) {
+        const passed = await search();
+        expect(passed.statusCode).toBe(200);
+        expect(rpcBody(passed).result.structuredContent).toEqual({
+          results: [],
+        });
+      }
+      const limited = await search();
+      expect(limited.statusCode).toBe(429);
+      expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
+      expect(logLines.join("")).toContain('"bucket":"search"');
+      // Other tools, and the grant bucket, were not used up by the refusal.
+      expect(
+        (await call(app, "orbit_projects", {}, { token })).statusCode,
+      ).toBe(200);
+      // Another grant has its own search bucket.
+      const other = await call(
+        app,
+        "search",
+        { query: "x" },
+        { token: tokens["limit-user-2"] },
+      );
+      expect(other.statusCode).toBe(200);
+      expect(rpcBody(other).result.isError).toBeFalsy();
+      // Only a tools/call of search is counted in it.
+      for (let i = 0; i < 3; i++)
+        expect((await rpc(app, "ping", {}, { token })).statusCode).not.toBe(
+          429,
+        );
+    });
+
     it("a rate-limited request resolves no principal (no grant or membership query)", async () => {
       const app = await gatewayWith({
         rateLimits: { perGrant: 2, perUser: 50, perClient: 50 },
@@ -1011,10 +1050,11 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
           { jsonrpc: "2.0", id: 2, method: "subscriptions/listen", params: {} },
         ]),
       });
-      expect(response.statusCode).toBe(200);
+      // The gateway refuses every batch whole (fix round 1 of WP-M3 Task 3).
+      expect(response.statusCode).toBe(400);
       expect(rpcBody(response).error).toEqual({
-        code: -32601,
-        message: "Method not found",
+        code: -32600,
+        message: "Batch requests are not supported",
       });
     });
   });

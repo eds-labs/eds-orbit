@@ -512,7 +512,9 @@ describe("module contributions", () => {
       ],
       { entityKinds: [{ kind: "jobs", description: "j" }], tables: [] },
     );
-    const base = chatTools[0]!;
+    // A tool of its own: chatTools[0] (project_status) now opts into MCP
+    // with a schema of its own, which would hide what this case checks.
+    const { outputSchema: _schema, ...base } = chatTools[0]!;
     const exposed = { ...base, name: "alpha_read", exposure: { mcp: true } };
     expect(() =>
       registerContributions(registry, {}, { alpha: { tools: [exposed] } }),

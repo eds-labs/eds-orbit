@@ -274,6 +274,8 @@ Only read and proposal tools are exposed at first.
 | `orbit_action_status` | ActionRequests | The client can poll a proposal's decision and outcome. |
 | `support_*` | Support module (Phase 5), automatically through the registry | For example ticket search, ticket insights and draft reply. |
 
+> **Note 2026-10-18 (WP-M3, D-M3-5, D-M3-6, D-M3-7).** `search` covers at most 5 of the principal's projects per call (projects with a visible knowledge module and a readable role, ordered by name then id), or only the optional `projectId` argument; results are interleaved round-robin and capped at 30. The output is the strict OpenAI shape `{ results: [{ id, title, url }] }`, so no snippet and no `mode` are returned (this amends the table above). Ids are self-describing, `p:<projectId>:chunk:<chunkId>` and `p:<projectId>:fact:<factId>`, and `fetch` re-authorizes the project named in the id on every call; anything it cannot resolve answers the same `NOT_FOUND`. `url` is the source's canonical URL (query string and fragment stripped), otherwise the Orbit deep link `<APP_ORIGIN>/p/<projectId>/knowledge/library` (passages) or `/knowledge/facts` (facts); it is never empty, which ChatGPT needs for citations. `fetch` returns the active version text up to 48 KB (`metadata.truncated`). Only `marketing_project_status` and `support_insights` are exposed from the registry so far, so `orbit_project_status` is the registry tool `marketing_project_status`. See `docs/IMPLEMENTATION_STATUS.md` ("Track M WP-M3").
+
 ### 5.3 Resources and prompts
 
 - **Resources** (read-only, cacheable):
@@ -286,6 +288,8 @@ Only read and proposal tools are exposed at first.
   Modules contribute resource templates through their manifest (`03` §5.2). The same permission and `modelUse` rules apply. **[Open]** ChatGPT's resource support is not documented beyond UI resources, so everything important is also reachable through tools (`fetch`).
 - **Prompts:** optional, module-contributed templates such as "weekly marketing review" or "summarize open tickets". Low priority.
 - **MCP Apps / UI resources:** not in scope. Orbit links to its own UI instead. This can be revisited for rich cards later.
+
+> **Note 2026-10-18 (WP-M3, D-M3-1).** MCP resources (`orbit://…`) are deferred: ChatGPT's resource support is undocumented, the WP-M3 acceptance needs only `search` and `fetch`, and everything important is reachable through `fetch`. No resource templates are registered.
 
 ### 5.4 Data protection in MCP results
 
@@ -321,6 +325,8 @@ Everything returned over MCP leaves Orbit and goes to an external model. Rules:
 ### 6.3 Budget
 
 MCP tools that trigger paid Orbit work (query embeddings, package generation after approval) reserve under the project's spend mandate. They use category `mcp` or the tool's `costCategory`, and run key `mcp:<grantId>:<date>`, with an optional per-grant daily ceiling. The external client's own model cost is not Orbit's.
+
+> **Note 2026-10-18 (WP-M3, D-M3-2 and D-M3-3).** The run key is per call, not the daily `mcp:<grantId>:<date>`: a daily run would accumulate against `perRunBudgetMicros` and fail with `RUN_BUDGET_EXCEEDED`. A search reserves under `budgetRunKey = mcp:<grantId>:<requestId>:<callId>` and `retrievalJobKey = <budgetRunKey>:<projectId>`, category `query_embedding`, and the reservation is attributed to the call's `mcp` AgentRun (single-project search) or to a `retrieval` run for that project (multi-project search); the project's daily and monthly caps still apply. Lexical fallback happens only before any spend and never once a reservation exists; the client is not told which mode ran.
 
 ### 6.4 Errors
 
@@ -361,6 +367,8 @@ MCP tools that trigger paid Orbit work (query embeddings, package generation aft
 - **Abuse response:** a grant or client can be disabled centrally (owner UI: **Organization → Connected apps**), with immediate effect.
 
 > **Note 2026-10-18 (WP-M2, D-M2-3).** Calls without a project are logged to `McpGrantEvent` with action `mcp.call` (tool, outcome, duration, argument hash) instead of a new `McpCallLog` table, so WP-M2 needs no new table. Calls with a project write `AuditEvent` `mcp.tool_call`, as above, and an `AgentRun` of kind `mcp` (the migration `202610180010_mcp_run_kind` widens the kind check). Rate limits are in process (D-M2-5): per grant 120, per user 240 and per client 600 requests a minute, 30 a minute per IP without a valid token; every authenticated request counts and every refusal is a 429 before the SDK. The separate read, search and proposal buckets above come with the tools that need them (WP-M3).
+
+> **Note 2026-10-18 (WP-M3).** The gateway refuses every JSON-RPC batch (an array body) with HTTP 400 and error -32600 `Batch requests are not supported`, after token verification and the limits and before principal resolution and the SDK. Batching was removed from MCP in revision 2025-06-18, and refusing it keeps one `tools/call` per request, so every call is limited, audited and keyed on its own. `search` has its own bucket of 30 calls a minute per grant, and every tool call has a 25 s timeout (`TIMEOUT`). WP-M3 did not build a separate read bucket (reads share the WP-M2 per-grant, per-user and per-client limits); only the search bucket exists, and the proposal quotas belong to WP-M4.
 
 ## 8. Compatibility with existing APIs and agent tools
 

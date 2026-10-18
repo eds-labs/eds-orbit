@@ -43,7 +43,11 @@ type ScopeCase = "read" | "readPropose";
 // The fixture tools: task_digest (R0, viewers up), suggest_task (P, editors
 // up), both MCP-exposed; propose_tasks is P but not exposed to MCP and
 // knowledge_search is a platform assistant tool, so neither may ever appear.
+// Marketing's project_status (R0, every member) is exposed too (WP-M3); it
+// belongs to the marketing module, so the tasks module's state and the
+// tasks module roles do not touch it, while a module restriction does.
 const PROBED = [
+  "project_status",
   "task_digest",
   "suggest_task",
   "propose_tasks",
@@ -259,11 +263,14 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
       scopeCase: ScopeCase,
     ): string[] | null => {
       if (role === "nonMember" || grantCase === "out") return null;
-      if (state === "disabled" || grantCase === "restrictedOther") return [];
-      if (state === "roleNone" && role !== "owner") return [];
+      const marketing =
+        grantCase === "restrictedTasks" ? [] : ["project_status"];
+      if (state === "disabled" || grantCase === "restrictedOther")
+        return marketing;
+      if (state === "roleNone" && role !== "owner") return marketing;
       const effective =
         state === "roleViewer" && role !== "owner" ? "viewer" : role;
-      const tools: string[] = [];
+      const tools: string[] = [...marketing];
       if (scopeCase === "readPropose" && effective !== "viewer")
         tools.push("suggest_task");
       tools.push("task_digest");
@@ -375,7 +382,7 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
       expect([...principal.scopes].sort()).toEqual(["orbit:read"]);
       expect(
         (await visibleMcpTools(principal, projectId)).map((t) => t.name),
-      ).toEqual(["task_digest"]);
+      ).toEqual(["project_status", "task_digest"]);
       expect(
         await refusal(authorizeMcpCall(principal, "suggest_task", projectId)),
       ).toEqual({ code: "MCP_TOOL_NOT_ALLOWED", status: 403 });
@@ -486,7 +493,7 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
     );
     expect(
       (await visibleMcpTools(principal, projectId)).map((t) => t.name),
-    ).toEqual(["suggest_task", "task_digest"]);
+    ).toEqual(["project_status", "suggest_task", "task_digest"]);
 
     await authDb.projectMember.delete({
       where: { projectId_userId: { projectId, userId: member } },
@@ -508,7 +515,7 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
     expect(fresh.projectIds).toEqual([otherProjectId]);
     expect(
       (await visibleMcpTools(fresh, otherProjectId)).map((t) => t.name),
-    ).toEqual(["task_digest"]);
+    ).toEqual(["project_status", "task_digest"]);
 
     // Without any project left, nothing usable remains.
     await authDb.projectMember.delete({
@@ -570,7 +577,7 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
       );
       expect(
         (await visibleMcpTools(after, projectId)).map((t) => t.name),
-      ).toEqual(["suggest_task", "task_digest"]);
+      ).toEqual(["project_status", "suggest_task", "task_digest"]);
       expect(after.projectIds).not.toContain(foreignProjectId);
     });
 
@@ -599,7 +606,7 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
     const principal = (await resolvePrincipal(claims(ids.owner, clientId)))!;
     expect(
       (await visibleMcpTools(principal, projectId)).map((t) => t.name),
-    ).toEqual(["suggest_task", "task_digest"]);
+    ).toEqual(["project_status", "suggest_task", "task_digest"]);
   });
 
   it("checks many granted projects a few at a time and keeps grant order", async () => {

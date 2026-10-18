@@ -27,8 +27,9 @@ import {
   type McpCallObserver,
   type McpRequestState,
 } from "./adapter.ts";
-import { createMcpObserver } from "./audit.ts";
+import { createMcpObserver, startMcpRun } from "./audit.ts";
 import {
+  batchRefusedResponse,
   methodNotFoundResponse,
   rateLimitedResponse,
   rpcErrorResponse,
@@ -65,6 +66,8 @@ export type McpServerOptions = {
   rateLimits?: Partial<McpRateLimits>;
   /** Test seam: the clock for rate-limit windows and the lastUsedAt pacing. */
   clock?: () => number;
+  /** Test seam: replaces the 25 s tool timeout (adapter.ts). */
+  toolTimeoutMs?: number;
   /** Test seam: where the logger writes (default stdout). */
   logStream?: { write(line: string): void };
 };
@@ -95,6 +98,8 @@ export function mcpClientIp(req: FastifyRequest): string {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const LISTEN_METHOD = "subscriptions/listen";
+/** The native tool with its own rate bucket (limits.ts, WP-M3 Task 3). */
+const SEARCH_TOOL = "search";
 
 type PeekedMessage = {
   method?: string;
@@ -102,8 +107,10 @@ type PeekedMessage = {
   /** The raw `arguments` of a tools/call (hashed for audit, never stored). */
   args?: unknown;
   id: string | number | null;
-  /** The body (or any message of a batch) asks for subscriptions/listen. */
+  /** The body asks for subscriptions/listen. */
   listen: boolean;
+  /** The body is a JSON-RPC batch (an array), which the gateway refuses. */
+  batch: boolean;
 };
 
 /** The JSON-RPC method, tool name and arguments of a request body, when it is a single message. */
@@ -112,16 +119,10 @@ function peekMessage(body: string): PeekedMessage {
   try {
     message = JSON.parse(body);
   } catch {
-    return { id: null, listen: false };
+    return { id: null, listen: false, batch: false };
   }
-  if (Array.isArray(message))
-    return {
-      id: null,
-      listen: message.some(
-        (item) => isRecord(item) && item.method === LISTEN_METHOD,
-      ),
-    };
-  if (!isRecord(message)) return { id: null, listen: false };
+  if (Array.isArray(message)) return { id: null, listen: false, batch: true };
+  if (!isRecord(message)) return { id: null, listen: false, batch: false };
   const params = isRecord(message.params) ? message.params : undefined;
   const id =
     typeof message.id === "string" || typeof message.id === "number"
@@ -130,6 +131,7 @@ function peekMessage(body: string): PeekedMessage {
   return {
     id,
     listen: message.method === LISTEN_METHOD,
+    batch: false,
     ...(typeof message.method === "string" ? { method: message.method } : {}),
     ...(typeof params?.name === "string" ? { toolName: params.name } : {}),
     ...(params && "arguments" in params ? { args: params.arguments } : {}),
@@ -252,12 +254,24 @@ export async function buildMcpServer(
         const userId = text(claims.sub);
         const clientId = text(claims.azp);
         const workspaceClaim = text(claims[ORBIT_WORKSPACE_CLAIM]);
+        const peek = peekMessage(typeof req.body === "string" ? req.body : "");
+        const grantKey = `${userId}|${clientId}|${workspaceClaim}`;
         const verdict = limiter.take([
           {
-            key: `grant:${userId}|${clientId}|${workspaceClaim}`,
+            key: `grant:${grantKey}`,
             max: limits.perGrant,
             label: "grant",
           },
+          // The paid read has its own bucket, charged for its calls only (D-M3-10).
+          ...(peek.method === "tools/call" && peek.toolName === SEARCH_TOOL
+            ? [
+                {
+                  key: `search:${grantKey}`,
+                  max: limits.searchPerGrant,
+                  label: "search",
+                },
+              ]
+            : []),
           { key: `user:${userId}`, max: limits.perUser, label: "user" },
           { key: `client:${clientId}`, max: limits.perClient, label: "client" },
         ]);
@@ -268,8 +282,12 @@ export async function buildMcpServer(
           );
           return rateLimitedResponse(verdict.retryAfterSeconds);
         }
+        // MCP dropped JSON-RPC batching (2025-06-18) and no target client
+        // batches: a batch would carry calls past the per-call checks
+        // (search bucket, audit, per-call keys), so it is refused whole,
+        // before the principal is resolved or the SDK sees it.
+        if (peek.batch) return batchRefusedResponse();
         const principal = await resolvePrincipal(claims);
-        const peek = peekMessage(typeof req.body === "string" ? req.body : "");
         // Without an active grant only a tool call gets an answer, as an
         // isError result carrying the challenge; everything else is a 401.
         if (!principal && peek.method !== "tools/call")
@@ -298,6 +316,10 @@ export async function buildMcpServer(
           resource,
           log: req.log,
           observe,
+          startRun: startMcpRun,
+          ...(options.toolTimeoutMs !== undefined
+            ? { toolTimeoutMs: options.toolTimeoutMs }
+            : {}),
         });
         return handler.fetch(request, { authInfo });
       },
