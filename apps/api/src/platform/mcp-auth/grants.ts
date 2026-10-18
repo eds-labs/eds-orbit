@@ -49,8 +49,12 @@ export type ProjectSelection = string[] | "all_current";
 const ttlStart = (now: Date) =>
   new Date(now.getTime() - SELECTION_TTL_SECONDS * 1000);
 
-/** Projects of a workspace the user may grant: all for owners, memberships otherwise. */
-async function grantableWorkspace(userId: string, workspaceId: string) {
+/**
+ * Projects of a workspace the user may grant: all for owners, memberships
+ * otherwise. Null without a workspace membership. The gateway reads it as the
+ * user's current projects for an "all current projects" grant (WP-M2).
+ */
+export async function grantableWorkspace(userId: string, workspaceId: string) {
   const membership = await authDb.workspaceMember.findUnique({
     where: { workspaceId_userId: { workspaceId, userId } },
   });
