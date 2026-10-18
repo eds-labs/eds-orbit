@@ -4,6 +4,7 @@ import {
   ChartNoAxesColumn,
   FileText,
   Images,
+  LayoutDashboard,
   Target,
 } from "lucide-react";
 import { labels } from "@/lib/i18n";
@@ -20,8 +21,8 @@ import {
   CalendarView,
   ContentStudio,
   Missions,
-  Overview,
 } from "@/modules/marketing/work";
+import { MarketingOverview } from "./overview";
 
 const label = (key: keyof typeof labels.en): Label => ({
   en: labels.en[key],
@@ -29,7 +30,7 @@ const label = (key: keyof typeof labels.en): Label => ({
 });
 
 function MarketingHome() {
-  return <Overview embedded />;
+  return <MarketingOverview embedded />;
 }
 
 /**
@@ -55,6 +56,16 @@ export const marketingWeb: WebModule = {
     extras: marketingConnectorExtras,
   },
   views: [
+    {
+      key: "marketing-overview",
+      path: "",
+      component: MarketingOverview,
+      nav: {
+        label: label("overview"),
+        icon: LayoutDashboard,
+        order: 0,
+      },
+    },
     {
       key: "missions",
       path: "missions",

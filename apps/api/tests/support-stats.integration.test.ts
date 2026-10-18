@@ -200,6 +200,8 @@ describe.skipIf(!enabled)("support statistics", () => {
       byInbox: { [mail]: 2, [widget]: 2 },
       byCategory: { deposits: 2, billing: 1, none: 1 },
       byTag: { vip: 2, bug: 1 },
+      // The range spans 07:00 on 1 October to 08:00 on 2 October (UTC).
+      byDay: { "2026-10-01": 4, "2026-10-02": 0 },
     });
     // First responses: 30, 120, 10 minutes; median 30, mean 53.3.
     expect(stats.firstResponse).toEqual({
@@ -254,6 +256,50 @@ describe.skipIf(!enabled)("support statistics", () => {
       supportStats(tx, owner, { ...range, tag: "vip" }, at(300)),
     );
     expect(byTag.volume.total).toBe(2);
+  });
+
+  it("counts tickets per project-local day, zero days included", async () => {
+    const fortnight = {
+      from: "2026-09-25T00:00:00.000Z",
+      to: "2026-10-09T00:00:00.000Z",
+    };
+    const utc = await run((tx) => supportStats(tx, owner, fortnight, at(300)));
+    const days = Object.keys(utc.volume.byDay);
+    expect(days).toHaveLength(14);
+    expect(days[0]).toBe("2026-09-25");
+    expect(days.at(-1)).toBe("2026-10-08");
+    expect(utc.volume.byDay["2026-10-01"]).toBe(4);
+    expect(
+      Object.entries(utc.volume.byDay).filter(([, n]) => n === 0),
+    ).toHaveLength(13);
+
+    // The tickets (08:00-08:30 UTC) fall on 30 September in Adak (UTC-9).
+    await authDb.project.update({
+      where: { id: owner.projectId },
+      data: { timezone: "America/Adak" },
+    });
+    try {
+      const adak = await run((tx) =>
+        supportStats(tx, owner, fortnight, at(300)),
+      );
+      expect(adak.volume.byDay["2026-09-30"]).toBe(4);
+      expect(adak.volume.byDay["2026-10-01"]).toBe(0);
+      // Local midnight is later than the range start: 24 September to 8 October.
+      expect(Object.keys(adak.volume.byDay)).toHaveLength(15);
+      expect(Object.keys(adak.volume.byDay)[0]).toBe("2026-09-24");
+    } finally {
+      await authDb.project.update({
+        where: { id: owner.projectId },
+        data: { timezone: "UTC" },
+      });
+    }
+  });
+
+  it("filters the per-day counts like the other volume numbers", async () => {
+    const byInbox = await run((tx) =>
+      supportStats(tx, owner, { ...range, inboxId: widget }, at(300)),
+    );
+    expect(byInbox.volume.byDay).toEqual({ "2026-10-01": 2, "2026-10-02": 0 });
   });
 
   it("exports the numbers as CSV without content", async () => {

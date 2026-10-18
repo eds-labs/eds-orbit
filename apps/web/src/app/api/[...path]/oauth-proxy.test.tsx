@@ -59,6 +59,8 @@ describe("API proxy", () => {
       body: "{}",
     });
     expect(sentHeaders().get("authorization")).toBe("Bearer t");
+    // The public API never reads a cookie, so none is forwarded there.
+    expect(sentHeaders().has("cookie")).toBe(false);
     fetchMock.mockClear();
     // One decoded segment is not the public prefix.
     await call(GET, ["public/support", "x"], {

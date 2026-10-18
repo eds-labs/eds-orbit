@@ -21,10 +21,13 @@ export function PageHead({
   title,
   description,
   children,
+  eyebrow,
   as: Heading = "h1",
 }: {
   title: string;
   description: string;
+  /** A small line above the title, such as "Module" on a module's overview. */
+  eyebrow?: string;
   children?: React.ReactNode;
   /** "h2" when the page is a section of another page, such as the home. */
   as?: "h1" | "h2";
@@ -32,6 +35,7 @@ export function PageHead({
   return (
     <div className="page-head">
       <div>
+        {eyebrow && <p className="page-eyebrow">{eyebrow}</p>}
         <Heading>{title}</Heading>
         <p>{description}</p>
       </div>

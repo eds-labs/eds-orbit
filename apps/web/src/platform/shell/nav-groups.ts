@@ -95,8 +95,10 @@ export function mobileEntries(
 
 /**
  * The bottom-bar entry that is current for the open page: the entry of the
- * page itself, else the root entry of the page's module (a module's root
- * stands for the whole module, such as Knowledge on its Sources page).
+ * page itself, else the bar entry that stands for the page's group (ruling
+ * R12, R12b): the module's root (Knowledge on its Sources page), else the
+ * module's only bar entry in the group (Tickets on the support overview,
+ * contacts and statistics), never a platform page placed in the group.
  */
 export function mobileCurrentKey(
   bar: readonly Route[],
@@ -105,7 +107,9 @@ export function mobileCurrentKey(
   if (!active) return undefined;
   const key = activeNavKey(active);
   if (bar.some((n) => n.key === key)) return key;
-  return bar.find(
-    (n) => n.moduleId && n.path === "" && navGroupOf(n) === navGroupOf(active),
-  )?.key;
+  const group = bar.filter((n) => navGroupOf(n) === navGroupOf(active));
+  const root = group.find((n) => n.moduleId && n.path === "");
+  // A platform page in the group (Approvals in Marketing) stands for nothing.
+  const own = group.filter((n) => n.moduleId && n.moduleId === active.moduleId);
+  return (root ?? (own.length === 1 ? own[0] : undefined))?.key;
 }

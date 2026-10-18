@@ -520,6 +520,275 @@ describe.skipIf(!enabled)("support workspace API", () => {
     expect((await call("owner", "GET", "/tickets")).statusCode).toBe(404);
   });
 
+  describe("SLA order and the open filter", () => {
+    const HOUR = 3_600_000;
+    const base = Date.now() + 10 * 24 * HOUR;
+    const due = (hours: number) => new Date(base + hours * HOUR);
+    let counter = 0;
+    /** A fresh inbox keeps these tickets apart from every other test. */
+    const freshInbox = () =>
+      run(
+        async (tx) =>
+          (
+            await createMailInbox(tx, owner, {
+              name: `Sla ${counter}`,
+              channels: ["email"],
+              emailAddress: `sla${counter++}@example.invalid`,
+            })
+          ).inbox.id,
+      );
+    const make = async (inbox: string, data: Record<string, unknown>) => {
+      const created = await run((tx) =>
+        createTicket(tx, owner, {
+          inboxId: inbox,
+          channel: "email",
+          inbound: inbound({ contact: { email: `${randomUUID()}@e.invalid` } }),
+        }),
+      );
+      await run((tx) =>
+        tx.supportTicket.update({ where: { id: created.ticketId }, data }),
+      );
+      return created.ticketId;
+    };
+    const idsOf = (res: { json: () => any }) =>
+      res.json().items.map((t: any) => t.id);
+
+    it("sort=sla orders by the earliest open due time and skips resolved tickets", async () => {
+      const inbox = await freshInbox();
+      const first = await make(inbox, {
+        firstResponseDueAt: due(3),
+        resolutionDueAt: due(30),
+      });
+      const second = await make(inbox, {
+        firstResponseDueAt: due(1),
+        resolutionDueAt: due(30),
+      });
+      // The resolution clock is earlier than the pending first response.
+      const resolutionFirst = await make(inbox, {
+        firstResponseDueAt: due(5),
+        resolutionDueAt: due(0.5),
+      });
+      // Responded: only the resolution clock runs.
+      const responded = await make(inbox, {
+        firstRespondedAt: due(-1),
+        firstResponseDueAt: due(0.1),
+        resolutionDueAt: due(4),
+      });
+      const noClock = await make(inbox, {
+        firstResponseDueAt: null,
+        resolutionDueAt: null,
+      });
+      const resolved = await make(inbox, {
+        status: "resolved",
+        firstRespondedAt: due(-2),
+        resolvedAt: due(-1),
+        resolutionDueAt: due(-3),
+      });
+      const waiting = await make(inbox, {
+        status: "pending_customer",
+        firstResponseDueAt: due(0.2),
+      });
+      const merged = await make(inbox, {
+        firstResponseDueAt: due(0.3),
+        mergedIntoTicketId: first,
+      });
+      const res = await call(
+        "viewer",
+        "GET",
+        `/tickets?sort=sla&inboxId=${inbox}`,
+      );
+      expect(res.statusCode).toBe(200);
+      expect(idsOf(res)).toEqual([
+        resolutionFirst,
+        second,
+        first,
+        responded,
+        noClock,
+      ]);
+      expect(idsOf(res)).not.toContain(resolved);
+      expect(idsOf(res)).not.toContain(waiting);
+      expect(idsOf(res)).not.toContain(merged);
+      // Other filters combine with the order.
+      const mine = await call(
+        "viewer",
+        "GET",
+        `/tickets?sort=sla&inboxId=${inbox}&view=mine`,
+      );
+      expect(mine.json().items).toEqual([]);
+      const byPriority = await call(
+        "viewer",
+        "GET",
+        `/tickets?sort=sla&inboxId=${inbox}&priority=urgent`,
+      );
+      expect(byPriority.json().items).toEqual([]);
+      const byStatus = await call(
+        "viewer",
+        "GET",
+        `/tickets?sort=sla&inboxId=${inbox}&status=resolved`,
+      );
+      expect(byStatus.json().items).toEqual([]);
+    });
+
+    it("sort=sla combines with search, tag, category and assignee filters", async () => {
+      const inbox = await freshInbox();
+      const hit = await make(inbox, {
+        subject: "Quokka 100% sure",
+        tags: ["vip"],
+        category: "billing",
+        assigneeUserId: ids.viewer,
+        firstResponseDueAt: due(1),
+      });
+      await make(inbox, {
+        subject: "Quokka 100 sure",
+        tags: ["vip"],
+        firstResponseDueAt: due(2),
+      });
+      const get = async (query: string) =>
+        (
+          await call(
+            "viewer",
+            "GET",
+            `/tickets?sort=sla&inboxId=${inbox}${query}`,
+          )
+        )
+          .json()
+          .items.map((t: any) => t.id);
+      // A literal percent sign in the search is not a wildcard.
+      expect(await get("&q=100%25%20sure")).toEqual([hit]);
+      expect(await get("&q=quokka")).toHaveLength(2);
+      expect(await get("&q=nomatch")).toEqual([]);
+      expect(await get("&tag=vip&category=billing")).toEqual([hit]);
+      expect(await get("&view=mine")).toEqual([hit]);
+      expect(await get("&view=unassigned")).toHaveLength(1);
+    });
+
+    it("openOnly excludes resolved, closed and merged tickets", async () => {
+      const inbox = await freshInbox();
+      const open = await make(inbox, { status: "open" });
+      const pending = await make(inbox, { status: "pending_customer" });
+      const resolved = await make(inbox, { status: "resolved" });
+      const closed = await make(inbox, { status: "closed" });
+      const merged = await make(inbox, { mergedIntoTicketId: open });
+      const onlyOpen = await call(
+        "viewer",
+        "GET",
+        `/tickets?openOnly=true&inboxId=${inbox}`,
+      );
+      expect(idsOf(onlyOpen).sort()).toEqual([open, pending].sort());
+      const all = await call("viewer", "GET", `/tickets?inboxId=${inbox}`);
+      expect(idsOf(all).sort()).toEqual(
+        [open, pending, resolved, closed, merged].sort(),
+      );
+      const explicit = await call(
+        "viewer",
+        "GET",
+        `/tickets?openOnly=false&inboxId=${inbox}`,
+      );
+      expect(idsOf(explicit)).toHaveLength(5);
+      expect(
+        (await call("viewer", "GET", "/tickets?openOnly=yes")).statusCode,
+      ).toBe(400);
+      expect(
+        (await call("viewer", "GET", "/tickets?sort=newest")).statusCode,
+      ).toBe(400);
+    });
+
+    it("sla cursor pages without duplicates", async () => {
+      const inbox = await freshInbox();
+      // Equal due times fall back to the id; two tickets have no clock.
+      const clock = (hours: number | null) => ({
+        firstResponseDueAt: hours === null ? null : due(hours),
+        resolutionDueAt: null,
+      });
+      const tied = [
+        await make(inbox, clock(2)),
+        await make(inbox, clock(2)),
+        await make(inbox, clock(1)),
+        await make(inbox, clock(null)),
+        await make(inbox, clock(null)),
+      ];
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      let pages = 0;
+      do {
+        const res = await call(
+          "viewer",
+          "GET",
+          `/tickets?sort=sla&limit=2&inboxId=${inbox}${
+            cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+          }`,
+        );
+        expect(res.statusCode).toBe(200);
+        seen.push(...idsOf(res));
+        cursor = res.json().nextCursor;
+        pages++;
+      } while (cursor && pages < 5);
+      expect(pages).toBe(3);
+      expect(new Set(seen).size).toBe(5);
+      expect([...seen].sort()).toEqual([...tied].sort());
+      // The tied tickets come in id order; the no-clock tickets close the list.
+      const byId = (a: string, b: string) => (a < b ? -1 : 1);
+      expect(seen.slice(0, 3)).toEqual([
+        tied[2],
+        ...[tied[0]!, tied[1]!].sort(byId),
+      ]);
+      expect(seen.slice(3)).toEqual([tied[3]!, tied[4]!].sort(byId));
+    });
+
+    it("rejects a cursor of the other sort with CURSOR_INVALID", async () => {
+      const inbox = await freshInbox();
+      for (let i = 0; i < 2; i++)
+        await make(inbox, {
+          firstResponseDueAt: due(i),
+          resolutionDueAt: null,
+        });
+      const updated = await call(
+        "viewer",
+        "GET",
+        `/tickets?limit=1&inboxId=${inbox}`,
+      );
+      const updatedCursor = updated.json().nextCursor as string;
+      expect(updatedCursor).toEqual(expect.any(String));
+      const wrong = await call(
+        "viewer",
+        "GET",
+        `/tickets?sort=sla&inboxId=${inbox}&cursor=${encodeURIComponent(updatedCursor)}`,
+      );
+      expect(wrong.statusCode).toBe(400);
+      expect(wrong.json().error.code).toBe("CURSOR_INVALID");
+      const sla = await call(
+        "viewer",
+        "GET",
+        `/tickets?sort=sla&limit=1&inboxId=${inbox}`,
+      );
+      const slaCursor = sla.json().nextCursor as string;
+      expect(slaCursor).toEqual(expect.any(String));
+      const back = await call(
+        "viewer",
+        "GET",
+        `/tickets?inboxId=${inbox}&cursor=${encodeURIComponent(slaCursor)}`,
+      );
+      expect(back.statusCode).toBe(400);
+      expect(back.json().error.code).toBe("CURSOR_INVALID");
+    });
+
+    it("counts open tickets per inbox in the summary", async () => {
+      const inbox = await freshInbox();
+      const other = await freshInbox();
+      const open = await make(inbox, { status: "open" });
+      await make(inbox, { status: "pending_internal" });
+      await make(inbox, { status: "resolved" });
+      await make(inbox, { status: "closed" });
+      await make(inbox, { status: "open", mergedIntoTicketId: open });
+      const summary = (await call("viewer", "GET", "/summary")).json();
+      expect(summary.openByInbox[inbox]).toBe(2);
+      expect(summary.openByInbox[other]).toBeUndefined();
+      expect(
+        Object.values<number>(summary.openByInbox).reduce((a, b) => a + b, 0),
+      ).toBe(summary.open);
+    });
+  });
+
   it("summarizes open, unassigned, at-risk and breached tickets", async () => {
     const before = (await call("viewer", "GET", "/summary")).json();
     const risky = await ticket();

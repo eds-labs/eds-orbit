@@ -6,6 +6,8 @@ import {
   crumbs,
   defaultProject,
   keptSuffix,
+  knownModuleStates,
+  waitsForModuleStates,
   locate,
   moduleShown,
   moduleUsable,
@@ -78,8 +80,14 @@ describe("Web route registry", () => {
       expect(navGroupOf(route(key)), key).toBe("project");
     expect(navGroupOf(route("missions"))).toBe("marketing");
     expect(navGroupOf(route("knowledge-sources"))).toBe("knowledge");
-    for (const key of ["support-contacts", "support-stats"])
+    for (const key of [
+      "support",
+      "support-tickets",
+      "support-contacts",
+      "support-stats",
+    ])
       expect(route(key).nav, key).toBeTruthy();
+    expect(route("support").nav!.mobile).toBeFalsy();
     const nav = navOrder(table.routes.filter((r) => r.nav));
     for (const r of nav) {
       expect(r.nav!.label.en, r.key).toBeTruthy();
@@ -91,7 +99,14 @@ describe("Web route registry", () => {
         .filter((r) => r.nav!.mobile)
         .sort((a, b) => a.nav!.mobileRank! - b.nav!.mobileRank!)
         .map((r) => r.key),
-    ).toEqual(["home", "chat", "support", "approvals", "content", "knowledge"]);
+    ).toEqual([
+      "home",
+      "chat",
+      "support-tickets",
+      "approvals",
+      "content",
+      "knowledge",
+    ]);
     expect(webRegistry.modules.map((m) => [m.id, m.groupOrder])).toEqual(
       expect.arrayContaining([
         ["marketing", 10],
@@ -207,11 +222,36 @@ describe("Web route registry", () => {
     expect(pageTitle(route("home"), table, "en", group)).toBe("Home");
   });
 
-  it("sends a module root to the module's first page", () => {
+  it("opens a module's root view at the module path", () => {
     expect(locate(`/p/${P}/marketing`, table)).toMatchObject({
+      kind: "view",
+      projectId: P,
+      route: { key: "marketing-overview", moduleId: "marketing" },
+    });
+  });
+
+  it("sends the root of a module without a root view to its first page", () => {
+    const view = (key: string, path: string, order: number) => ({
+      key,
+      path,
+      component: () => null,
+      nav: { label: { en: key, de: key }, icon: Home, order },
+    });
+    const rootless = routeTable({
+      platform: [view("home", "", 1)],
+      modules: [
+        {
+          id: "m",
+          displayName: { en: "m", de: "m" },
+          description: { en: "m", de: "m" },
+          views: [view("second", "second", 20), view("first", "first", 10)],
+        },
+      ],
+    });
+    expect(locate(`/p/${P}/m`, rootless)).toMatchObject({
       kind: "redirect",
       projectId: P,
-      route: { key: "missions" },
+      route: { key: "first" },
     });
   });
 
@@ -532,6 +572,70 @@ describe("Web route registry", () => {
         (key) =>
           table.routes.find((r) => r.key === key)!.moduleId === "marketing",
       ),
+    ).toBe(false);
+  });
+});
+
+describe("knownModuleStates", () => {
+  const loaded = { modules: [{ id: "support", enabled: true }] };
+
+  it("prefers the states just loaded", () => {
+    expect(knownModuleStates(loaded, null, "p1")).toBe(loaded);
+  });
+
+  it("keeps the project's last states while they load again", () => {
+    // A refresh refetches them; falling back to the defaults would hide the
+    // opt-in support module for a moment and remount the page.
+    expect(
+      knownModuleStates(null, { projectId: "p1", states: loaded }, "p1"),
+    ).toBe(loaded);
+  });
+
+  it("knows nothing after a failed load, for another project or before the first load", () => {
+    expect(
+      knownModuleStates(null, { projectId: "p1", states: null }, "p1"),
+    ).toBeUndefined();
+    expect(
+      knownModuleStates(null, { projectId: "p2", states: loaded }, "p1"),
+    ).toBeUndefined();
+    expect(knownModuleStates(null, null, "p1")).toBeUndefined();
+    expect(knownModuleStates(null, null, undefined)).toBeUndefined();
+  });
+});
+
+describe("waitsForModuleStates", () => {
+  const loaded = { modules: [{ id: "support", enabled: true }] };
+
+  it("waits only for the project's first load", () => {
+    expect(waitsForModuleStates(null, null, null, "p1")).toBe(true);
+    expect(waitsForModuleStates(loaded, null, null, "p1")).toBe(false);
+    // A failed load renders with the defaults.
+    expect(waitsForModuleStates(null, new Error("x"), null, "p1")).toBe(false);
+    // Another project's states say nothing about this one.
+    expect(
+      waitsForModuleStates(
+        null,
+        null,
+        { projectId: "p2", states: loaded },
+        "p1",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not wait again while a refresh refetches", () => {
+    // After a success the last states stand in.
+    expect(
+      waitsForModuleStates(
+        null,
+        null,
+        { projectId: "p1", states: loaded },
+        "p1",
+      ),
+    ).toBe(false);
+    // After a failure the page keeps rendering with the defaults instead of
+    // unmounting into a loading state (and losing its form state).
+    expect(
+      waitsForModuleStates(null, null, { projectId: "p1", states: null }, "p1"),
     ).toBe(false);
   });
 });

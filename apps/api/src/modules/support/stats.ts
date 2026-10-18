@@ -44,6 +44,59 @@ const tally = (values: Array<string | null>) =>
     return acc;
   }, {});
 
+/**
+ * "YYYY-MM-DD" of an instant on the calendar of `timezone`, or of UTC for a
+ * zone Intl does not know. One formatter per request, not per ticket.
+ */
+function dayFormat(timezone: string): (at: Date) => string {
+  const options = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  } as const;
+  let format: Intl.DateTimeFormat;
+  try {
+    format = new Intl.DateTimeFormat("en-CA", {
+      ...options,
+      timeZone: timezone,
+    });
+  } catch {
+    format = new Intl.DateTimeFormat("en-CA", { ...options, timeZone: "UTC" });
+  }
+  return (at) => format.format(at);
+}
+
+/** Zero-filling stops here; longer ranges list only days with tickets. */
+const MAX_FILLED_DAYS = 400;
+
+/**
+ * Tickets per calendar day of the project's timezone. Every day of
+ * `[from, to)` is present, zeros included.
+ */
+function perDay(dates: Date[], from: Date, to: Date, timezone: string) {
+  const localDay = dayFormat(timezone);
+  const counts: Record<string, number> = {};
+  const first = localDay(from);
+  const last = localDay(new Date(to.getTime() - 1));
+  // Calendar arithmetic on the date strings: no 24-hour steps across DST.
+  const cursor = new Date(`${first}T00:00:00.000Z`);
+  for (
+    let n = 0;
+    n < MAX_FILLED_DAYS && cursor.toISOString().slice(0, 10) <= last;
+    n++
+  ) {
+    counts[cursor.toISOString().slice(0, 10)] = 0;
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  for (const at of dates) {
+    const day = localDay(at);
+    counts[day] = (counts[day] ?? 0) + 1;
+  }
+  return Object.fromEntries(
+    Object.entries(counts).sort(([a], [b]) => (a < b ? -1 : 1)),
+  );
+}
+
 /** The support statistics of the tickets created in the range. */
 export async function supportStats(
   tx: DbTx,
@@ -68,7 +121,7 @@ export async function supportStats(
     take: MAX_TICKETS,
   });
   const ids = tickets.map((t) => t.id);
-  const [events, messages, open, reservations] = await Promise.all([
+  const [events, messages, open, reservations, project] = await Promise.all([
     tx.supportTicketEvent.findMany({
       where: {
         ticketId: { in: ids },
@@ -97,6 +150,10 @@ export async function supportStats(
         OR: ids.map((id) => ({ key: { contains: `support:${id}:` } })),
       },
       select: { key: true, amountMicros: true, settledMicros: true },
+    }),
+    tx.project.findUnique({
+      where: { id: scope.projectId },
+      select: { timezone: true },
     }),
   ]);
 
@@ -173,6 +230,12 @@ export async function supportStats(
       byInbox: tally(tickets.map((t) => t.inboxId)),
       byCategory: tally(tickets.map((t) => t.category)),
       byTag: tally(tickets.flatMap((t) => t.tags)),
+      byDay: perDay(
+        tickets.map((t) => t.createdAt),
+        from,
+        to,
+        project?.timezone ?? "UTC",
+      ),
     },
     firstResponse,
     resolution,
