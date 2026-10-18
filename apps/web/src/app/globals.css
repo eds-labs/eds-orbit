@@ -496,6 +496,14 @@ pre {
   color: var(--muted-foreground);
   margin-top: 5px;
 }
+.page-head .page-eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
 .page-actions {
   display: flex;
   gap: 10px;
@@ -637,6 +645,22 @@ pre {
   grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin-bottom: 20px;
+}
+.metrics-strip.metrics-four {
+  grid-template-columns: repeat(4, 1fr);
+}
+.metrics-four .metric > div {
+  min-width: 0;
+}
+@media (max-width: 1200px) {
+  .metrics-strip.metrics-four {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .metrics-four .metric:nth-child(even) {
+    border-right: 0;
+  }
 }
 .metric {
   display: flex;

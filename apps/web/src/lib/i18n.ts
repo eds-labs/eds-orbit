@@ -201,6 +201,19 @@ export const labels = {
     connectedRevokeConfirm: "Revoke access",
     connectedAllProjects: "All current projects",
     connectedScopes: "Permissions",
+    moduleEyebrow: "Module",
+    marketingOverviewHint:
+      "Missions, content, calendar and results at a glance.",
+    createContent: "Create content",
+    openApprovals: "Open approvals",
+    published7d: "Published, 7 days",
+    aiBudgetMonth: "AI budget, month",
+    aiBudgetNoLimit: "No monthly limit set",
+    aiBudgetSpent: "spent",
+    aiBudgetOf: "of",
+    nextSevenDays: "Next 7 days",
+    nextSevenDaysEmpty: "Nothing scheduled",
+    nextSevenDaysHint: "Posts planned for the next seven days appear here.",
   },
   de: {
     overview: "Übersicht",
@@ -405,6 +418,20 @@ export const labels = {
     connectedRevokeConfirm: "Zugriff widerrufen",
     connectedAllProjects: "Alle aktuellen Projekte",
     connectedScopes: "Berechtigungen",
+    moduleEyebrow: "Modul",
+    marketingOverviewHint:
+      "Missionen, Inhalte, Kalender und Ergebnisse auf einen Blick.",
+    createContent: "Content erstellen",
+    openApprovals: "Offene Freigaben",
+    published7d: "Veröffentlicht, 7 Tage",
+    aiBudgetMonth: "KI-Budget, Monat",
+    aiBudgetNoLimit: "Kein Monatslimit gesetzt",
+    aiBudgetSpent: "verbraucht",
+    aiBudgetOf: "von",
+    nextSevenDays: "Nächste 7 Tage",
+    nextSevenDaysEmpty: "Nichts geplant",
+    nextSevenDaysHint:
+      "Für die nächsten sieben Tage geplante Posts erscheinen hier.",
   },
 } as const;
 export type Text = (key: keyof typeof labels.en) => string;

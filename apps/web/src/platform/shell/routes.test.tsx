@@ -207,11 +207,36 @@ describe("Web route registry", () => {
     expect(pageTitle(route("home"), table, "en", group)).toBe("Home");
   });
 
-  it("sends a module root to the module's first page", () => {
+  it("opens a module's root view at the module path", () => {
     expect(locate(`/p/${P}/marketing`, table)).toMatchObject({
+      kind: "view",
+      projectId: P,
+      route: { key: "marketing-overview", moduleId: "marketing" },
+    });
+  });
+
+  it("sends the root of a module without a root view to its first page", () => {
+    const view = (key: string, path: string, order: number) => ({
+      key,
+      path,
+      component: () => null,
+      nav: { label: { en: key, de: key }, icon: Home, order },
+    });
+    const rootless = routeTable({
+      platform: [view("home", "", 1)],
+      modules: [
+        {
+          id: "m",
+          displayName: { en: "m", de: "m" },
+          description: { en: "m", de: "m" },
+          views: [view("second", "second", 20), view("first", "first", 10)],
+        },
+      ],
+    });
+    expect(locate(`/p/${P}/m`, rootless)).toMatchObject({
       kind: "redirect",
       projectId: P,
-      route: { key: "missions" },
+      route: { key: "first" },
     });
   });
 

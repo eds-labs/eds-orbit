@@ -38,28 +38,30 @@ async function openHome(page: Page, base: string) {
   await expect(page.getByLabel("Message for Orbit Chat")).toBeVisible();
 }
 
-// Every page of the shell, by its sidebar label and its URL below the project,
-// in sidebar order: the top entries, the module groups (approvals sit in
-// Marketing), then the project group.
-const PAGES: Array<[string, string]> = [
-  ["Home", ""],
-  ["Orbit Chat", "/assistant"],
-  ["Missions", "/marketing/missions"],
-  ["Content Studio", "/marketing/content"],
-  ["Calendar", "/marketing/calendar"],
-  ["Approvals", "/approvals"],
-  ["Assets", "/marketing/assets"],
-  ["Analytics", "/marketing/analytics"],
-  ["Memory", "/marketing/memory"],
-  ["Overview", "/knowledge"],
-  ["Sources", "/knowledge/sources"],
-  ["Facts", "/knowledge/facts"],
-  ["Conflicts", "/knowledge/conflicts"],
-  ["Import", "/knowledge/import"],
-  ["Library", "/knowledge/library"],
-  ["Connectors", "/connectors"],
-  ["Operations", "/operations"],
-  ["Settings", "/settings"],
+// Every page of the shell, by its sidebar group, label and URL below the
+// project, in sidebar order: the top entries, the module groups (approvals sit
+// in Marketing), then the project group. Marketing and Knowledge both have an
+// "Overview", so a link is looked up inside its group's list.
+const PAGES: Array<[group: string, name: string, path: string]> = [
+  ["top", "Home", ""],
+  ["top", "Orbit Chat", "/assistant"],
+  ["marketing", "Overview", "/marketing"],
+  ["marketing", "Missions", "/marketing/missions"],
+  ["marketing", "Content Studio", "/marketing/content"],
+  ["marketing", "Calendar", "/marketing/calendar"],
+  ["marketing", "Approvals", "/approvals"],
+  ["marketing", "Assets", "/marketing/assets"],
+  ["marketing", "Analytics", "/marketing/analytics"],
+  ["marketing", "Memory", "/marketing/memory"],
+  ["knowledge", "Overview", "/knowledge"],
+  ["knowledge", "Sources", "/knowledge/sources"],
+  ["knowledge", "Facts", "/knowledge/facts"],
+  ["knowledge", "Conflicts", "/knowledge/conflicts"],
+  ["knowledge", "Import", "/knowledge/import"],
+  ["knowledge", "Library", "/knowledge/library"],
+  ["project", "Connectors", "/connectors"],
+  ["project", "Operations", "/operations"],
+  ["project", "Settings", "/settings"],
 ];
 
 // The 13 paths from before WP1.7 and the page each one opens now.
@@ -124,21 +126,29 @@ test("pickers, project home and every page have their own URL", async ({
 
   // Every page from the sidebar, in order; the URL is shareable.
   const nav = page.getByRole("navigation", { name: "Workspace" });
-  await expect(nav.getByRole("link")).toHaveText(PAGES.map(([name]) => name));
-  for (const [name, path] of PAGES) {
-    await nav.getByRole("link", { name, exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
-    await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute(
-      "aria-current",
-      "page",
+  await expect(nav.getByRole("link")).toHaveText(PAGES.map(([, name]) => name));
+  const entry = (group: string, name: string) =>
+    (group === "top" ? nav : nav.locator(`#nav-group-${group}`)).getByRole(
+      "link",
+      { name, exact: true },
     );
+  for (const [group, name, path] of PAGES) {
+    await entry(group, name).click();
+    await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
+    await expect(entry(group, name)).toHaveAttribute("aria-current", "page");
     await expect(page.getByText("Page not found")).toHaveCount(0);
   }
   // The tab title carries the group, so the two "Overview" pages differ.
-  await page.goto(`${base}/knowledge`);
-  await expect(page).toHaveTitle(
-    new RegExp(`^Knowledge / Overview · ${project.name} · EDS Orbit$`),
-  );
+  for (const [group, path] of [
+    ["Marketing", "/marketing"],
+    ["Knowledge", "/knowledge"],
+  ])
+    await test.step(`${group} overview title`, async () => {
+      await page.goto(`${base}${path}`);
+      await expect(page).toHaveTitle(
+        new RegExp(`^${group} / Overview · ${project.name} · EDS Orbit$`),
+      );
+    });
   // The module groups and the project group, each with its entries.
   for (const group of ["Marketing", "Knowledge", "Project"])
     await expect(
@@ -147,20 +157,24 @@ test("pickers, project home and every page have their own URL", async ({
   // Deep links survive a reload: one platform page and one module page.
   // Not every page: the whole suite shares one client address and the API's
   // read limit (600 per minute).
-  for (const [name, path] of [
-    ["Settings", "/settings"],
-    ["Calendar", "/marketing/calendar"],
+  for (const [group, name, path] of [
+    ["project", "Settings", "/settings"],
+    ["marketing", "Calendar", "/marketing/calendar"],
   ]) {
     await page.goto(`${base}${path}`);
-    await expect(nav.getByRole("link", { name, exact: true })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    await expect(entry(group, name)).toHaveAttribute("aria-current", "page");
   }
 
-  // A module root opens the module's first page.
+  // The module root is the module's overview, not a redirect to a page.
   await page.goto(`${base}/marketing`);
-  await expect(page).toHaveURL(new RegExp(`${base}/marketing/missions$`));
+  await expect(page).toHaveURL(new RegExp(`${base}/marketing$`));
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Marketing" }),
+  ).toBeVisible();
+  await expect(entry("marketing", "Overview")).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
 });
 
 test("legacy paths redirect, unknown paths say so", async ({ page }) => {
