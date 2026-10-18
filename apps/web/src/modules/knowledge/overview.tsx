@@ -383,17 +383,23 @@ function DiagnosticsCard() {
       <div className="panel-head">
         <h2>{text.diagnostics}</h2>
       </div>
-      <div className="knowledge-overview-body knowledge-rows">
-        {links.map(([key, Icon, label, hint]) => (
-          <AppLink key={key} className="readiness-row" href={shell.hrefOf(key)}>
-            <Icon aria-hidden />
-            <span>
-              <strong>{label}</strong>
-              <small>{hint}</small>
-            </span>
-            <ArrowRight aria-hidden />
-          </AppLink>
-        ))}
+      <div className="knowledge-overview-body">
+        <div className="knowledge-rows">
+          {links.map(([key, Icon, label, hint]) => (
+            <AppLink
+              key={key}
+              className="readiness-row"
+              href={shell.hrefOf(key)}
+            >
+              <Icon aria-hidden />
+              <span>
+                <strong>{label}</strong>
+                <small>{hint}</small>
+              </span>
+              <ArrowRight aria-hidden />
+            </AppLink>
+          ))}
+        </div>
       </div>
     </section>
   );

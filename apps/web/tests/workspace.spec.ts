@@ -139,8 +139,13 @@ async function knowledgePage(page: Page, name: string) {
     .getByRole("link", { name, exact: true })
     .click();
 }
-// Health, Impact and Inspector have no sidebar entry: the overview links them.
+// Health, Impact and Inspector have no sidebar entry: the overview links them,
+// and a knowledge sub-page leads back to the overview first.
 async function knowledgeDiagnostic(page: Page, name: string) {
+  const back = page
+    .locator("#main")
+    .getByRole("link", { name: "Knowledge", exact: true });
+  if (await back.count()) await back.click();
   await page
     .locator("#main")
     .getByRole("link", { name: new RegExp(`^${name}\\b`) })
