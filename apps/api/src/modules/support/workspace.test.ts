@@ -8,6 +8,7 @@ const scope = {
 } as never;
 const A = "00000000-0000-4000-8000-00000000000a";
 const B = "00000000-0000-4000-8000-00000000000b";
+const C = "00000000-0000-4000-8000-00000000000c";
 const ticket = (id: string) => ({
   id,
   contactId: "00000000-0000-4000-8000-0000000000c1",
@@ -29,5 +30,22 @@ describe("listTickets by SLA", () => {
     const result = await listTickets(tx, scope, { sort: "sla" });
     expect(result.items.map((t) => t.id)).toEqual([B]);
     expect(result.nextCursor).toBeNull();
+  });
+
+  it("keeps paging when the extra ticket was erased between the reads", async () => {
+    // A page of two: the id query saw A, B and C (one more than the page),
+    // but C is gone by the reload. More tickets may follow it.
+    const existing = [A, B];
+    const tx = {
+      $queryRaw: async () => [{ id: A }, { id: B }, { id: C }],
+      supportTicket: {
+        findMany: async (args: { where: { id: { in: string[] } } }) =>
+          existing.filter((id) => args.where.id.in.includes(id)).map(ticket),
+      },
+      supportContact: { findMany: async () => [] },
+    } as never;
+    const result = await listTickets(tx, scope, { sort: "sla", limit: 2 });
+    expect(result.items.map((t) => t.id)).toEqual([A, B]);
+    expect(result.nextCursor).not.toBeNull();
   });
 });

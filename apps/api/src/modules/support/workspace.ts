@@ -117,7 +117,7 @@ export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
   const search = input.q
     ? await searchMatches(tx, scope, input.q)
     : { contactIds: [], ticketIds: [] };
-  const rows = sla
+  const { rows, more } = sla
     ? await slaPage(tx, scope, input, search)
     : await updatedPage(tx, scope, input, search);
   const page = rows.slice(0, input.limit);
@@ -130,8 +130,10 @@ export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
       ...t,
       contact: contacts.find((c) => c.id === t.contactId) ?? null,
     })),
+    // An empty page with more behind it (all its tickets erased between the
+    // reads) has no row to continue from; paging ends there.
     nextCursor:
-      rows.length > input.limit
+      more && page.length
         ? sla
           ? slaCursorOf(page.at(-1)!)
           : cursorOf(page.at(-1)!)
@@ -142,7 +144,7 @@ export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
 type ListInput = z.infer<typeof listInput>;
 type Search = { contactIds: string[]; ticketIds: string[] };
 
-/** One page of `limit + 1` tickets, newest change first. */
+/** One page of tickets, newest change first, and whether more follow. */
 async function updatedPage(
   tx: DbTx,
   scope: Scope,
@@ -173,16 +175,17 @@ async function updatedPage(
       OR: [{ updatedAt: { lt: c.at } }, { updatedAt: c.at, id: { lt: c.id } }],
     });
   }
-  return tx.supportTicket.findMany({
+  const rows = await tx.supportTicket.findMany({
     where: { AND: and },
     orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
     take: input.limit + 1,
   });
+  return { rows, more: rows.length > input.limit };
 }
 
 /**
- * One page of `limit + 1` tickets by their earliest pending due time, nulls
- * last, then id. The page's ids come from SQL (the order is computed); the
+ * One page of tickets by their earliest pending due time, nulls last, then
+ * id, and whether more follow. The page's ids come from SQL (the order is computed); the
  * rows are then loaded the usual way and put back in that order.
  */
 async function slaPage(
@@ -228,12 +231,18 @@ async function slaPage(
      WHERE ${Prisma.join(where, " AND ")}
      ORDER BY ${SLA_DUE_AT_SQL} ASC NULLS LAST, "id" ASC
      LIMIT ${input.limit + 1}`;
+  // Whether more follow is decided by the ids found, so a ticket erased
+  // before the reload does not end paging early.
+  const ids = found.slice(0, input.limit).map((r) => r.id);
   const rows = await tx.supportTicket.findMany({
-    where: { projectId: scope.projectId, id: { in: found.map((r) => r.id) } },
+    where: { projectId: scope.projectId, id: { in: ids } },
   });
   // In SLA order; a ticket erased between the two reads is left out.
   const byId = new Map(rows.map((t) => [t.id, t]));
-  return found.flatMap((r) => byId.get(r.id) ?? []);
+  return {
+    rows: ids.flatMap((id) => byId.get(id) ?? []),
+    more: found.length > input.limit,
+  };
 }
 
 async function loadTicket(tx: DbTx, scope: Scope, id: string) {
