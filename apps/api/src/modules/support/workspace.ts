@@ -231,7 +231,9 @@ async function slaPage(
   const rows = await tx.supportTicket.findMany({
     where: { projectId: scope.projectId, id: { in: found.map((r) => r.id) } },
   });
-  return found.map((r) => rows.find((t) => t.id === r.id)!);
+  // In SLA order; a ticket erased between the two reads is left out.
+  const byId = new Map(rows.map((t) => [t.id, t]));
+  return found.flatMap((r) => byId.get(r.id) ?? []);
 }
 
 async function loadTicket(tx: DbTx, scope: Scope, id: string) {
