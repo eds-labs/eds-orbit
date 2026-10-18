@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import {
   registeredWebhook,
@@ -492,6 +493,40 @@ describe("module contributions", () => {
       ),
     ).toThrow(
       "notification kind same registered twice; invalid notification kind Bad-Kind",
+    );
+  });
+
+  it("refuses a tool exposed to MCP without an output schema, naming it (WP-M2)", () => {
+    const registry = validateRegistry(
+      [
+        {
+          id: "alpha",
+          version: "1.0.0",
+          displayName: { en: "A", de: "A" },
+          dependsOn: [],
+          defaultEnabled: true,
+          entityKinds: [],
+          tables: [],
+          permissions: [],
+        },
+      ],
+      { entityKinds: [{ kind: "jobs", description: "j" }], tables: [] },
+    );
+    // A tool of its own: chatTools[0] (project_status) now opts into MCP
+    // with a schema of its own, which would hide what this case checks.
+    const { outputSchema: _schema, ...base } = chatTools[0]!;
+    const exposed = { ...base, name: "alpha_read", exposure: { mcp: true } };
+    expect(() =>
+      registerContributions(registry, {}, { alpha: { tools: [exposed] } }),
+    ).toThrow(
+      "MODULE_CONTRIBUTIONS_INVALID: tool alpha_read is exposed to MCP without an output schema",
+    );
+    // An output schema that is not an object cannot become structuredContent.
+    const listed = { ...exposed, outputSchema: z.array(z.string()) };
+    expect(() =>
+      registerContributions(registry, {}, { alpha: { tools: [listed] } }),
+    ).toThrow(
+      "MODULE_CONTRIBUTIONS_INVALID: tool alpha_read is exposed to MCP with an output schema that is not an object",
     );
   });
 });

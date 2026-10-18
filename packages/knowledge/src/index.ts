@@ -521,6 +521,78 @@ export async function setFact(
   });
   return fact;
 }
+/**
+ * What a passage must satisfy to be retrieved: the moment, the content
+ * language, the purpose, whether it goes to an external model, the
+ * consumer module (WP3.5) and an optional mandatory source set.
+ */
+export type PassageRules = {
+  at: Date;
+  language: string;
+  purpose: RetrieveInput["purpose"];
+  forModel: boolean;
+  consumer?: string;
+  sourceIds?: readonly string[];
+};
+/**
+ * The one eligibility rule for passages, as the `FROM … WHERE …` of a query
+ * over chunks `c`, versions `v`, documents `d` and sources `s`: an active
+ * source of an allowed authority whose rights fit the purpose and the model
+ * use, open to the consumer, the document's active version of the source's
+ * current generation, valid and fresh at `at`, in the language. `retrieve`
+ * and `eligiblePassage` both use it, so a fetch by id can never return what
+ * retrieval could not.
+ */
+export function eligiblePassages(s: Scope, rules: PassageRules) {
+  const { at, language, purpose, forModel, consumer, sourceIds } = rules;
+  const sourceFilter = sourceIds?.length
+    ? Prisma.sql`AND s.id IN (${Prisma.join(sourceIds.map((id) => Prisma.sql`${id}::uuid`))})`
+    : Prisma.empty;
+  // Mirrors servesConsumer: absent (or null) audiences serve every caller.
+  const audienceFilter = Prisma.sql`AND (COALESCE(s.data->'audiences','null'::jsonb)='null'::jsonb OR (jsonb_typeof(s.data->'audiences')='array' AND (s.data->'audiences' @> '["all"]'::jsonb OR (${consumer !== undefined} AND s.data->'audiences' @> jsonb_build_array(${consumer ?? ""}::text)))))`;
+  return Prisma.sql`FROM "KnowledgeChunk" c JOIN "DocumentVersion" v ON v.id=c."documentVersionId" AND v."workspaceId"=c."workspaceId" AND v."projectId"=c."projectId" JOIN "KnowledgeDocument" d ON d.id=v."documentId" AND d."workspaceId"=v."workspaceId" AND d."projectId"=v."projectId" JOIN "Entity" s ON s.id=d."sourceId" AND s."workspaceId"=d."workspaceId" AND s."projectId"=d."projectId" WHERE c."workspaceId"=${s.workspaceId}::uuid AND c."projectId"=${s.projectId}::uuid ${sourceFilter} AND s.kind='sources' AND s.data->>'status'='active' AND s.data->>'authority' IN ('official','website','research') AND v.state='active' AND d."activeVersionId"=v.id AND v."sourceGeneration"=(s.data->>'generation')::int AND v."validFrom"<=${at} AND (v."validUntil" IS NULL OR v."validUntil">${at}) AND v."fetchedAt"+((s.data->>'maxAgeHours')::double precision*interval '1 hour')>${at} AND c.language=${language} AND (${purpose !== "public"} OR (s.data->>'publicUse'='true' AND (s.data->>'embargoUntil' IS NULL OR (s.data->>'embargoUntil')::timestamptz<=${at}))) AND (${!forModel} OR s.data->>'modelUse'='true') ${audienceFilter}`;
+}
+export type EligiblePassage = {
+  chunkId: string;
+  documentVersionId: string;
+  sourceId: string;
+  title: string;
+  /** The start of the document version's text, at most `maxTextChars` characters. */
+  text: string;
+  /** The UTF-8 length of the whole version text. */
+  textBytes: number;
+  canonicalUrl: string | null;
+  fetchedAt: Date;
+};
+const UUID = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i;
+/**
+ * One chunk by id with its document version, only when it passes
+ * `eligiblePassages` under `rules` (exactly what `retrieve` could return);
+ * null for an unknown, malformed or ineligible id alike.
+ */
+export async function eligiblePassage(
+  tx: DbTx,
+  s: Scope,
+  chunkId: string,
+  rules: PassageRules,
+  maxTextChars: number,
+): Promise<EligiblePassage | null> {
+  if (!UUID.test(chunkId)) return null;
+  if (!Number.isSafeInteger(maxTextChars) || maxTextChars < 1)
+    throw new KnowledgeError("INVALID_TEXT_LIMIT");
+  const rows = await tx.$queryRaw<
+    Array<Omit<EligiblePassage, "textBytes"> & { textBytes: number | bigint }>
+  >(
+    Prisma.sql`SELECT c.id AS "chunkId",c."documentVersionId",d."sourceId",v.title,left(v.text,${maxTextChars}::int) AS text,octet_length(v.text) AS "textBytes",d."canonicalUrl",v."fetchedAt" ${eligiblePassages(s, rules)} AND c.id=${chunkId}::uuid LIMIT 1`,
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    ...row,
+    textBytes: Number(row.textBytes),
+    canonicalUrl: safeCitation(row.canonicalUrl),
+  };
+}
 type Candidate = {
   id: string;
   documentVersionId: string;
@@ -671,12 +743,14 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
         reason: "document_outside_validity:" + v.id,
       });
   }
-  const sourceFilter = input.sourceIds?.length
-    ? Prisma.sql`AND s.id IN (${Prisma.join(input.sourceIds.map((id) => Prisma.sql`${id}::uuid`))})`
-    : Prisma.empty;
-  // Mirrors servesConsumer: absent (or null) audiences serve every caller.
-  const audienceFilter = Prisma.sql`AND (COALESCE(s.data->'audiences','null'::jsonb)='null'::jsonb OR (jsonb_typeof(s.data->'audiences')='array' AND (s.data->'audiences' @> '["all"]'::jsonb OR (${input.consumer !== undefined} AND s.data->'audiences' @> jsonb_build_array(${input.consumer ?? ""}::text)))))`;
-  const eligible = Prisma.sql`FROM "KnowledgeChunk" c JOIN "DocumentVersion" v ON v.id=c."documentVersionId" AND v."workspaceId"=c."workspaceId" AND v."projectId"=c."projectId" JOIN "KnowledgeDocument" d ON d.id=v."documentId" AND d."workspaceId"=v."workspaceId" AND d."projectId"=v."projectId" JOIN "Entity" s ON s.id=d."sourceId" AND s."workspaceId"=d."workspaceId" AND s."projectId"=d."projectId" WHERE c."workspaceId"=${s.workspaceId}::uuid AND c."projectId"=${s.projectId}::uuid ${sourceFilter} AND s.kind='sources' AND s.data->>'status'='active' AND s.data->>'authority' IN ('official','website','research') AND v.state='active' AND d."activeVersionId"=v.id AND v."sourceGeneration"=(s.data->>'generation')::int AND v."validFrom"<=${at} AND (v."validUntil" IS NULL OR v."validUntil">${at}) AND v."fetchedAt"+((s.data->>'maxAgeHours')::double precision*interval '1 hour')>${at} AND c.language=${language} AND (${input.purpose !== "public"} OR (s.data->>'publicUse'='true' AND (s.data->>'embargoUntil' IS NULL OR (s.data->>'embargoUntil')::timestamptz<=${at}))) AND (${!forModel} OR s.data->>'modelUse'='true') ${audienceFilter}`;
+  const eligible = eligiblePassages(s, {
+    at,
+    language,
+    purpose: input.purpose,
+    forModel,
+    consumer: input.consumer,
+    sourceIds: input.sourceIds,
+  });
   const columns = Prisma.sql`c.id,c."documentVersionId",d."sourceId",v."sourceGeneration",s.data->>'authority' AS authority,v.title,c.text,c.heading,c.anchor,d."canonicalUrl",c."chunkHash",v."fetchedAt",v."validUntil",(s.data->>'publicUse'='true') AS "publicUse",(s.data->>'modelUse'='true') AS "modelUse"`;
   const lexical = await tx.$queryRaw<Candidate[]>(
     Prisma.sql`SELECT ${columns},ts_rank_cd(c."searchVector",websearch_to_tsquery(${config}::regconfig,${input.query}))+ts_rank_cd(c."identifierVector",websearch_to_tsquery('simple',${input.query})) AS rank ${eligible} AND (c."searchVector" @@ websearch_to_tsquery(${config}::regconfig,${input.query}) OR c."identifierVector" @@ websearch_to_tsquery('simple',${input.query}) OR position(lower(${input.query}) in lower(c.text))>0) ORDER BY CASE s.data->>'authority' WHEN 'official' THEN 0 WHEN 'website' THEN 1 ELSE 2 END,rank DESC,c.id LIMIT ${LIMITS.candidates}`,

@@ -124,3 +124,36 @@ export async function listUsableFacts(
     }
   });
 }
+
+/**
+ * The facts among `ids` that are usable under K-1: each a usable copy of a
+ * key whose usable copies agree. Unknown ids and facts that are not usable
+ * for any reason are left out alike.
+ */
+export async function usableFactsByIds(
+  tx: DbTx,
+  scope: Scope,
+  ids: readonly string[],
+  query: FactQuery,
+) {
+  const usable = new Map<string, FactRow>();
+  if (!ids.length) return usable;
+  const { facts, sources } = await factsAndSources(tx, scope);
+  for (const id of new Set(ids)) {
+    const row = facts.find((candidate) => candidate.id === id);
+    if (!row) continue;
+    const key = String(data(row).key);
+    if (
+      !usableCopies(facts, sources, key, query).some((copy) => copy.id === id)
+    )
+      continue;
+    try {
+      usableFact(facts, sources, key, query);
+    } catch (error) {
+      if (error instanceof DomainError) continue;
+      throw error;
+    }
+    usable.set(id, row);
+  }
+  return usable;
+}

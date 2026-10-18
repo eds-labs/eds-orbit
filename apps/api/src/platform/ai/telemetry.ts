@@ -14,7 +14,11 @@ export type RunKind =
   // One specialist task of an assignment run (Orbit Agents).
   | "agent"
   // Support AI: triage or a draft reply of one ticket (WP5.6).
-  | "support";
+  | "support"
+  // A tool call from an outside MCP client through the gateway (Track M).
+  | "mcp";
+/** What a run or span needs from a scope: where it belongs. */
+export type RunScope = Pick<Scope, "workspaceId" | "projectId">;
 export type SpanInput = {
   type: "model_call" | "tool_call" | "embedding" | "image";
   name: string;
@@ -68,7 +72,7 @@ async function safely<T>(work: () => Promise<T>, fallback: T): Promise<T> {
 }
 
 export async function startRun(
-  scope: Scope,
+  scope: RunScope,
   input: {
     kind: RunKind;
     agentName: string;
@@ -77,6 +81,8 @@ export async function startRun(
     subjectId?: string;
     missionId?: string | null;
     routeVersion?: number | null;
+    /** When the work began, if it already has (default: now). */
+    startedAt?: Date;
   },
 ): Promise<string | null> {
   return safely(async () => {
@@ -94,6 +100,7 @@ export async function startRun(
           subjectId: input.subjectId ?? null,
           missionId: input.missionId ?? null,
           routeVersion: input.routeVersion ?? null,
+          ...(input.startedAt ? { startedAt: input.startedAt } : {}),
         },
       }),
     );
@@ -102,7 +109,7 @@ export async function startRun(
 }
 
 export async function recordSpan(
-  scope: Scope,
+  scope: RunScope,
   runId: string | null,
   span: SpanInput,
 ): Promise<void> {
@@ -144,7 +151,7 @@ export async function recordSpan(
 }
 
 export async function finishRun(
-  scope: Scope,
+  scope: RunScope,
   runId: string | null,
   status: "succeeded" | "failed" | "blocked" | "canceled" | "unknown",
   code?: string,

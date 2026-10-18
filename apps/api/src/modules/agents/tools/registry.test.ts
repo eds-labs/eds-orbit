@@ -9,7 +9,10 @@ import {
   defineTool,
   deferredDefinition,
   dropNullFields,
+  exposedToAssistant,
+  exposedToMcp,
   findTool,
+  mcpExposureProblem,
   responsesTool,
   searchTools,
   supportsToolSearch,
@@ -525,5 +528,58 @@ describe("client-executed tool search", () => {
     expect(supportsToolSearch("gpt-5.3-mini")).toBe(false);
     expect(supportsToolSearch("gpt-4.1")).toBe(false);
     expect(supportsToolSearch("synthetic-model")).toBe(false);
+  });
+
+  it("exposes a tool to the assistant only unless it says otherwise (WP-M2)", () => {
+    const plain = tool();
+    expect(exposedToAssistant(plain)).toBe(true);
+    expect(exposedToMcp(plain)).toBe(false);
+    expect(exposedToAssistant(tool({ exposure: {} }))).toBe(true);
+    expect(exposedToMcp(tool({ exposure: {} }))).toBe(false);
+    expect(exposedToAssistant(tool({ exposure: { assistant: false } }))).toBe(
+      false,
+    );
+    expect(exposedToMcp(tool({ exposure: { mcp: false } }))).toBe(false);
+  });
+
+  it("exposes a tool to MCP only with an output schema (WP-M2)", () => {
+    const outputSchema = z.object({ ok: z.boolean() }).strict();
+    const exposed = defineTool(tool({ exposure: { mcp: true }, outputSchema }));
+    expect(exposedToMcp(exposed)).toBe(true);
+    expect(exposedToAssistant(exposed)).toBe(true);
+    expect(() =>
+      defineTool(tool({ name: "sample_mcp", exposure: { mcp: true } })),
+    ).toThrow("TOOL_OUTPUT_SCHEMA_REQUIRED:sample_mcp");
+    // A schema without the flag is harmless: the tool stays internal.
+    expect(exposedToMcp(defineTool(tool({ outputSchema })))).toBe(false);
+    // Without a schema the helper never reports a tool as exposed.
+    expect(exposedToMcp(tool({ exposure: { mcp: true } }))).toBe(false);
+  });
+
+  it("requires an object output schema for MCP exposure, naming the tool (WP-M2)", () => {
+    for (const outputSchema of [
+      z.array(z.string()),
+      z.string(),
+      z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]),
+    ]) {
+      const candidate = tool({
+        name: "sample_list",
+        exposure: { mcp: true },
+        outputSchema,
+      });
+      expect(() => defineTool(candidate)).toThrow(
+        "TOOL_OUTPUT_SCHEMA_NOT_OBJECT:sample_list",
+      );
+      expect(mcpExposureProblem(candidate)).toBe(
+        "tool sample_list is exposed to MCP with an output schema that is not an object",
+      );
+      expect(exposedToMcp(candidate)).toBe(false);
+    }
+    const strict = tool({
+      exposure: { mcp: true },
+      outputSchema: z.strictObject({ ok: z.boolean() }),
+    });
+    expect(mcpExposureProblem(strict)).toBeUndefined();
+    expect(exposedToMcp(strict)).toBe(true);
   });
 });

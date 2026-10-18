@@ -41,6 +41,7 @@ import { enabledModules } from "../platform/modules/enforcement.ts";
 import {
   availableTools,
   deferredDefinition,
+  exposedToAssistant,
   findTool,
   responsesTool,
   searchTools,
@@ -407,7 +408,9 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     const assistants = registeredAssistants(enabled);
     const features = assistants.flatMap((a) => a.features({ toolSearch }));
     // Each tool is offered by the member's role in the tool's module.
+    // Tools meant for outside clients only (exposure.assistant: false) never appear.
     const offered = registeredTools(enabled).filter((tool) => {
+      if (!exposedToAssistant(tool)) return false;
       const role = effectiveRole(scope, registeredToolOwner(tool.name));
       return role !== "none" && availableTools([tool], role, features).length;
     });
