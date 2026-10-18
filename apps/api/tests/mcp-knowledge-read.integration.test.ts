@@ -42,10 +42,35 @@ const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
 );
 const HOUR = 3600000;
-// Every chunk fixture carries this word, every fact key this prefix, so one
-// query reaches all of them and only eligibility decides what comes back.
+// The eligible chunk fixtures carry this word; every ineligible case carries
+// a term of its own (see `chunkTerm`) next to an eligible control with the
+// same term, so a search per case is not crowded out by the result caps
+// (topK 6 passages, 8 facts) and cannot pass vacuously.
 const TOKEN = "zephyrinemcp";
 const FACT_PREFIX = "mcpreadfix";
+const chunkTerm = (name: string) =>
+  `zq${name.toLowerCase().replace(/[^a-z]/g, "")}`;
+// Fact keys are `${FACT_PREFIX}.${term}`; a search for the bare term reaches
+// the key segment (retrieval matches key segments of three or more letters).
+const FACT_TERMS: Record<string, string> = {
+  unverified: "unverified",
+  conflicting: "conflicting",
+  "conflicting peer": "conflicting",
+  "disagreeing copy": "copies",
+  "disagreeing copy peer": "copies",
+  "fact modelUse false": "nomodel",
+  "fact publicUse false": "nopublic",
+  "expired fact": "expired",
+  "not yet valid fact": "notyetvalid",
+  "fact on restricted audience source": "audience",
+  "fact on modelUse false source": "sourcenomodel",
+  "fact on embargoed source": "sourceembargo",
+  "fact on inactive source": "sourcepaused",
+  "fact on generated source": "sourcegenerated",
+  "fact of stale generation": "stalegeneration",
+  "fact in other language": "german",
+  "fact of other project": "otherproject",
+};
 
 /**
  * The knowledge read services behind the MCP `search` and `fetch` tools
@@ -61,6 +86,9 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
   let other: Scope;
   const chunks = new Map<string, { chunkId: string; versionId: string }>();
   const facts = new Map<string, string>();
+  // One eligible control per ineligibility case, carrying the same term.
+  const chunkControls = new Map<string, string>();
+  const factControls = new Map<string, string>();
   const run = <T>(s: Scope, work: (tx: DbTx) => Promise<T>) =>
     scoped(s.workspaceId, s.projectId, work);
   const past = () => new Date(Date.now() - HOUR).toISOString();
@@ -117,6 +145,7 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
     sourceId: string,
     overrides: Record<string, unknown> = {},
     externalId: string = randomUUID(),
+    term: string = TOKEN,
   ) {
     const result = await run(s, (tx) =>
       ingest(tx, s, {
@@ -124,7 +153,7 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
         externalId,
         title: "MCP read fixture",
         // Distinct texts: identical chunks would be deduplicated by hash.
-        text: `Orbit ${TOKEN} reference passage ${randomUUID()}.`,
+        text: `Orbit ${term} reference passage ${randomUUID()}.`,
         mimeType: "text/plain",
         language: "en",
         validFrom: new Date(Date.now() - 2 * HOUR).toISOString(),
@@ -170,16 +199,16 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
     );
   }
   const lexical = () => searchForModel(scope, TOKEN, { budget: null });
-  const chunkHits = async () =>
+  const chunkHits = async (term: string) =>
     new Set(
-      (await lexical()).hits.flatMap((h) =>
+      (await searchForModel(scope, term, { budget: null })).hits.flatMap((h) =>
         h.kind === "chunk" ? [h.chunkId] : [],
       ),
     );
-  const factHits = async () =>
+  const factHits = async (term: string) =>
     new Set(
-      (await searchForModel(scope, FACT_PREFIX, { budget: null })).hits.flatMap(
-        (h) => (h.kind === "fact" ? [h.factId] : []),
+      (await searchForModel(scope, term, { budget: null })).hits.flatMap((h) =>
+        h.kind === "fact" ? [h.factId] : [],
       ),
     );
 
@@ -225,58 +254,107 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
       "eligible audience all",
       await document(scope, await source(scope, { audiences: ["all"] })),
     );
-    // Ineligible chunks, one rule each.
+    // Ineligible chunks, one rule each, each with a term of its own.
+    const bad = (
+      name: string,
+      sourceId: Promise<string>,
+      overrides: Record<string, unknown> = {},
+    ) =>
+      sourceId.then((id) =>
+        document(scope, id, overrides, undefined, chunkTerm(name)),
+      );
     chunks.set(
       "modelUse false",
-      await document(scope, await source(scope, { modelUse: false })),
+      await bad("modelUse false", source(scope, { modelUse: false })),
     );
     chunks.set(
       "publicUse false",
-      await document(scope, await source(scope, { publicUse: false })),
+      await bad("publicUse false", source(scope, { publicUse: false })),
     );
     chunks.set(
       "embargoed",
-      await document(
-        scope,
-        await source(scope, {
+      await bad(
+        "embargoed",
+        source(scope, {
           embargoUntil: new Date(Date.now() + 24 * HOUR).toISOString(),
         }),
       ),
     );
     chunks.set(
       "generated authority",
-      await document(scope, await source(scope, { authority: "generated" })),
+      await bad(
+        "generated authority",
+        source(scope, { authority: "generated" }),
+      ),
     );
     const paused = await source(scope);
-    chunks.set("inactive source", await document(scope, paused));
+    chunks.set(
+      "inactive source",
+      await document(
+        scope,
+        paused,
+        {},
+        undefined,
+        chunkTerm("inactive source"),
+      ),
+    );
     await patchSource(scope, paused, { status: "paused" });
     const superseded = await source(scope);
     const externalId = randomUUID();
     chunks.set(
       "superseded version",
-      await document(scope, superseded, {}, externalId),
+      await document(
+        scope,
+        superseded,
+        {},
+        externalId,
+        chunkTerm("superseded version"),
+      ),
     );
+    // The successor is the eligible control of the superseded version and an
+    // eligible variant in its own right.
     chunks.set(
       "eligible successor version",
-      await document(scope, superseded, {}, externalId),
+      await document(
+        scope,
+        superseded,
+        {},
+        externalId,
+        `${TOKEN} ${chunkTerm("superseded version")}`,
+      ),
     );
     const regenerated = await source(scope);
-    chunks.set("stale generation", await document(scope, regenerated));
+    chunks.set(
+      "stale generation",
+      await document(
+        scope,
+        regenerated,
+        {},
+        undefined,
+        chunkTerm("stale generation"),
+      ),
+    );
     await patchSource(scope, regenerated, { generation: 2 });
     chunks.set(
       "expired validity",
-      await document(scope, await source(scope), {
+      await bad("expired validity", source(scope), {
         validFrom: new Date(Date.now() - 3 * HOUR).toISOString(),
         validUntil: new Date(Date.now() - HOUR).toISOString(),
       }),
     );
     chunks.set(
       "not yet valid",
-      await document(scope, await source(scope), {
+      await bad("not yet valid", source(scope), {
         validFrom: new Date(Date.now() + HOUR).toISOString(),
       }),
     );
-    const stale = await document(scope, await source(scope));
+    const stale = await document(
+      scope,
+      await source(scope),
+      {},
+      undefined,
+      chunkTerm("stale fetch"),
+    );
     await run(scope, (tx) =>
       tx.documentVersion.update({
         where: { id: stale.versionId },
@@ -286,17 +364,61 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
     chunks.set("stale fetch", stale);
     chunks.set(
       "restricted audience",
-      await document(scope, await source(scope, { audiences: ["marketing"] })),
+      await bad(
+        "restricted audience",
+        source(scope, { audiences: ["marketing"] }),
+      ),
     );
     chunks.set(
       "malformed audience",
-      await document(scope, await source(scope, { audiences: "support" })),
+      await bad("malformed audience", source(scope, { audiences: "support" })),
     );
     chunks.set(
       "other language",
-      await document(scope, await source(scope), { language: "de" }),
+      await bad("other language", source(scope), { language: "de" }),
     );
-    chunks.set("other project", await document(other, await source(other)));
+    chunks.set(
+      "other project",
+      await document(
+        other,
+        await source(other),
+        {},
+        undefined,
+        chunkTerm("other project"),
+      ),
+    );
+    // An eligible control per term; the superseded version has its successor.
+    for (const name of [
+      "modelUse false",
+      "publicUse false",
+      "embargoed",
+      "generated authority",
+      "inactive source",
+      "stale generation",
+      "expired validity",
+      "not yet valid",
+      "stale fetch",
+      "restricted audience",
+      "malformed audience",
+      "other language",
+      "other project",
+    ])
+      chunkControls.set(
+        name,
+        (
+          await document(
+            scope,
+            await source(scope),
+            {},
+            undefined,
+            chunkTerm(name),
+          )
+        ).chunkId,
+      );
+    chunkControls.set(
+      "superseded version",
+      chunks.get("eligible successor version")!.chunkId,
+    );
 
     // Facts, each on its own source so source changes stay isolated.
     facts.set("eligible", await fact(scope, await source(scope), "eligible"));
@@ -366,6 +488,12 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
       }),
     );
     facts.set(
+      "not yet valid fact",
+      await fact(scope, await source(scope), "notyetvalid", {
+        validFrom: new Date(Date.now() + HOUR).toISOString(),
+      }),
+    );
+    facts.set(
       "fact on restricted audience source",
       await fact(
         scope,
@@ -387,6 +515,14 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
     await patchSource(scope, embargo, {
       embargoUntil: new Date(Date.now() + 24 * HOUR).toISOString(),
     });
+    // A fact cannot be set on a generated source (K-1); a source that turns
+    // generated later leaves it behind.
+    const generatedFactSource = await source(scope);
+    facts.set(
+      "fact on generated source",
+      await fact(scope, generatedFactSource, "sourcegenerated"),
+    );
+    await patchSource(scope, generatedFactSource, { authority: "generated" });
     const pausedFactSource = await source(scope);
     facts.set(
       "fact on inactive source",
@@ -407,6 +543,12 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
       "fact of other project",
       await fact(other, await source(other), "otherproject"),
     );
+    // An eligible control per term: `${term}.control` shares the key segment.
+    for (const term of new Set(Object.values(FACT_TERMS)))
+      factControls.set(
+        term,
+        await fact(scope, await source(scope), `${term}.control`),
+      );
   }, 120000);
 
   afterAll(async () => {
@@ -448,7 +590,7 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
   });
 
   it("eligible variants are visible to search and fetch", async () => {
-    const hits = await chunkHits();
+    const hits = await chunkHits(TOKEN);
     for (const name of [
       "eligible",
       "eligible audience all",
@@ -482,33 +624,24 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
     ];
     it.each(ineligibleChunks)("chunk: %s", async (name) => {
       const { chunkId } = chunks.get(name)!;
-      expect(await chunkHits()).not.toContain(chunkId);
+      // Searched by its own term: the eligible control with the same term
+      // must come back (the search is not vacuous), the ineligible chunk not.
+      const hits = await chunkHits(chunkTerm(name));
+      expect(hits).toContain(chunkControls.get(name)!);
+      expect(hits).not.toContain(chunkId);
       await expect(fetchChunkForModel(scope, chunkId)).rejects.toMatchObject({
         code: "NOT_FOUND",
         status: 404,
       });
     });
 
-    const ineligibleFacts = [
-      "unverified",
-      "conflicting",
-      "conflicting peer",
-      "disagreeing copy",
-      "disagreeing copy peer",
-      "fact modelUse false",
-      "fact publicUse false",
-      "expired fact",
-      "fact on restricted audience source",
-      "fact on modelUse false source",
-      "fact on embargoed source",
-      "fact on inactive source",
-      "fact of stale generation",
-      "fact in other language",
-      "fact of other project",
-    ];
+    const ineligibleFacts = Object.keys(FACT_TERMS);
     it.each(ineligibleFacts)("fact: %s", async (name) => {
       const factId = facts.get(name)!;
-      expect(await factHits()).not.toContain(factId);
+      const term = FACT_TERMS[name]!;
+      const hits = await factHits(term);
+      expect(hits).toContain(factControls.get(term)!);
+      expect(hits).not.toContain(factId);
       await expect(fetchFactForModel(scope, factId)).rejects.toMatchObject({
         code: "NOT_FOUND",
         status: 404,
@@ -531,7 +664,7 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
 
   it("finds and fetches an eligible fact", async () => {
     const factId = facts.get("eligible")!;
-    const result = await searchForModel(scope, FACT_PREFIX, { budget: null });
+    const result = await searchForModel(scope, "eligible", { budget: null });
     const hit = result.hits.find(
       (h) => h.kind === "fact" && h.factId === factId,
     );
