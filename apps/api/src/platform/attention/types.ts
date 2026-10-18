@@ -49,7 +49,7 @@ export type AttentionStatus = {
    * it (settled, reserved, in flight and unclear reservations), and the
    * active policy's monthly limit or null.
    */
-  aiMonth?: { spentMicros: number; limitMicros: number | null };
+  aiMonth: { spentMicros: number; limitMicros: number | null };
 };
 
 /**

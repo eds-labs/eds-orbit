@@ -71,7 +71,7 @@ export async function aiMonthStatus(
   tx: DbTx,
   scope: Scope,
   month: ReservationMonth,
-): Promise<NonNullable<AttentionStatus["aiMonth"]>> {
+): Promise<AttentionStatus["aiMonth"]> {
   const policy = hiddenKinds(scope).includes("policies")
     ? null
     : await activePolicyRecord(tx, scope);

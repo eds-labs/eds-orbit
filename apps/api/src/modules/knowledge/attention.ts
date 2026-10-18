@@ -21,8 +21,58 @@ const SOURCES = {
 
 /** Sources read per request; a project has a handful. */
 const SOURCE_LIMIT = 200;
+/** Individual items per source kind; the rest become one "more" item (R18). */
+const SOURCE_ITEMS = 3;
 
-/** One item per stale or expiring source; revoked sources never sync again. */
+type Expiring = { id: string; name: string; expiresAt: Date | null };
+
+/** Never synced first, then the earliest expiry: the most urgent first. */
+const byExpiry = (a: Expiring, b: Expiring) =>
+  (a.expiresAt?.getTime() ?? -Infinity) -
+    (b.expiresAt?.getTime() ?? -Infinity) ||
+  (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+/**
+ * The SOURCE_ITEMS most urgent sources of one kind as items of their own,
+ * the rest as one aggregated item (`count`, the earliest remaining time).
+ */
+function capped(
+  sources: Expiring[],
+  kind: "knowledge_source_stale" | "knowledge_source_expiring",
+): AttentionItem[] {
+  const stale = kind === "knowledge_source_stale";
+  const base = {
+    moduleId: "knowledge",
+    kind,
+    severity: stale ? "critical" : "warning",
+    ...SOURCES,
+  } as const;
+  // Stale since it expired (a never synced source has no such time);
+  // expiring until it expires.
+  const time = (at: Date | null) =>
+    at ? { [stale ? "since" : "dueAt"]: at.toISOString() } : {};
+  const sorted = [...sources].sort(byExpiry);
+  const items: AttentionItem[] = sorted
+    .slice(0, SOURCE_ITEMS)
+    .map((source) => ({
+      ...base,
+      id: `knowledge:${stale ? "source-stale" : "source-expiring"}:${source.id}`,
+      ...time(source.expiresAt),
+      params: { name: source.name },
+    }));
+  const rest = sorted.slice(SOURCE_ITEMS);
+  if (rest.length)
+    items.push({
+      ...base,
+      id: `knowledge:${stale ? "source_stale" : "source_expiring"}:more`,
+      count: rest.length,
+      ...time(rest.find((source) => source.expiresAt)?.expiresAt ?? null),
+      params: {},
+    });
+  return items;
+}
+
+/** Stale and expiring sources; revoked sources never sync again. */
 async function sourceItems(
   tx: DbTx,
   scope: Scope,
@@ -38,35 +88,23 @@ async function sourceItems(
     orderBy: { createdAt: "desc" },
     take: SOURCE_LIMIT,
   });
-  const items: AttentionItem[] = [];
+  const stale: Expiring[] = [];
+  const expiring: Expiring[] = [];
   for (const row of rows) {
     const source = data(row);
     if (!tracksFreshness(source)) continue;
     const { state, expiresAt } = sourceExpiry(source, now.getTime());
-    const params = { name: String(source.name ?? "") };
-    if (state === "stale")
-      items.push({
-        id: `knowledge:source-stale:${row.id}`,
-        moduleId: "knowledge",
-        kind: "knowledge_source_stale",
-        severity: "critical",
-        // Stale since it expired; a never synced source has no such time.
-        ...(expiresAt ? { since: expiresAt.toISOString() } : {}),
-        params,
-        ...SOURCES,
-      });
-    else if (state === "expiring")
-      items.push({
-        id: `knowledge:source-expiring:${row.id}`,
-        moduleId: "knowledge",
-        kind: "knowledge_source_expiring",
-        severity: "warning",
-        dueAt: expiresAt!.toISOString(),
-        params,
-        ...SOURCES,
-      });
+    if (state === "fresh") continue;
+    (state === "stale" ? stale : expiring).push({
+      id: row.id,
+      name: String(source.name ?? ""),
+      expiresAt,
+    });
   }
-  return items;
+  return [
+    ...capped(stale, "knowledge_source_stale"),
+    ...capped(expiring, "knowledge_source_expiring"),
+  ];
 }
 
 /**

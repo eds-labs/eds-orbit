@@ -104,7 +104,7 @@ export async function projectAttention(
     const usable = (moduleId: string) =>
       ownerEnabled(moduleId, enabled) && !hidden.includes(moduleId);
     const items: AttentionItem[] = [];
-    const status: AttentionStatus = { paused: project.paused };
+    let mode: AttentionStatus["mode"];
     for (const [moduleId, contribution] of registeredAttention()) {
       if (!usable(moduleId)) continue;
       items.push(
@@ -118,11 +118,15 @@ export async function projectAttention(
       const part = await contributed(moduleId, () =>
         contribution(tx, moduleScope(scope, moduleId), now),
       );
-      if (part.mode !== undefined) status.mode = part.mode;
+      if (part.mode !== undefined) mode = part.mode;
     }
     const month = await reservationMonth(tx, scope, now);
     items.push(...(await platformAttention(tx, scope, now, { worker, month })));
-    status.aiMonth = await aiMonthStatus(tx, scope, month);
+    const status: AttentionStatus = {
+      paused: project.paused,
+      ...(mode !== undefined ? { mode } : {}),
+      aiMonth: await aiMonthStatus(tx, scope, month),
+    };
     // An aggregated item ("2 unassigned tickets") adds its count (R17).
     const counts: Record<string, number> = {};
     for (const item of items)

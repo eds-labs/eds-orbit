@@ -272,6 +272,85 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
     expect(body.counts["knowledge-sources"]).toBe(2);
   });
 
+  it("more than 3 stale or expiring sources add one aggregated item each (R18)", async () => {
+    const expiryOf = (synced: string) =>
+      new Date(Date.parse(synced) + 168 * HOUR).toISOString();
+    // Five stale: never synced leads, then the oldest expiry first.
+    const never = await source({ name: "S-never", lastSuccessfulSyncAt: null });
+    const stale: Record<number, { id: string; expiresAt: string }> = {};
+    for (const hours of [200, 290, 230, 260]) {
+      const synced = ago(hours);
+      const row = await source({
+        name: `S-${hours}`,
+        lastSuccessfulSyncAt: synced,
+      });
+      stale[hours] = { id: row.id, expiresAt: expiryOf(synced) };
+    }
+    // Four expiring, in hours left 1, 5, 10, 20: the soonest first.
+    const expiring: Record<number, { id: string; dueAt: string }> = {};
+    for (const left of [10, 1, 20, 5]) {
+      const synced = ago(168 - left);
+      const row = await source({
+        name: `E-${left}`,
+        lastSuccessfulSyncAt: synced,
+      });
+      expiring[left] = {
+        id: row.id,
+        dueAt: expiryOf(synced),
+      };
+    }
+    const body = await attention("viewer");
+    const items = body.items.filter((i) => i.moduleId === "knowledge");
+    // Ids in emission order is not response order (the response is
+    // sorted), so compare as sets.
+    const ids = (kind: string) =>
+      items
+        .filter((i) => i.kind === kind)
+        .map((i) => i.id)
+        .sort();
+    const more = (id: string) => items.find((i) => i.id === id);
+    expect(ids("knowledge_source_stale")).toEqual(
+      [
+        `knowledge:source-stale:${never.id}`,
+        `knowledge:source-stale:${stale[290]!.id}`,
+        `knowledge:source-stale:${stale[260]!.id}`,
+        "knowledge:source_stale:more",
+      ].sort(),
+    );
+    expect(more("knowledge:source_stale:more")).toEqual({
+      id: "knowledge:source_stale:more",
+      moduleId: "knowledge",
+      kind: "knowledge_source_stale",
+      severity: "critical",
+      count: 2,
+      since: stale[230]!.expiresAt,
+      params: {},
+      navKey: "knowledge-sources",
+      link: "/knowledge/sources",
+    });
+    expect(ids("knowledge_source_expiring")).toEqual(
+      [
+        `knowledge:source-expiring:${expiring[1]!.id}`,
+        `knowledge:source-expiring:${expiring[5]!.id}`,
+        `knowledge:source-expiring:${expiring[10]!.id}`,
+        "knowledge:source_expiring:more",
+      ].sort(),
+    );
+    expect(more("knowledge:source_expiring:more")).toEqual({
+      id: "knowledge:source_expiring:more",
+      moduleId: "knowledge",
+      kind: "knowledge_source_expiring",
+      severity: "warning",
+      count: 1,
+      dueAt: expiring[20]!.dueAt,
+      params: {},
+      navKey: "knowledge-sources",
+      link: "/knowledge/sources",
+    });
+    // The badge still counts every source (R17).
+    expect(body.counts["knowledge-sources"]).toBe(9);
+  });
+
   it("conflicts and failed imports are aggregated", async () => {
     await run(async (tx) => {
       for (const status of ["conflicting", "conflicting", "verified"])
