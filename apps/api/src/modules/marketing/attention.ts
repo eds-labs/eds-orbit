@@ -7,9 +7,10 @@ import type {
 } from "../../platform/attention/types.ts";
 import { data } from "../../shared.ts";
 import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
-import { agentActivity } from "./agents/agent-activity.ts";
+import { budgetExhausted, RECENT_MS } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
+import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
 import { APPROVAL_STATUSES, isPausedPost } from "./approval-state.ts";
 import { activePolicy } from "./policy/policy.ts";
 
@@ -22,14 +23,14 @@ const APPROVALS = { navKey: "approvals", link: "/approvals" } as const;
 /** Open exceptions and paused posts read per request (one open exception per code). */
 const EXCEPTION_LIMIT = 100;
 const PAUSED_POST_LIMIT = 500;
+/** Active assignments checked for an exhausted budget, as the overview lists them. */
+const ASSIGNMENT_LIMIT = 100;
 
-/** Health issues of the agent activity that are a problem to act on now. */
-const RUN_PROBLEM_CODES = ["RUN_FAILED", "BUDGET_EXHAUSTED"];
+type Draft = Awaited<ReturnType<typeof draftsAwaitingOwner>>[number];
 
 /** The owner's drafts of assignments, one item each (the owner releases them). */
-async function draftItems(tx: DbTx, scope: Scope): Promise<AttentionItem[]> {
-  if (!agentsEnabled() || !can(scope, PROJECT_OWN)) return [];
-  return (await draftsAwaitingOwner(tx, scope)).map((draft) => ({
+function draftItems(drafts: Draft[]): AttentionItem[] {
+  return drafts.map((draft) => ({
     id: `marketing:draft:${draft.id}`,
     moduleId: "marketing",
     kind: "marketing_draft_release",
@@ -163,23 +164,70 @@ async function pausedPostItems(
   ];
 }
 
-/** Failed runs and exhausted assignment budgets, from the agent activity's health. */
+/**
+ * Failed runs and exhausted assignment budgets: the `RUN_FAILED` and
+ * `BUDGET_EXHAUSTED` health issues of the agent activity, read on their own
+ * (R21) with the same rules, in four bounded queries.
+ */
 async function runProblemItems(
   tx: DbTx,
   scope: Scope,
   now: Date,
 ): Promise<AttentionItem[]> {
   if (!agentsEnabled()) return [];
-  const { health } = await agentActivity(tx, scope, now);
-  return health.issues
-    .filter((issue) => RUN_PROBLEM_CODES.includes(issue.code))
-    .map((issue) => ({
-      id: `marketing:run-problem:${issue.code}`,
+  // Runs that failed within the last day (the overview reads its 50 newest
+  // runs; a day holds far fewer).
+  const failed = await tx.entity.count({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "assignment_runs",
+      data: { path: ["status"], equals: "failed" },
+      updatedAt: { gte: new Date(now.getTime() - RECENT_MS) },
+    },
+  });
+  const budgeted = (
+    await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "assignments",
+        data: { path: ["status"], equals: "active" },
+      },
+      select: { id: true, data: true },
+      orderBy: { createdAt: "desc" },
+      take: ASSIGNMENT_LIMIT,
+    })
+  )
+    .map((row) => ({
+      id: row.id,
+      status: data(row).status,
+      monthlyBudgetMicros: Number(data(row).monthlyBudgetMicros ?? 0),
+    }))
+    .filter((item) => item.monthlyBudgetMicros > 0);
+  const spend = await assignmentsMonthSpend(
+    tx,
+    scope,
+    budgeted.map((item) => item.id),
+    now,
+  );
+  const exhausted = budgeted.filter((item) =>
+    budgetExhausted({ ...item, monthCostMicros: spend.get(item.id) ?? 0 }),
+  ).length;
+  return (
+    [
+      ["RUN_FAILED", failed],
+      ["BUDGET_EXHAUSTED", exhausted],
+    ] as const
+  )
+    .filter(([, count]) => count > 0)
+    .map(([code, count]) => ({
+      id: `marketing:run-problem:${code}`,
       moduleId: "marketing",
       kind: "marketing_run_problem",
       severity: "critical",
-      count: issue.count,
-      params: { code: issue.code },
+      count,
+      params: { code },
       navKey: "marketing-overview",
       link: "/marketing",
     }));
@@ -190,9 +238,14 @@ export const marketingAttention: AttentionContribution = async (
   scope,
   now,
 ) => {
-  const drafts = await draftItems(tx, scope);
+  // One read of the owner's drafts: their items, and what the content
+  // review leaves out (a non-owner releases none, so it counts them).
+  const drafts =
+    agentsEnabled() && can(scope, PROJECT_OWN)
+      ? await draftsAwaitingOwner(tx, scope)
+      : [];
   return [
-    ...drafts,
+    ...draftItems(drafts),
     ...(await contentReviewItems(tx, scope, drafts.length)),
     ...(await exceptionItems(tx, scope)),
     ...(await pausedPostItems(tx, scope, now)),

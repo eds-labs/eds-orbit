@@ -183,6 +183,25 @@ export async function assignmentMonthSpend(
   assignmentId: string,
   now: Date,
 ) {
+  return (
+    (await assignmentsMonthSpend(tx, scope, [assignmentId], now)).get(
+      assignmentId,
+    ) ?? 0
+  );
+}
+
+/**
+ * {@link assignmentMonthSpend} of several assignments in three reads, by
+ * assignment id; an assignment without spend is left out.
+ */
+export async function assignmentsMonthSpend(
+  tx: DbTx,
+  scope: Scope,
+  assignmentIds: string[],
+  now: Date,
+) {
+  const spend = new Map<string, number>();
+  if (!assignmentIds.length) return spend;
   const monthStart = budgetMonthStart(now);
   const previousMonth = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1),
@@ -192,36 +211,54 @@ export async function assignmentMonthSpend(
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       kind: RUNS,
-      data: { path: ["assignmentId"], equals: assignmentId },
+      OR: [...new Set(assignmentIds)].map((id) => ({
+        data: { path: ["assignmentId"], equals: id },
+      })),
       createdAt: { gte: previousMonth },
     },
-    select: { id: true },
+    select: { id: true, data: true },
   });
-  if (!runs.length) return 0;
+  if (!runs.length) return spend;
+  const assignmentOfRun = new Map(
+    runs.map((run) => [runBudgetKey(run.id), String(data(run).assignmentId)]),
+  );
   const budgetRuns = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       kind: "budget_runs",
-      OR: runs.map((run) => ({
-        data: { path: ["runKey"], equals: runBudgetKey(run.id) },
+      OR: [...assignmentOfRun.keys()].map((runKey) => ({
+        data: { path: ["runKey"], equals: runKey },
       })),
     },
   });
-  const ids = budgetRuns.flatMap(
-    (row) => (data(row).reservationIds ?? []) as string[],
-  );
-  if (!ids.length) return 0;
-  return held(
-    await tx.budgetReservation.findMany({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        id: { in: ids },
-        createdAt: { gte: monthStart },
-      },
-    }),
-  );
+  const assignmentOf = new Map<string, string>();
+  for (const row of budgetRuns) {
+    const assignmentId = assignmentOfRun.get(String(data(row).runKey));
+    if (assignmentId === undefined) continue;
+    for (const id of (data(row).reservationIds ?? []) as string[])
+      if (!assignmentOf.has(id)) assignmentOf.set(id, assignmentId);
+  }
+  if (!assignmentOf.size) return spend;
+  const reservations = await tx.budgetReservation.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      id: { in: [...assignmentOf.keys()] },
+      createdAt: { gte: monthStart },
+    },
+  });
+  const byAssignment = new Map<string, Reservation[]>();
+  for (const row of reservations) {
+    const assignmentId = assignmentOf.get(row.id)!;
+    byAssignment.set(assignmentId, [
+      ...(byAssignment.get(assignmentId) ?? []),
+      row,
+    ]);
+  }
+  for (const [assignmentId, rows] of byAssignment)
+    spend.set(assignmentId, held(rows));
+  return spend;
 }
 
 /**
@@ -382,7 +419,11 @@ export function outputIssues(
   } catch {
     // An answer cut off at the output token limit starts as JSON.
     const start = answer.trim();
-    return !start ? "empty" : /^[{[]/.test(start) ? "truncated_json" : "not_json";
+    return !start
+      ? "empty"
+      : /^[{[]/.test(start)
+        ? "truncated_json"
+        : "not_json";
   }
   const result = schema.safeParse(value);
   if (result.success) return "valid";

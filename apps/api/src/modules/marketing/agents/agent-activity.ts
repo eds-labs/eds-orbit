@@ -25,7 +25,7 @@ import {
 // Runs shown at once: the open ones first, else the most recent one.
 const MAX_RUNS = 3;
 // Failed and partial runs count as a problem for this long.
-const RECENT_MS = 24 * 3600000;
+export const RECENT_MS = 24 * 3600000;
 const MAX_NEXT = 6;
 
 // Same mapping as startReadySteps: an unknown paid outcome counts as failed.
@@ -81,6 +81,19 @@ export type HealthIssue = {
   severity: "warning" | "problem";
   count: number;
 };
+
+/**
+ * An active assignment whose month cost reached its monthly budget
+ * (`BUDGET_EXHAUSTED`); the attention items use the same rule (R21).
+ */
+export const budgetExhausted = (item: {
+  status: unknown;
+  monthlyBudgetMicros: number;
+  monthCostMicros: number;
+}) =>
+  item.status === "active" &&
+  item.monthlyBudgetMicros > 0 &&
+  item.monthCostMicros >= item.monthlyBudgetMicros;
 
 export function healthState(paused: boolean, issues: HealthIssue[]) {
   if (paused) return "paused" as const;
@@ -225,12 +238,7 @@ export async function agentActivity(tx: DbTx, scope: Scope, now = new Date()) {
   add(
     "BUDGET_EXHAUSTED",
     "warning",
-    assignments.items.filter(
-      (item) =>
-        item.status === "active" &&
-        item.monthlyBudgetMicros > 0 &&
-        item.monthCostMicros >= item.monthlyBudgetMicros,
-    ).length,
+    assignments.items.filter(budgetExhausted).length,
   );
 
   return {

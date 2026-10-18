@@ -10,7 +10,11 @@ import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import { create } from "../src/shared.ts";
+import type { DbTx } from "../../../packages/db/src/index.ts";
+import { agentActivity } from "../src/modules/marketing/agents/agent-activity.ts";
 import { assignmentHash } from "../src/modules/marketing/agents/assignments.ts";
+import { runBudgetKey } from "../src/modules/marketing/agents/specialists/runner.ts";
+import { marketingAttention } from "../src/modules/marketing/attention.ts";
 import type { AttentionResponse } from "../src/platform/attention/types.ts";
 
 const enabled = Boolean(
@@ -105,6 +109,89 @@ describe.skipIf(!enabled)("marketing attention items", () => {
         missionId: mission.id,
       });
       return { draftId: draft.id, assignmentId: assignment.id };
+    });
+
+  /** An assignment with a monthly budget and one run that has spent `spent` this month. */
+  const budgeted = (fields: {
+    status: string;
+    budget: number;
+    spent: number;
+  }) =>
+    run(async (tx) => {
+      const assignment = await create(tx, owner, "assignments", {
+        name: `Budgeted ${fields.status}`,
+        kind: "standing",
+        status: fields.status,
+        contentType: "social",
+        channels: [CHANNEL],
+        schedule: {
+          rhythm: "daily",
+          weekdays: [],
+          times: ["10:00"],
+          leadMinutes: 360,
+        },
+        monthlyBudgetMicros: fields.budget,
+      });
+      const runRow = await create(tx, owner, "assignment_runs", {
+        assignmentId: assignment.id,
+        status: "done",
+        date: new Date().toISOString().slice(0, 10),
+        slots: [],
+        steps: [],
+      });
+      const reservation = await tx.budgetReservation.create({
+        data: {
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          key: `synthetic:${randomUUID()}`,
+          amountMicros: BigInt(fields.spent),
+          settledMicros: BigInt(fields.spent),
+          category: "model",
+          state: "settled",
+        },
+      });
+      await create(tx, owner, "budget_runs", {
+        runKey: runBudgetKey(runRow.id),
+        reservationIds: [reservation.id],
+      });
+      return assignment.id;
+    });
+
+  /** A run of an unknown assignment with `status`, last changed `hoursAgo`. */
+  const endedRun = (status: string, hoursAgo = 0) =>
+    run(async (tx) => {
+      const row = await create(tx, owner, "assignment_runs", {
+        assignmentId: randomUUID(),
+        status,
+        date: "2026-10-18",
+        slots: [],
+        steps: [],
+      });
+      if (hoursAgo)
+        await tx.entity.update({
+          where: { id: row.id },
+          data: { updatedAt: new Date(Date.now() - hoursAgo * HOUR) },
+        });
+    });
+
+  /** Calls `fn` with a transaction that counts the Prisma calls made through it. */
+  const counted = <T>(fn: (tx: DbTx) => Promise<T>) =>
+    run(async (tx) => {
+      let queries = 0;
+      const wrap = <O extends object>(target: O): O =>
+        new Proxy(target, {
+          get(t, key) {
+            const value = Reflect.get(t, key);
+            if (typeof value === "function")
+              return (...args: unknown[]) => {
+                queries++;
+                return value.apply(t, args);
+              };
+            return value && typeof value === "object" ? wrap(value) : value;
+          },
+        });
+      const result = await fn(wrap(tx));
+      return { result, queries };
     });
 
   beforeAll(async () => {
@@ -205,9 +292,15 @@ describe.skipIf(!enabled)("marketing attention items", () => {
               "assignments",
               "assignment_runs",
               "missions",
+              "budget_runs",
             ],
           },
         },
+      }),
+    );
+    await run((tx) =>
+      tx.budgetReservation.deleteMany({
+        where: { workspaceId: owner.workspaceId, projectId: owner.projectId },
       }),
     );
   });
@@ -465,5 +558,78 @@ describe.skipIf(!enabled)("marketing attention items", () => {
         link: "/marketing",
       },
     ]);
+  });
+
+  it("an assignment out of its monthly budget is a critical run problem", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
+    // Paused, unbudgeted and under-budget assignments are not out of budget.
+    await budgeted({ status: "paused", budget: 1_000_000, spent: 2_000_000 });
+    await budgeted({ status: "active", budget: 0, spent: 2_000_000 });
+    await budgeted({ status: "active", budget: 3_000_000, spent: 2_000_000 });
+    const problems = (await marketingItems()).filter(
+      (i) => i.kind === "marketing_run_problem",
+    );
+    expect(problems).toEqual([
+      {
+        id: "marketing:run-problem:BUDGET_EXHAUSTED",
+        moduleId: "marketing",
+        kind: "marketing_run_problem",
+        severity: "critical",
+        count: 1,
+        params: { code: "BUDGET_EXHAUSTED" },
+        navKey: "marketing-overview",
+        link: "/marketing",
+      },
+    ]);
+  });
+
+  it("run problems agree with the agent activity's health (R21)", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await budgeted({ status: "active", budget: 1_000_000, spent: 1_500_000 });
+    await budgeted({ status: "active", budget: 2_000_000, spent: 2_000_000 });
+    await budgeted({ status: "paused", budget: 1_000_000, spent: 2_000_000 });
+    await budgeted({ status: "active", budget: 3_000_000, spent: 1_000_000 });
+    await endedRun("failed");
+    await endedRun("failed", 2);
+    // Older than a day, or only partial: not a run problem.
+    await endedRun("failed", 30);
+    await endedRun("partial");
+    const now = new Date();
+    const { health } = await run((tx) => agentActivity(tx, owner, now));
+    const expected = health.issues
+      .filter((issue) =>
+        ["RUN_FAILED", "BUDGET_EXHAUSTED"].includes(issue.code),
+      )
+      .map((issue) => ({ code: issue.code, count: issue.count }));
+    expect(expected).toEqual([
+      { code: "RUN_FAILED", count: 2 },
+      { code: "BUDGET_EXHAUSTED", count: 2 },
+    ]);
+    const items = await run((tx) => marketingAttention(tx, owner, now));
+    expect(
+      items
+        .filter((i) => i.kind === "marketing_run_problem")
+        .map((i) => ({ code: i.params.code, count: i.count })),
+    ).toEqual(expected);
+  });
+
+  it("reads run problems with a fixed number of queries", async () => {
+    process.env.ORBIT_AGENTS = "true";
+    await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
+    await endedRun("failed");
+    const now = new Date();
+    const one = await counted((tx) => marketingAttention(tx, owner, now));
+    for (let n = 0; n < 3; n++)
+      await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
+    const four = await counted((tx) => marketingAttention(tx, owner, now));
+    // 22 with one assignment (and 4 more per assignment) through the whole
+    // agent activity before R21; 11 now.
+    expect(one.queries).toBeLessThanOrEqual(11);
+    expect(
+      four.result.find((i) => i.params.code === "BUDGET_EXHAUSTED")?.count,
+    ).toBe(4);
+    // More assignments add no queries (R21: no per-assignment reads).
+    expect(four.queries).toBe(one.queries);
   });
 });
