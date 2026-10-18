@@ -3,7 +3,7 @@
  * model-facing strict JSON schema is generated from its zod parameters by
  * the pinned openai SDK, which rejects schemas strict mode cannot express.
  */
-import type { z } from "zod";
+import { z } from "zod";
 import type { PermissionDef } from "../../../../../../packages/module-contracts/src/index.ts";
 import { can } from "../../../platform/tenancy/permissions.ts";
 import { zodResponsesFunction } from "openai/helpers/zod";
@@ -70,7 +70,7 @@ export type OrbitTool = {
    * nothing reaches an outside client unless its module opts in (Track M).
    */
   exposure?: { assistant?: boolean; mcp?: boolean };
-  /** The shape of `output`; required for every tool exposed to MCP. */
+  /** The shape of `output`; a zod object, required for every tool exposed to MCP. */
   outputSchema?: z.ZodType;
   /** The tool reads content outside Orbit's control (MCP `openWorldHint`). */
   openWorld?: true;
@@ -78,7 +78,7 @@ export type OrbitTool = {
 };
 
 // The function API accepts [a-zA-Z0-9_-]{1,64}; Orbit uses lower snake case.
-const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
+export const TOOL_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 
 export function responsesTool(tool: OrbitTool) {
   const generated = zodResponsesFunction({
@@ -146,21 +146,35 @@ function assertStrictKeywords(schema: unknown, path: string): void {
 export const exposedToAssistant = (tool: OrbitTool) =>
   tool.exposure?.assistant !== false;
 
-/** Exposed to MCP clients only when the tool opts in and declares its output schema. */
+/**
+ * Exposed to MCP clients only when the tool opts in and declares an object
+ * output schema (MCP `outputSchema` and `structuredContent` are objects).
+ */
 export const exposedToMcp = (tool: OrbitTool) =>
-  tool.exposure?.mcp === true && tool.outputSchema !== undefined;
+  tool.exposure?.mcp === true && tool.outputSchema instanceof z.ZodObject;
 
-/** A tool that opts into MCP without an output schema is a registration error. */
-export const mcpExposureProblem = (tool: OrbitTool) =>
-  tool.exposure?.mcp === true && tool.outputSchema === undefined
-    ? `tool ${tool.name} is exposed to MCP without an output schema`
-    : undefined;
+/**
+ * A tool that opts into MCP without an output schema, or with one that is
+ * not a zod object, is a registration error naming the tool.
+ */
+export const mcpExposureProblem = (tool: OrbitTool) => {
+  if (tool.exposure?.mcp !== true) return undefined;
+  if (tool.outputSchema === undefined)
+    return `tool ${tool.name} is exposed to MCP without an output schema`;
+  if (!(tool.outputSchema instanceof z.ZodObject))
+    return `tool ${tool.name} is exposed to MCP with an output schema that is not an object`;
+  return undefined;
+};
 
 /** Validates a tool at import time, so a bad schema never reaches a paid call. */
 export function defineTool(tool: OrbitTool): OrbitTool {
   if (!TOOL_NAME.test(tool.name)) throw new Error("TOOL_NAME_INVALID");
   if (mcpExposureProblem(tool))
-    throw new Error(`TOOL_OUTPUT_SCHEMA_REQUIRED:${tool.name}`);
+    throw new Error(
+      tool.outputSchema === undefined
+        ? `TOOL_OUTPUT_SCHEMA_REQUIRED:${tool.name}`
+        : `TOOL_OUTPUT_SCHEMA_NOT_OBJECT:${tool.name}`,
+    );
   assertStrictKeywords(responsesTool(tool).parameters, "parameters");
   return tool;
 }

@@ -12,6 +12,7 @@ import {
   exposedToAssistant,
   exposedToMcp,
   findTool,
+  mcpExposureProblem,
   responsesTool,
   searchTools,
   supportsToolSearch,
@@ -553,5 +554,32 @@ describe("client-executed tool search", () => {
     expect(exposedToMcp(defineTool(tool({ outputSchema })))).toBe(false);
     // Without a schema the helper never reports a tool as exposed.
     expect(exposedToMcp(tool({ exposure: { mcp: true } }))).toBe(false);
+  });
+
+  it("requires an object output schema for MCP exposure, naming the tool (WP-M2)", () => {
+    for (const outputSchema of [
+      z.array(z.string()),
+      z.string(),
+      z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]),
+    ]) {
+      const candidate = tool({
+        name: "sample_list",
+        exposure: { mcp: true },
+        outputSchema,
+      });
+      expect(() => defineTool(candidate)).toThrow(
+        "TOOL_OUTPUT_SCHEMA_NOT_OBJECT:sample_list",
+      );
+      expect(mcpExposureProblem(candidate)).toBe(
+        "tool sample_list is exposed to MCP with an output schema that is not an object",
+      );
+      expect(exposedToMcp(candidate)).toBe(false);
+    }
+    const strict = tool({
+      exposure: { mcp: true },
+      outputSchema: z.strictObject({ ok: z.boolean() }),
+    });
+    expect(mcpExposureProblem(strict)).toBeUndefined();
+    expect(exposedToMcp(strict)).toBe(true);
   });
 });

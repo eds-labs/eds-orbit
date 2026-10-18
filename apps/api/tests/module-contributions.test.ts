@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import {
   registeredWebhook,
@@ -516,6 +517,13 @@ describe("module contributions", () => {
       registerContributions(registry, {}, { alpha: { tools: [exposed] } }),
     ).toThrow(
       "MODULE_CONTRIBUTIONS_INVALID: tool alpha_read is exposed to MCP without an output schema",
+    );
+    // An output schema that is not an object cannot become structuredContent.
+    const listed = { ...exposed, outputSchema: z.array(z.string()) };
+    expect(() =>
+      registerContributions(registry, {}, { alpha: { tools: [listed] } }),
+    ).toThrow(
+      "MODULE_CONTRIBUTIONS_INVALID: tool alpha_read is exposed to MCP with an output schema that is not an object",
     );
   });
 });
