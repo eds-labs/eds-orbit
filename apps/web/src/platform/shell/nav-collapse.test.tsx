@@ -3,8 +3,8 @@ import { webRegistry } from "@/modules/registry";
 import { buildNavGroups } from "./nav-groups";
 import {
   groupBadge,
-  isGroupOpen,
   readCollapsed,
+  revealGroup,
   toggleCollapsed,
   writeCollapsed,
 } from "./nav-collapse";
@@ -75,18 +75,19 @@ describe("collapsed groups in storage", () => {
 });
 
 describe("group state", () => {
-  it("keeps the active group open", () => {
+  it("opens the group of the open page on navigation", () => {
     const collapsed = new Set(["marketing", "support"]);
-    expect(isGroupOpen("marketing", collapsed, "marketing")).toBe(true);
-    expect(isGroupOpen("support", collapsed, "marketing")).toBe(false);
-    expect(isGroupOpen("knowledge", collapsed, "marketing")).toBe(true);
-    expect(isGroupOpen("support", collapsed, undefined)).toBe(false);
+    const next = revealGroup(collapsed, "marketing");
+    expect(next).toEqual(new Set(["support"]));
+    expect(collapsed).toEqual(new Set(["marketing", "support"]));
   });
 
-  it("an unknown stored id is harmless", () => {
-    const collapsed = new Set(["gone"]);
-    for (const id of ["marketing", "support", "knowledge", "project"])
-      expect(isGroupOpen(id, collapsed, undefined), id).toBe(true);
+  it("returns the same set when the group is not collapsed", () => {
+    const collapsed = new Set(["support"]);
+    expect(revealGroup(collapsed, "marketing")).toBe(collapsed);
+    expect(revealGroup(collapsed, undefined)).toBe(collapsed);
+    // An unknown stored id is harmless.
+    expect(revealGroup(new Set(["gone"]), "top")).toEqual(new Set(["gone"]));
   });
 
   it("sums the badges of a group's entries", () => {

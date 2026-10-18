@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ChevronDown, Settings } from "lucide-react";
 import { labels, type Locale } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { groupBadge, isGroupOpen } from "./nav-collapse";
+import { groupBadge } from "./nav-collapse";
 import type { NavGroup } from "./nav-groups";
 import type { Route } from "./routes";
 
@@ -25,7 +25,7 @@ type Props = {
  * The sidebar navigation (UI restructure, spec §3.3): the "top" entries, then
  * one collapsible group per module under "Modules", then the project group.
  * A collapsed group renders no entries and shows the sum of their badges; the
- * group of the open page is always open.
+ * shell opens the group of a page when the user navigates to it.
  */
 export function SidebarNav({
   groups,
@@ -37,9 +37,6 @@ export function SidebarNav({
   onToggle,
 }: Props) {
   const text = labels[locale];
-  const activeGroupId = groups.find((g) =>
-    g.entries.some((r) => r.key === activeKey),
-  )?.id;
   const firstModule = groups.find(
     (g) => g.id !== "top" && g.id !== "project",
   )?.id;
@@ -75,7 +72,7 @@ export function SidebarNav({
               {group.entries.map((r) => link(r, "nav-link", true))}
             </Fragment>
           );
-        const open = isGroupOpen(group.id, collapsed, activeGroupId);
+        const open = !collapsed.has(group.id);
         const listId = `nav-group-${group.id}`;
         const Icon =
           group.id === "project" ? Settings : group.entries[0]!.nav!.icon;

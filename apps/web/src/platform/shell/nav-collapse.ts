@@ -1,7 +1,8 @@
 import type { NavGroup } from "./nav-groups";
 
 // The collapsed sidebar groups (UI restructure, U3): all groups are open by
-// default; the ids of the collapsed ones are kept in localStorage. Pure
+// default; the ids of the collapsed ones are kept in localStorage, and the
+// group of a page opens when the user navigates to it. Pure
 // helpers, so the sidebar itself stays a controlled component.
 
 const KEY = "orbit.nav.collapsed";
@@ -38,13 +39,18 @@ export function toggleCollapsed(
   return next;
 }
 
-/** Whether a group shows its entries: the group of the open page always does. */
-export function isGroupOpen(
-  groupId: string,
+/**
+ * Opens the group of the page just navigated to: a copy without `groupId`,
+ * or the same set when that group is not collapsed (nothing to store).
+ */
+export function revealGroup(
   collapsed: ReadonlySet<string>,
-  activeGroupId: string | undefined,
-): boolean {
-  return groupId === activeGroupId || !collapsed.has(groupId);
+  groupId: string | undefined,
+): ReadonlySet<string> {
+  if (!groupId || !collapsed.has(groupId)) return collapsed;
+  const next = new Set(collapsed);
+  next.delete(groupId);
+  return next;
 }
 
 /** The sum of the badges of a group's entries, keyed by route key. */

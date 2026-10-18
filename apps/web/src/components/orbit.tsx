@@ -36,6 +36,7 @@ import {
   crumbs,
   moduleShown,
   defaultProject,
+  navGroupOf,
   keptSuffix,
   locate,
   navOrder,
@@ -54,6 +55,7 @@ import { StandaloneContext } from "@/platform/shell/standalone-context";
 import { buildNavGroups, mobileEntries } from "@/platform/shell/nav-groups";
 import {
   readCollapsed,
+  revealGroup,
   toggleCollapsed,
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
@@ -96,7 +98,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     [newProject, setNewProject] = useState(false),
     [createdProject, setCreatedProject] = useState(""),
     [revision, setRevision] = useState(0),
-    [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
+    [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set()),
+    [collapsedLoaded, setCollapsedLoaded] = useState(false);
   const setup = useResource<{ configured: boolean }>("/setup");
   const identity = useResource<Identity>(setup.data?.configured ? "/me" : null);
   const t: Text = (key) => labels[locale][key];
@@ -128,7 +131,21 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     setLocaleLoaded(true);
     // After mount like the locale, so the server markup matches.
     setCollapsed(readCollapsed());
+    setCollapsedLoaded(true);
   }, []);
+  // Navigating opens the page's sidebar group; not before the stored groups
+  // are read, and not on a click, so the open page's group can collapse.
+  useEffect(() => {
+    if (!collapsedLoaded || place.kind !== "view") return;
+    const key = activeNavKey(place.route);
+    const entry = table.routes.find((r) => r.key === key) ?? place.route;
+    const next = revealGroup(collapsed, navGroupOf(entry));
+    if (next === collapsed) return;
+    setCollapsed(next);
+    writeCollapsed(next);
+    // `place` is derived from the pathname; `collapsed` must not retrigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, collapsedLoaded, table]);
   useEffect(() => {
     document.documentElement.lang = locale;
     // Not before the stored choice is read, or the default would replace it.

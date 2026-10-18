@@ -2620,9 +2620,6 @@ td:first-child {
   .skeleton {
     background: #e4edf5;
   }
-  .nav-group-head[aria-expanded="false"] .nav-group-chevron {
-    transform: none;
-  }
 }
 @media (prefers-reduced-transparency: reduce) {
   .sidebar,

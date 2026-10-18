@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { isValidElement, type ReactNode } from "react";
+import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { webRegistry } from "@/modules/registry";
 import { buildNavGroups } from "./nav-groups";
@@ -73,18 +74,41 @@ describe("SidebarNav", () => {
     expect(html).toContain(href("missions"));
   });
 
-  it("keeps the active group open", () => {
-    const html = render({
-      collapsed: ["marketing", "support"],
-      activeKey: "missions",
-      locale: "de",
-    });
-    expect(head(html, "marketing")).toContain('aria-expanded="true"');
-    expect(html).toContain(">Missionen<");
+  it("marks the active entry and lets its group collapse", () => {
+    const open = render({ activeKey: "missions", locale: "de" });
+    expect(open).toContain(">Missionen<");
     expect(
-      new RegExp(`<a[^>]*${href("missions")}[^>]*>`).exec(html)?.[0],
+      new RegExp(`<a[^>]*${href("missions")}[^>]*>`).exec(open)?.[0],
     ).toContain('aria-current="page"');
-    expect(head(html, "support")).toContain('aria-expanded="false"');
+    // The shell reopens it on navigation (revealGroup); a click may close it.
+    const closed = render({ collapsed: ["marketing"], activeKey: "missions" });
+    expect(head(closed, "marketing")).toContain('aria-expanded="false"');
+    expect(closed).not.toContain(href("missions"));
+  });
+
+  it("toggles a group from its header", () => {
+    const onToggle = vi.fn();
+    const tree = SidebarNav({
+      groups,
+      activeKey: "support",
+      hrefOf,
+      locale: "en",
+      collapsed: new Set(),
+      onToggle,
+    });
+    const buttons: Array<{ props: Record<string, any> }> = [];
+    const walk = (node: ReactNode) => {
+      if (Array.isArray(node)) return node.forEach(walk);
+      if (!isValidElement<Record<string, any>>(node)) return;
+      if (node.type === "button") buttons.push(node);
+      walk(node.props.children);
+    };
+    walk(tree);
+    const support = buttons.find(
+      (b) => b.props["aria-controls"] === "nav-group-support",
+    )!;
+    support.props.onClick();
+    expect(onToggle).toHaveBeenCalledExactlyOnceWith("support");
   });
 
   it("sums badges of a collapsed group", () => {
