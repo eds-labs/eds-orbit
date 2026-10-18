@@ -5,7 +5,8 @@
  *
  * - a call in a project writes an `AuditEvent` `mcp.tool_call` in that
  *   project (tool, client id, grant id, outcome code, duration, argument
- *   hash) and an `AgentRun` of kind `mcp` with one `tool_call` span;
+ *   hash) and an `AgentRun` of kind `mcp` with one `tool_call` span (not
+ *   for a refused call to an unknown tool, recorded as `<unknown>`);
  * - a call without a project (orbit_projects, a project outside the grant, a
  *   grant that is gone) writes an `McpGrantEvent` `mcp.call`;
  * - `McpGrant.lastUsedAt` follows, at most once a minute per grant.
@@ -19,7 +20,11 @@ import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
 import { hashText, finishRun, recordSpan, startRun } from "../ai/telemetry.ts";
 import { recordGrantEvent } from "../mcp-auth/events.ts";
 import { audit } from "../shared.ts";
-import type { McpCallObserver, McpCallRecord } from "./adapter.ts";
+import {
+  MCP_UNKNOWN_TOOL,
+  type McpCallObserver,
+  type McpCallRecord,
+} from "./adapter.ts";
 
 /** AuditEvent action of a call in a project. */
 export const MCP_TOOL_CALL_ACTION = "mcp.tool_call";
@@ -145,6 +150,9 @@ export function createMcpObserver(options: {
 
   async function traceProjectCall(record: McpCallRecord, hash: string) {
     if (!record.projectId || !record.workspaceId) return;
+    // A refused call to a tool Orbit does not know gets its audit row only:
+    // made-up names must not fill the run table.
+    if (record.tool === MCP_UNKNOWN_TOOL) return;
     const scope = {
       workspaceId: record.workspaceId,
       projectId: record.projectId,

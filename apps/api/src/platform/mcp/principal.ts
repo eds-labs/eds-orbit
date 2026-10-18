@@ -25,6 +25,32 @@ export type McpPrincipal = {
   modules: readonly string[];
 };
 
+/** Membership checks resolvePrincipal runs at once (one query each). */
+export const MEMBERSHIP_CHECK_CONCURRENCY = 4;
+
+/**
+ * Maps the items with at most `limit` calls in flight, keeping input order:
+ * a grant over many projects never fans out an unbounded number of queries.
+ */
+export async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  run: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await run(items[index]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, limit), items.length) }, worker),
+  );
+  return results;
+}
+
 /** Scopes that let a principal call anything at all. */
 const ORBIT_SCOPES = ["orbit:read", "orbit:propose", "orbit:write"];
 
@@ -65,13 +91,15 @@ export async function resolvePrincipal(
       ) ?? [])
     : [...new Set(grant.projectIds)];
   // Every project is checked against the user's membership in the grant's
-  // workspace (actorScope via projectMembership, SECURITY_REVIEW O-6).
-  const kept = await Promise.all(
-    candidates.map(async (projectId) =>
+  // workspace (actorScope via projectMembership, SECURITY_REVIEW O-6), a few
+  // at a time.
+  const kept = await mapBounded(
+    candidates,
+    MEMBERSHIP_CHECK_CONCURRENCY,
+    async (projectId) =>
       (await actorScope(grant.workspaceId, projectId, userId))
         ? projectId
         : null,
-    ),
   );
   const projectIds = kept.filter((id): id is string => id !== null);
   if (!projectIds.length) return null;

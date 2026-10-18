@@ -17,11 +17,15 @@ import {
   type ToolAnnotations,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import type {
-  OrbitTool,
-  ToolRisk,
+import {
+  TOOL_NAME,
+  type OrbitTool,
+  type ToolRisk,
 } from "../../modules/agents/tools/registry.ts";
-import { registeredToolOwner } from "../modules/contributions.ts";
+import {
+  registeredToolOwner,
+  registeredTools,
+} from "../modules/contributions.ts";
 import { DomainError } from "../shared.ts";
 import { moduleScope } from "../tenancy/module-roles.ts";
 import {
@@ -99,6 +103,29 @@ export function mcpToolName(tool: Pick<OrbitTool, "name">): string {
   if (!owner || owner === "platform" || tool.name.startsWith(`${owner}_`))
     return tool.name;
   return `${owner}_${tool.name}`;
+}
+
+/** What audit rows, call logs and spans carry for a tool name Orbit does not know. */
+export const MCP_UNKNOWN_TOOL = "<unknown>";
+
+/**
+ * The tool name a refused call may be recorded under: the client-supplied
+ * name only when it matches the registry's name pattern and names a native
+ * tool or a registered tool (by its MCP name); otherwise MCP_UNKNOWN_TOOL.
+ * Client-controlled text never reaches an audit row, a span or a run.
+ */
+export function auditableToolName(name: unknown): string {
+  if (typeof name !== "string" || !TOOL_NAME.test(name))
+    return MCP_UNKNOWN_TOOL;
+  if (nativeTools.some((tool) => tool.name === name)) return name;
+  try {
+    return registeredTools().some((tool) => mcpToolName(tool) === name)
+      ? name
+      : MCP_UNKNOWN_TOOL;
+  } catch {
+    // No registration (cannot happen in mcp-main.ts): know nothing, never throw.
+    return MCP_UNKNOWN_TOOL;
+  }
 }
 
 /** MCP annotations per registry risk (09 §5.1). */
@@ -293,7 +320,7 @@ function unauthenticatedServer(state: McpRequestState): Server {
   });
   server.setRequestHandler("tools/call", async (request) => {
     await notify(state, {
-      tool: String(request.params.name).slice(0, 128),
+      tool: auditableToolName(request.params.name),
       projectId: null,
       outcome: "UNAUTHENTICATED",
       durationMs: Date.now() - state.startedAt,
@@ -324,7 +351,7 @@ type ToolDefinition = {
   risk: ToolRisk;
   openWorld: boolean;
   inputSchema: z.ZodObject;
-  outputSchema: z.ZodType;
+  outputSchema: z.ZodObject;
   run: (
     args: Record<string, unknown>,
     call: { projectId: string | null },
@@ -368,6 +395,9 @@ export async function mcpServerFor(
   for (const tool of await registryToolsFor(principal)) {
     const name = mcpToolName(tool);
     if (!wanted(name)) continue;
+    // Registration refuses other shapes (mcpExposureProblem); never cast.
+    const { outputSchema } = tool;
+    if (!(outputSchema instanceof z.ZodObject)) continue;
     if (definitions.has(name)) {
       state.log.warn({ tool: name }, "mcp tool name taken; tool left out");
       continue;
@@ -378,7 +408,7 @@ export async function mcpServerFor(
       risk: tool.risk,
       openWorld: tool.openWorld === true,
       inputSchema: inputSchemaFor(tool, single),
-      outputSchema: tool.outputSchema!,
+      outputSchema,
       run: (args, call) =>
         executeRegistryTool(principalState, tool, args, call),
     });
@@ -393,7 +423,7 @@ export async function mcpServerFor(
       !definition.inputSchema.safeParse(state.args ?? {}).success
     )
       await notify(principalState, {
-        tool: String(state.toolName ?? "").slice(0, 128),
+        tool: auditableToolName(state.toolName),
         projectId: projectOfRefusedCall(principal, state.args),
         outcome: "INVALID_PARAMS",
         durationMs: Date.now() - state.startedAt,
@@ -410,7 +440,7 @@ export async function mcpServerFor(
       {
         description: definition.description,
         inputSchema: definition.inputSchema,
-        outputSchema: definition.outputSchema as z.ZodObject,
+        outputSchema: definition.outputSchema,
         annotations: toolAnnotations(definition.risk, definition.openWorld),
         _meta: {
           securitySchemes: [

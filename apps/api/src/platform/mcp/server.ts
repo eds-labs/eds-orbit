@@ -5,9 +5,10 @@
  * check. It runs in its own process (mcp-main.ts), never inside the API.
  *
  * Per request: Origin policy (D-M2-6), token verification by the library
- * (signature via JWKS, `iss`, `aud` ⊇ MCP_RESOURCE, `exp`, DPoP), then the
- * principal resolved again from the grant (never cached), then the SDK
- * handler with a server built for that principal (adapter.ts).
+ * (signature via JWKS, `iss`, `aud` ⊇ MCP_RESOURCE, `exp`, DPoP), the rate
+ * limits keyed from the verified claims, then the principal resolved again
+ * from the grant (never cached), then the SDK handler with a server built
+ * for that principal (adapter.ts).
  * The caller registers the modules first (mcp-main.ts is the composition root).
  */
 import { randomUUID } from "node:crypto";
@@ -19,6 +20,7 @@ import type { JWTPayload } from "better-auth";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { isTrustedPeer } from "../../client-ip.ts";
 import { sendWebResponse } from "../mcp-auth/http.ts";
+import { ORBIT_WORKSPACE_CLAIM } from "../mcp-auth/plugins.ts";
 import { makeAuth } from "../tenancy/auth.ts";
 import {
   mcpServerFor,
@@ -238,30 +240,24 @@ export async function buildMcpServer(
   );
   app.addHook("onClose", async () => handler.close());
 
-  /** Per verified request: resolve the principal again, then hand over to the SDK. */
+  /** Per verified request: charge the limits, resolve the principal again, then hand over to the SDK. */
   const serve = (req: FastifyRequest, startedAt: number) =>
     requireMcpAuth(
       auth,
       async (request: Request, claims: JWTPayload) => {
-        const principal = await resolvePrincipal(claims);
-        const peek = peekMessage(typeof req.body === "string" ? req.body : "");
-        // Without an active grant only a tool call gets an answer, as an
-        // isError result carrying the challenge; everything else is a 401.
-        if (!principal && peek.method !== "tools/call")
-          return unauthenticatedResponse(resource);
-        // Authenticated requests are counted per grant, user and client.
+        // Authenticated requests are counted per grant, user and client,
+        // keyed from the verified claims and charged before the principal is
+        // resolved: a refused request costs no database read. The grant
+        // bucket is the tuple activeGrantForToken looks the grant up by.
         const userId = text(claims.sub);
         const clientId = text(claims.azp);
+        const workspaceClaim = text(claims[ORBIT_WORKSPACE_CLAIM]);
         const verdict = limiter.take([
-          ...(principal
-            ? [
-                {
-                  key: `grant:${principal.grantId}`,
-                  max: limits.perGrant,
-                  label: "grant",
-                },
-              ]
-            : []),
+          {
+            key: `grant:${userId}|${clientId}|${workspaceClaim}`,
+            max: limits.perGrant,
+            label: "grant",
+          },
           { key: `user:${userId}`, max: limits.perUser, label: "user" },
           { key: `client:${clientId}`, max: limits.perClient, label: "client" },
         ]);
@@ -272,6 +268,12 @@ export async function buildMcpServer(
           );
           return rateLimitedResponse(verdict.retryAfterSeconds);
         }
+        const principal = await resolvePrincipal(claims);
+        const peek = peekMessage(typeof req.body === "string" ? req.body : "");
+        // Without an active grant only a tool call gets an answer, as an
+        // isError result carrying the challenge; everything else is a 401.
+        if (!principal && peek.method !== "tools/call")
+          return unauthenticatedResponse(resource);
         // subscriptions/listen would keep a stream open that never checks
         // the principal again; the gateway offers no notifications.
         if (peek.listen) return methodNotFoundResponse(peek.id);

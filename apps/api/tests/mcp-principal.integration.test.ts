@@ -15,6 +15,8 @@ import { setModuleEnabled } from "../src/platform/modules/activation.ts";
 import { registeredTools } from "../src/platform/modules/contributions.ts";
 import { ORBIT_WORKSPACE_CLAIM } from "../src/platform/mcp-auth/plugins.ts";
 import {
+  mapBounded,
+  MEMBERSHIP_CHECK_CONCURRENCY,
   projectScope,
   resolvePrincipal,
   type McpPrincipal,
@@ -600,6 +602,30 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
     ).toEqual(["suggest_task", "task_digest"]);
   });
 
+  it("checks many granted projects a few at a time and keeps grant order", async () => {
+    const member = await user();
+    await workspaceMember(member);
+    const many: string[] = [];
+    for (let i = 0; i < 9; i++)
+      many.push(
+        (
+          await authDb.project.create({
+            data: {
+              workspaceId,
+              name: `Z bulk ${i}`,
+              timezone: "Europe/Berlin",
+            },
+          })
+        ).id,
+      );
+    // A member of every other one only.
+    const kept = many.filter((_, i) => i % 2 === 0);
+    for (const id of kept) await projectMember(member, id, "viewer");
+    const { clientId } = await grant(member, { projectIds: many });
+    const principal = (await resolvePrincipal(claims(member, clientId)))!;
+    expect(principal.projectIds).toEqual(kept);
+  });
+
   it("keeps the principal's fields minimal and typed", async () => {
     const { grant: row, clientId } = await grant(ids.editor, {
       modules: ["tasks"],
@@ -613,5 +639,38 @@ describe.skipIf(!enabled)("MCP principal and permission intersection", () => {
       "orbit:propose",
       "orbit:read",
     ]);
+  });
+});
+
+describe("bounded membership checks", () => {
+  it("runs at most the limit at once and keeps input order", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const items = Array.from({ length: 23 }, (_, i) => i);
+    const results = await mapBounded(
+      items,
+      MEMBERSHIP_CHECK_CONCURRENCY,
+      async (i) => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, (i * 7) % 5));
+        inFlight--;
+        return i * 2;
+      },
+    );
+    expect(MEMBERSHIP_CHECK_CONCURRENCY).toBe(4);
+    expect(peak).toBe(MEMBERSHIP_CHECK_CONCURRENCY);
+    expect(results).toEqual(items.map((i) => i * 2));
+    expect(await mapBounded([], 4, async () => 1)).toEqual([]);
+    expect(await mapBounded([1, 2], 0, async (i) => i)).toEqual([1, 2]);
+  });
+
+  it("propagates a failing check", async () => {
+    await expect(
+      mapBounded([1, 2, 3], 2, async (i) => {
+        if (i === 2) throw new Error("check failed");
+        return i;
+      }),
+    ).rejects.toThrow("check failed");
   });
 });

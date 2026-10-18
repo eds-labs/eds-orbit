@@ -55,6 +55,19 @@ vi.mock("../src/platform/shared.ts", async (importOriginal) => {
     },
   };
 });
+// Counts principal resolutions: a rate-limited request must not run any.
+const principalCalls = { count: 0 };
+vi.mock("../src/platform/mcp/principal.ts", async (importOriginal) => {
+  const real =
+    await importOriginal<typeof import("../src/platform/mcp/principal.ts")>();
+  return {
+    ...real,
+    resolvePrincipal: (...args: Parameters<typeof real.resolvePrincipal>) => {
+      principalCalls.count++;
+      return real.resolvePrincipal(...args);
+    },
+  };
+});
 vi.mock("../src/platform/mcp-auth/events.ts", async (importOriginal) => {
   const real =
     await importOriginal<typeof import("../src/platform/mcp-auth/events.ts")>();
@@ -629,6 +642,65 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
     });
   });
 
+  describe("client-supplied tool names", () => {
+    it("an unknown tool is audited as <unknown> and creates no AgentRun", async () => {
+      const runsBefore = (await runsIn(projectA)).length;
+      const rowsBefore = (await auditRows(projectA)).length;
+      const made = [`no_such_tool`, `Evil ${MARKER}<script>`, "x".repeat(300)];
+      for (const name of made) {
+        const response = await call(gateway, name, { title: MARKER });
+        expect(rpcBody(response).error.code).toBe(-32602);
+      }
+      const rows = (await auditRows(projectA)).slice(rowsBefore);
+      expect(rows).toHaveLength(made.length);
+      for (const row of rows)
+        expect(row.metadata).toMatchObject({
+          tool: "<unknown>",
+          outcome: "INVALID_PARAMS",
+        });
+      expect((await runsIn(projectA)).length).toBe(runsBefore);
+      const stored = JSON.stringify(rows);
+      expect(stored).not.toContain(MARKER);
+      expect(stored).not.toContain("no_such_tool");
+    });
+
+    it("a known tool keeps its name when the SDK refuses the call", async () => {
+      // Valid name, invalid arguments: a real tool, so name and run stay.
+      const runsBefore = (await runsIn(projectA)).length;
+      const response = await call(gateway, "tasks_suggest_task", {
+        title: 42,
+      });
+      expect(rpcBody(response).result.isError).toBe(true);
+      const row = (await auditRows(projectA)).at(-1)!;
+      expect(row.metadata).toMatchObject({
+        tool: "tasks_suggest_task",
+        outcome: "INVALID_PARAMS",
+      });
+      const runs = await runsIn(projectA);
+      expect(runs.length).toBe(runsBefore + 1);
+      expect(runs.at(-1)!.taskClass).toBe("tasks_suggest_task");
+    });
+
+    it("a made-up name with a gone grant is logged as <unknown>", async () => {
+      const response = await call(
+        gateway,
+        `made_up_${randomUUID().slice(0, 8)}`,
+        {},
+        { token: tokens["audit-gone"] },
+      );
+      expect(rpcBody(response).result.structuredContent.code).toBe(
+        "UNAUTHENTICATED",
+      );
+      const event = (await callEvents())
+        .filter((e) => e.clientId === CLIENT["audit-gone"])
+        .at(-1);
+      expect(event!.detail).toMatchObject({
+        tool: "<unknown>",
+        outcome: "UNAUTHENTICATED",
+      });
+    });
+  });
+
   describe("telemetry", () => {
     it("records an mcp AgentRun with one tool_call span per project call", async () => {
       const args = { title: `Telemetry ${MARKER}` };
@@ -791,6 +863,42 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       const again = await call(app, "orbit_projects", {}, { token });
       expect(again.statusCode).toBe(200);
     }, 120_000);
+
+    it("a rate-limited request resolves no principal (no grant or membership query)", async () => {
+      const app = await gatewayWith({
+        rateLimits: { perGrant: 2, perUser: 50, perClient: 50 },
+      });
+      const token = tokens["limit-window"];
+      const before = principalCalls.count;
+      for (let i = 0; i < 2; i++)
+        expect(
+          (await call(app, "orbit_projects", {}, { token })).statusCode,
+        ).toBe(200);
+      expect(principalCalls.count).toBe(before + 2);
+      const spy = vi.spyOn(suggestTask, "execute");
+      const limited = await call(
+        app,
+        "tasks_suggest_task",
+        { title: "Over the limit" },
+        { token },
+      );
+      expect(limited.statusCode).toBe(429);
+      expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
+      expect(principalCalls.count).toBe(before + 2);
+      expect(spy).not.toHaveBeenCalled();
+      expect(logLines.join("")).toContain('"bucket":"grant"');
+    });
+
+    it("the grant bucket is per grant: another grant of the same user still runs", async () => {
+      const app = await gatewayWith({
+        rateLimits: { perGrant: 1, perUser: 50, perClient: 50 },
+      });
+      const status = async (token: string) =>
+        (await call(app, "orbit_projects", {}, { token })).statusCode;
+      expect(await status(tokens["limit-user-1"])).toBe(200);
+      expect(await status(tokens["limit-user-1"])).toBe(429);
+      expect(await status(tokens["limit-user-2"])).toBe(200);
+    });
 
     it("a user is limited across its grants", async () => {
       const app = await gatewayWith({
