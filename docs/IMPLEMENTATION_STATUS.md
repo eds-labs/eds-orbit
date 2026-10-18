@@ -1,5 +1,92 @@
 # Implementation status
 
+## Track M WP-M2: MCP gateway core (2026-10-18, local; flag off)
+
+Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpowers/plans/2026-10-18-track-m-wp-m2-gateway.md` (decisions D-M2-1…7 and the Task 0 findings). Risk: high (new public endpoint). Environment: local only. Mario approved the MCP SDK 2.3.1 on 2026-10-18. There is no production service: nothing starts `apps/api/src/mcp-main.ts` yet (compose service and Traefik route are WP-M5). No module tool is exposed to MCP yet (WP-M3); the only tools a client can list today are the native `orbit_projects` and tools that opt in later.
+
+- **Merging is a production change.** A merge to `main` auto-deploys, so it applies to production regardless of the flag:
+  - the migration `202610180010_mcp_run_kind` widens `AgentRun_kind_check` so `'mcp'` is a valid run kind (drop and re-add of a check constraint on `AgentRun`; the table is locked briefly while the check is validated, and every existing row already satisfies the wider check);
+  - the dependency `@modelcontextprotocol/server` 2.3.1 (exact pin, with its `@modelcontextprotocol/core`);
+  - three config keys that pass through the compose file to the api and worker (`ORBIT_MCP_GATEWAY`, `MCP_PORT`, `ORBIT_MCP_ALLOWED_ORIGINS`), all inert while no service runs the gateway.
+
+  Nothing else runs: no compose service starts `mcp-main.ts`, there is no Traefik route, and the web proxy and the API server are unchanged. The merge needs Mario's explicit approval (production migration, new dependency).
+- **What runs.** `apps/api/src/mcp-main.ts` is a separate process (`pnpm mcp:start`, `tsx apps/api/src/mcp-main.ts`) with its own Fastify app, built by `buildMcpServer` in `apps/api/src/platform/mcp/server.ts`. It is the composition root of that process (registers the modules), binds `BIND_HOST`:`MCP_PORT`, and on SIGINT or SIGTERM closes the app and the database once and exits 0. It imports only config and the guard before checking the flags, so with a flag off it exits 1 with a clear message and the API and web are untouched. MCP load cannot slow the UI API: it is another process.
+- **Flags and config.**
+  - `ORBIT_MCP_GATEWAY` (default `false`): the gateway starts only when this and `ORBIT_MCP_OAUTH` are both `true`; `buildMcpServer` throws otherwise. The API and web ignore it.
+  - `MCP_PORT` (default 4312) and `ORBIT_MCP_ALLOWED_ORIGINS` (comma list, empty allows none) use the `unset()` helper, so an empty compose value means unset.
+  - All three are in `docker-compose.yml` (`x-api-environment`), `.env.example` and `scripts/check-coolify-compose.mjs`.
+  - `MCP_RESOURCE`, the issuer and the OAuth flags are the WP-M1 keys.
+- **Routes.**
+  - `POST /mcp` (body limit 256 KB; 413 above it).
+  - `GET /mcp` and `DELETE /mcp` answer 405 with `Allow: POST`; there is no route for other methods.
+  - Protected Resource Metadata (RFC 9728) at `/.well-known/oauth-protected-resource/mcp` and at the root `/.well-known/oauth-protected-resource`; both describe the same resource, the issuer and the scopes.
+  - `/healthz`.
+  - A request with an `Origin` header is refused with 403 (before any token use) unless the origin is in `ORBIT_MCP_ALLOWED_ORIGINS`; no CORS headers or `OPTIONS` handling exist. Cookies are ignored.
+- **Protocol.** SDK `@modelcontextprotocol/server` 2.3.1 through `createMcpHandler(factory, { legacy: "stateless" })` (D-M2-7): one factory serves revision 2026-07-28 and the legacy era (2025-11-25 and older revisions the SDK accepts), without sessions (no `mcp-session-id`). A fresh `McpServer` is built per request for the resolved principal. `subscriptions/listen` is refused with JSON-RPC -32601 (single message or in a batch) after authentication; `listChanged` is false (events are WP-M6).
+- **Authentication.** `requireMcpAuth` from the Better Auth MCP plugin checks signature, `iss` (`${APP_ORIGIN}/api/auth`), `aud` (must include `MCP_RESOURCE`), `exp` and DPoP, with a `jwksUrl` that defaults to `${APP_ORIGIN}/api/auth/jwks` and is fetched over HTTP (5 minute cache). The principal is resolved on every request (`platform/mcp/principal.ts`): effective scopes are the token `scope` ∩ the grant's scopes; the grant must be active, unexpired and its user still a workspace member (`activeGrantForToken`); each granted project is re-checked with `actorScope` (`projectMembership`, so module roles apply: SECURITY_REVIEW O-6). A missing, invalid or foreign token gets 401 with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`. A verified token whose grant was revoked in between gets that challenge on every method except `tools/call`; a `tools/call` is answered with an `isError` `UNAUTHENTICATED` result carrying the challenge in `_meta["mcp/www_authenticate"]`.
+- **Permission intersection** (`authorizeMcpCall`, matrix in `mcp-principal.integration.test.ts`). Effective permission = tool permission ∩ the user's current role in the project (including module roles) ∩ the grant (projects, scopes, modules) ∩ module activation. Scope mapping: `R0_read` needs `orbit:read`, `P_proposal` needs `orbit:propose`; `W0_internal` needs `orbit:write`, which is not offered, so such tools never appear. Hard floors never appear. A grant restricted to modules is fail-closed for platform-owned tools (hidden unless `platform` is listed).
+- **Registry adapter** (`platform/mcp/adapter.ts`). A tool is exposed only with `exposure.mcp === true` and an `outputSchema` (`defineTool` and `registerContributions` refuse an MCP-exposed tool without one; `exposure.assistant === false` also keeps a tool out of the in-app assistant). Names are `<owner>_<name>` unless the name already has the owner prefix or the owner is the platform. The input schema is the tool's parameters as a strict object plus `projectId` (a uuid, optional when the principal has exactly one project); a tool that declares its own `projectId` is left out. Annotations follow `09` §5.1 with `openWorldHint` always explicit; `_meta.securitySchemes` names the scopes. A call runs `authorizeMcpCall`, parses the arguments, and calls `execute` with the module scope and `channel: "mcp"`. The result's `structuredContent` is the output parsed against `outputSchema` (output that does not parse, including extra keys, is `REQUEST_FAILED` and never sent), `content` is a JSON text copy, cards are dropped, and output above 64 KB is `OUTPUT_TOO_LARGE`. Handlers never throw: a `DomainError` or `KnowledgeError` becomes an `isError` result with the code, the REST message and `retryable`; a tool's own `ZodError` becomes `VALIDATION_FAILED: <paths>`; anything else is the fixed text `request failed (request id <uuid>)`. Arguments refused by the SDK's schema check come back as an `isError` "Invalid arguments" result naming paths, not values (HTTP 200, not JSON-RPC -32602). Module activation rows are read only when needed: the read is skipped while `ORBIT_MODULES` is off and no available opt-in module owns an MCP-exposed tool, because the answer is the same.
+- **Native tool.** `orbit_projects` (R0, `orbit:read`; `platform/mcp/native-tools.ts`) returns the grant's workspace and projects (name order) with each project's enabled modules, visible to the role and within the grant. Native tools are for workspace-level data that needs no project scope (D-M2-4); WP-M3 adds `orbit_profile`, `search` and `fetch`.
+- **Audit and telemetry** (`platform/mcp/audit.ts`, awaited before the response, never failing the call). A call within a project writes `AuditEvent` `mcp.tool_call` (resource id = the gateway's request id; metadata: tool, client id, grant id, outcome code, duration, `argsHash`). A project-less call writes `McpGrantEvent` `mcp.call` (D-M2-3, no new table). `argsHash` is an unsalted SHA-256 of the key-sorted arguments; argument values, results and error messages are stored and logged nowhere. Calls the SDK refuses (unknown or unlisted tool, invalid arguments) are audited as `INVALID_PARAMS`. Each call with a project also records an `AgentRun` of kind `mcp` (agent name `mcp:<clientId>`, task class = tool, one `tool_call` span); project-less calls get no run (`AgentRun.projectId` is required). `McpGrant.lastUsedAt` is updated at most once a minute per grant.
+- **Limits** (`platform/mcp/limits.ts`, in process, fixed one-minute window, D-M2-5). Per grant 120, per user 240, per client 600, and 30 per client IP for requests without a valid token. Every authenticated request counts, not only `tools/call` (a stateless client sends about two or three requests per interaction). All refusals are HTTP 429 with `Retry-After`, answered before the SDK (no tool-level `RATE_LIMITED`) and logged by bucket label only; they write no database rows. The client IP is the right-most `X-Forwarded-For` entry, honoured only from a trusted peer.
+- **Decisions D-M2-1…7** (controller rulings, reported in the PR):
+  1. The production `mcp` compose service and the Traefik `/mcp` route are WP-M5 (Q-22 placement unchanged).
+  2. Token verification uses the library's `requireMcpAuth`; amended: it verifies against the JWKS over HTTP, not in process (Better Auth 1.7.10 has no in-process key path). An internal JWKS URL is a WP-M5 decision (`buildMcpServer({ jwksUrl })` is the seam).
+  3. Project-less call logging reuses `McpGrantEvent` instead of a new `McpCallLog` table.
+  4. Gateway-native tools live in `platform/mcp/native-tools.ts`; module tools come only through the adapter.
+  5. Rate limits are in process, per gateway.
+  6. Origin policy as above; amended: no CORS (browser MCP clients are out of scope for WP-M2).
+  7. `legacy: "stateless"`, from the Task 0 findings.
+
+  Amendments: a tool outside the principal's scopes is neither listed nor callable ("Tool not found"), with no 403 step-up challenge (stricter than `09` §6.4; re-consent works); all refusals are 429 before the SDK; every authenticated request counts toward the limits.
+- **Task 0 findings** (details at the end of the plan; characterization tests in `mcp-sdk.characterization.test.ts`). `createMcpHandler` takes a factory called once per request; a tool handler's thrown error text reaches the client, so handlers must not throw; invalid tool arguments are an `isError` result, not -32602; the legacy leg of the SDK serves 2025-11-25 and older revisions without sessions; 2026-07-28 has `server/discover` instead of `initialize`.
+- **Tests.**
+  - `mcp-sdk.characterization.test.ts`: the SDK's behaviour.
+  - `mcp-principal.integration.test.ts`: the permission matrix and claims without an active grant.
+  - `mcp-gateway.integration.test.ts` (29 tests): transport, discovery, tokens (foreign `aud`/`iss`, revoked grant), `tools/list`, `tools/call`, the legacy revision, the process, the observer.
+  - `mcp-gateway-audit.integration.test.ts` (27 tests): audit, call log, telemetry, `lastUsedAt`, argument values stored nowhere, rate limits, `subscriptions/listen`, shutdown.
+  - `apps/api/src/platform/mcp/gateway-guard.test.ts`, `registry.test.ts`, `module-contributions.test.ts`, `config-compose-empty.test.ts`: flag guard, exposure rules, config.
+  - Mapping to the roadmap acceptance: `docs/REQUIREMENTS_TRACEABILITY.md` ("Track M WP-M2 acceptance").
+
+**Known limitations (accepted for WP-M2).**
+- No module tool is exposed to MCP yet; the gateway lists `orbit_projects` and nothing else in production code. Only test fixtures expose tools (`task_digest`, `suggest_task`).
+- Browser MCP clients cannot read responses (no CORS). ChatGPT calls server-side without an `Origin`.
+- A stateless client's `tools/list` polling consumes the call budget (every authenticated request counts).
+- The `argsHash` is unsalted, so low-entropy arguments could be guessed from the hash by someone with read access to the audit table.
+- A SDK-refused call is audited as one code, `INVALID_PARAMS`; other SDK refusals (for example a malformed batch) are not audited.
+- Project-less calls have no `AgentRun`; they appear in `McpGrantEvent` only.
+- A batch containing `tools/call` (legacy era) is answered by the SDK as an unknown tool; nothing executes and nothing is audited. Only `subscriptions/listen` makes the gateway refuse a whole batch.
+- The DPoP-bound token path has no gateway-level test; the protected resource metadata omits `dpop_signing_alg_values_supported`.
+- Per-call tool visibility is computed over all granted projects, and `resolvePrincipal` runs one membership query per granted project on each request.
+- Other deferred review findings, none of which changes the security properties above:
+  - the assistant's static byte estimate ignores `exposure.assistant === false` (inert today);
+  - `parseAllowedOrigins` rejects a non-normalised origin with a generic message and accepts `http` origins for any host;
+  - `exposure: { assistant: false, mcp: false }` is accepted silently;
+  - the Origin policy also covers the metadata and health routes;
+  - a `KnowledgeError` is always reported as not retryable;
+  - a module role raise is not a case of the permission matrix.
+
+**WP-M5 checklist (before `ORBIT_MCP_GATEWAY=true` and the WP-M1 pre-flip checklist above).**
+- [ ] The compose service `mcp` (same image, command `tsx apps/api/src/mcp-main.ts`, healthcheck on `/healthz`) and the Traefik routes for `/mcp` and the two Protected Resource Metadata paths (Q-22, `https://orbit.eds-labs.io/mcp`, no subdomain).
+- [ ] Decide an internal JWKS URL config key, so verification does not hairpin through the public origin (`buildMcpServer({ jwksUrl })` is the seam; a JWKS outage answers 503 without detail).
+- [ ] Redis-backed limits if more than one gateway runs (limits are per process today).
+- [ ] Key the unauthenticated limit by the IPv6 /64 prefix and cap the limiter map size (IPv6 address rotation evades the per-IP limit today; the map only drops expired windows).
+- [ ] Verify before the IP limit: a request with a bad token is verified (JWKS work) before it is counted.
+- [ ] The adapter's pre-validation skips the SDK's `maxToolInputElements` and would throw on async schema refinements; align it or use the SDK's own check.
+- [ ] A test with a DPoP-bound token, and advertise `dpop_signing_alg_values_supported` if DPoP is supported.
+- [ ] MCP Inspector conformance for both revisions (2026-07-28 and 2025-11-25), plus the ChatGPT developer-mode run (Q-21, Q-23).
+- [ ] Decide CORS for browser clients (today none).
+- [ ] A forced-exit timeout in the shutdown path (a hung `app.close()` would block the exit).
+- [ ] Salt or key the `argsHash` if audit read access is wider than needed.
+- [ ] The independent security review (`09` §9), including the O-6 check that the scope is built through `projectMembership`.
+
+**WP-M3 items.** Expose reviewed read tools with `outputSchema`s; filter results by `modelUse` and hard floors; render cards as Orbit links; add the native `search`, `fetch` and `orbit_profile`; add `orbit:propose` tools through ActionRequests.
+
+**Verification (local).** Full suite on a fresh per-worktree test database deployed from this branch (`node scripts/test-db-for-worktree.ts`, which applies `202610180010`): `vitest run` with the local env file, 212 files, 2093 of 2093 tests passed. `tsc --noEmit` (root and `apps/web`), `next build --webpack`, `scripts/source-check.mjs` (0 known import violations, none new), `python3 scripts/check-secrets.py` and `scripts/check-coolify-compose.mjs` pass. Not done: MCP Inspector conformance, a ChatGPT developer-mode run, a load test and the independent security review (WP-M5).
+
+**Rollback.** Do not run `mcp-main.ts`, or keep `ORBIT_MCP_GATEWAY=false` (the process then refuses to start); nothing in production depends on it. Reverting the PR removes the code and the SDK dependency. The migration only widens a check constraint: leave it in place on a revert (it is unused without `mcp` runs); narrowing it again would fail on any existing `mcp` run row.
+
+
 ## Support module release (2026-10-18; flag off)
 
 Mario approved on 2026-10-18 the merge and deploy of the whole support stack: WP5.1–WP5.8 and the review fixes (#145, #154, #156–#162). It is released as one merge of #162 into main, so production deploys once. The stacked PRs are closed as merged through #162.
