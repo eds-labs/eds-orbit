@@ -60,6 +60,13 @@ export interface MailTransport {
 export type FetchedMessage = { uid: number; source: Buffer };
 export interface MailboxReader {
   verify(): Promise<void>;
+  /** The INBOX's UIDVALIDITY, its highest UID and its unread UIDs. */
+  scan(): Promise<{ uidValidity: string; top: number; unseen: number[] }>;
+  /** These INBOX messages; larger than `maxBytes` are reported as skipped. */
+  fetchUids(
+    uids: number[],
+    maxBytes: number,
+  ): Promise<{ messages: FetchedMessage[]; skipped: number[] }>;
   /**
    * INBOX messages after `lastUid` (all of them when the UIDVALIDITY
    * changed), at most `max`, each at most `maxBytes`; larger ones are
@@ -239,6 +246,26 @@ export async function smtpSession(
   });
 }
 
+/** The sources of these messages; larger than `maxBytes` are skipped. */
+async function fetchSources(
+  c: ImapFlow,
+  sizes: { uid: number; size: number }[],
+  maxBytes: number,
+) {
+  const skipped = sizes.filter((m) => m.size > maxBytes).map((m) => m.uid);
+  const wanted = sizes.filter((m) => m.size <= maxBytes).map((m) => m.uid);
+  const messages: FetchedMessage[] = [];
+  if (wanted.length)
+    for await (const m of c.fetch(
+      wanted.join(","),
+      { uid: true, source: true },
+      { uid: true },
+    ))
+      if (m.source) messages.push({ uid: m.uid, source: m.source });
+  messages.sort((a, b) => a.uid - b.uid);
+  return { messages, skipped: skipped.sort((a, b) => a - b) };
+}
+
 const realFactories: MailFactories = {
   checkHost: async (host) => void (await assertPublicMailHost(host)),
   transport(account, password) {
@@ -282,6 +309,28 @@ const realFactories: MailFactories = {
         session(async (c) => {
           await c.mailboxOpen("INBOX", { readOnly: true });
         }),
+      scan: () =>
+        session(async (c) => {
+          const box = await c.mailboxOpen("INBOX", { readOnly: true });
+          const unseen = await c.search({ seen: false }, { uid: true });
+          return {
+            uidValidity: String(box.uidValidity),
+            top: Math.max(0, Number(box.uidNext) - 1),
+            unseen: (unseen || []).sort((a, b) => a - b),
+          };
+        }),
+      fetchUids: (uids, maxBytes) =>
+        session(async (c) => {
+          await c.mailboxOpen("INBOX", { readOnly: true });
+          const sizes: { uid: number; size: number }[] = [];
+          for await (const m of c.fetch(
+            uids.join(","),
+            { uid: true, size: true },
+            { uid: true },
+          ))
+            sizes.push({ uid: m.uid, size: m.size ?? 0 });
+          return fetchSources(c, sizes, maxBytes);
+        }),
       fetchNew: (state, limits) =>
         session(async (c) => {
           const box = await c.mailboxOpen("INBOX", { readOnly: true });
@@ -297,22 +346,10 @@ const realFactories: MailFactories = {
             if (m.uid > from) sizes.push({ uid: m.uid, size: m.size ?? 0 });
           sizes.sort((a, b) => a.uid - b.uid);
           const batch = sizes.slice(0, limits.max);
-          const skipped = batch
-            .filter((m) => m.size > limits.maxBytes)
-            .map((m) => m.uid);
-          const wanted = batch
-            .filter((m) => m.size <= limits.maxBytes)
-            .map((m) => m.uid);
-          const messages: FetchedMessage[] = [];
-          if (wanted.length)
-            for await (const m of c.fetch(
-              wanted.join(","),
-              { uid: true, source: true },
-              { uid: true },
-            ))
-              if (m.source) messages.push({ uid: m.uid, source: m.source });
-          messages.sort((a, b) => a.uid - b.uid);
-          return { uidValidity, messages, skipped };
+          return {
+            uidValidity,
+            ...(await fetchSources(c, batch, limits.maxBytes)),
+          };
         }),
     };
   },
