@@ -14,8 +14,11 @@ import {
   exposedToMcp,
   type OrbitTool,
 } from "../../modules/agents/tools/registry.ts";
+import { moduleSwitchingEnabled } from "../modules/activation.ts";
 import {
+  moduleAvailable,
   registeredAssistants,
+  registeredRegistry,
   registeredToolOwner,
   registeredTools,
 } from "../modules/contributions.ts";
@@ -42,9 +45,54 @@ export function requiredScope(tool: Pick<OrbitTool, "risk">): McpScope {
   }
 }
 
+/** Available modules that are off by default (support): an owner must enable them. */
+function optInModules(): string[] {
+  return registeredRegistry()
+    .modules.filter((m) => !m.defaultEnabled && moduleAvailable(m.id))
+    .map((m) => m.id);
+}
+
+/**
+ * Whether listing MCP tools must read the project's module activation. Not
+ * while ORBIT_MODULES is off and no opt-in module owns an MCP-exposed tool:
+ * the answer for the exposed tools is then the same for every project, so
+ * the gateway saves one project transaction per granted project and request.
+ */
+export function mcpToolsNeedActivationRows(): boolean {
+  if (moduleSwitchingEnabled()) return true;
+  const optIn = new Set(optInModules());
+  if (!optIn.size) return false;
+  return registeredTools().some(
+    (tool) => exposedToMcp(tool) && optIn.has(registeredToolOwner(tool.name)!),
+  );
+}
+
+/** The project's enabled modules (enabledModules), read in its own transaction. */
+const readEnabledModules = (scope: Scope) =>
+  scoped(scope.workspaceId, scope.projectId, (tx) => enabledModules(tx, scope));
+
+/**
+ * The enabled modules that decide the project's MCP tools. Without the read
+ * (see mcpToolsNeedActivationRows) every available module counts except the
+ * opt-in ones, which own no exposed tool then; their assistants contribute
+ * no tool features (only marketing does, and it is on by default).
+ */
+async function enabledForTools(
+  scope: Scope,
+): Promise<ReadonlySet<string> | undefined> {
+  if (mcpToolsNeedActivationRows()) return readEnabledModules(scope);
+  const optIn = optInModules();
+  if (!optIn.length) return undefined;
+  return new Set(
+    registeredRegistry().order.filter(
+      (id) => moduleAvailable(id) && !optIn.includes(id),
+    ),
+  );
+}
+
 /**
  * The tools the principal may use with this scope, in name order. Module
- * activation is always read: unlike the assistant it also applies while
+ * activation always applies: unlike the assistant it also applies while
  * ORBIT_MODULES is off, so an opt-in module (support) counts only where an
  * owner enabled it. Tool search does not exist over MCP, so features that a
  * module turns on only with tool search stay off.
@@ -53,12 +101,7 @@ async function allowedTools(
   principal: McpPrincipal,
   scope: Scope,
 ): Promise<OrbitTool[]> {
-  const enabled = visibleModules(
-    scope,
-    await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      enabledModules(tx, scope),
-    ),
-  );
+  const enabled = visibleModules(scope, await enabledForTools(scope));
   const features = registeredAssistants(enabled).flatMap((assistant) =>
     assistant.features({ toolSearch: false }),
   );
@@ -108,4 +151,22 @@ export async function authorizeMcpCall(
   );
   if (!tool) throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
   return { tool, scope };
+}
+
+/**
+ * The modules of a project the principal may use, in registry order: enabled
+ * for the project, visible to the member's role and inside the grant's
+ * module restriction. Always reads the project's activation.
+ */
+export async function principalModules(
+  principal: McpPrincipal,
+  scope: Scope,
+): Promise<string[]> {
+  const enabled = visibleModules(scope, await readEnabledModules(scope));
+  return registeredRegistry().order.filter(
+    (id) =>
+      moduleAvailable(id) &&
+      (!enabled || enabled.has(id)) &&
+      (!principal.modules.length || principal.modules.includes(id)),
+  );
 }

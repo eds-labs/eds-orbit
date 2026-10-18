@@ -12,6 +12,7 @@
     "dev:api": "tsx watch apps/api/src/main.ts",
     "dev:web": "pnpm --dir apps/web dev",
     "dev:worker": "tsx apps/worker/src/main.ts",
+    "mcp:start": "tsx apps/api/src/mcp-main.ts",
     "db:generate": "prisma generate --config packages/db/prisma.config.ts",
     "db:migrate": "prisma migrate deploy --config packages/db/prisma.config.ts",
     "typecheck": "tsc --noEmit && pnpm --dir apps/web typecheck",
