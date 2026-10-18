@@ -523,8 +523,10 @@ describe.skipIf(!enabled)(
       it("lists the native tools with pinned schemas, annotations and _meta", async () => {
         const tools = rpcBody(await rpc("tools/list", {}, tokens.one)).result
           .tools as Json[];
+        // Plus marketing's project status, the first registry tool (Task 4).
         expect(tools.map((tool) => tool.name)).toEqual([
           "fetch",
+          "marketing_project_status",
           "orbit_profile",
           "orbit_projects",
           "search",

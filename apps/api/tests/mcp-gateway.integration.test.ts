@@ -690,6 +690,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       const tools = rpcBody(response).result.tools as Json[];
       expect(tools.map((t) => t.name)).toEqual([
         "fetch",
+        "marketing_project_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -748,6 +749,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
     it("follows the user's role: a viewer gets no proposal tool", async () => {
       expect(await toolNames(tokens.viewer)).toEqual([
         "fetch",
+        "marketing_project_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -994,6 +996,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       const list = rpcBody(await legacy("tools/list", {}, tokens.legacy));
       expect(list.result.tools.map((t: Json) => t.name)).toEqual([
         "fetch",
+        "marketing_project_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -1015,6 +1018,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         ),
       ).toEqual([
         "fetch",
+        "marketing_project_status",
         "orbit_profile",
         "orbit_projects",
         "search",
@@ -1541,6 +1545,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         // Same list with and without the read.
         expect(await toolNames(tokens["editor-two"])).toEqual([
           "fetch",
+          "marketing_project_status",
           "orbit_profile",
           "orbit_projects",
           "search",
@@ -1552,6 +1557,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       }
       expect(await toolNames(tokens["editor-two"])).toEqual([
         "fetch",
+        "marketing_project_status",
         "orbit_profile",
         "orbit_projects",
         "search",
