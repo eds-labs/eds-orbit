@@ -38,6 +38,14 @@ export type ToolContext = {
   callIndex: number;
   // Set for a specialist's task; its paid reads reserve under the task's keys, not as chat.
   agentTask?: { taskId: string; runId: string };
+  // Set when the MCP gateway runs the tool for an outside client (Track M);
+  // absent means the assistant. Only the gateway sets it.
+  channel?: {
+    kind: "mcp";
+    clientId: string;
+    grantId: string;
+    requestId: string;
+  };
 };
 export type ToolResult = { output: unknown; cards: ChatCard[] };
 export type OrbitTool = {
@@ -57,6 +65,15 @@ export type OrbitTool = {
    * module is on (WP3.3).
    */
   alwaysOffered?: true;
+  /**
+   * Where the tool may appear. Absent means `{ assistant: true, mcp: false }`:
+   * nothing reaches an outside client unless its module opts in (Track M).
+   */
+  exposure?: { assistant?: boolean; mcp?: boolean };
+  /** The shape of `output`; required for every tool exposed to MCP. */
+  outputSchema?: z.ZodType;
+  /** The tool reads content outside Orbit's control (MCP `openWorldHint`). */
+  openWorld?: true;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 
@@ -125,9 +142,25 @@ function assertStrictKeywords(schema: unknown, path: string): void {
   }
 }
 
+/** Offered by Orbit Chat unless the tool opts out (`exposure.assistant: false`). */
+export const exposedToAssistant = (tool: OrbitTool) =>
+  tool.exposure?.assistant !== false;
+
+/** Exposed to MCP clients only when the tool opts in and declares its output schema. */
+export const exposedToMcp = (tool: OrbitTool) =>
+  tool.exposure?.mcp === true && tool.outputSchema !== undefined;
+
+/** A tool that opts into MCP without an output schema is a registration error. */
+export const mcpExposureProblem = (tool: OrbitTool) =>
+  tool.exposure?.mcp === true && tool.outputSchema === undefined
+    ? `tool ${tool.name} is exposed to MCP without an output schema`
+    : undefined;
+
 /** Validates a tool at import time, so a bad schema never reaches a paid call. */
 export function defineTool(tool: OrbitTool): OrbitTool {
   if (!TOOL_NAME.test(tool.name)) throw new Error("TOOL_NAME_INVALID");
+  if (mcpExposureProblem(tool))
+    throw new Error(`TOOL_OUTPUT_SCHEMA_REQUIRED:${tool.name}`);
   assertStrictKeywords(responsesTool(tool).parameters, "parameters");
   return tool;
 }

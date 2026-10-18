@@ -70,8 +70,33 @@ export function fixtureSignature(
     .digest("hex");
 }
 
+/**
+ * A tool for outside clients only (WP-M2): hidden from the assistant, exposed
+ * to MCP with an output schema. The gateway tests use it; the assistant must
+ * never offer it.
+ */
+export const taskDigest = defineTool({
+  name: "task_digest",
+  namespace: "tasks",
+  description: "Count the project's fixture tasks.",
+  parameters: z.object({}).strict(),
+  risk: "R0_read",
+  permission: TASKS_READ,
+  deferLoading: false,
+  exposure: { assistant: false, mcp: true },
+  outputSchema: z.object({ total: z.number().int() }).strict(),
+  async execute(context) {
+    const total = await scoped(
+      context.scope.workspaceId,
+      context.scope.projectId,
+      async (tx) => (await list(tx, context.scope, "fixture_tasks")).length,
+    );
+    return { output: { total }, cards: [] };
+  },
+});
+
 export const tasksContributions: ModuleContributions = {
-  tools: [proposeTasks],
+  tools: [proposeTasks, taskDigest],
   // A public API for browsers on a key's origins (WP4.2b): visitors file
   // requests and see their own.
   publicRoutes: [

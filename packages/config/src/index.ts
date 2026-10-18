@@ -89,6 +89,13 @@ const baseConfigSchema = z.object({
   ),
   // Hosts (exact or subdomain) whose Client ID Metadata Documents are fetched.
   ORBIT_MCP_CIMD_HOSTS: z.string().default("chatgpt.com"),
+  // The separate MCP gateway process (Track M, WP-M2). It refuses to start
+  // unless this and ORBIT_MCP_OAUTH are "true"; the API and web ignore it.
+  ORBIT_MCP_GATEWAY: z.enum(["false", "true"]).default("false"),
+  // Port of the gateway process; the reverse proxy routes /mcp to it.
+  MCP_PORT: unset(z.coerce.number().int().min(1).max(65535).default(4312)),
+  // Browser origins allowed to call the gateway (comma list); empty allows none.
+  ORBIT_MCP_ALLOWED_ORIGINS: unset(z.string().default("")),
   // Module-level roles (WP4.5): off until the security review and approval.
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.

@@ -493,4 +493,29 @@ describe("module contributions", () => {
       "notification kind same registered twice; invalid notification kind Bad-Kind",
     );
   });
+
+  it("refuses a tool exposed to MCP without an output schema, naming it (WP-M2)", () => {
+    const registry = validateRegistry(
+      [
+        {
+          id: "alpha",
+          version: "1.0.0",
+          displayName: { en: "A", de: "A" },
+          dependsOn: [],
+          defaultEnabled: true,
+          entityKinds: [],
+          tables: [],
+          permissions: [],
+        },
+      ],
+      { entityKinds: [{ kind: "jobs", description: "j" }], tables: [] },
+    );
+    const base = chatTools[0]!;
+    const exposed = { ...base, name: "alpha_read", exposure: { mcp: true } };
+    expect(() =>
+      registerContributions(registry, {}, { alpha: { tools: [exposed] } }),
+    ).toThrow(
+      "MODULE_CONTRIBUTIONS_INVALID: tool alpha_read is exposed to MCP without an output schema",
+    );
+  });
 });

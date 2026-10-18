@@ -9,6 +9,8 @@ import {
   defineTool,
   deferredDefinition,
   dropNullFields,
+  exposedToAssistant,
+  exposedToMcp,
   findTool,
   responsesTool,
   searchTools,
@@ -525,5 +527,31 @@ describe("client-executed tool search", () => {
     expect(supportsToolSearch("gpt-5.3-mini")).toBe(false);
     expect(supportsToolSearch("gpt-4.1")).toBe(false);
     expect(supportsToolSearch("synthetic-model")).toBe(false);
+  });
+
+  it("exposes a tool to the assistant only unless it says otherwise (WP-M2)", () => {
+    const plain = tool();
+    expect(exposedToAssistant(plain)).toBe(true);
+    expect(exposedToMcp(plain)).toBe(false);
+    expect(exposedToAssistant(tool({ exposure: {} }))).toBe(true);
+    expect(exposedToMcp(tool({ exposure: {} }))).toBe(false);
+    expect(exposedToAssistant(tool({ exposure: { assistant: false } }))).toBe(
+      false,
+    );
+    expect(exposedToMcp(tool({ exposure: { mcp: false } }))).toBe(false);
+  });
+
+  it("exposes a tool to MCP only with an output schema (WP-M2)", () => {
+    const outputSchema = z.object({ ok: z.boolean() }).strict();
+    const exposed = defineTool(tool({ exposure: { mcp: true }, outputSchema }));
+    expect(exposedToMcp(exposed)).toBe(true);
+    expect(exposedToAssistant(exposed)).toBe(true);
+    expect(() =>
+      defineTool(tool({ name: "sample_mcp", exposure: { mcp: true } })),
+    ).toThrow("TOOL_OUTPUT_SCHEMA_REQUIRED:sample_mcp");
+    // A schema without the flag is harmless: the tool stays internal.
+    expect(exposedToMcp(defineTool(tool({ outputSchema })))).toBe(false);
+    // Without a schema the helper never reports a tool as exposed.
+    expect(exposedToMcp(tool({ exposure: { mcp: true } }))).toBe(false);
   });
 });

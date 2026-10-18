@@ -154,6 +154,9 @@ describe.skipIf(!enabled)("assistant run across three modules", () => {
       ]),
     );
 
+    // A tool exposed to outside clients only is never offered to the assistant.
+    expect(script.offered).not.toContain("task_digest");
+
     const requests = (
       await run((tx) => list(tx, project.owner, "action_requests"))
     ).filter((row) => data(row).actionType === "tasks.create");

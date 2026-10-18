@@ -4,7 +4,10 @@ import type { UserNotificationKind } from "../notifications/members.ts";
 import type { ValidatedRegistry } from "../../../../../packages/module-contracts/src/index.ts";
 import type { ImpactHandler } from "../../../../../packages/knowledge/src/index.ts";
 import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
-import type { OrbitTool } from "../../modules/agents/tools/registry.ts";
+import {
+  mcpExposureProblem,
+  type OrbitTool,
+} from "../../modules/agents/tools/registry.ts";
 import type { ActionDefinition } from "../../modules/action-requests.ts";
 import type {
   JobDef,
@@ -347,6 +350,8 @@ export function registerContributions(
     for (const tool of c.tools ?? []) {
       if (tools.some((t) => t.name === tool.name))
         problems.push(`tool ${tool.name} registered twice`);
+      const exposure = mcpExposureProblem(tool);
+      if (exposure) problems.push(exposure);
       tools.push(tool);
     }
     for (const [type, def] of Object.entries(c.actionTypes ?? {})) {

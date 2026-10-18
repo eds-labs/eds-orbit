@@ -14,7 +14,9 @@ export type RunKind =
   // One specialist task of an assignment run (Orbit Agents).
   | "agent"
   // Support AI: triage or a draft reply of one ticket (WP5.6).
-  | "support";
+  | "support"
+  // A tool call from an outside MCP client through the gateway (Track M).
+  | "mcp";
 export type SpanInput = {
   type: "model_call" | "tool_call" | "embedding" | "image";
   name: string;
