@@ -3,6 +3,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type {
   AttentionContribution,
   AttentionItem,
+  AttentionStatusContribution,
 } from "../../platform/attention/types.ts";
 import { data } from "../../shared.ts";
 import { can, PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
@@ -10,6 +11,7 @@ import { agentActivity } from "./agents/agent-activity.ts";
 import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { APPROVAL_STATUSES, isPausedPost } from "./approval-state.ts";
+import { activePolicy } from "./policy/policy.ts";
 
 // The marketing module's attention items (UI restructure §4.1): what waits on
 // the approvals page, plus failed runs. Params carry names, codes and times
@@ -193,4 +195,13 @@ export const marketingAttention: AttentionContribution = async (
     ...(await pausedPostItems(tx, scope, now)),
     ...(await runProblemItems(tx, scope, now)),
   ];
+};
+
+/** The active policy's mode for the home page's status strip; none without one. */
+export const marketingAttentionStatus: AttentionStatusContribution = async (
+  tx,
+  scope,
+) => {
+  const mode = data(await activePolicy(tx, scope)).mode;
+  return typeof mode === "string" ? { mode } : {};
 };

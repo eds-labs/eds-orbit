@@ -36,11 +36,20 @@ export type AttentionResponse = {
   items: AttentionItem[];
   /** Per navKey: `count ?? 1` summed over all items before the cap. */
   counts: Record<string, number>;
-  status: {
-    paused: boolean;
-    mode?: string;
-    aiMonth?: { spentMicros: number; limitMicros: number | null };
-  };
+  status: AttentionStatus;
+};
+
+/** The project's state the home page's status strip shows. */
+export type AttentionStatus = {
+  paused: boolean;
+  /** The active marketing policy's mode, while marketing is usable. */
+  mode?: string;
+  /**
+   * The AI spend of the UTC calendar month as the budget enforcement counts
+   * it (settled, reserved, in flight and unclear reservations), and the
+   * active policy's monthly limit or null.
+   */
+  aiMonth?: { spentMicros: number; limitMicros: number | null };
 };
 
 /**
@@ -53,3 +62,14 @@ export type AttentionContribution = (
   scope: Scope,
   now: Date,
 ) => Promise<AttentionItem[]>;
+
+/**
+ * A module's part of the response's `status` (only `mode` today), read like
+ * its items: while the module is enabled and visible to the member, with the
+ * member's role in the module.
+ */
+export type AttentionStatusContribution = (
+  tx: DbTx,
+  scope: Scope,
+  now: Date,
+) => Promise<Pick<AttentionStatus, "mode">>;

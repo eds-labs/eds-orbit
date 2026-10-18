@@ -35,6 +35,7 @@ export * from "./algorithms.js";
 export * from "./safe-fetch.js";
 export * from "./extract.js";
 export * from "./indexes.js";
+export * from "./freshness.js";
 import { getActiveIndex, assertActiveEmbeddingProfile } from "./indexes.js";
 const json = (value: unknown) =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;

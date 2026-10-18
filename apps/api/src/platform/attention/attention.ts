@@ -1,13 +1,24 @@
-import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
+import { scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../shared.ts";
 import { enabledModules } from "../modules/enforcement.ts";
-import { ownerEnabled, registeredAttention } from "../modules/contributions.ts";
+import {
+  ownerEnabled,
+  registeredAttention,
+  registeredAttentionStatus,
+} from "../modules/contributions.ts";
 import { hiddenModules, moduleScope } from "../tenancy/module-roles.ts";
+import { runtimeHealth } from "../../modules/runtime.ts";
+import {
+  aiMonthStatus,
+  platformAttention,
+  reservationMonth,
+} from "./platform-items.ts";
 import type {
   AttentionItem,
   AttentionResponse,
   AttentionSeverity,
+  AttentionStatus,
 } from "./types.ts";
 
 // The project's attention items (UI restructure §4.1): read-only, no audit
@@ -59,13 +70,13 @@ export class AttentionContributionError extends Error {
   }
 }
 
-/** The platform's own items (Task 12 fills them in). */
-async function platformAttention(
-  _tx: DbTx,
-  _scope: Scope,
-  _now: Date,
-): Promise<AttentionItem[]> {
-  return [];
+/** Runs a module's contribution, failing the read with its module id. */
+async function contributed<T>(moduleId: string, read: () => Promise<T>) {
+  try {
+    return await read();
+  } catch (error) {
+    throw new AttentionContributionError(moduleId, error);
+  }
 }
 
 /**
@@ -73,12 +84,15 @@ async function platformAttention(
  * member may use, each read with the member's role in that module, plus the
  * platform's items, all in one project transaction. Sorted and capped at
  * ATTENTION_LIMIT; `counts` per nav entry sum `count ?? 1` over all items
- * before the cap.
+ * before the cap. `status` adds the modules' parts (the marketing mode) and
+ * the AI month.
  */
 export async function projectAttention(
   scope: Scope,
   now = new Date(),
 ): Promise<AttentionResponse> {
+  // Redis before the transaction: a slow heartbeat read holds no connection.
+  const worker = await runtimeHealth();
   return scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const project = await tx.project.findUnique({
       where: { id: scope.projectId },
@@ -87,19 +101,28 @@ export async function projectAttention(
     if (!project) throw new DomainError("NOT_FOUND", 404);
     const enabled = await enabledModules(tx, scope);
     const hidden = hiddenModules(scope);
+    const usable = (moduleId: string) =>
+      ownerEnabled(moduleId, enabled) && !hidden.includes(moduleId);
     const items: AttentionItem[] = [];
+    const status: AttentionStatus = { paused: project.paused };
     for (const [moduleId, contribution] of registeredAttention()) {
-      if (!ownerEnabled(moduleId, enabled) || hidden.includes(moduleId))
-        continue;
-      try {
-        items.push(
-          ...(await contribution(tx, moduleScope(scope, moduleId), now)),
-        );
-      } catch (error) {
-        throw new AttentionContributionError(moduleId, error);
-      }
+      if (!usable(moduleId)) continue;
+      items.push(
+        ...(await contributed(moduleId, () =>
+          contribution(tx, moduleScope(scope, moduleId), now),
+        )),
+      );
     }
-    items.push(...(await platformAttention(tx, scope, now)));
+    for (const [moduleId, contribution] of registeredAttentionStatus()) {
+      if (!usable(moduleId)) continue;
+      const part = await contributed(moduleId, () =>
+        contribution(tx, moduleScope(scope, moduleId), now),
+      );
+      if (part.mode !== undefined) status.mode = part.mode;
+    }
+    const month = await reservationMonth(tx, scope, now);
+    items.push(...(await platformAttention(tx, scope, now, { worker, month })));
+    status.aiMonth = await aiMonthStatus(tx, scope, month);
     // An aggregated item ("2 unassigned tickets") adds its count (R17).
     const counts: Record<string, number> = {};
     for (const item of items)
@@ -107,7 +130,7 @@ export async function projectAttention(
     return {
       items: sortAttention(items).slice(0, ATTENTION_LIMIT),
       counts,
-      status: { paused: project.paused },
+      status,
     };
   });
 }

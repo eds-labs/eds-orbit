@@ -1,6 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { PassThrough } from "node:stream";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import {
   authDb,
   closeDatabase,
@@ -23,9 +31,17 @@ import type {
   AttentionItem,
   AttentionResponse,
 } from "../src/platform/attention/types.ts";
+import {
+  closeWorkerHeartbeat,
+  workerBeat,
+} from "./worker-heartbeat-helpers.ts";
 
+// Redis carries the worker heartbeat: without one the platform adds
+// `platform_worker_down` to every response.
 const enabled = Boolean(
-  process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
+  process.env.TEST_DATABASE_URL &&
+  process.env.TEST_AUTH_DATABASE_URL &&
+  process.env.REDIS_URL,
 );
 
 // Two modules that exist only in this file; each test sets what they answer.
@@ -163,6 +179,7 @@ describe.skipIf(!enabled)("project attention", () => {
         .join("; ");
     }
   });
+  beforeEach(() => workerBeat());
   afterEach(async () => {
     handlers.fake_a = async () => [];
     handlers.fake_b = async () => [];
@@ -173,6 +190,7 @@ describe.skipIf(!enabled)("project attention", () => {
     });
   });
   afterAll(async () => {
+    closeWorkerHeartbeat();
     await authDb.workspace.deleteMany({ where: { id: { in: workspaces } } });
     await authDb.user.deleteMany({ where: { id: { in: users } } });
     await app?.close();
@@ -326,13 +344,13 @@ describe.skipIf(!enabled)("project attention", () => {
   });
 
   it("reports the project's paused flag", async () => {
-    expect((await attention("viewer")).status).toEqual({ paused: false });
+    expect((await attention("viewer")).status.paused).toBe(false);
     await authDb.project.update({
       where: { id: scope.projectId },
       data: { paused: true },
     });
     try {
-      expect((await attention("viewer")).status).toEqual({ paused: true });
+      expect((await attention("viewer")).status.paused).toBe(true);
     } finally {
       await authDb.project.update({
         where: { id: scope.projectId },
