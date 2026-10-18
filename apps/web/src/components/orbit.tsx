@@ -34,8 +34,10 @@ import { NotificationBell } from "./notification-bell";
 import {
   activeNavKey,
   crumbs,
+  pageTitle,
   moduleShown,
   defaultProject,
+  navGroupOf,
   keptSuffix,
   locate,
   navOrder,
@@ -51,6 +53,18 @@ import {
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
 import { StandaloneContext } from "@/platform/shell/standalone-context";
+import {
+  buildNavGroups,
+  mobileCurrentKey,
+  mobileEntries,
+} from "@/platform/shell/nav-groups";
+import {
+  readCollapsed,
+  revealGroup,
+  toggleCollapsed,
+  writeCollapsed,
+} from "@/platform/shell/nav-collapse";
+import { SidebarNav } from "@/platform/shell/sidebar-nav";
 import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
@@ -88,7 +102,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     [menu, setMenu] = useState(false),
     [newProject, setNewProject] = useState(false),
     [createdProject, setCreatedProject] = useState(""),
-    [revision, setRevision] = useState(0);
+    [revision, setRevision] = useState(0),
+    [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set()),
+    [collapsedLoaded, setCollapsedLoaded] = useState(false);
   const setup = useResource<{ configured: boolean }>("/setup");
   const identity = useResource<Identity>(setup.data?.configured ? "/me" : null);
   const t: Text = (key) => labels[locale][key];
@@ -118,7 +134,23 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       /* Defaults apply without storage. */
     }
     setLocaleLoaded(true);
+    // After mount like the locale, so the server markup matches.
+    setCollapsed(readCollapsed());
+    setCollapsedLoaded(true);
   }, []);
+  // Navigating opens the page's sidebar group; not before the stored groups
+  // are read, and not on a click, so the open page's group can collapse.
+  useEffect(() => {
+    if (!collapsedLoaded || place.kind !== "view") return;
+    const key = activeNavKey(place.route);
+    const entry = table.routes.find((r) => r.key === key) ?? place.route;
+    const next = revealGroup(collapsed, navGroupOf(entry));
+    if (next === collapsed) return;
+    setCollapsed(next);
+    writeCollapsed(next);
+    // `place` is derived from the pathname; `collapsed` must not retrigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, collapsedLoaded, table]);
   useEffect(() => {
     document.documentElement.lang = locale;
     // Not before the stored choice is read, or the default would replace it.
@@ -218,6 +250,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         id: m.id,
         displayName: m.displayName,
         description: m.description,
+        groupOrder: m.groupOrder,
         enabled: enabled(m.id),
         nav: nav.filter((r) => r.moduleId === m.id),
       })),
@@ -243,6 +276,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       },
     };
   }, [project, moduleStates.data, registry, table]);
+  // The label of a sidebar group, for the breadcrumb and the document title.
+  const groupLabel = (group: string) =>
+    group === "top"
+      ? undefined
+      : group === "project"
+        ? t("navProject")
+        : registry.modules.find((m) => m.id === group)?.displayName[locale];
   useEffect(() => {
     const page =
       place.kind === "organizations"
@@ -252,7 +292,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           : projectId && !project
             ? t("projectNotFound")
             : place.kind === "view"
-              ? place.route.nav?.label[locale]
+              ? pageTitle(place.route, table, locale, groupLabel)
               : place.kind === "standalone"
                 ? place.view.title[locale]
                 : place.kind === "notFound"
@@ -427,9 +467,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const isOn = (id: string) =>
     Boolean(shell.modules.find((m) => m.id === id)?.enabled);
   const moduleOff = Boolean(route && !routeEnabled(route, isOn));
-  const visibleNav = navOrder(
-    table.routes.filter((r) => r.nav && routeEnabled(r, isOn)),
-  );
+  const navGroups = buildNavGroups(table.routes, shell.modules);
+  const mobileBar = mobileEntries(table.routes, isOn);
+  const mobileCurrent = mobileCurrentKey(mobileBar, route);
+  function toggleGroup(id: string) {
+    const next = toggleCollapsed(collapsed, id);
+    setCollapsed(next);
+    writeCollapsed(next);
+  }
   const homeHref = shell.hrefOf("home");
   function changeProject(id: string) {
     router.push(
@@ -520,23 +565,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               ? `${organization?.name ?? t("organization")} · ${t("switchOrganization")}`
               : t("projects")}
           </Link>
-          <nav aria-label="Workspace">
-            {visibleNav.map((item) => {
-              const Icon = item.nav!.icon;
-              const active = item.key === activeNavKey(route);
-              return (
-                <Link
-                  key={item.key}
-                  href={projectHref(project.id, item)}
-                  className={cn("nav-link", active && "nav-active")}
-                  aria-current={active ? "page" : undefined}
-                >
-                  <Icon aria-hidden="true" />
-                  <span>{label(item)}</span>
-                </Link>
-              );
-            })}
-          </nav>
+          <SidebarNav
+            groups={navGroups}
+            activeKey={activeNavKey(route)}
+            hrefOf={(r) => projectHref(project.id, r)}
+            locale={locale}
+            collapsed={collapsed}
+            onToggle={toggleGroup}
+          />
           <div className="sidebar-footer">
             <p>
               A self-hosted
@@ -573,14 +609,14 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               <span>{project.name}</span>
               <span>/</span>
               {route ? (
-                crumbs(route, table, locale).map((part, i, all) =>
+                crumbs(route, table, locale, groupLabel).map((part, i, all) =>
                   i < all.length - 1 ? (
-                    <span key={part}>
+                    <span key={i}>
                       {part}
                       <span aria-hidden="true"> / </span>
                     </span>
                   ) : (
-                    <strong key={part}>{part}</strong>
+                    <strong key={i}>{part}</strong>
                   ),
                 )
               ) : (
@@ -644,24 +680,20 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           </main>
         </div>
         <nav className="mobile-nav" aria-label="Mobile workspace">
-          {visibleNav
-            .filter((n) => n.nav!.mobile)
-            .map((n) => {
-              const Icon = n.nav!.icon;
-              const mobile = n.nav!.mobile!;
-              return (
-                <Link
-                  key={n.key}
-                  href={projectHref(project.id, n)}
-                  aria-current={
-                    activeNavKey(route) === n.key ? "page" : undefined
-                  }
-                >
-                  <Icon aria-hidden="true" />
-                  <span>{mobile === true ? label(n) : mobile[locale]}</span>
-                </Link>
-              );
-            })}
+          {mobileBar.map((n) => {
+            const Icon = n.nav!.icon;
+            const mobile = n.nav!.mobile!;
+            return (
+              <Link
+                key={n.key}
+                href={projectHref(project.id, n)}
+                aria-current={n.key === mobileCurrent ? "page" : undefined}
+              >
+                <Icon aria-hidden="true" />
+                <span>{mobile === true ? label(n) : mobile[locale]}</span>
+              </Link>
+            );
+          })}
           <button onClick={() => setMenu(true)}>
             <MoreHorizontal />
             <span>{t("more")}</span>

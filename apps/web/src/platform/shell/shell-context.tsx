@@ -12,6 +12,8 @@ export type ShellModule = {
   id: string;
   displayName: Label;
   description: Label;
+  /** Position of the module's group in the sidebar (WebModule.groupOrder). */
+  groupOrder?: number;
   /** From GET /api/projects/:id/modules; true while unknown (fallback). */
   enabled: boolean;
   /** The module's pages with a navigation entry, in sidebar order. */

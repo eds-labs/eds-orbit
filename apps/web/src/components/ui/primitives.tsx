@@ -10,6 +10,12 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { AlertCircle, Check, LoaderCircle, X, Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  forgetTabFocus,
+  rememberTabFocus,
+  tabBarId,
+  takeTabFocus,
+} from "./tab-focus";
 const buttonVariants = cva("button", {
   variants: {
     variant: {
@@ -207,6 +213,27 @@ export function Tabs({
   onChange: (value: string) => void;
 }) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const bar = tabBarId(tabs.map((tab) => tab.key));
+  const index = tabs.findIndex((tab) => tab.key === value);
+  // A tab change that navigates remounts the page, which drops the focus to
+  // <body>: the remounted bar focuses the tab the user moved to.
+  useEffect(() => {
+    const active = document.activeElement;
+    if (takeTabFocus(bar, value) && (!active || active === document.body))
+      refs.current[index]?.focus();
+    // On mount only; a later change happens in place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const mounted = useRef(false);
+  useEffect(() => {
+    // The tab changed in place, so the focus stayed on the bar.
+    if (mounted.current) forgetTabFocus(bar);
+    mounted.current = true;
+  }, [bar, value]);
+  function change(key: string) {
+    rememberTabFocus(bar, key);
+    onChange(key);
+  }
   return (
     <div className="tabs" role="tablist">
       {tabs.map((tab, i) => (
@@ -219,7 +246,7 @@ export function Tabs({
           aria-selected={value === tab.key}
           tabIndex={value === tab.key ? 0 : -1}
           className={cn("tab", value === tab.key && "tab-active")}
-          onClick={() => onChange(tab.key)}
+          onClick={() => change(tab.key)}
           onKeyDown={(e) => {
             let j: number | undefined;
             if (e.key === "ArrowRight") j = (i + 1) % tabs.length;
@@ -228,7 +255,7 @@ export function Tabs({
             if (e.key === "End") j = tabs.length - 1;
             if (j !== undefined) {
               e.preventDefault();
-              onChange(tabs[j].key);
+              change(tabs[j].key);
               refs.current[j]?.focus();
             }
           }}

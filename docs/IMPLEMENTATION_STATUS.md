@@ -99,6 +99,17 @@ Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpower
 
 **Rollback.** Do not run `mcp-main.ts`, or keep `ORBIT_MCP_GATEWAY=false` (the process then refuses to start); nothing in production depends on it. Reverting the PR removes the code and the SDK dependency. The migration only widens a check constraint: leave it in place on a revert (it is unused without `mcp` runs); narrowing it again would fail on any existing `mcp` run row.
 
+## UI restructure, phase 1: grouped sidebar (2026-10-18, local; no flag)
+
+Spec `docs/superpowers/specs/2026-10-18-orbit-ui-restructure-design.md`, plan `docs/superpowers/plans/2026-10-18-orbit-ui-restructure.md`. Phase 1 changes the navigation only; the home page, the module overviews, settings and the attention endpoint follow in later phases, each as its own PR. There is no feature flag; rollback is a revert and redeploy.
+- The route contract gets `ViewDef.navGroup` (`top`, `project` or a module id), `WebModule.groupOrder` and `NavEntry.mobileRank`. `routeTable` rejects other groups (`WEB_ROUTES_INVALID`).
+- `platform/shell/nav-groups.ts`: `buildNavGroups` (top, enabled modules by `groupOrder`, project; a module counts as enabled when the shell's `moduleShown` says so, so disabled modules and modules with access `none` are left out) and `mobileEntries` (first four by `mobileRank`).
+- `platform/shell/sidebar-nav.tsx` replaces the flat list: group headers are buttons with `aria-expanded` and `aria-controls`, a collapsed group shows the sum of its badges. Approvals sit in the Marketing group; the Knowledge tabs (Sources, Facts, Conflicts, Import, Library) have their own entries.
+- The collapsed groups are kept per browser in `localStorage` (`orbit.nav.collapsed`, `platform/shell/nav-collapse.ts`). All groups are open by default. Navigating to a page opens its collapsed group (ruling R6); the open page's group is not locked, so its header still collapses it.
+- The bottom bar on mobile is capped at four entries plus More. With support off it is Home, Orbit Chat, Approvals and Content; with support on (uLiquid in production) it is Home, Orbit Chat, Tickets and Approvals, and Content leaves the bar. The drawer shows the grouped sidebar.
+- **Tests:** unit tests for the navigation model, the collapse helpers and the sidebar; `navigation.spec.ts` covers the grouped order of every page, collapse that survives a reload, a collapsed group opening on navigation, and the 390 px bar and drawer.
+- **Run locally:** the e2e suite needs `.runtime/e2e-user.json` (`scripts/seed-e2e.ts`) and the app on the configured base URL.
+
 ## Several mailboxes per project (2026-10-18, local; draft PR)
 
 Mario decided on 2026-10-18 that a project connects several real mailboxes (support@, partnerships@, hello@, maybe admin@ of uliquid.vip) and that each support inbox answers from its own address. Branch `claude/multi-mailbox-462e85`, draft PR, not merged; no flag is switched. Guides: `docs/EMAIL_AND_NOTIFICATIONS.md`, `docs/SUPPORT.md`.
@@ -875,7 +886,7 @@ On Mario's Approval A, release PR #125 was merged into `main` at 13:05 CEST (mer
 
 Post-deploy checks:
 1. `/api/health/ready` ok (database ok, worker ready); `/api/health/postiz` ok.
-2. uLiquid home and navigation: 13 entries; Knowledge, Marketing and Platform sections.
+2. uLiquid home and navigation: 13 entries; Knowledge, Marketing and Platform sections. Since the UI restructure (phase 1), the sidebar is grouped: Home and Orbit Chat, then one group per enabled module (Marketing with Approvals, Support when on, Knowledge), then the Project group (Connectors, Operations, Settings); each group header collapses its entries.
 3. Settings → Modules: Knowledge and Marketing on, switching not enabled.
 4. Settings tabs as before; the assignment "uLiquid Beta" is active (Postiz drafts, 10:00/17:00).
 5. Connectors: Postiz, Matomo, Slack, Telegram (linked), blog, newsletter, in the former order.
