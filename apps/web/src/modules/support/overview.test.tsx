@@ -45,6 +45,7 @@ import {
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
 import { projectHref, routeTable } from "@/platform/shell/routes";
+import { SupportHome } from "./home";
 import { SupportOverview, ticketRedirect } from "./overview";
 
 const table = routeTable(webRegistry);
@@ -101,7 +102,10 @@ const days = (count: number, perDay: (i: number) => number) =>
     ]),
   );
 
-function render(locale: Locale = "en") {
+function render(
+  locale: Locale = "en",
+  node: React.ReactNode = <SupportOverview />,
+) {
   return renderToStaticMarkup(
     <ShellContext.Provider value={shell}>
       <WorkspaceContext.Provider
@@ -117,7 +121,7 @@ function render(locale: Locale = "en") {
           href: (p) => p,
         }}
       >
-        <SupportOverview />
+        {node}
       </WorkspaceContext.Provider>
     </ShellContext.Provider>,
   );
@@ -281,5 +285,20 @@ describe("SupportOverview", () => {
     const html = render("de");
     expect(html).toContain("Modul");
     expect(html).toContain("<h1>Support</h1>");
+  });
+});
+
+describe("SupportHome", () => {
+  it("links to the support overview", () => {
+    answers["/summary"] = {
+      open: 3,
+      unassigned: 1,
+      atRisk: 0,
+      breached: 0,
+      openByInbox: {},
+    };
+    const en = render("en", <SupportHome />);
+    expect(en).toMatch(/<a[^>]*href="\/p\/p1\/support"[^>]*>Open support<\/a>/);
+    expect(render("de", <SupportHome />)).toContain(">Support öffnen</a>");
   });
 });

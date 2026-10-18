@@ -137,7 +137,7 @@ const en = {
     atRisk: "At risk",
     breached: "Overdue",
     title: "Support",
-    link: "Open the support inbox",
+    link: "Open support",
   },
   settings: {
     tab: "Support",
@@ -356,7 +356,7 @@ const de: SupportText = {
     atRisk: "Gefährdet",
     breached: "Überfällig",
     title: "Support",
-    link: "Support-Posteingang öffnen",
+    link: "Support öffnen",
   },
   settings: {
     tab: "Support",
