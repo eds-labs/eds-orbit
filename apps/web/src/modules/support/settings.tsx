@@ -63,6 +63,54 @@ export function embedSnippet(
 }
 
 /** The inbox form's values as the API body (origins one per line). */
+/** One checkbox and its label in a single row (the form stacks other fields). */
+export function CheckRow({
+  checked,
+  label,
+  onChange,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label className="support-check">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+/** A browser origin as the API accepts it: https, or http on localhost. */
+function validOrigin(value: string) {
+  try {
+    const url = new URL(value);
+    const local = ["localhost", "127.0.0.1"].includes(url.hostname);
+    return (
+      (url.protocol === "https:" || (local && url.protocol === "http:")) &&
+      url.origin === value
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** What the API would refuse about the widget origins, in words; or null. */
+export function inboxFormProblem(
+  form: Parameters<typeof inboxBody>[0],
+  t: SupportText,
+): string | null {
+  const { allowedOrigins } = inboxBody(form);
+  if (!form.widget) return null;
+  if (!allowedOrigins.length) return t.settings.originsMissing;
+  const bad = allowedOrigins.filter((o) => !validOrigin(o));
+  return bad.length ? `${t.settings.originInvalid} ${bad.join(", ")}` : null;
+}
+
 export function inboxBody(form: {
   name: string;
   email: boolean;
@@ -268,6 +316,7 @@ function InboxForm({
     language: inbox?.language ?? "en",
   });
   const save = useMutation();
+  const [problem, setProblem] = useState<string | null>(null);
   const set = (patchValue: Partial<typeof form>) =>
     setForm({ ...form, ...patchValue });
   return (
@@ -276,6 +325,9 @@ function InboxForm({
         className="support-form"
         onSubmit={async (e) => {
           e.preventDefault();
+          const problem = inboxFormProblem(form, t);
+          setProblem(problem);
+          if (problem) return;
           const body = inboxBody(form);
           const result = await save.run(() =>
             inbox
@@ -302,22 +354,16 @@ function InboxForm({
         </label>
         <fieldset>
           <legend>{t.settings.channels}</legend>
-          <label>
-            <input
-              type="checkbox"
-              checked={form.email}
-              onChange={(e) => set({ email: e.target.checked })}
-            />{" "}
-            {t.settings.emailChannel}
-          </label>
-          <label>
-            <input
-              type="checkbox"
-              checked={form.widget}
-              onChange={(e) => set({ widget: e.target.checked })}
-            />{" "}
-            {t.settings.widgetChannel}
-          </label>
+          <CheckRow
+            checked={form.email}
+            label={t.settings.emailChannel}
+            onChange={(email) => set({ email })}
+          />
+          <CheckRow
+            checked={form.widget}
+            label={t.settings.widgetChannel}
+            onChange={(widget) => set({ widget })}
+          />
         </fieldset>
         {form.email && (
           <label>
@@ -334,8 +380,10 @@ function InboxForm({
             <span>{t.settings.origins}</span>
             <Textarea
               value={form.origins}
+              placeholder="https://desk.example.com"
               onChange={(e) => set({ origins: e.target.value })}
             />
+            <small>{t.settings.originsHint}</small>
           </label>
         )}
         <label>
@@ -361,21 +409,18 @@ function InboxForm({
         <fieldset>
           <legend>{t.settings.rulesLegend}</legend>
           {(["autoAck", "autoClose", "sla"] as const).map((rule) => (
-            <label key={rule}>
-              <input
-                type="checkbox"
-                checked={form.rules[rule]}
-                onChange={(e) =>
-                  set({ rules: { ...form.rules, [rule]: e.target.checked } })
-                }
-              />{" "}
-              {t.settings.rule[rule]}
-            </label>
+            <CheckRow
+              key={rule}
+              checked={form.rules[rule]}
+              label={t.settings.rule[rule]}
+              onChange={(on) => set({ rules: { ...form.rules, [rule]: on } })}
+            />
           ))}
         </fieldset>
         <Button type="submit" disabled={save.pending}>
           {t.save}
         </Button>
+        {problem && <Alert kind="error">{problem}</Alert>}
         {save.error && <Alert kind="error">{save.error}</Alert>}
       </form>
     </Modal>

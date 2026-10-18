@@ -129,6 +129,11 @@ const en = {
     widgetChannel: "Widget",
     address: "Support address",
     origins: "Allowed widget origins (one per line)",
+    originsHint:
+      "The address of the page that embeds the widget, e.g. https://desk.example.com: with https://, without a path or a trailing /.",
+    originsMissing:
+      "The widget needs at least one allowed origin. Enter one, or untick Widget.",
+    originInvalid: "Not a valid origin (https://host, no path or trailing /):",
     aiMode: "AI",
     aiOff: "Off",
     aiDraft: "Drafts for agents",
@@ -291,6 +296,12 @@ const de: SupportText = {
     widgetChannel: "Widget",
     address: "Support-Adresse",
     origins: "Erlaubte Widget-Origins (eine pro Zeile)",
+    originsHint:
+      "Die Adresse der Seite, die das Widget einbettet, z. B. https://desk.example.com: mit https://, ohne Pfad und ohne / am Ende.",
+    originsMissing:
+      "Das Widget braucht mindestens eine erlaubte Origin. Trage eine ein oder entferne das Häkchen bei Widget.",
+    originInvalid:
+      "Keine gültige Origin (https://host, ohne Pfad und ohne / am Ende):",
     aiMode: "KI",
     aiOff: "Aus",
     aiDraft: "Entwürfe für Agents",

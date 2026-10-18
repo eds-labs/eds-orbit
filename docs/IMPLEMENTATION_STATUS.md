@@ -86,6 +86,15 @@ Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpower
 
 **Rollback.** Do not run `mcp-main.ts`, or keep `ORBIT_MCP_GATEWAY=false` (the process then refuses to start); nothing in production depends on it. Reverting the PR removes the code and the SDK dependency. The migration only widens a check constraint: leave it in place on a revert (it is unused without `mcp` runs); narrowing it again would fail on any existing `mcp` run row.
 
+## E-mail first sync takes unread mail only (2026-10-18; ORBIT_EMAIL on)
+
+Mario asked for this on 2026-10-18 while connecting support@uliquid.vip, whose INBOX already held old mail.
+- Before this change, the first sync fetched every INBOX message from UID 1, read or not. Support would also have acknowledged each one.
+- The first sync, and the first after a UIDVALIDITY change, now takes only the unread mail up to the INBOX's highest UID at that moment. It takes it in batches of 25 and marks it `backlog`; afterwards, every new message is fetched.
+- Support opens tickets for backlog mail but sends no acknowledgement.
+- `MailboxReader` gains `scan()` (UIDVALIDITY, the highest UID, the unread UIDs) and `fetchUids()`.
+- **Tests:** in `email.integration.test.ts`, the first sync takes only unread mail over two passes, then new read mail is fetched; a UIDVALIDITY change does the same. In `support-email.integration.test.ts`, backlog mail gets no acknowledgement.
+- **Production:** in the uLiquid mailbox, nothing has been fetched yet (`FILES_NOT_CONFIGURED`), so its first sync uses the new rule once `ORBIT_FILES` is on.
 
 ## Support module release (2026-10-18; flag off)
 

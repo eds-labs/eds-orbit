@@ -125,6 +125,8 @@ type Inbound = {
   inReplyTo?: string | null;
   references?: string[];
   automatic?: boolean;
+  /** Unread mail from before the mailbox's first sync (platform). */
+  backlog?: boolean;
   fileId?: string;
 };
 
@@ -299,7 +301,8 @@ async function acknowledge(
 /**
  * The job of one inbound mail: a new ticket, or the next message of the
  * ticket it answers. Automatic mail never opens a ticket, reopens one or
- * gets an acknowledgement. Recorded once per Message-ID.
+ * gets an acknowledgement, and neither does backlog mail from before the
+ * mailbox's first sync. Recorded once per Message-ID.
  */
 export async function handleInboundEmail(scope: Scope, inboundId: string) {
   const prepared = await scoped(
@@ -370,12 +373,14 @@ export async function handleInboundEmail(scope: Scope, inboundId: string) {
           },
         });
         const settings = await supportSettings(tx, scope);
-        if (effectiveRules(settings, inbox.rules).autoAck)
+        // Mail from before the first sync is old: no acknowledgement now.
+        if (!mail.backlog && effectiveRules(settings, inbox.rules).autoAck)
           await acknowledge(tx, scope, created.ticketId, inbox);
         await audit(tx, scope, "support.email.received", created.ticketId, {
           ticketId: created.ticketId,
           inboundId,
           skippedAttachments: skipped,
+          ...(mail.backlog ? { backlog: true } : {}),
         });
         return;
       }

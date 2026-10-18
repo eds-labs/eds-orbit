@@ -183,6 +183,15 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
       }),
       mailbox: () => ({
         verify: async () => undefined,
+        scan: async () => ({
+          uidValidity: "1",
+          top: Math.max(0, ...mailbox.map((m) => m.uid)),
+          unseen: mailbox.map((m) => m.uid),
+        }),
+        fetchUids: async (uids) => ({
+          messages: mailbox.filter((m) => uids.includes(m.uid)),
+          skipped: [],
+        }),
         fetchNew: async (state, limits) => ({
           uidValidity: "1",
           messages: mailbox
@@ -230,6 +239,9 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
         })
       ).inbox.id;
     });
+    // Support was set up on an empty mailbox: the first sync is done, and
+    // what arrives from now on is new mail.
+    await fetchInbound(scope);
   });
   afterEach(() => {
     Object.assign(process.env, ENV);
@@ -330,6 +342,34 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
     expect((await tickets()).length).toBe(before);
     await flush();
     expect(sent).toEqual([]);
+  });
+
+  it("acknowledges no mail from the first sync's backlog", async () => {
+    // The mailbox is synced for the first time again: what it fetches now
+    // is old unread mail.
+    await run((tx) =>
+      tx.entity.deleteMany({
+        where: { projectId: scope.projectId, kind: "email_inbound_state" },
+      }),
+    );
+    sent.length = 0;
+    await receive(
+      mime(
+        {
+          From: "Old Customer <old@example.org>",
+          Subject: "Old question",
+          "Message-ID": "<old-question@example.org>",
+        },
+        "Sent before support was connected.",
+      ),
+    );
+    const ticket = (await tickets()).find((t) => t.subject === "Old question")!;
+    expect(ticket).toBeTruthy();
+    expect((await messagesOf(ticket.id)).map((m) => m.kind)).toEqual([
+      "customer",
+    ]);
+    await flush();
+    expect(sent.filter((m) => m.to.includes("old@example.org"))).toEqual([]);
   });
 
   it("caps acknowledgements per sender", async () => {
