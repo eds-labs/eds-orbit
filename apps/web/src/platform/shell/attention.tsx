@@ -119,7 +119,10 @@ export function attentionReducer(
 ): AttentionLoad {
   switch (event.type) {
     case "cached":
-      return last.key === event.key && last.data === event.data && !last.error
+      return last.key === event.key &&
+        last.data === event.data &&
+        !last.error &&
+        !last.loading
         ? last
         : { key: event.key, data: event.data, loading: false };
     case "loading":

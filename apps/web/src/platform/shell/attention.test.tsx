@@ -395,6 +395,25 @@ describe("attention state", () => {
       hit,
     );
   });
+
+  it("a cached hit of the shown data ends a reload", () => {
+    const loaded = attentionReducer(initialAttention(u1p1, undefined), {
+      type: "loaded",
+      key: u1p1,
+      data: a,
+    });
+    const reloading = attentionReducer(loaded, { type: "loading", key: u1p1 });
+    const hit = attentionReducer(reloading, {
+      type: "cached",
+      key: u1p1,
+      data: a,
+    });
+    expect(attentionView(hit, u1p1)).toEqual({
+      data: a,
+      error: undefined,
+      loading: false,
+    });
+  });
 });
 
 describe("overflowBadge", () => {
