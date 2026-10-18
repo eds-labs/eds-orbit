@@ -83,16 +83,17 @@ describe("mobileCurrentKey", () => {
     expect(current("chat")).toBe("chat");
   });
 
-  it("marks the group's only bar entry on the other pages of the group", () => {
-    // Ruling R12: Support is on the bar through its inbox (Tickets), not
-    // through its root (the overview), so Tickets stands for the whole group.
+  it("marks the module's only bar entry on the module's other pages", () => {
+    // Rulings R12/R12b: Support is on the bar through its inbox (Tickets), not
+    // through its root (the overview), so Tickets stands for the module.
     expect(current("support-tickets")).toBe("support-tickets");
     expect(current("support")).toBe("support-tickets");
     expect(current("support-contacts")).toBe("support-tickets");
     expect(current("support-stats")).toBe("support-tickets");
-    // The same rule makes Approvals, Marketing's only entry on this bar,
-    // stand for the module's other pages.
-    expect(current("missions")).toBe("approvals");
+    // Approvals sits in the Marketing group but is a platform page, not
+    // Marketing's: it never stands for Missions, Content and the rest.
+    for (const key of ["marketing-overview", "missions", "content", "calendar"])
+      expect(current(key), key).toBeUndefined();
   });
 
   it("keeps a module root current on the pages of its group", () => {
@@ -113,9 +114,14 @@ describe("mobileCurrentKey", () => {
     expect(current("knowledge-sources")).toBeUndefined();
     expect(current("settings")).toBeUndefined();
     expect(mobileCurrentKey(bar, null)).toBeUndefined();
-    // With support off the bar carries Approvals and Content: a group with
-    // two entries and no root on the bar has no single stand-in.
+  });
+
+  it("lets Content stand for Marketing when support is off", () => {
+    // With support off the bar carries Approvals (a platform page) and
+    // Content, Marketing's only own entry on the bar (R12b).
     const noSupport = mobileEntries(table.routes, enabledIn(["support"]));
-    expect(mobileCurrentKey(noSupport, route("missions"))).toBeUndefined();
+    expect(mobileCurrentKey(noSupport, route("missions"))).toBe("content");
+    expect(mobileCurrentKey(noSupport, route("approvals"))).toBe("approvals");
+    expect(mobileCurrentKey(noSupport, route("settings"))).toBeUndefined();
   });
 });
