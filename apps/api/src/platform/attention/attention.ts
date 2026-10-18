@@ -72,7 +72,8 @@ async function platformAttention(
  * What needs the member's attention in the project: every enabled module the
  * member may use, each read with the member's role in that module, plus the
  * platform's items, all in one project transaction. Sorted and capped at
- * ATTENTION_LIMIT; `counts` per nav entry are taken before the cap.
+ * ATTENTION_LIMIT; `counts` per nav entry sum `count ?? 1` over all items
+ * before the cap.
  */
 export async function projectAttention(
   scope: Scope,
@@ -99,9 +100,10 @@ export async function projectAttention(
       }
     }
     items.push(...(await platformAttention(tx, scope, now)));
+    // An aggregated item ("2 unassigned tickets") adds its count (R17).
     const counts: Record<string, number> = {};
     for (const item of items)
-      counts[item.navKey] = (counts[item.navKey] ?? 0) + 1;
+      counts[item.navKey] = (counts[item.navKey] ?? 0) + (item.count ?? 1);
     return {
       items: sortAttention(items).slice(0, ATTENTION_LIMIT),
       counts,

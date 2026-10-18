@@ -34,7 +34,7 @@ export type AttentionItem = {
 export type AttentionResponse = {
   /** Sorted, at most 50. */
   items: AttentionItem[];
-  /** Per navKey, over all items before the cap. */
+  /** Per navKey: `count ?? 1` summed over all items before the cap. */
   counts: Record<string, number>;
   status: {
     paused: boolean;

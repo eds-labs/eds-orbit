@@ -273,6 +273,24 @@ describe.skipIf(!enabled)("project attention", () => {
     expect(body.items.some((i) => i.navKey === "y")).toBe(false);
   });
 
+  it("an aggregated item adds its count to its navKey (R17)", async () => {
+    handlers.fake_a = async () => [
+      item("fake_a", "unassigned", { navKey: "x", count: 2 }),
+      item("fake_a", "single", { navKey: "x" }),
+    ];
+    handlers.fake_b = async () =>
+      Array.from({ length: 55 }, (_, n) =>
+        item("fake_b", String(n).padStart(2, "0"), {
+          navKey: "y",
+          severity: "info",
+          count: 3,
+        }),
+      );
+    const body = await attention("owner");
+    expect(body.items).toHaveLength(50);
+    expect(body.counts).toEqual({ x: 3, y: 165 });
+  });
+
   it("contribution receives the module scope", async () => {
     process.env.ORBIT_MODULE_ROLES = "true";
     const seen: Record<string, { role: string; now: unknown }> = {};
