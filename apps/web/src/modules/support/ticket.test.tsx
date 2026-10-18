@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { TimelineItem } from "./ticket";
-import { embedSnippet, inboxBody, parseCategories } from "./settings";
+import {
+  CheckRow,
+  embedSnippet,
+  inboxBody,
+  inboxFormProblem,
+  parseCategories,
+} from "./settings";
 import { supportText } from "./labels";
 
 const render = (
@@ -135,5 +141,46 @@ describe("support ticket view (WP5.2)", () => {
     expect(html).toMatch(/support-message-internal(?=["\s])/);
     // Without a composer to fill (viewers), no button.
     expect(render(entry)).not.toContain("Entwurf übernehmen");
+  });
+
+  it("puts each checkbox in one row with its own label", () => {
+    const html = renderToStaticMarkup(
+      <CheckRow checked label="Widget" onChange={() => undefined} />,
+    );
+    expect(html).toMatch(
+      /^<label class="support-check"><input type="checkbox"[^>]*checked[^>]*\/><span>Widget<\/span><\/label>$/,
+    );
+  });
+
+  it("names a missing or malformed widget origin before saving", () => {
+    const t = supportText("de");
+    const base = {
+      name: "Support",
+      email: true,
+      widget: true,
+      emailAddress: "support@example.invalid",
+      origins: "",
+      aiMode: "off",
+      language: "en",
+    };
+    expect(inboxFormProblem(base, t)).toBe(t.settings.originsMissing);
+    for (const bad of [
+      "https://desk.example.invalid/",
+      "https://desk.example.invalid/app",
+      "desk.example.invalid",
+      "http://desk.example.invalid",
+    ])
+      expect(inboxFormProblem({ ...base, origins: bad }, t)).toContain(bad);
+    expect(
+      inboxFormProblem(
+        {
+          ...base,
+          origins: "https://desk.example.invalid\nhttp://localhost:3000",
+        },
+        t,
+      ),
+    ).toBeNull();
+    // Without the widget, origins do not matter.
+    expect(inboxFormProblem({ ...base, widget: false }, t)).toBeNull();
   });
 });
