@@ -99,6 +99,18 @@ Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpower
 
 **Rollback.** Do not run `mcp-main.ts`, or keep `ORBIT_MCP_GATEWAY=false` (the process then refuses to start); nothing in production depends on it. Reverting the PR removes the code and the SDK dependency. The migration only widens a check constraint: leave it in place on a revert (it is unused without `mcp` runs); narrowing it again would fail on any existing `mcp` run row.
 
+## Support tags like Chatwoot labels (2026-10-18, local)
+
+Mario asked for this on 2026-10-18.
+- **Tag list.** The support settings get `tags`: a key, a label and a colour from a fixed palette (gray, blue, green, yellow, orange, red, purple, pink), at most 50. Settings saved earlier get an empty list from the defaults.
+- **On tickets.** Tickets take several tags. A newly added tag must be listed (`TAG_UNKNOWN`). A tag the list later dropped may stay. Renaming a tag keeps its key, so tickets keep it.
+- **Filters and statistics.** `GET /tickets` and `GET /stats` filter by `tag`. Volume counts tickets `byTag`.
+- **Web.**
+  - The settings get a tag editor (label and colour; the key comes from the label when it is saved).
+  - The ticket view toggles coloured tags and gets the category select it lacked.
+  - The ticket list filters by category and tag and shows tag chips.
+- **Release.** No migration, because `SupportTicket.tags` already exists. Rolling back is a redeploy.
+
 ## E-mail first sync takes unread mail only (2026-10-18; ORBIT_EMAIL on)
 
 Mario asked for this on 2026-10-18 while connecting support@uliquid.vip, whose INBOX already held old mail.
