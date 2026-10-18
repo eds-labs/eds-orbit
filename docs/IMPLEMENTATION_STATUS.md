@@ -2,7 +2,7 @@
 
 ## Track M WP-M3: MCP read surface (2026-10-18, local; flag off; stacked on WP-M2)
 
-Branch `claude/track-m-wp-m3`, stacked on `claude/track-m-wp-m2` (draft PR #165). Plan: `docs/superpowers/plans/2026-10-18-track-m-wp-m3-read-surface.md` (decisions D-M3-1…11 below). Risk: high (Orbit knowledge reaches external models). Environment: local only. **Merging:** WP-M3 adds no migration and no dependency; it merges only after #165, and it changes nothing in production while `ORBIT_MCP_GATEWAY` stays `false` and no compose service runs the gateway. Nothing runs until WP-M5.
+Branch `claude/track-m-wp-m3`, stacked on `claude/track-m-wp-m2` (draft PR #165). Plan: `docs/superpowers/plans/2026-10-18-track-m-wp-m3-read-surface.md` (decisions D-M3-1…11 below). Risk: high (Orbit knowledge reaches external models). Environment: local only. **Merging:** WP-M3 adds no migration and no dependency; it merges only after #165. It adds no service, the gateway stays off (`ORBIT_MCP_GATEWAY` is `false` and no compose service runs it), and nothing MCP-related runs until WP-M5. It is still a production code change on deploy: (1) the shared passage-retrieval SQL moves into `eligiblePassages()` in `packages/knowledge/src/index.ts`, byte-identical to the previous inline fragment and covered by the existing retrieval tests, and `knowledgeSearch` gains an optional trace parameter; (2) the assistant tools `project_status` and `support_insights` gain strict output schemas and MCP exposure, with their assistant output unchanged (the suite includes the assistant parity test).
 
 - **What it adds.** MCP clients (ChatGPT developer mode first) can search and cite Orbit knowledge and read project state through the WP-M2 gateway: the native tools `search`, `fetch` and `orbit_profile` (`apps/api/src/platform/mcp/native/`) and the first two reviewed registry tools, `marketing_project_status` and `support_insights`. Every call keeps the WP-M2 grant, membership, module and permission checks.
 - **`search`** (`R0_read`, `orbit:read`, read-only).
@@ -54,6 +54,8 @@ Branch `claude/track-m-wp-m3`, stacked on `claude/track-m-wp-m2` (draft PR #165)
   - Updated: `mcp-gateway.integration.test.ts` (native context, run before execute, first attribution wins, `TIMEOUT`), `mcp-gateway-audit.integration.test.ts` (search bucket, batch refusal), `mcp-principal.integration.test.ts`, `module-contributions.test.ts`.
   - Mapping to the roadmap acceptance: `docs/REQUIREMENTS_TRACEABILITY.md` ("Track M WP-M3 acceptance").
 
+**Verification (local).** Full suite on a per-worktree test database (`node scripts/test-db-for-worktree.ts`): `vitest run` with the local env file, 216 files, 2216 of 2216 tests passed. `tsc --noEmit` (root and `apps/web`), `scripts/source-check.mjs` and `scripts/boundaries.mjs` (0 known import violations, none new), `python3 scripts/check-secrets.py`, `scripts/check-coolify-compose.mjs`, `python3 scripts/check_framework.py --require-full-validation` (0 errors, 0 warnings) and `next build --webpack` pass. Not done: a ChatGPT developer-mode run, MCP Inspector conformance, a load test and the independent security review (WP-M5).
+
 **Known limitations (accepted for WP-M3).**
 - No MCP resources (D-M3-1) and no per-entity deep links: `url` is the canonical source URL or the library or facts tab. A fact URL is always the facts tab.
 - The retrieval mode per project is not visible to the client.
@@ -64,7 +66,7 @@ Branch `claude/track-m-wp-m3`, stacked on `claude/track-m-wp-m2` (draft PR #165)
 - `TIMEOUT` is reported as retryable, which is wrong for proposal tools (WP-M4).
 - `fetchFactForModel` loads all of the project's facts and sources, like `listUsableFacts`.
 - `support_insights` and `project_status` have duplicated local lists and two schemas (see the WP-M5 items); the published JSON schema of `support_insights` is weaker than the zod refinement and key cap.
-- Other deferred review findings (tests and hygiene only): the `_meta` merge is covered but a late rejection after a timeout is not; the search-side negative passage assertions are partly vacuous (`topK` and a shared token); the fact cases lack "generated authority" and "not yet valid"; `projectLanguage` raises a Prisma error instead of `NOT_FOUND` for a vanished project.
+- Other deferred review findings (tests and hygiene only): the `_meta` merge is covered but a late rejection after a timeout is not; the search-side negative passage assertions are partly vacuous (`topK` and a shared token); the fact cases lack "generated authority" and "not yet valid"; `projectLanguage` raises a Prisma error instead of `NOT_FOUND` for a vanished project; `modelFacts` queries the sources twice; of the readiness states only `not_configured` is exercised end to end for `marketing_project_status`; the registry test's schema walker skips `patternProperties`.
 
 **WP-M4 items (write path).**
 - Proposal tools go through ActionRequests with `requestedBy` of kind `mcp`, with quotas per grant, the central kill switch and `orbit_action_status`.
@@ -80,7 +82,7 @@ Branch `claude/track-m-wp-m3`, stacked on `claude/track-m-wp-m2` (draft PR #165)
 
 ## Track M WP-M2: MCP gateway core (2026-10-18, local; flag off)
 
-Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpowers/plans/2026-10-18-track-m-wp-m2-gateway.md` (decisions D-M2-1…7 and the Task 0 findings). Risk: high (new public endpoint). Environment: local only. Mario approved the MCP SDK 2.3.1 on 2026-10-18. There is no production service: nothing starts `apps/api/src/mcp-main.ts` yet (compose service and Traefik route are WP-M5). No module tool is exposed to MCP yet (WP-M3); the only tools a client can list today are the native `orbit_projects` and tools that opt in later.
+Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpowers/plans/2026-10-18-track-m-wp-m2-gateway.md` (decisions D-M2-1…7 and the Task 0 findings). Risk: high (new public endpoint). Environment: local only. Mario approved the MCP SDK 2.3.1 on 2026-10-18. There is no production service: nothing starts `apps/api/src/mcp-main.ts` yet (compose service and Traefik route are WP-M5). At the end of WP-M2 no module tool was exposed to MCP and the only listable tool was the native `orbit_projects`; WP-M3 (above) adds `search`, `fetch`, `orbit_profile`, `marketing_project_status` and `support_insights`.
 
 - **Merging is a production change.** A merge to `main` auto-deploys, so it applies to production regardless of the flag:
   - the migration `202610180010_mcp_run_kind` widens `AgentRun_kind_check` so `'mcp'` is a valid run kind (drop and re-add of a check constraint on `AgentRun`; the table is locked briefly while the check is validated, and every existing row already satisfies the wider check);
@@ -162,14 +164,14 @@ Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpower
 - [ ] Salt or key the `argsHash` if audit read access is wider than needed.
 - [ ] The independent security review (`09` §9), including the O-6 check that the scope is built through `projectMembership`.
 
-**WP-M3 items.**
-- Expose reviewed read tools with `outputSchema`s; filter results by `modelUse` and hard floors; render cards as Orbit links; add the native `search`, `fetch` and `orbit_profile`; add `orbit:propose` tools through ActionRequests.
-- Start the `mcp` `AgentRun` before `execute` and pass its id as `runId` (today `runId` is the request id and the run is written after the call).
-- Channel-aware budget keys: `mcp:<grantId>:<date>` per `09` §6.3 instead of `chat:${runId}`.
-- ActionRequests from MCP carry `requestedBy: { kind: "mcp", clientId, grantId }`.
-- Refuse MCP exposure of tools that need a conversation (the package and proposal tools key rows by `conversationId`; the adapter passes a synthetic `mcp:<requestId>`).
-- Review per tool that its arguments are parsed twice (the SDK's schema check, then the adapter's `parameters.parse`): transforms and non-idempotent defaults must give the same result on the second parse.
-- `09` §7 global concurrency per project (R-10) and tool-execution timeouts.
+**WP-M3 items (status after WP-M3; details in "Track M WP-M3" above).**
+- Expose reviewed read tools with `outputSchema`s; filter results by `modelUse` and hard floors; render cards as Orbit links; add the native `search`, `fetch` and `orbit_profile`; add `orbit:propose` tools through ActionRequests. Delivered: `search`, `fetch`, `orbit_profile`, `marketing_project_status`, `support_insights` with the `modelUse` and eligibility filtering. Not delivered: cards as links (results carry a `url` instead) and the `orbit:propose` tools (WP-M4).
+- Start the `mcp` `AgentRun` before `execute` and pass its id as `runId`. Delivered.
+- Channel-aware budget keys `mcp:<grantId>:<date>` per `09` §6.3 instead of `chat:${runId}`. Superseded by D-M3-2: paid search uses per-call keys `mcp:<grantId>:<requestId>:<callId>[:<projectId>]`, not a daily key.
+- ActionRequests from MCP carry `requestedBy: { kind: "mcp", clientId, grantId }`. Moved to WP-M4.
+- Refuse MCP exposure of tools that need a conversation (the package and proposal tools key rows by `conversationId`; the adapter passes a synthetic `mcp:<requestId>`). Open for WP-M4: the two WP-M3 registry tools are read-only and do not key rows by conversation.
+- Review per tool that its arguments are parsed twice (the SDK's schema check, then the adapter's `parameters.parse`). Delivered for the two WP-M3 tools (a note in each tool file).
+- `09` §7 global concurrency per project (R-10) and tool-execution timeouts. The 25 s timeout is delivered (D-M3-11); concurrency is a WP-M5 item.
 
 **Final review fixes (2026-10-18).** Limits are charged from the verified claims before `resolvePrincipal` (a 429 costs no database read) and membership checks run at most four at a time; refused calls store a client-supplied tool name only when it is a known tool name (`<unknown>` otherwise, and no `AgentRun` for an unknown tool); MCP exposure requires an object output schema. Test counts and the full run are in the verification below.
 
