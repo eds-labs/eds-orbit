@@ -176,6 +176,7 @@ import {
   registerNotificationRoutes,
 } from "./platform/notifications/routes.ts";
 import { notificationsEnabled } from "./platform/notifications/members.ts";
+import { registerAttentionRoutes } from "./platform/attention/routes.ts";
 import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
 import { emailEnabled } from "./platform/email/connection.ts";
 const object = z.record(z.string(), z.unknown());
@@ -425,6 +426,8 @@ export async function buildServer(
   // A member's own notifications and the project's mailbox (WP4.7).
   registerNotificationRoutes(app, auth);
   registerEmailRoutes(app, auth);
+  // What needs the member's attention in the project (UI restructure §4.1).
+  registerAttentionRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",
