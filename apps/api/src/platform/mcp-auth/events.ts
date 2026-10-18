@@ -15,7 +15,10 @@ export type GrantEventAction =
   | "grant.revoked"
   | "client.registered"
   | "client.refreshed"
-  | "token.refresh_replay";
+  | "token.refresh_replay"
+  // One gateway tool call without a project (WP-M2): identifiers, outcome
+  // code, duration and argument hash in `detail`, never values or results.
+  | "mcp.call";
 
 export type GrantEvent = {
   action: GrantEventAction;

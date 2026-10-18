@@ -13,6 +13,7 @@
     ],
     "root:api": [
       "apps/api/src/main.ts",
+      "apps/api/src/mcp-main.ts",
       "apps/api/src/server.ts",
       "apps/api/src/openapi.ts",
       "apps/api/src/modules/registry.ts"

@@ -70,8 +70,70 @@ export function fixtureSignature(
     .digest("hex");
 }
 
+/**
+ * A tool for outside clients only (WP-M2): hidden from the assistant, exposed
+ * to MCP with an output schema. The gateway tests use it; the assistant must
+ * never offer it.
+ */
+export const taskDigest = defineTool({
+  name: "task_digest",
+  namespace: "tasks",
+  description: "Count the project's fixture tasks.",
+  parameters: z.object({}).strict(),
+  risk: "R0_read",
+  permission: TASKS_READ,
+  deferLoading: false,
+  exposure: { assistant: false, mcp: true },
+  outputSchema: z.object({ total: z.number().int() }).strict(),
+  async execute(context) {
+    const total = await scoped(
+      context.scope.workspaceId,
+      context.scope.projectId,
+      async (tx) => (await list(tx, context.scope, "fixture_tasks")).length,
+    );
+    return { output: { total }, cards: [] };
+  },
+});
+
+/**
+ * A proposal tool for outside clients only (WP-M2): one task as one
+ * ActionRequest, like propose_tasks. Its name sorts before task_digest while
+ * it is registered after it, so the gateway's name order is observable.
+ */
+export const suggestTask = defineTool({
+  name: "suggest_task",
+  namespace: "tasks",
+  description: "Propose one follow-up task; it needs an editor's approval.",
+  parameters: z.object({ title: z.string() }).strict(),
+  risk: "P_proposal",
+  permission: TASKS_MANAGE,
+  deferLoading: false,
+  exposure: { assistant: false, mcp: true },
+  outputSchema: z
+    .object({ id: z.string(), status: z.literal("pending") })
+    .strict(),
+  async execute(context, args) {
+    const { title } = taskPayload.parse(args);
+    const request = await scoped(
+      context.scope.workspaceId,
+      context.scope.projectId,
+      (tx) =>
+        createActionRequest(tx, context.scope, {
+          actionType: "tasks.create",
+          payload: { title },
+          requestedBy: {
+            kind: "agent",
+            userId: context.scope.userId,
+            agentRunId: null,
+          },
+        }),
+    );
+    return { output: { id: request.id, status: "pending" }, cards: [] };
+  },
+});
+
 export const tasksContributions: ModuleContributions = {
-  tools: [proposeTasks],
+  tools: [proposeTasks, taskDigest, suggestTask],
   // A public API for browsers on a key's origins (WP4.2b): visitors file
   // requests and see their own.
   publicRoutes: [

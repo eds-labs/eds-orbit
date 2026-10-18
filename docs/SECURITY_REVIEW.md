@@ -120,6 +120,7 @@ Each item is marked **pass** (held under attack, with a test) or **fix** (a hole
 - **O-4 Nested module scopes.** `moduleScope` puts the effective role in `role`, so module code that ran another module's check with that scope would see the raised role. No such path exists today: chat tools, actions, collections, decisions and files all start from the member's own scope. Hardening follow-up: carry the project role separately in `Scope`.
 - **O-5 Knowledge search.** `knowledge_search` is a platform tool (WP3.3), so a member with `knowledge: none` can still search in the assistant. Source audiences (WP3.5) are the boundary there. Decide whether `knowledge: none` should also remove it.
 - **O-6 MCP gateway.** WP-M2 must build its scope through `projectMembership` so module roles apply. Check this in the WP-M2 review.
+  - **WP-M2 status (2026-10-18, local; flag off).** `resolvePrincipal` re-checks every granted project with `actorScope` (`projectMembership`) on each request, and the adapter runs tools with `moduleScope(scope, owner)`, so module roles apply. Evidence: `apps/api/tests/mcp-principal.integration.test.ts` (intersection matrix over role and module state; lost membership hides the project) and `mcp-gateway.integration.test.ts`. The independent review of the gateway is a WP-M5 item and has not been done.
 
 ## Public ingress: signed webhooks (WP4.2a, prepared 2026-10-17; review done 2026-10-17)
 
