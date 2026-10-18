@@ -838,9 +838,17 @@ describe.skipIf(!enabled)(
         });
         expect(added[0]!.key).toMatch(
           new RegExp(
-            `^${project.Alpha}:query:mcp:${grant.id}:[0-9a-f-]{36}:${project.Alpha}$`,
+            // grant, request id, per-call id, project (D-M3-2, fix round 1)
+            `^${project.Alpha}:query:mcp:${grant.id}:[0-9a-f-]{36}:[0-9a-f-]{36}:${project.Alpha}$`,
           ),
         );
+        // Another call gets other keys.
+        expect((await search({ query: `${TOKEN} alpha` })).isError).toBeFalsy();
+        const keys = (await reservations("Alpha"))
+          .slice(before)
+          .map((row) => row.key);
+        expect(keys).toHaveLength(2);
+        expect(new Set(keys).size).toBe(2);
         // The embedding span hangs on the call's run; no retrieval run opened.
         expect(mcpRun.spans.map((span) => span.type).sort()).toEqual([
           "embedding",
@@ -1118,6 +1126,169 @@ describe.skipIf(!enabled)(
           });
         }
         expect(projectsIn(await search({ query: TOKEN }, "two")).size).toBe(2);
+      });
+
+      const NOT_FOUND_BODY = {
+        code: "NOT_FOUND",
+        message: "NOT FOUND",
+        retryable: false,
+      };
+      /**
+       * Beta's knowledge is hidden: a search skips it (empty when it is the
+       * only project); naming it as projectId is an empty list, as for any
+       * granted project whose knowledge the member cannot read
+       * (knowledgeScope returns null; 404 stays for projects outside the
+       * grant); a fetch answers the identical NOT_FOUND.
+       */
+      async function expectBetaHidden() {
+        expect(projectsIn(await search({ query: TOKEN }, "two"))).toEqual(
+          new Set([project.Alpha]),
+        );
+        expect(
+          (await search({ query: TOKEN }, "beta")).structuredContent,
+        ).toEqual({ results: [] });
+        expect(
+          (await search({ query: TOKEN, projectId: project.Beta }, "two"))
+            .structuredContent,
+        ).toEqual({ results: [] });
+        for (const who of ["two", "beta"] as const) {
+          const fetched = await fetchItem(chunkId("Beta", "beta"), who);
+          expect(fetched.isError).toBe(true);
+          expect(fetched.structuredContent).toEqual(NOT_FOUND_BODY);
+        }
+      }
+      async function expectBetaVisible() {
+        expect(projectsIn(await search({ query: TOKEN }, "two"))).toEqual(
+          new Set([project.Alpha, project.Beta]),
+        );
+        expect(
+          (await fetchItem(chunkId("Beta", "beta"), "beta")).isError,
+        ).toBeFalsy();
+      }
+      /** Sets an env flag for `run`, then restores it. */
+      async function withEnvFlag(key: string, run: () => Promise<void>) {
+        const saved = process.env[key];
+        process.env[key] = "true";
+        try {
+          await run();
+        } finally {
+          if (saved === undefined) delete process.env[key];
+          else process.env[key] = saved;
+        }
+      }
+
+      it("a module role knowledge = none hides the project's knowledge", async () => {
+        await expectBetaVisible();
+        await withEnvFlag("ORBIT_MODULE_ROLES", async () => {
+          await authDb.projectMemberModuleRole.create({
+            data: {
+              workspaceId,
+              projectId: project.Beta,
+              userId: ids.editor,
+              moduleId: "knowledge",
+              role: "none",
+            },
+          });
+          try {
+            await expectBetaHidden();
+          } finally {
+            await authDb.projectMemberModuleRole.deleteMany({
+              where: { projectId: project.Beta, userId: ids.editor },
+            });
+          }
+          await expectBetaVisible();
+        });
+      });
+
+      it("the knowledge module disabled for the project hides its knowledge", async () => {
+        await withEnvFlag("ORBIT_MODULES", async () => {
+          await expectBetaVisible();
+          await scoped(workspaceId, project.Beta, (tx) =>
+            tx.projectModule.create({
+              data: {
+                workspaceId,
+                projectId: project.Beta,
+                moduleId: "knowledge",
+                enabled: false,
+                moduleVersion: "1.0.0",
+                changedBy: ids.owner,
+              },
+            }),
+          );
+          try {
+            await expectBetaHidden();
+          } finally {
+            await scoped(workspaceId, project.Beta, (tx) =>
+              // The app never deletes activation rows; switch it back on.
+              tx.projectModule.updateMany({
+                where: { workspaceId, projectId: project.Beta },
+                data: { enabled: true },
+              }),
+            );
+          }
+          await expectBetaVisible();
+        });
+      });
+    });
+
+    describe("JSON-RPC batches", () => {
+      it("refuses every batch before the SDK, also an all-legacy one with search calls", async () => {
+        const before = {
+          embeds: embedding.calls,
+          reservations: (await reservations("Alpha")).length,
+          audit: (await auditRows("Alpha")).length,
+          runs: (await runsIn("Alpha")).length,
+          events: (await callEvents("one")).length,
+        };
+        const message = (id: number) => ({
+          jsonrpc: "2.0",
+          id,
+          method: "tools/call",
+          params: { name: "search", arguments: { query: TOKEN } },
+        });
+        const batches = [[message(1), message(2)], [message(3)]];
+        for (const version of ["2025-03-26", "2025-11-25", MODERN, null])
+          for (const batch of batches) {
+            const response = await gateway.inject({
+              method: "POST",
+              url: "/mcp",
+              headers: {
+                "content-type": "application/json",
+                accept: "application/json, text/event-stream",
+                ...(version ? { "mcp-protocol-version": version } : {}),
+                authorization: `Bearer ${tokens.one}`,
+              },
+              payload: JSON.stringify(batch),
+            });
+            expect(response.statusCode).toBe(400);
+            expect(rpcBody(response)).toEqual({
+              jsonrpc: "2.0",
+              error: {
+                code: -32600,
+                message: "Batch requests are not supported",
+              },
+              id: null,
+            });
+          }
+        // Nothing ran: no embedding, reservation, audit row, run or log.
+        expect(embedding.calls).toBe(before.embeds);
+        expect(await reservations("Alpha")).toHaveLength(before.reservations);
+        expect(await auditRows("Alpha")).toHaveLength(before.audit);
+        expect(await runsIn("Alpha")).toHaveLength(before.runs);
+        expect(await callEvents("one")).toHaveLength(before.events);
+      });
+
+      it("still needs a valid token first", async () => {
+        const response = await gateway.inject({
+          method: "POST",
+          url: "/mcp",
+          headers: {
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+          },
+          payload: JSON.stringify([{ jsonrpc: "2.0", id: 1, method: "ping" }]),
+        });
+        expect(response.statusCode).toBe(401);
       });
     });
   },

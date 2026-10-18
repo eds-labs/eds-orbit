@@ -29,6 +29,7 @@ import {
 } from "./adapter.ts";
 import { createMcpObserver, startMcpRun } from "./audit.ts";
 import {
+  batchRefusedResponse,
   methodNotFoundResponse,
   rateLimitedResponse,
   rpcErrorResponse,
@@ -106,8 +107,10 @@ type PeekedMessage = {
   /** The raw `arguments` of a tools/call (hashed for audit, never stored). */
   args?: unknown;
   id: string | number | null;
-  /** The body (or any message of a batch) asks for subscriptions/listen. */
+  /** The body asks for subscriptions/listen. */
   listen: boolean;
+  /** The body is a JSON-RPC batch (an array), which the gateway refuses. */
+  batch: boolean;
 };
 
 /** The JSON-RPC method, tool name and arguments of a request body, when it is a single message. */
@@ -116,16 +119,10 @@ function peekMessage(body: string): PeekedMessage {
   try {
     message = JSON.parse(body);
   } catch {
-    return { id: null, listen: false };
+    return { id: null, listen: false, batch: false };
   }
-  if (Array.isArray(message))
-    return {
-      id: null,
-      listen: message.some(
-        (item) => isRecord(item) && item.method === LISTEN_METHOD,
-      ),
-    };
-  if (!isRecord(message)) return { id: null, listen: false };
+  if (Array.isArray(message)) return { id: null, listen: false, batch: true };
+  if (!isRecord(message)) return { id: null, listen: false, batch: false };
   const params = isRecord(message.params) ? message.params : undefined;
   const id =
     typeof message.id === "string" || typeof message.id === "number"
@@ -134,6 +131,7 @@ function peekMessage(body: string): PeekedMessage {
   return {
     id,
     listen: message.method === LISTEN_METHOD,
+    batch: false,
     ...(typeof message.method === "string" ? { method: message.method } : {}),
     ...(typeof params?.name === "string" ? { toolName: params.name } : {}),
     ...(params && "arguments" in params ? { args: params.arguments } : {}),
@@ -284,6 +282,11 @@ export async function buildMcpServer(
           );
           return rateLimitedResponse(verdict.retryAfterSeconds);
         }
+        // MCP dropped JSON-RPC batching (2025-06-18) and no target client
+        // batches: a batch would carry calls past the per-call checks
+        // (search bucket, audit, per-call keys), so it is refused whole,
+        // before the principal is resolved or the SDK sees it.
+        if (peek.batch) return batchRefusedResponse();
         const principal = await resolvePrincipal(claims);
         // Without an active grant only a tool call gets an answer, as an
         // isError result carrying the challenge; everything else is a 401.

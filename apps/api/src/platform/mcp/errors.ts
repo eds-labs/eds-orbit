@@ -162,6 +162,17 @@ export const methodNotFoundResponse = (id: string | number | null) =>
     { status: 200, headers: { "content-type": "application/json" } },
   );
 
+/** 400 for a JSON-RPC batch (an array body): the gateway serves single messages only. */
+export const batchRefusedResponse = () =>
+  new Response(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      error: { code: -32600, message: "Batch requests are not supported" },
+      id: null,
+    }),
+    { status: 400, headers: { "content-type": "application/json" } },
+  );
+
 /** 429 with the wait in `Retry-After` (seconds). */
 export const rateLimitedResponse = (retryAfterSeconds: number) =>
   rpcErrorResponse(429, "Rate limit exceeded", {

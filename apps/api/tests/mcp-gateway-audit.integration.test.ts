@@ -1050,10 +1050,11 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
           { jsonrpc: "2.0", id: 2, method: "subscriptions/listen", params: {} },
         ]),
       });
-      expect(response.statusCode).toBe(200);
+      // The gateway refuses every batch whole (fix round 1 of WP-M3 Task 3).
+      expect(response.statusCode).toBe(400);
       expect(rpcBody(response).error).toEqual({
-        code: -32601,
-        message: "Method not found",
+        code: -32600,
+        message: "Batch requests are not supported",
       });
     });
   });

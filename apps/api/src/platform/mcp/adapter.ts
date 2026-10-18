@@ -9,6 +9,7 @@
  * Tool handlers never throw: the SDK would send a thrown message to the
  * client. Every outcome is a result built here or in errors.ts.
  */
+import { randomUUID } from "node:crypto";
 import type { FastifyBaseLogger } from "fastify";
 import {
   McpServer,
@@ -114,6 +115,8 @@ export type McpRequestState = {
 
 /** What one call tells the observer about itself while it runs. */
 type CallTrace = {
+  /** Unique per call, even if one HTTP request ever carried several. */
+  id: string;
   projectId: string | null;
   agentRunId: string | null;
   /** The run being started (shared by concurrent `startRun` calls). */
@@ -222,6 +225,7 @@ async function runCall(
 ): Promise<CallToolResult> {
   const started = Date.now();
   const call: CallTrace = {
+    id: randomUUID(),
     projectId: null,
     agentRunId: null,
     runStart: null,
@@ -372,6 +376,7 @@ function nativeContext(
   const { principal } = state;
   return {
     requestId: state.requestId,
+    callId: call.id,
     clientId: principal.clientId,
     grantId: principal.grantId,
     get agentRunId() {

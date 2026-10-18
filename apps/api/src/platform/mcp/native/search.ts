@@ -62,7 +62,9 @@ async function budgetFor(
     activePolicyRecord(tx, scope),
   );
   if (!mandate) return null;
-  const runKey = `mcp:${ctx.grantId}:${ctx.requestId}`;
+  // The request id ties the keys to the logs; the call id keeps them unique
+  // per call.
+  const runKey = `mcp:${ctx.grantId}:${ctx.requestId}:${ctx.callId}`;
   return {
     retrievalJobKey: `${runKey}:${scope.projectId}`,
     budgetRunKey: runKey,

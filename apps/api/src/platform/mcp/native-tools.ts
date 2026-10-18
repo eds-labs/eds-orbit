@@ -23,6 +23,8 @@ export { orbitProjects };
  */
 export type NativeToolContext = {
   requestId: string;
+  /** Unique per call: the nonce of per-call keys (budget reservations). */
+  callId: string;
   clientId: string;
   grantId: string;
   /** The `mcp` AgentRun of this call once `startRun` created it. */
