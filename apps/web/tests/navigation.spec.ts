@@ -3,8 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
-// Web shell and navigation (WP1.7): pickers, project home, every page by URL,
-// legacy redirects, not-found pages, mobile bar, keyboard and DE/EN labels.
+// Web shell and navigation (WP1.7, UI restructure): pickers, project home,
+// every page by URL, the grouped and collapsible sidebar, legacy redirects,
+// not-found pages, mobile bar, keyboard and DE/EN labels.
 
 function account() {
   return JSON.parse(
@@ -37,18 +38,25 @@ async function openHome(page: Page, base: string) {
   await expect(page.getByLabel("Message for Orbit Chat")).toBeVisible();
 }
 
-// Every page of the shell, by its sidebar label and its URL below the project.
+// Every page of the shell, by its sidebar label and its URL below the project,
+// in sidebar order: the top entries, the module groups (approvals sit in
+// Marketing), then the project group.
 const PAGES: Array<[string, string]> = [
   ["Home", ""],
-  ["Missions", "/marketing/missions"],
   ["Orbit Chat", "/assistant"],
+  ["Missions", "/marketing/missions"],
   ["Content Studio", "/marketing/content"],
   ["Calendar", "/marketing/calendar"],
-  ["Knowledge", "/knowledge"],
-  ["Assets", "/marketing/assets"],
   ["Approvals", "/approvals"],
+  ["Assets", "/marketing/assets"],
   ["Analytics", "/marketing/analytics"],
   ["Memory", "/marketing/memory"],
+  ["Overview", "/knowledge"],
+  ["Sources", "/knowledge/sources"],
+  ["Facts", "/knowledge/facts"],
+  ["Conflicts", "/knowledge/conflicts"],
+  ["Import", "/knowledge/import"],
+  ["Library", "/knowledge/library"],
   ["Connectors", "/connectors"],
   ["Operations", "/operations"],
   ["Settings", "/settings"],
@@ -126,6 +134,16 @@ test("pickers, project home and every page have their own URL", async ({
     );
     await expect(page.getByText("Page not found")).toHaveCount(0);
   }
+  // The tab title carries the group, so the two "Overview" pages differ.
+  await page.goto(`${base}/knowledge`);
+  await expect(page).toHaveTitle(
+    new RegExp(`^Knowledge / Overview · ${project.name} · EDS Orbit$`),
+  );
+  // The module groups and the project group, each with its entries.
+  for (const group of ["Marketing", "Knowledge", "Project"])
+    await expect(
+      nav.getByRole("button", { name: new RegExp(`^${group}`) }),
+    ).toHaveAttribute("aria-expanded", "true");
   // Deep links survive a reload: one platform page and one module page.
   // Not every page: the whole suite shares one client address and the API's
   // read limit (600 per minute).
@@ -213,8 +231,8 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
   await expect(mobile.getByRole("link")).toHaveText([
     "Home",
     "Orbit Chat",
+    "Approvals",
     "Content",
-    "Knowledge",
   ]);
   await expect(mobile.getByRole("button", { name: "More" })).toBeVisible();
   expect(
@@ -230,8 +248,8 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
   await expect(mobile.getByRole("link")).toHaveText([
     "Start",
     "Orbit Chat",
+    "Freigaben",
     "Inhalte",
-    "Wissen",
   ]);
   await expect(mobile.getByRole("button", { name: "Mehr" })).toBeVisible();
   await page.goto(`${base}/nope`);
@@ -239,4 +257,125 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
     page.getByRole("heading", { name: "Seite nicht gefunden" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "EN", exact: true }).click();
+});
+
+const COLLAPSED_KEY = "orbit.nav.collapsed";
+
+test("sidebar groups collapse and stay collapsed after reload", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const user = await signIn(page);
+  const base = `/p/${user.projectId}`;
+  await openHome(page, base);
+  const nav = page.getByRole("navigation", { name: "Workspace" });
+  const marketing = nav.getByRole("button", { name: /^Marketing/ });
+  const knowledge = nav.getByRole("button", { name: /^Knowledge/ });
+  const missions = nav.getByRole("link", { name: "Missions", exact: true });
+
+  // All groups are open by default.
+  await expect(marketing).toHaveAttribute("aria-expanded", "true");
+  await expect(knowledge).toHaveAttribute("aria-expanded", "true");
+  await expect(missions).toBeVisible();
+
+  // Collapsing hides the entries of that group only.
+  await marketing.click();
+  await expect(marketing).toHaveAttribute("aria-expanded", "false");
+  await expect(missions).toBeHidden();
+  await expect(
+    nav.getByRole("link", { name: "Sources", exact: true }),
+  ).toBeVisible();
+
+  // The state is remembered in this browser: still collapsed on Home after a
+  // reload (wait for the shell before looking for the missing link).
+  await page.reload();
+  await expect(page.getByLabel("Message for Orbit Chat")).toBeVisible();
+  await expect(marketing).toHaveAttribute("aria-expanded", "false");
+  await expect(missions).toBeHidden();
+  await expect(knowledge).toHaveAttribute("aria-expanded", "true");
+
+  // The header opens the group again.
+  await marketing.click();
+  await expect(marketing).toHaveAttribute("aria-expanded", "true");
+  await expect(missions).toBeVisible();
+});
+
+test("navigating to a page opens its collapsed group", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const user = await signIn(page);
+  const base = `/p/${user.projectId}`;
+  await openHome(page, base);
+  const nav = page.getByRole("navigation", { name: "Workspace" });
+  const marketing = nav.getByRole("button", { name: /^Marketing/ });
+  const missions = nav.getByRole("link", { name: "Missions", exact: true });
+
+  // Marketing is collapsed in storage, then a deep link opens one of its pages.
+  await page.evaluate(
+    (key) => localStorage.setItem(key, JSON.stringify(["marketing"])),
+    COLLAPSED_KEY,
+  );
+  await page.goto(`${base}/marketing/missions`);
+  await expect(marketing).toHaveAttribute("aria-expanded", "true");
+  await expect(missions).toBeVisible();
+  await expect(missions).toHaveAttribute("aria-current", "page");
+
+  // The page opened the group for good: the storage no longer lists it.
+  expect(
+    await page.evaluate((key) => localStorage.getItem(key), COLLAPSED_KEY),
+  ).toBe("[]");
+
+  // The open page's group is not locked: its header still collapses it.
+  await marketing.click();
+  await expect(marketing).toHaveAttribute("aria-expanded", "false");
+  await expect(missions).toBeHidden();
+  expect(
+    await page.evaluate((key) => localStorage.getItem(key), COLLAPSED_KEY),
+  ).toBe(JSON.stringify(["marketing"]));
+
+  // Navigating to another page of that group opens it again.
+  await page.goto(`${base}/marketing/calendar`);
+  await expect(marketing).toHaveAttribute("aria-expanded", "true");
+  await expect(
+    nav.getByRole("link", { name: "Calendar", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+});
+
+test("mobile bar shows Home, Chat and two module entries plus More", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const user = await signIn(page);
+  const base = `/p/${user.projectId}`;
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openHome(page, base);
+  const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
+  await expect(mobile.getByRole("link")).toHaveText([
+    "Home",
+    "Orbit Chat",
+    "Approvals",
+    "Content",
+  ]);
+  await expect(mobile.getByRole("button", { name: "More" })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+
+  // The closed sidebar sits off-screen; "More" opens it as a dialog with the
+  // grouped sidebar.
+  await expect(page.locator("aside.sidebar")).not.toBeInViewport();
+  await mobile.getByRole("button", { name: "More" }).click();
+  const drawer = page.getByRole("dialog", { name: "Workspace navigation" });
+  await expect(drawer).toBeInViewport();
+  // The drawer scrolls; each group header is reachable in it.
+  for (const group of ["Marketing", "Knowledge", "Project"]) {
+    const header = drawer.getByRole("button", {
+      name: new RegExp(`^${group}`),
+    });
+    await header.scrollIntoViewIfNeeded();
+    await expect(header).toBeInViewport();
+  }
 });

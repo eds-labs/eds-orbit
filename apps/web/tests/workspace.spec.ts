@@ -686,6 +686,13 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     ).toBeVisible();
     await page.getByRole("tab", { name: "Sources", exact: true }).focus();
     await page.keyboard.press("End");
+    // The tab is a page of its own: the focus must survive the navigation.
+    await expect(page).toHaveURL(
+      new RegExp(`/p/${projectId}/knowledge/impact$`),
+    );
+    await expect(
+      page.getByRole("tab", { name: "Impact", exact: true }),
+    ).toHaveAttribute("aria-selected", "true");
     await expect(
       page.getByRole("tab", { name: "Impact", exact: true }),
     ).toBeFocused();
