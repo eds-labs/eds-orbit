@@ -20,7 +20,7 @@ import {
   readTools,
 } from "../src/modules/marketing/tools/read-tools.ts";
 import { readinessActions } from "../src/modules/marketing/readiness/action-readiness.ts";
-import { createInbox } from "../src/modules/support/inboxes.ts";
+import { createMailInbox } from "./fixtures/mailbox.ts";
 import { createTicket } from "../src/modules/support/tickets.ts";
 import {
   supportInsights,
@@ -355,7 +355,7 @@ describe.skipIf(!enabled)(
         );
       await inProject("Alpha", async (tx) => {
         const inbox = (
-          await createInbox(tx, alpha, {
+          await createMailInbox(tx, alpha, {
             name: "Registry mail",
             channels: ["email"],
             emailAddress: "registry@example.invalid",
