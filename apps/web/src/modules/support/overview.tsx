@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlarmClock,
   ArrowRight,
@@ -253,20 +253,30 @@ function VolumeCard({
   );
 }
 
-/** The root of the Support module: what needs attention, then the inbox. */
+/**
+ * The root of the Support module. An old notification link
+ * (`/support?ticket=<id>`) is decided during render from the router's search
+ * params, not from window.location, which a client navigation updates only on
+ * commit: it shows a skeleton, asks for nothing and is replaced by the inbox.
+ */
 export function SupportOverview() {
-  const { project, locale, t: word } = useWorkspace();
   const shell = useShell();
   const router = useRouter();
-  const t = supportText(locale);
-  // Old notification links open the inbox at its new place.
+  const target = ticketRedirect(useSearchParams()?.toString() ?? "");
+  const href = target
+    ? `${shell.hrefOf("support-tickets")}${target.slice(target.indexOf("?"))}`
+    : null;
   useEffect(() => {
-    const target = ticketRedirect(window.location.search);
-    if (target)
-      router.replace(
-        `${shell.hrefOf("support-tickets")}${target.slice(target.indexOf("?"))}`,
-      );
-  }, []);
+    if (href) router.replace(href);
+  }, [href]);
+  return href ? <Skeleton /> : <OverviewContent />;
+}
+
+/** What needs attention, then the inbox. */
+function OverviewContent() {
+  const { project, locale, t: word } = useWorkspace();
+  const shell = useShell();
+  const t = supportText(locale);
   const [now] = useState(() => new Date());
   const summary = useResource<Summary>(supportPath(project.id, "/summary"));
   const stats = useResource<Stats>(

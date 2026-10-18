@@ -1,17 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+// The query string of the open page, as the router reports it.
+const search = vi.hoisted(() => ({ value: "" }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   usePathname: () => "/",
+  useSearchParams: () => new URLSearchParams(search.value),
 }));
 
 // Every resource the page reads, by a part of its path. A path without an
-// entry answers 404, as a route of a switched-off module does.
+// entry answers 404, as a route of a switched-off module does. `requested`
+// records every path asked for.
 const answers = vi.hoisted(() => ({}) as Record<string, unknown>);
+const requested = vi.hoisted(() => [] as string[]);
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
     useResource: (path: string | null) => {
+      if (path) requested.push(path);
       const key = Object.keys(answers).find((part) => path?.includes(part));
       const found = key === undefined ? undefined : answers[key];
       const failed = found === undefined || found instanceof Error;
@@ -121,6 +127,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   for (const key of Object.keys(answers)) delete answers[key];
+  requested.length = 0;
+  search.value = "";
 });
 afterEach(() => vi.useRealTimers());
 
@@ -136,6 +144,27 @@ describe("ticketRedirect", () => {
 });
 
 describe("SupportOverview", () => {
+  it("shows only a skeleton and asks for nothing while an old ticket link redirects", () => {
+    search.value = `?ticket=${UUID}`;
+    answers["/summary"] = {
+      open: 1,
+      unassigned: 0,
+      atRisk: 0,
+      breached: 0,
+      openByInbox: {},
+    };
+    const html = render();
+    expect(html).toBe('<div class="skeleton" aria-hidden="true"></div>');
+    expect(requested).toEqual([]);
+  });
+
+  it("renders the overview for a link without a valid ticket id", () => {
+    search.value = "?ticket=not-a-uuid";
+    const html = render();
+    expect(html).toContain('class="metric"');
+    expect(requested.some((p) => p.includes("/summary"))).toBe(true);
+  });
+
   it("shows five metrics with — for missing stats", () => {
     answers["/summary"] = {
       open: 12,
