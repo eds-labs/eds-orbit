@@ -118,7 +118,8 @@ These routes also sit below `/api/projects/:projectId/support`, and every one of
 | `GET /summary` | read | Open, unassigned, at-risk (due within 60 minutes) and overdue counts, and `openByInbox`: open tickets (merged ones excluded) per inbox id, inboxes without any absent. |
 
 **Web module** (`apps/web/src/modules/support`):
-- the inbox, which shows the open ticket beside it on wide screens and alone on phones (`?ticket=`);
+- the overview at `/p/:id/support`: open, unassigned, at-risk and overdue counts, the median first response of the last 14 days, open tickets by due time, the inboxes with their open counts, new tickets per day and "My tickets";
+- the inbox at `/p/:id/support/tickets`, which shows the open ticket beside it on wide screens and alone on phones (`?ticket=`). Notification links and other stored links keep the form `/p/:id/support?ticket=<id>`; the overview forwards them to `/p/:id/support/tickets?ticket=<id>`, so old and new links both work;
 - the contacts page;
 - the "Support" settings tab with inboxes (the widget secret is shown once), categories, SLA and retention;
 - a home tile.

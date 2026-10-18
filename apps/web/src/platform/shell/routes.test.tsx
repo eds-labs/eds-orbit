@@ -78,8 +78,14 @@ describe("Web route registry", () => {
       expect(navGroupOf(route(key)), key).toBe("project");
     expect(navGroupOf(route("missions"))).toBe("marketing");
     expect(navGroupOf(route("knowledge-sources"))).toBe("knowledge");
-    for (const key of ["support-contacts", "support-stats"])
+    for (const key of [
+      "support",
+      "support-tickets",
+      "support-contacts",
+      "support-stats",
+    ])
       expect(route(key).nav, key).toBeTruthy();
+    expect(route("support").nav!.mobile).toBeFalsy();
     const nav = navOrder(table.routes.filter((r) => r.nav));
     for (const r of nav) {
       expect(r.nav!.label.en, r.key).toBeTruthy();
@@ -91,7 +97,14 @@ describe("Web route registry", () => {
         .filter((r) => r.nav!.mobile)
         .sort((a, b) => a.nav!.mobileRank! - b.nav!.mobileRank!)
         .map((r) => r.key),
-    ).toEqual(["home", "chat", "support", "approvals", "content", "knowledge"]);
+    ).toEqual([
+      "home",
+      "chat",
+      "support-tickets",
+      "approvals",
+      "content",
+      "knowledge",
+    ]);
     expect(webRegistry.modules.map((m) => [m.id, m.groupOrder])).toEqual(
       expect.arrayContaining([
         ["marketing", 10],

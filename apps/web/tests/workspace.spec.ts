@@ -1214,3 +1214,35 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
   });
   expect(view.routeVersion).toEqual(expect.any(Number));
 });
+
+test("an old support notification link opens the ticket", async ({ page }) => {
+  // The notification links of stored mail and chat messages point at the
+  // module root; the overview forwards them to the inbox. Needs a stack with
+  // the support module on, like support-widget.spec.ts.
+  test.skip(
+    process.env.E2E_SUPPORT !== "1",
+    "needs a support-enabled stack (E2E_SUPPORT=1)",
+  );
+  test.setTimeout(120_000);
+  await login(page);
+  const { projectId } = account();
+  const list = await page.request.get(
+    `/api/projects/${projectId}/support/tickets?limit=1`,
+  );
+  expect(list.ok()).toBeTruthy();
+  const first = (await list.json()).items[0] as
+    { id: string; subject: string } | undefined;
+  // Without a ticket the redirect itself is still checked, with an unknown id.
+  const id = first?.id ?? randomUUID();
+
+  await page.goto(`/p/${projectId}/support?ticket=${id}`);
+  await expect(page).toHaveURL(
+    new RegExp(`/p/${projectId}/support/tickets\\?ticket=${id}$`),
+  );
+  await expect(
+    page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Tickets", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+  if (first) await expect(page.getByText(first.subject).first()).toBeVisible();
+});

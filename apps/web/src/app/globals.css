@@ -649,7 +649,11 @@ pre {
 .metrics-strip.metrics-four {
   grid-template-columns: repeat(4, 1fr);
 }
-.metrics-four .metric > div {
+.metrics-strip.metrics-five {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+.metrics-four .metric > div,
+.metrics-five .metric > div {
   min-width: 0;
 }
 @media (max-width: 1200px) {
@@ -658,7 +662,11 @@ pre {
   }
 }
 @media (max-width: 760px) {
-  .metrics-four .metric:nth-child(even) {
+  .metrics-strip.metrics-five {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .metrics-four .metric:nth-child(even),
+  .metrics-five .metric:nth-child(even) {
     border-right: 0;
   }
 }
@@ -4245,6 +4253,9 @@ svg.agent-graph {
 .support-row-active {
   border-color: var(--primary);
 }
+a.support-row {
+  text-decoration: none;
+}
 .support-row-title {
   font-weight: 600;
   overflow-wrap: anywhere;
@@ -4487,6 +4498,33 @@ svg.agent-graph {
 }
 .support-sla-table input {
   max-width: 110px;
+}
+.support-overview-body {
+  padding: 0 21px 18px;
+}
+.support-inbox-count {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.support-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 120px;
+}
+.support-bar {
+  flex: 1 1 0;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: var(--primary);
+}
+.support-bars-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
 }
 .support-inbox-row {
   display: flex;

@@ -114,6 +114,23 @@ const en = {
     aiCost: "AI cost",
     costPerTicket: "AI cost per ticket",
   },
+  overview: {
+    firstResponse: "First response, 14 days",
+    urgent: "Open tickets by due time",
+    urgentEmpty: "No open tickets with a due time.",
+    due: "Due",
+    noDue: "No due time",
+    allTickets: "All tickets",
+    inboxes: "Inboxes",
+    inboxesEmpty: "No inbox yet. An owner creates one in Settings, Support.",
+    openCount: "{n} open",
+    perDay: "New tickets per day, 14 days",
+    perDayEmpty: "No new tickets in the last 14 days.",
+    perDayLabel:
+      "New tickets per day over {n} days: {total} in total. Busiest day {day}: {max}.",
+    mine: "My tickets",
+    mineEmpty: "No open tickets assigned to you.",
+  },
   home: {
     open: "Open",
     unassigned: "Unassigned",
@@ -314,6 +331,24 @@ const de: SupportText = {
     handoffs: "KI-Übergaben",
     aiCost: "KI-Kosten",
     costPerTicket: "KI-Kosten pro Ticket",
+  },
+  overview: {
+    firstResponse: "Erste Antwort, 14 Tage",
+    urgent: "Offene Tickets nach Fälligkeit",
+    urgentEmpty: "Keine offenen Tickets mit Fälligkeit.",
+    due: "Fällig",
+    noDue: "Keine Fälligkeit",
+    allTickets: "Alle Tickets",
+    inboxes: "Posteingänge",
+    inboxesEmpty:
+      "Noch kein Posteingang. Ein Owner legt einen unter Einstellungen, Support an.",
+    openCount: "{n} offen",
+    perDay: "Neue Tickets pro Tag, 14 Tage",
+    perDayEmpty: "Keine neuen Tickets in den letzten 14 Tagen.",
+    perDayLabel:
+      "Neue Tickets pro Tag über {n} Tage: {total} insgesamt. Stärkster Tag {day}: {max}.",
+    mine: "Meine Tickets",
+    mineEmpty: "Keine offenen Tickets für dich.",
   },
   home: {
     open: "Offen",

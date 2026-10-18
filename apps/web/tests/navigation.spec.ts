@@ -393,3 +393,52 @@ test("mobile bar shows Home, Chat and two module entries plus More", async ({
     await expect(header).toBeInViewport();
   }
 });
+
+test("support group lists Overview, Tickets, Contacts and Statistics", async ({
+  page,
+}) => {
+  // Needs a stack with the support module on, like support-widget.spec.ts.
+  test.skip(
+    process.env.E2E_SUPPORT !== "1",
+    "needs a support-enabled stack (E2E_SUPPORT=1)",
+  );
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  const user = await signIn(page);
+  const base = `/p/${user.projectId}`;
+  await openHome(page, base);
+  const nav = page.getByRole("navigation", { name: "Workspace" });
+  const group = nav.locator("#nav-group-support");
+  await expect(group.getByRole("link")).toHaveText([
+    "Overview",
+    "Tickets",
+    "Contacts",
+    "Statistics",
+  ]);
+  for (const [name, path] of [
+    ["Overview", "/support"],
+    ["Tickets", "/support/tickets"],
+    ["Contacts", "/support/contacts"],
+    ["Statistics", "/support/stats"],
+  ]) {
+    await group.getByRole("link", { name, exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
+    await expect(
+      group.getByRole("link", { name, exact: true }),
+    ).toHaveAttribute("aria-current", "page");
+  }
+
+  // On the bottom bar the Tickets entry points at the inbox, not the overview.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openHome(page, base);
+  const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
+  await expect(mobile.getByRole("link")).toHaveText([
+    "Home",
+    "Orbit Chat",
+    "Tickets",
+    "Approvals",
+  ]);
+  await expect(
+    mobile.getByRole("link", { name: "Tickets", exact: true }),
+  ).toHaveAttribute("href", `${base}/support/tickets`);
+});

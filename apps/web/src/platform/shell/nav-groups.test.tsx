@@ -35,6 +35,18 @@ describe("buildNavGroups", () => {
     ).toBe(false);
   });
 
+  it("orders the support group Overview, Tickets, Contacts, Statistics", () => {
+    const support = buildNavGroups(table.routes, modulesWith()).find(
+      (g) => g.id === "support",
+    )!;
+    expect(support.entries.map((r) => r.key)).toEqual([
+      "support",
+      "support-tickets",
+      "support-contacts",
+      "support-stats",
+    ]);
+  });
+
   it("puts approvals into marketing after calendar", () => {
     const marketing = buildNavGroups(table.routes, modulesWith()).find(
       (g) => g.id === "marketing",
@@ -48,7 +60,7 @@ describe("mobileEntries", () => {
   it("picks four by rank", () => {
     expect(
       mobileEntries(table.routes, enabledIn([])).map((r) => r.key),
-    ).toEqual(["home", "chat", "support", "approvals"]);
+    ).toEqual(["home", "chat", "support-tickets", "approvals"]);
     expect(
       mobileEntries(table.routes, enabledIn(["support"])).map((r) => r.key),
     ).toEqual(["home", "chat", "approvals", "content"]);
@@ -71,10 +83,15 @@ describe("mobileCurrentKey", () => {
     expect(current("chat")).toBe("chat");
   });
 
+  it("marks the bar entry of a module page that is itself on the bar", () => {
+    // Support is on the bar through its inbox (Tickets), not through its root,
+    // which is the overview.
+    expect(current("support-tickets")).toBe("support-tickets");
+    expect(current("support")).toBeUndefined();
+    expect(current("support-contacts")).toBeUndefined();
+  });
+
   it("keeps a module root current on the pages of its group", () => {
-    // Support is on the bar through its root (Tickets).
-    expect(current("support-contacts")).toBe("support");
-    expect(current("support-stats")).toBe("support");
     // Knowledge is not on this bar; with its root on the bar, a URL-only page
     // counts through its navKey and a tab through the group.
     const withKnowledge = [route("home"), route("knowledge")];
