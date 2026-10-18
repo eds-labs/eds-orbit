@@ -83,12 +83,16 @@ describe("mobileCurrentKey", () => {
     expect(current("chat")).toBe("chat");
   });
 
-  it("marks the bar entry of a module page that is itself on the bar", () => {
-    // Support is on the bar through its inbox (Tickets), not through its root,
-    // which is the overview.
+  it("marks the group's only bar entry on the other pages of the group", () => {
+    // Ruling R12: Support is on the bar through its inbox (Tickets), not
+    // through its root (the overview), so Tickets stands for the whole group.
     expect(current("support-tickets")).toBe("support-tickets");
-    expect(current("support")).toBeUndefined();
-    expect(current("support-contacts")).toBeUndefined();
+    expect(current("support")).toBe("support-tickets");
+    expect(current("support-contacts")).toBe("support-tickets");
+    expect(current("support-stats")).toBe("support-tickets");
+    // The same rule makes Approvals, Marketing's only entry on this bar,
+    // stand for the module's other pages.
+    expect(current("missions")).toBe("approvals");
   });
 
   it("keeps a module root current on the pages of its group", () => {
@@ -104,10 +108,14 @@ describe("mobileCurrentKey", () => {
   });
 
   it("marks nothing for a page that no bar entry stands for", () => {
-    // Missions is in Marketing, but the bar carries Content, not the group.
-    expect(current("missions")).toBeUndefined();
+    // Knowledge and the project group have no entry on this bar.
+    expect(current("knowledge")).toBeUndefined();
     expect(current("knowledge-sources")).toBeUndefined();
     expect(current("settings")).toBeUndefined();
     expect(mobileCurrentKey(bar, null)).toBeUndefined();
+    // With support off the bar carries Approvals and Content: a group with
+    // two entries and no root on the bar has no single stand-in.
+    const noSupport = mobileEntries(table.routes, enabledIn(["support"]));
+    expect(mobileCurrentKey(noSupport, route("missions"))).toBeUndefined();
   });
 });
