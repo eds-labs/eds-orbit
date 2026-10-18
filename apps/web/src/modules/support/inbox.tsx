@@ -23,6 +23,7 @@ import {
 } from "./api";
 import { supportText } from "./labels";
 import { SLA_TONE, TicketView } from "./ticket";
+import { TagChip, useSupportLists, type TagDef } from "./tags";
 
 /** The ticket opened in the URL (?ticket=), kept in sync without a reload. */
 function useOpenTicket() {
@@ -46,12 +47,15 @@ export function SupportInbox() {
   const t = supportText(locale);
   const [view, setView] = useState<(typeof VIEWS)[number]>("all");
   const [status, setStatus] = useState("");
+  const [category, setCategory] = useState("");
+  const [tag, setTag] = useState("");
+  const lists = useSupportLists();
   const [q, setQ] = useState("");
   const [search, setSearch] = useState("");
   const [pages, setPages] = useState<Array<string | null>>([null]);
   const [ticketId, openTicket] = useOpenTicket();
   const [revision, setRevision] = useState(0);
-  useEffect(() => setPages([null]), [view, status, search]);
+  useEffect(() => setPages([null]), [view, status, category, tag, search]);
   return (
     <div className="support-page">
       <PageHead title={t.support} description={t.supportIntro} />
@@ -91,14 +95,43 @@ export function SupportInbox() {
                 </option>
               ))}
             </select>
+            {lists.categories.length > 0 && (
+              <select
+                aria-label={t.category}
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+              >
+                <option value="">{t.anyCategory}</option>
+                {lists.categories.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            )}
+            {lists.tags.length > 0 && (
+              <select
+                aria-label={t.tags}
+                value={tag}
+                onChange={(e) => setTag(e.target.value)}
+              >
+                <option value="">{t.anyTag}</option>
+                {lists.tags.map((d) => (
+                  <option key={d.key} value={d.key}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </form>
           {pages.map((cursor, i) => (
             <TicketPage
               key={`${revision}-${cursor ?? "first"}`}
               path={supportPath(
                 project.id,
-                `/tickets?${ticketQuery({ view, status, q: search, cursor })}`,
+                `/tickets?${ticketQuery({ view, status, category, tag, q: search, cursor })}`,
               )}
+              tagDefs={lists.tags}
               selected={ticketId}
               onOpen={openTicket}
               onMore={
@@ -125,11 +158,13 @@ export function SupportInbox() {
 
 function TicketPage({
   path,
+  tagDefs,
   selected,
   onOpen,
   onMore,
 }: {
   path: string;
+  tagDefs: TagDef[];
   selected: string | null;
   onOpen: (id: string) => void;
   onMore?: (cursor: string) => void;
@@ -175,6 +210,9 @@ function TicketPage({
                   {sla !== "ok" && sla !== "done" && (
                     <Badge tone={SLA_TONE[sla]}>{t.sla[sla]}</Badge>
                   )}
+                  {ticket.tags.map((tag) => (
+                    <TagChip key={tag} tag={tag} defs={tagDefs} />
+                  ))}
                 </span>
               </button>
             </li>

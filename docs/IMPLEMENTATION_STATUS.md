@@ -11,6 +11,18 @@ Spec `docs/superpowers/specs/2026-10-18-orbit-ui-restructure-design.md`, plan `d
 - **Tests:** unit tests for the navigation model, the collapse helpers and the sidebar; `navigation.spec.ts` covers the grouped order of every page, collapse that survives a reload, a collapsed group opening on navigation, and the 390 px bar and drawer.
 - **Run locally:** the e2e suite needs `.runtime/e2e-user.json` (`scripts/seed-e2e.ts`) and the app on the configured base URL.
 
+## Support tags like Chatwoot labels (2026-10-18, local)
+
+Mario asked for this on 2026-10-18.
+- **Tag list.** The support settings get `tags`: a key, a label and a colour from a fixed palette (gray, blue, green, yellow, orange, red, purple, pink), at most 50. Settings saved earlier get an empty list from the defaults.
+- **On tickets.** Tickets take several tags. A newly added tag must be listed (`TAG_UNKNOWN`). A tag the list later dropped may stay. Renaming a tag keeps its key, so tickets keep it.
+- **Filters and statistics.** `GET /tickets` and `GET /stats` filter by `tag`. Volume counts tickets `byTag`.
+- **Web.**
+  - The settings get a tag editor (label and colour; the key comes from the label when it is saved).
+  - The ticket view toggles coloured tags and gets the category select it lacked.
+  - The ticket list filters by category and tag and shows tag chips.
+- **Release.** No migration, because `SupportTicket.tags` already exists. Rolling back is a redeploy.
+
 ## E-mail first sync takes unread mail only (2026-10-18; ORBIT_EMAIL on)
 
 Mario asked for this on 2026-10-18 while connecting support@uliquid.vip, whose INBOX already held old mail.

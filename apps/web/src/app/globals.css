@@ -4244,9 +4244,93 @@ svg.agent-graph {
   color: var(--muted-foreground);
 }
 .support-tags {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+.support-tag {
+  --tag: #64748b;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--tag);
+  background: color-mix(in srgb, var(--tag) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tag) 35%, transparent);
+  white-space: nowrap;
+}
+.support-tag[data-color="blue"] {
+  --tag: #2563eb;
+}
+.support-tag[data-color="green"] {
+  --tag: #15803d;
+}
+.support-tag[data-color="yellow"] {
+  --tag: #a16207;
+}
+.support-tag[data-color="orange"] {
+  --tag: #c2410c;
+}
+.support-tag[data-color="red"] {
+  --tag: #b91c1c;
+}
+.support-tag[data-color="purple"] {
+  --tag: #7e22ce;
+}
+.support-tag[data-color="pink"] {
+  --tag: #be185d;
+}
+.support-tag-picker {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
-  align-items: end;
+}
+.support-tag-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0.45;
+}
+.support-tag-toggle[aria-pressed="true"] {
+  opacity: 1;
+}
+.support-tag-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.support-tag-toggle:disabled {
+  cursor: default;
+}
+.support-tag-editor {
+  display: grid;
+  gap: 8px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.support-tag-row {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) minmax(0, 1fr) 120px auto;
+  gap: 8px;
+  align-items: center;
+}
+.support-tag-row > .support-tag {
+  justify-self: start;
+}
+@media (max-width: 600px) {
+  .support-tag-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}
+.support-muted {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
 }
 .support-ticket-body {
   display: grid;
