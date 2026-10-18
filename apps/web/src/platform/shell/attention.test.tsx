@@ -151,6 +151,35 @@ describe("renderAttention", () => {
     ).toBe("Quelle veraltet · Website");
   });
 
+  it("support counts each ticket once: further and other unassigned (R20)", () => {
+    const title = (over: Partial<AttentionItem>, locale: "en" | "de") =>
+      renderAttention(item(over), renderers, locale, modules).title;
+    const breachedMore = {
+      kind: "support_sla_breached",
+      id: "support:sla:breached:more",
+      severity: "critical" as const,
+      count: 3,
+    };
+    expect(title(breachedMore, "en")).toBe("3 more tickets with SLA breached");
+    expect(title(breachedMore, "de")).toBe(
+      "3 weitere Tickets mit verletztem SLA",
+    );
+    const atRiskMore = {
+      kind: "support_sla_at_risk",
+      id: "support:sla:at_risk:more",
+      count: 1,
+    };
+    expect(title(atRiskMore, "en")).toBe("1 more ticket with SLA at risk");
+    expect(title(atRiskMore, "de")).toBe(
+      "1 weiteres Ticket mit gefährdetem SLA",
+    );
+    const others = { count: 2, params: { othersListed: true } };
+    expect(title(others, "en")).toBe("2 more unassigned");
+    expect(title(others, "de")).toBe("2 weitere ohne Zuweisung");
+    // Without listed ones the plain text stays.
+    expect(title({ count: 2 }, "de")).toBe("2 Tickets nicht zugewiesen");
+  });
+
   it("an exception names what it affects, not a count (R19)", () => {
     const exception = (params: AttentionItem["params"]) =>
       item({

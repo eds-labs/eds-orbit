@@ -4,7 +4,9 @@ import type { AttentionRenderer, Label } from "@/platform/shell/types";
 
 // The support module's attention texts (UI restructure §4.3). Params carry
 // the ticket number, subject, channel and whether someone is assigned, never
-// a message body; the home page shows the due time from `dueAt`.
+// a message body; the home page shows the due time from `dueAt`. Each ticket
+// counts once (R20): beyond the listed ones, one item per SLA kind counts the
+// rest without names, and the unassigned item counts only the others.
 
 const OPEN_TICKET: Label = { en: "Open ticket", de: "Ticket öffnen" };
 
@@ -41,25 +43,49 @@ function ticketDetail(item: AttentionItem, locale: Locale) {
     .join(" · ");
 }
 
+const SHOW_TICKETS: Label = { en: "Show tickets", de: "Tickets anzeigen" };
+
+/**
+ * A breached or at-risk ticket: "<label> · #1042 <subject>", or the count of
+ * the further ones for the aggregated item (no ticket number).
+ */
 const sla =
-  (label: Label): AttentionRenderer =>
-  (item, locale) => ({
-    title: `${label[locale]} · ${ticketName(item)}`,
-    detail: ticketDetail(item, locale) || undefined,
-    action: OPEN_TICKET,
-  });
+  (label: Label, more: (n: number) => Label): AttentionRenderer =>
+  (item, locale) =>
+    item.params.number === undefined && item.count !== undefined
+      ? { title: more(item.count)[locale], action: SHOW_TICKETS }
+      : {
+          title: `${label[locale]} · ${ticketName(item)}`,
+          detail: ticketDetail(item, locale) || undefined,
+          action: OPEN_TICKET,
+        };
 
 export const supportAttention: Readonly<Record<string, AttentionRenderer>> = {
-  support_sla_breached: sla({ en: "SLA breached", de: "SLA verletzt" }),
-  support_sla_at_risk: sla({ en: "SLA at risk", de: "SLA gefährdet" }),
+  support_sla_breached: sla(
+    { en: "SLA breached", de: "SLA verletzt" },
+    (n) => ({
+      en: `${n} more ticket${n === 1 ? "" : "s"} with SLA breached`,
+      de: `${n} ${n === 1 ? "weiteres Ticket" : "weitere Tickets"} mit verletztem SLA`,
+    }),
+  ),
+  support_sla_at_risk: sla({ en: "SLA at risk", de: "SLA gefährdet" }, (n) => ({
+    en: `${n} more ticket${n === 1 ? "" : "s"} with SLA at risk`,
+    de: `${n} ${n === 1 ? "weiteres Ticket" : "weitere Tickets"} mit gefährdetem SLA`,
+  })),
   support_unassigned: (item, locale) => {
     const n = item.count ?? 1;
+    // Unassigned tickets with an SLA item are listed above it.
+    const others = item.params.othersListed === true;
     return {
       title:
         locale === "de"
-          ? `${n} ${n === 1 ? "Ticket" : "Tickets"} nicht zugewiesen`
-          : `${n} unassigned ticket${n === 1 ? "" : "s"}`,
-      action: { en: "Show tickets", de: "Tickets anzeigen" },
+          ? others
+            ? `${n} weitere ohne Zuweisung`
+            : `${n} ${n === 1 ? "Ticket" : "Tickets"} nicht zugewiesen`
+          : others
+            ? `${n} more unassigned`
+            : `${n} unassigned ticket${n === 1 ? "" : "s"}`,
+      action: SHOW_TICKETS,
     };
   },
 };

@@ -18,25 +18,35 @@ import { SUPPORT_TICKETS_READ } from "./permissions.ts";
 // The support module's attention items (UI restructure §4.1): tickets past or
 // close to their SLA due time and the unassigned ones. Params carry the
 // ticket number, subject and channel only: never a message body or a
-// customer address.
+// customer address. Every ticket counts once in the badge (R20).
 
 /** Breached and at-risk tickets are listed one by one up to this many each. */
 const SLA_TICKET_LIMIT = 5;
 
 const NAV_KEY = "support-tickets";
+const TICKETS = { navKey: NAV_KEY, link: "/support/tickets" } as const;
+
+type SlaKind = "support_sla_breached" | "support_sla_at_risk";
 
 /**
- * The ids of active tickets whose earliest pending due time lies in
- * [from, to), earliest first: the SQL form of the summary's breached and
- * at-risk predicates (a pending clock past due means the earliest is).
+ * The active tickets whose earliest pending due time lies in [from, to),
+ * earliest first: the SQL form of the summary's breached and at-risk
+ * predicates (a pending clock past due means the earliest is). The first
+ * SLA_TICKET_LIMIT ids, how many there are beyond them and the earliest
+ * due time of those.
  */
-async function dueTicketIds(
+async function dueTickets(
   tx: DbTx,
   scope: Scope,
   range: { from?: Date; to: Date },
 ) {
-  const found = await tx.$queryRaw<{ id: string }[]>`
-    SELECT "id" FROM "SupportTicket"
+  // One row beyond the listed ones carries the rest's earliest due time; the
+  // window count is taken before the LIMIT.
+  const found = await tx.$queryRaw<
+    { id: string; dueAt: Date; total: bigint }[]
+  >`
+    SELECT "id", ${SLA_DUE_AT_SQL} AS "dueAt", count(*) OVER () AS "total"
+      FROM "SupportTicket"
      WHERE "projectId" = ${scope.projectId}::uuid
        AND "mergedIntoTicketId" IS NULL
        AND "status" = ANY(${SLA_ACTIVE_STATUSES}::text[])
@@ -47,23 +57,31 @@ async function dueTicketIds(
            : Prisma.empty
        }
      ORDER BY ${SLA_DUE_AT_SQL} ASC, "id" ASC
-     LIMIT ${SLA_TICKET_LIMIT}`;
-  return found.map((row) => row.id);
+     LIMIT ${SLA_TICKET_LIMIT + 1}`;
+  const rest = found[SLA_TICKET_LIMIT];
+  return {
+    ids: found.slice(0, SLA_TICKET_LIMIT).map((row) => row.id),
+    more: rest
+      ? { count: Number(rest.total) - SLA_TICKET_LIMIT, dueAt: rest.dueAt }
+      : null,
+  };
 }
 
 async function slaItems(
   tx: DbTx,
   scope: Scope,
-  ids: string[],
-  kind: "support_sla_breached" | "support_sla_at_risk",
+  due: Awaited<ReturnType<typeof dueTickets>>,
+  kind: SlaKind,
 ): Promise<AttentionItem[]> {
-  if (!ids.length) return [];
-  const rows = await tx.supportTicket.findMany({
-    where: { projectId: scope.projectId, id: { in: ids } },
-  });
+  const severity = kind === "support_sla_breached" ? "critical" : "warning";
+  const rows = due.ids.length
+    ? await tx.supportTicket.findMany({
+        where: { projectId: scope.projectId, id: { in: due.ids } },
+      })
+    : [];
   const byId = new Map(rows.map((row) => [row.id, row]));
   // In due order; a ticket erased between the two reads is left out.
-  return ids.flatMap((id) => {
+  const items: AttentionItem[] = due.ids.flatMap((id) => {
     const ticket = byId.get(id);
     if (!ticket) return [];
     const dueAt = slaDueAt(ticket);
@@ -72,7 +90,7 @@ async function slaItems(
         id: `support:sla:${ticket.id}`,
         moduleId: "support",
         kind,
-        severity: kind === "support_sla_breached" ? "critical" : "warning",
+        severity,
         ...(dueAt ? { dueAt: dueAt.toISOString() } : {}),
         params: {
           number: ticket.number,
@@ -85,6 +103,49 @@ async function slaItems(
       } satisfies AttentionItem,
     ];
   });
+  // The tickets beyond the listed ones, as one item without names (as R18).
+  if (due.more)
+    items.push({
+      id: `support:sla:${kind === "support_sla_breached" ? "breached" : "at_risk"}:more`,
+      moduleId: "support",
+      kind,
+      severity,
+      count: due.more.count,
+      dueAt: due.more.dueAt.toISOString(),
+      params: {},
+      ...TICKETS,
+    });
+  return items;
+}
+
+/**
+ * Open, unassigned tickets that are not merged, split into the ones with an
+ * SLA item of their own (active and due before `soon`) and the rest, with
+ * the rest's oldest creation time.
+ */
+async function unassignedTickets(tx: DbTx, scope: Scope, soon: Date) {
+  const [found] = await tx.$queryRaw<
+    { rest: bigint; listed: bigint; since: Date | null }[]
+  >`
+    WITH "unassigned" AS (
+      SELECT "createdAt",
+             COALESCE("status" = ANY(${SLA_ACTIVE_STATUSES}::text[])
+                      AND ${SLA_DUE_AT_SQL} < ${soon}::timestamptz, false)
+               AS "listed"
+        FROM "SupportTicket"
+       WHERE "projectId" = ${scope.projectId}::uuid
+         AND "mergedIntoTicketId" IS NULL
+         AND "status" = ANY(${OPEN_STATUSES}::text[])
+         AND "assigneeUserId" IS NULL)
+    SELECT count(*) FILTER (WHERE NOT "listed") AS "rest",
+           count(*) FILTER (WHERE "listed") AS "listed",
+           min("createdAt") FILTER (WHERE NOT "listed") AS "since"
+      FROM "unassigned"`;
+  return {
+    rest: Number(found?.rest ?? 0),
+    listed: Number(found?.listed ?? 0),
+    since: found?.since ?? null,
+  };
 }
 
 export const supportAttention: AttentionContribution = async (
@@ -95,38 +156,26 @@ export const supportAttention: AttentionContribution = async (
   if (!can(scope, SUPPORT_TICKETS_READ)) return [];
   if (!(await supportActive(tx, scope))) return [];
   const soon = new Date(now.getTime() + SLA_AT_RISK_MINUTES * 60_000);
-  const [breachedIds, atRiskIds, unassigned] = await Promise.all([
-    dueTicketIds(tx, scope, { to: now }),
-    dueTicketIds(tx, scope, { from: now, to: soon }),
-    tx.supportTicket.aggregate({
-      where: {
-        projectId: scope.projectId,
-        mergedIntoTicketId: null,
-        status: { in: OPEN_STATUSES },
-        assigneeUserId: null,
-      },
-      _count: { _all: true },
-      _min: { createdAt: true },
-    }),
+  const [breached, atRisk, unassigned] = await Promise.all([
+    dueTickets(tx, scope, { to: now }),
+    dueTickets(tx, scope, { from: now, to: soon }),
+    unassignedTickets(tx, scope, soon),
   ]);
   const items = [
-    ...(await slaItems(tx, scope, breachedIds, "support_sla_breached")),
-    ...(await slaItems(tx, scope, atRiskIds, "support_sla_at_risk")),
+    ...(await slaItems(tx, scope, breached, "support_sla_breached")),
+    ...(await slaItems(tx, scope, atRisk, "support_sla_at_risk")),
   ];
-  const count = unassigned._count._all;
-  if (count > 0)
+  // Unassigned tickets with an SLA item are counted there, not again here.
+  if (unassigned.rest > 0)
     items.push({
       id: "support:unassigned",
       moduleId: "support",
       kind: "support_unassigned",
       severity: "warning",
-      count,
-      ...(unassigned._min.createdAt
-        ? { since: unassigned._min.createdAt.toISOString() }
-        : {}),
-      params: {},
-      navKey: NAV_KEY,
-      link: "/support/tickets",
+      count: unassigned.rest,
+      ...(unassigned.since ? { since: unassigned.since.toISOString() } : {}),
+      params: unassigned.listed > 0 ? { othersListed: true } : {},
+      ...TICKETS,
     });
   return items;
 };

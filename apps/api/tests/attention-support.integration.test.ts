@@ -256,20 +256,92 @@ describe.skipIf(!enabled)("support attention items", () => {
     expect(await supportItems()).toEqual([]);
   });
 
-  it("lists at most five tickets per SLA kind, earliest due first", async () => {
-    const breached: string[] = [];
+  it("lists five tickets per SLA kind, the rest as one item each (R20)", async () => {
+    const breached: Date[] = [];
+    const breachedIds: string[] = [];
+    for (let n = 0; n < 8; n++) {
+      breached.push(at(-70 + n));
+      breachedIds.push(await make({ firstResponseDueAt: breached[n] }));
+    }
+    const risky: Date[] = [];
+    const riskyIds: string[] = [];
+    for (let n = 0; n < 6; n++) {
+      risky.push(at(10 + n));
+      riskyIds.push(await make({ resolutionDueAt: risky[n] }));
+    }
+    const response = await attention();
+    const items = response.items.filter((i) => i.moduleId === "support");
+    const ofKind = (kind: string) => items.filter((i) => i.kind === kind);
+    expect(ofKind("support_sla_breached").map((i) => i.id)).toEqual([
+      ...breachedIds.slice(0, 5).map((id) => `support:sla:${id}`),
+      "support:sla:breached:more",
+    ]);
+    expect(ofKind("support_sla_breached")[5]).toEqual({
+      id: "support:sla:breached:more",
+      moduleId: "support",
+      kind: "support_sla_breached",
+      severity: "critical",
+      count: 3,
+      dueAt: breached[5]!.toISOString(),
+      params: {},
+      navKey: "support-tickets",
+      link: "/support/tickets",
+    });
+    expect(ofKind("support_sla_at_risk").map((i) => i.id)).toEqual([
+      ...riskyIds.slice(0, 5).map((id) => `support:sla:${id}`),
+      "support:sla:at_risk:more",
+    ]);
+    expect(ofKind("support_sla_at_risk")[5]).toMatchObject({
+      severity: "warning",
+      count: 1,
+      dueAt: risky[5]!.toISOString(),
+      params: {},
+    });
+    // Each ticket counts once in the badge.
+    expect(response.counts["support-tickets"]).toBe(8 + 6);
+  });
+
+  it("an unassigned breached ticket counts once (R20)", async () => {
+    const due = await make({
+      firstResponseDueAt: at(-10),
+      assigneeUserId: null,
+    });
+    // Alone, it is only its SLA item.
+    let response = await attention();
+    expect(
+      response.items.filter((i) => i.moduleId === "support").map((i) => i.id),
+    ).toEqual([`support:sla:${due}`]);
+    expect(response.counts["support-tickets"]).toBe(1);
+    // With an unassigned ticket that is not due, that one is the rest.
+    await make({
+      assigneeUserId: null,
+      createdAt: new Date("2026-10-02T08:00:00.000Z"),
+    });
+    response = await attention();
+    expect(response.items.find((i) => i.kind === "support_unassigned")).toEqual(
+      {
+        id: "support:unassigned",
+        moduleId: "support",
+        kind: "support_unassigned",
+        severity: "warning",
+        count: 1,
+        since: "2026-10-02T08:00:00.000Z",
+        params: { othersListed: true },
+        navKey: "support-tickets",
+        link: "/support/tickets",
+      },
+    );
+    expect(response.counts["support-tickets"]).toBe(2);
+  });
+
+  it("an unassigned ticket in a :more item is not counted again", async () => {
     for (let n = 0; n < 7; n++)
-      breached.push(await make({ firstResponseDueAt: at(-70 + n) }));
-    const risky: string[] = [];
-    for (let n = 0; n < 6; n++)
-      risky.push(await make({ resolutionDueAt: at(10 + n) }));
-    const items = await supportItems();
-    expect(
-      items.filter((i) => i.kind === "support_sla_breached").map((i) => i.id),
-    ).toEqual(breached.slice(0, 5).map((id) => `support:sla:${id}`));
-    expect(
-      items.filter((i) => i.kind === "support_sla_at_risk").map((i) => i.id),
-    ).toEqual(risky.slice(0, 5).map((id) => `support:sla:${id}`));
+      await make({ firstResponseDueAt: at(-70 + n), assigneeUserId: null });
+    const response = await attention();
+    expect(response.items.some((i) => i.kind === "support_unassigned")).toBe(
+      false,
+    );
+    expect(response.counts["support-tickets"]).toBe(7);
   });
 
   it("merged, resolved and closed tickets never appear", async () => {
@@ -310,7 +382,13 @@ describe.skipIf(!enabled)("support attention items", () => {
     expect(summary).toMatchObject({ breached: 3, atRisk: 2 });
     expect(kinds("support_sla_breached")).toHaveLength(summary.breached);
     expect(kinds("support_sla_at_risk")).toHaveLength(summary.atRisk);
-    expect(kinds("support_unassigned")[0]?.count ?? 0).toBe(summary.unassigned);
+    // Unassigned tickets with an SLA item are not counted again (R20).
+    expect(
+      (kinds("support_unassigned")[0]?.count ?? 0) +
+        items.filter(
+          (i) => i.kind !== "support_unassigned" && i.params.assigned === false,
+        ).length,
+    ).toBe(summary.unassigned);
   });
 
   it("puts no message text or customer address into params", async () => {
