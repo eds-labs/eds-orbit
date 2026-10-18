@@ -263,7 +263,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       previous?.focus();
     };
   }, [menu]);
-  const shell = useMemo((): ShellContextValue | null => {
+  const base = useMemo((): Omit<ShellContextValue, "attention"> | null => {
     if (!project) return null;
     const states = knownStates?.modules;
     // Until the states load, or if they fail, every module counts as enabled.
@@ -301,7 +301,6 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         {},
         ...active.map((m) => m.actionRequests ?? {}),
       ),
-      attention,
       attentionRenderers: renderers,
       settings: active.flatMap((m) => m.settings ?? []),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),
@@ -310,7 +309,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
     };
-  }, [project, knownStates, registry, table, attention, renderers]);
+  }, [project, knownStates, registry, table, renderers]);
+  // Apart, so a loaded attention keeps the functions above unchanged.
+  const shell = useMemo(
+    (): ShellContextValue | null => base && { ...base, attention },
+    [base, attention],
+  );
   // The label of a sidebar group, for the breadcrumb and the document title.
   const groupLabel = (group: string) =>
     group === "top"
