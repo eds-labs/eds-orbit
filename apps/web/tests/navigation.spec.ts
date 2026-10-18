@@ -441,4 +441,17 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   await expect(
     mobile.getByRole("link", { name: "Tickets", exact: true }),
   ).toHaveAttribute("href", `${base}/support/tickets`);
+  // Ruling R12: Tickets is current on every page of the support group.
+  for (const path of [
+    "/support",
+    "/support/tickets",
+    "/support/contacts",
+    "/support/stats",
+  ]) {
+    await page.goto(`${base}${path}`);
+    await expect(
+      mobile.getByRole("link", { name: "Tickets", exact: true }),
+      path,
+    ).toHaveAttribute("aria-current", "page");
+  }
 });
