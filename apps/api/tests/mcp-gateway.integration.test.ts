@@ -1168,6 +1168,136 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(records[0]).toMatchObject({ projectId: null, agentRunId: null });
     });
 
+    it("the first attribution wins: later startRun/setAuditProject for another project change nothing", async () => {
+      const seen: {
+        first?: string | null;
+        again?: string | null;
+        concurrent?: (string | null)[];
+        other?: string | null;
+        ctx?: NativeToolContext;
+      } = {};
+      const twice: NativeTool = {
+        name: "fixture_twice",
+        description: "Test-only native tool.",
+        risk: "R0_read",
+        inputSchema: z.object({ first: z.uuid(), second: z.uuid() }).strict(),
+        outputSchema: z.object({ ok: z.literal(true) }).strict(),
+        async run(_principal, args, ctx) {
+          seen.ctx = ctx;
+          seen.concurrent = await Promise.all([
+            ctx.startRun(args.first as string),
+            ctx.startRun(args.first as string),
+          ]);
+          seen.first = ctx.agentRunId;
+          seen.again = await ctx.startRun(args.first as string);
+          ctx.setAuditProject(args.second as string);
+          seen.other = await ctx.startRun(args.second as string);
+          return { ok: true };
+        },
+      };
+      (nativeTools as NativeTool[]).push(twice);
+      const records: McpCallRecord[] = [];
+      const observed = await withEnv(FLAGS, () =>
+        buildMcpServer({
+          cimdFetch,
+          jwksUrl,
+          observe: (record) => void records.push(record),
+        }),
+      );
+      try {
+        const result = rpcBody(
+          await call(
+            "fixture_twice",
+            { first: projectA, second: projectB },
+            { app: observed, token: tokens["editor-two"] },
+          ),
+        ).result;
+        expect(result.isError).toBeFalsy();
+      } finally {
+        (nativeTools as NativeTool[]).pop();
+        await observed.close();
+      }
+      // Same project: one run, the same id every time.
+      expect(seen.first).toMatch(/^[0-9a-f-]{36}$/);
+      expect(seen.concurrent).toEqual([seen.first, seen.first]);
+      expect(seen.again).toBe(seen.first);
+      // Another project of the grant: ignored, the attribution is unchanged.
+      expect(seen.other).toBeNull();
+      expect(seen.ctx!.agentRunId).toBe(seen.first);
+      expect(records).toEqual([
+        expect.objectContaining({
+          projectId: projectA,
+          agentRunId: seen.first,
+          outcome: "ok",
+        }),
+      ]);
+      // The run is finished under its own project, with its span, and the
+      // other project got no run.
+      expect(await runIn(projectA, seen.first!)).toMatchObject({
+        status: "succeeded",
+        spans: [expect.objectContaining({ name: "fixture_twice" })],
+      });
+      const inB = await scoped(workspaceId, projectB, (tx) =>
+        tx.agentRun.count({
+          where: {
+            workspaceId,
+            projectId: projectB,
+            taskClass: "fixture_twice",
+          },
+        }),
+      );
+      expect(inB).toBe(0);
+    });
+
+    it("a native that starts a run after the call timed out gets no attribution", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((done) => (release = done));
+      const seen: { late?: string | null; ctx?: NativeToolContext } = {};
+      const slow: NativeTool = {
+        name: "fixture_slow",
+        description: "Test-only native tool.",
+        risk: "R0_read",
+        inputSchema: z.object({ projectId: z.uuid() }).strict(),
+        outputSchema: z.object({ ok: z.literal(true) }).strict(),
+        async run(_principal, args, ctx) {
+          seen.ctx = ctx;
+          await gate;
+          seen.late = await ctx.startRun(args.projectId as string);
+          return { ok: true };
+        },
+      };
+      (nativeTools as NativeTool[]).push(slow);
+      const records: McpCallRecord[] = [];
+      const observed = await withEnv(FLAGS, () =>
+        buildMcpServer({
+          cimdFetch,
+          jwksUrl,
+          toolTimeoutMs: 100,
+          observe: (record) => void records.push(record),
+        }),
+      );
+      try {
+        const result = rpcBody(
+          await call(
+            "fixture_slow",
+            { projectId: projectA },
+            { app: observed },
+          ),
+        ).result;
+        expect(result.structuredContent.code).toBe("TIMEOUT");
+        release();
+        await vi.waitFor(() => expect(seen.late).toBeNull());
+      } finally {
+        release();
+        (nativeTools as NativeTool[]).pop();
+        await observed.close();
+      }
+      expect(seen.ctx!.agentRunId).toBeNull();
+      expect(records).toEqual([
+        expect.objectContaining({ outcome: "TIMEOUT", projectId: null }),
+      ]);
+    });
+
     it("orbit_projects still runs with (principal, args, ctx)", async () => {
       const spy = vi.spyOn(orbitProjects, "run");
       const result = rpcBody(await call("orbit_projects", {})).result;

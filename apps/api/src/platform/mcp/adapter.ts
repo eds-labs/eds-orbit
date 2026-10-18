@@ -113,7 +113,14 @@ export type McpRequestState = {
 };
 
 /** What one call tells the observer about itself while it runs. */
-type CallTrace = { projectId: string | null; agentRunId: string | null };
+type CallTrace = {
+  projectId: string | null;
+  agentRunId: string | null;
+  /** The run being started (shared by concurrent `startRun` calls). */
+  runStart: Promise<string | null> | null;
+  /** The call has been answered (finished or timed out): its attribution is closed. */
+  settled: boolean;
+};
 
 /**
  * The MCP name of a registry tool: `<owner>_<name>`, unless the name already
@@ -214,7 +221,12 @@ async function runCall(
   work: (call: CallTrace) => Promise<unknown>,
 ): Promise<CallToolResult> {
   const started = Date.now();
-  const call: CallTrace = { projectId: null, agentRunId: null };
+  const call: CallTrace = {
+    projectId: null,
+    agentRunId: null,
+    runStart: null,
+    settled: false,
+  };
   let result: CallToolResult;
   let outcome = "ok";
   try {
@@ -263,6 +275,10 @@ async function runCall(
         "mcp tool call failed",
       );
   }
+  // A run still being created is awaited (it never rejects), so the record
+  // names it; after this the call's attribution is closed.
+  await call.runStart;
+  call.settled = true;
   await notify(state, {
     tool,
     projectId: call.projectId,
@@ -297,22 +313,29 @@ export function withToolTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
 
 /**
  * Attributes the call to a project, but only one of the grant's: audit rows
- * and runs go to a project only then. Returns whether it was attributed.
+ * and runs go to a project only then. The first attribution wins: a call has
+ * one audit project and at most one run, so a later, different project (or
+ * any attribution after the call was answered, for example by a tool that
+ * outlived its timeout) is ignored. Returns whether the call is attributed
+ * to `projectId` afterwards.
  */
 function attributeCall(
   principal: McpPrincipal,
   call: CallTrace,
   projectId: string,
 ): boolean {
-  if (!principal.projectIds.includes(projectId)) return false;
+  if (call.settled || !principal.projectIds.includes(projectId)) return false;
+  if (call.projectId !== null) return call.projectId === projectId;
   call.projectId = projectId;
   return true;
 }
 
 /**
  * Starts the call's AgentRun in its project before the tool does any work, so
- * the tool can hand the run id on (`ToolContext.runId`). One run per call;
- * null when the project is not the grant's or the run cannot be created.
+ * the tool can hand the run id on (`ToolContext.runId`). One run per call:
+ * again for the same project it returns that run's id, for a different
+ * project (see attributeCall) null. Also null when the project is not the
+ * grant's or the run cannot be created.
  */
 async function startCallRun(
   state: McpRequestState & { principal: McpPrincipal },
@@ -322,18 +345,20 @@ async function startCallRun(
 ): Promise<string | null> {
   const { principal } = state;
   if (!attributeCall(principal, call, projectId)) return null;
-  if (call.agentRunId) return null;
-  try {
-    call.agentRunId =
-      (await state.startRun?.(
-        { workspaceId: principal.workspaceId, projectId },
-        { tool, clientId: principal.clientId, grantId: principal.grantId },
-      )) ?? null;
-  } catch {
-    // Best effort: the run id then falls back to the request id.
-    call.agentRunId = null;
-  }
-  return call.agentRunId;
+  call.runStart ??= (async () => {
+    try {
+      call.agentRunId =
+        (await state.startRun?.(
+          { workspaceId: principal.workspaceId, projectId },
+          { tool, clientId: principal.clientId, grantId: principal.grantId },
+        )) ?? null;
+    } catch {
+      // Best effort: the run id then falls back to the request id.
+      call.agentRunId = null;
+    }
+    return call.agentRunId;
+  })();
+  return call.runStart;
 }
 
 /** The context a native tool receives for one call. */
