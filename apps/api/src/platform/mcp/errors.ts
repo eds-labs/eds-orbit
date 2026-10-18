@@ -49,11 +49,14 @@ export const proposalQuotaResult = () =>
  * 429, 5xx). Never for proposals and internal writes (WP-M4, D-M4-11): the
  * work may have completed, and a retry could create it twice.
  */
-export const transientRetryable = (risk: ToolRisk | undefined) =>
+export const transientRetryable = (risk: ToolRisk) =>
   risk !== "P_proposal" && risk !== "W0_internal";
 
-/** The fixed answer to a call that outlived its limit; the work may still finish. */
-export const timeoutResult = (risk?: ToolRisk) =>
+/**
+ * The fixed answer to a call that outlived its limit; the work may still
+ * finish. `risk` is required: a missing risk must never read as retryable.
+ */
+export const timeoutResult = (risk: ToolRisk) =>
   errorResult({
     code: "TIMEOUT",
     message: "the tool did not finish in time; its work may still complete",
@@ -104,12 +107,13 @@ function safePaths(error: ZodError): string[] {
  * and audit. DomainError and KnowledgeError keep their code (AD-14, the REST
  * codes); a ZodError (the tool's own validation) names paths only; anything
  * else is REQUEST_FAILED with the request id, its message never sent.
- * `risk` is the tool's: transient failures are retryable only for reads.
+ * `risk` is the tool's (required): transient failures are retryable only for
+ * reads.
  */
 export function toolFailure(
   error: unknown,
   requestId: string,
-  risk?: ToolRisk,
+  risk: ToolRisk,
 ): { result: CallToolResult; code: string } {
   if (error instanceof McpToolTimeoutError)
     return { result: timeoutResult(risk), code: "TIMEOUT" };
