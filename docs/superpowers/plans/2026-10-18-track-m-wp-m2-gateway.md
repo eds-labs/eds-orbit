@@ -66,7 +66,7 @@
   - response content type (JSON vs request-scoped SSE) for a plain `tools/list`/`tools/call`;
   - how `fetch(request, { authInfo })` passes auth info to handlers.
 - [x] **Step 4:** Run, append "Task 0 findings" to this plan (exact shapes, file:line in node_modules), settle D-M2-7.
-- [ ] **Step 5:** Commit `chore(mcp): pin the MCP TypeScript SDK 2.3.1 (WP-M2)`.
+- [x] **Step 5:** Commit `chore(mcp): pin the MCP TypeScript SDK 2.3.1 (WP-M2)`.
 
 ### Task 1: Contracts — exposure, output schema, channel, flag
 
@@ -80,8 +80,8 @@
 - The assistant's offer path (`chat-runner.ts`) skips tools with `exposure.assistant === false` (no current tool sets it; test with a fixture tool).
 - Config: `ORBIT_MCP_GATEWAY` (`"false"|"true"`, default `"false"`), `MCP_PORT` (default 4312), `ORBIT_MCP_ALLOWED_ORIGINS` (comma list, default empty), all compose-safe; the gateway refuses to start unless `ORBIT_MCP_GATEWAY === "true"` **and** `ORBIT_MCP_OAUTH === "true"`.
 
-- [ ] Tests first: absent exposure defaults; mcp without outputSchema rejected at registration; assistant offer skips `assistant:false`; config defaults/empty strings; compose check passes with the new keys.
-- [ ] Implement; run registry, contributions, config, chat-runner and compose checks; commit `feat(mcp): tool exposure, output schemas and the gateway flag (WP-M2)`.
+- [x] Tests first: absent exposure defaults; mcp without outputSchema rejected at registration; assistant offer skips `assistant:false`; config defaults/empty strings; compose check passes with the new keys.
+- [x] Implement; run registry, contributions, config, chat-runner and compose checks; commit `feat(mcp): tool exposure, output schemas and the gateway flag (WP-M2)`.
 
 ### Task 2: Principal resolution and the permission intersection
 
@@ -95,8 +95,8 @@
 - `visibleMcpTools(principal, projectId): Promise<OrbitTool[]>` — registry tools with `exposedToMcp`, owner module enabled for that project (`enabledModules` + `visibleModules`), grant `modules` restriction, `effectiveRole(scope, owner) !== "none"`, `availableTools([tool], role, features)` with the module assistants' features, and `requiredScope(tool) ∈ principal.scopes`; deterministic order by name.
 - `authorizeMcpCall(principal, toolName, projectId): Promise<{ tool: OrbitTool; scope: Scope }>` — the same checks for one tool; refusal codes `MCP_TOOL_NOT_ALLOWED` (403) or `NOT_FOUND` (404) for the project.
 
-- [ ] Tests first (fixture module from `tests/fixtures/modules/tasks` with a tool flagged `mcp: true` + outputSchema, plus an unflagged one): a permission-intersection matrix over role (owner/editor/viewer/non-member) × module (enabled/disabled, module role none) × grant (project in/out, modules restriction) × scope (read only / read+propose) × tool risk (R0/P) asserting list membership and call refusal; Review Focus tests `foreign aud and issuer are refused` (via Task 3's verifier if needed — keep here as principal-level: claims without an active grant), `lost membership hides the project`, expired grant, revoked grant.
-- [ ] Implement; run; commit `feat(mcp): principal and permission intersection for MCP calls (WP-M2)`.
+- [x] Tests first (fixture module from `tests/fixtures/modules/tasks` with a tool flagged `mcp: true` + outputSchema, plus an unflagged one): a permission-intersection matrix over role (owner/editor/viewer/non-member) × module (enabled/disabled, module role none) × grant (project in/out, modules restriction) × scope (read only / read+propose) × tool risk (R0/P) asserting list membership and call refusal; Review Focus tests `foreign aud and issuer are refused` (via Task 3's verifier if needed — keep here as principal-level: claims without an active grant), `lost membership hides the project`, expired grant, revoked grant.
+- [x] Implement; run; commit `feat(mcp): principal and permission intersection for MCP calls (WP-M2)`.
 
 ### Task 3: The gateway process, transport and adapter
 
@@ -110,8 +110,8 @@
 - Error mapping per `09` §6.4 in `errors.ts`: DomainError → `isError` with `structuredContent { code, message, retryable }`; zod → `isError` result with path-only text (SDK behaviour, Task 0; legacy routing helper `isLegacyRequest` exists if a version gate is needed); unknown → `REQUEST_FAILED` + request id; 401 challenge with `_meta["mcp/www_authenticate"]` on tool results when the grant vanished mid-session.
 - Process: `mcp-main.ts` refuses to start unless both flags are true; listens on `BIND_HOST`/`MCP_PORT`; closes app and DB on SIGINT/SIGTERM; body limit 256 KB; Origin policy (D-M2-6); client IP from the right-most `X-Forwarded-For` only when the TCP peer is trusted (reuse `isTrustedPeer`).
 
-- [ ] Tests first (Fastify inject + real WP-M1 tokens from `mcp-oauth-flow-helpers.ts`): unauthenticated → 401 + challenge header; PRM documents; `initialize` (2026-07-28) → server info; `tools/list` lists `orbit_projects` and only allowed fixture tools; `tools/call` success with `structuredContent`; DomainError mapping; Review Focus tests `revoked grant refuses a call listed a moment ago`, `invalid arguments name paths, not values`, `foreign Origin is refused`; flag off → `buildMcpServer` throws / main exits 1; protocol test for 2025-11-25 per D-M2-7.
-- [ ] Implement; run; commit `feat(mcp): the MCP gateway process and registry adapter (WP-M2)`.
+- [x] Tests first (Fastify inject + real WP-M1 tokens from `mcp-oauth-flow-helpers.ts`): unauthenticated → 401 + challenge header; PRM documents; `initialize` (2026-07-28) → server info; `tools/list` lists `orbit_projects` and only allowed fixture tools; `tools/call` success with `structuredContent`; DomainError mapping; Review Focus tests `revoked grant refuses a call listed a moment ago`, `invalid arguments name paths, not values`, `foreign Origin is refused`; flag off → `buildMcpServer` throws / main exits 1; protocol test for 2025-11-25 per D-M2-7.
+- [x] Implement; run; commit `feat(mcp): the MCP gateway process and registry adapter (WP-M2)`.
 
 ### Task 4: Audit, telemetry and rate limits
 
@@ -123,14 +123,14 @@
 - An `AgentRun` of kind `mcp` per tool call with one `tool_call` span (best effort, like chat).
 - Limits (configurable constants): per grant 120 calls/min, per user 240/min, per client 600/min; unauthenticated requests 30/min per client IP; over limit → HTTP 429 + `Retry-After`, tool-level `isError` `RATE_LIMITED` where the transport already answered 200.
 
-- [ ] Tests first: audit row written for success and refusal without argument values (assert a secret-looking argument string is absent from every column); project-less `orbit_projects` → `McpGrantEvent` `mcp.call`; lastUsedAt throttle; 121st call in a minute → 429; unauthenticated burst → 429.
-- [ ] Implement; run; commit `feat(mcp): audit, call log and rate limits for the gateway (WP-M2)`.
+- [x] Tests first: audit row written for success and refusal without argument values (assert a secret-looking argument string is absent from every column); project-less `orbit_projects` → `McpGrantEvent` `mcp.call`; lastUsedAt throttle; 121st call in a minute → 429; unauthenticated burst → 429.
+- [x] Implement; run; commit `feat(mcp): audit, call log and rate limits for the gateway (WP-M2)`.
 
 ### Task 5: Documentation and the full check
 
 **Files:** `docs/IMPLEMENTATION_STATUS.md` (WP-M2 entry: flags, process, routes, decisions D-M2-1…7, Task 0 findings summary, known limitations, WP-M5 items: compose service + Traefik route + PRM paths + Redis limits + MCP Inspector conformance), `docs/REQUIREMENTS_TRACEABILITY.md` (WP-M2 acceptance → tests; Inspector conformance marked WP-M5), `plans/orbit-modularization/09-mcp-gateway.md` (dated notes for D-M2-1/3/4/7), `docs/SECURITY_REVIEW.md` if it has a gateway section (O-6).
 
-- [ ] Write docs; full vitest run (per-worktree test DB: `node scripts/test-db-for-worktree.ts` first), `tsc` root + web, compose check, source-check, secrets check, boundaries lint; commit `docs: WP-M2 status, traceability and security notes`.
+- [x] Write docs; full vitest run (per-worktree test DB: `node scripts/test-db-for-worktree.ts` first), `tsc` root + web, compose check, source-check, secrets check, boundaries lint; commit `docs: WP-M2 status, traceability and security notes`.
 
 ## Risk analysis
 
@@ -144,7 +144,14 @@
 
 ## Rollback
 
-Flag off (`ORBIT_MCP_GATEWAY=false`) or simply not running `mcp-main.ts`. No migration in WP-M2. Revert the PR to remove the dependency.
+Flag off (`ORBIT_MCP_GATEWAY=false`) or simply not running `mcp-main.ts`. The one migration (`202610180010_mcp_run_kind`) only widens a check constraint and stays on a revert. Revert the PR to remove the dependency.
+
+## Final review fixes (2026-10-18)
+
+- Rate limits are charged from the verified claims (`grant:<sub>|<azp>|<orbit_workspace_id>`, `user:<sub>`, `client:<azp>`) before `resolvePrincipal`, so a 429 costs no database read; `resolvePrincipal` checks memberships at most four at a time.
+- Refused calls store a client-supplied tool name only when it matches the registry name pattern and is a known native or registered tool (`<unknown>` otherwise); an unknown tool creates no `AgentRun`.
+- MCP exposure requires an object output schema (`z.ZodObject`), checked at registration with the tool's name.
+- WP-M3 and WP-M5 follow-ups from the whole-branch review are listed in `docs/IMPLEMENTATION_STATUS.md`.
 
 ## Task 0 findings
 
