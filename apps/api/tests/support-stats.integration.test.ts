@@ -10,6 +10,7 @@ import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { createInbox } from "../src/modules/support/inboxes.ts";
 import { createTicket } from "../src/modules/support/tickets.ts";
 import { statsCsv, supportStats } from "../src/modules/support/stats.ts";
+import { createMailInbox } from "./fixtures/mailbox.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -64,7 +65,7 @@ describe.skipIf(!enabled)("support statistics", () => {
         },
       });
       mail = (
-        await createInbox(tx, owner, {
+        await createMailInbox(tx, owner, {
           name: "Mail",
           channels: ["email"],
           emailAddress: "s@example.invalid",

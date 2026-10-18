@@ -27,6 +27,7 @@ import {
   supportRetention,
 } from "../src/modules/support/privacy.ts";
 import { WIDGET_SESSION_KIND } from "../src/modules/support/widget.ts";
+import { createMailInbox } from "./fixtures/mailbox.ts";
 
 const enabled = Boolean(
   process.env.TEST_DATABASE_URL && process.env.TEST_AUTH_DATABASE_URL,
@@ -132,7 +133,7 @@ describe.skipIf(!enabled)("support privacy and operations", () => {
         },
       });
       inboxId = (
-        await createInbox(tx, owner, {
+        await createMailInbox(tx, owner, {
           name: "Mail",
           channels: ["email"],
           emailAddress: "s@example.invalid",

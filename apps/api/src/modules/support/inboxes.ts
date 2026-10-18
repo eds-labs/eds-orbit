@@ -7,13 +7,33 @@ import {
   revokePublicKey,
   setPublicKeyOrigins,
 } from "../../platform/http/public-api.ts";
-import { audit, credentialKey, DomainError, encrypt } from "../../shared.ts";
+import {
+  audit,
+  credentialKey,
+  data,
+  DomainError,
+  encrypt,
+} from "../../shared.ts";
+import {
+  defaultEmailConnection,
+  emailMailboxes,
+  verifiedEmailConnection,
+} from "../../platform/email/connection.ts";
+import { connectionVerified } from "../../platform/connections/connections.ts";
+import type { MailboxUse } from "../../platform/modules/contributions.ts";
 import { inboxRulesSchema } from "./settings.ts";
 
 // Support inboxes (06 §2.1): one entry point each, an e-mail address and/or
 // a widget. The widget's HMAC secret is generated here, stored encrypted and
 // shown only in the create and rotate answers. Audits name fields, never
 // values, so neither secrets nor addresses reach the audit log.
+//
+// An e-mail inbox is bound to one verified mailbox of the project (its
+// `emailConnectionId`) and its address is that mailbox's own address: an
+// inbox never claims an address on the strength of what an owner typed
+// (WP5.3), and no two live inboxes share a mailbox (also a partial unique
+// index). Inboxes from before the binding may be unbound; channels/email.ts
+// keeps their single-mailbox behaviour until they are saved again.
 
 const fields = {
   name: z.string().trim().min(1).max(80),
@@ -23,6 +43,7 @@ const fields = {
     .max(2)
     .refine((c) => new Set(c).size === c.length, "Channels must be unique"),
   emailAddress: z.email().max(254).nullable(),
+  emailConnectionId: z.uuid().nullable(),
   allowedOrigins: z.array(publicOrigin).max(10),
   defaultCategory: z
     .string()
@@ -40,6 +61,7 @@ const createInput = z
     name: fields.name,
     channels: fields.channels,
     emailAddress: fields.emailAddress.optional(),
+    emailConnectionId: fields.emailConnectionId.optional(),
     allowedOrigins: fields.allowedOrigins.optional(),
     defaultCategory: fields.defaultCategory.optional(),
     assignmentPolicy: fields.assignmentPolicy.optional(),
@@ -55,6 +77,7 @@ const updateInput = z
     name: fields.name.optional(),
     channels: fields.channels.optional(),
     emailAddress: fields.emailAddress.optional(),
+    emailConnectionId: fields.emailConnectionId.optional(),
     allowedOrigins: fields.allowedOrigins.optional(),
     defaultCategory: fields.defaultCategory.optional(),
     assignmentPolicy: fields.assignmentPolicy.optional(),
@@ -76,15 +99,9 @@ export function inboxView(row: InboxRow): InboxView {
   return { ...rest, hasWidgetSecret: Boolean(widgetSecretEnc) };
 }
 
-/** A channel needs its entry point: an address for e-mail, origins for the widget. */
-function assertChannels(row: {
-  channels: string[];
-  emailAddress: string | null;
-  allowedOrigins: string[];
-}) {
+/** A channel needs its entry point: origins for the widget (mailbox below). */
+function assertChannels(row: { channels: string[]; allowedOrigins: string[] }) {
   const issues: string[] = [];
-  if (row.channels.includes("email") && !row.emailAddress)
-    issues.push("An e-mail inbox needs an address");
   if (row.channels.includes("widget") && !row.allowedOrigins.length)
     issues.push("A widget inbox needs at least one allowed origin");
   if (issues.length)
@@ -97,6 +114,101 @@ function assertChannels(row: {
       })),
     );
 }
+
+/**
+ * The mailbox fields of an inbox: for the e-mail channel, a verified
+ * mailbox of the project that no other live inbox answers from, and the
+ * mailbox's own address (an address given must be that one); without the
+ * e-mail channel, no mailbox and the address is left alone. `current` is
+ * the inbox being saved: its unchanged mailbox may be unverified for the
+ * moment (a login check pending), so other fields stay editable.
+ */
+async function mailboxFields(
+  tx: DbTx,
+  scope: Scope,
+  row: {
+    channels: string[];
+    emailAddress?: string | null;
+    emailConnectionId?: string | null;
+  },
+  current?: { id: string; emailConnectionId: string | null },
+) {
+  if (!row.channels.includes("email")) return { emailConnectionId: null };
+  const id = row.emailConnectionId;
+  const connection = id
+    ? id === current?.emailConnectionId
+      ? ((await emailMailboxes(tx, scope)).find((m) => m.id === id) ?? null)
+      : await verifiedEmailConnection(tx, scope, id)
+    : null;
+  if (!connection) throw new DomainError("INBOX_MAILBOX_INVALID", 400);
+  const address = String(data(connection).fromAddress);
+  if (
+    row.emailAddress &&
+    row.emailAddress.toLowerCase() !== address.toLowerCase()
+  )
+    throw new DomainError("INBOX_ADDRESS_NOT_MAILBOX", 400);
+  const others = await tx.supportInbox.findMany({
+    where: {
+      projectId: scope.projectId,
+      archivedAt: null,
+      ...(current ? { id: { not: current.id } } : {}),
+    },
+  });
+  if (
+    others.some(
+      (other) =>
+        other.emailConnectionId === connection.id ||
+        (other.channels.includes("email") &&
+          other.emailAddress?.toLowerCase() === address.toLowerCase()),
+    )
+  )
+    throw new DomainError("INBOX_MAILBOX_TAKEN", 409);
+  return { emailConnectionId: connection.id, emailAddress: address };
+}
+
+/**
+ * The project's mailboxes as the inbox form offers them: address, sender
+ * name, whether verified and the default, and the live inbox bound to it.
+ * Never a credential or server setting.
+ */
+export async function listMailboxes(tx: DbTx, scope: Scope) {
+  const fallback = await defaultEmailConnection(tx, scope);
+  const inboxes = await tx.supportInbox.findMany({
+    where: {
+      projectId: scope.projectId,
+      archivedAt: null,
+      emailConnectionId: { not: null },
+    },
+  });
+  return (await emailMailboxes(tx, scope)).map((row) => ({
+    id: row.id,
+    address: String(data(row).fromAddress),
+    name: (data(row).fromName as string | undefined) ?? null,
+    verified: connectionVerified(data(row).status),
+    isDefault: row.id === fallback?.id,
+    inboxId: inboxes.find((i) => i.emailConnectionId === row.id)?.id ?? null,
+  }));
+}
+
+/** Live inboxes answering from a mailbox: they keep it from being removed. */
+export const supportMailboxUse: MailboxUse = {
+  inUse: (tx, scope, connectionId) =>
+    tx.supportInbox.count({
+      where: {
+        projectId: scope.projectId,
+        emailConnectionId: connectionId,
+        archivedAt: null,
+      },
+    }),
+  // Archived inboxes let go; their tickets' mail falls back to the default
+  // mailbox (channels/email.ts).
+  async release(tx, scope, connectionId) {
+    await tx.supportInbox.updateMany({
+      where: { projectId: scope.projectId, emailConnectionId: connectionId },
+      data: { emailConnectionId: null },
+    });
+  },
+};
 
 const newSecret = () => randomBytes(32).toString("base64url");
 
@@ -119,12 +231,13 @@ export async function listInboxes(tx: DbTx, scope: Scope) {
 
 export async function createInbox(tx: DbTx, scope: Scope, raw: unknown) {
   const input = createInput.parse(raw);
-  const row = {
+  const base = {
     ...input,
     emailAddress: input.emailAddress ?? null,
     allowedOrigins: input.allowedOrigins ?? [],
   };
-  assertChannels(row);
+  assertChannels(base);
+  const row = { ...base, ...(await mailboxFields(tx, scope, base)) };
   const widgetSecret = row.channels.includes("widget")
     ? newSecret()
     : undefined;
@@ -164,6 +277,13 @@ export async function updateInbox(
     throw new DomainError("INBOX_VERSION_CONFLICT", 409);
   const next = { ...current, ...changes };
   assertChannels(next);
+  const mailbox = await mailboxFields(
+    tx,
+    scope,
+    // A legacy inbox's unchanged address is not a claim: the mailbox's wins.
+    { ...next, emailAddress: changes.emailAddress ?? null },
+    current,
+  );
   // Removing the widget drops its secret, so a re-added widget never revives
   // an old (possibly leaked) one; a new secret is shown by a rotation.
   const widgetSecretEnc = !next.channels.includes("widget")
@@ -173,7 +293,7 @@ export async function updateInbox(
       : encrypt(newSecret(), credentialKey());
   const updated = await tx.supportInbox.updateMany({
     where: { id, projectId: scope.projectId, version },
-    data: { ...changes, widgetSecretEnc, version: version + 1 },
+    data: { ...changes, ...mailbox, widgetSecretEnc, version: version + 1 },
   });
   if (updated.count !== 1) throw new DomainError("INBOX_VERSION_CONFLICT", 409);
   await syncWidgetKey(tx, scope, current, next);

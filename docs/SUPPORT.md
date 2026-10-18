@@ -36,7 +36,7 @@ There are eight project tables (migration `202610180001_support_core`). All of t
 
 | Table | Holds |
 |---|---|
-| `SupportInbox` | Entry points: an e-mail address and/or a widget with its allowed origins, an encrypted widget secret, defaults and the AI mode |
+| `SupportInbox` | Entry points: an e-mail address with its bound mailbox (`emailConnectionId`, migration `202610180005`) and/or a widget with its allowed origins, an encrypted widget secret, defaults and the AI mode |
 | `SupportContact` | Customers per project: the correspondence e-mail, stored lowercased and unique while live; a `claimedEmail` that a widget user typed but nobody verified, which is never used for matching; a tombstone `deletedAt` |
 | `SupportContactIdentity` | A host app's user id per inbox and channel, verified by the widget's HMAC (WP5.4) |
 | `SupportTicket` | Tickets: the per-project number, status, priority, category, tags, assignee, SLA due times and AI state |
@@ -45,7 +45,7 @@ There are eight project tables (migration `202610180001_support_core`). All of t
 | `SupportTicketEvent` | Status, priority, assignee and category changes, with field values only |
 | `SupportTicketCounter` | The last ticket number per project, so numbers are never reused, even after deletions |
 
-Foreign key checks bypass RLS. Every reference between support rows is therefore a composite `("projectId", id)` key, so a row can only point at rows of its own project. Attachments reference `File` the same way.
+Foreign key checks bypass RLS. Every reference between support rows is therefore a composite `("projectId", id)` key, so a row can only point at rows of its own project. Attachments reference `File` the same way, and an inbox references its mailbox (`Entity`, kind `connectors`) the same way.
 
 **Personal data (Q-12a).** Message text, subjects, names and e-mail addresses stay in these tables. Audit entries and ticket events carry ids, counts and field values, never content.
 
@@ -88,13 +88,15 @@ Every route sits below `/api/projects/:projectId/support`.
 | `GET /settings` | read | `{ settings, version }`; the defaults until saved |
 | `PUT /settings` | settings | `{ settings, version }`; a stale version gives 409 `SETTINGS_VERSION_CONFLICT` |
 | `GET /inboxes` | read | Never contains the widget secret, only `hasWidgetSecret` |
+| `GET /mailboxes` | settings | The project's mailboxes for the inbox form: id, address, sender name, `verified`, `isDefault` and the live inbox bound to it; never credentials or server settings |
 | `POST /inboxes` | settings | Returns `widgetSecret` **once** when the inbox has a widget |
 | `PATCH /inboxes/:inboxId` | settings | `{ version, …changes }`; 409 `INBOX_VERSION_CONFLICT`, 409 `INBOX_ARCHIVED` |
 | `POST /inboxes/:inboxId/rotate-widget-secret` | settings | The new secret, once; the old one stops working |
 | `POST /inboxes/:inboxId/archive` | settings | No new tickets; existing ones stay |
 
 Further rules:
-- An e-mail inbox needs an address, and a widget inbox needs at least one exact origin.
+- An e-mail inbox needs `emailConnectionId`: a verified mailbox of the project (else 400 `INBOX_MAILBOX_INVALID`; its own unchanged mailbox may be awaiting a login check). Its address is that mailbox's own address; an `emailAddress` given must be that address (else 400 `INBOX_ADDRESS_NOT_MAILBOX`). No two live inboxes answer from one mailbox or address (409 `INBOX_MAILBOX_TAKEN`; also a partial unique index). Without the e-mail channel the inbox has no mailbox.
+- A widget inbox needs at least one exact origin.
 - The AI mode is `off` (the default) or `draft`. A widget answer without a human follows only with WP5.6, after Q-17.
 
 ## Agent workspace (WP5.2)
@@ -124,10 +126,10 @@ The module is opt-in in the web shell too. It stays hidden until the server list
 
 ## E-mail channel (WP5.3)
 
-The channel uses the project's mailbox from WP4.7 (`ORBIT_EMAIL`, SMTP and IMAP; see `docs/EMAIL_AND_NOTIFICATIONS.md`) and platform files for the raw MIME and the attachments.
+The channel uses the project's mailboxes from WP4.7 (`ORBIT_EMAIL`, SMTP and IMAP; see `docs/EMAIL_AND_NOTIFICATIONS.md`) and platform files for the raw MIME and the attachments. Each e-mail inbox is bound to one verified mailbox and answers from its address, so `support@`, `partnerships@` and `hello@` can each be their own inbox.
 
 - **Inbound.** The platform polls IMAP, stores each mail and queues `support_email_inbound`. Support then does the following:
-  1. **Routing.** It routes the mail to the live e-mail inbox whose address is among the recipients, else to the only one. An unroutable mail is audited and dropped.
+  1. **Routing.** The mailbox that received the mail decides: support takes the live inboxes bound to that mailbox, and among them the one whose address is among the recipients, else the only one. A copied `To` header never moves mail to another mailbox's inbox, and an owner-typed address alone never routes (WP5.3). Inboxes from before the binding (`emailConnectionId` empty) keep the old rule, but only for mail of the default mailbox and only while no inbox is bound to it: the inbox whose address is among the recipients, else the only one. An unroutable mail is dropped.
   2. **Threading.** It threads by `In-Reply-To` and `References` against the ticket's Message-IDs (merges followed), then by the subject token `[#<number>]`. Both count only when the sender is the ticket contact's correspondence address; anyone else opens a new ticket.
   3. **Reopening.** A customer answer to a ticket that is waiting on the customer, resolved or closed reopens it, while `reopenOnReply` is on.
   4. **Attachments.** Allowed types only (images, PDF, text, CSV), at most 10 per mail. Others are skipped and counted.
@@ -138,10 +140,11 @@ The channel uses the project's mailbox from WP4.7 (`ORBIT_EMAIL`, SMTP and IMAP;
 - **Acknowledgement.** New tickets get an automatic mail in the inbox's language with the ticket number, while `autoAck` is on, at most 3 per contact in 24 hours.
   - Mail from the mailbox's first sync (`backlog`, unread mail from before the connection) opens tickets, but it gets no acknowledgement.
 - **Outbound.**
-  - Replies and acknowledgements go through `queueEmail` with `Re: <subject> [#<number>]`, `In-Reply-To` and `References`. The message's `externalId` is the Orbit Message-ID.
+  - Replies, acknowledgements and other ticket mail go through `queueEmail` on the mailbox of the ticket's inbox, with its From address, `Re: <subject> [#<number>]`, `In-Reply-To` and `References`. The message's `externalId` is the Orbit Message-ID, whose domain is that mailbox's. An inbox without a mailbox (widget-only, from before the binding, or archived after its mailbox was removed) uses the default mailbox.
   - The platform job never resends after an ambiguous transmit.
   - The periodic `support-email-delivery` copies the outcome onto the message: `pending`, `sent`, `rejected`, `not_sent`, `unknown`, or `bounced` (migration `202610180002`).
-  - Without the e-mail flag, a verified mailbox or a contact address, a reply is `not_sent`.
+  - Without the e-mail flag, a verified mailbox or a contact address, a reply is `not_sent`. A bound mailbox that is not verified at the moment (for example right after its settings were saved again, before "Check login") also gives `not_sent`.
+- **Mailboxes in use.** A mailbox a live inbox answers from cannot be removed (`EMAIL_MAILBOX_IN_USE`); move the inbox to another mailbox or archive it first. Removing a mailbox unbinds the archived inboxes that used it.
 - **Not in the MVP.** HTML bodies are not kept; the text part is. A reply token in the address (`support+token@`) is not used, because the mailbox may not support plus-addressing.
 
 ## Livechat widget (WP5.4)
@@ -320,3 +323,5 @@ The channel contract is `SupportChannelAdapter` (`modules/support/channels/adapt
 | Disable the module per project | That project's support routes stop. |
 
 The tables stay in both cases. The migration is additive; dropping the tables would need its own approved migration.
+
+**Several mailboxes (migration `202610180005_support_inbox_mailbox`).** The migration is additive: the nullable column `SupportInbox.emailConnectionId`, a same-project composite foreign key to `Entity("projectId", id)` and a partial unique index (one live inbox per mailbox). It binds each live e-mail inbox to the mailbox of its own address; inboxes without such a mailbox stay unbound and keep the old routing. Rolling the code back leaves the column unused: the previous code routes by address and sends through the oldest verified mailbox again, which for a project with one mailbox is the same as before. Mailboxes added in the meantime would then neither be fetched nor answer. Dropping the column would need its own approved migration.

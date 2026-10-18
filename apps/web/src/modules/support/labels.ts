@@ -134,6 +134,17 @@ const en = {
     originsMissing:
       "The widget needs at least one allowed origin. Enter one, or untick Widget.",
     originInvalid: "Not a valid origin (https://host, no path or trailing /):",
+    mailbox: "Mailbox",
+    mailboxHint:
+      "The inbox receives the mail of this mailbox and answers from its address. Owners connect mailboxes under Connections.",
+    mailboxChoose: "Choose a mailbox",
+    mailboxNone:
+      "No verified mailbox yet. An owner connects one under Connections and checks its login.",
+    mailboxMissing:
+      "An e-mail inbox needs a verified mailbox. Choose one, or untick E-mail.",
+    mailboxDefault: "default",
+    mailboxTaken: "used by another inbox",
+    mailboxUnverified: "login not checked",
     aiMode: "AI",
     aiOff: "Off",
     aiDraft: "Drafts for agents",
@@ -302,6 +313,17 @@ const de: SupportText = {
       "Das Widget braucht mindestens eine erlaubte Origin. Trage eine ein oder entferne das Häkchen bei Widget.",
     originInvalid:
       "Keine gültige Origin (https://host, ohne Pfad und ohne / am Ende):",
+    mailbox: "Postfach",
+    mailboxHint:
+      "Der Posteingang empfängt die Mails dieses Postfachs und antwortet von dessen Adresse. Owner verbinden Postfächer unter Verbindungen.",
+    mailboxChoose: "Postfach wählen",
+    mailboxNone:
+      "Noch kein geprüftes Postfach. Ein Owner verbindet eines unter Verbindungen und prüft die Anmeldung.",
+    mailboxMissing:
+      "Ein E-Mail-Posteingang braucht ein geprüftes Postfach. Wähle eines oder entferne das Häkchen bei E-Mail.",
+    mailboxDefault: "Standard",
+    mailboxTaken: "von einem anderen Posteingang genutzt",
+    mailboxUnverified: "Anmeldung nicht geprüft",
     aiMode: "KI",
     aiOff: "Aus",
     aiDraft: "Entwürfe für Agents",

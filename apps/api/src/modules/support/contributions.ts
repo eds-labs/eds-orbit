@@ -5,6 +5,7 @@ import { supportRetentionTask } from "./privacy.ts";
 import { runSupportTask, SUPPORT_DRAFT, SUPPORT_TRIAGE } from "./ai.ts";
 import { supportTools } from "./tools.ts";
 import { widgetRoutes } from "./widget.ts";
+import { supportMailboxUse } from "./inboxes.ts";
 import { supportScheduler, supportUserNotifications } from "./automations.ts";
 import {
   handleInboundEmail,
@@ -16,8 +17,12 @@ import {
 export const supportContributions: ModuleContributions = {
   available: supportSwitchedOn,
   routes: supportRoutes,
-  // The e-mail channel (WP5.3) on the project's WP4.7 mailbox.
-  emailInbound: { queueClass: SUPPORT_EMAIL_INBOUND },
+  // The e-mail channel (WP5.3) on the project's WP4.7 mailboxes; a live
+  // inbox keeps its mailbox from being removed.
+  emailInbound: {
+    queueClass: SUPPORT_EMAIL_INBOUND,
+    mailboxUse: supportMailboxUse,
+  },
   jobs: [
     {
       queueClass: SUPPORT_EMAIL_INBOUND,
