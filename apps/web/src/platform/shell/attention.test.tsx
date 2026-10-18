@@ -4,9 +4,14 @@ import type { AttentionItem, AttentionResponse } from "@/lib/api";
 import { webRegistry } from "@/modules/registry";
 import {
   attentionCache,
+  attentionKey,
+  attentionReducer,
   attentionRenderers,
+  attentionView,
   GenericAttentionRow,
+  initialAttention,
   navBadges,
+  overflowBadge,
   renderAttention,
   useAttention,
   type AttentionState,
@@ -14,7 +19,7 @@ import {
 import { buildNavGroups } from "./nav-groups";
 import { projectHref, routeTable, type Route } from "./routes";
 import { ShellContext, type ShellContextValue } from "./shell-context";
-import { SidebarNav } from "./sidebar-nav";
+import { NavBadge, SidebarNav } from "./sidebar-nav";
 
 const table = routeTable(webRegistry);
 const modules = webRegistry.modules.map((m) => ({ ...m, enabled: true }));
@@ -219,30 +224,32 @@ describe("navBadges", () => {
 
 describe("attentionCache", () => {
   const ok = response([], { approvals: 1 });
+  const p1 = attentionKey("u1", "p1")!;
+  const p2 = attentionKey("u1", "p2")!;
 
   it("reuses a response for the same project and revision within 30 s", async () => {
     const cache = attentionCache();
     const fetcher = vi.fn(async () => ok);
-    expect(cache.peek("p1", 0, 0)).toBeUndefined();
-    expect(await cache.load("p1", 0, fetcher, 0)).toBe(ok);
-    expect(cache.peek("p1", 0, 29_999)).toBe(ok);
-    expect(await cache.load("p1", 0, fetcher, 29_999)).toBe(ok);
+    expect(cache.peek(p1, 0, 0)).toBeUndefined();
+    expect(await cache.load(p1, 0, fetcher, 0)).toBe(ok);
+    expect(cache.peek(p1, 0, 29_999)).toBe(ok);
+    expect(await cache.load(p1, 0, fetcher, 29_999)).toBe(ok);
     expect(fetcher).toHaveBeenCalledTimes(1);
     // Another project has its own entry.
-    expect(cache.peek("p2", 0, 1)).toBeUndefined();
+    expect(cache.peek(p2, 0, 1)).toBeUndefined();
   });
 
   it("refetches after a revision bump or once expired", async () => {
     const cache = attentionCache();
     const fetcher = vi.fn(async () => ok);
-    await cache.load("p1", 0, fetcher, 0);
-    expect(cache.peek("p1", 1, 1)).toBeUndefined();
-    await cache.load("p1", 1, fetcher, 1);
+    await cache.load(p1, 0, fetcher, 0);
+    expect(cache.peek(p1, 1, 1)).toBeUndefined();
+    await cache.load(p1, 1, fetcher, 1);
     expect(fetcher).toHaveBeenCalledTimes(2);
     // A remount starts at revision 0 again: that is not the stored one.
-    expect(cache.peek("p1", 0, 2)).toBeUndefined();
-    expect(cache.peek("p1", 1, 30_001)).toBeUndefined();
-    await cache.load("p1", 1, fetcher, 30_001);
+    expect(cache.peek(p1, 0, 2)).toBeUndefined();
+    expect(cache.peek(p1, 1, 30_001)).toBeUndefined();
+    await cache.load(p1, 1, fetcher, 30_001);
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
@@ -250,10 +257,10 @@ describe("attentionCache", () => {
     const cache = attentionCache();
     const fetcher = vi.fn(async () => ok);
     const [a, b] = [
-      cache.load("p1", 0, fetcher, 0),
-      cache.load("p1", 0, fetcher, 5),
+      cache.load(p1, 0, fetcher, 0),
+      cache.load(p1, 0, fetcher, 5),
     ];
-    expect(cache.peek("p1", 0, 5)).toBeUndefined();
+    expect(cache.peek(p1, 0, 5)).toBeUndefined();
     expect(await a).toBe(await b);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
@@ -263,10 +270,167 @@ describe("attentionCache", () => {
     const failing = vi.fn(async (): Promise<AttentionResponse> => {
       throw new Error("down");
     });
-    await expect(cache.load("p1", 0, failing, 0)).rejects.toThrow("down");
-    expect(cache.peek("p1", 0, 1)).toBeUndefined();
+    await expect(cache.load(p1, 0, failing, 0)).rejects.toThrow("down");
+    expect(cache.peek(p1, 0, 1)).toBeUndefined();
     const fetcher = vi.fn(async () => ok);
-    expect(await cache.load("p1", 0, fetcher, 1)).toBe(ok);
+    expect(await cache.load(p1, 0, fetcher, 1)).toBe(ok);
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("keys by user and project, and clears", async () => {
+    expect(attentionKey(undefined, "p1")).toBeUndefined();
+    expect(attentionKey("u1", undefined)).toBeUndefined();
+    const cache = attentionCache();
+    const fetcher = vi.fn(async () => ok);
+    await cache.load(p1, 0, fetcher, 0);
+    // Another member of the same project never sees this response.
+    expect(cache.peek(attentionKey("u2", "p1")!, 0, 1)).toBeUndefined();
+    await cache.load(attentionKey("u2", "p1")!, 0, fetcher, 1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    cache.clear();
+    expect(cache.peek(p1, 0, 2)).toBeUndefined();
+    await cache.load(p1, 0, fetcher, 2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+
+  it("a request in flight at clear() does not refill the cache", async () => {
+    const cache = attentionCache();
+    let resolve!: (r: AttentionResponse) => void;
+    const pending = cache.load(
+      p1,
+      0,
+      () => new Promise<AttentionResponse>((r) => (resolve = r)),
+      0,
+    );
+    cache.clear();
+    resolve(ok);
+    await pending;
+    expect(cache.peek(p1, 0, 1)).toBeUndefined();
+  });
+});
+
+describe("attention state", () => {
+  const a = response([], { approvals: 1 });
+  const b = response([], { approvals: 2 });
+  const u1p1 = attentionKey("u1", "p1")!;
+  const u1p2 = attentionKey("u1", "p2")!;
+  const u2p1 = attentionKey("u2", "p1")!;
+
+  it("starts from a cached response, else loading", () => {
+    expect(attentionView(initialAttention(u1p1, a), u1p1)).toEqual({
+      data: a,
+      error: undefined,
+      loading: false,
+    });
+    expect(attentionView(initialAttention(u1p1, undefined), u1p1)).toEqual({
+      data: undefined,
+      error: undefined,
+      loading: true,
+    });
+    expect(
+      attentionView(initialAttention(undefined, undefined), undefined),
+    ).toEqual({ loading: false });
+  });
+
+  it("keeps the last data while reloading the same user and project only", () => {
+    const loaded = attentionReducer(initialAttention(u1p1, undefined), {
+      type: "loaded",
+      key: u1p1,
+      data: a,
+    });
+    const reloading = attentionReducer(loaded, { type: "loading", key: u1p1 });
+    expect(attentionView(reloading, u1p1)).toMatchObject({
+      data: a,
+      loading: true,
+    });
+    for (const key of [u1p2, u2p1]) {
+      const other = attentionReducer(loaded, { type: "loading", key });
+      expect(attentionView(other, key)).toMatchObject({
+        data: undefined,
+        loading: true,
+      });
+    }
+  });
+
+  it("a project or user switch hides the old data at once", () => {
+    const loaded = attentionReducer(initialAttention(u1p1, undefined), {
+      type: "loaded",
+      key: u1p1,
+      data: a,
+    });
+    // Before the effect runs for the new key, the view shows nothing old.
+    expect(attentionView(loaded, u1p2)).toEqual({ loading: true });
+    expect(attentionView(loaded, u2p1)).toEqual({ loading: true });
+    expect(attentionView(loaded, undefined)).toEqual({ loading: false });
+  });
+
+  it("an error replaces the data; a cached hit replaces both", () => {
+    const loaded = attentionReducer(initialAttention(u1p1, a), {
+      type: "loading",
+      key: u1p1,
+    });
+    const error = new Error("down");
+    const failed = attentionReducer(loaded, {
+      type: "failed",
+      key: u1p1,
+      error,
+    });
+    expect(attentionView(failed, u1p1)).toEqual({
+      data: undefined,
+      error,
+      loading: false,
+    });
+    const hit = attentionReducer(failed, {
+      type: "cached",
+      key: u1p1,
+      data: b,
+    });
+    expect(attentionView(hit, u1p1)).toEqual({
+      data: b,
+      error: undefined,
+      loading: false,
+    });
+    // The same cached response again keeps the state object.
+    expect(attentionReducer(hit, { type: "cached", key: u1p1, data: b })).toBe(
+      hit,
+    );
+  });
+});
+
+describe("overflowBadge", () => {
+  it("sums visible entries that are not on the bottom bar", () => {
+    const counts = {
+      operations: 1,
+      "support-tickets": 2,
+      "knowledge-sources": 3,
+      gone: 9,
+    };
+    const visible = ["support-tickets", "operations", "knowledge-sources"];
+    const bar = ["home", "support-tickets"];
+    expect(
+      overflowBadge({ counts, urgent: new Set(["operations"]) }, visible, bar),
+    ).toEqual({ count: 4, urgent: true });
+    expect(
+      overflowBadge(
+        { counts, urgent: new Set(["support-tickets"]) },
+        visible,
+        bar,
+      ),
+    ).toEqual({ count: 4, urgent: false });
+    expect(
+      overflowBadge({ counts: {}, urgent: new Set() }, visible, bar),
+    ).toEqual({ count: 0, urgent: false });
+  });
+
+  it("the More button shows it in the urgent style with a mark", () => {
+    const html = renderToStaticMarkup(
+      <NavBadge count={4} urgent locale="de" />,
+    );
+    expect(html).toContain("nav-badge nav-badge-warning");
+    expect(html).toContain('aria-hidden="true">!<');
+    expect(html).toContain(" zu erledigen, dringend");
+    expect(
+      renderToStaticMarkup(<NavBadge count={4} urgent={false} locale="en" />),
+    ).not.toContain(">!<");
   });
 });

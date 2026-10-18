@@ -356,9 +356,16 @@ pre {
   font-weight: 600;
   line-height: 1;
 }
+/* Urgent: a saturated fill (white text 5.4:1) and a "!" mark, so it reads
+   stronger than the blue count and not by colour alone. */
 .nav-badge-warning {
-  background: #fff1cc;
-  color: #7a5a10;
+  gap: 1px;
+  background: #b54708;
+  color: #fff;
+  box-shadow: 0 0 0 2px #fde4c8;
+}
+.nav-badge-mark {
+  font-weight: 800;
 }
 .sidebar-footer {
   margin-top: auto;

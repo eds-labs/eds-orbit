@@ -25,7 +25,8 @@ type Props = {
 
 /**
  * The count of a nav entry, read as "3 to do" by screen readers; with a
- * critical item it shows the warning colour and adds "urgent". Nothing for 0.
+ * critical item it shows the warning fill and a "!" mark (not colour alone)
+ * and adds "urgent". Nothing for 0.
  */
 export function NavBadge({
   count,
@@ -40,6 +41,11 @@ export function NavBadge({
   const text = labels[locale];
   return (
     <span className={cn("nav-badge", urgent && "nav-badge-warning")}>
+      {urgent && (
+        <span className="nav-badge-mark" aria-hidden="true">
+          !
+        </span>
+      )}
       {count}
       <span className="sr-only">
         {` ${text.navToDo}${urgent ? `, ${text.navUrgent}` : ""}`}

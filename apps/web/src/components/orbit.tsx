@@ -70,7 +70,9 @@ import {
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
 import {
   attentionRenderers,
+  clearAttentionCache,
   navBadges,
+  overflowBadge,
   useAttentionLoad,
 } from "@/platform/shell/attention";
 import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
@@ -157,7 +159,19 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   );
   // Shared by the sidebar badges and the home page (§4.4), through a 30 s
   // cache that outlives the remount on navigation (ruling R15).
-  const attention = useAttentionLoad(project?.id, revision, pathname);
+  const attention = useAttentionLoad(
+    identity.data?.user.id,
+    project?.id,
+    revision,
+    pathname,
+  );
+  // Responses are filtered for the member: none survives a signed-out state.
+  const signedOut =
+    identity.error?.status === 401 ||
+    (!identity.loading && !identity.data && !identity.error);
+  useEffect(() => {
+    if (signedOut) clearAttentionCache();
+  }, [signedOut]);
   const renderers = useMemo(() => attentionRenderers(registry), [registry]);
   useEffect(() => {
     try {
@@ -437,7 +451,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     <button
       className="signout"
       disabled={signout.pending}
-      onClick={() => signout.run(() => post("/auth/sign-out", {}))}
+      onClick={() =>
+        signout.run(async () => {
+          await post("/auth/sign-out", {});
+          clearAttentionCache();
+        })
+      }
     >
       <LogOut />
       {t("signOut")}
@@ -511,6 +530,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const mobileCurrent = mobileCurrentKey(mobileBar, route);
   // No badges while loading or after a failed load; navigation still works.
   const badges = navBadges(attention);
+  const moreBadge = overflowBadge(
+    badges,
+    navGroups.flatMap((g) => g.entries.map((r) => r.key)),
+    mobileBar.map((r) => r.key),
+  );
   function toggleGroup(id: string) {
     const next = toggleCollapsed(collapsed, id);
     setCollapsed(next);
@@ -755,6 +779,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           <button onClick={() => setMenu(true)}>
             <MoreHorizontal />
             <span>{t("more")}</span>
+            <NavBadge
+              count={moreBadge.count}
+              urgent={moreBadge.urgent}
+              locale={locale}
+            />
           </button>
         </nav>
         {newProject && (
