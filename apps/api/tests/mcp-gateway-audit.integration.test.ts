@@ -184,6 +184,7 @@ describe("rate limiter", () => {
       perUser: 240,
       perClient: 600,
       unauthenticatedPerIp: 30,
+      searchPerGrant: 30,
     });
   });
 });
@@ -863,6 +864,45 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       const again = await call(app, "orbit_projects", {}, { token });
       expect(again.statusCode).toBe(200);
     }, 120_000);
+
+    it("search has its own bucket per grant (30 a minute); other tools still pass", async () => {
+      const app = await gatewayWith({
+        rateLimits: { searchPerGrant: 2, perGrant: 50 },
+      });
+      const token = tokens["limit-window"];
+      const search = (opts: RpcOptions = { token }) =>
+        call(app, "search", { query: "x" }, opts);
+      // The tool arrives with WP-M3 Task 3: until then the SDK answers
+      // "unknown tool", but the request is counted before it gets there.
+      expect((await search()).statusCode).not.toBe(429);
+      expect((await search()).statusCode).not.toBe(429);
+      const limited = await search();
+      expect(limited.statusCode).toBe(429);
+      expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
+      expect(logLines.join("")).toContain('"bucket":"search"');
+      // Other tools, and the grant bucket, were not used up by the refusal.
+      expect(
+        (await call(app, "orbit_projects", {}, { token })).statusCode,
+      ).toBe(200);
+      // Another grant has its own search bucket.
+      expect(
+        (
+          await call(
+            app,
+            "search",
+            { query: "x" },
+            {
+              token: tokens["limit-user-2"],
+            },
+          )
+        ).statusCode,
+      ).not.toBe(429);
+      // Only a tools/call of search is counted in it.
+      for (let i = 0; i < 3; i++)
+        expect((await rpc(app, "ping", {}, { token })).statusCode).not.toBe(
+          429,
+        );
+    });
 
     it("a rate-limited request resolves no principal (no grant or membership query)", async () => {
       const app = await gatewayWith({

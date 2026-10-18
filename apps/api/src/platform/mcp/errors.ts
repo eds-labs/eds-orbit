@@ -15,6 +15,22 @@ import { DomainError } from "../shared.ts";
 /** Tool-result `_meta` key that carries a WWW-Authenticate challenge (ChatGPT links from it). */
 export const WWW_AUTHENTICATE_META = "mcp/www_authenticate";
 
+/** Thrown by the adapter when a tool call outlives its time limit (D-M3-11). */
+export class McpToolTimeoutError extends Error {
+  constructor() {
+    super("MCP_TOOL_TIMEOUT");
+    this.name = "McpToolTimeoutError";
+  }
+}
+
+/** The fixed answer to a call that outlived its limit; the work may still finish. */
+export const timeoutResult = () =>
+  errorResult({
+    code: "TIMEOUT",
+    message: "the tool did not finish in time; its work may still complete",
+    retryable: true,
+  });
+
 /** `structuredContent` of every gateway error result. */
 export type McpErrorBody = {
   code: string;
@@ -64,6 +80,8 @@ export function toolFailure(
   error: unknown,
   requestId: string,
 ): { result: CallToolResult; code: string } {
+  if (error instanceof McpToolTimeoutError)
+    return { result: timeoutResult(), code: "TIMEOUT" };
   if (error instanceof DomainError || error instanceof KnowledgeError) {
     const status = error instanceof DomainError ? error.status : 409;
     return {

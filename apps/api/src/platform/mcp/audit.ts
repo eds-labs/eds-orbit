@@ -24,6 +24,7 @@ import {
   MCP_UNKNOWN_TOOL,
   type McpCallObserver,
   type McpCallRecord,
+  type McpRunStarter,
 } from "./adapter.ts";
 
 /** AuditEvent action of a call in a project. */
@@ -137,6 +138,21 @@ export async function auditToolCall(call: AuditedCall, log: Log) {
 }
 
 /**
+ * Starts the `mcp` AgentRun of one project call; the adapter calls it before
+ * the tool runs, the observer below adds the span and finishes it. Null when
+ * the run cannot be created (startRun logs it).
+ */
+export const startMcpRun: McpRunStarter = (project, call) =>
+  startRun(project, {
+    kind: "mcp",
+    agentName: `mcp:${call.clientId}`,
+    taskClass: call.tool,
+    ...(call.grantId
+      ? { subjectType: "mcp_grant", subjectId: call.grantId }
+      : {}),
+  });
+
+/**
  * The gateway's call observer. `now` only paces the lastUsedAt writes (tests
  * move it); stored timestamps are real time.
  */
@@ -158,15 +174,19 @@ export function createMcpObserver(options: {
       projectId: record.projectId,
     };
     const startedAt = new Date(Date.now() - record.durationMs);
-    const runId = await startRun(scope, {
-      kind: "mcp",
-      agentName: `mcp:${record.clientId}`,
-      taskClass: record.tool,
-      ...(record.grantId
-        ? { subjectType: "mcp_grant", subjectId: record.grantId }
-        : {}),
-      startedAt,
-    });
+    // The run exists already when the call got as far as its tool; a refused
+    // call (or a run that could not be started) is recorded afterwards.
+    const runId =
+      record.agentRunId ??
+      (await startRun(scope, {
+        kind: "mcp",
+        agentName: `mcp:${record.clientId}`,
+        taskClass: record.tool,
+        ...(record.grantId
+          ? { subjectType: "mcp_grant", subjectId: record.grantId }
+          : {}),
+        startedAt,
+      }));
     const ok = record.outcome === "ok";
     await recordSpan(scope, runId, {
       type: "tool_call",

@@ -27,7 +27,7 @@ import {
   type McpCallObserver,
   type McpRequestState,
 } from "./adapter.ts";
-import { createMcpObserver } from "./audit.ts";
+import { createMcpObserver, startMcpRun } from "./audit.ts";
 import {
   methodNotFoundResponse,
   rateLimitedResponse,
@@ -65,6 +65,8 @@ export type McpServerOptions = {
   rateLimits?: Partial<McpRateLimits>;
   /** Test seam: the clock for rate-limit windows and the lastUsedAt pacing. */
   clock?: () => number;
+  /** Test seam: replaces the 25 s tool timeout (adapter.ts). */
+  toolTimeoutMs?: number;
   /** Test seam: where the logger writes (default stdout). */
   logStream?: { write(line: string): void };
 };
@@ -95,6 +97,8 @@ export function mcpClientIp(req: FastifyRequest): string {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 const LISTEN_METHOD = "subscriptions/listen";
+/** The native tool with its own rate bucket (limits.ts, WP-M3 Task 3). */
+const SEARCH_TOOL = "search";
 
 type PeekedMessage = {
   method?: string;
@@ -252,12 +256,24 @@ export async function buildMcpServer(
         const userId = text(claims.sub);
         const clientId = text(claims.azp);
         const workspaceClaim = text(claims[ORBIT_WORKSPACE_CLAIM]);
+        const peek = peekMessage(typeof req.body === "string" ? req.body : "");
+        const grantKey = `${userId}|${clientId}|${workspaceClaim}`;
         const verdict = limiter.take([
           {
-            key: `grant:${userId}|${clientId}|${workspaceClaim}`,
+            key: `grant:${grantKey}`,
             max: limits.perGrant,
             label: "grant",
           },
+          // The paid read has its own bucket, charged for its calls only (D-M3-10).
+          ...(peek.method === "tools/call" && peek.toolName === SEARCH_TOOL
+            ? [
+                {
+                  key: `search:${grantKey}`,
+                  max: limits.searchPerGrant,
+                  label: "search",
+                },
+              ]
+            : []),
           { key: `user:${userId}`, max: limits.perUser, label: "user" },
           { key: `client:${clientId}`, max: limits.perClient, label: "client" },
         ]);
@@ -269,7 +285,6 @@ export async function buildMcpServer(
           return rateLimitedResponse(verdict.retryAfterSeconds);
         }
         const principal = await resolvePrincipal(claims);
-        const peek = peekMessage(typeof req.body === "string" ? req.body : "");
         // Without an active grant only a tool call gets an answer, as an
         // isError result carrying the challenge; everything else is a 401.
         if (!principal && peek.method !== "tools/call")
@@ -298,6 +313,10 @@ export async function buildMcpServer(
           resource,
           log: req.log,
           observe,
+          startRun: startMcpRun,
+          ...(options.toolTimeoutMs !== undefined
+            ? { toolTimeoutMs: options.toolTimeoutMs }
+            : {}),
         });
         return handler.fetch(request, { authInfo });
       },

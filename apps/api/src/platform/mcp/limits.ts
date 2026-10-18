@@ -17,6 +17,11 @@ export const MCP_RATE_LIMITS = {
   perClient: 600,
   /** One client address while it sends no valid token. */
   unauthenticatedPerIp: 30,
+  /**
+   * `tools/call` of the native `search` per grant, on top of perGrant
+   * (09 §7, D-M3-10): the tool reads and ranks knowledge, the costliest read.
+   */
+  searchPerGrant: 30,
 };
 export type McpRateLimits = typeof MCP_RATE_LIMITS;
 /** The length of every counting window. */
