@@ -61,7 +61,24 @@ const PRE_SPEND_FAILURES = new Set([
   "OPENAI_API_KEY_REQUIRED",
 ]);
 
+/**
+ * Price-configuration failures of the cost estimate (plain errors that carry
+ * the code as their message): the paid path stops at them before it reserves
+ * anything, so they fall back to lexical as well.
+ */
+const PRE_SPEND_PRICE_FAILURES = new Set([
+  "VERIFIED_PRICE_CONFIGURATION_REQUIRED",
+  "CURRENT_PRICE_REQUIRED",
+]);
+
 const notFound = () => new DomainError("NOT_FOUND", 404);
+
+/** Whether `error` is one of the failures the paid path raises before any spend. */
+function isPreSpendCode(error: unknown) {
+  if (error instanceof DomainError || error instanceof KnowledgeError)
+    return PRE_SPEND_FAILURES.has(error.code);
+  return error instanceof Error && PRE_SPEND_PRICE_FAILURES.has(error.message);
+}
 
 const searchResult = z.object({
   retrieval: z.object({
@@ -81,11 +98,7 @@ async function isPreSpendFailure(
   error: unknown,
   budget: SearchBudget,
 ) {
-  if (
-    !(error instanceof DomainError || error instanceof KnowledgeError) ||
-    !PRE_SPEND_FAILURES.has(error.code)
-  )
-    return false;
+  if (!isPreSpendCode(error)) return false;
   // Never after a reservation exists, whatever the code says.
   const reserved = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     tx.budgetReservation.count({

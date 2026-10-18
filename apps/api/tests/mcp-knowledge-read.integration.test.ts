@@ -630,7 +630,10 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
       new DomainError("PROJECT_PAUSED"),
       new KnowledgeError("NO_ACTIVE_EMBEDDING_INDEX"),
       new DomainError("OPENAI_API_KEY_REQUIRED"),
-    ])("falls back to lexical before any spend: $code", async (error) => {
+      // The cost estimate's price checks (plain errors), before reserve.
+      new Error("VERIFIED_PRICE_CONFIGURATION_REQUIRED"),
+      new Error("CURRENT_PRICE_REQUIRED"),
+    ])("falls back to lexical before any spend: $message", async (error) => {
       hybrid.error = error;
       try {
         vi.mocked(retrieveHybrid).mockClear();
