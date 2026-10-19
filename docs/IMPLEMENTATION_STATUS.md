@@ -98,6 +98,23 @@ Branch `claude/track-m-wp-m4`, built from `main` after WP-M2 (#165) and WP-M3 (#
 - Each needs `mcpProposable` on its action type, an `argsHash` with its own tool name, an `mcp.proposal` event, a `deduplicated` output field and the controls above.
 - Stricter mode (D-M4-7): if a looser mode than `approval_required` is ever added to ADR 0008, MCP-originated requests must default one step stricter.
 
+## UI restructure, phase 5: grouped settings (2026-10-19, local; no flag) - restructure complete
+
+Spec §3.4 and §5.4. No schema change, no migration, no new permission, no new dependency, no new endpoint. Rollback is a revert and redeploy. With this phase the UI restructure is complete: phase 1 grouped sidebar (#167), phase 2 module overviews (#171), phase 3 attention (#173), phase 4 attention-first home (#174) are live; phase 5 is #176.
+- **Settings page** (`platform/shell/settings-nav.tsx`, `components/management.tsx`): the settings tabs become a grouped section list. The group "Project" holds the platform's sections (Project, Members & roles, Integrations, Retention, Modules, Connected apps), then one group per module in sidebar order with the sections the module contributes. Members and Retention are offered to owners only; Connected apps only while the MCP grants answer. Marketing contributes Policy & budget, Brand and, with Orbit Agents on, Assignments (order 40, last); Support contributes one section, "Support". Knowledge has none.
+- **URL sections** (ruling R29): the open section is read from `?section=<key>` on every render, a choice replaces the URL in place (no new history entry, no remount), and in-app links between sections and browser back/forward work on the same page. `/settings` without a section, an unknown key, or a section that is hidden for the member (for example `members` for a non-owner) opens Project. `settingsSectionHref` is the one helper that builds the URL.
+- **Sidebar**: each module group ends with a subdued "Settings" link to the module's first section (`ShellModule.settingsSection`: Marketing -> `policy`, Support -> `support`); Knowledge and the Project group have no such link (the Project group's own Settings entry opens `/settings`). Marketing's "Review setup" and the budget readiness link to `?section=policy`; the paused-project issue links to operations, where pause lives.
+- **Ruling R28**: module groups list exactly the sections the module contributes today; module settings content is not split further in this phase (Support has one entry, not "Mailboxes & widget" and "SLA").
+- **Phones**: at 760 px and below the section list is a labelled select ("Section") above the content; a choice replaces `?section=` the same way. The mobile drawer closes on any link click inside it (a settings link to the open page changes only the search). The section list is sticky below the 64 px topbar on desktop.
+- **Tests**: `platform/shell/settings-nav.test.tsx` (tabs by role and stack, grouping, URL parsing, href helper), `modules/marketing/settings-sections.test.tsx`. e2e: `navigation.spec.ts` "module settings links open their section of the grouped settings" (sidebar links, group order, in-place section changes, back/forward, unknown section); `workspace.spec.ts` "settings open by ?section and the legacy path forwards" (`?section=policy`/`brand` by URL; bare `/settings` opens Project; the legacy path keeps a section), the 390 px select (and a module "Settings" link closing the drawer while its section is already open), and the owner-only sections for a non-owner. A unit test pins that each module's first section, the sidebar link's target, is never a conditional one. The 390 px keyboard check for Tabs moved to the analytics tabs (ruling R8b: the settings tabs no longer exist). The e2e "an old support notification link opens the ticket" finds the Tickets entry by its badge-tolerant name ("Tickets 2 to do").
+- **Post-deploy smoke** (uLiquid):
+  1. `/p/:id/settings` opens Project; the list shows Project, Marketing and Support groups.
+  2. `/p/:id/settings?section=policy` opens Marketing "Policy & budget" with the policy form.
+  3. The sidebar's Marketing "Settings" link opens the same section; the Support "Settings" link opens the Support section.
+  4. The Support section shows the mailboxes and the website widget.
+  5. As owner, Members & roles and Retention are listed; as editor or viewer they are not, and their URLs open Project.
+  6. At 390 px the section list is a select, a choice changes the URL's `?section=`, and the page has no horizontal scroll.
+
 ## UI restructure, phase 4: attention-first home (2026-10-19, local; no flag)
 
 Spec §5.1 and §5.2. No schema change, no migration, no new permission, no new dependency, no new endpoint. Rollback is a revert and redeploy.
@@ -1109,7 +1126,7 @@ Post-deploy checks:
 1. `/api/health/ready` ok (database ok, worker ready); `/api/health/postiz` ok.
 2. uLiquid home and navigation: 13 entries; Knowledge, Marketing and Platform sections. Since the UI restructure (phase 1), the sidebar is grouped: Home and Orbit Chat, then one group per enabled module (Marketing with Approvals, Support when on, Knowledge), then the Project group (Connectors, Operations, Settings); each group header collapses its entries.
 3. Settings → Modules: Knowledge and Marketing on, switching not enabled.
-4. Settings tabs as before; the assignment "uLiquid Beta" is active (Postiz drafts, 10:00/17:00).
+4. Settings tabs as before; the assignment "uLiquid Beta" is active (Postiz drafts, 10:00/17:00). (Since the UI restructure phase 5 these are grouped sections opened by `?section=`, not tabs.)
 5. Connectors: Postiz, Matomo, Slack, Telegram (linked), blog, newsletter, in the former order.
 6. Operations: worker heartbeat, outbox 0, 14 queue classes, AI runs with costs.
 7. Telegram: the bot answered a text message with its help text (13:18).

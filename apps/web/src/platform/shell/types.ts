@@ -92,7 +92,17 @@ export type StandaloneView = {
  * name; a module section shows above the platform's content of that tab.
  */
 export type SettingsSection = {
-  tab: { key: string; label: Label; order: number };
+  tab: {
+    key: string;
+    label: Label;
+    /** Position within the tab's group of the settings list. */
+    order: number;
+    /**
+     * The group of the settings list (UI restructure §5.4): "project" or a
+     * module id. The shell sets a module's sections to the module's group.
+     */
+    group?: string;
+  };
   /** Position among the modules' sections of the tab. */
   order: number;
   /**

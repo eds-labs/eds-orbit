@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { marketingWeb } from "./manifest";
 
-// The settings tabs and connectors marketing contributes (WP2.3b) keep the
-// order and labels the pages had before the split.
+// The settings sections and connectors marketing contributes (WP2.3b) keep
+// the labels the pages had before the split.
 describe("marketing settings and connector contributions", () => {
-  it("contributes the agents, policy and brand tabs in their old order", () => {
+  // UI restructure §5.4: policy first (the sidebar's settings link), the
+  // assignments last.
+  it("contributes the policy, brand and agents sections in spec order", () => {
     expect(
       marketingWeb.settings!.map((s) => [
         s.tab.key,
@@ -12,9 +14,9 @@ describe("marketing settings and connector contributions", () => {
         s.tab.label.en,
       ]),
     ).toEqual([
-      ["agents", 10, "Assignments"],
       ["policy", 20, "Policy & budget"],
       ["brand", 30, "Brand"],
+      ["agents", 40, "Assignments"],
     ]);
   });
 

@@ -58,7 +58,8 @@ export function NavBadge({
  * The sidebar navigation (UI restructure, spec §3.3): the "top" entries, then
  * one collapsible group per module under "Modules", then the project group.
  * A collapsed group renders no entries and shows the sum of their badges; the
- * shell opens the group of a page when the user navigates to it.
+ * shell opens the group of a page when the user navigates to it. A module
+ * group with a settings section ends with a subdued settings link.
  */
 export function SidebarNav({
   groups,
@@ -141,6 +142,18 @@ export function SidebarNav({
                   group.entries.map((r) => (
                     <li key={r.key}>{link(r, "nav-sub-link", false)}</li>
                   ))}
+                {/* The module's settings (spec §3.4): not a route, no badge. */}
+                {open && group.settingsHref && (
+                  <li>
+                    <Link
+                      href={group.settingsHref}
+                      className="nav-sub-link nav-settings-link"
+                    >
+                      <span className="sr-only">{`${group.label?.[locale] ?? group.id} `}</span>
+                      {text.settings}
+                    </Link>
+                  </li>
+                )}
               </ul>
             </div>
           </Fragment>

@@ -59,6 +59,7 @@ import {
 import { StandaloneContext } from "@/platform/shell/standalone-context";
 import {
   buildNavGroups,
+  withSettingsLinks,
   mobileCurrentKey,
   mobileEntries,
 } from "@/platform/shell/nav-groups";
@@ -69,6 +70,10 @@ import {
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
+import {
+  moduleSettingsSection,
+  settingsSectionHref,
+} from "@/platform/shell/settings-nav";
 import {
   attentionRenderers,
   clearAttentionCache,
@@ -301,6 +306,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         groupOrder: m.groupOrder,
         enabled: enabled(m.id),
         nav: nav.filter((r) => r.moduleId === m.id),
+        settingsSection: moduleSettingsSection(m.id, m.settings ?? []),
       })),
       homeSections: homeSections(registry.modules, enabled),
       hrefOf: (key) => {
@@ -314,7 +320,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         ...active.map((m) => m.actionRequests ?? {}),
       ),
       attentionRenderers: renderers,
-      settings: active.flatMap((m) => m.settings ?? []),
+      // Each module's sections join its group of the settings list (§5.4).
+      settings: active.flatMap((m) =>
+        (m.settings ?? []).map((section) => ({
+          ...section,
+          tab: { ...section.tab, group: section.tab.group ?? m.id },
+        })),
+      ),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),
       connectors: {
         providers: active.flatMap((m) => m.connectors?.providers ?? []),
@@ -523,7 +535,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const isOn = (id: string) =>
     Boolean(shell.modules.find((m) => m.id === id)?.enabled);
   const moduleOff = Boolean(route && !routeEnabled(route, isOn));
-  const navGroups = buildNavGroups(table.routes, shell.modules);
+  const navGroups = withSettingsLinks(
+    buildNavGroups(table.routes, shell.modules),
+    shell.modules,
+    (key) => settingsSectionHref(shell.hrefOf("settings"), key),
+  );
   const mobileBar = mobileEntries(table.routes, isOn);
   const mobileCurrent = mobileCurrentKey(mobileBar, route);
   // No badges while loading or after a failed load; navigation still works.
@@ -582,6 +598,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           role={menu ? "dialog" : undefined}
           aria-modal={menu || undefined}
           aria-label={menu ? "Workspace navigation" : undefined}
+          // A link to a section of the page that is already open changes only
+          // the search, which the pathname effect does not see: close the
+          // drawer on any link click inside it.
+          onClick={(event) => {
+            if ((event.target as Element).closest("a[href]")) setMenu(false);
+          }}
         >
           <div className="brand-row">
             <Brand />

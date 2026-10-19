@@ -147,7 +147,8 @@ const issueLink: Record<string, string> = {
   DRAFT_HANDOFF_UNCLEAR: "/approvals",
   RUN_FAILED: "/operations",
   RUN_PARTIAL: "/operations",
-  PROJECT_PAUSED: "/settings",
+  // Pause and resume are on the operations page.
+  PROJECT_PAUSED: "/operations",
 };
 const nextText: Record<NextItem["kind"], { icon: LucideIcon; label: Text }> = {
   run_start: { icon: CalendarClock, label: ["Run starts", "Lauf startet"] },
