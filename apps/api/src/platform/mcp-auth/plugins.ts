@@ -503,7 +503,7 @@ function canonicalResource(requested: unknown, resource: string) {
  * - before `/oauth2/consent` (accepted): activates the session's selection
  *   made for this authorization request;
  * - after `/oauth2/token`: tokens minted for a reference without an active
- *   grant are deleted and the answer becomes `invalid_grant` (closes the
+ *   grant are deleted and the answer becomes `invalid_grant` (narrows the
  *   windows between a revocation and a code exchange or refresh rotation that
  *   had already passed their checks);
  * - after: hands denials, issued codes and refresh replays to `deps`.
