@@ -25,6 +25,17 @@ export class McpToolTimeoutError extends Error {
 }
 
 /**
+ * Thrown by the project slots (limits.ts, R-10) when a call found no free
+ * slot in its project within the wait. Carries nothing: the answer is fixed.
+ */
+export class McpBusyError extends Error {
+  constructor() {
+    super("MCP_PROJECT_BUSY");
+    this.name = "McpBusyError";
+  }
+}
+
+/**
  * Thrown by the adapter when a grant has used up its proposal quota (WP-M4,
  * D-M4-8). Carries nothing: the answer is fixed text.
  */
@@ -60,6 +71,16 @@ export const timeoutResult = (risk: ToolRisk) =>
   errorResult({
     code: "TIMEOUT",
     message: "the tool did not finish in time; its work may still complete",
+    retryable: transientRetryable(risk),
+  });
+
+/** The code and fixed text of a call that found its project busy (R-10). */
+export const BUSY_CODE = "BUSY";
+export const busyResult = (risk: ToolRisk) =>
+  errorResult({
+    code: BUSY_CODE,
+    message:
+      "too many tool calls are running in this project; try again shortly",
     retryable: transientRetryable(risk),
   });
 
@@ -119,6 +140,8 @@ export function toolFailure(
     return { result: timeoutResult(risk), code: "TIMEOUT" };
   if (error instanceof McpProposalQuotaError)
     return { result: proposalQuotaResult(), code: PROPOSAL_QUOTA_CODE };
+  if (error instanceof McpBusyError)
+    return { result: busyResult(risk), code: BUSY_CODE };
   if (error instanceof DomainError || error instanceof KnowledgeError) {
     const status = error instanceof DomainError ? error.status : 409;
     return {

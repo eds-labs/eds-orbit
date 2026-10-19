@@ -425,6 +425,14 @@ describe.skipIf(!enabled)("MCP gateway", () => {
           authorization_servers: [ISSUER],
           scopes_supported: ["orbit:read", "orbit:propose"],
           bearer_methods_supported: ["header"],
+          // WP-M5: DPoP-bound tokens are verified (mcp-gateway-audit).
+          dpop_signing_alg_values_supported: [
+            "EdDSA",
+            "ES256",
+            "ES512",
+            "PS256",
+            "RS256",
+          ],
         });
       }
     });

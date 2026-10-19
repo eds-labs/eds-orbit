@@ -36,6 +36,7 @@ import {
   toolFailure,
   unauthenticatedResult,
 } from "./errors.ts";
+import { MCP_OUTPUT_LIMIT_BYTES, type McpProjectSlots } from "./limits.ts";
 import { nativeTools, type NativeToolContext } from "./native-tools.ts";
 import type { McpPrincipal } from "./principal.ts";
 import {
@@ -50,10 +51,10 @@ import {
 } from "./visibility.ts";
 
 export const MCP_SERVER_INFO = { name: "orbit-mcp-gateway", version: "1.0.0" };
-/** Largest JSON result a tool may return (09 §5.1, ADR 0007 §2). */
-export const MCP_OUTPUT_LIMIT_BYTES = 64 * 1024;
+/** Largest JSON result a tool may return (limits.ts). */
+export { MCP_OUTPUT_LIMIT_BYTES };
 /** Cheap bound on argument size the SDK checks before validation. */
-const MAX_TOOL_INPUT_ELEMENTS = 1000;
+export const MAX_TOOL_INPUT_ELEMENTS = 1000;
 /** How long a tool call may take before the client gets TIMEOUT (D-M3-11). */
 export const MCP_TOOL_TIMEOUT_MS = 25_000;
 /** The argument the adapter adds to every project-bound tool. */
@@ -118,6 +119,8 @@ export type McpRequestState = {
   toolTimeoutMs?: number;
   /** The proposal quotas of the grant (limits.ts, D-M4-8). */
   proposalQuota: ProposalQuota;
+  /** The process's per-project execution slots (limits.ts, R-10). */
+  projectSlots: McpProjectSlots;
 };
 
 /** What one call tells the observer about itself while it runs. */
@@ -217,6 +220,50 @@ async function registryToolsFor(principal: McpPrincipal): Promise<OrbitTool[]> {
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Array items and object keys in `value`, counted until `max` is passed: the
+ * same count as the SDK's `maxToolInputElements` check (McpServer
+ * validateToolInput, SDK 2.3.1), which the SDK does not export.
+ */
+function toolInputElementCount(value: unknown, max: number): number {
+  let count = 0;
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === null || typeof node !== "object") continue;
+    const children = Array.isArray(node)
+      ? node
+      : Object.keys(node).map((key) => (node as Record<string, unknown>)[key]);
+    for (const child of children) {
+      if (++count > max) return count;
+      if (child !== null && typeof child === "object") stack.push(child);
+    }
+  }
+  return count;
+}
+
+/**
+ * Whether the SDK will accept `args` for a tool with `schema` (D-M5-6): the
+ * element cap first, then the schema with missing arguments as `{}`,
+ * asynchronously as the SDK validates (async refinements run). A schema that
+ * throws counts as a refusal, as the SDK answers it with an error result.
+ */
+export async function sdkAcceptsArguments(
+  schema: z.ZodType,
+  args: unknown,
+): Promise<boolean> {
+  if (
+    toolInputElementCount(args, MAX_TOOL_INPUT_ELEMENTS) >
+    MAX_TOOL_INPUT_ELEMENTS
+  )
+    return false;
+  try {
+    return (await schema.safeParseAsync(args ?? {})).success;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Runs one call and maps every outcome to a result: output parsed with the
@@ -393,6 +440,8 @@ function nativeContext(
     setAuditProject: (projectId) =>
       void attributeCall(principal, call, projectId),
     startRun: (projectId) => startCallRun(state, call, tool, projectId),
+    withProjectSlot: (projectId, work) =>
+      state.projectSlots.run(projectId, work),
     log: state.log,
   };
 }
@@ -432,7 +481,7 @@ async function executeRegistryTool(
   call: CallTrace,
   toolName: string,
 ): Promise<unknown> {
-  const { principal, requestId } = state;
+  const { principal } = state;
   const { [PROJECT_ID]: requested, ...rest } = args;
   const projectId =
     typeof requested === "string"
@@ -443,13 +492,32 @@ async function executeRegistryTool(
   if (!projectId) throw new DomainError("PROJECT_REQUIRED", 400);
   // Audit rows go to the project only when it is one of the grant's.
   attributeCall(principal, call, projectId);
+  // Authorization, the run and the execution all read the project (each
+  // `scoped()` call locks it): one of its slots holds them (R-10). A BUSY
+  // call starts no run.
+  return state.projectSlots.run(projectId, () =>
+    executeInProject(state, tool, rest, call, toolName, projectId),
+  );
+}
+
+/** executeRegistryTool's work inside the project's slot. */
+async function executeInProject(
+  state: McpRequestState & { principal: McpPrincipal },
+  tool: OrbitTool,
+  rest: Record<string, unknown>,
+  call: CallTrace,
+  toolName: string,
+  projectId: string,
+): Promise<unknown> {
+  const { principal, requestId } = state;
   const { tool: allowed, scope } = await authorizeMcpCall(
     principal,
     tool.name,
     projectId,
   );
-  // Object-level rules of the tool's own schema apply too.
-  const input = allowed.parameters.parse(rest);
+  // Object-level rules of the tool's own schema apply too; asynchronously,
+  // so async refinements run instead of throwing.
+  const input = await allowed.parameters.parseAsync(rest);
   // A proposal tool runs only inside the grant's quotas (D-M4-8).
   const proposing = allowed.risk === "P_proposal";
   if (proposing)
@@ -596,7 +664,7 @@ export async function mcpServerFor(
     const definition = definitions.get(state.toolName ?? "");
     if (
       !definition ||
-      !definition.inputSchema.safeParse(state.args ?? {}).success
+      !(await sdkAcceptsArguments(definition.inputSchema, state.args))
     )
       await notify(principalState, {
         tool: auditableToolName(state.toolName),

@@ -12,8 +12,10 @@ import { requireSpendMandate } from "../../ai/spend-mandate.ts";
 import { DomainError } from "../../shared.ts";
 import { searchForModel, type KnowledgeHit } from "../../knowledge/mcp-read.ts";
 import type { SearchBudget, SearchTrace } from "../../knowledge/search.ts";
+import { MCP_OUTPUT_LIMIT_BYTES } from "../limits.ts";
 import type { NativeTool, NativeToolContext } from "../native-tools.ts";
 import {
+  deepLink,
   itemId,
   itemUrl,
   knowledgeScope,
@@ -48,6 +50,33 @@ const searchOutput = z
   .strict();
 
 type SearchResult = z.infer<typeof searchOutput>["results"][number];
+/** A result plus the deep link that can stand in for its citation URL. */
+type Candidate = SearchResult & { deepLink: string };
+
+/**
+ * The results as sent, within the 64 KB output cap (D-M5-6): while the
+ * serialized output is too large, the longest citation URL falls back to its
+ * deep link. Titles (at most 160 characters) and ids are small, so 30
+ * results with deep links always fit.
+ */
+export function fitSearchResults(
+  candidates: readonly Candidate[],
+): SearchResult[] {
+  const results = candidates.map(({ deepLink: _, ...result }) => result);
+  const size = () => Buffer.byteLength(JSON.stringify({ results }), "utf8");
+  while (size() > MCP_OUTPUT_LIMIT_BYTES) {
+    let longest = -1;
+    for (const [index, result] of results.entries())
+      if (
+        result.url !== candidates[index]!.deepLink &&
+        (longest < 0 || result.url.length > results[longest]!.url.length)
+      )
+        longest = index;
+    if (longest < 0) break;
+    results[longest]!.url = candidates[longest]!.deepLink;
+  }
+  return results;
+}
 
 /**
  * The paid-search keys of one call in one project (D-M3-2): unique per call,
@@ -95,17 +124,19 @@ async function budgetFor(
   };
 }
 
-const toResult = (projectId: string, hit: KnowledgeHit): SearchResult =>
+const toResult = (projectId: string, hit: KnowledgeHit): Candidate =>
   hit.kind === "chunk"
     ? {
         id: itemId(projectId, "chunk", hit.chunkId),
         title: resultTitle(hit.title, "chunk"),
         url: itemUrl(projectId, "chunk", hit.canonicalUrl),
+        deepLink: deepLink(projectId, "chunk"),
       }
     : {
         id: itemId(projectId, "fact", hit.factId),
         title: resultTitle(hit.key, "fact"),
         url: itemUrl(projectId, "fact", hit.canonicalUrl),
+        deepLink: deepLink(projectId, "fact"),
       };
 
 /**
@@ -119,7 +150,7 @@ async function searchProject(
   query: string,
   ctx: NativeToolContext,
   trace: SearchTrace | undefined,
-): Promise<SearchResult[]> {
+): Promise<Candidate[]> {
   try {
     const { hits } = await searchForModel(scope, query, {
       budget: await budgetFor(scope, ctx),
@@ -141,8 +172,8 @@ async function searchProject(
 }
 
 /** Takes results from each project in turn, so one project cannot fill the list. */
-function interleave(lists: SearchResult[][], max: number): SearchResult[] {
-  const merged: SearchResult[] = [];
+function interleave(lists: Candidate[][], max: number): Candidate[] {
+  const merged: Candidate[] = [];
   for (let index = 0; merged.length < max; index++) {
     const round = lists.filter((list) => index < list.length);
     if (!round.length) break;
@@ -181,9 +212,17 @@ export const searchTool: NativeTool = {
       const runId = await ctx.startRun(scopes[0]!.projectId);
       if (runId) trace = { agentRunId: runId, taskClass: searchTool.name };
     }
-    const lists: SearchResult[][] = [];
+    // One project at a time, each inside one of its slots (R-10): a search
+    // never holds two projects' slots at once.
+    const lists: Candidate[][] = [];
     for (const scope of scopes)
-      lists.push(await searchProject(scope, query, ctx, trace));
-    return { results: interleave(lists, SEARCH_MAX_RESULTS) };
+      lists.push(
+        await ctx.withProjectSlot(scope.projectId, () =>
+          searchProject(scope, query, ctx, trace),
+        ),
+      );
+    return {
+      results: fitSearchResults(interleave(lists, SEARCH_MAX_RESULTS)),
+    };
   },
 };

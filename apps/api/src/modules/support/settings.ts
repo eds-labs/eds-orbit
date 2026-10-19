@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+/** Ticket priorities; support_insights keeps a copy (tested in sync). */
+export const SUPPORT_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+const PRIORITIES = SUPPORT_PRIORITIES;
 
 const slaTarget = z
   .object({

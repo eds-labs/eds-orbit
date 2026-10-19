@@ -94,18 +94,31 @@ export function parseItemId(value: string): ItemRef | null {
 }
 
 /**
- * A result's citation URL (D-M3-7): the source's safe canonical URL, else
- * the project's knowledge library (passages) or facts page in Orbit. Never
- * empty.
+ * Longest canonical URL a result cites (D-M5-6); a longer one falls back to
+ * the Orbit deep link, so URLs cannot push `search` or `fetch` over the
+ * 64 KB output cap. Canonical URLs are serialized by `URL` (safeCitation),
+ * so they are ASCII and JSON adds no escapes.
+ */
+export const MCP_URL_MAX_CHARS = 2048;
+
+/** The project's knowledge library (passages) or facts page in Orbit. */
+export function deepLink(projectId: string, kind: ItemKind): string {
+  const origin = new URL(loadConfig().APP_ORIGIN).origin;
+  return `${origin}/p/${projectId}/knowledge/${kind === "chunk" ? "library" : "facts"}`;
+}
+
+/**
+ * A result's citation URL (D-M3-7): the source's safe canonical URL when it
+ * has at most MCP_URL_MAX_CHARS characters, else the deep link. Never empty.
  */
 export function itemUrl(
   projectId: string,
   kind: ItemKind,
   canonicalUrl: string | null,
 ): string {
-  if (canonicalUrl) return canonicalUrl;
-  const origin = new URL(loadConfig().APP_ORIGIN).origin;
-  return `${origin}/p/${projectId}/knowledge/${kind === "chunk" ? "library" : "facts"}`;
+  if (canonicalUrl && canonicalUrl.length <= MCP_URL_MAX_CHARS)
+    return canonicalUrl;
+  return deepLink(projectId, kind);
 }
 
 /** A title clipped to TITLE_MAX_CHARS characters (never inside a surrogate pair). */

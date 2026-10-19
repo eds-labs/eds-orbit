@@ -33,6 +33,7 @@ import {
   fetchChunkForModel,
   fetchFactForModel,
   FETCH_TEXT_MAX_BYTES,
+  jsonTextBytes,
   searchForModel,
 } from "../src/platform/knowledge/mcp-read.ts";
 import { retrieveHybrid } from "../src/platform/knowledge/retrieval.ts";
@@ -698,9 +699,10 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
     });
   });
 
-  it("truncates a long version text at 48 KB on a character boundary", async () => {
+  it("truncates a long version text at 48 KB of JSON text on a character boundary", async () => {
     // One byte of offset, then 4-byte characters: the 48 KB limit falls
-    // inside a character.
+    // inside a character. The limit is measured as the text is sent, JSON-
+    // escaped (WP-M5): the newlines count two bytes each.
     const text =
       "a" +
       Array.from(
@@ -715,9 +717,11 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
     const fetched = await fetchChunkForModel(scope, long.chunkId);
     expect(FETCH_TEXT_MAX_BYTES).toBe(48 * 1024);
     expect(fetched.truncated).toBe(true);
-    const bytes = Buffer.byteLength(fetched.text);
+    const bytes = jsonTextBytes(fetched.text);
+    expect(bytes).toBe(Buffer.byteLength(JSON.stringify(fetched.text)) - 2);
     expect(bytes).toBeLessThanOrEqual(FETCH_TEXT_MAX_BYTES);
     expect(bytes).toBeGreaterThan(FETCH_TEXT_MAX_BYTES - 4);
+    expect(Buffer.byteLength(fetched.text)).toBeLessThan(bytes);
     expect(version.text.startsWith(fetched.text)).toBe(true);
     // No broken character at the end.
     expect(Buffer.from(fetched.text, "utf8").toString("utf8")).toBe(

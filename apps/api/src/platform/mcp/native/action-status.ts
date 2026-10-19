@@ -46,11 +46,14 @@ export const actionStatusTool: NativeTool = {
     ctx.setAuditProject(projectId);
     // 404 NOT_FOUND for a project outside the grant, like every other miss.
     const scope = await projectScope(principal, projectId);
-    const status = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      mcpActionRequestStatus(tx, scope, actionRequestId, {
-        userId: principal.userId,
-        clientId: principal.clientId,
-      }),
+    // The read locks the project: inside one of its slots (R-10).
+    const status = await ctx.withProjectSlot(projectId, () =>
+      scoped(scope.workspaceId, scope.projectId, (tx) =>
+        mcpActionRequestStatus(tx, scope, actionRequestId, {
+          userId: principal.userId,
+          clientId: principal.clientId,
+        }),
+      ),
     );
     return { ...status, approveUrl: mcpApproveUrl(projectId) };
   },

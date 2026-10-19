@@ -26,7 +26,8 @@ import {
 // changes, merges and contacts. Audits and events carry ids and field
 // values only (Q-12a).
 
-const STATUSES = [
+/** Every ticket status (the DB check SupportTicket_status_check allows these). */
+export const TICKET_STATUSES = [
   "new",
   "open",
   "pending_customer",
@@ -34,7 +35,9 @@ const STATUSES = [
   "resolved",
   "closed",
 ] as const;
-const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+export const TICKET_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
+const STATUSES = TICKET_STATUSES;
+const PRIORITIES = TICKET_PRIORITIES;
 
 const listInput = z
   .object({
