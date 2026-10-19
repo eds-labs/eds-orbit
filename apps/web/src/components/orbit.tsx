@@ -41,6 +41,7 @@ import {
   moduleShown,
   defaultProject,
   navGroupOf,
+  homeSections,
   keptSuffix,
   locate,
   navOrder,
@@ -301,10 +302,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         enabled: enabled(m.id),
         nav: nav.filter((r) => r.moduleId === m.id),
       })),
-      homeSections: [...registry.modules]
-        .filter((m) => m.home && enabled(m.id))
-        .sort((a, b) => (a.homeOrder ?? 0) - (b.homeOrder ?? 0))
-        .map((m) => ({ moduleId: m.id, component: m.home! })),
+      homeSections: homeSections(registry.modules, enabled),
       hrefOf: (key) => {
         const route = table.routes.find((r) => r.key === key);
         return route ? projectHref(project.id, route) : "/";

@@ -84,8 +84,8 @@ async function contributed<T>(moduleId: string, read: () => Promise<T>) {
  * member may use, each read with the member's role in that module, plus the
  * platform's items, all in one project transaction. Sorted and capped at
  * ATTENTION_LIMIT; `counts` per nav entry sum `count ?? 1` over all items
- * before the cap. `status` adds the modules' parts (the marketing mode) and
- * the AI month.
+ * before the cap. `status` adds the modules' parts (the marketing mode) and,
+ * for owners and editors, the AI month.
  */
 export async function projectAttention(
   scope: Scope,
@@ -122,10 +122,11 @@ export async function projectAttention(
     }
     const month = await reservationMonth(tx, scope, now);
     items.push(...(await platformAttention(tx, scope, now, { worker, month })));
+    const aiMonth = await aiMonthStatus(tx, scope, month);
     const status: AttentionStatus = {
       paused: project.paused,
       ...(mode !== undefined ? { mode } : {}),
-      aiMonth: await aiMonthStatus(tx, scope, month),
+      ...(aiMonth ? { aiMonth } : {}),
     };
     // An aggregated item ("2 unassigned tickets") adds its count (R17).
     const counts: Record<string, number> = {};

@@ -75,9 +75,14 @@ export type AttentionResponse = {
   counts: Record<string, number>;
   status: {
     paused: boolean;
+    /** The project's mode, while marketing is usable. */
     mode?: string;
-    /** The UTC month's AI spend and the active policy's monthly limit. */
-    aiMonth: { spentMicros: number; limitMicros: number | null };
+    /**
+     * The UTC month's AI spend and the active policy's monthly limit, for
+     * owners and editors only. `limitMicros` is null without a limit and
+     * absent while the policies are hidden from the member.
+     */
+    aiMonth?: { spentMicros: number; limitMicros?: number | null };
   };
 };
 export { ApiError } from "@orbit/api-client";
