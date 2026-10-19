@@ -32,6 +32,23 @@ export function isValidMcpResource(value: string) {
   return url.protocol === "http:" && LOOPBACK_HOSTS.has(url.hostname);
 }
 
+/**
+ * The canonical spelling of an MCP resource identifier (WP-M5): scheme and
+ * host lower-cased, a default port dropped (both by URL parsing) and a
+ * trailing slash removed, except for the bare origin. The path keeps its case.
+ * A value that is not a URL is returned unchanged (validation rejects it).
+ */
+export function normalizeMcpResource(value: string) {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return value;
+  }
+  const href = url.href;
+  return url.pathname !== "/" && href.endsWith("/") ? href.slice(0, -1) : href;
+}
+
 // Compose passes an unset optional variable as "" (`${NAME:-}`); for a
 // validated optional value that means "not set", never an invalid value.
 const unset = <T extends z.ZodType>(schema: T) =>
@@ -163,8 +180,11 @@ const baseConfigSchema = z.object({
     .default(100 * 1024 * 1024),
 });
 export const configSchema = baseConfigSchema.transform((config, ctx) => {
-  const MCP_RESOURCE =
-    config.MCP_RESOURCE ?? `${new URL(config.APP_ORIGIN).origin}/mcp`;
+  // Normalized once here, so the advertised resource, the token audience and
+  // every comparison Orbit makes use the same spelling.
+  const MCP_RESOURCE = normalizeMcpResource(
+    config.MCP_RESOURCE ?? `${new URL(config.APP_ORIGIN).origin}/mcp`,
+  );
   // A derived default only has to be valid when the OAuth server is switched on,
   // so a plain-http APP_ORIGIN keeps booting with the flag off.
   if (config.ORBIT_MCP_OAUTH === "true" && !isValidMcpResource(MCP_RESOURCE)) {

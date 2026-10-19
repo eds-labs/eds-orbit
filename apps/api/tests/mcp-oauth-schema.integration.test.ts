@@ -292,4 +292,32 @@ describe.skipIf(!enabled)("OAuth provider tables (database)", () => {
     );
     await authDb.mcpGrant.deleteMany({ where: { clientId } });
   });
+
+  it("status is limited to pending, active and revoked; sessionId is indexed (WP-M5)", async () => {
+    const clientId = `https://client-${randomUUID()}.test/client.json`;
+    const base = { userId, clientId, workspaceId, scopes: ["orbit:read"] };
+    for (const status of ["pending", "active", "revoked"])
+      await authDb.mcpGrant.create({ data: { ...base, status } });
+    for (const status of ["", "Active", "denied", "expired"])
+      await expect(
+        authDb.mcpGrant.create({ data: { ...base, status } }),
+        status,
+      ).rejects.toThrow(/McpGrant_status_check/);
+    // The selection remembers which authorization request it was made for.
+    const bound = await authDb.mcpGrant.create({
+      data: {
+        ...base,
+        status: "pending",
+        sessionId: randomUUID(),
+        requestHash: "a".repeat(43),
+      },
+    });
+    expect(bound.requestHash).toBe("a".repeat(43));
+    const indexes = await authDb.$queryRaw<{ indexdef: string }[]>`
+      SELECT indexdef FROM pg_indexes
+      WHERE tablename = 'McpGrant' AND indexname = 'McpGrant_sessionId_idx'`;
+    expect(indexes).toHaveLength(1);
+    expect(indexes[0]!.indexdef).toContain('("sessionId")');
+    await authDb.mcpGrant.deleteMany({ where: { clientId } });
+  });
 });

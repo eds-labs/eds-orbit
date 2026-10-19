@@ -97,7 +97,10 @@ const FLAGS = {
   ORBIT_MCP_CIMD_HOSTS: "client.test",
 } as const;
 type FlagKey =
-  keyof typeof FLAGS | "ORBIT_MCP_ALLOWED_ORIGINS" | "MCP_JWKS_URL";
+  | keyof typeof FLAGS
+  | "ORBIT_MCP_ALLOWED_ORIGINS"
+  | "MCP_JWKS_URL"
+  | "MCP_RESOURCE";
 
 /** Sets env keys for `run`, then restores them. */
 async function withEnv<T>(
@@ -530,6 +533,31 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         ).toBe(200);
       } finally {
         await optioned.close();
+      }
+    });
+
+    it("MCP_RESOURCE in another spelling is served and checked in its canonical form (WP-M5)", async () => {
+      const canonical = new URL(config.MCP_RESOURCE);
+      const variant = `${canonical.protocol}//${canonical.host.toUpperCase()}${canonical.pathname}/`;
+      expect(variant).not.toBe(config.MCP_RESOURCE);
+      const spelled = await withEnv({ ...FLAGS, MCP_RESOURCE: variant }, () =>
+        buildMcpServer({ cimdFetch, jwksUrl }),
+      );
+      try {
+        const prm = await spelled.inject({ method: "GET", url: PRM_PATH });
+        expect(prm.json().resource).toBe(config.MCP_RESOURCE);
+        // Tokens carry the canonical audience; the gateway accepts them.
+        expect((await mcp("tools/list", {}, { app: spelled })).statusCode).toBe(
+          200,
+        );
+        const anonymous = await mcp(
+          "tools/list",
+          {},
+          { app: spelled, token: null },
+        );
+        expect(anonymous.headers["www-authenticate"]).toBe(CHALLENGE);
+      } finally {
+        await spelled.close();
       }
     });
 

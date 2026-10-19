@@ -520,6 +520,61 @@ describe.skipIf(!enabled)("CIMD client policy and audit", () => {
       ).toMatchObject({ status: "revoked", revokedBy: "client_changed" });
     });
 
+    it("a token_endpoint_auth_method downgrade alone revokes (WP-M5)", async () => {
+      const id = client("downgrade-");
+      const jwksUri = new URL("/jwks.json", id).href;
+      documents[jwksUri] = {
+        keys: [
+          {
+            kty: "OKP",
+            crv: "Ed25519",
+            x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+            alg: "EdDSA",
+            use: "sig",
+          },
+        ],
+      };
+      documents[id] = doc(id, {
+        token_endpoint_auth_method: "private_key_jwt",
+        jwks_uri: jwksUri,
+      });
+      // The grant becomes active at consent; no token exchange is needed.
+      const flow = await connect({ clientId: id });
+      expect(flow.final.searchParams.get("code")).toBeTruthy();
+      const grant = await grantOf(id);
+      expect(grant.status).toBe("active");
+
+      // Same keys, but the client no longer authenticates at all.
+      documents[id] = doc(id, {
+        token_endpoint_auth_method: "none",
+        jwks_uri: jwksUri,
+      });
+      await authorize({ client_id: id });
+      const refreshed = await events(id, "client.refreshed");
+      expect(refreshed).toHaveLength(1);
+      expect(refreshed[0]!.detail).toMatchObject({
+        changed: ["token_endpoint_auth_method"],
+        revokedGrants: 1,
+      });
+      expect(
+        await authDb.mcpGrant.findUniqueOrThrow({ where: { id: grant.id } }),
+      ).toMatchObject({ status: "revoked", revokedBy: "client_changed" });
+    });
+
+    it("the client callback revokes on any auth method change", async () => {
+      const id = client("method-");
+      await tokensFor(id);
+      expect((await grantOf(id)).status).toBe("active");
+      await grantClientDeps().onClientRefreshed({
+        clientId: id,
+        changed: ["token_endpoint_auth_method"],
+      });
+      expect(await grantOf(id)).toMatchObject({
+        status: "revoked",
+        revokedBy: "client_changed",
+      });
+    });
+
     it("revokeClientGrants revokes every active grant of the client only", async () => {
       const id = client("direct-");
       const other = client("direct-other-");

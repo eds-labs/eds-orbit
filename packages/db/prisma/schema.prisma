@@ -966,8 +966,11 @@ model McpGrant {
   allCurrentProjects Boolean   @default(false)
   scopes             String[]
   modules            String[]
+  /// pending, active or revoked (CHECK constraint in the migration).
   status             String
   sessionId          String?
+  /// Fingerprint of the authorization request a selection was made for (WP-M5).
+  requestHash        String?
   createdAt          DateTime  @default(now()) @db.Timestamptz(3)
   activatedAt        DateTime? @db.Timestamptz(3)
   expiresAt          DateTime? @db.Timestamptz(3)
@@ -976,6 +979,7 @@ model McpGrant {
   lastUsedAt         DateTime? @db.Timestamptz(3)
 
   @@index([userId, clientId, workspaceId, status])
+  @@index([sessionId])
 }
 
 /// Append-only record of grant changes. No foreign keys: it outlives grants,

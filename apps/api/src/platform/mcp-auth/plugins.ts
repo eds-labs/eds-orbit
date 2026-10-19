@@ -10,7 +10,10 @@ import { cimd } from "@better-auth/cimd";
 import { fetchClientMetadataResource } from "@better-auth/cimd/node";
 import { mcp, type McpOptions } from "@better-auth/mcp";
 import { verifyOAuthQueryParams } from "@better-auth/oauth-provider";
-import type { Config } from "../../../../../packages/config/src/index.ts";
+import {
+  normalizeMcpResource,
+  type Config,
+} from "../../../../../packages/config/src/index.ts";
 
 // Orbit as OAuth 2.1 authorization server for MCP clients (Track M, WP-M1).
 // This file wires Better Auth's plugins (options, CIMD host policy, client
@@ -42,6 +45,43 @@ export const ORBIT_WORKSPACE_CLAIM = "orbit_workspace_id";
 export const PENDING_REFERENCE_PREFIX = "pending:";
 
 type PostLoginArgs = { session: { id: string }; user: { id: string } };
+
+/**
+ * Authorization parameters the provider never rewrites while it handles one
+ * authorization request. The signature, its expiry and issue time, the
+ * post-login marker and the signed-parameter list change with every re-sign;
+ * `scope`, `claims`, `prompt` and `max_age` are narrowed or removed by the
+ * consent and sign-in passes.
+ */
+const REQUEST_BINDING_PARAMS = [
+  "client_id",
+  "redirect_uri",
+  "response_type",
+  "state",
+  "code_challenge",
+  "code_challenge_method",
+  "nonce",
+  "resource",
+] as const;
+
+/**
+ * Fingerprint of one authorization request (WP-M5): SHA-256 (base64url) over
+ * the stable authorization parameters of a signed OAuth query or of the
+ * provider's request state. A selection stores it and only serves the request
+ * it was made for, so a selection made under one authorization (its PKCE
+ * challenge and state) is never consumed by another one of the same session
+ * and client. Holds no token material.
+ */
+export function authorizationRequestHash(query: string | URLSearchParams) {
+  const params = new URLSearchParams(query);
+  const stable = REQUEST_BINDING_PARAMS.map((name) => [
+    name,
+    params.getAll(name),
+  ]);
+  return createHash("sha256")
+    .update(JSON.stringify(stable))
+    .digest("base64url");
+}
 
 /** The transport type the CIMD plugin accepts; the standard `fetch` satisfies it. */
 export type MetadataResourceFetch = Parameters<
@@ -258,6 +298,8 @@ export type McpHookDeps = {
     sessionId: string;
     clientId: string;
     scopes: string[];
+    /** `authorizationRequestHash` of the signed query being consented to. */
+    requestHash: string;
   }) => Promise<void>;
   /** The user denied; the client comes from the provider's request state. */
   onConsentDenied: (args: {
@@ -280,6 +322,16 @@ export type McpHookDeps = {
     clientId: string;
     referenceId?: string;
     issuedAt: Date;
+  }) => Promise<boolean>;
+  /**
+   * The token endpoint minted tokens for (user, client, reference). Returns
+   * false, after deleting the stored tokens of that reference, unless an
+   * active grant backs them; the hook then answers `invalid_grant`.
+   */
+  onTokensIssued: (args: {
+    userId: string;
+    clientId: string;
+    referenceId?: string;
   }) => Promise<boolean>;
   /** A rotated refresh token was replayed after the reuse window. */
   onRefreshReplay: (args: {
@@ -348,16 +400,109 @@ function carriesCode(target: string | undefined) {
   }
 }
 
+/** Tokens are stored as their unsalted SHA-256 (base64url). */
+const storedTokenHash = (token: string) =>
+  createHash("sha256").update(token).digest("base64url");
+
+/** The JSON payload of a JWT, unverified (only for tokens this process just minted). */
+function jwtClaims(token: string): Record<string, unknown> | undefined {
+  const parts = token.split(".");
+  if (parts.length !== 3) return undefined;
+  try {
+    const claims = JSON.parse(
+      Buffer.from(parts[1]!, "base64url").toString("utf8"),
+    ) as unknown;
+    return claims && typeof claims === "object"
+      ? (claims as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type TokenOwner = { userId: string; clientId: string; referenceId?: string };
+
+/**
+ * Who a successful token answer was minted for: the stored refresh token's
+ * row, else the claims of the JWT access token, else the stored opaque access
+ * token's row. Undefined when it cannot be told (the hook then refuses).
+ */
+async function tokenOwner(
+  adapter: {
+    findOne: <T>(args: {
+      model: string;
+      where: { field: string; value: string }[];
+    }) => Promise<T | null>;
+  },
+  body: { access_token?: unknown; refresh_token?: unknown },
+  workspaceClaim: string,
+): Promise<TokenOwner | undefined> {
+  type Row = { userId?: string; clientId: string; referenceId?: string | null };
+  const fromRow = (row: Row | null) =>
+    row?.userId
+      ? {
+          userId: row.userId,
+          clientId: row.clientId,
+          ...(row.referenceId ? { referenceId: row.referenceId } : {}),
+        }
+      : undefined;
+  if (typeof body.refresh_token === "string")
+    return fromRow(
+      await adapter.findOne<Row>({
+        model: "oauthRefreshToken",
+        where: [{ field: "token", value: storedTokenHash(body.refresh_token) }],
+      }),
+    );
+  if (typeof body.access_token !== "string") return undefined;
+  const claims = jwtClaims(body.access_token);
+  if (claims) {
+    const reference = claims[workspaceClaim];
+    return typeof claims.sub === "string" && typeof claims.azp === "string"
+      ? {
+          userId: claims.sub,
+          clientId: claims.azp,
+          ...(typeof reference === "string" ? { referenceId: reference } : {}),
+        }
+      : undefined;
+  }
+  return fromRow(
+    await adapter.findOne<Row>({
+      model: "oauthAccessToken",
+      where: [{ field: "token", value: storedTokenHash(body.access_token) }],
+    }),
+  );
+}
+
+/**
+ * The canonical MCP resource for a requested one, when it names the same
+ * resource (compared normalized, WP-M5); undefined for anything else,
+ * including repeated or missing values.
+ */
+function canonicalResource(requested: unknown, resource: string) {
+  return typeof requested === "string" &&
+    normalizeMcpResource(requested) === resource
+    ? resource
+    : undefined;
+}
+
 /**
  * Global Better Auth hooks of the OAuth server, registered only while
  * ORBIT_MCP_OAUTH is on:
- * - before `/oauth2/authorize`: `resource` must be exactly MCP_RESOURCE
- *   (the library would otherwise issue an opaque token without audience);
- * - before `/oauth2/token` (refresh): refuses a token without an active grant
- *   (`invalid_grant`, nothing rotated) and remembers who owns a presented,
- *   already rotated refresh token, because the library deletes the family on
- *   replay;
- * - before `/oauth2/consent` (accepted): activates the session's selection;
+ * - before `/oauth2/authorize`: `resource` must name MCP_RESOURCE, compared
+ *   normalized; another spelling is rewritten to the canonical one, so the
+ *   code, the stored consent and the token audience always carry it (the
+ *   library would otherwise issue an opaque token without audience);
+ * - before `/oauth2/token`: rewrites a `resource` naming MCP_RESOURCE in
+ *   another spelling to the canonical one; on refresh, refuses a token
+ *   without an active grant (`invalid_grant`, nothing rotated) and remembers
+ *   who owns a presented, already rotated refresh token, because the library
+ *   deletes the family on replay;
+ * - before `/oauth2/consent` (accepted): activates the session's selection
+ *   made for this authorization request;
+ * - after `/oauth2/token`: tokens minted for a reference without an active
+ *   grant are deleted and the answer becomes `invalid_grant` (closes the
+ *   windows between a revocation and a code exchange or refresh rotation that
+ *   had already passed their checks);
  * - after: hands denials, issued codes and refresh replays to `deps`.
  */
 export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
@@ -374,15 +519,24 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
         const internal =
           (ctx as { authorizeSettings?: unknown }).authorizeSettings !==
           undefined;
-        const params = (
-          ctx.method === "POST" && !internal ? ctx.body : ctx.query
-        ) as Record<string, unknown> | undefined;
-        if (params?.resource !== config.MCP_RESOURCE)
+        const fromBody = ctx.method === "POST" && !internal;
+        const params = (fromBody ? ctx.body : ctx.query) as
+          Record<string, unknown> | undefined;
+        const resource = canonicalResource(
+          params?.resource,
+          config.MCP_RESOURCE,
+        );
+        if (!resource)
           throw new APIError("BAD_REQUEST", {
             error: "invalid_target",
             error_description: "resource must be the Orbit MCP resource",
           });
-        return;
+        if (params!.resource === resource) return;
+        return {
+          context: {
+            [fromBody ? "body" : "query"]: { ...params, resource },
+          },
+        };
       }
       if (ctx.path === "/oauth2/consent") {
         // Activate before the provider stores consent and issues the code, so
@@ -424,6 +578,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
           sessionId: session.session.id,
           clientId,
           scopes: accepted.filter(Boolean),
+          requestHash: authorizationRequestHash(query),
         });
         return;
       }
@@ -431,12 +586,20 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
       const body = ctx.body as {
         grant_type?: unknown;
         refresh_token?: unknown;
+        resource?: unknown;
       };
+      // The library compares the resource exactly against the one bound at
+      // authorize (always the canonical spelling, see above).
+      const resource = canonicalResource(body?.resource, config.MCP_RESOURCE);
+      const rewrite =
+        resource && body.resource !== resource
+          ? { context: { body: { ...body, resource } } }
+          : undefined;
       if (
         body?.grant_type !== "refresh_token" ||
         typeof body.refresh_token !== "string"
       )
-        return;
+        return rewrite;
       // Refresh tokens are stored as their unsalted SHA-256 (base64url).
       const row = await ctx.context.adapter.findOne<{
         userId: string;
@@ -455,7 +618,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
           },
         ],
       });
-      if (!row) return;
+      if (!row) return rewrite;
       // Nothing is rotated for a token whose grant is gone: this also closes
       // the race with a revocation that deleted the tokens after this
       // request found its row, and keeps a token issued before a revocation
@@ -479,6 +642,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
           clientId: row.clientId,
           ...(row.referenceId ? { referenceId: row.referenceId } : {}),
         });
+      return rewrite;
     }),
     after: createAuthMiddleware(async (ctx) => {
       const returned = ctx.context.returned;
@@ -489,7 +653,24 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
         const error = oauthError(returned);
         if (presented && error === "invalid_grant")
           await deps.onRefreshReplay({ ...presented, error });
-        return;
+        const body = returned as
+          { access_token?: unknown; refresh_token?: unknown } | undefined;
+        if (error || typeof body?.access_token !== "string") return;
+        // A revocation can commit after this request passed its checks (the
+        // code was consumed, or the refresh check ran) and before the library
+        // stored the new tokens, which its cleanup then missed. Checked again
+        // now that they exist; refused tokens are deleted and never answered.
+        const owner = await tokenOwner(
+          ctx.context.adapter,
+          body,
+          ORBIT_WORKSPACE_CLAIM,
+        );
+        if (owner && (await deps.onTokensIssued(owner))) return;
+        throw new APIError("BAD_REQUEST", {
+          error: "invalid_grant",
+          error_description:
+            "the grant behind this authorization is not active",
+        });
       }
       if (!mayIssueCode(ctx) || oauthError(returned)) return;
       const target = redirectTarget(returned, ctx.context.responseHeaders);
