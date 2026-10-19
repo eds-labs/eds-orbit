@@ -25,7 +25,11 @@ function connectorTone(row: Entity): Tone {
   const state = String(row.data.state || row.data.status || "");
   if (/failed|revoked|blocked|expired|insufficient|error/.test(state))
     return "critical";
-  return /verified|connected|linked/.test(state) ? "ok" : "warning";
+  return /^(read_verified|write_verified|verified|connected|linked)$/.test(
+    state,
+  )
+    ? "ok"
+    : "warning";
 }
 
 const stateWord = (tone: Tone, t: Text) =>

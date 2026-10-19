@@ -198,6 +198,19 @@ describe("SystemStatusCard", () => {
     );
   });
 
+  it("an unverified or merely configured connection is not connected", () => {
+    answers["/connectors"] = {
+      items: [
+        connector("c1", { provider: "postiz", status: "configured" }),
+        connector("c2", { provider: "matomo", status: "unverified" }),
+      ],
+    };
+    expect(lines(render(loaded([]))).slice(1)).toEqual([
+      ["warning", "Postiz · not verified"],
+      ["warning", "Matomo · not verified"],
+    ]);
+  });
+
   it("says so without connections and shows a failed read", () => {
     expect(render(loaded([]))).toContain("No connections set up");
     answers["/connectors"] = new Error("down");

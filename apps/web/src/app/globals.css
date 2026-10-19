@@ -4521,7 +4521,6 @@ svg.agent-graph {
   background: var(--success);
 }
 .system-status-line[data-tone="warning"] {
-  grid-column: 1 / -1;
   color: #7a5a10;
 }
 .system-status-line[data-tone="warning"] .system-status-dot {
