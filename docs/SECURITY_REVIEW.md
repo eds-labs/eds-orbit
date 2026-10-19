@@ -419,6 +419,18 @@ This is the `09` §9 checklist (`plans/orbit-modularization/09-mcp-gateway.md`) 
 - **Key rotation.** Replacing the signing key (auth table `jwks`) is not rehearsed; see the runbook's incident steps.
 - **Fixed in WP-M5:** the web forwarding of the PRM paths no longer passes cookies from the gateway back to the browser (`apps/web/src/app/.well-known/[...path]/route.test.tsx` "never passes cookies from the MCP gateway back to the browser").
 
+## Anthropic Claude provider (prepared 2026-10-19; local only)
+
+Scope: `packages/ai/src/providers/anthropic.ts`, `platform/ai/openai-configuration.ts` (provider fields), `platform/ai/provider-budget.ts`, `platform/ai/call-plan.ts`, `apps/web/src/components/ai-settings.tsx`. Threat model: a second external provider receives the same prompts, evidence and tool results OpenAI receives, under the same mandate, budget, rights and approval checks; the new attack surfaces are the key, the budget and the fallback.
+
+- Key: owner-only save, encrypted with `CREDENTIAL_KEY`, never returned by any route or view (tested); the environment variable is a bootstrap fallback like `OPENAI_API_KEY`; the smoke script reads it from the shell and never prints it.
+- Data to the provider: instructions, conversation, tool definitions and tool results of the project the call runs in; `store`-like retention does not exist on the Messages API, so the operator reviews Anthropic's retention terms as for OpenAI. No prompt, output or provider error message is written to telemetry (unchanged rules; provider blocks are kept in memory for the turn only).
+- Budget: enforced inside `reserve` under the project lock; parallel calls serialize (tested); the stop fails closed at 409; no caller can bypass it because every paid call reserves. The fallback cannot run without the owner's saved setting and never re-sends a transmitted request.
+- Tool calls: the same registry, role and permission checks as the chat runner and specialists (the adapter only converts shapes); strict tool schemas; a model-supplied tool name is never stored.
+- Loops: the existing model-call, tool-call, web-search, byte and time limits apply unchanged; `max_uses` caps hosted searches at the provider; `pause_turn` is not continued.
+- Tenancy: configuration, reservations and spend are project rows under FORCE RLS; no new table.
+- Open: live behaviour (refusal categories, web search with structured output) until the smoke test; the independent review of this section.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

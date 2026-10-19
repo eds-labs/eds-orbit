@@ -44,7 +44,7 @@
 | # | Decision | Why |
 | --- | --- | --- |
 | D-A1 | One adapter per provider inside `packages/ai/src/providers/` (`openai.ts`, `anthropic.ts`); the public functions `generate`, `streamChat`, `respond` dispatch on the route's provider and keep their signatures. The Responses item list stays Orbit's internal conversation format; the Anthropic adapter converts items ↔ Messages API blocks and back. | No caller changes, the runtime port keeps working, tests that mock `packages/ai` keep working. |
-| D-A2 | `streamChat` returns provider-neutral events (`text_delta`, `completed`, `failed`, `incomplete`) instead of raw OpenAI stream events. `chat-runner.ts` and its test mocks switch to the neutral events. | The only place where OpenAI event names leaked into a caller. |
+| D-A2 | `streamChat` returns the Responses stream subset the chat runner reads (`response.output_text.delta`, `response.completed` with the usage in Responses shape, `response.incomplete`, `response.failed`) from both adapters; the Anthropic adapter maps its events and stop reasons onto it. (Amended during implementation: this keeps the chat runner and the seven test suites that mock `streamChat` unchanged.) | The internal conversation format is the Responses shape (D-A1); the stream format follows it. |
 | D-A3 | The provider of a model comes from the model registry (`models[id].provider`), else from the `claude-` prefix (Anthropic), else OpenAI. | Explicit where configured, safe default otherwise. |
 | D-A4 | The project AI configuration (entity kind `openai_configuration`, unchanged) gains `anthropic.encryptedApiKey`, `models` (display name, provider, enabled, capabilities), `defaultProvider`, `tierRoutes.anthropic` (fast/standard/quality), `providerBudgets.anthropic` and `fallback`. A new owner action `ai-provider-configure` saves these fields; `openai-configure` is unchanged. Both bump the version (= route version), as every save does today. | No migration, no second entity, the existing route-version invalidation covers both. |
 | D-A5 | The Anthropic key, verified models and rate card are owner-entered. Orbit ships a **dated suggestion** (`anthropicCatalog`, verified 2026-10-19 with source URLs) that the UI can prefill; nothing is saved without the owner's save. `ANTHROPIC_API_KEY` is an environment bootstrap fallback like `OPENAI_API_KEY`. | Spec: IDs and prices must not be hard-wired unverified; existing pattern. |
@@ -60,39 +60,39 @@
 
 ### Task 1: SDK and provider adapter (packages/ai)
 
-- [ ] `@anthropic-ai/sdk` 0.135.0 pinned at the workspace root (done; `pnpm-lock.yaml` updated).
-- [ ] `packages/ai/src/provider.ts`: `ProviderId`, `providerOfModel`, `providerModels`, catalog of suggested Anthropic models/prices with `verifiedAt` and sources.
-- [ ] `packages/ai/src/providers/anthropic.ts`: client, item ↔ block conversion (user/assistant/tool results, thinking and server-tool blocks preserved verbatim), tool conversion (strict, schema sanitizer for Anthropic strict mode), hosted web search mapping and synthetic `web_search_call` items with sources, usage normalization, stop-reason handling, `generate`/`respond`/`streamChat` implementations.
-- [ ] `packages/ai/src/providers/openai.ts`: the existing implementations moved unchanged; `streamChat` maps Responses events to the neutral events.
-- [ ] `packages/ai/src/index.ts`: dispatch by provider; `isRejectedRequest` covers both SDKs; `rejection.ts` extended.
-- [ ] Unit tests with a mocked SDK: conversion, usage, cost, rejection, refusal, effort mapping, schema sanitizer, streaming.
+- [x] `@anthropic-ai/sdk` 0.135.0 pinned at the workspace root (done; `pnpm-lock.yaml` updated).
+- [x] `packages/ai/src/provider.ts`: `ProviderId`, `providerOfModel`, `providerModels`, catalog of suggested Anthropic models/prices with `verifiedAt` and sources.
+- [x] `packages/ai/src/providers/anthropic.ts`: client, item ↔ block conversion (user/assistant/tool results, thinking and server-tool blocks preserved verbatim), tool conversion (strict, schema sanitizer for Anthropic strict mode), hosted web search mapping and synthetic `web_search_call` items with sources, usage normalization, stop-reason handling, `generate`/`respond`/`streamChat` implementations.
+- [x] `packages/ai/src/providers/openai.ts`: the existing implementations moved unchanged; `streamChat` maps Responses events to the neutral events.
+- [x] `packages/ai/src/index.ts`: dispatch by provider; `isRejectedRequest` covers both SDKs; `rejection.ts` extended.
+- [x] Unit tests with a mocked SDK: conversion, usage, cost, rejection, refusal, effort mapping, schema sanitizer, streaming.
 
 ### Task 2: Configuration, routing, budget
 
-- [ ] `routing.ts`: `resolveRoute` honours `defaultProvider` + `tierRoutes.anthropic` for the tier fallback; `reasoningEffort: "none"` refused for Anthropic models.
-- [ ] `openai-configuration.ts`: new fields, `saveAiProviderConfiguration`, `runtimeOpenAiConfiguration` returns the Anthropic key and budgets, public view reports provider status and never a key.
-- [ ] `budget.ts`: provider budget check in `reserve` (period from `anchorDay`), `providerPeriodSpend`, `providerBudgetStatus`.
-- [ ] Fallback helper `planCall` used by chat, specialists, support and generation.
-- [ ] `config`: `ANTHROPIC_API_KEY` optional; `.env.example`, `docker-compose.yml`, compose check.
-- [ ] Integration tests: configuration round trip (owner only, no key echoed), provider budget stop with parallel reservations, fallback on/off, route switch to a Claude model in chat and support with mocked adapters.
+- [x] `routing.ts`: `resolveRoute` honours `defaultProvider` + `tierRoutes.anthropic` for the tier fallback; `reasoningEffort: "none"` refused for Anthropic models.
+- [x] `openai-configuration.ts`: new fields, `saveAiProviderConfiguration`, `runtimeOpenAiConfiguration` returns the Anthropic key and budgets, public view reports provider status and never a key.
+- [x] `budget.ts`: provider budget check in `reserve` (period from `anchorDay`), `providerPeriodSpend`, `providerBudgetStatus`.
+- [x] Fallback helper `planCall` used by chat, specialists, support and generation.
+- [x] `config`: `ANTHROPIC_API_KEY` optional; `.env.example`, `docker-compose.yml`, compose check.
+- [x] Integration tests: configuration round trip (owner only, no key echoed), provider budget stop with parallel reservations, fallback on/off, route switch to a Claude model in chat and support with mocked adapters.
 
 ### Task 3: Callers and telemetry
 
-- [ ] `chat-runner.ts`: neutral stream events, span names per provider, `MODEL_REFUSAL` handling.
-- [ ] `specialists/runner.ts`, `support/ai.ts`, `pipeline/generation.ts`: `planCall`, provider span names; no behaviour change for OpenAI routes.
-- [ ] `ai-usage.ts`: `groupBy=provider`; `GET /ai-budget` (provider budget status).
-- [ ] Attention items for the provider budget.
+- [x] `chat-runner.ts`: neutral stream events, span names per provider, `MODEL_REFUSAL` handling.
+- [x] `specialists/runner.ts`, `support/ai.ts`, `pipeline/generation.ts`: `planCall`, provider span names; no behaviour change for OpenAI routes.
+- [x] `ai-usage.ts`: `groupBy=provider`; `GET /ai-budget` (provider budget status).
+- [x] Attention items for the provider budget.
 
 ### Task 4: Admin UI
 
-- [ ] Settings tab **AI**: providers (status, Anthropic key form, default provider), models (table + "prefill suggested Claude models" into the OpenAI modal's fields), budget form, usage and costs (today, period, by provider/model/task class, budget gauge, credit note).
-- [ ] Web tests for the pure rendering helpers.
+- [x] Settings tab **AI**: providers (status, Anthropic key form, default provider), models (table + "prefill suggested Claude models" into the OpenAI modal's fields), budget form, usage and costs (today, period, by provider/model/task class, budget gauge, credit note).
+- [x] Web tests: the owner tab in the settings navigation (the panels render through existing primitives; no rendering test of their own).
 
 ### Task 5: Documentation, smoke script, final checks
 
-- [ ] `docs/MODEL_ROUTING.md`, `docs/API_CONTRACT.md`, `docs/OPERATIONS.md`, `docs/CONFIGURATION_PARITY.md`, ADR 0003/0005 addenda, `docs/IMPLEMENTATION_STATUS.md`, `docs/REQUIREMENTS_TRACEABILITY.md`, `.env.example`.
-- [ ] `scripts/anthropic-smoke.ts`: opt-in live check (one Haiku call, max 64 output tokens, prints usage and cost; never run in CI).
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` (worktree database), `next build --webpack`, compose check, secrets check.
+- [x] `docs/MODEL_ROUTING.md`, `docs/API_CONTRACT.md`, `docs/OPERATIONS.md`, `docs/CONFIGURATION_PARITY.md`, ADR 0003/0005 addenda, `docs/IMPLEMENTATION_STATUS.md`, `docs/REQUIREMENTS_TRACEABILITY.md`, `.env.example`.
+- [x] `scripts/anthropic-smoke.ts`: opt-in live check (one Haiku call, max 64 output tokens, prints usage and cost; never run in CI). Not run: no key in the local environment.
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` (worktree database), `next build --webpack`, compose check, secrets check.
 
 ## 4. Risk, environment, profile
 

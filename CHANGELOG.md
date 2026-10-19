@@ -2,6 +2,16 @@
 
 Alle wesentlichen Änderungen am Codex Project Framework werden in dieser Datei dokumentiert. Das Format orientiert sich an Keep a Changelog; Versionen folgen Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+
+- Anthropic Claude as a second runtime AI provider behind the shared AI functions (Messages API, SDK 0.135.0): chat, specialists, support and drafts run on Claude when their route names a Claude model; prompt caching, strict tools, structured outputs, hosted web search, refusal and cut-off handling
+- Model registry, dated Claude model and price suggestion, Anthropic tier models and default provider, owner action `ai-provider-configure`
+- Per-project Claude credit budget with two warnings and an internal stop per billing period (anchor day), enforced in `reserve` for every Anthropic reservation; `GET /ai-budget`, `ai-cost?groupBy=provider`, attention item `platform_provider_budget`
+- Owner-approved fallback to the OpenAI tier when the Claude budget stops a call (off by default)
+- Settings → AI: providers, models, budget, usage and costs
+
 ## [0.1.0-rc.1] - 2026-09-17
 
 ### Added

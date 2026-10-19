@@ -42,6 +42,7 @@ The Compose definition uses Coolify's documented `SERVICE_*` variables to genera
 | Safety gates | `EXECUTION_MODE`, `ENABLE_EXTERNAL_WRITES`, `LIVE_RAG_EVAL_PASSED` | Defaults keep the system in test mode with external writes and live RAG evaluation disabled. Changing them requires separate authorization. |
 | Feature flags | `ORBIT_CONTENT_PACKAGES`, `ORBIT_TOOL_SEARCH`, `ORBIT_AGENTS` | Default `false`; passed to API and worker (Orbit Chat runs in the worker). Set to `true` in the Coolify environment variables and redeploy only after the matching approval in `docs/plans/ORBIT_CORE_ROLLOUT_PLAN.md`. |
 | Optional integration | `OPENAI_API_KEY`, `OPENAI_VERIFIED_MODELS`, `OPENAI_RATE_CARD_JSON` | Leave blank until model, budget, and provider controls have been approved and verified. |
+| Optional integration | `ANTHROPIC_API_KEY`, `AI_DEFAULT_PROVIDER` | Bootstrap fallbacks for the Anthropic Claude provider; prefer the encrypted owner field under Settings → AI and leave these blank (`AI_DEFAULT_PROVIDER` defaults to `openai`). |
 | Legacy only | `ORBIT_HOSTNAME` | Used only by the old Caddy standalone configuration under `infra/`; Coolify ignores it. |
 
 `ORBIT_IMAGE_TAG` is optional metadata for locally invoked Compose. Coolify builds the Git revision itself. Build arguments are not required and no secret is passed as a Docker build argument.
