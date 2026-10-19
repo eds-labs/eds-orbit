@@ -151,6 +151,7 @@ export const labels = {
     modeAutopilot: "Autopilot mode",
     aiBudgetLine: "AI budget {month}: {spent} of {limit} USD",
     aiBudgetLineNoLimit: "AI budget {month}: {spent} USD, no limit",
+    aiBudgetLineUnknownLimit: "AI budget {month}: {spent} USD, limit —",
     connectTitle: "Connect an app to Orbit",
     connectWants: "wants to use Orbit on your behalf.",
     connectClientHost: "App identity (client_id host)",
@@ -397,6 +398,7 @@ export const labels = {
     modeAutopilot: "Autopilot-Modus",
     aiBudgetLine: "KI-Budget {month}: {spent} von {limit} USD",
     aiBudgetLineNoLimit: "KI-Budget {month}: {spent} USD, kein Limit",
+    aiBudgetLineUnknownLimit: "KI-Budget {month}: {spent} USD, Limit —",
     connectTitle: "App mit Orbit verbinden",
     connectWants: "möchte Orbit in deinem Namen nutzen.",
     connectClientHost: "Identität der App (Host der client_id)",
@@ -494,3 +496,20 @@ export const labels = {
   },
 } as const;
 export type Text = (key: keyof typeof labels.en) => string;
+
+/** The words of each project mode (`project.mode`), one map for every view. */
+const MODE_LABELS: Readonly<Record<string, keyof typeof labels.en>> = {
+  observe: "observe",
+  assisted: "modeAssisted",
+  autopilot: "modeAutopilot",
+};
+
+/**
+ * The project's mode in words, as the home page's status strip and the
+ * marketing overview's mode band both show it (ruling R25); a mode this
+ * build does not know reads verbatim.
+ */
+export function modeLabel(mode: string, t: Text): string {
+  const key = MODE_LABELS[mode];
+  return key ? t(key) : mode;
+}

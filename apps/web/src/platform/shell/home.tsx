@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CircleCheck } from "lucide-react";
 import type { AttentionResponse } from "@/lib/api";
-import { labels, type Locale } from "@/lib/i18n";
+import { labels, modeLabel, type Locale } from "@/lib/i18n";
 import { Button, Empty, Input, Skeleton } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
@@ -144,15 +144,10 @@ export function StatusStrip({
 }) {
   const { locale, t } = useWorkspace();
   const shell = useShell();
-  const modes: Record<string, string> = {
-    observe: t("observe"),
-    assisted: t("modeAssisted"),
-    autopilot: t("modeAutopilot"),
-  };
   const state = status.paused
     ? t("paused")
     : status.mode
-      ? (modes[status.mode] ?? status.mode)
+      ? modeLabel(status.mode, t)
       : t("statusActive");
   // The budget counts the UTC calendar month (attention status.aiMonth).
   const month = new Intl.DateTimeFormat(locale, {
@@ -164,22 +159,33 @@ export function StatusStrip({
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(micros / 1_000_000);
-  const { spentMicros, limitMicros } = status.aiMonth;
-  const budget =
-    limitMicros === null
-      ? fill(t("aiBudgetLineNoLimit"), { month, spent: amount(spentMicros) })
-      : fill(t("aiBudgetLine"), {
+  // Ruling R26: no aiMonth for viewers (no line); no limitMicros while the
+  // policies are hidden (unknown, "—"); null means no limit is set.
+  const ai = status.aiMonth;
+  const budget = !ai
+    ? null
+    : ai.limitMicros === undefined
+      ? fill(t("aiBudgetLineUnknownLimit"), {
           month,
-          spent: amount(spentMicros),
-          limit: amount(limitMicros),
-        });
+          spent: amount(ai.spentMicros),
+        })
+      : ai.limitMicros === null
+        ? fill(t("aiBudgetLineNoLimit"), {
+            month,
+            spent: amount(ai.spentMicros),
+          })
+        : fill(t("aiBudgetLine"), {
+            month,
+            spent: amount(ai.spentMicros),
+            limit: amount(ai.limitMicros),
+          });
   return (
     <div className="status-strip" data-paused={String(status.paused)}>
       <strong className="status-strip-state">
         <span className="status-strip-dot" aria-hidden="true" />
         {state}
       </strong>
-      <span>{budget}</span>
+      {budget && <span>{budget}</span>}
       <Link className="status-strip-link" href={shell.hrefOf("operations")}>
         {t("operationsLink")}
       </Link>

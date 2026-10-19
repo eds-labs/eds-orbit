@@ -10,7 +10,7 @@ import type {
   Identity,
   Project,
 } from "@/lib/api";
-import { labels, type Locale } from "@/lib/i18n";
+import { labels, modeLabel, type Locale } from "@/lib/i18n";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { webRegistry } from "@/modules/registry";
 import { takeAssistantDraft } from "./assistant-draft";
@@ -356,6 +356,47 @@ describe("StatusStrip", () => {
     });
     expect(de).toContain("Aktiv");
     expect(de).toContain("KI-Budget Oktober: 1,23 USD, kein Limit");
+  });
+
+  it("R26: no budget line without aiMonth (viewers)", () => {
+    const { aiMonth: _omitted, ...status } = response([], {
+      mode: "observe",
+    }).status;
+    for (const locale of ["en", "de"] as const) {
+      const html = render(<StatusStrip status={status} now={NOW} />, {
+        locale,
+      });
+      expect(html).not.toMatch(/AI budget|KI-Budget/);
+      expect(html).toContain(locale === "de" ? "Betrieb ansehen" : "View operations");
+    }
+  });
+
+  it("R26: an unknown limit (policies hidden) reads —, not no limit", () => {
+    const status = response([], {
+      aiMonth: { spentMicros: 1_234_567 },
+    }).status;
+    const en = render(<StatusStrip status={status} now={NOW} />);
+    expect(en).toContain("AI budget October: 1.23 USD, limit —");
+    expect(en).not.toContain("no limit");
+    const de = render(<StatusStrip status={status} now={NOW} />, {
+      locale: "de",
+    });
+    expect(de).toContain("KI-Budget Oktober: 1,23 USD, Limit —");
+    expect(de).not.toContain("kein Limit");
+  });
+
+  it("R25: the mode words are the overview's (modeLabel)", () => {
+    for (const [mode, en, de] of [
+      ["observe", "Observe mode", "Beobachtungsmodus"],
+      ["assisted", "Assisted mode", "Assisted-Modus"],
+      ["autopilot", "Autopilot mode", "Autopilot-Modus"],
+      ["custom", "custom", "custom"],
+    ] as const) {
+      expect(modeLabel(mode, (k) => labels.en[k])).toBe(en);
+      expect(modeLabel(mode, (k) => labels.de[k])).toBe(de);
+      const status = response([], { mode }).status;
+      expect(render(<StatusStrip status={status} now={NOW} />)).toContain(en);
+    }
   });
 });
 
