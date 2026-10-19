@@ -190,3 +190,10 @@ Mindestens zu prüfen sind `.agentic/quality-gates/definition-of-done.md`, `.age
 - Preserve the safety nets: `apps/api/tests/rls-matrix.integration.test.ts`, `apps/api/tests/access-matrix.integration.test.ts` and `apps/worker/tests/queue-dispatch.integration.test.ts`. Review intended access-matrix fixture changes as security changes, not mechanical test updates.
 - After API contract changes, regenerate the OpenAPI/client artifacts with `pnpm api:generate` in the configured local environment and review their diff. Run relevant module, permission, disabled-feature and cross-project negative tests.
 - For Compose/MCP changes, run `pnpm test:coolify-compose` and the applicable conformance tests. Follow the rollout runbook for production checks; do not flip flags or call paid providers as an implicit smoke test.
+
+### Main delivery workflow (Mario, 2026-10-19)
+
+- Deliver routine authorized changes by committing and pushing directly to `main`; a pull request, merge queue, and pre-push GitHub CI success are not required.
+- Isolated worktrees may still be used to protect concurrent work. Before delivery, integrate the current `origin/main` and push the resulting fast-forward history to `main`; never force-push or overwrite another task's changes.
+- Keep the relevant local checks and report their results. GitHub Actions remains enabled as background feedback after pushes and can be run manually; its completion does not gate the push.
+- This owner-approved project workflow overrides the generic protected-branch/PR and required-CI merge recommendations in `.agentic/ci/`. Production deployments, migrations and other consequential actions retain their separate explicit authorization requirements.

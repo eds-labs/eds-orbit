@@ -1,19 +1,16 @@
-# Branch Policy
+# Branch Policy — EDS Orbit
 
-## Empfohlen
+## Owner-approved workflow (2026-10-19)
 
-- `main` oder `master` ist geschützt.
-- Feature Branches für Änderungen.
-- Pull Request vor Merge.
-- Required checks müssen grün sein.
-- Review erforderlich für High/Critical Risk.
+- Commit and push routine authorized changes directly to `main`.
+- No required pull request, merge queue or pre-push CI status checks.
+- Use isolated worktrees where concurrent work needs protection, then integrate the current `origin/main` and push a fast-forward to `main`.
+- Never force-push or overwrite unrelated changes.
+- Run the relevant local quality checks and report their results. GitHub Actions runs after pushes as background feedback.
+- Production deployment and other consequential operations still require their own explicit authorization.
 
-## Versionierung
+## Versioning
 
-- SemVer für Libraries/APIs
-- App-Versionen für Mobile/Desktop
-- Migrationen eindeutig versionieren
-
-## Codex-Regel
-
-Codex soll keine riskanten Änderungen direkt auf geschützte Branches planen, wenn ein PR-Workflow möglich ist.
+- SemVer for libraries/APIs.
+- App versions for mobile/desktop.
+- Uniquely versioned migrations.

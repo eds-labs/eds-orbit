@@ -1,6 +1,8 @@
 # Required Checks
 
-## Minimum für Merge
+EDS Orbit uses direct commits and pushes to `main` by Mario's instruction of 2026-10-19. These are local validation requirements; GitHub CI remains background feedback and is not a required merge or push gate.
+
+## Lokale Mindestprüfungen vor direktem Push auf main
 
 - Lint
 - Typecheck/Compile
