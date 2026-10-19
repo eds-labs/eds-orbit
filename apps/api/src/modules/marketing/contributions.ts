@@ -1,3 +1,4 @@
+import { marketingMcpTools, marketingMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { chatTools } from "./tools/index.ts";
 import { marketingActionTypes } from "./action-types.ts";
@@ -30,8 +31,8 @@ import { marketingAttention, marketingAttentionStatus } from "./attention.ts";
  */
 export const marketingContributions: ModuleContributions = {
   // Every assistant tool Orbit has today, in the order the chat offered them.
-  tools: chatTools,
-  actionTypes: marketingActionTypes,
+  tools: [...chatTools, ...marketingMcpTools],
+  actionTypes: {...marketingActionTypes, ...marketingMcpActions},
   jobs: marketingJobs,
   scheduler: marketingScheduler,
   hooks: marketingHooks,

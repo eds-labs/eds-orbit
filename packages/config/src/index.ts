@@ -115,6 +115,7 @@ const baseConfigSchema = z.object({
   // The separate MCP gateway process (Track M, WP-M2). It serves the gateway
   // only when this and ORBIT_MCP_OAUTH are "true" and otherwise stays up as a
   // health-only app (WP-M5); the API and web ignore it.
+  ORBIT_MCP_TASKS: z.enum(["false", "true"]).default("false"),
   ORBIT_MCP_GATEWAY: z.enum(["false", "true"]).default("false"),
   // Port of the gateway process; the reverse proxy routes /mcp to it.
   MCP_PORT: unset(z.coerce.number().int().min(1).max(65535).default(4312)),

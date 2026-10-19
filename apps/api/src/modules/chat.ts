@@ -225,64 +225,74 @@ export async function getConversation(scope: Scope, id: string) {
 
 export async function sendMessage(scope: Scope, id: string, raw: unknown) {
   const input = sendInput.parse(raw);
-  return chatScoped(scope, async (tx) => {
-    const thread = await conversation(tx, scope, id);
-    const prior = await tx.chatRun.findUnique({
-      where: {
-        conversationId_clientRequestId: {
-          conversationId: id,
-          clientRequestId: input.clientRequestId,
-        },
-      },
-    });
-    if (prior)
-      return { runId: prior.id, jobId: prior.jobId, status: prior.status };
-    const active = await tx.chatRun.findFirst({
-      where: {
-        ...where(scope),
-        conversationId: id,
-        status: { in: ["queued", "running"] },
-      },
-    });
-    if (active) throw new DomainError("CHAT_RUN_IN_PROGRESS", 409);
-    // A paused project runs no jobs, so a reply would never come.
-    const project = await tx.project.findUniqueOrThrow({
-      where: { id: scope.projectId },
-    });
-    if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
-    const last = await tx.chatMessage.findFirst({
-      where: { ...where(scope), conversationId: id },
-      orderBy: { sequence: "desc" },
-    });
-    await tx.chatMessage.create({
-      data: {
-        ...where(scope),
-        conversationId: id,
-        sequence: (last?.sequence ?? 0) + 1,
-        role: "user",
-        text: input.text,
-      },
-    });
-    const run = await tx.chatRun.create({
-      data: {
-        ...where(scope),
+  return chatScoped(scope, (tx) =>
+    sendMessageInTransaction(tx, scope, id, input),
+  );
+}
+
+/** Shared atomic enqueue for UI chat and delegated tasks. */
+export async function sendMessageInTransaction(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  input: z.infer<typeof sendInput>,
+) {
+  const thread = await conversation(tx, scope, id);
+  const prior = await tx.chatRun.findUnique({
+    where: {
+      conversationId_clientRequestId: {
         conversationId: id,
         clientRequestId: input.clientRequestId,
       },
-    });
-    const job = await enqueue(tx, scope, "chat", run.id, "chat:" + run.id);
-    await tx.chatRun.update({ where: { id: run.id }, data: { jobId: job.id } });
-    await tx.chatConversation.update({
-      where: { id },
-      data: {
-        title:
-          thread.title === "New conversation"
-            ? input.text.slice(0, 80)
-            : thread.title,
-      },
-    });
-    return { runId: run.id, jobId: job.id, status: "queued" };
+    },
   });
+  if (prior)
+    return { runId: prior.id, jobId: prior.jobId, status: prior.status };
+  const active = await tx.chatRun.findFirst({
+    where: {
+      ...where(scope),
+      conversationId: id,
+      status: { in: ["queued", "running"] },
+    },
+  });
+  if (active) throw new DomainError("CHAT_RUN_IN_PROGRESS", 409);
+  // A paused project runs no jobs, so a reply would never come.
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
+  const last = await tx.chatMessage.findFirst({
+    where: { ...where(scope), conversationId: id },
+    orderBy: { sequence: "desc" },
+  });
+  await tx.chatMessage.create({
+    data: {
+      ...where(scope),
+      conversationId: id,
+      sequence: (last?.sequence ?? 0) + 1,
+      role: "user",
+      text: input.text,
+    },
+  });
+  const run = await tx.chatRun.create({
+    data: {
+      ...where(scope),
+      conversationId: id,
+      clientRequestId: input.clientRequestId,
+    },
+  });
+  const job = await enqueue(tx, scope, "chat", run.id, "chat:" + run.id);
+  await tx.chatRun.update({ where: { id: run.id }, data: { jobId: job.id } });
+  await tx.chatConversation.update({
+    where: { id },
+    data: {
+      title:
+        thread.title === "New conversation"
+          ? input.text.slice(0, 80)
+          : thread.title,
+    },
+  });
+  return { runId: run.id, jobId: job.id, status: "queued" };
 }
 
 /**

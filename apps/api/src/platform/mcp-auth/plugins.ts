@@ -32,6 +32,8 @@ export const MCP_SCOPES = [
   "offline_access",
   "orbit:read",
   "orbit:propose",
+  "orbit:write",
+  "orbit:support",
 ] as const;
 
 /** Access-token claim naming the workspace the user granted (consent referenceId). */

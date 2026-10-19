@@ -153,8 +153,40 @@ Mindestens zu prüfen sind `.agentic/quality-gates/definition-of-done.md`, `.age
 ## Orbit project context
 
 - Address the user as Mario. Read this entrypoint when greeted with Hallo.
-- The active product contract is docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md. Earlier Orbit master tasks are superseded.
-- The 2026-09-17 request authorizes new local application auth/schema/policy code, isolated migrations, test credentials and dependency installation required by this stack. It does not authorize production changes or copying existing secrets.
 - Documentation and code comments are English; user communication may be German.
-- Check docs/IMPLEMENTATION_STATUS.md and docs/REQUIREMENTS_TRACEABILITY.md before continuing.
-- Integration tests in a worktree use its own local test database: run `node scripts/test-db-for-worktree.ts` before the suite (README, "Parallel worktrees"); never redeploy or reset the shared `orbit_test` for another branch.
+- Orbit is a self-hosted modular work platform. Its registered product modules are **Marketing, Knowledge and Support**; the shared **Orbit Assistant** coordinates module-contributed capabilities. Projects and Meetings are roadmap items, not implemented modules. "Orbit Core" retains its historical meaning and is not a synonym for the platform kernel.
+
+### Sources of truth and working state
+
+- Read `docs/IMPLEMENTATION_STATUS.md` and the relevant sections of `docs/REQUIREMENTS_TRACEABILITY.md` before continuing. Entries can describe historical local checkpoints: reconcile them with current code, Git/PR state and, when needed, independently verified runtime state.
+- `docs/EDS_ORBIT_UNIFIED_CODEX_MASTER_v3.md` is the original product baseline and supersedes earlier master tasks. For the platform expansion, also read `docs/adr/0009-modular-platform.md` and the task-relevant documents in `plans/orbit-modularization/`, particularly `03-module-contracts.md`, `07-roadmap.md` and `08-risks-and-decisions.md`. Consult later accepted ADRs and feature plans for changes to that baseline.
+- For UI work, consult `docs/DESIGN_SYSTEM.md` and `docs/superpowers/specs/2026-10-18-orbit-ui-restructure-design.md`: grouped module navigation, module overview pages, an attention-focused home page and grouped settings. Preserve existing deep links.
+- Inspect the checkout path, branch, worktrees, uncommitted changes and current upstream before editing. The primary checkout may lag behind active Claude worktrees. Do not reset, switch or overwrite another task's worktree; use an appropriate isolated worktree when needed.
+- Open PRs are not merged capabilities. Verify the selected base before relying on new provider adapters or other in-flight features. Keep implemented, tested, merged, deployed, enabled and live-accepted states distinct.
+
+### Architecture and ownership
+
+- Stack: TypeScript/pnpm monorepo, Next.js web, Fastify API, BullMQ worker, PostgreSQL/pgvector with Prisma, Redis and Better Auth. Read actual versions and commands from `package.json`, `apps/web/package.json`, `.nvmrc` and the lockfile; do not assume older profile version strings remain current.
+- `apps/api/src/platform/` owns shared tenancy, governance, assistant, AI budgets, knowledge services, connections, files, email, notifications, realtime and MCP/auth infrastructure.
+- `apps/api/src/modules/{marketing,knowledge,support}/` own product functionality. `apps/api/src/modules/registry.ts` registers manifests and contributions; `packages/module-contracts/` defines shared contracts. Some older top-level module paths remain compatibility entrypoints: inspect ownership before adding logic there.
+- `apps/web/src/platform/` owns the shell; `apps/web/src/modules/` owns module UI contributions. The web app must not access the database or import server code.
+- Respect the import rules in `scripts/boundaries.json` and `scripts/boundaries.mjs`: no platform-to-module, worker-to-module, shell-to-web-module, package-to-app or undeclared cross-module imports. Use registries and declared contracts. Do not add baseline exceptions merely to silence a new violation.
+- Knowledge services are shared platform capabilities; the Knowledge module supplies management UI/routes. Source rights and invalidation must propagate to dependent content. Generated content is not verified evidence.
+- Support is Orbit's own ticket and communication system, not a Chatwoot-backed module. Read `docs/SUPPORT.md`, `docs/SUPPORT_WIDGET.md`, `docs/EMAIL_AND_NOTIFICATIONS.md` and `docs/PLATFORM_FILES.md` as applicable. Preserve project-scoped file access, composite tenant foreign keys, FORCE RLS and content-free audit records.
+- MCP is a protocol/authentication adapter over shared capabilities, with a separate service entrypoint at `apps/api/src/mcp-main.ts`. Read `plans/orbit-modularization/09-mcp-gateway.md` and `docs/deployment/MCP_ROLLOUT.md`. External client confirmation is not Orbit authorization; proposals retain the server-side ActionRequest approval path.
+- MCP 2.0 delegated work orders are documented in `docs/MCP_2_0.md` and `docs/plans/MCP_2_0.md`. They reuse private conversations, the native chat worker, module registries and ActionRequests; keep `ORBIT_MCP_TASKS` off unless rollout is authorized. Preserve delegation scope checks before model/tool execution and exact owner approvals for mutations.
+
+### Activation, authority and data
+
+- Module availability, per-project activation and member module roles are separate checks. Read `docs/MODULE_ACTIVATION.md`; do not bypass these checks when adding routes, tools, jobs, exports or navigation.
+- Feature flag defaults in code do not establish production flag state. Support, MCP and other gated capabilities require their own rollout evidence; a merge or passing CI alone is not live acceptance.
+- Paid AI calls retain server-side mandate, source-use rights, reservation, settlement and budget checks. Read `docs/MODEL_ROUTING.md` and actual provider routing before changing a call path. Ambiguous transmitted calls or external writes require reconciliation before retry.
+- The historical 2026-09-17 authorization covered local application auth/schema/policy code, isolated migrations, test credentials and stack dependencies. It is not blanket permission for new tasks or production actions. Follow the current task's scope; never copy existing secrets or infer deployment/publishing authority from local implementation approval.
+
+### Verification and parallel worktrees
+
+- Use pnpm and the repository's runtime pins. Standard code checks are `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build`; use `pnpm test:e2e` for affected browser flows. Documentation-only changes may use path/reference checks and `git diff --check` with the reason for skipping runtime checks stated.
+- Integration tests in a worktree use its own local test database: run `node scripts/test-db-for-worktree.ts` before the suite and after pulling migrations (README, "Parallel worktrees"). It also isolates Redis queue namespaces. Never redeploy or reset the shared `orbit_test` for another branch; follow the README for local environment loading without printing credentials.
+- Preserve the safety nets: `apps/api/tests/rls-matrix.integration.test.ts`, `apps/api/tests/access-matrix.integration.test.ts` and `apps/worker/tests/queue-dispatch.integration.test.ts`. Review intended access-matrix fixture changes as security changes, not mechanical test updates.
+- After API contract changes, regenerate the OpenAPI/client artifacts with `pnpm api:generate` in the configured local environment and review their diff. Run relevant module, permission, disabled-feature and cross-project negative tests.
+- For Compose/MCP changes, run `pnpm test:coolify-compose` and the applicable conformance tests. Follow the rollout runbook for production checks; do not flip flags or call paid providers as an implicit smoke test.

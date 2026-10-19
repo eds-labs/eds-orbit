@@ -1,3 +1,5 @@
+import { taskRetention } from "../tasks/retention.ts";
+import { taskStart } from "../tasks/tasks.ts";
 import type { ModuleContributions } from "./contributions.ts";
 import { platformActions } from "../http/platform-actions.ts";
 import { sourceSyncScheduler } from "../knowledge/source-sync.ts";
@@ -21,13 +23,21 @@ import { emailInbound } from "../email/inbound.ts";
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
   actions: platformActions,
+  actionTypes: { "platform.task.start": taskStart },
   scheduler: sourceSyncScheduler,
   // The bot's `/pause` confirmation; modules add their own buttons.
   telegram: { callbacks: { pause: pauseCallback } },
   // The bot's webhook through the platform's hooks route as well (WP4.2).
   webhooks: { telegram: telegramWebhook },
   // Public sessions and received webhooks are purged on their own (WP4.2).
-  retention: ingressRetention,
+  retention: async (tx, scope, ctx) => {
+    const ingress = await ingressRetention(tx, scope, ctx);
+    const tasks = await taskRetention(tx, scope, ctx);
+    return {
+      audit: { ...ingress.audit, ...tasks.audit },
+      result: { ...ingress.result, ...tasks.result },
+    };
+  },
   // Files whose removal failed are retried hourly (WP4.6).
   // Inbound e-mail every two minutes per project with a mailbox (WP4.7).
   periodic: [ingressCleanup, fileCleanup, emailInbound],

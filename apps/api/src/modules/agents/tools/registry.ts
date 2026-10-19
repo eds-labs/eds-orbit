@@ -29,7 +29,7 @@ export type ToolNamespace =
 // Agents never receive tools with external or irreversible effects.
 export type ToolRisk = "R0_read" | "W0_internal" | "P_proposal";
 // Tools behind a feature flag are offered only while it is on.
-export type ToolFeature = "content_packages" | "agents";
+export type ToolFeature = "content_packages" | "agents" | "mcp_tasks";
 export type ToolContext = {
   scope: Scope;
   runId: string;
@@ -74,6 +74,8 @@ export type OrbitTool = {
   outputSchema?: z.ZodType;
   /** The tool reads content outside Orbit's control (MCP `openWorldHint`). */
   openWorld?: true;
+  /** Extra explicit OAuth consent required for sensitive module content. */
+  mcpScopes?: readonly string[];
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 

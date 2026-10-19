@@ -1,4 +1,5 @@
 "use client";
+import { AssistantTasks } from "@/platform/assistant/tasks";
 import { AppLink } from "@/platform/ui/app-link";
 import { takeAssistantDraft } from "@/platform/shell/assistant-draft";
 import { useCallback, useContext, useEffect, useState } from "react";
@@ -221,7 +222,14 @@ export function OrbitChat() {
       : null,
   );
   useEffect(() => {
-    setConversationId(localStorage.getItem(savedKey) || "");
+    const linked = new URL(window.location.href).searchParams.get(
+      "conversation",
+    );
+    setConversationId(
+      linked && /^[a-f0-9-]{36}$/i.test(linked)
+        ? linked
+        : localStorage.getItem(savedKey) || "",
+    );
   }, [savedKey]);
   useEffect(() => {
     if (conversationId) localStorage.setItem(savedKey, conversationId);
@@ -382,6 +390,13 @@ export function OrbitChat() {
             ? "Projektbezogene Antworten, Quellen und prüfbare Aktionen."
             : "Project answers, sources, and reviewable actions."
         }
+      />
+      <AssistantTasks
+        open={(id) => {
+          setConversationId(id);
+          setActiveRunId("");
+          setStream(null);
+        }}
       />
       <div className="chat-context">
         <Badge tone="blue">{project.name}</Badge>

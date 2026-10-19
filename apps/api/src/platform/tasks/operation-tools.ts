@@ -1,0 +1,319 @@
+/** Module-owned typed adapters: service calls stay inside their native transaction. */
+import { z } from "zod";
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import type { PermissionDef } from "../../../../../packages/module-contracts/src/index.ts";
+import {
+  defineTool,
+  type ToolContext,
+} from "../../modules/agents/tools/registry.ts";
+import {
+  createActionRequest,
+  type ActionDefinition,
+  type RequestedBy,
+} from "../../modules/action-requests.ts";
+import { userScoped } from "../tenancy/scope.ts";
+import { actorScope } from "../tenancy/member-scope.ts";
+import { moduleScope } from "../tenancy/module-roles.ts";
+import { authorize } from "../tenancy/permissions.ts";
+import { enabledModules } from "../modules/enforcement.ts";
+import { audit, data, DomainError, hash, update } from "../shared.ts";
+import {
+  mcpRequester,
+  mcpProposalOrigin,
+  mcpApproveUrl,
+} from "../mcp/proposals.ts";
+import { moduleAvailable } from "../modules/contributions.ts";
+import { loadConfig } from "../../../../../packages/config/src/index.ts";
+
+type Operation = {
+  name: string;
+  module: string;
+  description: string;
+  input: z.ZodObject;
+  permission: PermissionDef;
+  sensitive?: boolean;
+  spendCeiling?(tx: DbTx, scope: Scope, args: any): Promise<number>;
+  run(
+    tx: DbTx,
+    scope: Scope,
+    args: any,
+    requester?: RequestedBy,
+  ): Promise<unknown>;
+};
+/** Model strict schemas use null for omitted optional fields; native service schemas retain defaults. */
+function modelField(value: z.ZodType): z.ZodType {
+  if (value instanceof z.ZodOptional)
+    return modelField(value.unwrap() as z.ZodType)
+      .nullable()
+      .optional();
+  if (value instanceof z.ZodDefault)
+    return modelField(value.unwrap() as z.ZodType)
+      .nullable()
+      .optional();
+  if (value instanceof z.ZodNullable)
+    return modelField(value.unwrap() as z.ZodType).nullable();
+  if (value instanceof z.ZodString)
+    return value.clone({ ...value.def, checks: [] });
+  if (value instanceof z.ZodArray)
+    return z.array(modelField(value.element as z.ZodType));
+  if (value instanceof z.ZodObject) return modelParameters(value);
+  return value;
+}
+function modelParameters(input: z.ZodObject) {
+  return z
+    .object(
+      Object.fromEntries(
+        Object.entries(input.shape).map(([key, value]) => [
+          key,
+          modelField(value as z.ZodType),
+        ]),
+      ) as z.ZodRawShape,
+    )
+    .strict();
+}
+function normalizeServiceValue(schema: z.ZodType, raw: unknown): unknown {
+  if (raw === null && schema.isOptional() && !schema.isNullable())
+    return undefined;
+  if (raw === null) return raw;
+  if (
+    schema instanceof z.ZodOptional ||
+    schema instanceof z.ZodDefault ||
+    schema instanceof z.ZodNullable
+  )
+    return normalizeServiceValue(schema.unwrap() as z.ZodType, raw);
+  if (schema instanceof z.ZodArray && Array.isArray(raw))
+    return raw.map((v) =>
+      normalizeServiceValue(schema.element as z.ZodType, v),
+    );
+  if (
+    schema instanceof z.ZodObject &&
+    raw &&
+    typeof raw === "object" &&
+    !Array.isArray(raw)
+  ) {
+    return Object.fromEntries(
+      Object.entries(raw).flatMap(([key, value]) => {
+        const field = schema.shape[key] as z.ZodType | undefined;
+        const parsed = field ? normalizeServiceValue(field, value) : value;
+        return parsed === undefined ? [] : [[key, parsed]];
+      }),
+    );
+  }
+  return raw;
+}
+function serviceArgs(input: z.ZodObject, raw: unknown) {
+  return input.parse(normalizeServiceValue(input, raw));
+}
+
+const envelope = z
+  .object({ schemaVersion: z.literal(1), result: z.unknown() })
+  .strict();
+const proposalOutput = z
+  .object({
+    actionRequestId: z.string(),
+    deduplicated: z.boolean(),
+    approveUrl: z.string(),
+  })
+  .strict();
+async function check(tx: DbTx, scope: Scope, op: Operation) {
+  if (
+    !moduleAvailable(op.module) ||
+    !((await enabledModules(tx, scope))?.has(op.module) ?? true)
+  )
+    throw new DomainError("MODULE_DISABLED", 404);
+  authorize(scope, op.permission);
+}
+export const mcp2Enabled = () => loadConfig().ORBIT_MCP_TASKS === "true";
+
+export function readOperation(op: Operation) {
+  return defineTool({
+    name: op.name,
+    namespace: op.module,
+    description: op.description,
+    parameters: modelParameters(op.input),
+    risk: "R0_read",
+    permission: op.permission,
+    exposure: { assistant: true, mcp: true },
+    outputSchema: envelope,
+    deferLoading: true,
+    feature: "mcp_tasks",
+    ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
+    async execute(ctx, raw) {
+      const args = serviceArgs(op.input, raw);
+      const result = await userScoped(ctx.scope, async (tx) => {
+        await check(tx, ctx.scope, op);
+        return op.run(tx, ctx.scope, args);
+      });
+      return {
+        output: {
+          schemaVersion: 1,
+          result: JSON.parse(JSON.stringify(result)),
+        },
+        cards: [],
+      };
+    },
+  });
+}
+
+export function approvedOperation(op: Operation) {
+  const actionType = `${op.module}.mcp.${op.name}`;
+  const input = op.input
+    .extend({ idempotencyKey: z.string().min(1).max(128) })
+    .strict();
+  const payload = z
+    .object({
+      actorId: z.string(),
+      args: z.unknown(),
+      idempotencyKey: z.string(),
+      ceilingMicros: z.number().int().nonnegative(),
+    })
+    .strict();
+  const action: ActionDefinition<z.infer<typeof payload>> = {
+    riskClass: "W2",
+    approvalMode: "approval_required",
+    deciderRole: "owner",
+    get mcpProposable() {
+      return mcp2Enabled();
+    },
+    ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
+    ttlMs: 24 * 3600000,
+    payload,
+    costCeilingMicros: (p) => p.ceilingMicros,
+    async revalidate(tx, scope, p) {
+      const actor = await actorScope(
+        scope.workspaceId,
+        scope.projectId,
+        p.actorId,
+      );
+      if (!actor) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
+      await check(tx, moduleScope(actor, op.module), op);
+      op.input.parse(p.args);
+      if (
+        op.spendCeiling &&
+        (await op.spendCeiling(tx, moduleScope(actor, op.module), p.args)) >
+          p.ceilingMicros
+      )
+        throw new DomainError("COST_CEILING_CHANGED", 409);
+    },
+    async onApproved(tx, scope, row) {
+      const p = payload.parse(data(row).payload);
+      const actor = await actorScope(
+        scope.workspaceId,
+        scope.projectId,
+        p.actorId,
+      );
+      if (!actor) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
+      const asModule = moduleScope(actor, op.module);
+      await check(tx, asModule, op);
+      await tx.$executeRaw`SELECT set_config('app.user_id',${actor.userId},true)`;
+      const result = await op.run(
+        tx,
+        asModule,
+        op.input.parse(p.args),
+        data(row).requestedBy,
+      );
+      await update(tx, asModule, row, {
+        ...data(row),
+        status: "consumed",
+        executionResult: JSON.parse(JSON.stringify(result)),
+        consumedBy: {
+          executionId: row.id,
+          consumedAt: new Date().toISOString(),
+        },
+      });
+      await audit(tx, asModule, "mcp.operation.executed", row.id, {
+        tool: op.name,
+      });
+    },
+  };
+  const tool = defineTool({
+    name: op.name,
+    namespace: op.module,
+    description:
+      op.description +
+      " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey.",
+    parameters: modelParameters(input),
+    risk: "P_proposal",
+    permission: op.permission,
+    feature: "mcp_tasks",
+    deferLoading: true,
+    exposure: { assistant: true, mcp: true },
+    outputSchema: proposalOutput,
+    ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
+    async execute(ctx: ToolContext, raw: unknown) {
+      const { idempotencyKey, ...args } = serviceArgs(input, raw);
+      const requester: RequestedBy = ctx.channel
+        ? mcpRequester(mcpProposalOrigin(ctx, op.name), ctx.scope.projectId, {
+            args,
+            idempotencyKey,
+          })
+        : { kind: "agent", userId: ctx.scope.userId, agentRunId: ctx.runId };
+      return userScoped(ctx.scope, async (tx) => {
+        await check(tx, ctx.scope, op);
+        const old = await tx.entity.findFirst({
+          where: {
+            projectId: ctx.scope.projectId,
+            kind: "action_requests",
+            AND: [
+              { data: { path: ["actionType"], equals: actionType } },
+              {
+                data: {
+                  path: ["payload", "actorId"],
+                  equals: ctx.scope.userId,
+                },
+              },
+              {
+                data: {
+                  path: ["payload", "idempotencyKey"],
+                  equals: String(idempotencyKey),
+                },
+              },
+              ...(requester.kind === "mcp"
+                ? [
+                    {
+                      data: {
+                        path: ["requestedBy", "clientId"],
+                        equals: requester.clientId,
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        });
+        if (old && hash(data(old).payload.args) !== hash(args))
+          throw new DomainError("IDEMPOTENCY_KEY_CONFLICT", 409);
+        const row =
+          old ??
+          (await createActionRequest(tx, ctx.scope, {
+            actionType,
+            payload: {
+              actorId: ctx.scope.userId,
+              args,
+              idempotencyKey,
+              ceilingMicros: op.spendCeiling
+                ? await op.spendCeiling(tx, ctx.scope, args)
+                : 0,
+            },
+            requestedBy: requester,
+          }));
+        return {
+          output: {
+            actionRequestId: row.id,
+            deduplicated: Boolean(old),
+            approveUrl: mcpApproveUrl(ctx.scope.projectId),
+          },
+          cards: [
+            {
+              kind: "status" as const,
+              label: "Owner approval required",
+              status: "confirmation_required",
+            },
+          ],
+        };
+      });
+    },
+  });
+  return { tool, actionType, action };
+}

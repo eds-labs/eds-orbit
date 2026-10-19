@@ -1,3 +1,4 @@
+import { mcp2Enabled } from "../../platform/tasks/operation-tools.ts";
 import { z } from "zod";
 import type { ActionDefinition } from "../action-requests.ts";
 import { DomainError, data, update } from "../../shared.ts";
@@ -18,6 +19,9 @@ import * as assignments from "./agents/assignments.ts";
 const imageGenerate: ActionDefinition<z.infer<typeof imageRequestPayload>> = {
   riskClass: "C2",
   approvalMode: "approval_required",
+  get mcpProposable() {
+    return mcp2Enabled();
+  },
   deciderRole: "owner",
   ttlMs: 24 * 3600000,
   payload: imageRequestPayload,
@@ -46,6 +50,9 @@ const imageGenerate: ActionDefinition<z.infer<typeof imageRequestPayload>> = {
 const contentPackageStart: ActionDefinition<Record<string, unknown>> = {
   riskClass: "C1",
   approvalMode: "approval_required",
+  get mcpProposable() {
+    return mcp2Enabled();
+  },
   deciderRole: "editor",
   ttlMs: 24 * 3600000,
   payload: z.record(z.string(), z.unknown()),
@@ -61,6 +68,9 @@ const contentPackageStart: ActionDefinition<Record<string, unknown>> = {
 const contentSchedule: ActionDefinition<Record<string, unknown>> = {
   riskClass: "W2",
   approvalMode: "approval_required",
+  get mcpProposable() {
+    return mcp2Enabled();
+  },
   deciderRole: "owner",
   ttlMs: 24 * 3600000,
   payload: z.record(z.string(), z.unknown()),
@@ -81,7 +91,7 @@ const assignmentConfirm: ActionDefinition<Record<string, unknown>> = {
   riskClass: "W0_internal",
   approvalMode: "approval_required",
   deciderRole: "owner",
-  // The only type an MCP client may propose (WP-M4); the owner still decides.
+  // The owner still decides the exact assignment.
   mcpProposable: true,
   ttlMs: 7 * 24 * 3600000,
   payload: z.record(z.string(), z.unknown()),

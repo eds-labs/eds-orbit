@@ -67,6 +67,8 @@ type ActionRequestItem = {
   expiresAt: string;
   requestedBy: Requester;
   summary: {
+    task?: { description: string; mode: string; modules: string[] };
+    operation?: Record<string, unknown>;
     prompt?: string;
     model?: string;
     maxCostMicros?: number;
@@ -191,6 +193,27 @@ export function ActionRequestInbox() {
               )}
             </div>
             <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
+            {item.summary.task && (
+              <div>
+                <p>{item.summary.task.description}</p>
+                <p>
+                  {item.summary.task.modules.join(", ")} ·{" "}
+                  {item.summary.task.mode}
+                </p>
+              </div>
+            )}
+            {item.summary.operation && (
+              <details>
+                <summary>
+                  {de ? "Genaue Änderung prüfen" : "Review exact change"}
+                </summary>
+                <pre
+                  style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}
+                >
+                  {JSON.stringify(item.summary.operation, null, 2)}
+                </pre>
+              </details>
+            )}
             {item.summary.packageGoal && (
               <p>
                 {de ? "Paket" : "Package"}: {item.summary.packageGoal}

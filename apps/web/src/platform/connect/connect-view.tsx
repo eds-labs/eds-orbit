@@ -56,6 +56,8 @@ const SCOPE_TEXT: Record<string, Parameters<Text>[0]> = {
   offline_access: "connectScopeOfflineAccess",
   "orbit:read": "connectScopeRead",
   "orbit:propose": "connectScopePropose",
+  "orbit:write": "connectScopeWrite",
+  "orbit:support": "connectScopeSupport",
 };
 const scopeText = (t: Text, scope: string) =>
   t(SCOPE_TEXT[scope] ?? "connectScopeOther");
@@ -222,6 +224,8 @@ export function ConsentStep({
   allCurrent,
   propose,
   onPropose,
+  extraScopes = [],
+  onExtraScope,
   onAccept,
   onDeny,
   pending,
@@ -235,6 +239,8 @@ export function ConsentStep({
   allCurrent: boolean;
   propose: boolean;
   onPropose: (on: boolean) => void;
+  extraScopes?: readonly string[];
+  onExtraScope?: (scope: string, on: boolean) => void;
   onAccept: () => void;
   onDeny: () => void;
   pending: boolean;
@@ -260,15 +266,30 @@ export function ConsentStep({
       <ul className="connect-scopes">
         {scopes.map((scope) => (
           <li key={scope}>
-            {scope === "orbit:read" || scope === "orbit:propose" ? (
+            {[
+              "orbit:read",
+              "orbit:propose",
+              "orbit:write",
+              "orbit:support",
+            ].includes(scope) ? (
               <label className="connect-choice">
                 <Input
                   type="checkbox"
                   name="scope"
                   value={scope}
-                  checked={scope === "orbit:read" ? true : propose}
+                  checked={
+                    scope === "orbit:read"
+                      ? true
+                      : scope === "orbit:propose"
+                        ? propose
+                        : extraScopes.includes(scope)
+                  }
                   disabled={scope === "orbit:read"}
-                  onChange={(event) => onPropose(event.target.checked)}
+                  onChange={(event) =>
+                    scope === "orbit:propose"
+                      ? onPropose(event.target.checked)
+                      : onExtraScope?.(scope, event.target.checked)
+                  }
                 />
                 <span>
                   <strong>
@@ -352,6 +373,7 @@ function ConnectFlow({
       ),
   );
   const [propose, setPropose] = useState(true);
+  const [extraScopes, setExtraScopes] = useState<string[]>([]);
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
 
@@ -424,7 +446,7 @@ function ConnectFlow({
       submitConsent(post, navigate, {
         oauthQuery: query,
         accept,
-        scopes: acceptedScopes(request.scopes, propose),
+        scopes: acceptedScopes(request.scopes, propose, extraScopes),
       }),
     );
   return (
@@ -441,6 +463,14 @@ function ConnectFlow({
         name: chosen?.projects.find((p) => p.id === id)?.name ?? id,
       }))}
       allCurrent={request.selection!.allCurrentProjects}
+      extraScopes={extraScopes}
+      onExtraScope={(scope, on) =>
+        setExtraScopes((prior) =>
+          on
+            ? [...new Set([...prior, scope])]
+            : prior.filter((s) => s !== scope),
+        )
+      }
       propose={propose}
       onPropose={setPropose}
       onAccept={() => answer(true)}

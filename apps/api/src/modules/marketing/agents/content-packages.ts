@@ -309,42 +309,60 @@ export async function requestContentPackage(
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const request = contentPackageRequest.parse(raw);
-  return chatScoped(scope, async (tx) => {
-    await conversation(tx, scope, conversationId);
-    const pkg = await create(tx, scope, KIND, {
-      conversationId,
-      userId: scope.userId,
-      goal: request.goal,
-      status: "proposed",
-    });
-    const plan = await buildPackagePlan(tx, scope, pkg.id, request);
-    const actionRequest = await createActionRequest(tx, scope, {
-      actionType: "content_package.start",
-      payload: plan,
-      requestedBy: { kind: "agent", userId: scope.userId, agentRunId: null },
-    });
-    const saved = await update(tx, scope, pkg, {
-      ...data(pkg),
-      actionRequestId: actionRequest.id,
-      ceilingMicros: plan.ceilingMicros,
-      image: plan.image
-        ? {
-            prompt: plan.image.brief.prompt,
-            maxCostMicros: plan.image.maxCostMicros,
-          }
-        : null,
-      deliverables: plan.deliverables.map(
-        ({ key, channelId, channelName, platform, plannedSlotAt }) => ({
-          key,
-          channelId,
-          channelName,
-          platform,
-          plannedSlotAt,
-        }),
-      ),
-    });
-    return { package: saved, actionRequest };
+  return chatScoped(scope, (tx) =>
+    requestContentPackageInTx(tx, scope, conversationId, request),
+  );
+}
+
+export async function requestContentPackageInTx(
+  tx: DbTx,
+  scope: Scope,
+  conversationId: string,
+  raw: unknown,
+  requester?: import("../../action-requests.ts").RequestedBy,
+) {
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
+  if (!contentPackagesEnabled())
+    throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
+  const request = contentPackageRequest.parse(raw);
+  await conversation(tx, scope, conversationId);
+  const pkg = await create(tx, scope, KIND, {
+    conversationId,
+    userId: scope.userId,
+    goal: request.goal,
+    status: "proposed",
   });
+  const plan = await buildPackagePlan(tx, scope, pkg.id, request);
+  const actionRequest = await createActionRequest(tx, scope, {
+    actionType: "content_package.start",
+    payload: plan,
+    requestedBy: requester ?? {
+      kind: "agent",
+      userId: scope.userId,
+      agentRunId: null,
+    },
+  });
+  const saved = await update(tx, scope, pkg, {
+    ...data(pkg),
+    actionRequestId: actionRequest.id,
+    ceilingMicros: plan.ceilingMicros,
+    image: plan.image
+      ? {
+          prompt: plan.image.brief.prompt,
+          maxCostMicros: plan.image.maxCostMicros,
+        }
+      : null,
+    deliverables: plan.deliverables.map(
+      ({ key, channelId, channelName, platform, plannedSlotAt }) => ({
+        key,
+        channelId,
+        channelName,
+        platform,
+        plannedSlotAt,
+      }),
+    ),
+  });
+  return { package: saved, actionRequest };
 }
 
 /** Decision check: only the requester starts a package, and only an unchanged plan. */

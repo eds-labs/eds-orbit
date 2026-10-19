@@ -141,3 +141,13 @@ Pick the narrowest step that stops the problem; each production change still nee
 - A token exchange the after-hook refuses deletes every token of that (user, client, workspace) reference, including tokens a concurrent exchange under a fresh re-grant just stored; that client gets 401 and reconnects (fails safe).
 - Limits are per process; a second gateway replica needs Redis-backed limits first.
 - The first request of a token this process has not verified counts against its address: many new users behind one address (NAT, ChatGPT egress) can see 429 until the minute ends.
+
+
+## MCP 2.0 follow-up (separate opt-in rollout)
+
+The delegated work-order/operation surface is behind `ORBIT_MCP_TASKS=false` by
+default, in addition to the existing gateway/OAuth/proposal switches. See
+`docs/MCP_2_0.md` for scopes, staging checks and rollback. Deploying the code does
+not authorize enabling it or sending paid/customer/public work. New optional
+`orbit:write` and `orbit:support` scopes require explicit consent/reconnection;
+existing grants keep their existing scopes. No additional migration is needed.
