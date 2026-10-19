@@ -1904,7 +1904,11 @@ td:first-child {
 .settings-content td {
   overflow-wrap: break-word;
 }
+/* One line with an ellipsis: inline-block, since an inline-flex badge clips
+   its text without drawing the ellipsis. */
 .settings-content .badge {
+  display: inline-block;
+  vertical-align: middle;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2013,6 +2017,10 @@ td:first-child {
   }
   .settings-content .data-row p {
     white-space: normal;
+  }
+  /* Small buttons (member rows, inbox actions) stay 44px touch targets. */
+  .settings-content .button-sm {
+    min-height: 44px;
   }
   .settings-content .member-row {
     flex-wrap: wrap;
