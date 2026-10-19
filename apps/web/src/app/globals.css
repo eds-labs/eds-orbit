@@ -341,6 +341,11 @@ pre {
   color: #0a4fc2;
   font-weight: 600;
 }
+/* A module's settings link at the end of its group (spec §3.4). */
+.nav-sub-link.nav-settings-link {
+  color: #5c7287;
+  font-size: 12.5px;
+}
 .nav-badge {
   display: inline-flex;
   align-items: center;
@@ -1732,6 +1737,86 @@ td:first-child {
 }
 .operations-band strong {
   font-size: 25px;
+}
+/* The grouped settings sections (UI restructure §5.4, settings-nav.tsx). */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.settings-content {
+  min-width: 0;
+}
+.settings-nav {
+  position: sticky;
+  /* Below the sticky 64px .topbar (z-index 20), which would cover it. */
+  top: calc(64px + 16px);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.settings-nav-heading {
+  margin: 0 0 4px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #5c7287;
+}
+.settings-nav ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-nav-link {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: #2c3e52;
+  font-size: 13.5px;
+  font-weight: 500;
+  transition: background 0.16s;
+}
+.settings-nav-link:hover {
+  background: #dfefff80;
+  color: #2c3e52;
+}
+.settings-nav-link[aria-current="page"] {
+  background: #dbeafe;
+  color: #0a4fc2;
+  font-weight: 600;
+}
+.settings-select {
+  display: none;
+}
+.settings-select label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2c3e52;
+}
+@media (max-width: 1180px) {
+  .settings-layout .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 760px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .settings-nav {
+    display: none;
+  }
+  .settings-select {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
 }
 .settings-grid {
   display: grid;

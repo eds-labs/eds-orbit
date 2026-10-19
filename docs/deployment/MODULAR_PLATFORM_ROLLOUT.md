@@ -51,7 +51,7 @@ If `migrate` fails:
 | 1 | `GET https://orbit.eds-labs.io/api/health/ready` and `/api/health/postiz` | `{status: "ok", database: "ok", worker: "ready"}`; Postiz delivery not degraded |
 | 2 | Sign in, open uLiquid Desk | Home with Marketing and Knowledge sections. Navigation: Orbit Chat, Marketing pages, Knowledge, Approvals, Connectors, Operations, Settings |
 | 3 | Settings → Modules | Knowledge and Marketing "on"; "Switching modules is not enabled on this installation" |
-| 4 | Settings tabs | Assignments/Autopilot, Policy & budget, Brand, Project, Integrations as before; policy and assignment card unchanged |
+| 4 | Settings sections | Assignments/Autopilot, Policy & budget, Brand, Project, Integrations as before; policy and assignment card unchanged. (Since the UI restructure phase 5 the settings are grouped sections opened by `?section=`, not tabs.) |
 | 5 | Connectors | Postiz (channels), Matomo, Slack, Telegram (linked) in the former order |
 | 6 | Operations → AI runs and costs | Spend attributed as before |
 | 7 | Telegram: send a short text such as `hilfe` to the bot | The help reply arrives (the webhook and the transport work). Do **not** send `/pause` |
