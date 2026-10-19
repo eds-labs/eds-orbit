@@ -31,7 +31,9 @@ import { isTrustedPeer } from "../../client-ip.ts";
 import { sendWebResponse } from "../mcp-auth/http.ts";
 import { ORBIT_WORKSPACE_CLAIM } from "../mcp-auth/plugins.ts";
 import { makeAuth } from "../tenancy/auth.ts";
+import { registeredTools } from "../modules/contributions.ts";
 import {
+  assertMcpToolContracts,
   mcpServerFor,
   type McpCallObserver,
   type McpRequestState,
@@ -58,6 +60,7 @@ import {
   type McpRateLimits,
 } from "./limits.ts";
 import { resolvePrincipal } from "./principal.ts";
+import { McpProposalDayCache } from "./proposals.ts";
 
 /** Request body limit of the gateway (bytes). */
 export const MCP_BODY_LIMIT = 256 * 1024;
@@ -168,6 +171,9 @@ export async function buildMcpServer(
 ): Promise<FastifyInstance> {
   const config = loadConfig();
   assertMcpGatewayEnabled(config);
+  // A tool whose MCP contract is broken stops the gateway before it serves
+  // anything (D-M5-8); registration has refused it already.
+  assertMcpToolContracts(registeredTools());
   const allowedOrigins = new Set(
     parseAllowedOrigins(config.ORBIT_MCP_ALLOWED_ORIGINS),
   );
@@ -185,6 +191,8 @@ export async function buildMcpServer(
   const verifiedTokens = new McpVerifiedTokens(options.clock);
   const projectSlots =
     options.projectSlots ?? new McpProjectSlots(options.projectConcurrency);
+  // Keys whose daily proposal quota is used up, until UTC midnight (D-M5-8).
+  const proposalsUsedUp = new McpProposalDayCache();
 
   const app = Fastify({
     bodyLimit: MCP_BODY_LIMIT,
@@ -358,9 +366,10 @@ export async function buildMcpServer(
           startRun: startMcpRun,
           proposalQuota: {
             limiter,
-            perHour: limits.proposalsPerHourPerGrant,
-            perDay: limits.proposalsPerDayPerGrant,
+            perHour: limits.proposalsPerHour,
+            perDay: limits.proposalsPerDay,
             now: options.clock ?? Date.now,
+            usedUp: proposalsUsedUp,
           },
           projectSlots,
           ...(options.toolTimeoutMs !== undefined

@@ -28,16 +28,18 @@ export const MCP_RATE_LIMITS = {
    */
   searchPerGrant: 30,
   /**
-   * Proposals one grant may create per hour (WP-M4, D-M4-8). Counted by the
+   * Proposals one user may create through one client in one workspace per
+   * hour (WP-M4, D-M4-8; keyed so since WP-M5, D-M5-8, so a re-selection,
+   * which gives a new grant id, does not reset it). Counted by the
    * in-process limiter in a one-hour window; only creations count.
    */
-  proposalsPerHourPerGrant: 20,
+  proposalsPerHour: 20,
   /**
-   * Proposals one grant may create per UTC day. Not a limiter bucket: the
-   * adapter counts the grant's `mcp.proposal` events since the day started,
+   * Proposals per UTC day for the same key. Not a limiter bucket: the
+   * adapter counts the key's `mcp.proposal` events since the day started,
    * so the number survives restarts and several gateway processes.
    */
-  proposalsPerDayPerGrant: 100,
+  proposalsPerDay: 100,
 };
 export type McpRateLimits = typeof MCP_RATE_LIMITS;
 /**
@@ -47,6 +49,11 @@ export type McpRateLimits = typeof MCP_RATE_LIMITS;
  * reset anyone's count.
  */
 export const MCP_RATE_LIMITER_MAX_KEYS = 50_000;
+/**
+ * Most keys the gateway remembers as "daily proposal quota used up" until
+ * the next UTC midnight (McpProposalDayCache, D-M5-8).
+ */
+export const MCP_PROPOSAL_DAY_CACHE_MAX = 10_000;
 /** Most token hashes the gateway remembers as verified (McpVerifiedTokens). */
 export const MCP_VERIFIED_TOKENS_MAX = 10_000;
 /** Largest JSON result a tool may return (09 §5.1, ADR 0007 §2). */

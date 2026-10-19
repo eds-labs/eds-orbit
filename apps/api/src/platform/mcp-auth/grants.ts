@@ -3,10 +3,13 @@ import { getOAuthProviderState } from "@better-auth/oauth-provider";
 import {
   authDb,
   Prisma,
-  scoped,
   type DbTx,
 } from "../../../../../packages/db/src/index.ts";
-import { cancelMcpProposals } from "../../modules/action-requests.ts";
+import {
+  cancelMcpProposals,
+  SYSTEM_ACTOR_ID,
+  type McpCancellationReason,
+} from "../../modules/action-requests.ts";
 import { DomainError } from "../shared.ts";
 import { recordGrantEvent } from "./events.ts";
 import {
@@ -842,18 +845,22 @@ async function changeableGrant(
 
 /**
  * Cancels the pending MCP proposals a grant's user made through its client,
- * in every project of the grant's workspace (D-M4-10). It runs after the
- * grant change has committed, in project transactions on the other database
- * role, so it cannot share the grant's transaction. Failure never undoes the
- * grant change: it is logged at error level and the remaining projects still
- * run. Deciding such a proposal stays refused meanwhile, because an approval
- * re-checks the grant (action-requests.ts `mcpGrantStillProposes`), and
- * repeating the owner action runs the sweep again.
+ * in every project of the grant's workspace (D-M4-10). The platform is the
+ * actor (D-M5-8: `canceledBy` "system", no role assumed); `initiatedBy`
+ * names the user whose grant change caused it, null for a client change. It
+ * runs after the grant change has committed, in project transactions on the
+ * other database role, so it cannot share the grant's transaction. Failure
+ * never undoes the grant change: a request that cannot be canceled is logged
+ * at error level (identifiers and the error name only) and the sweep goes
+ * on with the others and the remaining projects. Deciding such a proposal
+ * stays refused meanwhile, because an approval re-checks the grant
+ * (action-requests.ts `mcpGrantStillProposes`), and repeating the owner
+ * action runs the sweep again.
  */
 async function cancelGrantProposals(
   grant: { id: string; userId: string; clientId: string; workspaceId: string },
-  actor: { userId: string },
-  reason: "grant_revoked" | "proposals_disabled",
+  initiatedBy: string | null,
+  reason: McpCancellationReason,
   log?: Log,
 ) {
   let projects: { id: string }[] = [];
@@ -871,21 +878,21 @@ async function cancelGrantProposals(
   }
   for (const { id: projectId } of projects) {
     try {
-      // The actor withdraws; no role is checked here, the grant change was
-      // authorized by changeableGrant.
-      const scope = {
-        workspaceId: grant.workspaceId,
-        projectId,
-        userId: actor.userId,
-        role: "owner" as const,
-      };
-      await scoped(grant.workspaceId, projectId, (tx) =>
-        cancelMcpProposals(
-          tx,
-          scope,
-          { userId: grant.userId, clientId: grant.clientId },
-          reason,
-        ),
+      await cancelMcpProposals(
+        { workspaceId: grant.workspaceId, projectId },
+        { userId: grant.userId, clientId: grant.clientId },
+        { kind: "system", reason, initiatedBy },
+        (actionRequestId, error) =>
+          log?.error(
+            {
+              code: "MCP_PROPOSAL_CANCEL_FAILED",
+              grantId: grant.id,
+              projectId,
+              actionRequestId,
+              reason,
+            },
+            `mcp proposal cancellation failed: ${failureName(error)}`,
+          ),
       );
     } catch (error) {
       log?.error(
@@ -943,7 +950,7 @@ export async function revokeGrant(
     );
     return grant;
   });
-  await cancelGrantProposals(grant, actor, "grant_revoked", log);
+  await cancelGrantProposals(grant, actor.userId, "mcp_grant_ended", log);
 }
 
 /** The scope that lets a client propose (WP-M4); removed when proposals stop. */
@@ -1025,11 +1032,11 @@ export async function setGrantProposals(
     );
     return grant;
   });
-  await cancelGrantProposals(grant, actor, "proposals_disabled", log);
+  await cancelGrantProposals(grant, actor.userId, "mcp_proposals_stopped", log);
 }
 
 /** Client events are about no particular user; nor is their cancellation. */
-const SYSTEM_ACTOR = "system";
+const SYSTEM_ACTOR = SYSTEM_ACTOR_ID;
 
 /** Grant changes outside a request log their failures to the process log. */
 const consoleLog: Log = {
@@ -1087,12 +1094,7 @@ export async function revokeClientGrants(
     return ended;
   });
   for (const grant of revoked)
-    await cancelGrantProposals(
-      grant,
-      { userId: SYSTEM_ACTOR },
-      "grant_revoked",
-      log,
-    );
+    await cancelGrantProposals(grant, null, "mcp_client_changed", log);
   return revoked.length;
 }
 

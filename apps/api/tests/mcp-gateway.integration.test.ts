@@ -915,7 +915,9 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toEqual({
         id: expect.any(String),
+        actionRequestId: result.structuredContent.id,
         status: "pending",
+        deduplicated: false,
       });
       expect(JSON.parse(result.content[0].text)).toEqual(
         result.structuredContent,
@@ -1026,7 +1028,12 @@ describe.skipIf(!enabled)("MCP gateway", () => {
 
     it("caps the output at 64 KB", async () => {
       vi.spyOn(suggestTask, "execute").mockResolvedValueOnce({
-        output: { id: "y".repeat(70 * 1024), status: "pending" },
+        output: {
+          id: "y".repeat(70 * 1024),
+          actionRequestId: "z",
+          status: "pending",
+          deduplicated: true,
+        },
         cards: [],
       });
       const response = await call("tasks_suggest_task", { title: "Big" });

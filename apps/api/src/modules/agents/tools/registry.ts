@@ -154,8 +154,24 @@ export const exposedToMcp = (tool: OrbitTool) =>
   tool.exposure?.mcp === true && tool.outputSchema instanceof z.ZodObject;
 
 /**
+ * Whether a proposal tool's MCP output reports what the gateway's quotas
+ * rely on (D-M5-8): a required boolean `deduplicated` (a retry that returned
+ * an existing proposal is neither charged nor recorded) and the string
+ * `actionRequestId` the gateway records with `mcp.proposal`.
+ */
+const proposalOutputComplete = (schema: z.ZodObject) => {
+  const { deduplicated, actionRequestId } = schema.shape;
+  return (
+    deduplicated instanceof z.ZodBoolean &&
+    actionRequestId instanceof z.ZodString
+  );
+};
+
+/**
  * A tool that opts into MCP without an output schema, or with one that is
- * not a zod object, is a registration error naming the tool.
+ * not a zod object, or a proposal tool whose output does not report
+ * `deduplicated` and `actionRequestId`, is a registration error naming the
+ * tool.
  */
 export const mcpExposureProblem = (tool: OrbitTool) => {
   if (tool.exposure?.mcp !== true) return undefined;
@@ -163,6 +179,8 @@ export const mcpExposureProblem = (tool: OrbitTool) => {
     return `tool ${tool.name} is exposed to MCP without an output schema`;
   if (!(tool.outputSchema instanceof z.ZodObject))
     return `tool ${tool.name} is exposed to MCP with an output schema that is not an object`;
+  if (tool.risk === "P_proposal" && !proposalOutputComplete(tool.outputSchema))
+    return `tool ${tool.name} is a proposal tool exposed to MCP whose output schema lacks a required boolean deduplicated or a string actionRequestId`;
   return undefined;
 };
 
@@ -173,7 +191,9 @@ export function defineTool(tool: OrbitTool): OrbitTool {
     throw new Error(
       tool.outputSchema === undefined
         ? `TOOL_OUTPUT_SCHEMA_REQUIRED:${tool.name}`
-        : `TOOL_OUTPUT_SCHEMA_NOT_OBJECT:${tool.name}`,
+        : tool.outputSchema instanceof z.ZodObject
+          ? `TOOL_PROPOSAL_OUTPUT_INVALID:${tool.name}`
+          : `TOOL_OUTPUT_SCHEMA_NOT_OBJECT:${tool.name}`,
     );
   assertStrictKeywords(responsesTool(tool).parameters, "parameters");
   return tool;

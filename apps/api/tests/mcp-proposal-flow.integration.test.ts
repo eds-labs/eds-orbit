@@ -447,11 +447,9 @@ describe.skipIf(!enabled)(
         (event) =>
           (event.detail as Json).actionRequestId === out.actionRequestId,
       );
+      // Recorded by the gateway (D-M5-8): the MCP tool and the request.
       expect(events.map((event) => event.detail)).toEqual([
-        {
-          actionType: "assignment.confirm",
-          actionRequestId: out.actionRequestId,
-        },
+        { tool: TOOL, actionRequestId: out.actionRequestId },
       ]);
       expect(events[0]).toMatchObject({
         userId: ids.editor,
@@ -467,8 +465,20 @@ describe.skipIf(!enabled)(
       )!;
       expect(item).toMatchObject({
         actionType: "assignment.confirm",
-        requestedBy: { kind: "mcp", clientId: CLIENT.editor },
         summary: { assignment: { id: out.assignmentId, name: args.name } },
+      });
+      // The list names the client, never the grant, run or argument hash
+      // (D-M5-8); the stored request keeps them.
+      expect(item.requestedBy).toEqual({
+        kind: "mcp",
+        userId: ids.editor,
+        clientId: CLIENT.editor,
+      });
+      for (const word of ["grantId", "argsHash", "agentRunId"])
+        expect(JSON.stringify(item)).not.toContain(word);
+      expect(data(request).requestedBy).toMatchObject({
+        grantId: grant.id,
+        argsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
       expect((await inbox("editor")).statusCode).toBe(403);
 

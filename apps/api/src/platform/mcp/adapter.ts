@@ -19,6 +19,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
+  mcpExposureProblem,
   TOOL_NAME,
   type OrbitTool,
   type ToolRisk,
@@ -42,7 +43,9 @@ import type { McpPrincipal } from "./principal.ts";
 import {
   assertProposalCapacity,
   chargeProposal,
+  recordMcpProposal,
   type ProposalQuota,
+  type ProposalQuotaKey,
 } from "./proposals.ts";
 import {
   authorizeMcpCall,
@@ -117,7 +120,7 @@ export type McpRequestState = {
   startRun?: McpRunStarter;
   /** Overrides MCP_TOOL_TIMEOUT_MS (tests). */
   toolTimeoutMs?: number;
-  /** The proposal quotas of the grant (limits.ts, D-M4-8). */
+  /** The proposal quotas (limits.ts, D-M4-8; per user, client and workspace, D-M5-8). */
   proposalQuota: ProposalQuota;
   /** The process's per-project execution slots (limits.ts, R-10). */
   projectSlots: McpProjectSlots;
@@ -167,6 +170,22 @@ export function auditableToolName(name: unknown): string {
     // No registration (cannot happen in mcp-main.ts): know nothing, never throw.
     return MCP_UNKNOWN_TOOL;
   }
+}
+
+/**
+ * Refuses to start the gateway with a tool whose MCP contract is broken
+ * (D-M5-8): every exposed tool needs an object output schema, and every
+ * exposed proposal tool must report `deduplicated` and `actionRequestId`,
+ * which the quotas and `mcp.proposal` rely on. Registration checks the same
+ * (`mcpExposureProblem`); this repeats it where the gateway starts, so a
+ * tool registered some other way cannot slip through.
+ */
+export function assertMcpToolContracts(tools: readonly OrbitTool[]): void {
+  const problems = tools
+    .map((tool) => mcpExposureProblem(tool))
+    .filter((problem): problem is string => problem !== undefined);
+  if (problems.length)
+    throw new Error(`MCP_TOOL_CONTRACT_INVALID: ${problems.join("; ")}`);
 }
 
 /** MCP annotations per registry risk (09 §5.1). */
@@ -519,13 +538,15 @@ async function executeInProject(
   // Object-level rules of the tool's own schema apply too; asynchronously,
   // so async refinements run instead of throwing.
   const input = await allowed.parameters.parseAsync(rest);
-  // A proposal tool runs only inside the grant's quotas (D-M4-8).
+  // A proposal tool runs only inside the quotas of the user, client and
+  // workspace (D-M4-8, D-M5-8): a re-selection, a new grant id, keeps them.
   const proposing = allowed.risk === "P_proposal";
-  if (proposing)
-    await assertProposalCapacity(state.proposalQuota, {
-      grantId: principal.grantId,
-      workspaceId: principal.workspaceId,
-    });
+  const quotaKey: ProposalQuotaKey = {
+    userId: principal.userId,
+    clientId: principal.clientId,
+    workspaceId: principal.workspaceId,
+  };
+  if (proposing) await assertProposalCapacity(state.proposalQuota, quotaKey);
   // The run exists before the tool works, so its spans and costs can hang on
   // it; without one the request id stands in, as before.
   const agentRunId = await startCallRun(state, call, toolName, projectId);
@@ -545,13 +566,47 @@ async function executeInProject(
     },
     input,
   );
-  // Only a created proposal uses the hourly quota: a tool that reports a
-  // deduplicated retry (`deduplicated: true`) costs nothing. A tool that
-  // does not say counts, so a new proposal tool cannot dodge the quota.
-  if (proposing && !(isPlainObject(output) && output.deduplicated === true))
-    chargeProposal(state.proposalQuota, principal.grantId);
+  if (proposing) await settleProposal(state, toolName, quotaKey, output);
   // Chat cards are never sent over MCP (Orbit links follow in WP-M3).
   return output;
+}
+
+/**
+ * Charges and records a created proposal, centrally for every proposal tool
+ * (D-M5-8): a tool that reports a deduplicated retry (`deduplicated: true`)
+ * costs nothing and writes nothing; one that does not say counts, so no
+ * proposal tool can dodge the quota (registration also requires the field).
+ * Runs after the tool's own transaction committed, also when the call has
+ * timed out meanwhile, so a late creation still counts. A failed event write
+ * is logged and leaves the result alone: the proposal exists, and the daily
+ * count is one short (the hourly bucket is charged either way).
+ */
+async function settleProposal(
+  state: McpRequestState & { principal: McpPrincipal },
+  toolName: string,
+  key: ProposalQuotaKey,
+  output: unknown,
+): Promise<void> {
+  if (isPlainObject(output) && output.deduplicated === true) return;
+  chargeProposal(state.proposalQuota, key);
+  try {
+    await recordMcpProposal({
+      ...key,
+      grantId: state.principal.grantId,
+      tool: toolName,
+      actionRequestId: isPlainObject(output) ? output.actionRequestId : null,
+    });
+  } catch (error) {
+    state.log.error(
+      {
+        code: "MCP_PROPOSAL_RECORD_FAILED",
+        tool: toolName,
+        requestId: state.requestId,
+        errorName: (error as Error)?.name,
+      },
+      "mcp proposal event not recorded",
+    );
+  }
 }
 
 /** For a token whose grant is gone: every tools/call answers with the challenge. */

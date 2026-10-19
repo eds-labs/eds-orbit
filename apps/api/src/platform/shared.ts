@@ -79,7 +79,12 @@ export function decrypt(value: string, key: string) {
     "utf8",
   );
 }
-export async function entity(tx: DbTx, scope: Scope, kind: string, id: string) {
+export async function entity(
+  tx: DbTx,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
+  kind: string,
+  id: string,
+) {
   const row = await tx.entity.findFirst({
     where: {
       id,
@@ -124,7 +129,7 @@ export async function create(
 }
 export async function update(
   tx: DbTx,
-  scope: Scope,
+  scope: Pick<Scope, "workspaceId" | "projectId">,
   row: { id: string; version: number },
   value: Record<string, unknown>,
 ) {

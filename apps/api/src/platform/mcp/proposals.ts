@@ -1,9 +1,12 @@
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { authDb } from "../../../../../packages/db/src/index.ts";
-import { hash } from "../shared.ts";
+import { DomainError, hash } from "../shared.ts";
+import type { RequestedBy } from "../../modules/action-requests.ts";
+import type { ToolContext } from "../../modules/agents/tools/registry.ts";
 import { recordGrantEvent } from "../mcp-auth/events.ts";
 import { McpProposalQuotaError } from "./errors.ts";
 import {
+  MCP_PROPOSAL_DAY_CACHE_MAX,
   MCP_PROPOSAL_WINDOW_MS,
   type McpRateLimiter,
   type RateRule,
@@ -34,16 +37,87 @@ export function mcpApproveUrl(projectId: string): string {
 }
 
 /**
- * Records one created proposal on the grant (`mcp.proposal`); deduplicated
- * calls are not recorded. Identifiers only, never arguments.
+ * The MCP client a proposal comes from (WP-M4): who proposes, through which
+ * client and grant, in which run. Derived only by `mcpProposalOrigin` from
+ * what the gateway set on the call.
+ */
+export type McpProposalOrigin = {
+  /** The MCP tool name, part of the dedupe key. */
+  tool: string;
+  userId: string;
+  clientId: string;
+  grantId: string;
+  /** The call's AgentRun, null when the gateway had none. */
+  agentRunId: string | null;
+};
+
+const filled = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0;
+
+/**
+ * The origin of a proposal from the call's context (D-M5-8): the scope's
+ * user and the channel's client and grant, which only the gateway sets.
+ * Refuses MCP_CHANNEL_INCOMPLETE unless the call came through the gateway
+ * with all of them, so a tool can never propose as an MCP client otherwise.
+ */
+export function mcpProposalOrigin(
+  context: Pick<ToolContext, "scope" | "runId" | "channel">,
+  tool: string,
+): McpProposalOrigin {
+  const { channel, scope } = context;
+  if (
+    channel?.kind !== "mcp" ||
+    !filled(channel.clientId) ||
+    !filled(channel.grantId) ||
+    !filled(channel.requestId) ||
+    !filled(scope.userId)
+  )
+    throw new DomainError("MCP_CHANNEL_INCOMPLETE", 500);
+  return {
+    tool,
+    userId: scope.userId,
+    clientId: channel.clientId,
+    grantId: channel.grantId,
+    // Without an AgentRun the gateway passes its request id as runId.
+    agentRunId: context.runId === channel.requestId ? null : context.runId,
+  };
+}
+
+/**
+ * The stored requester of an MCP proposal (D-M4-3): the origin plus the hash
+ * of the arguments as the service normalized them.
+ */
+export function mcpRequester(
+  origin: McpProposalOrigin,
+  projectId: string,
+  args: unknown,
+): Extract<RequestedBy, { kind: "mcp" }> {
+  return {
+    kind: "mcp",
+    userId: origin.userId,
+    clientId: origin.clientId,
+    grantId: origin.grantId,
+    agentRunId: origin.agentRunId,
+    argsHash: mcpProposalArgsHash(origin.tool, projectId, args),
+  };
+}
+
+/** Longest request id an `mcp.proposal` event names; anything else is recorded as null. */
+const MAX_RECORDED_ID = 128;
+
+/**
+ * Records one created proposal on the grant (`mcp.proposal`): the MCP tool
+ * and the request id, never arguments. The adapter writes it for every
+ * proposal tool call that did not report a deduplicated retry (D-M5-8), so
+ * no tool can forget it.
  */
 export async function recordMcpProposal(input: {
   userId: string;
   clientId: string;
   grantId: string;
   workspaceId: string;
-  actionType: string;
-  actionRequestId: string;
+  tool: string;
+  actionRequestId: unknown;
 }): Promise<void> {
   await recordGrantEvent({
     action: "mcp.proposal",
@@ -52,60 +126,140 @@ export async function recordMcpProposal(input: {
     grantId: input.grantId,
     workspaceId: input.workspaceId,
     detail: {
-      actionType: input.actionType,
-      actionRequestId: input.actionRequestId,
+      tool: input.tool,
+      actionRequestId:
+        typeof input.actionRequestId === "string" &&
+        input.actionRequestId.length <= MAX_RECORDED_ID
+          ? input.actionRequestId
+          : null,
     },
   });
 }
 
-/** What the adapter needs to enforce the proposal quotas of one grant (D-M4-8). */
+/**
+ * Who the proposal quotas count (D-M5-8): one user through one client in
+ * one workspace, whatever grant id the connection has now. A re-selection
+ * replaces the grant and must not start fresh buckets.
+ */
+export type ProposalQuotaKey = {
+  userId: string;
+  clientId: string;
+  workspaceId: string;
+};
+
+const DAY_MS = 86_400_000;
+const startOfUtcDay = (ms: number) => ms - (ms % DAY_MS);
+
+/**
+ * Keys whose daily proposal quota is used up, each until the next UTC
+ * midnight (D-M5-8), so a refused client does not cost a count of a day of
+ * events per call. Bounded: when full, expired entries go first, then the
+ * oldest; an evicted key is only counted again, never let through.
+ */
+export class McpProposalDayCache {
+  private readonly until = new Map<string, number>();
+
+  constructor(private readonly maxKeys = MCP_PROPOSAL_DAY_CACHE_MAX) {}
+
+  get size(): number {
+    return this.until.size;
+  }
+
+  /** Whether `key` is used up at `now`; drops the entry once it ended. */
+  has(key: string, now: number): boolean {
+    const end = this.until.get(key);
+    if (end === undefined) return false;
+    if (end > now) return true;
+    this.until.delete(key);
+    return false;
+  }
+
+  /** Marks `key` used up until `end` (ms). */
+  add(key: string, end: number, now: number): void {
+    this.until.delete(key);
+    if (this.until.size >= this.maxKeys)
+      for (const [stored, storedEnd] of this.until)
+        if (storedEnd <= now) this.until.delete(stored);
+    while (this.until.size >= this.maxKeys) {
+      const oldest = this.until.keys().next().value;
+      if (oldest === undefined) break;
+      this.until.delete(oldest);
+    }
+    this.until.set(key, end);
+  }
+}
+
+/** What the adapter needs to enforce the proposal quotas (D-M4-8, D-M5-8). */
 export type ProposalQuota = {
   /** The gateway's limiter: holds the hourly bucket in this process. */
   limiter: McpRateLimiter;
   perHour: number;
   perDay: number;
   now: () => number;
+  /** The gateway's "daily quota used up" memory. */
+  usedUp: McpProposalDayCache;
+  /** Counts the key's proposals since `since` (tests); default: its `mcp.proposal` events. */
+  countToday?: (key: ProposalQuotaKey, since: Date) => Promise<number>;
 };
 
-const DAY_MS = 86_400_000;
-const startOfUtcDay = (ms: number) => ms - (ms % DAY_MS);
+const keyOf = (key: ProposalQuotaKey) =>
+  JSON.stringify([key.userId, key.clientId, key.workspaceId]);
 
-const hourlyRule = (quota: ProposalQuota, grantId: string): RateRule => ({
-  key: `proposal:${grantId}`,
+const hourlyRule = (quota: ProposalQuota, key: ProposalQuotaKey): RateRule => ({
+  key: `proposal:${keyOf(key)}`,
   max: quota.perHour,
   label: "proposal",
   windowMs: MCP_PROPOSAL_WINDOW_MS,
 });
 
+/** The key's `mcp.proposal` events since `since`, across all of its grants. */
+const countProposalEvents = (key: ProposalQuotaKey, since: Date) =>
+  authDb.mcpGrantEvent.count({
+    where: {
+      userId: key.userId,
+      clientId: key.clientId,
+      workspaceId: key.workspaceId,
+      action: "mcp.proposal",
+      createdAt: { gte: since },
+    },
+  });
+
 /**
- * Refuses (McpProposalQuotaError) when the grant has used its hourly or
- * daily proposal quota. Checks only; counting happens in chargeProposal
- * after a proposal was actually created, so deduplicated retries cost
- * nothing. The check and the charge are not one step: calls in flight at
- * the same time can all pass the check, so the quota may be overshot by the
- * number of concurrent calls of one grant (bounded by the per-grant request
- * rate), never by more. The daily number is read from the grant's
- * `mcp.proposal` events (written with each creation), so it survives
- * restarts and counts a creation whose call timed out.
+ * Refuses (McpProposalQuotaError) when the key has used its hourly or daily
+ * proposal quota. Checks only; counting happens in chargeProposal and
+ * recordMcpProposal after a proposal was actually created, so deduplicated
+ * retries cost nothing. The check and the charge are not one step: calls in
+ * flight at the same time can all pass the check, so the quota may be
+ * overshot by the number of concurrent calls of one key (bounded by the
+ * request rates), never by more. The daily number is read from the key's
+ * `mcp.proposal` events (written with each creation, also for a call that
+ * timed out), so it survives restarts; once it reaches the limit the key is
+ * refused from memory until the next UTC midnight.
  */
 export async function assertProposalCapacity(
   quota: ProposalQuota,
-  grant: { grantId: string; workspaceId: string },
+  key: ProposalQuotaKey,
 ): Promise<void> {
-  if (!quota.limiter.check([hourlyRule(quota, grant.grantId)]).allowed)
+  if (!quota.limiter.check([hourlyRule(quota, key)]).allowed)
     throw new McpProposalQuotaError();
-  const today = await authDb.mcpGrantEvent.count({
-    where: {
-      grantId: grant.grantId,
-      workspaceId: grant.workspaceId,
-      action: "mcp.proposal",
-      createdAt: { gte: new Date(startOfUtcDay(quota.now())) },
-    },
-  });
-  if (today >= quota.perDay) throw new McpProposalQuotaError();
+  const now = quota.now();
+  const cacheKey = keyOf(key);
+  if (quota.usedUp.has(cacheKey, now)) throw new McpProposalQuotaError();
+  const dayStart = startOfUtcDay(now);
+  const today = await (quota.countToday ?? countProposalEvents)(
+    key,
+    new Date(dayStart),
+  );
+  if (today >= quota.perDay) {
+    quota.usedUp.add(cacheKey, dayStart + DAY_MS, now);
+    throw new McpProposalQuotaError();
+  }
 }
 
-/** Counts one created proposal in the grant's hourly bucket. */
-export function chargeProposal(quota: ProposalQuota, grantId: string): void {
-  quota.limiter.charge([hourlyRule(quota, grantId)]);
+/** Counts one created proposal in the key's hourly bucket. */
+export function chargeProposal(
+  quota: ProposalQuota,
+  key: ProposalQuotaKey,
+): void {
+  quota.limiter.charge([hourlyRule(quota, key)]);
 }

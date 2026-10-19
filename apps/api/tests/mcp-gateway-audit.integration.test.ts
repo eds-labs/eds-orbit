@@ -218,8 +218,8 @@ describe("rate limiter", () => {
       perClient: 600,
       unauthenticatedPerIp: 30,
       searchPerGrant: 30,
-      proposalsPerHourPerGrant: 20,
-      proposalsPerDayPerGrant: 100,
+      proposalsPerHour: 20,
+      proposalsPerDay: 100,
     });
   });
 });

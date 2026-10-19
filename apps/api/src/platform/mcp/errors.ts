@@ -36,8 +36,9 @@ export class McpBusyError extends Error {
 }
 
 /**
- * Thrown by the adapter when a grant has used up its proposal quota (WP-M4,
- * D-M4-8). Carries nothing: the answer is fixed text.
+ * Thrown by the adapter when a user's connection of a client to a workspace
+ * has used up its proposal quota (WP-M4, D-M4-8, D-M5-8). Carries nothing:
+ * the answer is fixed text.
  */
 export class McpProposalQuotaError extends Error {
   constructor() {
