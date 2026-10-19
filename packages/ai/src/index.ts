@@ -20,10 +20,7 @@ import {
   type ProviderId,
 } from "./provider.ts";
 import { providerBudgetSchema } from "./provider-budget.ts";
-import {
-  anthropicComplete,
-  anthropicStream,
-} from "./providers/anthropic.ts";
+import { anthropicComplete, anthropicStream } from "./providers/anthropic.ts";
 import {
   openAiGenerate,
   openAiRespond,
@@ -206,9 +203,9 @@ export function environmentRuntimeConfig(): OpenAiRuntimeConfig {
     apiKey: process.env.OPENAI_API_KEY,
     imageApiKey: process.env.OPENAI_IMAGE_API_KEY,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || undefined,
-    defaultProvider: providerIdSchema.catch("openai").parse(
-      process.env.AI_DEFAULT_PROVIDER || "openai",
-    ),
+    defaultProvider: providerIdSchema
+      .catch("openai")
+      .parse(process.env.AI_DEFAULT_PROVIDER || "openai"),
     verifiedModels: (process.env.OPENAI_VERIFIED_MODELS ?? "")
       .split(",")
       .map((model) => model.trim())
@@ -251,7 +248,11 @@ function pricedUsage(
   runtime: OpenAiRuntimeConfig,
 ): Usage {
   const { detailsKnown: _detailsKnown, ...counts } = normalized;
-  return { model, ...counts, costMicros: computeCost(model, normalized, runtime) };
+  return {
+    model,
+    ...counts,
+    costMicros: computeCost(model, normalized, runtime),
+  };
 }
 
 const DRAFT_INSTRUCTIONS =
@@ -306,7 +307,10 @@ export async function generate(params: {
   const instructions =
     DRAFT_INSTRUCTIONS + (banner ? ` ${BANNER_DRAFT_INSTRUCTION}` : "");
   const schema = draftJsonSchema(banner);
-  const input = JSON.stringify({ goal: params.goal, evidence: params.evidence });
+  const input = JSON.stringify({
+    goal: params.goal,
+    evidence: params.evidence,
+  });
   const completed =
     provider === "anthropic"
       ? await anthropicComplete({
@@ -331,7 +335,11 @@ export async function generate(params: {
   // Cost first: a completed response is billed even when its output is unusable.
   const usage = pricedUsage(params.route.model, completed.usage, runtime);
   if (completed.stop === "refusal")
-    throw new GenerationOutputError("MODEL_REFUSAL", usage, completed.responseId);
+    throw new GenerationOutputError(
+      "MODEL_REFUSAL",
+      usage,
+      completed.responseId,
+    );
   let output: z.infer<typeof structuredOutput>;
   try {
     const raw = JSON.parse(completed.text);

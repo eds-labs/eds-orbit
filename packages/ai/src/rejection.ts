@@ -9,7 +9,9 @@ const REJECTED_STATUSES = new Set([400, 401, 403, 404, 422, 429]);
 /** True when the provider refused the request itself, so it cost nothing. */
 export function isRejectedRequest(error: unknown): boolean {
   if (error instanceof OpenAiApiError)
-    return typeof error.status === "number" && REJECTED_STATUSES.has(error.status);
+    return (
+      typeof error.status === "number" && REJECTED_STATUSES.has(error.status)
+    );
   if (error instanceof AnthropicApiError)
     return (
       typeof error.status === "number" &&

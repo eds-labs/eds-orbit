@@ -121,7 +121,9 @@ export function resolveRoute(
       ? runtime.anthropicTierRoutes
       : (runtime.modelRoutes ?? defaultTierRoutes);
   if (!tierRoutes) throw new Error("MODEL_CAPABILITY_NOT_VERIFIED");
-  const explicit = options.provider ? undefined : runtime.taskRoutes?.[taskClass];
+  const explicit = options.provider
+    ? undefined
+    : runtime.taskRoutes?.[taskClass];
   const route: ModelRoute = explicit ?? {
     model: tierRoutes[tier],
     maxOutputTokens: defaultOutputTokens[taskClass],

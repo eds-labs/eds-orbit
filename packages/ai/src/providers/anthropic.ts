@@ -180,7 +180,8 @@ export function toAnthropicMessages(items: unknown[]): MessageParam[] {
   };
   for (const raw of items) {
     const item = raw as Item | null;
-    if (!item || typeof item !== "object") throw new Error("MODEL_INPUT_INVALID");
+    if (!item || typeof item !== "object")
+      throw new Error("MODEL_INPUT_INVALID");
     switch (item.type) {
       case "function_call_output":
         push("user", [
@@ -325,9 +326,7 @@ const usageSchema = z.object({
   output_tokens_details: z
     .object({ thinking_tokens: count.nullish() })
     .nullish(),
-  server_tool_use: z
-    .object({ web_search_requests: count.nullish() })
-    .nullish(),
+  server_tool_use: z.object({ web_search_requests: count.nullish() }).nullish(),
 });
 
 /**
@@ -369,12 +368,11 @@ export function toResponsesUsage(usage: NormalizedUsage) {
 
 /** How a response ended, in Orbit's terms. */
 export type AnthropicStop =
-  | "completed"
-  | "max_tokens"
-  | "refusal"
-  | "pause_turn";
+  "completed" | "max_tokens" | "refusal" | "pause_turn";
 
-export function anthropicStop(message: Pick<Message, "stop_reason">): AnthropicStop {
+export function anthropicStop(
+  message: Pick<Message, "stop_reason">,
+): AnthropicStop {
   switch (message.stop_reason) {
     case "refusal":
       return "refusal";
@@ -487,13 +485,20 @@ export async function* anthropicStream(params: {
   const stream = client.messages.stream(anthropicRequest(params.request), {
     signal: params.signal,
   });
+  let streamed = false;
   for await (const event of stream)
     if (
       event.type === "content_block_delta" &&
       event.delta.type === "text_delta"
-    )
+    ) {
+      streamed = true;
       yield { type: "response.output_text.delta", delta: event.delta.text };
+    }
   const message = await stream.finalMessage();
+  // Claude may say a sentence before its tool calls; the chat runner joins
+  // the text of every step, so a paragraph break keeps the answer readable.
+  if (streamed && message.stop_reason === "tool_use")
+    yield { type: "response.output_text.delta", delta: "\n\n" };
   const usage = toResponsesUsage(normalizeAnthropicUsage(message.usage));
   const stop = anthropicStop(message);
   if (stop === "completed" || stop === "pause_turn") {

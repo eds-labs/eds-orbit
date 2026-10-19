@@ -3,6 +3,9 @@ import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
+  anthropicCatalog,
+  anthropicCatalogRateCard,
+  anthropicCatalogRegistry,
   environmentRuntimeConfig,
   fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
@@ -138,18 +141,21 @@ type StoredConfiguration = Omit<
     updatedAt: string;
   };
 
-const defaultProviderFields = () =>
-  aiProviderConfigurationInput.parse({});
+const defaultProviderFields = () => aiProviderConfigurationInput.parse({});
 
 function stored(row: { data: unknown }): StoredConfiguration {
   const value = data(row);
   const providerFields = aiProviderConfigurationInput.parse({
-    ...(value.defaultProvider ? { defaultProvider: value.defaultProvider } : {}),
+    ...(value.defaultProvider
+      ? { defaultProvider: value.defaultProvider }
+      : {}),
     ...(value.anthropicTierRoutes
       ? { anthropicTierRoutes: value.anthropicTierRoutes }
       : {}),
     ...(value.models ? { models: value.models } : {}),
-    ...(value.providerBudgets ? { providerBudgets: value.providerBudgets } : {}),
+    ...(value.providerBudgets
+      ? { providerBudgets: value.providerBudgets }
+      : {}),
     ...(value.fallback ? { fallback: value.fallback } : {}),
   });
   return {
@@ -236,6 +242,22 @@ function effectiveRoutes(
   ) as Record<TaskClass, EffectiveRoute>;
 }
 
+/**
+ * The dated Claude suggestion the admin view can prefill (plan D-A5): model
+ * ids, prices, tiers and routes as read from the official documentation on
+ * `verifiedAt`, with the sources. Nothing is applied without an owner save.
+ */
+export function anthropicSuggestions() {
+  return {
+    verifiedAt: anthropicCatalog.verifiedAt,
+    sources: [...anthropicCatalog.sources],
+    rateCard: anthropicCatalogRateCard(),
+    models: anthropicCatalogRegistry(),
+    tiers: { ...anthropicCatalog.tiers },
+    routes: { ...anthropicCatalog.suggestedRoutes },
+  };
+}
+
 /** Provider status for the admin view: configured where, never a key. */
 function providerStatus(
   fallback: OpenAiRuntimeConfig,
@@ -277,8 +299,7 @@ export function publicOpenAiConfiguration(
     };
     return {
       configured: Boolean(fallback.apiKey || fallback.imageApiKey),
-      source:
-        fallback.apiKey || fallback.imageApiKey ? "environment" : "none",
+      source: fallback.apiKey || fallback.imageApiKey ? "environment" : "none",
       textKeyConfigured: Boolean(fallback.apiKey),
       imageKeyConfigured: Boolean(fallback.imageApiKey || fallback.apiKey),
       dedicatedImageKeyConfigured: Boolean(fallback.imageApiKey),
@@ -297,6 +318,7 @@ export function publicOpenAiConfiguration(
       models: providerFields.models,
       providerBudgets: providerFields.providerBudgets,
       fallback: providerFields.fallback,
+      suggestions: { anthropic: anthropicSuggestions() },
     };
   }
   const value = stored(row);
@@ -321,6 +343,7 @@ export function publicOpenAiConfiguration(
     models: value.models,
     providerBudgets: value.providerBudgets,
     fallback: value.fallback,
+    suggestions: { anthropic: anthropicSuggestions() },
     updatedAt: value.updatedAt,
     version: row.version,
   };

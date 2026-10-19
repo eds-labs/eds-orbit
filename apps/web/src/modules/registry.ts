@@ -68,10 +68,14 @@ const platformAttention: Readonly<Record<string, AttentionRenderer>> = {
   },
   platform_provider_budget: (item, locale) => {
     const spent = usd(
-      typeof item.params.spentMicros === "number" ? item.params.spentMicros : null,
+      typeof item.params.spentMicros === "number"
+        ? item.params.spentMicros
+        : null,
     );
     const stop = usd(
-      typeof item.params.stopMicros === "number" ? item.params.stopMicros : null,
+      typeof item.params.stopMicros === "number"
+        ? item.params.stopMicros
+        : null,
     );
     const stopped = item.params.level === "stopped";
     return locale === "de"

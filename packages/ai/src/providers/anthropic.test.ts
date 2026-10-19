@@ -89,7 +89,7 @@ describe("Orbit items as Messages API messages", () => {
         name: "project_status",
         arguments: "{}",
       },
-      { type: "function_call_output", call_id: "call_1", output: "{\"ok\":1}" },
+      { type: "function_call_output", call_id: "call_1", output: '{"ok":1}' },
       { type: "function_call_output", call_id: "call_2", output: "late" },
     ]);
     expect(messages).toEqual([
@@ -104,7 +104,7 @@ describe("Orbit items as Messages API messages", () => {
       {
         role: "user",
         content: [
-          { type: "tool_result", tool_use_id: "call_1", content: "{\"ok\":1}" },
+          { type: "tool_result", tool_use_id: "call_1", content: '{"ok":1}' },
           { type: "tool_result", tool_use_id: "call_2", content: "late" },
         ],
       },
@@ -283,12 +283,19 @@ describe("usage and schema conversion", () => {
         properties: {
           angle: { type: "string", maxLength: 1200, description: "d" },
           n: { type: "integer", minimum: 0, maximum: 9 },
-          tags: { type: "array", maxItems: 5, minItems: 1, items: { type: "string" } },
+          tags: {
+            type: "array",
+            maxItems: 5,
+            minItems: 1,
+            items: { type: "string" },
+          },
           few: { type: "array", minItems: 3, items: { type: "string" } },
           day: { type: "string", format: "date", pattern: "^complex$" },
           code: { type: "string", format: "custom", pattern: "^[a-z]+$" },
           kind: { type: "string", enum: ["a", "b"] },
-          nested: { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] },
+          nested: {
+            anyOf: [{ type: "string", minLength: 1 }, { type: "null" }],
+          },
         },
         required: ["angle"],
         additionalProperties: false,
@@ -318,7 +325,12 @@ describe("usage and schema conversion", () => {
             name: "project_status",
             description: "Status",
             strict: true,
-            parameters: { type: "object", properties: {}, additionalProperties: false, required: [] },
+            parameters: {
+              type: "object",
+              properties: {},
+              additionalProperties: false,
+              required: [],
+            },
             defer_loading: true,
           },
           { type: "web_search" },
@@ -329,7 +341,12 @@ describe("usage and schema conversion", () => {
       {
         name: "project_status",
         description: "Status",
-        input_schema: { type: "object", properties: {}, additionalProperties: false, required: [] },
+        input_schema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+          required: [],
+        },
         strict: true,
       },
       {
@@ -345,18 +362,34 @@ describe("usage and schema conversion", () => {
       route: { ...route, reasoningEffort: "low" },
       instructions: "Be Orbit.",
       input: [{ role: "user", content: "hi" }],
-      outputSchema: { type: "object", properties: { a: { type: "string", maxLength: 3 } }, required: ["a"], additionalProperties: false },
+      outputSchema: {
+        type: "object",
+        properties: { a: { type: "string", maxLength: 3 } },
+        required: ["a"],
+        additionalProperties: false,
+      },
     });
     expect(request).toEqual({
       model: route.model,
       max_tokens: 1800,
-      system: [{ type: "text", text: "Be Orbit.", cache_control: { type: "ephemeral" } }],
+      system: [
+        {
+          type: "text",
+          text: "Be Orbit.",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
       output_config: {
         effort: "low",
         format: {
           type: "json_schema",
-          schema: { type: "object", properties: { a: { type: "string" } }, required: ["a"], additionalProperties: false },
+          schema: {
+            type: "object",
+            properties: { a: { type: "string" } },
+            required: ["a"],
+            additionalProperties: false,
+          },
         },
       },
       cache_control: { type: "ephemeral" },
@@ -399,7 +432,11 @@ describe("routed calls through the Anthropic adapter", () => {
       reservationId: "r",
       runtime,
     });
-    expect(sdk.options[0]).toMatchObject({ apiKey: "synthetic-anthropic-key", maxRetries: 0, timeout: 45000 });
+    expect(sdk.options[0]).toMatchObject({
+      apiKey: "synthetic-anthropic-key",
+      maxRetries: 0,
+      timeout: 45000,
+    });
     const [body] = sdk.create.mock.calls[0]!;
     expect(body).toMatchObject({
       model: route.model,
@@ -407,7 +444,12 @@ describe("routed calls through the Anthropic adapter", () => {
       output_config: { format: { type: "json_schema" } },
     });
     expect(body.messages).toEqual([
-      { role: "user", content: [{ type: "text", text: JSON.stringify({ goal: "g", evidence: {} }) }] },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: JSON.stringify({ goal: "g", evidence: {} }) },
+        ],
+      },
     ]);
     // 100 uncached at 2, 1000 cached at 0.1, 200 written at 2.5, 50 output at 10 (USD per million).
     expect(result.usage).toEqual({
@@ -456,7 +498,13 @@ describe("routed calls through the Anthropic adapter", () => {
     sdk.create.mockResolvedValue(
       message([
         { type: "text", text: '{"ok":true}', citations: null },
-        { type: "tool_use", id: "c1", name: "knowledge_search", input: { query: "q" }, caller: { type: "direct" } },
+        {
+          type: "tool_use",
+          id: "c1",
+          name: "knowledge_search",
+          input: { query: "q" },
+          caller: { type: "direct" },
+        },
       ]),
     );
     const result = await respond({
@@ -464,10 +512,26 @@ describe("routed calls through the Anthropic adapter", () => {
       instructions: "i",
       input: [{ role: "user", content: "x" }],
       tools: [
-        { type: "function", name: "knowledge_search", description: "d", strict: true, parameters: { type: "object", properties: {}, required: [], additionalProperties: false } },
+        {
+          type: "function",
+          name: "knowledge_search",
+          description: "d",
+          strict: true,
+          parameters: {
+            type: "object",
+            properties: {},
+            required: [],
+            additionalProperties: false,
+          },
+        },
         { type: "web_search" },
       ],
-      outputSchema: { type: "object", properties: {}, required: [], additionalProperties: false },
+      outputSchema: {
+        type: "object",
+        properties: {},
+        required: [],
+        additionalProperties: false,
+      },
       maxToolCalls: 1,
       reservationId: "r",
       runtime,
@@ -481,18 +545,37 @@ describe("routed calls through the Anthropic adapter", () => {
     expect(result.responseId).toBe("msg_1");
     expect(result.output).toEqual([
       expect.objectContaining({ type: "message" }),
-      { type: "function_call", call_id: "c1", name: "knowledge_search", arguments: '{"query":"q"}' },
+      {
+        type: "function_call",
+        call_id: "c1",
+        name: "knowledge_search",
+        arguments: '{"query":"q"}',
+      },
     ]);
     expect(result.usage.costMicros).toBe(1300);
   });
   it("streamChat yields the chat runner's events with the usage in Responses shape", async () => {
-    const final = message([{ type: "text", text: "Hello there", citations: null }]);
+    const final = message([
+      { type: "text", text: "Hello there", citations: null },
+    ]);
     sdk.stream.mockReturnValue({
       async *[Symbol.asyncIterator]() {
         yield { type: "message_start" };
-        yield { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "…" } };
-        yield { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Hello" } };
-        yield { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: " there" } };
+        yield {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "…" },
+        };
+        yield {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: "Hello" },
+        };
+        yield {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: " there" },
+        };
       },
       finalMessage: async () => final,
     });
@@ -516,42 +599,66 @@ describe("routed calls through the Anthropic adapter", () => {
           usage: {
             input_tokens: 1_300,
             output_tokens: 50,
-            input_tokens_details: { cached_tokens: 1_000, cache_write_tokens: 200 },
+            input_tokens_details: {
+              cached_tokens: 1_000,
+              cache_write_tokens: 200,
+            },
             output_tokens_details: { reasoning_tokens: 10 },
           },
-          output: [expect.objectContaining({ type: "message", content: [expect.objectContaining({ text: "Hello there" })] })],
+          output: [
+            expect.objectContaining({
+              type: "message",
+              content: [expect.objectContaining({ text: "Hello there" })],
+            }),
+          ],
         },
       },
     ]);
-    expect(sdk.stream.mock.calls[0]![0]).toMatchObject({ model: route.model, system: [expect.objectContaining({ cache_control: { type: "ephemeral" } })] });
+    expect(sdk.stream.mock.calls[0]![0]).toMatchObject({
+      model: route.model,
+      system: [
+        expect.objectContaining({ cache_control: { type: "ephemeral" } }),
+      ],
+    });
   });
   it.each([
     ["max_tokens", "max_output_tokens"],
     ["refusal", "content_filter"],
-  ])("streamChat reports stop reason %s as an incomplete response", async (stop, reason) => {
-    sdk.stream.mockReturnValue({
-      async *[Symbol.asyncIterator]() {},
-      finalMessage: async () => message([], { stop_reason: stop }),
-    });
-    const events = [];
-    for await (const event of await streamChat({
-      route,
-      input: [{ role: "user", content: "hi" }],
-      tools: [],
-      instructions: "i",
-      reservationId: "r",
-      runtime,
-    }))
-      events.push(event);
-    expect(events).toEqual([
-      { type: "response.incomplete", response: expect.objectContaining({ incomplete_details: { reason } }) },
-    ]);
-  });
+  ])(
+    "streamChat reports stop reason %s as an incomplete response",
+    async (stop, reason) => {
+      sdk.stream.mockReturnValue({
+        async *[Symbol.asyncIterator]() {},
+        finalMessage: async () => message([], { stop_reason: stop }),
+      });
+      const events = [];
+      for await (const event of await streamChat({
+        route,
+        input: [{ role: "user", content: "hi" }],
+        tools: [],
+        instructions: "i",
+        reservationId: "r",
+        runtime,
+      }))
+        events.push(event);
+      expect(events).toEqual([
+        {
+          type: "response.incomplete",
+          response: expect.objectContaining({ incomplete_details: { reason } }),
+        },
+      ]);
+    },
+  );
 });
 
 describe("rejected Anthropic requests", () => {
   const status = (code: number) =>
-    APIError.generate(code, { error: { type: "x", message: "synthetic" } }, "synthetic", new Headers());
+    APIError.generate(
+      code,
+      { error: { type: "x", message: "synthetic" } },
+      "synthetic",
+      new Headers(),
+    );
   it.each([400, 401, 403, 404, 413, 422, 429, 529])(
     "treats HTTP %i as not processed and not billed",
     (code) => expect(isRejectedRequest(status(code))).toBe(true),

@@ -51,7 +51,12 @@ export async function providerPeriodSpend(
       state: { not: "released" },
       model: { not: null },
     },
-    select: { model: true, state: true, amountMicros: true, settledMicros: true },
+    select: {
+      model: true,
+      state: true,
+      amountMicros: true,
+      settledMicros: true,
+    },
   });
   const spend: ProviderPeriodSpend = {
     spentMicros: 0,
@@ -92,10 +97,24 @@ export async function providerBudgetStatus(
   now = new Date(),
 ): Promise<ProviderBudgetStatus> {
   const { providerBudgets, models } = await runtimeProviderBudgets(tx, scope);
-  const budget = provider === "anthropic" ? providerBudgets?.anthropic : undefined;
+  const budget =
+    provider === "anthropic" ? providerBudgets?.anthropic : undefined;
   if (!budget)
-    return { provider, configured: false, budget: null, level: null, spend: null };
-  const spend = await providerPeriodSpend(tx, scope, provider, budget, models, now);
+    return {
+      provider,
+      configured: false,
+      budget: null,
+      level: null,
+      spend: null,
+    };
+  const spend = await providerPeriodSpend(
+    tx,
+    scope,
+    provider,
+    budget,
+    models,
+    now,
+  );
   return {
     provider,
     configured: true,
@@ -120,9 +139,17 @@ export async function assertProviderBudget(
 ) {
   const { providerBudgets, models } = await runtimeProviderBudgets(tx, scope);
   const provider = providerOfModel(model, models);
-  const budget = provider === "anthropic" ? providerBudgets?.anthropic : undefined;
+  const budget =
+    provider === "anthropic" ? providerBudgets?.anthropic : undefined;
   if (!budget) return null;
-  const spend = await providerPeriodSpend(tx, scope, provider, budget, models, now);
+  const spend = await providerPeriodSpend(
+    tx,
+    scope,
+    provider,
+    budget,
+    models,
+    now,
+  );
   if (spend.spentMicros + amount > budget.stopMicros)
     throw new DomainError(PROVIDER_BUDGET_STOP, 409);
   return { provider, budget, spend };

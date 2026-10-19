@@ -356,10 +356,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       const crashed = recovered as NonNullable<typeof recovered>;
       await recordSpan(scope, crashed.agentRunId, {
         type: "model_call",
-        name: providerCallName(
-          providerOfModel(crashed.model ?? ""),
-          "stream",
-        ),
+        name: providerCallName(providerOfModel(crashed.model ?? ""), "stream"),
         status: "unknown",
         errorCode: "CHAT_OUTCOME_UNKNOWN",
         startedAt: crashed.transmittedAt,

@@ -44,6 +44,8 @@ export function platformSettingsTabs(options: {
       ? [tab("members", 10, "Members & roles", "Mitglieder & Rollen")]
       : []),
     tab("integrations", 40, "Integrations", "Integrationen"),
+    // AI providers, models, budget and usage (owner tools).
+    ...(options.isOwner ? [tab("ai", 42, "AI", "KI")] : []),
     ...(options.isOwner
       ? [tab("retention", 45, "Retention", "Aufbewahrung")]
       : []),

@@ -31,13 +31,11 @@ export const providerBudgetSchema = z
   })
   .strict()
   .superRefine((value, context) => {
-    if (
-      !(
-        value.warnMicros <= value.warn2Micros &&
-        value.warn2Micros <= value.stopMicros &&
-        value.stopMicros <= value.monthlyMicros
-      )
-    )
+    if (!(
+      value.warnMicros <= value.warn2Micros &&
+      value.warn2Micros <= value.stopMicros &&
+      value.stopMicros <= value.monthlyMicros
+    ))
       context.addIssue({
         code: "custom",
         message: "PROVIDER_BUDGET_THRESHOLDS_INVALID",

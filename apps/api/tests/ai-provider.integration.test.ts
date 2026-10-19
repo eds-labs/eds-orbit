@@ -128,7 +128,12 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
           "claude-haiku-5-5": rate(100_000, 500_000),
           "claude-opus-5-5": rate(4_000_000, 20_000_000),
         },
-        modelRoutes: { fast: GPT, standard: GPT, quality: GPT, escalation: GPT },
+        modelRoutes: {
+          fast: GPT,
+          standard: GPT,
+          quality: GPT,
+          escalation: GPT,
+        },
         taskRoutes: {
           chat_operator: { model: CLAUDE, maxOutputTokens: 1000 },
         },
@@ -210,7 +215,11 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
   it("refuses an Anthropic tier that is not verified and a Claude route with effort none", async () => {
     await expect(
       configureProvider({
-        anthropicTierRoutes: { fast: "claude-unknown", standard: CLAUDE, quality: CLAUDE },
+        anthropicTierRoutes: {
+          fast: "claude-unknown",
+          standard: CLAUDE,
+          quality: CLAUDE,
+        },
       }),
     ).rejects.toMatchObject({ code: "ROUTED_MODEL_NOT_VERIFIED" });
     await run((tx) =>
@@ -222,9 +231,18 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
           "claude-haiku-5-5": rate(100_000, 500_000),
           "claude-opus-5-5": rate(4_000_000, 20_000_000),
         },
-        modelRoutes: { fast: GPT, standard: GPT, quality: GPT, escalation: GPT },
+        modelRoutes: {
+          fast: GPT,
+          standard: GPT,
+          quality: GPT,
+          escalation: GPT,
+        },
         taskRoutes: {
-          chat_operator: { model: CLAUDE, reasoningEffort: "none", maxOutputTokens: 1000 },
+          chat_operator: {
+            model: CLAUDE,
+            reasoningEffort: "none",
+            maxOutputTokens: 1000,
+          },
         },
       }),
     );
@@ -241,7 +259,12 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
           "claude-haiku-5-5": rate(100_000, 500_000),
           "claude-opus-5-5": rate(4_000_000, 20_000_000),
         },
-        modelRoutes: { fast: GPT, standard: GPT, quality: GPT, escalation: GPT },
+        modelRoutes: {
+          fast: GPT,
+          standard: GPT,
+          quality: GPT,
+          escalation: GPT,
+        },
         taskRoutes: { chat_operator: { model: CLAUDE, maxOutputTokens: 1000 } },
       }),
     );
@@ -251,16 +274,32 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     // Stop at 3 USD; each Claude reservation below is 1 USD.
     await configureProvider({
       anthropicApiKey: KEY,
-      providerBudgets: { anthropic: { ...budget(3_000_000), warnMicros: 1_000_000, warn2Micros: 2_000_000 } },
+      providerBudgets: {
+        anthropic: {
+          ...budget(3_000_000),
+          warnMicros: 1_000_000,
+          warn2Micros: 2_000_000,
+        },
+      },
     });
     const reserveClaude = (key: string, amount = 1_000_000) =>
       run(async (tx) => {
         const mandate = await requireSpendMandate(tx, scope);
-        return reserve(tx, scope, key, "chat_text", amount, mandate.limits, new Date(), key, {
-          agentRunId: null,
-          taskClass: "chat_operator",
-          model: CLAUDE,
-        });
+        return reserve(
+          tx,
+          scope,
+          key,
+          "chat_text",
+          amount,
+          mandate.limits,
+          new Date(),
+          key,
+          {
+            agentRunId: null,
+            taskClass: "chat_operator",
+            model: CLAUDE,
+          },
+        );
       });
     // Four parallel reservations of 1 USD: exactly three fit under the 3 USD stop.
     const outcomes = await Promise.allSettled(
@@ -278,14 +317,26 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     await expect(
       run(async (tx) => {
         const mandate = await requireSpendMandate(tx, scope);
-        return reserve(tx, scope, "provider:openai", "chat_text", 1_000_000, mandate.limits, new Date(), "provider:openai", {
-          agentRunId: null,
-          taskClass: "chat_operator",
-          model: GPT,
-        });
+        return reserve(
+          tx,
+          scope,
+          "provider:openai",
+          "chat_text",
+          1_000_000,
+          mandate.limits,
+          new Date(),
+          "provider:openai",
+          {
+            agentRunId: null,
+            taskClass: "chat_operator",
+            model: GPT,
+          },
+        );
       }),
     ).resolves.toMatchObject({ state: "reserved" });
-    const status = await run((tx) => providerBudgetStatus(tx, scope, "anthropic"));
+    const status = await run((tx) =>
+      providerBudgetStatus(tx, scope, "anthropic"),
+    );
     expect(status).toMatchObject({
       configured: true,
       level: "stopped",
@@ -293,7 +344,9 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     });
     // Settling at the actual cost lowers the counted spend; unknown keeps the reservation.
     const rows = await run((tx) =>
-      tx.budgetReservation.findMany({ where: { projectId: scope.projectId, model: CLAUDE } }),
+      tx.budgetReservation.findMany({
+        where: { projectId: scope.projectId, model: CLAUDE },
+      }),
     );
     await run(async (tx) => {
       await markTransmitted(tx, scope, rows[0]!.id);
@@ -312,7 +365,10 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     });
     // Cost by provider separates the two providers' reservations.
     const byProvider = await aiCostSummary(scope, { groupBy: "provider" });
-    expect(byProvider.rows.map((row) => row.key).sort()).toEqual(["anthropic", "openai"]);
+    expect(byProvider.rows.map((row) => row.key).sort()).toEqual([
+      "anthropic",
+      "openai",
+    ]);
     // The budget route and the attention item report the level.
     const budgetRoute = await app.inject({
       url: `/api/projects/${scope.projectId}/ai-budget`,
@@ -330,7 +386,10 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
       expect.objectContaining({
         kind: "platform_provider_budget",
         severity: "critical",
-        params: expect.objectContaining({ level: "warn2", spentMicros: 2_400_000 }),
+        params: expect.objectContaining({
+          level: "warn2",
+          spentMicros: 2_400_000,
+        }),
       }),
     );
   });
@@ -346,18 +405,40 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     expect(small).toMatchObject({ provider: "anthropic", fallbackFrom: null });
     await expect(
       run(async (tx) => {
-        const plan = await planCall(tx, scope, "chat_operator", runtime, () => 1_500_000);
+        const plan = await planCall(
+          tx,
+          scope,
+          "chat_operator",
+          runtime,
+          () => 1_500_000,
+        );
         const mandate = await requireSpendMandate(tx, scope);
-        return reserve(tx, scope, "provider:fallback-none", "chat_text", plan.estimateMicros, mandate.limits, new Date(), "provider:fallback-none", {
-          agentRunId: null,
-          taskClass: "chat_operator",
-          model: plan.route.model,
-        });
+        return reserve(
+          tx,
+          scope,
+          "provider:fallback-none",
+          "chat_text",
+          plan.estimateMicros,
+          mandate.limits,
+          new Date(),
+          "provider:fallback-none",
+          {
+            agentRunId: null,
+            taskClass: "chat_operator",
+            model: plan.route.model,
+          },
+        );
       }),
     ).rejects.toMatchObject({ code: "PROVIDER_BUDGET_STOP" });
     await configureProvider({
       anthropicApiKey: KEY,
-      providerBudgets: { anthropic: { ...budget(3_000_000), warnMicros: 1_000_000, warn2Micros: 2_000_000 } },
+      providerBudgets: {
+        anthropic: {
+          ...budget(3_000_000),
+          warnMicros: 1_000_000,
+          warn2Micros: 2_000_000,
+        },
+      },
       fallback: { onProviderBudgetStop: "openai" },
     });
     const allowed = await run((tx) => runtimeOpenAiConfiguration(tx, scope));
@@ -400,7 +481,15 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
         }),
       ),
     );
-    expect(data(await run((tx) => tx.entity.findFirstOrThrow({ where: { projectId: scope.projectId, kind: "openai_configuration" } }))).encryptedAnthropicApiKey).toBeUndefined();
+    expect(
+      data(
+        await run((tx) =>
+          tx.entity.findFirstOrThrow({
+            where: { projectId: scope.projectId, kind: "openai_configuration" },
+          }),
+        ),
+      ).encryptedAnthropicApiKey,
+    ).toBeUndefined();
     expect(view.fallback.onProviderBudgetStop).toBe("none");
   });
 });

@@ -2071,6 +2071,11 @@ td:first-child {
     gap: 12px;
   }
 }
+.usage-title {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 21px 0;
+}
 .checklist {
   padding: 10px 21px;
   margin: 0;

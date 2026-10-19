@@ -256,7 +256,12 @@ async function modelCall<T>(
           input.taskClass,
           runtime,
           (candidate) =>
-            estimateCost(candidate.model, bytes, candidate.maxOutputTokens, runtime),
+            estimateCost(
+              candidate.model,
+              bytes,
+              candidate.maxOutputTokens,
+              runtime,
+            ),
         );
         const route = plan.route;
         const estimate = plan.estimateMicros;

@@ -58,7 +58,13 @@ describe("provider of a model", () => {
 
 describe("routes with a second provider", () => {
   const runtime = {
-    verifiedModels: ["gpt-5.6-terra", "gpt-5.6-sol", "claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"],
+    verifiedModels: [
+      "gpt-5.6-terra",
+      "gpt-5.6-sol",
+      "claude-sonnet-5-5",
+      "claude-opus-5-5",
+      "claude-haiku-5-5",
+    ],
     anthropicTierRoutes: {
       fast: "claude-haiku-5-5",
       standard: "claude-sonnet-5-5",
@@ -96,12 +102,18 @@ describe("routes with a second provider", () => {
         chat_operator: { model: "claude-opus-5-5", maxOutputTokens: 3000 },
       },
     };
-    expect(resolveRoute("chat_operator", withRoute).model).toBe("claude-opus-5-5");
+    expect(resolveRoute("chat_operator", withRoute).model).toBe(
+      "claude-opus-5-5",
+    );
     expect(
       resolveRoute("chat_operator", withRoute, { provider: "openai" }).model,
     ).toBe("gpt-5.6-terra");
     expect(() =>
-      resolveRoute("chat_operator", { verifiedModels: ["claude-sonnet-5-5"] }, { provider: "anthropic" }),
+      resolveRoute(
+        "chat_operator",
+        { verifiedModels: ["claude-sonnet-5-5"] },
+        { provider: "anthropic" },
+      ),
     ).toThrow("MODEL_CAPABILITY_NOT_VERIFIED");
   });
   it("refuses an effort of none on a Claude model at resolution time", () => {
@@ -160,10 +172,17 @@ describe("provider budget periods and levels", () => {
       DEFAULT_ANTHROPIC_BUDGET,
     );
     expect(() =>
-      providerBudgetSchema.parse({ ...DEFAULT_ANTHROPIC_BUDGET, stopMicros: 99_000_000, warn2Micros: 99_500_000 }),
+      providerBudgetSchema.parse({
+        ...DEFAULT_ANTHROPIC_BUDGET,
+        stopMicros: 99_000_000,
+        warn2Micros: 99_500_000,
+      }),
     ).toThrow(/PROVIDER_BUDGET_THRESHOLDS_INVALID/);
     expect(() =>
-      providerBudgetSchema.parse({ ...DEFAULT_ANTHROPIC_BUDGET, anchorDay: 31 }),
+      providerBudgetSchema.parse({
+        ...DEFAULT_ANTHROPIC_BUDGET,
+        anchorDay: 31,
+      }),
     ).toThrow();
   });
 });
