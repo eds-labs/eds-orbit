@@ -2,6 +2,7 @@ import { ChartColumn, LayoutDashboard, LifeBuoy, Users } from "lucide-react";
 import { labels } from "@/lib/i18n";
 import type { Label } from "@/platform/shell/types";
 import type { WebModule } from "@/platform/shell/types";
+import { supportAttention } from "./attention";
 import { SupportContacts } from "./contacts";
 import { SupportHome } from "./home";
 import { SupportInbox } from "./inbox";
@@ -31,6 +32,7 @@ export const supportWeb: WebModule = {
   homeOrder: 5,
   groupOrder: 20,
   settings: supportSettings,
+  attention: supportAttention,
   views: [
     {
       key: "support",

@@ -67,7 +67,14 @@ import {
   toggleCollapsed,
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
-import { SidebarNav } from "@/platform/shell/sidebar-nav";
+import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
+import {
+  attentionRenderers,
+  clearAttentionCache,
+  navBadges,
+  overflowBadge,
+  useAttentionLoad,
+} from "@/platform/shell/attention";
 import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
@@ -150,6 +157,22 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     lastStates,
     project?.id,
   );
+  // Shared by the sidebar badges and the home page (§4.4), through a 30 s
+  // cache that outlives the remount on navigation (ruling R15).
+  const attention = useAttentionLoad(
+    identity.data?.user.id,
+    project?.id,
+    revision,
+    pathname,
+  );
+  // Responses are filtered for the member: none survives a signed-out state.
+  const signedOut =
+    identity.error?.status === 401 ||
+    (!identity.loading && !identity.data && !identity.error);
+  useEffect(() => {
+    if (signedOut) clearAttentionCache();
+  }, [signedOut]);
+  const renderers = useMemo(() => attentionRenderers(registry), [registry]);
   useEffect(() => {
     try {
       const lang = localStorage.getItem("orbit.locale");
@@ -254,7 +277,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       previous?.focus();
     };
   }, [menu]);
-  const shell = useMemo((): ShellContextValue | null => {
+  const base = useMemo((): Omit<ShellContextValue, "attention"> | null => {
     if (!project) return null;
     const states = knownStates?.modules;
     // Until the states load, or if they fail, every module counts as enabled.
@@ -292,6 +315,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         {},
         ...active.map((m) => m.actionRequests ?? {}),
       ),
+      attentionRenderers: renderers,
       settings: active.flatMap((m) => m.settings ?? []),
       setupLinks: active.flatMap((m) => m.setupLinks ?? []),
       connectors: {
@@ -299,7 +323,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         extras: active.flatMap((m) => m.connectors?.extras ?? []),
       },
     };
-  }, [project, knownStates, registry, table]);
+  }, [project, knownStates, registry, table, renderers]);
+  // Apart, so a loaded attention keeps the functions above unchanged.
+  const shell = useMemo(
+    (): ShellContextValue | null => base && { ...base, attention },
+    [base, attention],
+  );
   // The label of a sidebar group, for the breadcrumb and the document title.
   const groupLabel = (group: string) =>
     group === "top"
@@ -422,7 +451,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     <button
       className="signout"
       disabled={signout.pending}
-      onClick={() => signout.run(() => post("/auth/sign-out", {}))}
+      onClick={() =>
+        signout.run(async () => {
+          await post("/auth/sign-out", {});
+          clearAttentionCache();
+        })
+      }
     >
       <LogOut />
       {t("signOut")}
@@ -494,6 +528,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const navGroups = buildNavGroups(table.routes, shell.modules);
   const mobileBar = mobileEntries(table.routes, isOn);
   const mobileCurrent = mobileCurrentKey(mobileBar, route);
+  // No badges while loading or after a failed load; navigation still works.
+  const badges = navBadges(attention);
+  const moreBadge = overflowBadge(
+    badges,
+    navGroups.flatMap((g) => g.entries.map((r) => r.key)),
+    mobileBar.map((r) => r.key),
+  );
   function toggleGroup(id: string) {
     const next = toggleCollapsed(collapsed, id);
     setCollapsed(next);
@@ -593,6 +634,8 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             groups={navGroups}
             activeKey={activeNavKey(route)}
             hrefOf={(r) => projectHref(project.id, r)}
+            badges={badges.counts}
+            urgent={badges.urgent}
             locale={locale}
             collapsed={collapsed}
             onToggle={toggleGroup}
@@ -725,12 +768,22 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               >
                 <Icon aria-hidden="true" />
                 <span>{mobile === true ? label(n) : mobile[locale]}</span>
+                <NavBadge
+                  count={badges.counts[n.key] ?? 0}
+                  urgent={badges.urgent.has(n.key)}
+                  locale={locale}
+                />
               </Link>
             );
           })}
           <button onClick={() => setMenu(true)}>
             <MoreHorizontal />
             <span>{t("more")}</span>
+            <NavBadge
+              count={moreBadge.count}
+              urgent={moreBadge.urgent}
+              locale={locale}
+            />
           </button>
         </nav>
         {newProject && (

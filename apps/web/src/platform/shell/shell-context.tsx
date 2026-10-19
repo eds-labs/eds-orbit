@@ -1,7 +1,13 @@
 "use client";
 import { createContext, useContext, type ComponentType } from "react";
 import type { Route, RouteTable } from "./routes";
-import type { ConnectorProvider, Label, SettingsSection } from "./types";
+import type {
+  AttentionRenderer,
+  ConnectorProvider,
+  Label,
+  SettingsSection,
+} from "./types";
+import type { AttentionResponse } from "@/lib/api";
 import type {
   ActionRequestRenderer,
   ChatExtension,
@@ -20,6 +26,13 @@ export type ShellModule = {
   nav: readonly Route[];
 };
 
+/** The project's attention items as the shell loaded them (§4.4). */
+export type AttentionState = {
+  data?: AttentionResponse;
+  error?: unknown;
+  loading: boolean;
+};
+
 export type ShellContextValue = {
   table: RouteTable;
   /** Platform pages with a navigation entry, in sidebar order. */
@@ -33,6 +46,10 @@ export type ShellContextValue = {
   chat: readonly ChatExtension[];
   /** Inbox views of action request types, by type (WP2.3). */
   actionRequests: Readonly<Record<string, ActionRequestRenderer>>;
+  /** The attention items, shared by the sidebar and the home (useAttention). */
+  attention: AttentionState;
+  /** Texts of attention items by kind: the platform's and every module's. */
+  attentionRenderers: Readonly<Record<string, AttentionRenderer>>;
   /** Settings sections of the modules, in registry order (WP2.3b). */
   settings: readonly SettingsSection[];
   /** Setup links of the modules for the settings overview (WP2.3b). */

@@ -22,6 +22,7 @@ import { marketingNotifications } from "./agents/notification-messages.ts";
 import { marketingConnections } from "./publishing/connection-providers.ts";
 import { invalidateMarketingForKnowledge } from "./pipeline/knowledge-impact.ts";
 import { slackWebhook } from "./publishing/slack.ts";
+import { marketingAttention, marketingAttentionStatus } from "./attention.ts";
 
 /**
  * What the marketing module plugs into the platform (WP1.6). Transitional:
@@ -58,6 +59,11 @@ export const marketingContributions: ModuleContributions = {
   // Content, approvals, publications, insights and jobs on revoked or
   // changed knowledge (WP3.1).
   knowledgeImpact: invalidateMarketingForKnowledge,
+  // Drafts, content, exceptions, paused posts and failed runs that need the
+  // member (UI restructure §4.1).
+  attention: marketingAttention,
+  // The active policy's mode in the attention response's status.
+  attentionStatus: marketingAttentionStatus,
   // The model specialists and executor steps of the `agent` queue.
   onWorkerStart: registerAgentSpecialists,
   publicViews: {

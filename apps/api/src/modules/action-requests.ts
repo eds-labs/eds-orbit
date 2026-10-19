@@ -536,11 +536,15 @@ export async function cancelMcpProposals(
 }
 
 /**
- * Owners' open decisions: pending, unexpired requests whose action type needs
- * an owner, newest first, with what the owner must see to decide.
+ * Owners' open decisions as rows: pending, unexpired requests whose action
+ * type needs an owner, newest first, among the 50 newest pending ones. The
+ * owner's list and the attention item count the same rows.
  */
-export async function listActionRequests(tx: DbTx, scope: Scope) {
-  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+export async function openOwnerRequests(
+  tx: DbTx,
+  scope: Scope,
+  now = new Date(),
+) {
   const rows = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
@@ -551,6 +555,24 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
     orderBy: { createdAt: "desc" },
     take: 50,
   });
+  return rows.filter((row) => {
+    const d = data(row);
+    const type = registeredActionType(String(d.actionType));
+    // As the list always read it: only a known past expiry drops a request.
+    return (
+      type?.deciderRole === "owner" &&
+      !(Date.parse(d.expiresAt) <= now.getTime())
+    );
+  });
+}
+
+/**
+ * Owners' open decisions (`openOwnerRequests`) with what the owner must see
+ * to decide.
+ */
+export async function listActionRequests(tx: DbTx, scope: Scope) {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  const rows = await openOwnerRequests(tx, scope);
   // A decision names the channel as the owner knows it, not by its ID.
   const channels = new Map<string, Record<string, unknown>>(
     (
@@ -564,9 +586,6 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
   const items = [];
   for (const row of rows) {
     const d = data(row);
-    const type = registeredActionType(String(d.actionType));
-    if (!type || type.deciderRole !== "owner") continue;
-    if (Date.parse(d.expiresAt) <= Date.now()) continue;
     const packageId =
       typeof d.payload?.packageId === "string"
         ? d.payload.packageId
