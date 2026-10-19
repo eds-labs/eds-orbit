@@ -70,6 +70,7 @@ import { agentsEnabled } from "./modules/agents/assignments.ts";
 import { assertMissionAssets } from "./modules/asset-tools.ts";
 import { projectReadiness } from "./platform/governance/readiness.ts";
 import { publicOpenAiConfiguration } from "./modules/openai-configuration.ts";
+import { providerBudgetStatus } from "./platform/ai/provider-budget.ts";
 import {
   beginConnect,
   finishConnect,
@@ -742,6 +743,38 @@ export async function buildServer(
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
     return aiCostSummary(scope, aiCostQuery.parse(req.query));
+  });
+  // The Anthropic credit budget of the project: period, spend and level
+  // (plan D-A6, D-A8). Same level as /ai-cost; no key, no prompt content.
+  app.get("/api/projects/:projectId/ai-budget", async (req) => {
+    const { projectId } = req.params as { projectId: string };
+    const scope = await scopeFor(auth, req, projectId, PROJECT_WRITE);
+    const status = await scoped(scope.workspaceId, projectId, (tx) =>
+      providerBudgetStatus(tx, scope, "anthropic"),
+    );
+    return {
+      providers: {
+        anthropic: {
+          configured: status.configured,
+          budget: status.budget,
+          level: status.level,
+          spend: status.spend
+            ? {
+                spentMicros: String(status.spend.spentMicros),
+                settledMicros: String(status.spend.settledMicros),
+                pendingMicros: String(status.spend.pendingMicros),
+                unknownMicros: String(status.spend.unknownMicros),
+                count: status.spend.count,
+                periodStart: status.spend.periodStart.toISOString(),
+                periodEnd: status.spend.periodEnd.toISOString(),
+              }
+            : null,
+          // Orbit calculates its spend itself; the credit balance is the
+          // owner's manually verified value and is not read from Anthropic.
+          creditSync: "manual",
+        },
+      },
+    };
   });
   app.get("/api/projects/:projectId/openai-configuration", async (req) => {
     const { projectId } = req.params as { projectId: string };

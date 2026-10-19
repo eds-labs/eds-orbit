@@ -104,6 +104,13 @@
     "editor": "not_found",
     "owner": "not_found"
   },
+  "GET /api/projects/{projectId}/ai-budget": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/ai-cost": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -770,6 +777,13 @@
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/add-member": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/ai-provider-configure": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",

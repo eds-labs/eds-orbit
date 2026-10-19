@@ -3,6 +3,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { openOwnerRequests } from "../../modules/action-requests.ts";
 import { budgetMonthStart } from "../ai/budget.ts";
 import { activePolicyRecord } from "../ai/spend-mandate.ts";
+import { providerBudgetStatus } from "../ai/provider-budget.ts";
 import { data } from "../shared.ts";
 import { can, PROJECT_OWN, PROJECT_WRITE } from "../tenancy/permissions.ts";
 import { hiddenKinds } from "../tenancy/module-roles.ts";
@@ -115,6 +116,27 @@ export async function platformAttention(
       since: unknown.since,
       params: { micros: unknown.micros },
       ...OPERATIONS,
+    });
+  // The Anthropic credit budget (plan D-A8): a warning from the first
+  // threshold, critical from the second and when calls are stopped.
+  const anthropic = await providerBudgetStatus(tx, scope, "anthropic", now);
+  if (anthropic.configured && anthropic.level && anthropic.level !== "ok")
+    items.push({
+      id: "platform:provider-budget:anthropic",
+      moduleId: "platform",
+      kind: "platform_provider_budget",
+      severity: anthropic.level === "warn" ? "warning" : "critical",
+      dueAt: anthropic.spend!.periodEnd.toISOString(),
+      since: anthropic.spend!.periodStart.toISOString(),
+      params: {
+        provider: "anthropic",
+        level: anthropic.level,
+        spentMicros: anthropic.spend!.spentMicros,
+        stopMicros: anthropic.budget!.stopMicros,
+        monthlyMicros: anthropic.budget!.monthlyMicros,
+      },
+      navKey: "operations",
+      link: "/settings?section=ai",
     });
   const requests = await openOwnerRequests(tx, scope, now);
   if (requests.length) {

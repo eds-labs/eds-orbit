@@ -13,9 +13,11 @@ import {
   generate,
   GenerationOutputError,
   isRejectedRequest,
+  providerCallName,
   resolveRoute,
   estimateCost,
 } from "../../../../../../packages/ai/src/index.ts";
+import { planCall } from "../../../platform/ai/call-plan.ts";
 import {
   activePolicy,
   CLAIM_REPEAT_WINDOW_DAYS,
@@ -409,7 +411,6 @@ async function generateMissionDraft(
       // Fail closed: the run records the configuration version that routed it.
       if ((ai.routeVersion ?? null) !== routeVersion)
         throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
-      const modelRoute = resolveRoute(draftTaskClass(m.contentType), ai);
       const p = await activePolicy(tx, scope);
       if (!p) throw new DomainError("POLICY_REQUIRED");
       const parsed = policy.parse(
@@ -582,13 +583,21 @@ async function generateMissionDraft(
           : null,
       };
       const goal = JSON.stringify(contract);
-      const cost = estimateCost(
-        modelRoute.model,
+      const inputBytes =
         Buffer.byteLength(JSON.stringify({ goal, evidence: data(evidence) })) +
-          4000,
-        modelRoute.maxOutputTokens,
+        4000;
+      // The task's route, or its OpenAI tier when the Anthropic budget stops
+      // the call and the owner allowed the fallback (plan D-A7).
+      const plan = await planCall(
+        tx,
+        scope,
+        draftTaskClass(m.contentType),
         ai,
+        (route) =>
+          estimateCost(route.model, inputBytes, route.maxOutputTokens, ai),
       );
+      const modelRoute = plan.route;
+      const cost = plan.estimateMicros;
       if (m.chatProposalId || m.packageId || m.assignmentRunId) {
         const query = await tx.budgetReservation.findFirst({
           where: {
@@ -654,6 +663,8 @@ async function generateMissionDraft(
         goal,
         evidence,
         modelRoute,
+        provider: plan.provider,
+        fallbackFrom: plan.fallbackFrom,
         reservationId: reservation.id,
         ai,
         projectGeneration: project.generation,
@@ -716,6 +727,9 @@ async function generateMissionDraft(
   });
   let outcome: Awaited<ReturnType<typeof generate>>;
   const callStartedAt = new Date();
+  const callName =
+    providerCallName(prepared.provider, "create") +
+    (prepared.fallbackFrom ? " (fallback)" : "");
   try {
     outcome = await generate({
       task: "draft",
@@ -739,7 +753,7 @@ async function generateMissionDraft(
       // Telemetry only after the settlement committed.
       await recordSpan(scope, trace.runId, {
         type: "model_call",
-        name: "responses.create",
+        name: callName,
         model: error.usage.model,
         status: "failed",
         errorCode: error.code,
@@ -759,7 +773,7 @@ async function generateMissionDraft(
       );
       await recordSpan(scope, trace.runId, {
         type: "model_call",
-        name: "responses.create",
+        name: callName,
         model: prepared.modelRoute.model,
         status: "failed",
         errorCode: "MODEL_REQUEST_NOT_ACCEPTED",
@@ -776,7 +790,7 @@ async function generateMissionDraft(
     // Telemetry only after the settlement committed.
     await recordSpan(scope, trace.runId, {
       type: "model_call",
-      name: "responses.create",
+      name: callName,
       model: prepared.modelRoute.model,
       status: "unknown",
       errorCode: "MODEL_OUTCOME_OR_COST_UNKNOWN",
@@ -791,7 +805,7 @@ async function generateMissionDraft(
   );
   await recordSpan(scope, trace.runId, {
     type: "model_call",
-    name: "responses.create",
+    name: callName,
     model: outcome.usage.model,
     status: "succeeded",
     startedAt: callStartedAt,

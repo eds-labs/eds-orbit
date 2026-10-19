@@ -1,4 +1,3 @@
-import type OpenAI from "openai";
 import { ZodError } from "zod";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
@@ -6,9 +5,13 @@ import {
   estimateCost,
   isRejectedRequest,
   normalizeResponsesUsage,
+  providerCallName,
+  providerOfModel,
   resolveRoute,
   streamChat,
+  type ProviderId,
 } from "../../../../packages/ai/src/index.ts";
+import { planCall } from "../platform/ai/call-plan.ts";
 import { data, DomainError } from "../shared.ts";
 import { requireSpendMandate } from "../platform/ai/spend-mandate.ts";
 import { reserve, settle, markTransmitted } from "./budget.ts";
@@ -256,6 +259,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     transmitted: false,
     startedAt: new Date(),
     model: undefined as string | undefined,
+    provider: "openai" as ProviderId,
   };
   let agentRunId: string | null = null;
   const controller = new AbortController();
@@ -290,6 +294,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       agentRunId: string | null;
       reservationId: string;
       transmittedAt: Date;
+      model: string | null;
     } | null;
     const state = await chatScoped(scope, async (tx) => {
       const run = await tx.chatRun.findFirst({
@@ -315,6 +320,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
               agentRunId: row.agentRunId,
               reservationId: row.id,
               transmittedAt: run.transmittedAt,
+              model: row.model,
             };
         }
         await tx.chatRun.update({
@@ -350,7 +356,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       const crashed = recovered as NonNullable<typeof recovered>;
       await recordSpan(scope, crashed.agentRunId, {
         type: "model_call",
-        name: "responses.stream",
+        name: providerCallName(providerOfModel(crashed.model ?? ""), "stream"),
         status: "unknown",
         errorCode: "CHAT_OUTCOME_UNKNOWN",
         startedAt: crashed.transmittedAt,
@@ -454,14 +460,19 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
           // Fail closed before reserving: the run records one configuration version.
           if ((runtime.routeVersion ?? null) !== state.routeVersion)
             throw new DomainError("CHAT_ROUTE_CHANGED", 409);
-          const modelRoute = resolveRoute("chat_operator", runtime);
-          const model = modelRoute.model;
-          const estimate = estimateCost(
-            model,
-            bytes,
-            modelRoute.maxOutputTokens,
+          // The task's route, or its OpenAI tier when the Anthropic budget
+          // stops the call and the owner allowed the fallback (plan D-A7).
+          const plan = await planCall(
+            tx,
+            scope,
+            "chat_operator",
             runtime,
+            (route) =>
+              estimateCost(route.model, bytes, route.maxOutputTokens, runtime),
           );
+          const modelRoute = plan.route;
+          const model = modelRoute.model;
+          const estimate = plan.estimateMicros;
           // Keyed by the number of model calls settled so far in this run.
           const reservation = await reserve(
             tx,
@@ -483,19 +494,27 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
               sequence: { increment: 1 },
             },
           });
-          return { runtime, model, modelRoute, reservationId: reservation.id };
+          return {
+            runtime,
+            model,
+            modelRoute,
+            provider: plan.provider,
+            fallbackFrom: plan.fallbackFrom,
+            reservationId: reservation.id,
+          };
         });
         runChanged(scope, runId);
         inFlight.reservationId = prepared.reservationId;
         inFlight.transmitted = true;
         inFlight.model = prepared.model;
+        inFlight.provider = prepared.provider;
         inFlight.startedAt = new Date();
         let completed: any = null;
         let lastSaved = Date.now();
         const stream = await streamChat({
           route: prepared.modelRoute,
-          input: request.input as OpenAI.Responses.ResponseInput,
-          tools: toolDefinitions as unknown as OpenAI.Responses.Tool[],
+          input: request.input,
+          tools: toolDefinitions,
           instructions: runInstructions,
           reservationId: prepared.reservationId,
           runtime: prepared.runtime,
@@ -537,7 +556,10 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
         // Telemetry only after settlement, outside its transaction.
         await recordSpan(scope, agentRunId, {
           type: "model_call",
-          name: "responses.stream",
+          // A budget fallback is visible in the run: the step names it.
+          name:
+            providerCallName(prepared.provider, "stream") +
+            (prepared.fallbackFrom ? " (fallback)" : ""),
           model: prepared.model,
           status: "succeeded",
           startedAt: inFlight.startedAt,
@@ -634,7 +656,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
       failedStatus =
         run.status === "canceled"
           ? "canceled"
-          : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|ROUTE_CHANGED|RETRIEVAL/.test(
+          : /BUDGET|POLICY|MODEL|PRICE|PAUSED|LIMIT|REQUIRED|FORBIDDEN|COST_UNKNOWN|EVIDENCE_CHANGED|INDEX_CHANGED|ROUTE_CHANGED|RETRIEVAL|REFUSAL|UNSUPPORTED/.test(
                 code,
               )
             ? "blocked"
@@ -653,7 +675,7 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     if (unsettled)
       await recordSpan(scope, agentRunId, {
         type: "model_call",
-        name: "responses.stream",
+        name: providerCallName(inFlight.provider, "stream"),
         model: inFlight.model,
         status: rejected ? "failed" : "unknown",
         errorCode: code,

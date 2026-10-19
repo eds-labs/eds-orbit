@@ -2,6 +2,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError, create, update, data } from "../shared.ts";
 import type { SpendLimits } from "./spend-mandate.ts";
+import { assertProviderBudget } from "./provider-budget.ts";
 /**
  * Start of the budget month that contains `at`: the first of the month at
  * 00:00 UTC. Project, assignment and reported month totals all count from it.
@@ -88,6 +89,10 @@ export async function reserve(
   );
   if (runCost + amount > policy.perRunBudgetMicros)
     throw new DomainError("RUN_BUDGET_EXCEEDED", 409);
+  // The provider's credit budget (plan D-A6): a model of a provider with a
+  // saved budget may not pass its stop threshold; PROVIDER_BUDGET_STOP.
+  if (attribution?.model)
+    await assertProviderBudget(tx, scope, attribution.model, amount, now);
   const reservation = await tx.budgetReservation.create({
     data: {
       workspaceId: scope.workspaceId,
