@@ -315,6 +315,20 @@ describe.skipIf(!enabled)("MCP conformance (D-M5-10)", () => {
   });
 
   it("the REST API refuses an MCP access token (09 §9: audience binding)", async () => {
+    // The token is valid right now: the gateway accepts it (so the 401s
+    // below do not depend on the order of the tests in this file).
+    const listed = await fetch(`${gatewayOrigin}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "mcp-protocol-version": "2025-11-25",
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    });
+    expect(listed.status).toBe(200);
+    expect(await listed.text()).toContain('"orbit_projects"');
     // The member API authenticates by session cookie only; a valid MCP
     // bearer token without a cookie is no credential there.
     for (const url of ["/api/me", "/api/projects", "/api/mcp-grants"]) {
