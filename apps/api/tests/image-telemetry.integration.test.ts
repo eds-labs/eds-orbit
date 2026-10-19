@@ -171,7 +171,7 @@ describe.skipIf(!enabled)("Image generation telemetry", () => {
       };
     });
 
-  it("records a succeeded image span with unknown cost and attributes the reservation", async () => {
+  it("records a succeeded image span settled at the ceiling and attributes the reservation", async () => {
     const requestId = randomUUID();
     const provider = async () => ({
       bytes: png,
@@ -206,8 +206,16 @@ describe.skipIf(!enabled)("Image generation telemetry", () => {
         name: "images.generate",
         model: IMAGE_MODEL,
         status: "succeeded",
-        costMicros: null,
+        costMicros: BigInt(MAX_COST),
         budgetReservationId: reservations[0]!.id,
+      }),
+    );
+    // The provider returned, so the call was billed: settled at the ceiling,
+    // never left as an unclear outcome.
+    expect(reservations[0]).toEqual(
+      expect.objectContaining({
+        state: "settled",
+        settledMicros: BigInt(MAX_COST),
       }),
     );
   });
@@ -225,6 +233,7 @@ describe.skipIf(!enabled)("Image generation telemetry", () => {
     expect(runs[0]!.status).toBe("failed");
     expect(reservations).toHaveLength(1);
     expect(reservations[0]!.agentRunId).toBe(runs[0]!.id);
+    expect(reservations[0]!.state).toBe("unknown");
     expect(spans).toHaveLength(1);
     expect(spans[0]).toEqual(
       expect.objectContaining({

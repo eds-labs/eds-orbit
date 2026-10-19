@@ -11,6 +11,7 @@ import {
   publicEntity,
   update,
 } from "../shared.ts";
+import { budgetMonthStart } from "../ai/budget.ts";
 import {
   saveAiProviderConfiguration,
   saveOpenAiConfiguration,
@@ -170,6 +171,37 @@ export const platformActions: Record<string, ActionHandler> = {
         }),
       );
     });
+  }),
+  // Settles the budget month's reservations whose outcome stayed unclear at
+  // their reserved amount, the ceiling the month already counts. The owner
+  // confirms this after checking the provider's billing; the attention item
+  // "AI cost unclear" then clears. Audited with the count and amount.
+  "settle-unknown-reservations": sharedTransaction(async (tx, { scope }) => {
+    const rows = await tx.budgetReservation.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        state: "unknown",
+        createdAt: { gte: budgetMonthStart(new Date()) },
+      },
+    });
+    let micros = 0n;
+    for (const row of rows) {
+      await tx.budgetReservation.update({
+        where: { id: row.id },
+        data: { state: "settled", settledMicros: row.amountMicros },
+      });
+      micros += row.amountMicros;
+    }
+    if (rows.length)
+      await audit(
+        tx,
+        scope,
+        "budget.unknown_reservations_settled",
+        scope.projectId,
+        { count: rows.length, micros: micros.toString() },
+      );
+    return { settled: rows.length, micros: micros.toString() };
   }),
   "resolve-exception": sharedTransaction(async (tx, { scope, input }) => {
     const e = await entity(

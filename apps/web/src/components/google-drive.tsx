@@ -11,6 +11,7 @@ type Status = {
   connected: boolean;
   reconnectRequired: boolean;
   lastRefreshFailedAt: string | null;
+  lastRefreshErrorCode: string | null;
   account: string | null;
   rootFolderId: string | null;
   brandLogoFolderId: string | null;
@@ -27,6 +28,21 @@ type DriveFile = {
   webViewLink?: string;
 };
 const folderMime = "application/vnd.google-apps.folder";
+/**
+ * What the recorded OAuth error means. `invalid_grant` on a token that
+ * worked before is, in practice, the seven-day expiry Google applies to
+ * refresh tokens of an OAuth app still in the "Testing" publishing status
+ * (or a revoked grant); the fix is in the Google Cloud Console, not in Orbit.
+ */
+export function refreshFailureText(code: string, de: boolean) {
+  if (code === "invalid_grant")
+    return de
+      ? "Google meldet „invalid_grant“: Der gespeicherte Zugriff ist abgelaufen oder wurde widerrufen. Läuft die Verbindung regelmäßig nach etwa sieben Tagen ab, steht die OAuth-App in der Google Cloud Console noch im Status „Testing“. Dort unter „OAuth consent screen“ auf „In production“ veröffentlichen, dann erneut verbinden; danach laufen die Zugriffe nicht mehr ab."
+      : "Google reports “invalid_grant”: the stored access expired or was revoked. If the connection drops about every seven days, the OAuth app in the Google Cloud Console is still in the “Testing” publishing status. Publish it (“OAuth consent screen” → “In production”), then reconnect; access then no longer expires.";
+  return de
+    ? `Google meldet „${code}“. Prüfe OAuth-Client, Freigabe und Zugriffsrechte des Kontos, dann erneut verbinden.`
+    : `Google reports “${code}”. Check the OAuth client, consent and the account's access, then reconnect.`;
+}
 export function GoogleDriveSettings() {
   const { project, isOwner, locale, refresh } = useWorkspace();
   const base = `/projects/${encodeURIComponent(project.id)}/google-drive`;
@@ -89,6 +105,14 @@ export function GoogleDriveSettings() {
           {locale === "de"
             ? "Google hat den gespeicherten Drive-Zugriff abgelehnt. Drive-Assets können weder gelesen noch gespeichert werden, bis ein Owner Google Drive erneut verbindet."
             : "Google rejected the stored Drive access. Drive assets cannot be read or saved until an owner reconnects Google Drive."}
+          {status.data.lastRefreshErrorCode && (
+            <p>
+              {refreshFailureText(
+                status.data.lastRefreshErrorCode,
+                locale === "de",
+              )}
+            </p>
+          )}
         </Alert>
       )}
       {status.data && !status.data.configured && (

@@ -94,6 +94,7 @@ export const platformActionPermissions = actionPermissions("platform", {
     "project-settings",
     "resolve-exception",
     "retention",
+    "settle-unknown-reservations",
   ],
 });
 

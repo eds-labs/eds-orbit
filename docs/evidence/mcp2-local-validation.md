@@ -119,3 +119,13 @@ adds no migration or dependency and does not change live feature flags. Existing
 2739-test, browser, build and quality evidence applies to the unchanged code;
 this delivery follow-up adds the changelog and this authorization record only.
 Remote CI and Coolify deployment/health are checked separately from local tests.
+
+While the first required CI run was executing, PR #180 advanced `main` to
+`6a5d438`. That main revision was merged into the delivery branch; the only
+merge conflict was the additive implementation-status documentation. MCP
+production code was unchanged. Required CI is rerun for the combined revision
+before the final fast-forward to main.
+
+After integrating PR #180, 75 focused tests across 10 files, lint, typecheck
+and build passed locally. OpenAPI/client artifacts were regenerated before
+publishing the combined delivery branch for its required checks.

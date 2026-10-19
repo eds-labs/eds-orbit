@@ -666,11 +666,16 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       .click();
     await expect(dialog).toHaveCount(0);
     await expect(page.locator(".source-row")).toContainText("revoked");
+    // A revoked source purges its content: nothing is left to review, so
+    // the draft is archived (2026-10-19) instead of waiting as needs_review.
     const after = await page.request.get(`/api/projects/${projectId}/content`);
     const payload = await after.json();
-    expect(
-      payload.items.find((e: { id: string }) => e.id === contentId).data.status,
-    ).toBe("needs_review");
+    const revokedContent = payload.items.find(
+      (e: { id: string }) => e.id === contentId,
+    ).data;
+    expect(revokedContent.status).toBe("archived");
+    expect(revokedContent.archiveReason).toBe("SOURCE_REMOVED");
+    expect(revokedContent.title).toBe("Removed source dependency");
   });
   test("390px responsive, keyboard forms, locale and safe errors", async ({
     page,

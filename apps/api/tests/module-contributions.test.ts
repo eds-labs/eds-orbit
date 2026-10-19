@@ -260,6 +260,7 @@ describe("module contributions", () => {
       "revoke-source",
       "rollback-index",
       "run-mission",
+      "settle-unknown-reservations",
       "slack-configure",
       "slack-digest",
       "source-audiences",
