@@ -69,6 +69,7 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["top", "Orbit Chat", "/assistant"],
   ["marketing", "Overview", "/marketing"],
   ["marketing", "Missions", "/marketing/missions"],
+  ["marketing", "Assignments", "/marketing/assignments"],
   ["marketing", "Content Studio", "/marketing/content"],
   ["marketing", "Calendar", "/marketing/calendar"],
   ["marketing", "Approvals", "/approvals"],
