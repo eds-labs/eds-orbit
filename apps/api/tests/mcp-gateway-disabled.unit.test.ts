@@ -66,27 +66,62 @@ describe("disabled gateway app", () => {
     const health = await app.inject({ method: "GET", url: "/healthz" });
     expect(health.statusCode).toBe(200);
     expect(health.json()).toEqual({ status: "disabled" });
+    const reference = await app.inject({ method: "GET", url: "/nothing" });
+    expect(reference.statusCode).toBe(404);
+    const bodies: (string | Buffer)[] = [
+      "{}",
+      "{", // invalid JSON
+      JSON.stringify({ pad: "x".repeat(5 * 1024) }), // over the 1 KB limit
+      "x".repeat(300 * 1024),
+      "",
+    ];
+    const contentTypes = [
+      "application/json",
+      "text/plain",
+      "application/x-www-form-urlencoded",
+      "application/octet-stream",
+      "multipart/form-data; boundary=x",
+      "application/not-a-known-type",
+    ];
     for (const [method, url] of [
       ["POST", "/mcp"],
       ["POST", "/"],
+      ["PUT", "/mcp"],
+      ["PATCH", "/"],
       ["GET", "/mcp"],
       ["GET", "/"],
       ["DELETE", "/mcp"],
+      ["OPTIONS", "/mcp"],
       ["GET", "/.well-known/oauth-protected-resource"],
       ["GET", "/.well-known/oauth-protected-resource/mcp"],
       ["POST", "/healthz"],
+      ["PUT", "/healthz"],
+      ["DELETE", "/healthz"],
       ["GET", "/healthz/extra"],
-    ] as const) {
-      const response = await app.inject({
-        method,
-        url,
-        headers: { "content-type": "text/plain", authorization: "Bearer x" },
-        ...(method === "POST" ? { payload: "{}" } : {}),
-      });
-      expect(`${method} ${url} ${response.statusCode}`).toBe(
-        `${method} ${url} 404`,
-      );
-    }
+    ] as const)
+      for (const contentType of contentTypes)
+        for (const payload of bodies) {
+          const response = await app.inject({
+            method,
+            url,
+            headers: { "content-type": contentType, authorization: "Bearer x" },
+            ...(method === "GET" || method === "DELETE" ? {} : { payload }),
+          });
+          const label = `${method} ${url} ${contentType} ${payload.length}`;
+          expect(`${label} ${response.statusCode}`).toBe(`${label} 404`);
+          // Identical to a plain unknown path: no framework error body.
+          expect(response.body).toBe(reference.body);
+          expect(response.headers["content-type"]).toBe(
+            reference.headers["content-type"],
+          );
+        }
+    // The health check ignores query strings and stays GET/HEAD only.
+    expect(
+      (await app.inject({ method: "GET", url: "/healthz?x=1" })).statusCode,
+    ).toBe(200);
+    expect(
+      (await app.inject({ method: "HEAD", url: "/healthz" })).statusCode,
+    ).toBe(200);
   });
 });
 

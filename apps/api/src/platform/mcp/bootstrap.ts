@@ -39,12 +39,18 @@ export async function buildDisabledMcpApp(): Promise<FastifyInstance> {
       },
     },
   });
-  app.addHook("onRequest", async (_req, reply) => {
+  app.addHook("onRequest", async (req, reply) => {
     reply.header("cache-control", "no-store");
     reply.header("x-content-type-options", "nosniff");
+    // Everything but the health check is answered here, before Fastify reads
+    // or parses a body: no JSON parse error (400), size error (413) or other
+    // default error body can distinguish this app from a plain 404.
+    const path = String(req.url).split("?")[0];
+    if (path === "/healthz" && (req.method === "GET" || req.method === "HEAD"))
+      return;
+    return reply.code(404).send();
   });
   app.get("/healthz", async () => ({ status: "disabled" }));
-  app.setNotFoundHandler((_req, reply) => reply.code(404).send());
   return app;
 }
 
