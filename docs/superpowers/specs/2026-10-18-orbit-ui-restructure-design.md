@@ -170,7 +170,7 @@ The full marketing `Overview` is no longer embedded on the home page.
 ### 5.4 Settings (`components/management.tsx`)
 
 - The tabs become a grouped section list (left column on desktop, a `<select>` above the content below 760 px).
-- Groups: **Projekt** (Projekt, Mitglieder & Rollen, Module, Integrationen, Aufbewahrung, Verbundene Apps) and one group per module with sections (Marketing: Richtlinie & Budget, Marke, Aufträge; Support: its sections).
+- Groups: **Projekt** (Projekt, Mitglieder & Rollen, Integrationen, Aufbewahrung, Module, Verbundene Apps; R30) and one group per module with sections (Marketing: Richtlinie & Budget, Marke, Aufträge; Support: its sections).
 - `SettingsSection.tab` gains `group?: string`; a module's sections default to the module's group. The platform `policy` tab is split: the marketing policy section joins the Marketing group as "Richtlinie & Budget", and `RetentionControl` becomes the platform section "Aufbewahrung".
 - The selected section is read from and written to `?section=` (`history.replaceState`); an unknown or hidden section falls back to `project`.
 
