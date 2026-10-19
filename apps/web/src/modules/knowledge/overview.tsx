@@ -50,7 +50,9 @@ export type SourceExpiry = {
 /**
  * When a source's last successful sync stops counting as current: stale
  * without a sync or past `lastSuccessfulSyncAt + maxAgeHours` (the rule of
- * /knowledge-health `staleSources`), expiring within 48 h of that.
+ * /knowledge-health `staleSources`), expiring within 48 h of that. The
+ * server's attention items use their own copy (packages/knowledge
+ * freshness.ts, Ruling R14); freshness-parity.test.tsx keeps both equal.
  */
 export function sourceExpiry(
   source: { lastSuccessfulSyncAt?: unknown; maxAgeHours?: unknown },
@@ -76,6 +78,13 @@ export function sourceExpiry(
           : "fresh",
   };
 }
+
+/**
+ * Whether the overview lists a source: revoked ones never get current again
+ * (the server's attention items skip them alike, `tracksFreshness`).
+ */
+export const listedSource = (source: { data: { status?: unknown } }) =>
+  source.data.status !== "revoked";
 
 /** Sources with their expiry, the earliest first; never synced ones lead. */
 export function byExpiry(sources: Entity[], now: number) {
@@ -194,9 +203,7 @@ export function useKnowledgeData() {
   const indexes = useResource<{ items: IndexGeneration[] }>(
     isOwner ? collectionPath(project.id, `indexes?revision=${revision}`) : null,
   );
-  const listed = (sources.data?.items ?? []).filter(
-    (source) => source.data.status !== "revoked",
-  );
+  const listed = (sources.data?.items ?? []).filter(listedSource);
   return {
     health,
     sources,

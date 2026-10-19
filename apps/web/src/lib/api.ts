@@ -43,6 +43,43 @@ export type Dashboard = {
     >;
   };
 };
+/**
+ * One thing that needs attention (UI restructure §4.1), as
+ * GET /api/projects/:id/attention returns it. Hand-written like `Dashboard`;
+ * the server type is apps/api/src/platform/attention/types.ts.
+ */
+export type AttentionItem = {
+  /** Stable per object, such as "support:sla:<ticketId>". */
+  id: string;
+  /** The owning module, or "platform". */
+  moduleId: string;
+  /** Such as "support_sla_at_risk"; the web renders the text. */
+  kind: string;
+  severity: "critical" | "warning" | "info";
+  /** For aggregated items ("2 unassigned tickets"). */
+  count?: number;
+  /** ISO time the item becomes worse or expires. */
+  dueAt?: string;
+  /** ISO time the item started waiting. */
+  since?: string;
+  params: Record<string, string | number | boolean>;
+  /** The nav entry (route key) the item belongs to, for badges. */
+  navKey: string;
+  /** In-app path below /p/:id, such as "/support/tickets?ticket=<id>". */
+  link: string;
+};
+export type AttentionResponse = {
+  /** Sorted, at most 50. */
+  items: AttentionItem[];
+  /** Per navKey: `count ?? 1` summed over all items before the cap. */
+  counts: Record<string, number>;
+  status: {
+    paused: boolean;
+    mode?: string;
+    /** The UTC month's AI spend and the active policy's monthly limit. */
+    aiMonth: { spentMicros: number; limitMicros: number | null };
+  };
+};
 export { ApiError } from "@orbit/api-client";
 import { request, ApiError } from "@orbit/api-client";
 export async function api<T>(

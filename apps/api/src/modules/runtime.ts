@@ -3,14 +3,20 @@ import { registeredPeriodicTask } from "../platform/modules/contributions.ts";
 let redis: Redis | undefined;
 function client() {
   if (!redis) {
-    redis = new Redis(process.env.REDIS_URL!, {
+    const created = new Redis(process.env.REDIS_URL!, {
       maxRetriesPerRequest: 1,
       connectTimeout: 2000,
       commandTimeout: 2000,
       retryStrategy: () => null,
       lazyConnect: true,
     });
-    redis.on("error", () => {});
+    created.on("error", () => {});
+    // Without retries an ended connection stays closed: drop it, so the next
+    // read connects afresh instead of reporting the worker down until restart.
+    created.on("end", () => {
+      if (redis === created) redis = undefined;
+    });
+    redis = created;
   }
   return redis;
 }

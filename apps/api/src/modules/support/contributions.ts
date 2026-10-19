@@ -4,6 +4,7 @@ import { supportRoutes } from "./routes.ts";
 import { supportRetentionTask } from "./privacy.ts";
 import { runSupportTask, SUPPORT_DRAFT, SUPPORT_TRIAGE } from "./ai.ts";
 import { supportTools } from "./tools.ts";
+import { supportAttention } from "./attention.ts";
 import { widgetRoutes } from "./widget.ts";
 import { supportMailboxUse } from "./inboxes.ts";
 import { supportScheduler, supportUserNotifications } from "./automations.ts";
@@ -60,4 +61,6 @@ export const supportContributions: ModuleContributions = {
   // Notifications and automations (WP5.5).
   userNotifications: supportUserNotifications,
   scheduler: supportScheduler,
+  // Attention items: SLA breaches and unassigned tickets.
+  attention: supportAttention,
 };

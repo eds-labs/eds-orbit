@@ -55,6 +55,8 @@ function shell(enabled: Record<string, boolean>): ShellContextValue {
       ),
     chat: [],
     actionRequests: {},
+    attention: { loading: false },
+    attentionRenderers: {},
     settings: [],
     setupLinks: [],
     connectors: { providers: [], extras: [] },
