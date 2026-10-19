@@ -35,6 +35,21 @@ const PROJECT_LABEL: Label = {
 };
 const MOBILE_LIMIT = 4;
 
+/** The enabled modules by groupOrder, ties in registry order. */
+export function groupedModules<
+  M extends { enabled: boolean; groupOrder?: number },
+>(modules: readonly M[]): M[] {
+  return modules
+    .map((m, index) => ({ m, index }))
+    .filter(({ m }) => m.enabled)
+    .sort(
+      (a, b) =>
+        (a.m.groupOrder ?? Number.MAX_SAFE_INTEGER) -
+          (b.m.groupOrder ?? Number.MAX_SAFE_INTEGER) || a.index - b.index,
+    )
+    .map(({ m }) => m);
+}
+
 /**
  * Sidebar groups: "top", then the enabled modules by groupOrder (ties in
  * registry order), then "project". A group without entries is left out, and
@@ -49,15 +64,7 @@ export function buildNavGroups(
   const visible = navOrder(
     routes.filter((r) => r.nav && routeEnabled(r, enabled)),
   );
-  const ordered = modules
-    .map((m, index) => ({ m, index }))
-    .filter(({ m }) => m.enabled)
-    .sort(
-      (a, b) =>
-        (a.m.groupOrder ?? Number.MAX_SAFE_INTEGER) -
-          (b.m.groupOrder ?? Number.MAX_SAFE_INTEGER) || a.index - b.index,
-    )
-    .map(({ m }) => m);
+  const ordered = groupedModules(modules);
   const candidates: Array<{ id: string; label: Label | null }> = [
     { id: "top", label: null },
     ...ordered.map((m) => ({ id: m.id, label: m.displayName })),
@@ -70,6 +77,26 @@ export function buildNavGroups(
       entries: visible.filter((r) => navGroupOf(r) === id),
     }))
     .filter((g) => g.entries.length > 0);
+}
+
+/**
+ * Gives each module group with a settings section its settings link (spec
+ * §3.4): `<settings>?section=<key>`, shown after the group's entries.
+ */
+export function withSettingsLinks(
+  groups: readonly NavGroup[],
+  modules: ReadonlyArray<{ id: string; settingsSection?: string }>,
+  settingsHref: string,
+): NavGroup[] {
+  return groups.map((group) => {
+    const key = modules.find((m) => m.id === group.id)?.settingsSection;
+    return key
+      ? {
+          ...group,
+          settingsHref: `${settingsHref}?section=${encodeURIComponent(key)}`,
+        }
+      : group;
+  });
 }
 
 /**

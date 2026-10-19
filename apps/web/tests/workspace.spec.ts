@@ -143,6 +143,18 @@ async function knowledgePage(page: Page, name: string) {
     .getByRole("link", { name, exact: true })
     .click();
 }
+// The settings sections (UI restructure §5.4): a list beside the content,
+// below 760px a select; either way the open section is marked current.
+async function settingsSection(page: Page, name: string) {
+  const list = page.getByRole("navigation", { name: "Settings sections" });
+  if (page.viewportSize()!.width > 760)
+    await list.getByRole("link", { name, exact: true }).click();
+  else
+    await page
+      .getByLabel("Section", { exact: true })
+      .selectOption({ label: name });
+  await expect(list.locator('[aria-current="page"]')).toHaveText(name);
+}
 // Health, Impact and Inspector have no sidebar entry: the overview links them,
 // and a knowledge sub-page leads back to the overview first.
 async function knowledgeDiagnostic(page: Page, name: string) {
@@ -327,7 +339,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       linkFactIds.set(label, fact.id as string);
     }
     await open(page, projectId, "settings");
-    await page.getByRole("tab", { name: "Brand", exact: true }).click();
+    await settingsSection(page, "Brand");
+    await expect(page).toHaveURL(
+      new RegExp(`/p/${projectId}/settings\\?section=brand$`),
+    );
     await page.getByRole("button", { name: "Review usage rights" }).click();
     dialog = page.getByRole("dialog", { name: "Approve brand usage" });
     await dialog
@@ -386,9 +401,9 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
 
     await page
       .getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: "Settings" })
+      .getByRole("link", { name: "Settings", exact: true })
       .click();
-    await page.getByRole("tab", { name: "Brand", exact: true }).click();
+    await settingsSection(page, "Brand");
     await page.getByRole("button", { name: "Configure project" }).click();
     dialog = page.getByRole("dialog", { name: "Project configuration" });
     await dialog
@@ -722,17 +737,38 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(page.locator("html")).toHaveAttribute("lang", "de");
     await page.getByRole("button", { name: "EN", exact: true }).click();
     await page.emulateMedia({ reducedMotion: "reduce" });
-    // Tabs move the focus with Arrow, Home and End (the settings tabs; no tab
-    // bar navigates between pages since the knowledge tabs became pages).
+    // 390px settings: the section list is a labelled select above the
+    // content; a choice replaces the URL's ?section= in place.
     await open(page, projectId, "settings");
+    await expect(
+      page.getByRole("navigation", { name: "Settings sections" }),
+    ).toBeHidden();
+    const section = page.getByLabel("Section", { exact: true });
+    await expect(section).toBeVisible();
+    await expect(section).toHaveValue("project");
+    await section.selectOption("policy");
+    await expect(page).toHaveURL(
+      new RegExp(`/p/${projectId}/settings\\?section=policy$`),
+    );
+    await expect(
+      page.getByRole("heading", { name: "Versioned operating policy" }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBeTruthy();
+    // Tabs move the focus with Arrow, Home and End (the analytics tabs; the
+    // settings use a section list and no tab bar navigates between pages).
+    await open(page, projectId, "analytics");
     const tabs = page.getByRole("tab");
-    await page.getByRole("tab", { name: "Project", exact: true }).focus();
+    await page.getByRole("tab", { name: "Measurements", exact: true }).focus();
     await page.keyboard.press("End");
     await expect(tabs.last()).toBeFocused();
     await expect(tabs.last()).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Home");
     await expect(
-      page.getByRole("tab", { name: "Project", exact: true }),
+      page.getByRole("tab", { name: "Measurements", exact: true }),
     ).toBeFocused();
     await page.keyboard.press("ArrowRight");
     await expect(tabs.nth(1)).toBeFocused();
@@ -784,6 +820,7 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       role: "viewer",
     };
     await open(page, projectId, "settings");
+    await settingsSection(page, "Members & roles");
     await page.getByRole("button", { name: "Add member", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Name", { exact: false }).fill(viewer.name);
@@ -819,13 +856,24 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
       },
     );
     expect(denied.status()).toBe(403);
-    await open(page, projectId, "settings");
+    // Members is an owner section: not offered, and its URL opens Project.
+    await page.goto(`/p/${projectId}/settings?section=members`);
+    const sections = page.getByRole("navigation", {
+      name: "Settings sections",
+    });
+    await expect(sections.locator('[aria-current="page"]')).toHaveText(
+      "Project",
+    );
+    await expect(
+      sections.getByRole("link", { name: "Members & roles", exact: true }),
+    ).toHaveCount(0);
     await expect(
       page.getByRole("button", { name: "Add member", exact: true }),
     ).toHaveCount(0);
-    await page
-      .getByRole("tab", { name: "Policy & budget", exact: true })
-      .click();
+    await settingsSection(page, "Policy & budget");
+    await expect(
+      page.getByRole("heading", { name: "Versioned operating policy" }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "New policy version", exact: true }),
     ).toHaveCount(0);
@@ -1175,7 +1223,11 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
     },
   );
   await open(page, projectId, "settings");
-  await page.getByRole("tab", { name: "Project", exact: true }).click();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Settings sections" })
+      .locator('[aria-current="page"]'),
+  ).toHaveText("Project");
   await page.getByRole("button", { name: "Configure OpenAI" }).click();
   const dialog = page.getByRole("dialog", { name: "OpenAI configuration" });
   await expect(
