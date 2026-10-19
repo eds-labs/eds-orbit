@@ -639,7 +639,14 @@ export function ProjectSettings() {
           {tab === "integrations" && (
             <section className="panel">
               <div className="panel-head">
-                <h2>OpenAI</h2>
+                <div>
+                  <h2>OpenAI</h2>
+                  <p>
+                    {de
+                      ? "Zugangsdaten, verifizierte Modelle und aktuelle Preise. Budgets bleiben Teil der Richtlinie."
+                      : "Credentials, verified models and current prices. Budgets stay part of the policy."}
+                  </p>
+                </div>
                 {isOwner && (
                   <Button variant="outline" onClick={() => setOpenAi(true)}>
                     <Brain data-icon="inline-start" />
@@ -647,11 +654,6 @@ export function ProjectSettings() {
                   </Button>
                 )}
               </div>
-              <p className="panel-note">
-                {de
-                  ? "Zugangsdaten, verifizierte Modelle und aktuelle Preise. Budgets bleiben Teil der Richtlinie."
-                  : "Credentials, verified models and current prices. Budgets stay part of the policy."}
-              </p>
             </section>
           )}
         </div>

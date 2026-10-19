@@ -140,6 +140,7 @@ export function TagEditor({
             onChange={(e) => set(i, { label: e.target.value })}
           />
           <select
+            className="input"
             aria-label={t.settings.tagColor}
             value={row.color}
             disabled={disabled}
