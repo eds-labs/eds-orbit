@@ -67,6 +67,12 @@ const baseConfigSchema = z.object({
   EXECUTION_MODE: z.enum(["test", "live"]).default("test"),
   ENABLE_EXTERNAL_WRITES: z.enum(["false", "true"]).default("false"),
   OPENAI_API_KEY: z.string().optional(),
+  // Anthropic Claude API key: a bootstrap fallback only, like OPENAI_API_KEY;
+  // the owner-saved encrypted key in Orbit Settings takes precedence.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  // The provider whose tier models serve task classes without an explicit
+  // route when no Orbit configuration is saved (bootstrap only).
+  AI_DEFAULT_PROVIDER: unset(z.enum(["openai", "anthropic"]).default("openai")),
   ORBIT_SETUP_TOKEN: z.string().min(20),
   CREDENTIAL_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/),
   GOOGLE_DRIVE_CLIENT_ID: z.string().optional(),
