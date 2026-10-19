@@ -303,7 +303,10 @@ export function MarketingOverview() {
                 </p>
               </div>
               <Button asChild variant="outline">
-                <AppLink href="/settings">{t("reviewSetup")}</AppLink>
+                {/* The mode and its mandate are the marketing policy. */}
+                <AppLink href="/settings?section=policy">
+                  {t("reviewSetup")}
+                </AppLink>
               </Button>
             </div>
             <div className="metrics-strip metrics-four">
@@ -433,7 +436,7 @@ export function MarketingOverview() {
                         : t("notConfigured")
                     }
                     ready={d.budget.dailyLimitMicros !== null}
-                    href="/settings"
+                    href="/settings?section=policy"
                   />
                 </div>
                 {d.readiness.actions && (

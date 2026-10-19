@@ -2,11 +2,22 @@
 import { ShellContext } from "@/platform/shell/shell-context";
 import { RetentionControl } from "./retention-control";
 import { ModuleSettings } from "./module-settings";
-import { ProjectAdministration } from "./project-administration";
+import {
+  ProjectAdministration,
+  ProjectMembers,
+} from "./project-administration";
+import { useSearchParams } from "next/navigation";
+import {
+  collectSettingsTabs,
+  groupSettings,
+  platformSettingsTabs,
+  sectionFromSearch,
+  settingsSectionHref,
+  SettingsNav,
+} from "@/platform/shell/settings-nav";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
 import { GoogleDriveSettings } from "./google-drive";
-import { labels } from "@/lib/i18n";
 import {
   ConnectedApps,
   type McpGrant,
@@ -43,7 +54,6 @@ import {
   Loading,
   Modal,
   Status,
-  Tabs,
 } from "./ui/primitives";
 import { DataForm, options, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
@@ -442,15 +452,14 @@ export function ProjectSettings() {
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
   );
-  const [openAi, setOpenAi] = useState(false),
-    [tab, setTab] = useState("project");
+  const [openAi, setOpenAi] = useState(false);
   // The caller's connected MCP apps. The routes exist only while the OAuth
-  // server is on (404 otherwise), and then the tab is not offered.
+  // server is on (404 otherwise), and then the section is not offered.
   const grants = useResource<{ grants: McpGrant[] }>("/mcp-grants");
   const appsAvailable = Boolean(
     grants.data || (grants.error && grants.error.status !== 404),
   );
-  // A reload empties the resource for a moment; the tab must not vanish then.
+  // A reload empties the resource for a moment; the section must not vanish then.
   const [appsSeen, setAppsSeen] = useState(false);
   useEffect(() => {
     if (appsAvailable) setAppsSeen(true);
@@ -458,51 +467,38 @@ export function ProjectSettings() {
   const connectedApps = appsAvailable || appsSeen;
   const d = dashboard.data;
   const de = locale === "de";
-  const setupLinks = useContext(ShellContext)?.setupLinks ?? [];
+  const shell = useContext(ShellContext);
+  const setupLinks = shell?.setupLinks ?? [];
   // Module sections (WP2.3b). Their hooks run on every render in registry
   // order, which never changes while the app runs.
-  const modules = (useContext(ShellContext)?.settings ?? []).map((section) => ({
+  const modules = (shell?.settings ?? []).map((section) => ({
     section,
     shown: section.useSection(),
   }));
-  const tabs = [
-    { key: "project", label: { en: "Project", de: "Projekt" }, order: 0 },
-    {
-      key: "policy",
-      label: { en: "Policy & budget", de: "Richtlinie & Budget" },
-      order: 20,
-    },
-    {
-      key: "integrations",
-      label: { en: "Integrations", de: "Integrationen" },
-      order: 40,
-    },
-    { key: "modules", label: { en: "Modules", de: "Module" }, order: 50 },
-    ...(connectedApps
-      ? [
-          {
-            key: "apps",
-            label: {
-              en: labels.en.connectedApps,
-              de: labels.de.connectedApps,
-            },
-            order: 60,
-          },
-        ]
-      : []),
-  ];
-  for (const { section, shown } of modules) {
-    if (!shown) continue;
-    const known = tabs.find((t) => t.key === section.tab.key);
-    if (!known)
-      tabs.push({ ...section.tab, label: shown.label ?? section.tab.label });
-    else if (shown.label) known.label = shown.label;
+  // Grouped by module (UI restructure §5.4); the open section is the URL's
+  // ?section=, so links and back/forward change it without a remount, and an
+  // unknown or hidden one (e.g. assignments before they answer) is "project".
+  const groups = groupSettings(
+    collectSettingsTabs(
+      platformSettingsTabs({ isOwner, connectedApps }),
+      modules.map(({ section, shown }) => ({ tab: section.tab, shown })),
+    ),
+    shell?.modules ?? [],
+  );
+  const tab = sectionFromSearch(
+    useSearchParams()?.toString() ?? "",
+    groups.flatMap((g) => g.tabs.map((s) => s.key)),
+  );
+  const settingsHref = shell?.hrefOf("settings") ?? "";
+  const sectionHref = (key: string) => settingsSectionHref(settingsHref, key);
+  function select(key: string) {
+    const url = new URL(window.location.href);
+    if (key === "project") url.searchParams.delete("section");
+    else url.searchParams.set("section", key);
+    // The Google Drive callback's marker has done its job once a section is picked.
+    url.searchParams.delete("googleDrive");
+    window.history.replaceState(null, "", url);
   }
-  tabs.sort((a, b) => a.order - b.order);
-  // A tab that disappears (e.g. once the agents surface is decided) falls back.
-  useEffect(() => {
-    if (!tabs.some((t) => t.key === tab)) setTab("project");
-  });
   return (
     <>
       <PageHead
@@ -513,139 +509,153 @@ export function ProjectSettings() {
             : "Your workspace. Your boundaries."
         }
       />
-      <Tabs
-        tabs={tabs.map((t) => ({ key: t.key, label: t.label[locale] }))}
-        value={tab}
-        onChange={setTab}
-      />
-      <ResourceError error={dashboard.error} retry={dashboard.refresh} />
-      {modules.map(({ section, shown }, index) =>
-        shown?.notice ? <Fragment key={index}>{shown.notice}</Fragment> : null,
-      )}
-      {modules
-        .filter(({ section, shown }) => shown && section.tab.key === tab)
-        .sort((a, b) => a.section.order - b.section.order)
-        .map(({ shown }, index) => (
-          <Fragment key={index}>{shown!.content}</Fragment>
-        ))}
-      {tab === "project" && (
-        <div className="settings-grid">
-          <section className="panel">
-            <div className="panel-head">
-              <h2>{t("project")}</h2>
-              <Badge>{project.role || "member"}</Badge>
+      <div className="settings-layout">
+        <SettingsNav
+          groups={groups}
+          value={tab}
+          hrefOf={sectionHref}
+          onSelect={select}
+          locale={locale}
+        />
+        <div className="settings-content">
+          <ResourceError error={dashboard.error} retry={dashboard.refresh} />
+          {modules.map(({ section, shown }, index) =>
+            shown?.notice ? (
+              <Fragment key={index}>{shown.notice}</Fragment>
+            ) : null,
+          )}
+          {modules
+            .filter(({ section, shown }) => shown && section.tab.key === tab)
+            .sort((a, b) => a.section.order - b.section.order)
+            .map(({ shown }, index) => (
+              <Fragment key={index}>{shown!.content}</Fragment>
+            ))}
+          {tab === "project" && (
+            <div className="settings-grid">
+              <section className="panel">
+                <div className="panel-head">
+                  <h2>{t("project")}</h2>
+                  <Badge>{project.role || "member"}</Badge>
+                </div>
+                <dl className="detail-grid">
+                  <dt>{t("name")}</dt>
+                  <dd>{project.name}</dd>
+                  <dt>{t("timezone")}</dt>
+                  <dd>{project.timezone}</dd>
+                  <dt>Content language</dt>
+                  <dd>{project.language.toUpperCase()}</dd>
+                  <dt>Signed in as</dt>
+                  <dd>
+                    {identity.user.name}
+                    <small>{identity.user.email}</small>
+                  </dd>
+                  <dt>Mode</dt>
+                  <dd>
+                    <Status value={d?.project.mode || project.mode} />
+                  </dd>
+                </dl>
+                <Button asChild variant="outline">
+                  <a
+                    href={`/api${collectionPath(project.id, "export")}`}
+                    download
+                  >
+                    <Download data-icon="inline-start" />
+                    {t("export")} project
+                  </a>
+                </Button>
+              </section>
+              <section className="panel">
+                <div className="panel-head">
+                  <h2>
+                    {locale === "de"
+                      ? "Autopilot-Bereitschaft"
+                      : "Autopilot readiness"}
+                  </h2>
+                  {d && <Status value={d.readiness.state} />}
+                </div>
+                {d?.readiness.blockers.length ? (
+                  <ul className="checklist">
+                    {d.readiness.blockers.map((s) => (
+                      <li key={s}>
+                        <span className="checklist-dot" />
+                        {s.replaceAll("_", " ")}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="panel-note">
+                    {dashboard.loading
+                      ? "Checking…"
+                      : "Readiness is scoped to verified capabilities."}
+                  </p>
+                )}
+                {d?.readiness.capabilities && (
+                  <div className="capability-readiness">
+                    {Object.entries(d.readiness.capabilities).map(
+                      ([name, capability]) => (
+                        <div className="data-row" key={name}>
+                          <div>
+                            <strong>
+                              {name.charAt(0).toUpperCase() + name.slice(1)}
+                            </strong>
+                            {capability.liveBlocker && (
+                              <p>
+                                {capability.liveBlocker.replaceAll("_", " ")}
+                              </p>
+                            )}
+                          </div>
+                          <Status value={capability.state} />
+                        </div>
+                      ),
+                    )}
+                  </div>
+                )}
+                <div className="setup-links">
+                  <AppLink href="/knowledge">
+                    <BookOpenIcon />
+                    Add source rights and verified facts
+                  </AppLink>
+                  <AppLink href="/connectors">
+                    <Link2 />
+                    Verify connector capabilities
+                  </AppLink>
+                  {setupLinks.map((Link, index) => (
+                    <Link key={index} />
+                  ))}
+                  <button onClick={() => setOpenAi(true)} disabled={!isOwner}>
+                    <Brain />
+                    Configure OpenAI
+                  </button>
+                </div>
+              </section>
             </div>
-            <dl className="detail-grid">
-              <dt>{t("name")}</dt>
-              <dd>{project.name}</dd>
-              <dt>{t("timezone")}</dt>
-              <dd>{project.timezone}</dd>
-              <dt>Content language</dt>
-              <dd>{project.language.toUpperCase()}</dd>
-              <dt>Signed in as</dt>
-              <dd>
-                {identity.user.name}
-                <small>{identity.user.email}</small>
-              </dd>
-              <dt>Mode</dt>
-              <dd>
-                <Status value={d?.project.mode || project.mode} />
-              </dd>
-            </dl>
-            <Button asChild variant="outline">
-              <a href={`/api${collectionPath(project.id, "export")}`} download>
-                <Download data-icon="inline-start" />
-                {t("export")} project
-              </a>
-            </Button>
-          </section>
-          <section className="panel">
-            <div className="panel-head">
-              <h2>
-                {locale === "de"
-                  ? "Autopilot-Bereitschaft"
-                  : "Autopilot readiness"}
-              </h2>
-              {d && <Status value={d.readiness.state} />}
-            </div>
-            {d?.readiness.blockers.length ? (
-              <ul className="checklist">
-                {d.readiness.blockers.map((s) => (
-                  <li key={s}>
-                    <span className="checklist-dot" />
-                    {s.replaceAll("_", " ")}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="panel-note">
-                {dashboard.loading
-                  ? "Checking…"
-                  : "Readiness is scoped to verified capabilities."}
-              </p>
-            )}
-            {d?.readiness.capabilities && (
-              <div className="capability-readiness">
-                {Object.entries(d.readiness.capabilities).map(
-                  ([name, capability]) => (
-                    <div className="data-row" key={name}>
-                      <div>
-                        <strong>
-                          {name.charAt(0).toUpperCase() + name.slice(1)}
-                        </strong>
-                        {capability.liveBlocker && (
-                          <p>{capability.liveBlocker.replaceAll("_", " ")}</p>
-                        )}
-                      </div>
-                      <Status value={capability.state} />
-                    </div>
-                  ),
+          )}
+          {tab === "project" && <ProjectAdministration />}
+          {tab === "members" && <ProjectMembers />}
+          {tab === "retention" && <RetentionControl />}
+          {tab === "modules" && <ModuleSettings />}
+          {tab === "apps" && <ConnectedApps mine={grants} />}
+          {tab === "integrations" && <GoogleDriveSettings />}
+          {tab === "integrations" && (
+            <section className="panel">
+              <div className="panel-head">
+                <h2>OpenAI</h2>
+                {isOwner && (
+                  <Button variant="outline" onClick={() => setOpenAi(true)}>
+                    <Brain data-icon="inline-start" />
+                    {de ? "Konfigurieren" : "Configure"}
+                  </Button>
                 )}
               </div>
-            )}
-            <div className="setup-links">
-              <AppLink href="/knowledge">
-                <BookOpenIcon />
-                Add source rights and verified facts
-              </AppLink>
-              <AppLink href="/connectors">
-                <Link2 />
-                Verify connector capabilities
-              </AppLink>
-              {setupLinks.map((Link, index) => (
-                <Link key={index} />
-              ))}
-              <button onClick={() => setOpenAi(true)} disabled={!isOwner}>
-                <Brain />
-                Configure OpenAI
-              </button>
-            </div>
-          </section>
+              <p className="panel-note">
+                {de
+                  ? "Zugangsdaten, verifizierte Modelle und aktuelle Preise. Budgets bleiben Teil der Richtlinie."
+                  : "Credentials, verified models and current prices. Budgets stay part of the policy."}
+              </p>
+            </section>
+          )}
         </div>
-      )}
-      {tab === "project" && <ProjectAdministration />}
-      {tab === "policy" && <RetentionControl />}
-      {tab === "modules" && <ModuleSettings />}
-      {tab === "apps" && <ConnectedApps mine={grants} />}
-      {tab === "integrations" && <GoogleDriveSettings />}
-      {tab === "integrations" && (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>OpenAI</h2>
-            {isOwner && (
-              <Button variant="outline" onClick={() => setOpenAi(true)}>
-                <Brain data-icon="inline-start" />
-                {de ? "Konfigurieren" : "Configure"}
-              </Button>
-            )}
-          </div>
-          <p className="panel-note">
-            {de
-              ? "Zugangsdaten, verifizierte Modelle und aktuelle Preise. Budgets bleiben Teil der Richtlinie."
-              : "Credentials, verified models and current prices. Budgets stay part of the policy."}
-          </p>
-        </section>
-      )}
+      </div>
       {openAi && <OpenAiConfiguration onClose={() => setOpenAi(false)} />}
     </>
   );

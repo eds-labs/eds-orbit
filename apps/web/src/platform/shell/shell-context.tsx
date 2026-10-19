@@ -24,6 +24,8 @@ export type ShellModule = {
   enabled: boolean;
   /** The module's pages with a navigation entry, in sidebar order. */
   nav: readonly Route[];
+  /** Key of the module's first settings section; its sidebar group links there. */
+  settingsSection?: string;
 };
 
 /** The project's attention items as the shell loaded them (§4.4). */
@@ -50,7 +52,10 @@ export type ShellContextValue = {
   attention: AttentionState;
   /** Texts of attention items by kind: the platform's and every module's. */
   attentionRenderers: Readonly<Record<string, AttentionRenderer>>;
-  /** Settings sections of the modules, in registry order (WP2.3b). */
+  /**
+   * Settings sections of the modules, in registry order (WP2.3b), each with
+   * its group set (the module's id unless the section names one).
+   */
   settings: readonly SettingsSection[];
   /** Setup links of the modules for the settings overview (WP2.3b). */
   setupLinks: readonly ComponentType[];

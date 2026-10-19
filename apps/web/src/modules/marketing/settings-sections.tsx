@@ -93,16 +93,10 @@ function usePolicySection() {
   };
 }
 
+// In the Marketing group of the settings (UI restructure §5.4): policy &
+// budget first, which is always shown and so the sidebar's settings link,
+// then brand, then the assignments, which show only with Orbit Agents.
 export const marketingSettings: readonly SettingsSection[] = [
-  {
-    tab: {
-      key: "agents",
-      label: { en: "Assignments", de: "Aufträge" },
-      order: 10,
-    },
-    order: 0,
-    useSection: useAgentsSection,
-  },
   { tab: POLICY_TAB, order: 0, useSection: usePolicySection },
   {
     tab: { key: "brand", label: { en: "Brand", de: "Marke" }, order: 30 },
@@ -115,6 +109,15 @@ export const marketingSettings: readonly SettingsSection[] = [
         </>
       ),
     }),
+  },
+  {
+    tab: {
+      key: "agents",
+      label: { en: "Assignments", de: "Aufträge" },
+      order: 40,
+    },
+    order: 0,
+    useSection: useAgentsSection,
   },
 ];
 
