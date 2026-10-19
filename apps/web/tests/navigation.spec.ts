@@ -14,6 +14,14 @@ const BAR = SUPPORT
   ? ["Home", "Orbit Chat", "Tickets", "Approvals"]
   : ["Home", "Orbit Chat", "Approvals", "Content"];
 
+// A navigation entry's text or accessible name, with or without its
+// attention badge ("Tickets 2 to do"; UI restructure §4.4): the counts depend
+// on the stack's data.
+function badged(name: string): RegExp {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}(?:\\s?!?\\d+\\s.*)?$`);
+}
+
 function account() {
   return JSON.parse(
     readFileSync(resolve(".runtime/e2e-user.json"), "utf8"),
@@ -122,30 +130,40 @@ test("pickers, project home and every page have their own URL", async ({
   ).toBeVisible();
   await page.locator(`a[href="/p/${user.projectId}"]`).click();
 
-  // Project home: assistant prompt, module tiles and the marketing section.
+  // Project home: greeting, assistant prompt, status strip, the attention
+  // list and the marketing section; the project's name is in the breadcrumb.
   const base = `/p/${user.projectId}`;
   await expect(page).toHaveURL(new RegExp(`${base}$`));
   await expect(
-    page.getByRole("heading", { level: 1, name: project.name }),
+    page.getByRole("heading", {
+      level: 1,
+      name: /^Good (morning|afternoon|evening)\b/,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.locator(".breadcrumb").getByText(project.name, { exact: true }),
   ).toBeVisible();
   await expect(page.getByLabel("Message for Orbit Chat")).toBeVisible();
   await expect(
-    page.locator('.module-tile[data-module="marketing"]'),
+    page.getByRole("link", { name: "View operations" }),
   ).toBeVisible();
   await expect(
-    page.locator('.module-tile[data-module="knowledge"]'),
+    page.getByRole("heading", { level: 2, name: "Needs your attention" }),
   ).toBeVisible();
+  await expect(page.locator(".module-tile")).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Your marketing, in orbit." }),
   ).toBeVisible();
 
   // Every page from the sidebar, in order; the URL is shareable.
   const nav = page.getByRole("navigation", { name: "Workspace" });
-  await expect(nav.getByRole("link")).toHaveText(PAGES.map(([, name]) => name));
+  await expect(nav.getByRole("link")).toHaveText(
+    PAGES.map(([, name]) => badged(name)),
+  );
   const entry = (group: string, name: string) =>
     (group === "top" ? nav : nav.locator(`#nav-group-${group}`)).getByRole(
       "link",
-      { name, exact: true },
+      { name: badged(name) },
     );
   for (const [group, name, path] of PAGES) {
     await entry(group, name).click();
@@ -257,14 +275,14 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
   await page.setViewportSize({ width: 390, height: 844 });
   await openHome(page, base);
   const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
-  await expect(mobile.getByRole("link")).toHaveText(BAR);
+  await expect(mobile.getByRole("link")).toHaveText(BAR.map(badged));
   await expect(mobile.getByRole("button", { name: "More" })).toBeVisible();
   expect(
     await page.evaluate(
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
-  await mobile.getByRole("link", { name: BAR[3], exact: true }).click();
+  await mobile.getByRole("link", { name: badged(BAR[3]!) }).click();
   await expect(page).toHaveURL(
     new RegExp(`${base}/${SUPPORT ? "approvals" : "marketing/content"}$`),
   );
@@ -273,8 +291,8 @@ test("home prompt opens the chat without sending, 390px, keyboard and German", a
   await page.getByRole("button", { name: "DE", exact: true }).click();
   await expect(mobile.getByRole("link")).toHaveText(
     SUPPORT
-      ? ["Start", "Orbit Chat", "Tickets", "Freigaben"]
-      : ["Start", "Orbit Chat", "Freigaben", "Inhalte"],
+      ? ["Start", "Orbit Chat", "Tickets", "Freigaben"].map(badged)
+      : ["Start", "Orbit Chat", "Freigaben", "Inhalte"].map(badged),
   );
   await expect(mobile.getByRole("button", { name: "Mehr" })).toBeVisible();
   await page.goto(`${base}/nope`);
@@ -376,7 +394,7 @@ test("mobile bar shows Home, Chat and two module entries plus More", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await openHome(page, base);
   const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
-  await expect(mobile.getByRole("link")).toHaveText(BAR);
+  await expect(mobile.getByRole("link")).toHaveText(BAR.map(badged));
   await expect(mobile.getByRole("button", { name: "More" })).toBeVisible();
   expect(
     await page.evaluate(
@@ -415,22 +433,19 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   await openHome(page, base);
   const nav = page.getByRole("navigation", { name: "Workspace" });
   const group = nav.locator("#nav-group-support");
-  await expect(group.getByRole("link")).toHaveText([
-    "Overview",
-    "Tickets",
-    "Contacts",
-    "Statistics",
-  ]);
+  await expect(group.getByRole("link")).toHaveText(
+    ["Overview", "Tickets", "Contacts", "Statistics"].map(badged),
+  );
   for (const [name, path] of [
     ["Overview", "/support"],
     ["Tickets", "/support/tickets"],
     ["Contacts", "/support/contacts"],
     ["Statistics", "/support/stats"],
   ]) {
-    await group.getByRole("link", { name, exact: true }).click();
+    await group.getByRole("link", { name: badged(name!) }).click();
     await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
     await expect(
-      group.getByRole("link", { name, exact: true }),
+      group.getByRole("link", { name: badged(name!) }),
     ).toHaveAttribute("aria-current", "page");
   }
 
@@ -438,14 +453,11 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await openHome(page, base);
   const mobile = page.getByRole("navigation", { name: "Mobile workspace" });
-  await expect(mobile.getByRole("link")).toHaveText([
-    "Home",
-    "Orbit Chat",
-    "Tickets",
-    "Approvals",
-  ]);
+  await expect(mobile.getByRole("link")).toHaveText(
+    ["Home", "Orbit Chat", "Tickets", "Approvals"].map(badged),
+  );
   await expect(
-    mobile.getByRole("link", { name: "Tickets", exact: true }),
+    mobile.getByRole("link", { name: badged("Tickets") }),
   ).toHaveAttribute("href", `${base}/support/tickets`);
   // Ruling R12: Tickets is current on every page of the support group.
   for (const path of [
@@ -456,7 +468,7 @@ test("support group lists Overview, Tickets, Contacts and Statistics", async ({
   ]) {
     await page.goto(`${base}${path}`);
     await expect(
-      mobile.getByRole("link", { name: "Tickets", exact: true }),
+      mobile.getByRole("link", { name: badged("Tickets") }),
       path,
     ).toHaveAttribute("aria-current", "page");
   }
