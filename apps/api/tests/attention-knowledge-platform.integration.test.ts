@@ -45,8 +45,8 @@ const HOUR = 3_600_000;
 describe.skipIf(!enabled)("knowledge and platform attention", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   let owner: Scope;
-  const ids = { owner: "", viewer: "" };
-  const cookies = { owner: "", viewer: "" };
+  const ids = { owner: "", editor: "", viewer: "" };
+  const cookies = { owner: "", editor: "", viewer: "" };
   const users: string[] = [];
   const workspaces: string[] = [];
   const origin = process.env.APP_ORIGIN!;
@@ -104,6 +104,11 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
         ...fields,
       }),
     );
+  /** The project's mode, as the policy activation sets it. */
+  const projectMode = (mode: string) =>
+    run((tx) =>
+      tx.project.update({ where: { id: owner.projectId }, data: { mode } }),
+    );
   const actionRequest = (fields: Record<string, unknown> = {}) =>
     run((tx) =>
       create(tx, owner, "action_requests", {
@@ -123,7 +128,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
   beforeAll(async () => {
     app = await buildServer();
     const accounts: Record<string, { email: string; password: string }> = {};
-    for (const who of ["owner", "viewer"] as const) {
+    for (const who of ["owner", "editor", "viewer"] as const) {
       const email = `${randomUUID()}@example.invalid`;
       const password = randomBytes(24).toString("base64url");
       const created = await makeAuth().api.signUpEmail({
@@ -139,6 +144,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
         members: {
           create: [
             { userId: ids.owner, role: "owner" },
+            { userId: ids.editor, role: "viewer" },
             { userId: ids.viewer, role: "viewer" },
           ],
         },
@@ -153,13 +159,21 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
         timezone: "Pacific/Kiritimati",
       },
     });
-    await authDb.projectMember.create({
-      data: {
-        workspaceId: workspace.id,
-        projectId: project.id,
-        userId: ids.viewer,
-        role: "viewer",
-      },
+    await authDb.projectMember.createMany({
+      data: [
+        {
+          workspaceId: workspace.id,
+          projectId: project.id,
+          userId: ids.editor,
+          role: "editor",
+        },
+        {
+          workspaceId: workspace.id,
+          projectId: project.id,
+          userId: ids.viewer,
+          role: "viewer",
+        },
+      ],
     });
     owner = {
       workspaceId: workspace.id,
@@ -167,7 +181,7 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
       userId: ids.owner,
       role: "owner",
     };
-    for (const who of ["owner", "viewer"] as const) {
+    for (const who of ["owner", "editor", "viewer"] as const) {
       const response = await app.inject({
         method: "POST",
         url: "/api/auth/sign-in/email",
@@ -483,8 +497,21 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
     expect(body.counts.operations).toBe(1);
   });
 
+  it("R25: status.mode is the project's mode, not the active policy's", async () => {
+    // A new project observes, with or without a policy.
+    expect((await attention("viewer")).status.mode).toBe("observe");
+    await policy({ mode: "autopilot" });
+    expect((await attention("viewer")).status.mode).toBe("observe");
+    await projectMode("assisted");
+    try {
+      expect((await attention("viewer")).status.mode).toBe("assisted");
+    } finally {
+      await projectMode("observe");
+    }
+  });
+
   it("status.mode is absent when marketing is off", async () => {
-    await policy({ mode: "assisted" });
+    await projectMode("assisted");
     expect((await attention("viewer")).status.mode).toBe("assisted");
     process.env.ORBIT_MODULES = "true";
     await run((tx) =>
@@ -496,11 +523,12 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
       await run((tx) =>
         setModuleEnabled(tx, owner, moduleRegistry(), "marketing", true),
       );
+      await projectMode("observe");
     }
   });
 
   it("status.mode is absent when marketing is hidden from the member", async () => {
-    await policy({ mode: "autopilot" });
+    await projectMode("autopilot");
     process.env.ORBIT_MODULE_ROLES = "true";
     await authDb.projectMemberModuleRole.create({
       data: {
@@ -512,13 +540,17 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
         changedBy: ids.owner,
       },
     });
-    expect((await attention("viewer")).status).not.toHaveProperty("mode");
-    expect((await attention("owner")).status.mode).toBe("autopilot");
+    try {
+      expect((await attention("viewer")).status).not.toHaveProperty("mode");
+      expect((await attention("owner")).status.mode).toBe("autopilot");
+    } finally {
+      await projectMode("observe");
+    }
   });
 
   it("aiMonth counts this month's reservations as enforcement does", async () => {
     // Without a policy the month is still known; the limit is not.
-    expect((await attention("viewer")).status.aiMonth).toEqual({
+    expect((await attention("editor")).status.aiMonth).toEqual({
       spentMicros: 0,
       limitMicros: null,
     });
@@ -533,10 +565,44 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
       settledMicros: 7_000_000n,
       createdAt: new Date(budgetMonthStart(new Date()).getTime() - 1),
     });
-    expect((await attention("viewer")).status).toEqual({
+    expect((await attention("owner")).status).toEqual({
       paused: false,
-      mode: "assisted",
+      mode: "observe",
       aiMonth: { spentMicros: 523_000, limitMicros: 20_000_000 },
+    });
+  });
+
+  it("R26: aiMonth only for owners and editors, like /ai-cost", async () => {
+    await policy({ monthlyBudgetMicros: 20_000_000 });
+    await reservation("reserved", 100_000n);
+    expect((await attention("viewer")).status).not.toHaveProperty("aiMonth");
+    expect((await attention("editor")).status.aiMonth).toEqual({
+      spentMicros: 100_000,
+      limitMicros: 20_000_000,
+    });
+  });
+
+  it("R26: no limitMicros while the policies are hidden from the member", async () => {
+    await policy({ monthlyBudgetMicros: 20_000_000 });
+    await reservation("reserved", 100_000n);
+    process.env.ORBIT_MODULE_ROLES = "true";
+    await authDb.projectMemberModuleRole.create({
+      data: {
+        workspaceId: owner.workspaceId,
+        projectId: owner.projectId,
+        userId: ids.editor,
+        moduleId: "marketing",
+        role: "none",
+        changedBy: ids.owner,
+      },
+    });
+    // Unknown, not "no limit": the month's spend stays, the limit is left out.
+    expect((await attention("editor")).status.aiMonth).toEqual({
+      spentMicros: 100_000,
+    });
+    expect((await attention("owner")).status.aiMonth).toEqual({
+      spentMicros: 100_000,
+      limitMicros: 20_000_000,
     });
   });
 });
