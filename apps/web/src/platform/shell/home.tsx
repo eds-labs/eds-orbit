@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, CircleCheck } from "lucide-react";
 import type { AttentionResponse } from "@/lib/api";
-import type { Locale } from "@/lib/i18n";
+import { labels, type Locale } from "@/lib/i18n";
 import { Button, Empty, Input, Skeleton } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
@@ -23,12 +23,9 @@ const ROWS = 8;
 /** "Guten Morgen" before 11:00, "Guten Tag" before 18:00, else "Guten Abend". */
 export function greeting(date: Date, locale: Locale): string {
   const hour = date.getHours();
-  const key = hour < 11 ? "morning" : hour < 18 ? "day" : "evening";
-  return {
-    morning: { en: "Good morning", de: "Guten Morgen" },
-    day: { en: "Good afternoon", de: "Guten Tag" },
-    evening: { en: "Good evening", de: "Guten Abend" },
-  }[key][locale];
+  return labels[locale][
+    hour < 11 ? "goodMorning" : hour < 18 ? "goodDay" : "goodEvening"
+  ];
 }
 
 /**
