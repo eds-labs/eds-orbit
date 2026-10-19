@@ -1,3 +1,4 @@
+import { delegatedRequester } from "../platform/tasks/delegation.ts";
 import { z } from "zod";
 import {
   authorize,
@@ -56,6 +57,7 @@ export const requestedBy = z.discriminatedUnion("kind", [
       clientId: z.string().min(1),
       grantId: z.string().min(1),
       agentRunId: z.string().nullable(),
+      taskId: z.uuid().optional(),
       argsHash: z.string().regex(/^[a-f0-9]{64}$/),
     })
     .strict(),
@@ -80,7 +82,8 @@ export type ActionDefinition<P> = {
    * An MCP client may only propose types that set this (WP-M4); hard floors
    * and unreviewed types never do. The decision stays with the decider role.
    */
-  mcpProposable?: true;
+  mcpProposable?: boolean;
+  mcpScopes?: readonly string[];
   ttlMs: number;
   payload: z.ZodType<P>;
   costCeilingMicros: (payload: P) => number;
@@ -110,7 +113,9 @@ export async function createActionRequest(
   input: { actionType: ActionType; payload: unknown; requestedBy: RequestedBy },
 ) {
   const type = definition(input.actionType);
-  const requester = requestedBy.parse(input.requestedBy);
+  const requester = requestedBy.parse(
+    delegatedRequester(input.payload) ?? input.requestedBy,
+  );
   if (requester.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
   const payload = type.payload.parse(input.payload);
@@ -254,6 +259,7 @@ export async function mcpGrantStillProposes(
   by: McpProposer & { grantId: string },
   at: { workspaceId: string; projectId: string },
   since: Date,
+  required: { module?: string; scopes?: readonly string[] } = {},
 ): Promise<boolean> {
   const select = {
     status: true,
@@ -264,6 +270,8 @@ export async function mcpGrantStillProposes(
     workspaceId: true,
     projectIds: true,
     allCurrentProjects: true,
+    modules: true,
+    expiresAt: true,
   } as const;
   const origin = await authDb.mcpGrant.findUnique({
     where: { id: by.grantId },
@@ -296,6 +304,12 @@ export async function mcpGrantStillProposes(
   if (
     grant?.status !== "active" ||
     !grant.scopes.includes("orbit:propose") ||
+    (grant.expiresAt !== null && grant.expiresAt.getTime() <= Date.now()) ||
+    (required.scopes ?? []).some((s) => !grant.scopes.includes(s)) ||
+    (required.module &&
+      required.module !== "platform" &&
+      grant.modules.length > 0 &&
+      !grant.modules.includes(required.module)) ||
     !(grant.allCurrentProjects || grant.projectIds.includes(at.projectId))
   )
     return false;
@@ -379,9 +393,14 @@ export async function decideActionRequest(
   if (
     approve &&
     d.requestedBy?.kind === "mcp" &&
-    !(await mcpGrantStillProposes(d.requestedBy, scope, row.createdAt))
+    !(await mcpGrantStillProposes(d.requestedBy, scope, row.createdAt, {
+      module: registeredActionTypeOwner(d.actionType),
+      scopes: type.mcpScopes,
+    }))
   )
     throw new DomainError("MCP_GRANT_ENDED", 409);
+  if (approve && d.requestedBy?.kind === "mcp" && type.mcpProposable !== true)
+    throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
   if (approve) await type.revalidate(tx, scope, type.payload.parse(d.payload));
   const decided = await update(tx, scope, row, {
     ...d,
@@ -666,6 +685,31 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
       createdAt: row.createdAt,
       requestedBy: listedRequester(d.requestedBy),
       summary: {
+        ...(d.actionType === "platform.task.start"
+          ? {
+              task: await tx.entity
+                .findFirst({
+                  where: {
+                    id: d.payload.taskId,
+                    projectId: scope.projectId,
+                    kind: "orbit_tasks",
+                  },
+                  select: { data: true },
+                })
+                .then((t) =>
+                  t
+                    ? {
+                        description: data(t).description,
+                        mode: data(t).delegation.mode,
+                        modules: data(t).delegation.modules,
+                      }
+                    : null,
+                ),
+            }
+          : {}),
+        ...(String(d.actionType).includes(".mcp.")
+          ? { operation: d.payload.args }
+          : {}),
         prompt: d.payload?.prompt,
         model: d.payload?.model,
         maxCostMicros: d.payload?.maxCostMicros,

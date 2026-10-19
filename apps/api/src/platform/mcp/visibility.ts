@@ -8,7 +8,7 @@
  * what the user may do in the UI.
  */
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
-import { scoped } from "../../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   availableTools,
@@ -112,6 +112,7 @@ async function allowedTools(
   const features = registeredAssistants(enabled).flatMap((assistant) =>
     assistant.features({ toolSearch: true }),
   );
+  if (loadConfig().ORBIT_MCP_TASKS === "true") features.push("mcp_tasks");
   const proposals = loadConfig().ORBIT_MCP_PROPOSALS === "true";
   return registeredTools(enabled)
     .filter((tool) => {
@@ -127,7 +128,10 @@ async function allowedTools(
       const role = effectiveRole(scope, owner);
       if (role === "none") return false;
       if (!availableTools([tool], role, features).length) return false;
-      return principal.scopes.has(requiredScope(tool));
+      return (
+        principal.scopes.has(requiredScope(tool)) &&
+        (tool.mcpScopes ?? []).every((s) => principal.scopes.has(s))
+      );
     })
     .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 }
@@ -170,8 +174,12 @@ export async function authorizeMcpCall(
 export async function principalModules(
   principal: McpPrincipal,
   scope: Scope,
+  tx?: DbTx,
 ): Promise<string[]> {
-  const enabled = visibleModules(scope, await readEnabledModules(scope));
+  const enabled = visibleModules(
+    scope,
+    tx ? await enabledModules(tx, scope) : await readEnabledModules(scope),
+  );
   return registeredRegistry().order.filter(
     (id) =>
       moduleAvailable(id) &&

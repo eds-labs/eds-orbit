@@ -42,9 +42,17 @@ import {
   scoped,
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
-import { create } from "../src/shared.ts";
+import { create, data, entity } from "../src/shared.ts";
+import {
+  createTask,
+  readTask,
+  taskChatCeiling,
+} from "../src/platform/tasks/tasks.ts";
+import { userScoped } from "../src/platform/tenancy/scope.ts";
+import { decideActionRequest } from "../src/modules/action-requests.ts";
 import {
   saveAiProviderConfiguration,
+  runtimeOpenAiConfiguration,
   saveOpenAiConfiguration,
 } from "../src/platform/ai/openai-configuration.ts";
 import {
@@ -311,5 +319,101 @@ describe.skipIf(!enabled)("Orbit Chat on a Claude route (mocked SDK)", () => {
       status: "blocked",
       errorCode: "CHAT_MODEL_CONTENT_FILTER",
     });
+  });
+  it("runs an approved MCP work order on Claude through the native provider budget and adapter", async () => {
+    const savedFlags = [
+      process.env.ORBIT_MCP_TASKS,
+      process.env.ORBIT_MCP_PROPOSALS,
+    ];
+    process.env.ORBIT_MCP_TASKS = "true";
+    process.env.ORBIT_MCP_PROPOSALS = "true";
+    try {
+      const grant = await authDb.mcpGrant.create({
+        data: {
+          workspaceId: scope.workspaceId,
+          userId: scope.userId,
+          clientId: "https://synthetic-mcp.example.invalid/client.json",
+          scopes: ["orbit:read", "orbit:propose"],
+          modules: ["marketing"],
+          projectIds: [scope.projectId],
+          status: "active",
+          activatedAt: new Date(),
+        },
+      });
+      const made = await createTask(
+        {
+          userId: scope.userId,
+          workspaceId: scope.workspaceId,
+          grantId: grant.id,
+          clientId: grant.clientId,
+          scopes: new Set(grant.scopes),
+          modules: grant.modules,
+          projectIds: grant.projectIds,
+        },
+        scope.projectId,
+        {
+          description: "Review the project and return a concise result.",
+          modules: ["marketing"],
+          idempotencyKey: randomUUID(),
+        },
+      );
+      await userScoped(scope, async (tx) => {
+        const request = await entity(
+          tx,
+          scope,
+          "action_requests",
+          made.actionRequestId,
+        );
+        await decideActionRequest(tx, scope, request.id, {
+          version: request.version,
+          packageHash: data(request).packageHash,
+          decision: "approve",
+        });
+      });
+      sdk.replies.push(() =>
+        message(
+          [
+            {
+              type: "text",
+              text: "Synthetic delegated Claude result.",
+              citations: null,
+            },
+          ],
+          "msg_mcp",
+        ),
+      );
+      const before = await readTask(scope, made.taskId);
+      await runChat(scope, before.runId!);
+      const result = await readTask(scope, made.taskId);
+      expect(result.status).toBe("succeeded");
+      expect(result.result).toContain("Synthetic delegated Claude result");
+      expect(sdk.requests.at(-1).model).toBe(CLAUDE);
+      // A permitted, more expensive fallback must fit the start approval too.
+      const runtime = await userScoped(scope, (tx) =>
+        runtimeOpenAiConfiguration(tx, scope),
+      );
+      expect(
+        taskChatCeiling({
+          ...runtime,
+          fallback: { onProviderBudgetStop: "openai" },
+          rateCard: {
+            ...runtime.rateCard,
+            "gpt-5.6-terra": {
+              inputMicrosPerMillion: 100_000_000,
+              outputMicrosPerMillion: 100_000_000,
+              verifiedAt: new Date().toISOString(),
+            },
+          },
+        }),
+      ).toBeGreaterThan(taskChatCeiling(runtime));
+    } finally {
+      for (const [key, value] of [
+        ["ORBIT_MCP_TASKS", savedFlags[0]],
+        ["ORBIT_MCP_PROPOSALS", savedFlags[1]],
+      ]) {
+        if (value === undefined) delete process.env[key!];
+        else process.env[key!] = value;
+      }
+    }
   });
 });

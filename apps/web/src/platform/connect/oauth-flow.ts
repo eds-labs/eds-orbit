@@ -119,8 +119,17 @@ export async function submitSelection(
 }
 
 /** The scopes to accept: the requested ones in order, minus an unticked propose. */
-export function acceptedScopes(requested: readonly string[], propose: boolean) {
-  return requested.filter((scope) => scope !== "orbit:propose" || propose);
+export function acceptedScopes(
+  requested: readonly string[],
+  propose: boolean,
+  extra: readonly string[] = [],
+) {
+  return requested.filter(
+    (scope) =>
+      (scope !== "orbit:propose" || propose) &&
+      (!["orbit:write", "orbit:support"].includes(scope) ||
+        extra.includes(scope)),
+  );
 }
 
 /**

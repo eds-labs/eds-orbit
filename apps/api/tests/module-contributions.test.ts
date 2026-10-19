@@ -40,7 +40,7 @@ import { postizQueueHealth } from "../src/modules/postiz-queue-watch.ts";
 import { registerAgentSpecialists } from "../src/modules/agents/specialists/index.ts";
 import { marketingHooks } from "../src/modules/marketing/hooks.ts";
 import { marketingRetention } from "../src/modules/marketing/retention.ts";
-import { ingressRetention } from "../src/platform/http/ingress-retention.ts";
+import { platformContributions } from "../src/platform/modules/platform-contributions.ts";
 import { publicEntity } from "../src/platform/shared.ts";
 import { chatTools } from "../src/modules/agents/tools/index.ts";
 import { pauseCallback } from "../src/platform/connections/telegram.ts";
@@ -52,9 +52,11 @@ import { invalidateMarketingForKnowledge } from "../src/modules/marketing/pipeli
 /** The platform registries filled from module contributions (WP1.6). */
 describe("module contributions", () => {
   it("offers the chat tools unchanged and in their order", () => {
-    expect(registeredTools().map((t) => t.name)).toEqual(
-      chatTools.map((t) => t.name),
-    );
+    expect(
+      registeredTools()
+        .filter((t) => t.feature !== "mcp_tasks")
+        .map((t) => t.name),
+    ).toEqual(chatTools.map((t) => t.name));
   });
 
   it("registers the four action types and every worker queue class once", () => {
@@ -120,6 +122,7 @@ describe("module contributions", () => {
       "inbound_emails",
       "inbound_webhooks",
       // Public client sessions with hashed tokens (WP4.2b).
+      "orbit_tasks",
       "public_sessions",
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
@@ -142,9 +145,9 @@ describe("module contributions", () => {
 
   it("lets marketing extend pause, resume and retention (WP1.8)", () => {
     expect(registeredHooks()).toEqual([marketingHooks]);
-    // The platform purges public ingress rows first (WP4.2 follow-up).
+    // Platform retention covers ingress and private external work orders.
     expect(registeredRetention()).toEqual([
-      ingressRetention,
+      platformContributions.retention,
       marketingRetention,
     ]);
   });

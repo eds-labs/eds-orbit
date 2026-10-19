@@ -1,3 +1,4 @@
+import { registerTaskRoutes } from "./platform/tasks/routes.ts";
 import {
   authorize,
   PROJECT_OWN,
@@ -429,6 +430,7 @@ export async function buildServer(
   registerEmailRoutes(app, auth);
   // What needs the member's attention in the project (UI restructure §4.1).
   registerAttentionRoutes(app, auth);
+  registerTaskRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",

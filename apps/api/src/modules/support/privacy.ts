@@ -125,6 +125,29 @@ async function deleteTickets(tx: DbTx, scope: Scope, ticketIds: string[]) {
     where: { mergedIntoTicketId: { in: ticketIds } },
     data: { mergedIntoTicketId: null },
   });
+  // MCP approval payloads/receipts may contain the same ticket text. Erasure
+  // and closed-ticket retention must remove those copies and their history.
+  const mcpCopies = await tx.entity.findMany({
+    where: {
+      projectId: scope.projectId,
+      kind: "action_requests",
+      OR: ticketIds.map((id) => ({
+        data: { path: ["payload", "args", "ticketId"], equals: id },
+      })),
+    },
+  });
+  const supportCopies = mcpCopies.filter((r) =>
+    String(data(r).actionType).startsWith("support.mcp."),
+  );
+  if (supportCopies.length) {
+    const ids = supportCopies.map((r) => r.id);
+    await tx.entityVersion.deleteMany({
+      where: { projectId: scope.projectId, entityId: { in: ids } },
+    });
+    await tx.entity.deleteMany({
+      where: { projectId: scope.projectId, id: { in: ids } },
+    });
+  }
   await tx.supportTicket.deleteMany({ where: { id: { in: ticketIds } } });
   return {
     files: [

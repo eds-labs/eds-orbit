@@ -1,3 +1,5 @@
+import { registerTaskResources } from "./task-resources.ts";
+import { mcp2Enabled } from "../tasks/operation-tools.ts";
 /**
  * Registry adapter of the MCP gateway (Track M, WP-M2,
  * plans/orbit-modularization/09 §5.1): builds the per-request MCP server for
@@ -54,7 +56,7 @@ import {
   visibleMcpTools,
 } from "./visibility.ts";
 
-export const MCP_SERVER_INFO = { name: "orbit-mcp-gateway", version: "1.0.0" };
+export const MCP_SERVER_INFO = { name: "orbit-mcp-gateway", version: "2.0.0" };
 /** Largest JSON result a tool may return (limits.ts). */
 export { MCP_OUTPUT_LIMIT_BYTES };
 /** Cheap bound on argument size the SDK checks before validation. */
@@ -671,6 +673,7 @@ type ToolDefinition = {
   description: string;
   risk: ToolRisk;
   openWorld: boolean;
+  scopes?: readonly string[];
   inputSchema: z.ZodObject;
   outputSchema: z.ZodObject;
   meta?: Record<string, unknown>;
@@ -690,9 +693,15 @@ export async function mcpServerFor(
   const principalState = { ...state, principal: state.principal };
   const { principal } = principalState;
   const server = new McpServer(MCP_SERVER_INFO, {
-    capabilities: { tools: { listChanged: false } },
+    capabilities: {
+      tools: { listChanged: false },
+      ...(mcp2Enabled()
+        ? { resources: { subscribe: true, listChanged: false } }
+        : {}),
+    },
     maxToolInputElements: MAX_TOOL_INPUT_ELEMENTS,
   });
+  if (mcp2Enabled()) registerTaskResources(server.server, principal);
   if (state.method !== "tools/list" && state.method !== "tools/call")
     return server;
   const wanted = (name: string) =>
@@ -700,7 +709,11 @@ export async function mcpServerFor(
 
   const definitions = new Map<string, ToolDefinition>();
   for (const native of nativeTools)
-    if (wanted(native.name) && principal.scopes.has(requiredScope(native)))
+    if (
+      wanted(native.name) &&
+      (!native.available || native.available()) &&
+      principal.scopes.has(requiredScope(native))
+    )
       definitions.set(native.name, {
         name: native.name,
         description: native.description,
@@ -709,12 +722,36 @@ export async function mcpServerFor(
         inputSchema: native.inputSchema,
         outputSchema: native.outputSchema,
         ...(native.meta ? { meta: native.meta } : {}),
-        run: (args, call) =>
-          native.run(
-            principal,
-            args,
-            nativeContext(principalState, native.name, call),
-          ),
+        run: async (args, call) => {
+          const key: ProposalQuotaKey = {
+            userId: principal.userId,
+            clientId: principal.clientId,
+            workspaceId: principal.workspaceId,
+          };
+          const reservation = native.proposal
+            ? await reserveProposal(state.proposalQuota, key)
+            : null;
+          let output: unknown;
+          try {
+            output = await native.run(
+              principal,
+              args,
+              nativeContext(principalState, native.name, call),
+            );
+          } catch (error) {
+            reservation?.release();
+            throw error;
+          }
+          if (reservation)
+            await settleProposal(
+              principalState,
+              native.name,
+              key,
+              reservation,
+              output,
+            );
+          return output;
+        },
       });
   const single = principal.projectIds.length === 1;
   for (const tool of await registryToolsFor(principal)) {
@@ -732,6 +769,7 @@ export async function mcpServerFor(
       description: tool.description,
       risk: tool.risk,
       openWorld: tool.openWorld === true,
+      scopes: tool.mcpScopes,
       inputSchema: inputSchemaFor(tool, single),
       outputSchema,
       run: (args, call) =>
@@ -770,7 +808,10 @@ export async function mcpServerFor(
         _meta: {
           ...definition.meta,
           securitySchemes: [
-            { type: "oauth2", scopes: [requiredScope(definition)] },
+            {
+              type: "oauth2",
+              scopes: [requiredScope(definition), ...(definition.scopes ?? [])],
+            },
           ],
         },
       },

@@ -1,5 +1,22 @@
 # Requirements traceability
 
+## MCP 2.0 work-order acceptance (2026-10-19, local)
+
+| Requirement | Implementation and evidence | Status |
+| --- | --- | --- |
+| A: persistent main-agent task | platform/tasks, native/tasks; mcp-2-workflows A/G, mcp-2-gateway restart/HTTP | PASS_TEST |
+| B: native support read/draft without send | support/mcp-tools; workflow B/F; placeholders and separate send approval | PASS_TEST |
+| C: marketing artifacts and approval | existing chat/package/specialist services; workflow C, actual package/action IDs | PASS_TEST (model mocked) |
+| D: native ingestion and search/update | knowledge/mcp-tools and native engine; workflow D, real lexical retrieval/versioning | PASS_TEST |
+| E: scopes, tenancy and no deputy escape | delegation, principal, visibility; project/client/module/read-only/mid-run/injection cases, access matrix | PASS_TEST |
+| F: exact approval, denial, expiry and feature shutdown | existing ActionRequests, module callbacks; B/F, F/G and disabled-operation regression | PASS_TEST |
+| G: idempotency, disconnect/restart/repeated dispatch | project lock + native outbox/chat transmission markers; workflow A/G and gateway rebuild | PASS_TEST |
+| Events | native resources/read; standard 2026-07-28 resource subscriptions, SQL replay + existing Redis; event/revocation and HTTP stream tests | PASS_TEST |
+| Native UI | Orbit Chat history, exact approval payload, mobile cancel; mcp-work-orders.spec.ts | PASS_LOCAL_BROWSER |
+| Privacy | optional content consent, native placeholders, no shared payload export, erasure and retention | PASS_TEST |
+| Paid providers / actual external clients / production | No such actions authorized or performed during implementation | NOT_RUN |
+
+
 Checkpoint refreshed: 2026-09-22. All 88 acceptance IDs from the controlling master are preserved. Status is the narrowest tested conclusion; `PASS_TEST` does not authorize production or imply a live provider result. Every row refers to the local isolated PostgreSQL/Redis/browser environment unless `PASS_LIVE` explicitly records authorized read-only existing-host observations.
 
 Canonical current execution evidence: `docs/evidence/vitest-results.json`, `playwright-results.json`, plus the executed framework, migration, API-generation, lint, typecheck, build and secret checks recorded in the 2026-09-22 checkpoint. Older text logs remain historical rather than being reused as current evidence. Current application verification: 280 tests across 20 files and 5 authenticated browser workflows passed on the pinned Node 24 runtime. Production build and 12 framework tests also passed. Fresh Linux ARM64 standalone/shared-host acceptance remains covered by `docs/evidence/container-acceptance.json`. Original-master counts remain 79 PASS_TEST, 3 PASS_LIVE (read-only infrastructure), 6 BLOCKED_EXTERNAL, 0 NOT_RUN.

@@ -1,3 +1,5 @@
+import { TaskSubscriptions } from "./task-resources.ts";
+import { mcp2Enabled } from "../tasks/operation-tools.ts";
 /**
  * The MCP gateway's HTTP app (Track M, WP-M2, plans/orbit-modularization/09
  * §3.1, §3.2): `POST /mcp` bridged to the MCP TypeScript SDK behind Better
@@ -65,10 +67,17 @@ import { McpProposalDayCache } from "./proposals.ts";
 /** Request body limit of the gateway (bytes). */
 export const MCP_BODY_LIMIT = 256 * 1024;
 /** The scopes the resource itself serves; identity scopes stay with the authorization server. */
-export const MCP_RESOURCE_SCOPES = ["orbit:read", "orbit:propose"] as const;
+export const MCP_RESOURCE_SCOPES = [
+  "orbit:read",
+  "orbit:propose",
+  "orbit:write",
+  "orbit:support",
+] as const;
 const PRM_PATH = "/.well-known/oauth-protected-resource";
 
 export type McpServerOptions = {
+  /** Test seam for bounded subscription replay/lifetime. */
+  taskSubscriptions?: { pollMs?: number; lifetimeMs?: number };
   /** Test seam: the CIMD metadata transport (see makeAuth). */
   cimdFetch?: typeof fetch;
   /**
@@ -266,6 +275,8 @@ export async function buildMcpServer(
     await builtIn(record);
     await options.observe?.(record);
   };
+  const subscriptions = new TaskSubscriptions(options.taskSubscriptions);
+  app.addHook("onClose", async () => subscriptions.close());
   const states = new WeakMap<AuthInfo, McpRequestState>();
   const handler = createMcpHandler(
     (ctx) => mcpServerFor(ctx.authInfo && states.get(ctx.authInfo)),
@@ -341,7 +352,30 @@ export async function buildMcpServer(
           return unauthenticatedResponse(resource);
         // subscriptions/listen would keep a stream open that never checks
         // the principal again; the gateway offers no notifications.
-        if (peek.listen) return methodNotFoundResponse(peek.id);
+        if (peek.listen) {
+          if (
+            !principal ||
+            !mcp2Enabled() ||
+            req.headers["mcp-protocol-version"] !== "2026-07-28"
+          )
+            return methodNotFoundResponse(peek.id);
+          try {
+            return await subscriptions.listen(
+              JSON.parse(String(req.body)),
+              principal,
+              async () => {
+                if (
+                  typeof claims.exp !== "number" ||
+                  claims.exp * 1000 <= Date.now()
+                )
+                  return null;
+                return resolvePrincipal(claims);
+              },
+            );
+          } catch {
+            return rpcErrorResponse(400, "Subscription not available");
+          }
+        }
         const authInfo: AuthInfo = {
           // The raw bearer token stays out of the SDK.
           token: principal ? `grant:${principal.grantId}` : "grant:none",

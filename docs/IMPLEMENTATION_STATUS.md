@@ -1,5 +1,33 @@
 # Implementation status
 
+## MCP 2.0 delegated work orders (2026-10-19, local; flag off)
+
+Branch `codex/orbit-mcp-2`, rebased onto `6028312` after Anthropic PR #179 merged. Scope and architecture:
+`docs/plans/MCP_2_0.md`; API, examples, consent, events and rollout:
+`docs/MCP_2_0.md`. Tasks are durable private conversations/runs over the existing
+chat worker, with owner start approval, idempotency, real status/artifact
+projections and cooperative cancellation. Support, Marketing and Knowledge add
+typed read/approved-operation tools through their existing native services.
+The original gateway tools stay compatible.
+
+New opt-in switch `ORBIT_MCP_TASKS` defaults to false. New optional OAuth scopes
+`orbit:write` (internal execute mode) and `orbit:support` (sensitive ticket
+content) are unchecked in consent until chosen. Existing grants gain no scopes.
+MCP 2.0 adds no migration or dependency. No production deployment or
+configuration change, paid call, customer reply or publication was performed. Standalone direct operations and
+child workflows still need their native approvals, budgets and readiness.
+
+Local verification includes synthetic A–G integration workflows, real OAuth
+and gateway restart/resource/stream tests, the native mobile cancellation flow,
+reviewed access-matrix additions and export/erasure/retention checks. The final
+integrated suite passed **2739 tests across 256 files**; the targeted regression
+passed 89 tests, including an approved MCP work order on the native Claude
+adapter. Native Playwright acceptance passed. Lint, typecheck,
+build, Compose, secret and framework checks passed; details are recorded in
+`docs/evidence/mcp2-local-validation.md`; historical provider and Track M
+entries below retain their original checkpoint wording. Live ChatGPT/dots/Claude and
+paid generation acceptance remain separate operator steps.
+
 ## Open production issues of 2026-10-19 (branch `claude/open-issues-fixes`)
 
 Seven observations from production uLiquid, each traced to its cause before a change; three were configuration, four needed code.

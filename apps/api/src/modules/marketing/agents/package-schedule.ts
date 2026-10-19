@@ -89,94 +89,107 @@ export async function proposeSchedule(
   if (!contentPackagesEnabled())
     throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
   const input = scheduleProposal.parse(raw);
-  return chatScoped(scope, async (tx) => {
-    const { pkg, steps, step } = await startedDeliverable(
-      tx,
-      scope,
-      conversationId,
-      input.deliverableKey,
-    );
-    const current = await currentDraft(tx, scope, step);
-    if (current.pending) throw new DomainError("REVISION_IN_PROGRESS", 409);
-    if (!current.draft) throw new DomainError("DRAFT_REQUIRED", 409);
-    const draft = current.draft;
-    if (data(draft).supersededBy)
-      throw new DomainError("DRAFT_SUPERSEDED", 409);
-    await assertPackageDraft(tx, scope, pkg.id, draft);
-    const mission = await entity(tx, scope, "missions", data(draft).missionId);
-    const replaces = await openSchedule(tx, scope, step);
-    const channel = String(data(draft).channel);
-    const overview = (await channelSlots(tx, scope, { channels: [channel] }))
-      .channels[0]!;
-    const slot = input.date
-      ? overview.slots.find((candidate) => candidate.date === input.date)
-      : overview.slots.find((candidate) => candidate.free);
-    if (input.date && !slot)
-      throw new DomainError("SCHEDULE_DATE_OUT_OF_RANGE", 409);
-    if (!slot || !slot.free)
-      return {
-        status: slot ? ("slot_taken" as const) : ("no_free_slot" as const),
-        deliverableKey: step.key as string,
-        channel,
-        date: slot?.date ?? null,
-        reasons: slot?.reasons ?? [],
-        nextFree: overview.nextFree,
-      };
-    // The slot is bound by the request; the draft changes only on approval.
-    const content = draft;
-    const post = await packageFor(tx, scope, content.id);
-    const payload: SchedulePayload = {
-      packageId: pkg.id,
-      deliverableKey: step.key,
-      contentId: content.id,
-      contentVersion: content.version,
-      missionId: mission.id,
-      channel,
-      scheduledAt: slot.at,
-      body: String(data(content).body),
-      assetId: data(content).assetId ?? null,
-      executionMode: executionMode(),
-      postHash: post.packageHash,
-      replacesPublicationId: replaces?.id ?? null,
-    };
-    const request = await createActionRequest(tx, scope, {
-      actionType: "content.schedule",
-      payload,
-      requestedBy,
-    });
-    const proposal = {
-      actionRequestId: request.id,
-      contentId: content.id,
-      scheduledAt: slot.at,
-      requestedAt: new Date().toISOString(),
-    };
-    await update(tx, scope, pkg, {
-      ...data(pkg),
-      steps: steps.map((candidate) =>
-        candidate === step
-          ? replaces
-            ? { ...step, reschedule: proposal }
-            : { ...step, schedule: proposal }
-          : candidate,
-      ),
-    });
-    await audit(tx, scope, "content_package.schedule_proposed", request.id, {
-      packageId: pkg.id,
-      contentId: content.id,
-      scheduledAt: slot.at,
-    });
+  return chatScoped(scope, (tx) =>
+    proposeScheduleInTx(tx, scope, conversationId, input, requestedBy),
+  );
+}
+
+export async function proposeScheduleInTx(
+  tx: DbTx,
+  scope: Scope,
+  conversationId: string,
+  raw: unknown,
+  requestedBy: RequestedBy,
+) {
+  authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
+  if (!contentPackagesEnabled())
+    throw new DomainError("CONTENT_PACKAGES_DISABLED", 409);
+  const input = scheduleProposal.parse(raw);
+  const { pkg, steps, step } = await startedDeliverable(
+    tx,
+    scope,
+    conversationId,
+    input.deliverableKey,
+  );
+  const current = await currentDraft(tx, scope, step);
+  if (current.pending) throw new DomainError("REVISION_IN_PROGRESS", 409);
+  if (!current.draft) throw new DomainError("DRAFT_REQUIRED", 409);
+  const draft = current.draft;
+  if (data(draft).supersededBy) throw new DomainError("DRAFT_SUPERSEDED", 409);
+  await assertPackageDraft(tx, scope, pkg.id, draft);
+  const mission = await entity(tx, scope, "missions", data(draft).missionId);
+  const replaces = await openSchedule(tx, scope, step);
+  const channel = String(data(draft).channel);
+  const overview = (await channelSlots(tx, scope, { channels: [channel] }))
+    .channels[0]!;
+  const slot = input.date
+    ? overview.slots.find((candidate) => candidate.date === input.date)
+    : overview.slots.find((candidate) => candidate.free);
+  if (input.date && !slot)
+    throw new DomainError("SCHEDULE_DATE_OUT_OF_RANGE", 409);
+  if (!slot || !slot.free)
     return {
-      status: "proposed" as const,
-      actionRequestId: request.id,
+      status: slot ? ("slot_taken" as const) : ("no_free_slot" as const),
       deliverableKey: step.key as string,
       channel,
-      scheduledAt: slot.at,
-      executionMode: payload.executionMode,
-      replacesScheduledAt: replaces
-        ? (data(replaces).scheduledAt as string)
-        : null,
+      date: slot?.date ?? null,
+      reasons: slot?.reasons ?? [],
+      nextFree: overview.nextFree,
     };
+  // The slot is bound by the request; the draft changes only on approval.
+  const content = draft;
+  const post = await packageFor(tx, scope, content.id);
+  const payload: SchedulePayload = {
+    packageId: pkg.id,
+    deliverableKey: step.key,
+    contentId: content.id,
+    contentVersion: content.version,
+    missionId: mission.id,
+    channel,
+    scheduledAt: slot.at,
+    body: String(data(content).body),
+    assetId: data(content).assetId ?? null,
+    executionMode: executionMode(),
+    postHash: post.packageHash,
+    replacesPublicationId: replaces?.id ?? null,
+  };
+  const request = await createActionRequest(tx, scope, {
+    actionType: "content.schedule",
+    payload,
+    requestedBy,
   });
+  const proposal = {
+    actionRequestId: request.id,
+    contentId: content.id,
+    scheduledAt: slot.at,
+    requestedAt: new Date().toISOString(),
+  };
+  await update(tx, scope, pkg, {
+    ...data(pkg),
+    steps: steps.map((candidate) =>
+      candidate === step
+        ? replaces
+          ? { ...step, reschedule: proposal }
+          : { ...step, schedule: proposal }
+        : candidate,
+    ),
+  });
+  await audit(tx, scope, "content_package.schedule_proposed", request.id, {
+    packageId: pkg.id,
+    contentId: content.id,
+    scheduledAt: slot.at,
+  });
+  return {
+    status: "proposed" as const,
+    actionRequestId: request.id,
+    deliverableKey: step.key as string,
+    channel,
+    scheduledAt: slot.at,
+    executionMode: payload.executionMode,
+    replacesScheduledAt: replaces
+      ? (data(replaces).scheduledAt as string)
+      : null,
+  };
 }
 
 /**

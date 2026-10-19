@@ -51,6 +51,7 @@ x-api-environment: &api-environment
   # Empty = ${APP_ORIGIN}/api/auth/jwks; the mcp service sets the internal URL.
   MCP_JWKS_URL: ${MCP_JWKS_URL:-}
   ORBIT_MCP_ALLOWED_ORIGINS: ${ORBIT_MCP_ALLOWED_ORIGINS:-}
+  ORBIT_MCP_TASKS: ${ORBIT_MCP_TASKS:-false}
   ORBIT_MCP_PROPOSALS: ${ORBIT_MCP_PROPOSALS:-false}
   ORBIT_MODULE_ROLES: ${ORBIT_MODULE_ROLES:-false}
   ORBIT_PUBLIC_INGRESS: ${ORBIT_PUBLIC_INGRESS:-false}

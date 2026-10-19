@@ -426,7 +426,7 @@ describe.skipIf(!enabled)("MCP gateway", () => {
         expect(response.json()).toEqual({
           resource: config.MCP_RESOURCE,
           authorization_servers: [ISSUER],
-          scopes_supported: ["orbit:read", "orbit:propose"],
+          scopes_supported: ["orbit:read", "orbit:propose", "orbit:write", "orbit:support"],
           bearer_methods_supported: ["header"],
           // WP-M5: DPoP-bound tokens are verified (mcp-gateway-audit).
           dpop_signing_alg_values_supported: [

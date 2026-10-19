@@ -5338,3 +5338,18 @@ a.support-row {
   font-size: 20px;
   font-weight: 600;
 }
+
+/* Private delegated work orders inside the existing assistant. */
+.assistant-tasks {
+  margin-bottom: 16px;
+}
+.assistant-task {
+  margin: 0 16px 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel);
+}
+.assistant-tasks > .form-actions {
+  margin: 0 16px 12px;
+}

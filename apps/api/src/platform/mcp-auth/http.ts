@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { oauthProviderAuthServerMetadata } from "@better-auth/oauth-provider";
@@ -118,6 +119,11 @@ export async function sendWebResponse(reply: FastifyReply, response: Response) {
   });
   const cookies = response.headers.getSetCookie();
   if (cookies.length) reply.header("set-cookie", cookies);
+  if (
+    response.body &&
+    response.headers.get("content-type")?.includes("text/event-stream")
+  )
+    return reply.send(Readable.fromWeb(response.body as any));
   return reply.send(await response.text());
 }
 

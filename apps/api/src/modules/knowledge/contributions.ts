@@ -1,3 +1,4 @@
+import { knowledgeMcpTools, knowledgeMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { knowledgeActions } from "./actions.ts";
 import { knowledgeRoutes } from "./routes.ts";
@@ -12,6 +13,8 @@ import { knowledgeAttention } from "./attention.ts";
  */
 export const knowledgeContributions: ModuleContributions = {
   actions: knowledgeActions,
+  tools: knowledgeMcpTools,
+  actionTypes: knowledgeMcpActions,
   actionPermissions: knowledgeActionPermissions,
   routes: knowledgeRoutes,
   // Stale and expiring sources, conflicts and failed imports that need the

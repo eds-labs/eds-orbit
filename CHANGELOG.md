@@ -6,6 +6,10 @@ Alle wesentlichen Änderungen am Codex Project Framework werden in dieser Datei 
 
 ### Added
 
+- MCP 2.0 delegated work orders with durable task/result/cancellation tools, native Orbit Chat visibility and standard resource notifications
+- 24 native Support, Marketing and Knowledge read/approval tools plus a connection-owned action-result tool, reusing existing module services, jobs and owner approvals
+- Optional `orbit:write` and `orbit:support` consent, delegated permission/budget checks, privacy lifecycle tests and opt-in `ORBIT_MCP_TASKS` (default false); no new migration or dependency
+
 - Anthropic Claude as a second runtime AI provider behind the shared AI functions (Messages API, SDK 0.135.0): chat, specialists, support and drafts run on Claude when their route names a Claude model; prompt caching, strict tools, structured outputs, hosted web search, refusal and cut-off handling
 - Model registry, dated Claude model and price suggestion, Anthropic tier models and default provider, owner action `ai-provider-configure`
 - Per-project Claude credit budget with two warnings and an internal stop per billing period (anchor day), enforced in `reserve` for every Anthropic reservation; `GET /ai-budget`, `ai-cost?groupBy=provider`, attention item `platform_provider_budget`

@@ -1,3 +1,5 @@
+import { supportConversationResults } from "./assistant-results.ts";
+import { supportMcpTools, supportMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { supportSwitchedOn } from "./gate.ts";
 import { supportRoutes } from "./routes.ts";
@@ -54,7 +56,9 @@ export const supportContributions: ModuleContributions = {
         }),
     },
   ],
-  tools: supportTools,
+  tools: [...supportTools, ...supportMcpTools],
+  conversationSections: supportConversationResults,
+  actionTypes: supportMcpActions,
   periodic: [supportEmailDelivery, supportRetentionTask],
   // The livechat widget's public API (WP5.4).
   publicRoutes: widgetRoutes,

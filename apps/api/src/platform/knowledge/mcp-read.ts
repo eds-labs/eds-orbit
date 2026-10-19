@@ -257,7 +257,7 @@ async function projectLanguage(tx: DbTx, scope: Scope) {
  * their own), from a source open to all modules, as `retrieve` without a
  * consumer requires (K-1 itself does not look at audiences).
  */
-async function modelFacts(tx: DbTx, scope: Scope, ids: readonly string[]) {
+export async function modelFacts(tx: DbTx, scope: Scope, ids: readonly string[]) {
   const usable = await usableFactsByIds(tx, scope, ids, {
     at: new Date(),
     language: await projectLanguage(tx, scope),

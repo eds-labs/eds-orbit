@@ -227,6 +227,13 @@ export function publicEntity(row: any) {
         linkedAt: data(row).linkedAt ?? null,
       },
     };
+  // Delegated operation bodies and receipts can contain customer text. The
+  // approval inbox and connection-owned result API read them explicitly;
+  // project-wide exports receive identifiers and status only.
+  if (row.kind === "action_requests" && (String(data(row).actionType).includes(".mcp.") || data(row).actionType === "platform.task.start")) {
+    const d = data(row);
+    return {...row, data: {actionType: d.actionType, status: d.status, packageHash: d.packageHash, expiresAt: d.expiresAt, requestedBy: listedRequester(d.requestedBy)}};
+  }
   // The export is open to every member: trim an MCP requester (review M3).
   if (row.kind === "action_requests" && data(row).requestedBy !== undefined)
     return {

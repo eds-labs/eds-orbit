@@ -7,6 +7,7 @@ import { platformPermissions } from "../tenancy/permissions.ts";
  */
 export const platformDeclaration: PlatformDeclaration = {
   entityKinds: [
+    { kind: "orbit_tasks", description: "User-private delegated assistant tasks", exported: false },
     { kind: "jobs", description: "Durable jobs dispatched through the outbox" },
     { kind: "exceptions", description: "Open operational exceptions by code" },
     {

@@ -257,7 +257,12 @@ async function loadTicket(tx: DbTx, scope: Scope, id: string) {
 }
 
 /** A ticket with its contact, inbox and timeline (messages and events). */
-export async function ticketDetail(tx: DbTx, scope: Scope, id: string) {
+export async function ticketDetail(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  page?: { cursor?: { at: Date; id: string }; limit: number },
+) {
   const ticket = await loadTicket(tx, scope, id);
   const [contact, inbox, messages, events] = await Promise.all([
     tx.supportContact.findFirst({ where: { id: ticket.contactId } }),
@@ -266,10 +271,44 @@ export async function ticketDetail(tx: DbTx, scope: Scope, id: string) {
       select: { id: true, name: true, channels: true, aiMode: true },
     }),
     tx.supportMessage.findMany({
-      where: { projectId: scope.projectId, ticketId: id },
+      where: {
+        projectId: scope.projectId,
+        ticketId: id,
+        ...(page?.cursor
+          ? {
+              OR: [
+                { createdAt: { lt: page.cursor.at } },
+                { createdAt: page.cursor.at, id: { lt: page.cursor.id } },
+              ],
+            }
+          : {}),
+      },
+      ...(page
+        ? {
+            take: page.limit,
+            orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+          }
+        : {}),
     }),
     tx.supportTicketEvent.findMany({
-      where: { projectId: scope.projectId, ticketId: id },
+      where: {
+        projectId: scope.projectId,
+        ticketId: id,
+        ...(page?.cursor
+          ? {
+              OR: [
+                { createdAt: { lt: page.cursor.at } },
+                { createdAt: page.cursor.at, id: { lt: page.cursor.id } },
+              ],
+            }
+          : {}),
+      },
+      ...(page
+        ? {
+            take: page.limit,
+            orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+          }
+        : {}),
     }),
   ]);
   const attachments = await tx.supportAttachment.findMany({
@@ -285,7 +324,8 @@ export async function ticketDetail(tx: DbTx, scope: Scope, id: string) {
   ]
     .sort(
       (x, y) =>
-        x.createdAt.getTime() - y.createdAt.getTime() || x.order - y.order,
+        x.createdAt.getTime() - y.createdAt.getTime() ||
+        (page ? x.id.localeCompare(y.id) : x.order - y.order),
     )
     .map(({ order: _order, ...item }) => item);
   return {
@@ -757,12 +797,12 @@ export async function requestDraft(tx: DbTx, scope: Scope, id: string) {
     orderBy: { createdAt: "desc" },
   });
   if (!message) throw new DomainError("NOTHING_TO_ANSWER", 409);
-  await enqueue(
+  const job = await enqueue(
     tx,
     scope,
     SUPPORT_DRAFT,
     id,
     `support-draft-manual:${message.id}:${Date.now()}`,
   );
-  return { queued: true };
+  return { queued: true, jobId: job.id, ticketId: id };
 }

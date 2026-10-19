@@ -1,3 +1,5 @@
+import { actionResult } from "./native/action-result.ts";
+import { taskTools } from "./native/tasks.ts";
 /**
  * Gateway-native MCP tools (Track M, WP-M2 D-M2-4, WP-M3): workspace-level
  * tools that are not registry tools: `orbit_projects`, `orbit_profile`,
@@ -62,6 +64,9 @@ export type NativeTool = {
   outputSchema: z.ZodObject;
   /** Merged into the tool definition's `_meta` (for example `openai/profile`). */
   meta?: Record<string, unknown>;
+  available?: () => boolean;
+  /** Creates an approval and participates in the shared proposal quotas. */
+  proposal?: true;
   run(
     principal: McpPrincipal,
     args: Record<string, unknown>,
@@ -70,6 +75,8 @@ export type NativeTool = {
 };
 
 export const nativeTools: readonly NativeTool[] = [
+  ...taskTools,
+  actionResult,
   orbitProjects,
   orbitProfile,
   searchTool,
