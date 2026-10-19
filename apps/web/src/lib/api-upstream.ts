@@ -49,6 +49,8 @@ type Upstream = {
    * Any other upstream gets neither, so it can never set an Orbit cookie.
    */
   api: boolean;
+  /** How long a request may wait for the upstream before it answers 502. */
+  timeoutMs: number;
 };
 
 /** Cookie-setting response headers; only the API's reach the browser. */
@@ -93,7 +95,10 @@ async function forward(
       duplex: "half",
       redirect: "manual",
       cache: "no-store",
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(45000)]),
+      signal: AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(upstreamOrigin.timeoutMs),
+      ]),
     } as RequestInit & { duplex: "half" });
     const returned = new Headers(upstream.headers);
     for (const name of hopHeaders) returned.delete(name);
@@ -134,6 +139,7 @@ export function forwardToApi(
     {
       origin: process.env.ORBIT_API_ORIGIN || "http://127.0.0.1:4311",
       api: true,
+      timeoutMs: 45000,
     },
     request,
     pathname,
@@ -144,7 +150,9 @@ export function forwardToApi(
 /**
  * Forwards `request` to `pathname` on the MCP gateway (ORBIT_MCP_ORIGIN,
  * default the compose service). Only the listed request headers are passed on,
- * and no cookie the gateway sets reaches the browser.
+ * and no cookie the gateway sets reaches the browser. It serves two small
+ * static documents, so a hung gateway answers 502 after 5 s instead of
+ * holding the web request for the API's 45 s.
  */
 export function forwardToMcp(
   request: NextRequest,
@@ -155,6 +163,7 @@ export function forwardToMcp(
     {
       origin: process.env.ORBIT_MCP_ORIGIN || "http://mcp:4312",
       api: false,
+      timeoutMs: 5000,
     },
     request,
     pathname,

@@ -115,7 +115,8 @@ const baseConfigSchema = z.object({
   // Where the gateway fetches the token signing keys (the API's Better Auth
   // JWKS). Empty = `${APP_ORIGIN}/api/auth/jwks`; compose sets the internal
   // http://api:4311/api/auth/jwks so verification does not leave the network.
-  MCP_JWKS_URL: unset(z.url().optional()),
+  // Only http(s) URLs are accepted.
+  MCP_JWKS_URL: unset(z.url({ protocol: /^https?$/ }).optional()),
   // Browser origins allowed to call the gateway (comma list); empty allows none.
   ORBIT_MCP_ALLOWED_ORIGINS: unset(z.string().default("")),
   // Central switch for MCP proposal tools (Track M, WP-M4): while "false" the

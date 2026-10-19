@@ -22,6 +22,7 @@ const ENV_KEYS = [
   "MCP_RESOURCE",
   "ORBIT_MCP_CIMD_HOSTS",
   "APP_ORIGIN",
+  "MCP_JWKS_URL",
 ] as const;
 const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 afterEach(() => {
@@ -252,6 +253,34 @@ describe("MCP_RESOURCE validation", () => {
     expect(() =>
       parse({ APP_ORIGIN: "http://staging.example", ORBIT_MCP_OAUTH: "true" }),
     ).toThrow();
+  });
+});
+
+describe("MCP_JWKS_URL validation (WP-M5)", () => {
+  const parse = (values: Record<string, string>) => {
+    setEnv(values);
+    return loadConfig();
+  };
+
+  it("accepts http and https URLs; empty means unset (compose-safe)", () => {
+    for (const value of [
+      "http://api:4311/api/auth/jwks",
+      "https://orbit.example/api/auth/jwks",
+    ])
+      expect(parse({ MCP_JWKS_URL: value }).MCP_JWKS_URL).toBe(value);
+    expect(parse({ MCP_JWKS_URL: "" }).MCP_JWKS_URL).toBeUndefined();
+    expect(parse({}).MCP_JWKS_URL).toBeUndefined();
+  });
+
+  it("rejects any other scheme", () => {
+    for (const value of [
+      "ftp://api:4311/api/auth/jwks",
+      "file:///etc/jwks.json",
+      "data:application/json,{}",
+      "javascript:alert(1)",
+      "not a url",
+    ])
+      expect(() => parse({ MCP_JWKS_URL: value }), value).toThrow();
   });
 });
 

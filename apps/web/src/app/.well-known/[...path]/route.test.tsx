@@ -168,6 +168,42 @@ describe("well-known route", () => {
     expect((await call(["oauth-protected-resource", "mcp"])).status).toBe(502);
   });
 
+  it("answers 502 within the short MCP timeout when the gateway hangs", async () => {
+    // A hung upstream never answers; it only rejects once the signal aborts.
+    fetchMock.mockImplementation(
+      (_url: unknown, init: RequestInit) =>
+        new Promise((_resolve, reject) =>
+          init.signal!.addEventListener("abort", () =>
+            reject(init.signal!.reason),
+          ),
+        ),
+    );
+    const timeout = AbortSignal.timeout.bind(AbortSignal);
+    const requested: number[] = [];
+    const spy = vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      requested.push(ms);
+      return timeout(20); // stands in for the configured budget
+    });
+    try {
+      const started = Date.now();
+      const r = await call(["oauth-protected-resource", "mcp"]);
+      expect(r.status).toBe(502);
+      expect(await r.json()).toEqual({
+        error: {
+          code: "API_UNAVAILABLE",
+          message: "The workspace service is unavailable. Try again shortly.",
+        },
+      });
+      expect(Date.now() - started).toBeLessThan(2000);
+      // The gateway's static documents get 5 s; the API keeps its 45 s.
+      expect(requested).toEqual([5000]);
+      await call(["oauth-authorization-server", "api", "auth"]);
+      expect(requested).toEqual([5000, 45000]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("answers 502 when the API is unreachable", async () => {
     fetchMock.mockRejectedValueOnce(new Error("down"));
     const r = await call(["oauth-authorization-server", "api", "auth"]);

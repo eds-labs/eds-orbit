@@ -167,34 +167,49 @@ const proposalOutputComplete = (schema: z.ZodObject) => {
   );
 };
 
+/** Registration error codes for a tool that may not be exposed to MCP. */
+export type McpExposureCode =
+  | "TOOL_OUTPUT_SCHEMA_REQUIRED"
+  | "TOOL_OUTPUT_SCHEMA_NOT_OBJECT"
+  | "TOOL_PROPOSAL_OUTPUT_INVALID";
+
 /**
  * A tool that opts into MCP without an output schema, or with one that is
  * not a zod object, or a proposal tool whose output does not report
  * `deduplicated` and `actionRequestId`, is a registration error naming the
- * tool.
+ * tool. Each problem carries its own code, so `defineTool` never infers it.
  */
-export const mcpExposureProblem = (tool: OrbitTool) => {
+export const mcpExposureIssue = (
+  tool: OrbitTool,
+): { code: McpExposureCode; message: string } | undefined => {
   if (tool.exposure?.mcp !== true) return undefined;
   if (tool.outputSchema === undefined)
-    return `tool ${tool.name} is exposed to MCP without an output schema`;
+    return {
+      code: "TOOL_OUTPUT_SCHEMA_REQUIRED",
+      message: `tool ${tool.name} is exposed to MCP without an output schema`,
+    };
   if (!(tool.outputSchema instanceof z.ZodObject))
-    return `tool ${tool.name} is exposed to MCP with an output schema that is not an object`;
+    return {
+      code: "TOOL_OUTPUT_SCHEMA_NOT_OBJECT",
+      message: `tool ${tool.name} is exposed to MCP with an output schema that is not an object`,
+    };
   if (tool.risk === "P_proposal" && !proposalOutputComplete(tool.outputSchema))
-    return `tool ${tool.name} is a proposal tool exposed to MCP whose output schema lacks a required boolean deduplicated or a string actionRequestId`;
+    return {
+      code: "TOOL_PROPOSAL_OUTPUT_INVALID",
+      message: `tool ${tool.name} is a proposal tool exposed to MCP whose output schema lacks a required boolean deduplicated or a string actionRequestId`,
+    };
   return undefined;
 };
+
+/** The message of `mcpExposureIssue`, for registration problem lists. */
+export const mcpExposureProblem = (tool: OrbitTool) =>
+  mcpExposureIssue(tool)?.message;
 
 /** Validates a tool at import time, so a bad schema never reaches a paid call. */
 export function defineTool(tool: OrbitTool): OrbitTool {
   if (!TOOL_NAME.test(tool.name)) throw new Error("TOOL_NAME_INVALID");
-  if (mcpExposureProblem(tool))
-    throw new Error(
-      tool.outputSchema === undefined
-        ? `TOOL_OUTPUT_SCHEMA_REQUIRED:${tool.name}`
-        : tool.outputSchema instanceof z.ZodObject
-          ? `TOOL_PROPOSAL_OUTPUT_INVALID:${tool.name}`
-          : `TOOL_OUTPUT_SCHEMA_NOT_OBJECT:${tool.name}`,
-    );
+  const exposure = mcpExposureIssue(tool);
+  if (exposure) throw new Error(`${exposure.code}:${tool.name}`);
   assertStrictKeywords(responsesTool(tool).parameters, "parameters");
   return tool;
 }

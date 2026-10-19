@@ -722,6 +722,10 @@ export async function refreshAllowed(input: {
  *   has not committed yet is waited for, and its outcome is what counts;
  * - the revocation check keeps tokens of the revoked lineage from being kept
  *   under a re-grant of the same reference made right after.
+ * A refusal deletes every refresh and access token of the (user, client,
+ * workspace) reference, not only the ones this request minted. That includes
+ * tokens a concurrent, legitimate exchange under a fresh re-grant just stored.
+ * This fails safe: that client gets 401 on its next call and reconnects.
  */
 export async function keepIssuedTokens(input: {
   userId: string;

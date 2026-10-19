@@ -12,6 +12,7 @@ import {
   exposedToAssistant,
   exposedToMcp,
   findTool,
+  mcpExposureIssue,
   mcpExposureProblem,
   responsesTool,
   searchTools,
@@ -581,5 +582,47 @@ describe("client-executed tool search", () => {
     });
     expect(mcpExposureProblem(strict)).toBeUndefined();
     expect(exposedToMcp(strict)).toBe(true);
+  });
+
+  it("maps each MCP exposure problem to its own registration error code (WP-M5)", () => {
+    const cases = [
+      [
+        tool({ name: "case_missing", exposure: { mcp: true } }),
+        "TOOL_OUTPUT_SCHEMA_REQUIRED",
+      ],
+      [
+        tool({
+          name: "case_array",
+          exposure: { mcp: true },
+          outputSchema: z.array(z.string()),
+        }),
+        "TOOL_OUTPUT_SCHEMA_NOT_OBJECT",
+      ],
+      [
+        tool({
+          name: "case_proposal",
+          risk: "P_proposal",
+          exposure: { mcp: true },
+          outputSchema: z.strictObject({ ok: z.boolean() }),
+        }),
+        "TOOL_PROPOSAL_OUTPUT_INVALID",
+      ],
+    ] as const;
+    for (const [candidate, code] of cases) {
+      const issue = mcpExposureIssue(candidate);
+      expect(issue?.code).toBe(code);
+      expect(issue?.message).toBe(mcpExposureProblem(candidate));
+      expect(() => defineTool(candidate)).toThrow(`${code}:${candidate.name}`);
+    }
+    expect(new Set(cases.map(([, code]) => code)).size).toBe(cases.length);
+    expect(
+      mcpExposureIssue(
+        tool({
+          exposure: { mcp: true },
+          outputSchema: z.strictObject({ ok: z.boolean() }),
+        }),
+      ),
+    ).toBeUndefined();
+    expect(mcpExposureIssue(tool())).toBeUndefined();
   });
 });

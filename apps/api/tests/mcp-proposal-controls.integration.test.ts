@@ -145,6 +145,17 @@ function hourApart(): [number, number] {
   return sinceMidnight > HOUR + 60_000 ? [-(HOUR + 1000), 0] : [0, HOUR + 1000];
 }
 
+/**
+ * A clock skew that keeps the gateway at least ten minutes before the next
+ * UTC midnight, so a test that seeds "today" and then lets the gateway count
+ * from `startOfUtcDay(now)` never sees the day change in between: no skew,
+ * or, in the last ten minutes of the day, an hour back.
+ */
+function sameUtcDaySkew(): number {
+  const untilMidnight = startOfUtcDay(Date.now()) + 86_400_000 - Date.now();
+  return untilMidnight > 10 * 60_000 ? 0 : -HOUR;
+}
+
 describe("proposal quota windows (limiter)", () => {
   it("counts a rule in its own window and leaves the 60 s rules alone", () => {
     let now = 1_000_000;
@@ -609,8 +620,10 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
 
     it("counts the daily quota from the mcp.proposal events of the user, client and workspace since the UTC day start", async () => {
       const grant = await grantOf("day");
-      const today = new Date();
-      const yesterday = new Date(startOfUtcDay(Date.now()) - HOUR);
+      skew = sameUtcDaySkew();
+      const now = Date.now() + skew;
+      const today = new Date(now);
+      const yesterday = new Date(startOfUtcDay(now) - HOUR);
       const event = (
         createdAt: Date,
         grantId: string = grant.id,

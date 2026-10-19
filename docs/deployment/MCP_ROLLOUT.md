@@ -35,7 +35,7 @@ A9 decisions and recommendations (details in `docs/SECURITY_REVIEW.md`, "Open po
 - **`marketing_project_status` fields** (spend limits, draft titles, pending approval content ids, readiness blockers and actions, channel ids and names, official links): keep them for the read-only start; it is what the Orbit Assistant gets and what the member sees in Orbit. If less should leave Orbit, drop `modelBudget` and the draft titles from the MCP projection first. Decide before A6.
 - **CORS for browser clients**: none (`ORBIT_MCP_ALLOWED_ORIGINS` stays empty; ChatGPT calls server-side).
 - **URL-mode elicitation, owner notification on a new proposal, per-request deep link**: later; the fallback is `approveUrl` to the approval inbox plus `orbit_action_status`. Decide before A8.
-- **Quota numbers** (per grant 120, user 240, client 600 requests a minute; 30 a minute per address without a verified token; `search` 30 a minute per grant; proposals 20 an hour and 100 a day per (user, client, workspace); 2 concurrent calls per project and process, then `BUSY`): keep for A6, review with real client behaviour before A8 or a second client.
+- **Quota numbers** (per grant 120, user 240, client 600 requests a minute; 30 a minute per address without a verified token; `search` 30 a minute per grant; proposals 20 an hour and 100 a day per (user, client, workspace); 2 concurrent calls per project and process, then `BUSY`): keep for A6, review with real client behaviour before A8 or a second client. Raising the proposal quotas lengthens the cancellation sweep (one transaction per pending request) that a grant revocation waits for in the request path.
 - **`argsHash` salting**: not needed while access to the audit rows stays as narrow as today; re-check when an audit view or export of `mcp.tool_call` rows is added.
 - **Ports between action requests and MCP auth**: a refactor, later.
 
@@ -138,5 +138,6 @@ Pick the narrowest step that stops the problem; each production change still nee
 - The `mcp` container gets the whole API environment (database URLs, auth secret, credential key) and the `database` and `egress` networks, also while disabled. Least-privilege environment and networks for `mcp` are a follow-up.
 - The daily proposal quota can be overshot by calls already in flight (no database guard); the hourly bucket is charged first and caps 20 an hour per key and process.
 - Under an address flood (`bucket: capacity`), a legitimate client with an expired token from a new address gets 429 instead of the 401 challenge until the window ends.
+- A token exchange the after-hook refuses deletes every token of that (user, client, workspace) reference, including tokens a concurrent exchange under a fresh re-grant just stored; that client gets 401 and reconnects (fails safe).
 - Limits are per process; a second gateway replica needs Redis-backed limits first.
 - The first request of a token this process has not verified counts against its address: many new users behind one address (NAT, ChatGPT egress) can see 429 until the minute ends.

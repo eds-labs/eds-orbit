@@ -312,6 +312,14 @@ assert.equal(
 );
 assert.equal(mcp.healthcheck.test[0], "CMD");
 assert.match(mcp.healthcheck.test.join(" "), /127\.0\.0\.1:4312\/healthz/);
+// The health check probes loopback, so it cannot see a loopback-only bind;
+// assert the bind host directly (web and Traefik reach mcp over the network).
+for (const rendered of [mcp, flagged.mcp])
+  assert.equal(
+    rendered.environment.BIND_HOST,
+    "0.0.0.0",
+    "mcp must bind all interfaces so web and Traefik can reach it",
+  );
 for (const name of Object.keys(services))
   if (name !== "mcp")
     assert.equal(

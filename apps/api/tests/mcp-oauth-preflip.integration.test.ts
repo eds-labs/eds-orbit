@@ -124,7 +124,9 @@ describe.skipIf(!enabled)("MCP OAuth pre-flip hardening (WP-M5)", () => {
    */
   async function waitForLockWait(table: string) {
     const pattern = `%"${table}"%`;
-    for (let i = 0; i < 100; i++) {
+    // Up to 5 s (250 x 20 ms), so a loaded CI runner does not flake; the
+    // happy path returns on the first hit.
+    for (let i = 0; i < 250; i++) {
       const [row] = await authDb.$queryRaw<{ n: number }[]>`
         SELECT count(*)::int AS n FROM pg_stat_activity
         WHERE datname = current_database() AND wait_event_type = 'Lock'
