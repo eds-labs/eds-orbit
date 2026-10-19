@@ -2,6 +2,7 @@ import {
   Brain,
   CalendarDays,
   ChartNoAxesColumn,
+  ClipboardList,
   FileText,
   Images,
   LayoutDashboard,
@@ -24,6 +25,7 @@ import {
   Missions,
 } from "@/modules/marketing/work";
 import { MarketingHomeCard } from "./home";
+import { AssignmentsPage } from "./assignments-page";
 import { MarketingOverview } from "./overview";
 
 const label = (key: keyof typeof labels.en): Label => ({
@@ -71,6 +73,14 @@ export const marketingWeb: WebModule = {
       component: Missions,
       nav: { label: label("missions"), icon: Target, order: 10 },
       legacyPaths: ["/missions"],
+    },
+    {
+      // The standing assignments of Orbit Agents (2026-10-19; before in the
+      // project settings as section "agents").
+      key: "assignments",
+      path: "assignments",
+      component: AssignmentsPage,
+      nav: { label: label("assignments"), icon: ClipboardList, order: 20 },
     },
     {
       key: "content",

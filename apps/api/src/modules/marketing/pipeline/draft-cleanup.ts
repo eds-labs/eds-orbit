@@ -107,7 +107,11 @@ async function plan(tx: DbTx, scope: Scope, at = Date.now()) {
     );
   const openPublication = contentIds(
     publications,
-    (v) => !FINAL_PUBLICATION.includes(v.status),
+    (v) =>
+      !FINAL_PUBLICATION.includes(v.status) &&
+      // Blocked by an invalidated dependency (knowledge-impact): no path
+      // resumes it, so it keeps no draft.
+      !(v.status === "blocked_dependency" && v.dependencyInvalidated === true),
   );
   const openPostizDraft = contentIds(postizDrafts, (v) =>
     OPEN_POSTIZ_DRAFT.includes(v.status),

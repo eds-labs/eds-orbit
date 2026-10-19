@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, collectionPath, useResource, when } from "@/lib/api";
 import { Alert, Button, Status } from "./ui/primitives";
 import { useWorkspace } from "./workspace-context";
@@ -77,11 +77,24 @@ export function RunStepList({ steps, de }: { steps: RunStep[]; de: boolean }) {
   );
 }
 
-// Recent AI runs of the project; each run's steps load on request.
+type RunPage = { runs: AgentRun[]; nextCursor: string | null };
+
+/** Runs shown at first and added per "Show more"; the API pages by 50. */
+export const RUNS_PAGE = 10;
+
+/** The "Show more" label: the runs still loaded, else the next page of the API. */
+export function moreRunsLabel(hidden: number, nextPage: boolean, de: boolean) {
+  if (hidden > 0)
+    return de ? `${hidden} weitere anzeigen` : `Show ${hidden} more`;
+  return nextPage ? (de ? "Ältere Läufe laden" : "Load older runs") : null;
+}
+
+// Recent AI runs of the project, ten at a time; each run's steps load on
+// request, older pages when asked for.
 export function AgentRuns() {
   const { locale, project, revision, canEdit } = useWorkspace();
   const de = locale === "de";
-  const runs = useResource<{ runs: AgentRun[] }>(
+  const runs = useResource<RunPage>(
     canEdit
       ? collectionPath(project.id, `agent-runs?revision=${revision}`)
       : null,
@@ -89,7 +102,44 @@ export function AgentRuns() {
   const [open, setOpen] = useState<string | null>(null);
   const [steps, setSteps] = useState<Record<string, RunStep[]>>({});
   const [error, setError] = useState<string | null>(null);
+  const [shown, setShown] = useState(RUNS_PAGE);
+  // Older pages loaded on request; a reload of the first page drops them.
+  const [older, setOlder] = useState<RunPage>({ runs: [], nextCursor: null });
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  useEffect(() => {
+    setOlder({ runs: [], nextCursor: null });
+    setShown(RUNS_PAGE);
+  }, [runs.data]);
   if (!canEdit || !runs.data?.runs.length) return null;
+  const all = [...runs.data.runs, ...older.runs];
+  const nextCursor = older.runs.length
+    ? older.nextCursor
+    : runs.data.nextCursor;
+  const hidden = Math.max(0, all.length - shown);
+  const more = moreRunsLabel(hidden, nextCursor !== null, de);
+  const showMore = async () => {
+    if (hidden > 0) return setShown((n) => n + RUNS_PAGE);
+    if (!nextCursor || loadingOlder) return;
+    setLoadingOlder(true);
+    setError(null);
+    try {
+      const page = await api<RunPage>(
+        collectionPath(
+          project.id,
+          `agent-runs?cursor=${encodeURIComponent(nextCursor)}`,
+        ),
+      );
+      setOlder((current) => ({
+        runs: [...current.runs, ...page.runs],
+        nextCursor: page.nextCursor,
+      }));
+      setShown((n) => n + RUNS_PAGE);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Request failed.");
+    } finally {
+      setLoadingOlder(false);
+    }
+  };
   const toggle = async (id: string) => {
     if (open === id) return setOpen(null);
     setOpen(id);
@@ -117,7 +167,7 @@ export function AgentRuns() {
         </div>
       </div>
       {error && <Alert kind="error">{error}</Alert>}
-      {runs.data.runs.map((run) => (
+      {all.slice(0, shown).map((run) => (
         <div className="data-row" key={run.id}>
           <div>
             <strong>
@@ -145,6 +195,18 @@ export function AgentRuns() {
           </Button>
         </div>
       ))}
+      {more && (
+        <div className="form-actions">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loadingOlder}
+            onClick={showMore}
+          >
+            {more}
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

@@ -375,13 +375,26 @@ export function AssignmentTable({
 }
 
 /** Settings tab "Aufträge": the list and its status actions; changes go through the chat. */
+/** The intro of the assignments, shared by the panel and the Marketing page. */
+export const ASSIGNMENTS_TEXT = {
+  title: { en: "Assignments", de: "Aufträge" },
+  description: {
+    en: "What Orbit pursues for you. Create and change assignments in the Orbit chat; every change needs a new confirmation.",
+    de: "Was Orbit für dich verfolgt. Neue Aufträge und Änderungen besprichst du im Orbit Chat; jede Änderung braucht eine neue Bestätigung.",
+  },
+  change: { en: "Change in chat", de: "Im Chat ändern" },
+} as const;
+
 export function Assignments({
   resource,
   data,
+  headless = false,
 }: {
   resource: ReturnType<typeof useAssignments>["resource"];
   // The last answer, kept while the list reloads.
   data: AssignmentList | null;
+  /** Without the panel's own head, below a page head that carries it. */
+  headless?: boolean;
 }) {
   const { locale, project, isOwner, canEdit, refresh } = useWorkspace();
   const de = locale === "de";
@@ -390,21 +403,17 @@ export function Assignments({
   const items = data?.items ?? [];
   return (
     <section className="panel">
-      <div className="panel-head">
-        <div>
-          <h2>{de ? "Aufträge" : "Assignments"}</h2>
-          <p>
-            {de
-              ? "Was Orbit für dich verfolgt. Neue Aufträge und Änderungen besprichst du im Orbit Chat; jede Änderung braucht eine neue Bestätigung."
-              : "What Orbit pursues for you. Create and change assignments in the Orbit chat; every change needs a new confirmation."}
-          </p>
+      {!headless && (
+        <div className="panel-head">
+          <div>
+            <h2>{ASSIGNMENTS_TEXT.title[locale]}</h2>
+            <p>{ASSIGNMENTS_TEXT.description[locale]}</p>
+          </div>
+          <Button asChild variant="outline">
+            <AppLink href="/chat">{ASSIGNMENTS_TEXT.change[locale]}</AppLink>
+          </Button>
         </div>
-        <Button asChild variant="outline">
-          <AppLink href="/chat">
-            {de ? "Im Chat ändern" : "Change in chat"}
-          </AppLink>
-        </Button>
-      </div>
+      )}
       {data?.paused && (
         <Alert kind="warning">
           {de

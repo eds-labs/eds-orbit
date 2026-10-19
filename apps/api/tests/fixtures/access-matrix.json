@@ -1175,6 +1175,13 @@
     "editor": "allowed:400",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/actions/settle-unknown-reservations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "allowed:200"
+  },
   "POST /api/projects/{projectId}/actions/slack-configure": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
