@@ -29,11 +29,9 @@ export function clientIp(request: NextRequest) {
   return last && isIP(last) ? last : undefined;
 }
 
-/** The API origin from the environment; throws on a non-HTTP or credentialed value. */
-function upstreamTarget() {
-  const target = new URL(
-    process.env.ORBIT_API_ORIGIN || "http://127.0.0.1:4311",
-  );
+/** An upstream origin; throws on a non-HTTP or credentialed value. */
+function upstreamTarget(origin: string) {
+  const target = new URL(origin);
   if (
     !["http:", "https:"].includes(target.protocol) ||
     target.username ||
@@ -43,18 +41,25 @@ function upstreamTarget() {
   return target;
 }
 
+type Upstream = {
+  origin: string;
+  /** The API-only proxy headers (client address, Sec-Fetch-Mode); never sent to other upstreams. */
+  apiHeaders: boolean;
+};
+
 /**
- * Forwards `request` to `pathname` on the API. Only the listed request headers
- * are passed on; hop-by-hop headers and the response's cookies are rewritten
- * as before. Failures answer 502 API_UNAVAILABLE.
+ * Forwards `request` to `pathname` on `upstream`. Only the listed request
+ * headers are passed on; hop-by-hop headers and the response's cookies are
+ * rewritten as before. Failures answer 502 API_UNAVAILABLE.
  */
-export async function forwardToApi(
+async function forward(
+  upstreamOrigin: Upstream,
   request: NextRequest,
   pathname: string,
   forwardedHeaders: readonly string[],
 ) {
   try {
-    const target = upstreamTarget();
+    const target = upstreamTarget(upstreamOrigin.origin);
     target.pathname = pathname;
     target.search = request.nextUrl.search;
     const headers = new Headers();
@@ -62,15 +67,17 @@ export async function forwardToApi(
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
-    // Set by the proxy only; a value sent by the browser is not on the list.
-    const client = clientIp(request);
-    if (client) headers.set("x-orbit-client-ip", client);
-    // Node's fetch always sends `Sec-Fetch-Mode: cors` upstream, which makes
-    // Better Auth answer JSON instead of a 302 to a browser navigation. The
-    // browser's real value travels in a proxy-only header (sent for every
-    // path; the API reads it only under /api/auth/* with the OAuth server on).
-    const mode = request.headers.get("sec-fetch-mode");
-    if (mode) headers.set("x-orbit-sec-fetch-mode", mode);
+    if (upstreamOrigin.apiHeaders) {
+      // Set by the proxy only; a value sent by the browser is not on the list.
+      const client = clientIp(request);
+      if (client) headers.set("x-orbit-client-ip", client);
+      // Node's fetch always sends `Sec-Fetch-Mode: cors` upstream, which makes
+      // Better Auth answer JSON instead of a 302 to a browser navigation. The
+      // browser's real value travels in a proxy-only header (sent for every
+      // path; the API reads it only under /api/auth/* with the OAuth server on).
+      const mode = request.headers.get("sec-fetch-mode");
+      if (mode) headers.set("x-orbit-sec-fetch-mode", mode);
+    }
     const upstream = await fetch(target, {
       method: request.method,
       headers,
@@ -102,4 +109,45 @@ export async function forwardToApi(
       { status: 502, headers: { "Cache-Control": "no-store" } },
     );
   }
+}
+
+/**
+ * Forwards `request` to `pathname` on the API (ORBIT_API_ORIGIN). Only the
+ * listed request headers are passed on, plus the proxy-only client address
+ * and Sec-Fetch-Mode headers.
+ */
+export function forwardToApi(
+  request: NextRequest,
+  pathname: string,
+  forwardedHeaders: readonly string[],
+) {
+  return forward(
+    {
+      origin: process.env.ORBIT_API_ORIGIN || "http://127.0.0.1:4311",
+      apiHeaders: true,
+    },
+    request,
+    pathname,
+    forwardedHeaders,
+  );
+}
+
+/**
+ * Forwards `request` to `pathname` on the MCP gateway (ORBIT_MCP_ORIGIN,
+ * default the compose service). Only the listed request headers are passed on.
+ */
+export function forwardToMcp(
+  request: NextRequest,
+  pathname: string,
+  forwardedHeaders: readonly string[],
+) {
+  return forward(
+    {
+      origin: process.env.ORBIT_MCP_ORIGIN || "http://mcp:4312",
+      apiHeaders: false,
+    },
+    request,
+    pathname,
+    forwardedHeaders,
+  );
 }

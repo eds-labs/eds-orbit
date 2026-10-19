@@ -48,6 +48,8 @@ x-api-environment: &api-environment
   ORBIT_MCP_CIMD_HOSTS: ${ORBIT_MCP_CIMD_HOSTS:-chatgpt.com}
   ORBIT_MCP_GATEWAY: ${ORBIT_MCP_GATEWAY:-false}
   MCP_PORT: ${MCP_PORT:-4312}
+  # Empty = ${APP_ORIGIN}/api/auth/jwks; the mcp service sets the internal URL.
+  MCP_JWKS_URL: ${MCP_JWKS_URL:-}
   ORBIT_MCP_ALLOWED_ORIGINS: ${ORBIT_MCP_ALLOWED_ORIGINS:-}
   ORBIT_MCP_PROPOSALS: ${ORBIT_MCP_PROPOSALS:-false}
   ORBIT_MODULE_ROLES: ${ORBIT_MODULE_ROLES:-false}
@@ -145,11 +147,43 @@ services:
       start_period: 60s
       retries: 3
 
+  # MCP gateway (Track M, WP-M5). Same image and environment as the API. While
+  # ORBIT_MCP_GATEWAY or ORBIT_MCP_OAUTH is not "true" it only answers
+  # /healthz ({"status":"disabled"}) and starts no auth, database or tool work.
+  # Coolify routes the public path /mcp of the app domain to this service.
+  mcp:
+    <<: *runtime
+    command: ["node_modules/.bin/tsx", "apps/api/src/mcp-main.ts"]
+    environment:
+      <<: *api-environment
+      # Fixed: expose, healthcheck and SERVICE_URL_MCP_4312 name this port.
+      MCP_PORT: "4312"
+      # Token verification stays on the internal network.
+      MCP_JWKS_URL: ${MCP_JWKS_URL:-http://api:4311/api/auth/jwks}
+      SERVICE_URL_MCP_4312: /mcp
+    expose:
+      - "4312"
+    networks:
+      - frontend
+      - database
+      - egress
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4312/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
   web:
     <<: *runtime
     command: ["apps/web/node_modules/.bin/next", "start", "apps/web", "-H", "0.0.0.0", "-p", "4310"]
     environment:
       ORBIT_API_ORIGIN: http://api:4311
+      # Serves the MCP protected resource metadata paths under /.well-known.
+      ORBIT_MCP_ORIGIN: ${ORBIT_MCP_ORIGIN:-http://mcp:4312}
       NEXT_TELEMETRY_DISABLED: "1"
       SERVICE_URL_WEB_4310: /
     expose:

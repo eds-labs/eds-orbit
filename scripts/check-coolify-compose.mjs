@@ -45,6 +45,8 @@ for (const key of [
   "ORBIT_MCP_CIMD_HOSTS",
   "ORBIT_MCP_GATEWAY",
   "MCP_PORT",
+  "MCP_JWKS_URL",
+  "ORBIT_MCP_ORIGIN",
   "ORBIT_MCP_ALLOWED_ORIGINS",
   "ORBIT_MCP_PROPOSALS",
   "ORBIT_MODULE_ROLES",
@@ -71,7 +73,9 @@ const services = JSON.parse(rendered).services;
 // The api and worker must start with exactly what Compose renders: an
 // unset optional variable arrives as "" (production incident 2026-10-17).
 const { configSchema } = await import("../packages/config/src/index.ts");
-for (const name of ["api", "worker"]) {
+// The mcp service shares the API environment and must accept it too.
+const apiLike = ["api", "worker", "mcp"];
+for (const name of apiLike) {
   const parsed = configSchema.safeParse(services[name].environment);
   assert.ok(
     parsed.success,
@@ -85,7 +89,7 @@ for (const name of ["api", "worker"]) {
 const runtimeBuild = services.api.build;
 
 assert.ok(runtimeBuild, "api must be locally buildable");
-for (const name of ["migrate", "api", "worker", "web"]) {
+for (const name of ["migrate", "api", "worker", "mcp", "web"]) {
   assert.deepEqual(
     services[name].build,
     runtimeBuild,
@@ -129,7 +133,7 @@ assert.equal(
   services.api.environment.PUBLISHER_INSTANCE_ID,
   generatedEnvironment.SERVICE_BASE64_32_PUBLISHERINSTANCE,
 );
-for (const name of ["api", "worker"]) {
+for (const name of apiLike) {
   assert.equal(
     services[name].environment.GOOGLE_DRIVE_CLIENT_ID,
     "synthetic-google-client",
@@ -142,7 +146,7 @@ for (const name of ["api", "worker"]) {
 
 // Feature flags reach the API and the worker (Orbit Chat runs in the worker),
 // default off, and follow the value set in Coolify.
-for (const name of ["api", "worker"])
+for (const name of apiLike)
   for (const flag of [
     "ORBIT_CONTENT_PACKAGES",
     "ORBIT_TOOL_SEARCH",
@@ -184,6 +188,8 @@ const flagged = JSON.parse(
         ORBIT_MCP_CIMD_HOSTS: "chatgpt.com,example.invalid",
         ORBIT_MCP_GATEWAY: "true",
         MCP_PORT: "4400",
+        MCP_JWKS_URL: "http://api.internal:4311/api/auth/jwks",
+        ORBIT_MCP_ORIGIN: "http://mcp.internal:4312",
         ORBIT_MCP_ALLOWED_ORIGINS: "https://client.example.invalid",
         ORBIT_MCP_PROPOSALS: "true",
         ORBIT_MODULE_ROLES: "true",
@@ -197,7 +203,7 @@ const flagged = JSON.parse(
     },
   ),
 ).services;
-for (const name of ["api", "worker"])
+for (const name of apiLike)
   for (const flag of [
     "ORBIT_CONTENT_PACKAGES",
     "ORBIT_TOOL_SEARCH",
@@ -222,7 +228,7 @@ for (const name of ["api", "worker"])
 // The MCP OAuth server (Track M WP-M1) is off by default, its resource falls
 // back to the config default (empty), and CIMD discovery is limited to
 // chatgpt.com until configured otherwise.
-for (const name of ["api", "worker"]) {
+for (const name of apiLike) {
   assert.equal(services[name].environment.ORBIT_MCP_OAUTH, "false");
   assert.equal(services[name].environment.ORBIT_MCP_DCR, "false");
   assert.equal(services[name].environment.MCP_RESOURCE, "");
@@ -238,27 +244,101 @@ for (const name of ["api", "worker"]) {
     "chatgpt.com,example.invalid",
   );
 }
-// The MCP gateway flag (WP-M2) is off by default with port 4312 and no
-// allowed browser origins; the deployment environment overrides all three.
+// The MCP gateway flag (WP-M2) is off by default with port 4312, no allowed
+// browser origins and no JWKS override; the deployment environment overrides
+// all of them for api and worker. The mcp service pins its port and defaults
+// the key set to the internal API (WP-M5).
 for (const name of ["api", "worker"]) {
   assert.equal(services[name].environment.ORBIT_MCP_GATEWAY, "false");
   assert.equal(services[name].environment.MCP_PORT, "4312");
+  assert.equal(services[name].environment.MCP_JWKS_URL, "");
   assert.equal(services[name].environment.ORBIT_MCP_ALLOWED_ORIGINS, "");
   assert.equal(flagged[name].environment.ORBIT_MCP_GATEWAY, "true");
   assert.equal(flagged[name].environment.MCP_PORT, "4400");
+  assert.equal(
+    flagged[name].environment.MCP_JWKS_URL,
+    "http://api.internal:4311/api/auth/jwks",
+  );
   assert.equal(
     flagged[name].environment.ORBIT_MCP_ALLOWED_ORIGINS,
     "https://client.example.invalid",
   );
 }
+
+// The mcp service (Track M WP-M5, D-M5-1/2): the API image and environment
+// with the gateway flags off, the gateway entrypoint, an internal key set
+// URL, one path-routed Coolify URL, and the same networks as the API.
+const mcp = services.mcp;
+assert.ok(mcp, "the mcp service must exist");
+assert.deepEqual(mcp.command, [
+  "node_modules/.bin/tsx",
+  "apps/api/src/mcp-main.ts",
+]);
+assert.equal(mcp.image, services.api.image);
+assert.equal(mcp.environment.ORBIT_MCP_GATEWAY, "false");
+assert.equal(mcp.environment.ORBIT_MCP_OAUTH, "false");
+assert.equal(mcp.environment.ORBIT_MCP_PROPOSALS, "false");
+assert.equal(mcp.environment.MCP_PORT, "4312");
+assert.equal(mcp.environment.MCP_JWKS_URL, "http://api:4311/api/auth/jwks");
+assert.equal(mcp.environment.SERVICE_URL_MCP_4312, "/mcp");
+assert.equal(flagged.mcp.environment.ORBIT_MCP_GATEWAY, "true");
+assert.equal(flagged.mcp.environment.ORBIT_MCP_OAUTH, "true");
+assert.equal(flagged.mcp.environment.MCP_PORT, "4312", "the port is pinned");
+assert.equal(
+  flagged.mcp.environment.MCP_JWKS_URL,
+  "http://api.internal:4311/api/auth/jwks",
+);
+assert.equal(
+  mcp.environment.DATABASE_URL,
+  services.api.environment.DATABASE_URL,
+);
+assert.deepEqual(
+  Object.keys(mcp.networks).sort(),
+  ["database", "egress", "frontend"],
+  "mcp needs frontend (Coolify routing), database and egress (CIMD metadata)",
+);
+assert.deepEqual(Object.keys(mcp.depends_on), ["api"]);
+assert.equal(mcp.depends_on.api.condition, "service_healthy");
+assert.deepEqual(
+  mcp.expose,
+  ["4312"],
+  "the gateway is reached through the proxy only",
+);
+assert.equal(mcp.ports, undefined, "the gateway publishes no host port");
+assert.equal(mcp.healthcheck.test[0], "CMD");
+assert.match(mcp.healthcheck.test.join(" "), /127\.0\.0\.1:4312\/healthz/);
+for (const name of Object.keys(services))
+  if (name !== "mcp")
+    assert.equal(
+      services[name].environment?.SERVICE_URL_MCP_4312,
+      undefined,
+      `${name} must not carry the mcp routing variable`,
+    );
+// Only web gets a Coolify URL besides mcp (Traefik routes by domain/path).
+for (const name of Object.keys(services))
+  for (const key of Object.keys(services[name].environment ?? {}))
+    if (key.startsWith("SERVICE_URL_"))
+      assert.ok(
+        (name === "web" && key === "SERVICE_URL_WEB_4310") ||
+          (name === "mcp" && key === "SERVICE_URL_MCP_4312"),
+        `${name} must not declare ${key}`,
+      );
+// The web app reaches the gateway internally for the protected resource
+// metadata paths (D-M5-4); the deployment environment can move it.
+assert.equal(services.web.environment.ORBIT_MCP_ORIGIN, "http://mcp:4312");
+assert.equal(services.web.environment.ORBIT_API_ORIGIN, "http://api:4311");
+assert.equal(
+  flagged.web.environment.ORBIT_MCP_ORIGIN,
+  "http://mcp.internal:4312",
+);
 // MCP proposals (WP-M4) are off by default; the deployment environment turns
-// them on for api and worker.
-for (const name of ["api", "worker"]) {
+// them on for api, worker and the mcp service.
+for (const name of apiLike) {
   assert.equal(services[name].environment.ORBIT_MCP_PROPOSALS, "false");
   assert.equal(flagged[name].environment.ORBIT_MCP_PROPOSALS, "true");
 }
 // The file key is generated by Coolify and reaches api and worker (WP4.6).
-for (const name of ["api", "worker"])
+for (const name of apiLike)
   assert.equal(
     services[name].environment.FILES_ENCRYPTION_KEY,
     generatedEnvironment.SERVICE_HEX_64_FILESKEY,
@@ -267,7 +347,7 @@ for (const name of ["api", "worker"])
 // The file bucket and the backup bucket never share credentials (WP4.6).
 for (const key of Object.keys(services.backup.environment))
   assert.ok(!key.startsWith("FILES_"), `backup must not receive ${key}`);
-for (const name of ["api", "worker"])
+for (const name of apiLike)
   for (const key of Object.keys(services[name].environment))
     assert.ok(!key.startsWith("BACKUP_"), `${name} must not receive ${key}`);
 

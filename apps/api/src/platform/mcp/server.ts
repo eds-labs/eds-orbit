@@ -13,7 +13,11 @@
  */
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify";
 import { requireMcpAuth } from "@better-auth/mcp";
 import { createMcpHandler, type AuthInfo } from "@modelcontextprotocol/server";
 import type { JWTPayload } from "better-auth";
@@ -56,8 +60,8 @@ export type McpServerOptions = {
   /** Test seam: the CIMD metadata transport (see makeAuth). */
   cimdFetch?: typeof fetch;
   /**
-   * Where requireMcpAuth fetches the signing keys; default (Better Auth)
-   * `${APP_ORIGIN}/api/auth/jwks`. Test seam and the knob for an internal URL.
+   * Where requireMcpAuth fetches the signing keys; default MCP_JWKS_URL, then
+   * (Better Auth) `${APP_ORIGIN}/api/auth/jwks`. Wins over the environment.
    */
   jwksUrl?: string;
   /** Called after the built-in audit and telemetry for every finished tool call (tests). */
@@ -154,6 +158,7 @@ export async function buildMcpServer(
   );
   const resource = config.MCP_RESOURCE;
   const issuer = `${config.APP_ORIGIN}/api/auth`;
+  const jwksUrl = options.jwksUrl ?? config.MCP_JWKS_URL;
   const auth = makeAuth({ cimdFetch: options.cimdFetch });
   const limits = { ...MCP_RATE_LIMITS, ...options.rateLimits };
   const limiter = new McpRateLimiter(options.clock);
@@ -332,11 +337,14 @@ export async function buildMcpServer(
       {
         resource,
         issuer,
-        ...(options.jwksUrl ? { jwksUrl: options.jwksUrl } : {}),
+        ...(jwksUrl ? { jwksUrl } : {}),
       },
     );
 
-  app.post("/mcp", async (req, reply) => {
+  // The endpoint lives at /mcp; a proxy that strips that prefix delivers the
+  // same request at "/" (WP-M5, D-M5-3). Both behave identically.
+  const ENDPOINT_PATHS = ["/mcp", "/"];
+  const handlePost = async (req: FastifyRequest, reply: FastifyReply) => {
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {
       // Cookies are never a credential here.
@@ -385,21 +393,23 @@ export async function buildMcpServer(
       response = rpcErrorResponse(503, "Service unavailable");
     }
     return sendWebResponse(reply, response);
-  });
+  };
+  for (const url of ENDPOINT_PATHS) app.post(url, handlePost);
 
   // Stateless serving (D-M2-7): no event stream, no session to delete.
-  for (const method of ["GET", "DELETE"] as const)
-    app.route({
-      method,
-      url: "/mcp",
-      handler: async (_req, reply) => {
-        reply.header("allow", "POST");
-        return sendWebResponse(
-          reply,
-          rpcErrorResponse(405, "Method not allowed."),
-        );
-      },
-    });
+  for (const url of ENDPOINT_PATHS)
+    for (const method of ["GET", "DELETE"] as const)
+      app.route({
+        method,
+        url,
+        handler: async (_req, reply) => {
+          reply.header("allow", "POST");
+          return sendWebResponse(
+            reply,
+            rpcErrorResponse(405, "Method not allowed."),
+          );
+        },
+      });
 
   // RFC 9728: the path-inserted location of the resource and the root one
   // some clients probe; both describe the same resource.
