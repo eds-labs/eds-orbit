@@ -233,6 +233,103 @@ test("renders streamed text, action states, source links and cancellation", asyn
   await expect(page.getByText(/Canceled/)).toBeVisible({ timeout: 15000 });
 });
 
+test("fits a 390px phone: no sideways scroll, composer between the bars", async ({
+  page,
+}) => {
+  const user = await signIn(page);
+  const conversationId = "b38d9050-3dba-4ae0-851e-98d5b59e8201";
+  const longUrl = `https://example.invalid/${"segment".repeat(30)}`;
+  // Several long titles: the history row once widened the whole page.
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          items: [1, 2, 3, 4].map((n) => ({
+            id:
+              n === 1
+                ? conversationId
+                : `b38d9050-3dba-4ae0-851e-98d5b59e820${n + 1}`,
+            title: `Synthetic mobile conversation ${n} with a long title`,
+            updatedAt: new Date().toISOString(),
+          })),
+          nextCursor: null,
+        },
+      }),
+  );
+  await page.route(
+    `**/api/projects/${user.projectId}/chat/conversations/${conversationId}?*`,
+    (route) =>
+      route.fulfill({
+        json: {
+          conversation: {
+            id: conversationId,
+            title: "Synthetic mobile conversation 1 with a long title",
+            updatedAt: new Date().toISOString(),
+          },
+          messages: [
+            { id: "m1", role: "user", text: `Check ${longUrl}`, cards: [] },
+            {
+              id: "m2",
+              role: "assistant",
+              text: `## Mobile plan\n\n\`\`\`\nconst line = "${"x".repeat(160)}";\n\`\`\`\n\n${"A long answer line. ".repeat(40)}`,
+              cards: [
+                {
+                  kind: "source",
+                  label: "Official source",
+                  href: "/knowledge",
+                  status: "verified",
+                },
+              ],
+            },
+          ],
+          runs: [],
+          proposals: [],
+        },
+      }),
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await open(page, user.projectId, "chat");
+  await page
+    .getByRole("button", { name: /^Synthetic mobile conversation 1/ })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Mobile plan" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  // 16 px keeps iOS from zooming into the field on focus.
+  await expect(page.getByLabel("Message Orbit")).toHaveCSS("font-size", "16px");
+  // With the chat scrolled under the topbar, messages and composer fit
+  // between the topbar and the bottom bar.
+  const layout = await page.evaluate(() => {
+    const top = document.querySelector(".topbar")!.getBoundingClientRect();
+    const main = document.querySelector(".chat-main")!;
+    window.scrollTo(0, main.getBoundingClientRect().top + scrollY - top.height);
+    const box = (selector: string) =>
+      document.querySelector(selector)!.getBoundingClientRect();
+    return {
+      topbarBottom: box(".topbar").bottom,
+      messagesTop: box(".chat-messages").top,
+      sendBottom: box(".chat-compose button[type=submit]").bottom,
+      navTop: box(".mobile-nav").top,
+    };
+  });
+  expect(layout.messagesTop).toBeGreaterThanOrEqual(layout.topbarBottom - 1);
+  expect(layout.sendBottom).toBeLessThanOrEqual(layout.navTop);
+  // While typing, the bottom bar steps aside and Send stays on screen.
+  await page.getByLabel("Message Orbit").click();
+  await expect(
+    page.getByRole("navigation", { name: "Mobile workspace" }),
+  ).toBeHidden();
+  await expect(
+    page.getByRole("button", { name: "Send", exact: true }),
+  ).toBeInViewport({ ratio: 1 });
+});
+
 test("starts a content package with one click and shows both drafts", async ({
   page,
 }) => {

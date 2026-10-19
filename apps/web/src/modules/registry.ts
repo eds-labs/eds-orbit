@@ -6,8 +6,13 @@ import {
   MessageCircle,
   Settings,
 } from "lucide-react";
+import { usd } from "@/lib/api";
 import { labels } from "@/lib/i18n";
-import type { Label, WebRegistry } from "@/platform/shell/types";
+import type {
+  AttentionRenderer,
+  Label,
+  WebRegistry,
+} from "@/platform/shell/types";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
 import {
@@ -29,6 +34,49 @@ const label = (key: keyof typeof labels.en): Label => ({
   en: labels.en[key],
   de: labels.de[key],
 });
+
+const CHECK: Label = { en: "Check", de: "Prüfen" };
+
+/** Texts of the platform's own attention items (UI restructure §4.2). */
+const platformAttention: Readonly<Record<string, AttentionRenderer>> = {
+  platform_worker_down: (_item, locale) =>
+    locale === "de"
+      ? {
+          title: "Worker antwortet nicht",
+          detail: "Jobs und Agentenläufe warten.",
+          action: CHECK,
+        }
+      : {
+          title: "Worker not responding",
+          detail: "Jobs and agent runs are waiting.",
+          action: CHECK,
+        },
+  platform_cost_unknown: (item, locale) => {
+    const micros = item.params.micros;
+    const amount = usd(typeof micros === "number" ? micros : null);
+    return locale === "de"
+      ? {
+          title: `KI-Kosten unklar: ${amount}`,
+          detail: "Reservierungen dieses Monats mit unklarem Ausgang.",
+          action: CHECK,
+        }
+      : {
+          title: `AI cost unclear: ${amount}`,
+          detail: "Reservations this month with an unknown outcome.",
+          action: CHECK,
+        };
+  },
+  platform_action_request: (item, locale) => {
+    const n = item.count ?? 1;
+    return {
+      title:
+        locale === "de"
+          ? `${n} ${n === 1 ? "Entscheidung wartet" : "Entscheidungen warten"} auf dich`
+          : `${n} decision${n === 1 ? " waits" : "s wait"} for you`,
+      action: { en: "Decide", de: "Entscheiden" },
+    };
+  },
+};
 
 export const webRegistry: WebRegistry = {
   platform: [
@@ -101,6 +149,7 @@ export const webRegistry: WebRegistry = {
       legacyPaths: ["/settings"],
     },
   ],
+  attention: platformAttention,
   // The OAuth authorization of MCP clients (Track M, WP-M1): Better Auth sends
   // the browser here; the pages sit outside every project.
   standalone: [

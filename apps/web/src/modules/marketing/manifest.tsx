@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { labels } from "@/lib/i18n";
 import type { Label, WebModule } from "@/platform/shell/types";
+import { marketingAttention } from "./attention";
 import { assignmentConfirmRenderer, marketingChat } from "./chat-extension";
 import { marketingSettings, PolicySetupLink } from "./settings-sections";
 import {
@@ -49,6 +50,7 @@ export const marketingWeb: WebModule = {
   groupOrder: 10,
   chat: marketingChat,
   actionRequests: { "assignment.confirm": assignmentConfirmRenderer },
+  attention: marketingAttention,
   settings: marketingSettings,
   setupLinks: [PolicySetupLink],
   connectors: {

@@ -356,9 +356,16 @@ pre {
   font-weight: 600;
   line-height: 1;
 }
+/* Urgent: a saturated fill (white text 5.4:1) and a "!" mark, so it reads
+   stronger than the blue count and not by colour alone. */
 .nav-badge-warning {
-  background: #fff1cc;
-  color: #7a5a10;
+  gap: 3px;
+  background: #b54708;
+  color: #fff;
+  box-shadow: 0 0 0 2px #fde4c8;
+}
+.nav-badge-mark {
+  font-weight: 800;
 }
 .sidebar-footer {
   margin-top: auto;
@@ -2394,6 +2401,16 @@ td:first-child {
     color: var(--primary);
     font-weight: 650;
   }
+  /* Over the icon's top right corner, out of the flow: the bar keeps its size. */
+  .mobile-nav .nav-badge {
+    position: absolute;
+    top: 0;
+    left: calc(50% + 5px);
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    font-size: 10px;
+  }
   .mobile-nav [aria-current="page"]:after {
     content: "";
     position: absolute;
@@ -3401,8 +3418,9 @@ body:has(dialog[open]) {
   justify-content: flex-end;
 }
 @media (max-width: 760px) {
+  /* minmax(0, 1fr): the history row scrolls instead of widening the page. */
   .chat-shell {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
   .chat-history {
@@ -3413,13 +3431,45 @@ body:has(dialog[open]) {
     overflow-x: auto;
     margin-top: 10px;
   }
+  .chat-history-item {
+    flex: 0 0 auto;
+    max-width: min(220px, 80%);
+  }
+  .chat-history-toggle,
   .chat-history-list button {
-    flex: 0 0 150px;
+    min-height: 44px;
+  }
+  .chat-history-list .chat-history-archive {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
   }
   .chat-messages {
     min-height: 260px;
     max-height: 55vh;
+    /* Messages plus composer fit between the 63 px topbar and the bottom bar
+       (about 440 px together with the composer) in the visible viewport. */
+    max-height: min(55dvh, max(260px, calc(100dvh - 440px)));
     padding: 12px;
+  }
+  /* Templates stay one swipeable row so the composer is reached sooner. */
+  .chat-templates {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .chat-templates .button {
+    flex: none;
+    min-height: 44px;
+  }
+  /* 16 px avoids the iOS focus zoom; the margin keeps Send visible when focus scrolls the field into view. */
+  .chat-compose .textarea {
+    font-size: 16px;
+    scroll-margin-bottom: 72px;
+  }
+  /* A keyboard that resizes the viewport would lift the bottom bar over the composer. */
+  body:has(#orbit-chat-input:focus) .mobile-nav {
+    display: none;
   }
   .chat-message {
     max-width: 96%;

@@ -3,7 +3,7 @@ import {
   policy as policySchema,
   type Scope,
 } from "../../../../../packages/schemas/src/index.ts";
-import { DomainError, data, list } from "../shared.ts";
+import { DomainError, data } from "../shared.ts";
 
 /**
  * The AI spend mandate (ADR 0009, AD-10 step 1): the limits a paid model call
@@ -28,10 +28,21 @@ export type SpendMandateRef = {
   data: { startAt: string; endAt: string };
 };
 
-/** The active policy record, or null. The marketing `activePolicy` reads it too. */
+/**
+ * The active policy record (the newest with `active: true`), or null. The
+ * marketing `activePolicy` reads it too. One row, not every policy version:
+ * the attention route reads it on every page load.
+ */
 export async function activePolicyRecord(tx: DbTx, scope: Scope) {
-  const rows = await list(tx, scope, "policies");
-  return rows.find((x) => data(x).active === true) ?? null;
+  return tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "policies",
+      data: { path: ["active"], equals: true },
+    },
+    orderBy: { createdAt: "desc" },
+  });
 }
 
 /**

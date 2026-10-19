@@ -39,6 +39,10 @@ import type {
   NotificationContribution,
   NotificationRender,
 } from "../notifications/types.ts";
+import type {
+  AttentionContribution,
+  AttentionStatusContribution,
+} from "../attention/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -123,6 +127,17 @@ export type ModuleContributions = {
    * module list nor can enable it. Absent: always available.
    */
   available?: () => boolean;
+  /**
+   * What needs the member's attention in the module (UI restructure §4.1),
+   * read for GET /api/projects/:id/attention with the member's role in the
+   * module. Called only while the module is enabled and visible to them.
+   */
+  attention?: AttentionContribution;
+  /**
+   * The module's part of the attention response's `status`, such as the
+   * marketing mode; read under the same conditions as `attention`.
+   */
+  attentionStatus?: AttentionStatusContribution;
 };
 
 /** How a module uses the project's mailboxes (several mailboxes per project). */
@@ -660,6 +675,29 @@ export function registeredAction(name: string): ActionHandler | undefined {
 /** Every registered action name. */
 export function registeredActionNames(): string[] {
   return [...current().actions.keys()];
+}
+
+/**
+ * Attention contributions with their module, in registry order (UI
+ * restructure §4.1). The platform's own items are not among them.
+ */
+export function registeredAttention(): Array<[string, AttentionContribution]> {
+  return [...current().byModule.entries()].flatMap(([owner, c]) =>
+    owner !== "platform" && c.attention
+      ? [[owner, c.attention] as [string, AttentionContribution]]
+      : [],
+  );
+}
+
+/** Attention status contributions with their module, in registry order. */
+export function registeredAttentionStatus(): Array<
+  [string, AttentionStatusContribution]
+> {
+  return [...current().byModule.entries()].flatMap(([owner, c]) =>
+    owner !== "platform" && c.attentionStatus
+      ? [[owner, c.attentionStatus] as [string, AttentionStatusContribution]]
+      : [],
+  );
 }
 
 /** Route registrations: platform first, then modules in registry order. */

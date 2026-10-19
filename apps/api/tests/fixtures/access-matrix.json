@@ -153,6 +153,13 @@
     "editor": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/projects/{projectId}/attention": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "owner": "allowed:200"
+  },
   "GET /api/projects/{projectId}/calendar_blocks": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
