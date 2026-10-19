@@ -68,6 +68,9 @@ const names = [
   "timeout",
   "reselect",
   "recorded",
+  "concurrent",
+  "refund",
+  "logged",
 ] as const;
 type Name = (typeof names)[number];
 const CLIENT = Object.fromEntries(
@@ -130,6 +133,17 @@ const proposeArgs = (changes: Json = {}): Json => ({
 });
 
 const startOfUtcDay = (ms: number) => ms - (ms % 86_400_000);
+
+/**
+ * Two clock skews an hour apart that both stay inside today's UTC day, so a
+ * test that waits out the hourly window never moves the gateway into the
+ * next day (review M6): from an hour back to now, or, in the first hour of
+ * the day, from now to an hour ahead.
+ */
+function hourApart(): [number, number] {
+  const sinceMidnight = Date.now() - startOfUtcDay(Date.now());
+  return sinceMidnight > HOUR + 60_000 ? [-(HOUR + 1000), 0] : [0, HOUR + 1000];
+}
 
 describe("proposal quota windows (limiter)", () => {
   it("counts a rule in its own window and leaves the 60 s rules alone", () => {
@@ -517,6 +531,8 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
 
   describe("quotas", () => {
     it("refuses the call after the hourly quota of a grant, per grant, and frees it after the window", async () => {
+      const [start, later] = hourApart();
+      skew = start;
       const first = await propose(proposeArgs(), "hour", quotaGateway);
       const second = await propose(proposeArgs(), "hour", quotaGateway);
       expect(first.isError).toBeFalsy();
@@ -544,9 +560,9 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
       expect(read.result.isError).toBeFalsy();
 
       // After the window the grant may propose again.
-      skew = HOUR + 1000;
-      const later = await propose(proposeArgs(), "hour", quotaGateway);
-      expect(later.isError).toBeFalsy();
+      skew = later;
+      const again = await propose(proposeArgs(), "hour", quotaGateway);
+      expect(again.isError).toBeFalsy();
     });
 
     it("audits the refusal as PROPOSAL_QUOTA_EXCEEDED", async () => {
@@ -638,6 +654,8 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
     });
 
     it("a re-selection (a new grant) does not reset the hourly or the daily quota", async () => {
+      const [start, later] = hourApart();
+      skew = start;
       const before = (await grantOf("reselect")).id;
       for (let i = 0; i < 2; i += 1)
         expect(
@@ -654,7 +672,7 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
       const hourly = await propose(proposeArgs(), "reselect", quotaGateway);
       expect(hourly.structuredContent.code).toBe("PROPOSAL_QUOTA_EXCEEDED");
       // A new hour: the third creation of the day fits, the fourth not.
-      skew = HOUR + 1000;
+      skew = later;
       expect(
         (await propose(proposeArgs(), "reselect", quotaGateway)).isError,
       ).toBeFalsy();
@@ -713,6 +731,18 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
     });
 
     it("a failed mcp.proposal write is logged and leaves the created proposal's result alone", async () => {
+      const lines: string[] = [];
+      const level = process.env.LOG_LEVEL;
+      process.env.LOG_LEVEL = "info";
+      const logged = await withEnv(FLAGS, () =>
+        buildMcpServer({
+          cimdFetch,
+          jwksUrl,
+          logStream: { write: (line: string) => void lines.push(line) },
+        }),
+      );
+      if (level === undefined) delete process.env.LOG_LEVEL;
+      else process.env.LOG_LEVEL = level;
       const tool = assignmentTools.find(
         (t) => t.name === "assignment_propose",
       )!;
@@ -731,18 +761,71 @@ describe.skipIf(!enabled)("MCP proposal controls", () => {
       vi.spyOn(authDb.mcpGrantEvent, "create").mockRejectedValueOnce(
         new Error("synthetic event write failure"),
       );
-      const result = await propose(proposeArgs(), "recorded");
-      expect(result.isError).toBeFalsy();
-      expect(result.structuredContent).toMatchObject({ actionRequestId });
+      try {
+        const result = await propose(proposeArgs(), "logged", logged);
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toMatchObject({ actionRequestId });
+      } finally {
+        await logged.close();
+      }
       expect(
         await authDb.mcpGrantEvent.count({
           where: {
-            clientId: CLIENT.recorded,
+            clientId: CLIENT.logged,
             action: "mcp.proposal",
             detail: { path: ["actionRequestId"], equals: actionRequestId },
           },
         }),
       ).toBe(0);
+      // Logged with what reconciles the short daily count, never the message.
+      const failures = lines
+        .map((line) => JSON.parse(line) as Json)
+        .filter((entry) => entry.code === "MCP_PROPOSAL_RECORD_FAILED");
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toMatchObject({
+        level: 50,
+        tool: TOOL,
+        actionRequestId,
+        clientId: CLIENT.logged,
+        workspaceId: project.owner.workspaceId,
+        errorName: "Error",
+        msg: "mcp proposal event not recorded",
+      });
+      expect(lines.join("\n")).not.toContain("synthetic event write failure");
+    });
+
+    it("concurrent proposals of one key cannot pass the hourly quota together", async () => {
+      // One of two used; three at once: only one more may be created.
+      expect(
+        (await propose(proposeArgs(), "concurrent", quotaGateway)).isError,
+      ).toBeFalsy();
+      const results = await Promise.all(
+        [0, 1, 2].map(() => propose(proposeArgs(), "concurrent", quotaGateway)),
+      );
+      expect(results.filter((r) => !r.isError)).toHaveLength(1);
+      expect(
+        results.filter((r) => r.isError).map((r) => r.structuredContent.code),
+      ).toEqual(["PROPOSAL_QUOTA_EXCEEDED", "PROPOSAL_QUOTA_EXCEEDED"]);
+    });
+
+    it("a failed proposal call gives its hourly room back", async () => {
+      const tool = assignmentTools.find(
+        (t) => t.name === "assignment_propose",
+      )!;
+      vi.spyOn(tool, "execute").mockRejectedValueOnce(
+        new DomainError("PROVIDER_UNAVAILABLE", 503),
+      );
+      const failed = await propose(proposeArgs(), "refund", quotaGateway);
+      expect(failed.structuredContent.code).toBe("PROVIDER_UNAVAILABLE");
+      // The quota of 2 is still whole.
+      for (let i = 0; i < 2; i += 1)
+        expect(
+          (await propose(proposeArgs(), "refund", quotaGateway)).isError,
+        ).toBeFalsy();
+      expect(
+        (await propose(proposeArgs(), "refund", quotaGateway)).structuredContent
+          .code,
+      ).toBe("PROPOSAL_QUOTA_EXCEEDED");
     });
   });
 

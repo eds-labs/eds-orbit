@@ -18,6 +18,7 @@ import {
   entity,
   hash,
   list,
+  listedRequester,
   update,
 } from "../shared.ts";
 import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
@@ -584,22 +585,8 @@ export async function cancelMcpProposals(
   return { canceled, failed: failed.length };
 }
 
-/**
- * The requester as the owner's inbox list shows it (D-M5-8): an MCP
- * proposal names its user and client only, never the grant, the run or the
- * argument hash, which stay on the stored request for audit and dedupe.
- */
-export function listedRequester(by: unknown): unknown {
-  if (
-    typeof by === "object" &&
-    by !== null &&
-    (by as { kind?: unknown }).kind === "mcp"
-  ) {
-    const { kind, userId, clientId } = by as Record<string, unknown>;
-    return { kind, userId, clientId };
-  }
-  return by;
-}
+/** The trimmed requester of the inbox list (platform/shared.ts). */
+export { listedRequester };
 
 /**
  * Owners' open decisions as rows: pending, unexpired requests whose action

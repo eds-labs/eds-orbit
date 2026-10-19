@@ -198,6 +198,23 @@ export async function exception(
     lastSeenAt: new Date().toISOString(),
   });
 }
+/**
+ * The requester of an action request as members see it (D-M5-8): an MCP
+ * proposal names its user and client only, never the grant, the run or the
+ * argument hash, which stay on the stored request for audit and dedupe.
+ * Used by the owner's inbox list and the project export.
+ */
+export function listedRequester(by: unknown): unknown {
+  if (
+    typeof by === "object" &&
+    by !== null &&
+    (by as { kind?: unknown }).kind === "mcp"
+  ) {
+    const { kind, userId, clientId } = by as Record<string, unknown>;
+    return { kind, userId, clientId };
+  }
+  return by;
+}
 export function publicEntity(row: any) {
   if (row.kind === "drive_connection" || row.kind === "drive_oauth_state")
     return { ...row, data: { connected: row.kind === "drive_connection" } };
@@ -208,6 +225,15 @@ export function publicEntity(row: any) {
       data: {
         status: data(row).status,
         linkedAt: data(row).linkedAt ?? null,
+      },
+    };
+  // The export is open to every member: trim an MCP requester (review M3).
+  if (row.kind === "action_requests" && data(row).requestedBy !== undefined)
+    return {
+      ...row,
+      data: {
+        ...data(row),
+        requestedBy: listedRequester(data(row).requestedBy),
       },
     };
   if (row.kind === "connectors") {

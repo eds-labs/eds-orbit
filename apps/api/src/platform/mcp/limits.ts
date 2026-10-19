@@ -93,6 +93,9 @@ export type RateVerdict =
 /** How often a full limiter looks for expired windows outside the regular sweep. */
 const FULL_SWEEP_INTERVAL_MS = 1000;
 
+/** One use counted by `McpRateLimiter.charge`: the buckets and their window starts. */
+export type RateCharge = readonly { key: string; start: number }[];
+
 /**
  * Fixed-window counters keyed by string; expired windows are dropped lazily,
  * and at most `maxKeys` buckets are held (MCP_RATE_LIMITER_MAX_KEYS).
@@ -211,14 +214,31 @@ export class McpRateLimiter {
   }
 
   /**
-   * Counts one use in every bucket without looking at the limits (after the
-   * work happened). It may add a bucket past the size cap: the work is done,
-   * and only proposals are charged this way (rate-limited before they run).
+   * Counts one use in every bucket without looking at the limits. It may add
+   * a bucket past the size cap; only proposals are charged this way, right
+   * after their check and before they run (rate-limited before that).
+   * Returns what `refund` needs to take the use back.
    */
-  charge(rules: readonly RateRule[]): void {
+  charge(rules: readonly RateRule[]): RateCharge {
     const now = this.now();
     this.sweep(now);
     this.count(rules, now);
+    return rules.map((rule) => ({
+      key: rule.key,
+      start: this.windows.get(rule.key)!.start,
+    }));
+  }
+
+  /**
+   * Takes back one use of a `charge`, but only from the window it was
+   * counted in: a window that ended or was replaced keeps its count.
+   */
+  refund(charge: RateCharge): void {
+    for (const { key, start } of charge) {
+      const window = this.windows.get(key);
+      if (window && window.start === start && window.count > 0)
+        window.count -= 1;
+    }
   }
 }
 

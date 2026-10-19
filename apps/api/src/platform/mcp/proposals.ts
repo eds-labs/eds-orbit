@@ -105,6 +105,10 @@ export function mcpRequester(
 /** Longest request id an `mcp.proposal` event names; anything else is recorded as null. */
 const MAX_RECORDED_ID = 128;
 
+/** A tool-reported request id as events and logs may carry it: a short string, else null. */
+export const recordableId = (value: unknown): string | null =>
+  typeof value === "string" && value.length <= MAX_RECORDED_ID ? value : null;
+
 /**
  * Records one created proposal on the grant (`mcp.proposal`): the MCP tool
  * and the request id, never arguments. The adapter writes it for every
@@ -127,11 +131,7 @@ export async function recordMcpProposal(input: {
     workspaceId: input.workspaceId,
     detail: {
       tool: input.tool,
-      actionRequestId:
-        typeof input.actionRequestId === "string" &&
-        input.actionRequestId.length <= MAX_RECORDED_ID
-          ? input.actionRequestId
-          : null,
+      actionRequestId: recordableId(input.actionRequestId),
     },
   });
 }
@@ -224,42 +224,60 @@ const countProposalEvents = (key: ProposalQuotaKey, since: Date) =>
     },
   });
 
-/**
- * Refuses (McpProposalQuotaError) when the key has used its hourly or daily
- * proposal quota. Checks only; counting happens in chargeProposal and
- * recordMcpProposal after a proposal was actually created, so deduplicated
- * retries cost nothing. The check and the charge are not one step: calls in
- * flight at the same time can all pass the check, so the quota may be
- * overshot by the number of concurrent calls of one key (bounded by the
- * request rates), never by more. The daily number is read from the key's
- * `mcp.proposal` events (written with each creation, also for a call that
- * timed out), so it survives restarts; once it reaches the limit the key is
- * refused from memory until the next UTC midnight.
- */
-export async function assertProposalCapacity(
-  quota: ProposalQuota,
-  key: ProposalQuotaKey,
-): Promise<void> {
-  if (!quota.limiter.check([hourlyRule(quota, key)]).allowed)
-    throw new McpProposalQuotaError();
-  const now = quota.now();
-  const cacheKey = keyOf(key);
-  if (quota.usedUp.has(cacheKey, now)) throw new McpProposalQuotaError();
-  const dayStart = startOfUtcDay(now);
-  const today = await (quota.countToday ?? countProposalEvents)(
-    key,
-    new Date(dayStart),
-  );
-  if (today >= quota.perDay) {
-    quota.usedUp.add(cacheKey, dayStart + DAY_MS, now);
-    throw new McpProposalQuotaError();
-  }
-}
+/** A proposal's place in the hourly bucket, taken before the tool runs. */
+export type ProposalReservation = {
+  /** Gives the place back (a deduplicated retry, a failed call); once. */
+  release(): void;
+};
 
-/** Counts one created proposal in the key's hourly bucket. */
-export function chargeProposal(
+/**
+ * Reserves one proposal for the key, or refuses (McpProposalQuotaError) when
+ * its hourly or daily quota is used up. The hourly bucket is checked and
+ * charged in one synchronous step before anything is awaited (review M4),
+ * so concurrent calls of one key in this process can never take more than
+ * the free room; the caller releases the place when no proposal was created
+ * (a deduplicated retry, a thrown call). A daily refusal or a failed count
+ * releases it here.
+ *
+ * The daily number is read from the key's `mcp.proposal` events (written by
+ * the adapter after each creation, also for a call that timed out), so it
+ * survives restarts; once it reaches the limit the key is refused from
+ * memory until the next UTC midnight. The daily check is not atomic with
+ * the creation: calls in flight at the same time can all pass it, so the
+ * daily quota may be overshot by the calls of one key in flight at once
+ * (bounded by the hourly bucket in each process and the request rates).
+ */
+export async function reserveProposal(
   quota: ProposalQuota,
   key: ProposalQuotaKey,
-): void {
-  quota.limiter.charge([hourlyRule(quota, key)]);
+): Promise<ProposalReservation> {
+  const rule = hourlyRule(quota, key);
+  if (!quota.limiter.check([rule]).allowed) throw new McpProposalQuotaError();
+  const charge = quota.limiter.charge([rule]);
+  let released = false;
+  const reservation: ProposalReservation = {
+    release() {
+      if (released) return;
+      released = true;
+      quota.limiter.refund(charge);
+    },
+  };
+  try {
+    const now = quota.now();
+    const cacheKey = keyOf(key);
+    if (quota.usedUp.has(cacheKey, now)) throw new McpProposalQuotaError();
+    const dayStart = startOfUtcDay(now);
+    const today = await (quota.countToday ?? countProposalEvents)(
+      key,
+      new Date(dayStart),
+    );
+    if (today >= quota.perDay) {
+      quota.usedUp.add(cacheKey, dayStart + DAY_MS, now);
+      throw new McpProposalQuotaError();
+    }
+  } catch (error) {
+    reservation.release();
+    throw error;
+  }
+  return reservation;
 }

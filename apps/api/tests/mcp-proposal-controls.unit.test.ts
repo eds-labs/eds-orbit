@@ -19,14 +19,14 @@ import {
   McpRateLimiter,
 } from "../src/platform/mcp/limits.ts";
 import {
-  assertProposalCapacity,
-  chargeProposal,
   mcpProposalArgsHash,
   mcpProposalOrigin,
   McpProposalDayCache,
   mcpRequester,
+  reserveProposal,
   type ProposalQuota,
 } from "../src/platform/mcp/proposals.ts";
+import { publicEntity } from "../src/platform/shared.ts";
 import { tasksModule } from "./fixtures/modules/tasks/manifest.ts";
 import { PROJECT_WRITE } from "../src/platform/tenancy/permissions.ts";
 
@@ -74,9 +74,9 @@ describe("proposal quotas key on user, client and workspace (D-M5-8)", () => {
     const now = () => Date.UTC(2026, 9, 19, 10);
     const quota = quotaWith({ now });
     // Two creations under two grant ids (a re-selection in between).
-    chargeProposal(quota, proposer());
-    chargeProposal(quota, proposer());
-    expect(await refusal(assertProposalCapacity(quota, proposer()))).toBe(
+    await reserveProposal(quota, proposer());
+    await reserveProposal(quota, proposer());
+    expect(await refusal(reserveProposal(quota, proposer()))).toBe(
       "PROPOSAL_QUOTA_EXCEEDED",
     );
     // Another client, user or workspace has its own bucket.
@@ -85,7 +85,7 @@ describe("proposal quotas key on user, client and workspace (D-M5-8)", () => {
       proposer({ userId: "user-2" }),
       proposer({ workspaceId: "22222222-2222-4222-8222-222222222222" }),
     ])
-      expect(await refusal(assertProposalCapacity(quota, other))).toBeNull();
+      expect(await refusal(reserveProposal(quota, other))).toBeNull();
   });
 
   it("counts the day for the key, not for a grant", async () => {
@@ -97,10 +97,87 @@ describe("proposal quotas key on user, client and workspace (D-M5-8)", () => {
         return 0;
       },
     });
-    await assertProposalCapacity(quota, proposer());
+    await reserveProposal(quota, proposer());
     expect(asked).toEqual([
       { key: proposer(), since: "2026-10-19T00:00:00.000Z" },
     ]);
+  });
+});
+
+describe("hourly bucket charged before the call (D-M5-8, review M4)", () => {
+  it("lets concurrent calls of one key take only the free room", async () => {
+    let open: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (open = resolve));
+    const quota = quotaWith({
+      now: () => Date.UTC(2026, 9, 19, 10),
+      perHour: 2,
+      perDay: 100,
+      countToday: async () => {
+        await gate;
+        return 0;
+      },
+    });
+    const calls = Array.from({ length: 5 }, () =>
+      refusal(reserveProposal(quota, proposer())),
+    );
+    open();
+    const outcomes = await Promise.all(calls);
+    expect(outcomes.filter((o) => o === null)).toHaveLength(2);
+    expect(
+      outcomes.filter((o) => o === "PROPOSAL_QUOTA_EXCEEDED"),
+    ).toHaveLength(3);
+  });
+
+  it("gives the room back on release, once, and never to a later window", async () => {
+    let now = Date.UTC(2026, 9, 19, 10);
+    const quota = quotaWith({ now: () => now, perHour: 1, perDay: 100 });
+    const first = await reserveProposal(quota, proposer());
+    expect(await refusal(reserveProposal(quota, proposer()))).toBe(
+      "PROPOSAL_QUOTA_EXCEEDED",
+    );
+    // A deduplicated or failed call: released, and a second release is a no-op.
+    first.release();
+    first.release();
+    const second = await reserveProposal(quota, proposer());
+    expect(await refusal(reserveProposal(quota, proposer()))).toBe(
+      "PROPOSAL_QUOTA_EXCEEDED",
+    );
+    // The window rolled over and a new reservation took the new one: the
+    // old reservation's release must not free it.
+    now += HOUR + 1;
+    await reserveProposal(quota, proposer());
+    second.release();
+    expect(await refusal(reserveProposal(quota, proposer()))).toBe(
+      "PROPOSAL_QUOTA_EXCEEDED",
+    );
+  });
+
+  it("a refusal of the daily quota or a failed count uses no hourly room", async () => {
+    let stored = 100;
+    let fail = false;
+    const quota = quotaWith({
+      now: () => Date.UTC(2026, 9, 19, 10),
+      perHour: 1,
+      perDay: 100,
+      countToday: async () => {
+        if (fail) throw new Error("count failed");
+        return stored;
+      },
+    });
+    expect(await refusal(reserveProposal(quota, proposer()))).toBe(
+      "PROPOSAL_QUOTA_EXCEEDED",
+    );
+    // Forget the cached day: the hourly room of 1 is still free.
+    quota.usedUp = new McpProposalDayCache();
+    stored = 0;
+    expect(await refusal(reserveProposal(quota, proposer()))).toBeNull();
+    // A count that throws gives the room back too.
+    fail = true;
+    const other = proposer({ userId: "user-3" });
+    expect(await refusal(reserveProposal(quota, other))).toBe("count failed");
+    fail = false;
+    stored = 0;
+    expect(await refusal(reserveProposal(quota, other))).toBeNull();
   });
 });
 
@@ -116,28 +193,26 @@ describe("daily 'used up' cache (D-M5-8)", () => {
         return stored;
       },
     });
-    expect(await refusal(assertProposalCapacity(quota, proposer()))).toBe(
+    expect(await refusal(reserveProposal(quota, proposer()))).toBe(
       "PROPOSAL_QUOTA_EXCEEDED",
     );
     expect(counted).toBe(1);
     // Refused again without a count, until the day ends.
     now += HOUR;
     for (let i = 0; i < 5; i += 1)
-      expect(await refusal(assertProposalCapacity(quota, proposer()))).toBe(
+      expect(await refusal(reserveProposal(quota, proposer()))).toBe(
         "PROPOSAL_QUOTA_EXCEEDED",
       );
     expect(counted).toBe(1);
     // Another key is unaffected and is counted.
     expect(
-      await refusal(
-        assertProposalCapacity(quota, proposer({ userId: "user-2" })),
-      ),
+      await refusal(reserveProposal(quota, proposer({ userId: "user-2" }))),
     ).toBe("PROPOSAL_QUOTA_EXCEEDED");
     expect(counted).toBe(2);
     // The next UTC day: counted again, and allowed with fewer events.
     now = Date.UTC(2026, 9, 20, 0, 0, 1);
     stored = 0;
-    expect(await refusal(assertProposalCapacity(quota, proposer()))).toBeNull();
+    expect(await refusal(reserveProposal(quota, proposer()))).toBeNull();
     expect(counted).toBe(3);
   });
 
@@ -150,8 +225,8 @@ describe("daily 'used up' cache (D-M5-8)", () => {
         return 2;
       },
     });
-    await assertProposalCapacity(quota, proposer());
-    await assertProposalCapacity(quota, proposer());
+    await reserveProposal(quota, proposer());
+    await reserveProposal(quota, proposer());
     expect(counted).toBe(2);
   });
 
@@ -186,12 +261,12 @@ describe("daily 'used up' cache (D-M5-8)", () => {
         return 3;
       },
     });
-    await refusal(assertProposalCapacity(quota, proposer()));
+    await refusal(reserveProposal(quota, proposer()));
     now = Date.UTC(2026, 9, 20) - 1;
-    await refusal(assertProposalCapacity(quota, proposer()));
+    await refusal(reserveProposal(quota, proposer()));
     expect(counted).toBe(1);
     now = Date.UTC(2026, 9, 20);
-    await refusal(assertProposalCapacity(quota, proposer()));
+    await refusal(reserveProposal(quota, proposer()));
     expect(counted).toBe(2);
   });
 });
@@ -347,6 +422,44 @@ describe("requester derived centrally from the channel (D-M5-8)", () => {
       argsHash: mcpProposalArgsHash("t", scope.projectId, args),
     });
     expect(requestedBy.parse(built)).toEqual(built);
+  });
+});
+
+describe("project export requester (review M3)", () => {
+  it("trims the MCP requester of an exported action request, nothing else", () => {
+    const row = {
+      id: "r",
+      kind: "action_requests",
+      data: {
+        status: "pending",
+        payload: { name: "x" },
+        requestedBy: {
+          kind: "mcp",
+          userId: "u",
+          clientId: "https://client.test/a.json",
+          grantId: "g",
+          agentRunId: "run",
+          argsHash: "a".repeat(64),
+        },
+      },
+    };
+    expect(publicEntity(row)).toEqual({
+      ...row,
+      data: {
+        ...row.data,
+        requestedBy: {
+          kind: "mcp",
+          userId: "u",
+          clientId: "https://client.test/a.json",
+        },
+      },
+    });
+    const user = {
+      id: "s",
+      kind: "action_requests",
+      data: { requestedBy: { kind: "user", userId: "u" } },
+    };
+    expect(publicEntity(user)).toEqual(user);
   });
 });
 

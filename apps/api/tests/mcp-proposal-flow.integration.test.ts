@@ -480,6 +480,23 @@ describe.skipIf(!enabled)(
         grantId: grant.id,
         argsHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       });
+      // The project export, open to every member, trims it the same way.
+      const exported = await asUser(
+        "editor",
+        "GET",
+        `/api/projects/${projectId()}/export`,
+      );
+      expect(exported.statusCode).toBe(200);
+      const exportedRequest = (exported.json().entities as Json[]).find(
+        (entity) => entity.id === out.actionRequestId,
+      )!;
+      expect(exportedRequest.data.requestedBy).toEqual({
+        kind: "mcp",
+        userId: ids.editor,
+        clientId: CLIENT.editor,
+      });
+      for (const word of ["grantId", "argsHash", "agentRunId"])
+        expect(JSON.stringify(exportedRequest)).not.toContain(word);
       expect((await inbox("editor")).statusCode).toBe(403);
 
       const approved = await decide("owner", item.id, {

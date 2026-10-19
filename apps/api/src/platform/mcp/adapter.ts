@@ -41,11 +41,12 @@ import { MCP_OUTPUT_LIMIT_BYTES, type McpProjectSlots } from "./limits.ts";
 import { nativeTools, type NativeToolContext } from "./native-tools.ts";
 import type { McpPrincipal } from "./principal.ts";
 import {
-  assertProposalCapacity,
-  chargeProposal,
+  recordableId,
   recordMcpProposal,
+  reserveProposal,
   type ProposalQuota,
   type ProposalQuotaKey,
+  type ProposalReservation,
 } from "./proposals.ts";
 import {
   authorizeMcpCall,
@@ -176,9 +177,11 @@ export function auditableToolName(name: unknown): string {
  * Refuses to start the gateway with a tool whose MCP contract is broken
  * (D-M5-8): every exposed tool needs an object output schema, and every
  * exposed proposal tool must report `deduplicated` and `actionRequestId`,
- * which the quotas and `mcp.proposal` rely on. Registration checks the same
- * (`mcpExposureProblem`); this repeats it where the gateway starts, so a
- * tool registered some other way cannot slip through.
+ * which the quotas and `mcp.proposal` rely on. Module registration is the
+ * authoritative check: it applies `mcpExposureProblem` to every registered
+ * tool, also those of modules unavailable at startup. This repeats it over
+ * the tools the gateway can serve (`registeredTools()`), as a guard at
+ * gateway start.
  */
 export function assertMcpToolContracts(tools: readonly OrbitTool[]): void {
   const problems = tools
@@ -546,55 +549,74 @@ async function executeInProject(
     clientId: principal.clientId,
     workspaceId: principal.workspaceId,
   };
-  if (proposing) await assertProposalCapacity(state.proposalQuota, quotaKey);
+  // The hourly place is taken before the tool runs (review M4); a call
+  // that creates nothing gives it back.
+  const reservation = proposing
+    ? await reserveProposal(state.proposalQuota, quotaKey)
+    : null;
   // The run exists before the tool works, so its spans and costs can hang on
-  // it; without one the request id stands in, as before.
+  // it; without one the request id stands in, as before (it never rejects).
   const agentRunId = await startCallRun(state, call, toolName, projectId);
-  const { output } = await allowed.execute(
-    {
-      // The tool runs with the member's role in its module (as chat-runner).
-      scope: moduleScope(scope, registeredToolOwner(allowed.name)),
-      runId: agentRunId ?? requestId,
-      conversationId: `mcp:${requestId}`,
-      callIndex: 0,
-      channel: {
-        kind: "mcp",
-        clientId: principal.clientId,
-        grantId: principal.grantId,
-        requestId,
+  let output: unknown;
+  try {
+    ({ output } = await allowed.execute(
+      {
+        // The tool runs with the member's role in its module (as chat-runner).
+        scope: moduleScope(scope, registeredToolOwner(allowed.name)),
+        runId: agentRunId ?? requestId,
+        conversationId: `mcp:${requestId}`,
+        callIndex: 0,
+        channel: {
+          kind: "mcp",
+          clientId: principal.clientId,
+          grantId: principal.grantId,
+          requestId,
+        },
       },
-    },
-    input,
-  );
-  if (proposing) await settleProposal(state, toolName, quotaKey, output);
+      input,
+    ));
+  } catch (error) {
+    // A thrown call created nothing it reports: its hourly place goes back.
+    reservation?.release();
+    throw error;
+  }
+  if (reservation)
+    await settleProposal(state, toolName, quotaKey, reservation, output);
   // Chat cards are never sent over MCP (Orbit links follow in WP-M3).
   return output;
 }
 
 /**
- * Charges and records a created proposal, centrally for every proposal tool
- * (D-M5-8): a tool that reports a deduplicated retry (`deduplicated: true`)
- * costs nothing and writes nothing; one that does not say counts, so no
- * proposal tool can dodge the quota (registration also requires the field).
- * Runs after the tool's own transaction committed, also when the call has
- * timed out meanwhile, so a late creation still counts. A failed event write
- * is logged and leaves the result alone: the proposal exists, and the daily
- * count is one short (the hourly bucket is charged either way).
+ * Settles a proposal call centrally for every proposal tool (D-M5-8): a tool
+ * that reports a deduplicated retry (`deduplicated: true`) gives its hourly
+ * place back and writes nothing; any other result keeps the place and is
+ * recorded (`mcp.proposal`), so no proposal tool can dodge the quota
+ * (registration also requires the field). Runs after the tool's own
+ * transaction committed, also when the call has timed out meanwhile, so a
+ * late creation still counts. A failed event write is logged with the
+ * identifiers to reconcile it and leaves the result alone: the proposal
+ * exists, and the daily count is one short (the hourly place is kept).
  */
 async function settleProposal(
   state: McpRequestState & { principal: McpPrincipal },
   toolName: string,
   key: ProposalQuotaKey,
+  reservation: ProposalReservation,
   output: unknown,
 ): Promise<void> {
-  if (isPlainObject(output) && output.deduplicated === true) return;
-  chargeProposal(state.proposalQuota, key);
+  if (isPlainObject(output) && output.deduplicated === true) {
+    reservation.release();
+    return;
+  }
+  const actionRequestId = recordableId(
+    isPlainObject(output) ? output.actionRequestId : null,
+  );
   try {
     await recordMcpProposal({
       ...key,
       grantId: state.principal.grantId,
       tool: toolName,
-      actionRequestId: isPlainObject(output) ? output.actionRequestId : null,
+      actionRequestId,
     });
   } catch (error) {
     state.log.error(
@@ -602,6 +624,9 @@ async function settleProposal(
         code: "MCP_PROPOSAL_RECORD_FAILED",
         tool: toolName,
         requestId: state.requestId,
+        actionRequestId,
+        clientId: key.clientId,
+        workspaceId: key.workspaceId,
         errorName: (error as Error)?.name,
       },
       "mcp proposal event not recorded",
