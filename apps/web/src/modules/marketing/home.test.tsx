@@ -43,7 +43,7 @@ import {
 } from "@/platform/shell/shell-context";
 import { projectHref, routeTable } from "@/platform/shell/routes";
 import type { ActivityRun, AgentActivity } from "./agent-activity";
-import { MarketingHomeCard } from "./home";
+import { MarketingHomeCard, pollsRun } from "./home";
 
 const table = routeTable(webRegistry);
 const project = {
@@ -245,5 +245,25 @@ describe("MarketingHomeCard", () => {
   it("renders nothing while the module answers 404", () => {
     delete answers["/missions"];
     expect(render()).toBe("");
+  });
+});
+
+describe("pollsRun", () => {
+  it("refreshes only while the newest run is planned or running", () => {
+    expect(pollsRun(activity([run({ status: "planned" })]))).toBe(true);
+    expect(pollsRun(activity([run({ status: "running" })]))).toBe(true);
+    for (const status of ["done", "partial", "failed"])
+      expect(pollsRun(activity([run({ status })])), status).toBe(false);
+    // The card shows the first run: an older open one does not count.
+    expect(
+      pollsRun(
+        activity([
+          run({ status: "done" }),
+          run({ id: "r0", status: "running" }),
+        ]),
+      ),
+    ).toBe(false);
+    expect(pollsRun(activity([]))).toBe(false);
+    expect(pollsRun(null)).toBe(false);
   });
 });

@@ -1,5 +1,5 @@
 "use client";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bot, CalendarClock } from "lucide-react";
 import {
   collectionPath,
@@ -36,6 +36,18 @@ const RUN_TONE: Record<string, "blue" | "success" | "warning" | "danger"> = {
   failed: "danger",
 };
 
+/** How often the card refreshes the agent activity while a run is open. */
+const RUN_REFRESH_MS = 15_000;
+
+/**
+ * Whether the card refreshes the agent activity: only while the run it
+ * shows (the newest, `runs[0]`) is planned or running.
+ */
+export function pollsRun(activity: AgentActivity | null): boolean {
+  const status = activity?.runs[0]?.status;
+  return status === "planned" || status === "running";
+}
+
 const fill = (template: string, values: Record<string, string>) =>
   template.replace(/\{(\w+)\}/g, (all, key: string) => values[key] ?? all);
 
@@ -55,9 +67,28 @@ export function MarketingHomeCard() {
   // One instant per load, so the post window stays put between renders.
   const now = useMemo(() => Date.now(), [project.id, revision]);
   const missions = useCollection("missions");
-  const activity = useResource<AgentActivity>(
-    collectionPath(project.id, `agent-activity?revision=${revision}`),
+  const activityPath = collectionPath(
+    project.id,
+    `agent-activity?revision=${revision}`,
   );
+  const activity = useResource<AgentActivity>(activityPath);
+  // The last answer stays while a refresh loads or fails: no skeleton flash.
+  const [kept, setKept] = useState<{
+    path: string;
+    data: AgentActivity;
+  } | null>(null);
+  useEffect(() => {
+    if (activity.data) setKept({ path: activityPath, data: activity.data });
+  }, [activity.data, activityPath]);
+  const shown =
+    activity.data ?? (kept?.path === activityPath ? kept.data : null);
+  const polling = pollsRun(shown);
+  const { refresh } = activity;
+  useEffect(() => {
+    if (!polling) return;
+    const timer = setInterval(refresh, RUN_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [polling, refresh]);
   if (missions.error?.status === 404) return null;
   const active = missions.data
     ? String(
@@ -79,12 +110,14 @@ export function MarketingHomeCard() {
     >
       {/* A 404 means Orbit Agents is off: no run to show. */}
       {activity.error?.status !== 404 &&
-        (activity.loading ? (
+        (shown ? (
+          <CurrentRun run={shown.runs[0] ?? null} />
+        ) : activity.loading ? (
           <Skeleton />
-        ) : activity.error ? (
-          <ResourceError error={activity.error} retry={activity.refresh} />
         ) : (
-          activity.data && <CurrentRun run={activity.data.runs[0] ?? null} />
+          activity.error && (
+            <ResourceError error={activity.error} retry={activity.refresh} />
+          )
         ))}
       <NextPosts now={now} />
       <p className="home-card-counts">
