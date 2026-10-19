@@ -35,7 +35,14 @@ Branch `claude/track-m-wp-m5`, stacked on #172 (`claude/track-m-wp-m4`); retarge
 - Open security items: no central client disable (`09` §7); the CIMD fetch timeout, address pinning and caching are library behaviour without an Orbit test; the JWKS rotation is not rehearsed; the dependency advisory re-check before A2 is open (no network in this work); the independent security review is pending.
 - Hygiene: `apps/api/src/platform/mcp-auth/plugins.ts` is about 730 lines, `limits.ts` and the gateway audit test are large; the disabled-mode test duplicates a port helper; the conformance `search` check validates the result shape only.
 
-**Rollback.** Nothing is deployed. After A2: redeploy the previous `main` commit; the migration stays (additive). After A3: remove the `/mcp` domain. After the flag flips: flags off in reverse order (runbook "Rollback").
+**Production rollout (2026-10-19).** Mario approved merging, deploying and switching MCP on in one message ("Alles mal auf Main mergen und deployen und MCP dann auch einschalten").
+- Dependency advisory re-check: no GitHub advisory affects `better-auth` / `@better-auth/*` 1.7.10 or `@modelcontextprotocol/server` 2.3.1.
+- A1: #172 merged (`f6b6766`), live 11:36 UTC. A2: #175 merged (`5403033`), live 11:41 UTC (about 35 s of 503 while containers switched). The read-only pre-check (A2a) was not run: `McpGrant` rows are only written by the OAuth routes, which had never been enabled in production. With the flags off, both PRM paths answered 404 (web reached the disabled `mcp` service).
+- A3 and A4: Mario set the `mcp` domain `https://orbit.eds-labs.io/mcp` and `ORBIT_MCP_OAUTH=true` in Coolify. They took effect only after a later redeploy. Authorization server metadata: issuer `https://orbit.eds-labs.io/api/auth`, `S256` only, `iss` response parameter, no registration endpoint (DCR off), client ID metadata documents supported, scopes `openid email profile offline_access orbit:read orbit:propose`. JWKS 200; `/api/mcp-grants` 401 without a session.
+- A5: `ORBIT_MCP_GATEWAY=true` was live at 14:04 UTC. Coolify strips the `/mcp` prefix: `<APP_ORIGIN>/mcp/healthz` publicly answers `{"status":"ok"}`. `scripts/mcp-smoke.ts` without a token: `RESULT PASS` (6 passed, 11 skipped): health, both PRM paths, the 401 challenge with and without an invalid token, `GET` 405. Client address check: from one network the limit refused requests after 30 a minute, and a forged `X-Forwarded-For` was still refused (429 with `Retry-After`). Not yet checked: a second network, the stop grace period on the server, and the `<<:` environment render in Coolify (indirectly fine: the enabled gateway started).
+- Open: A6 (ChatGPT connector, read only) and the authenticated smoke, A7 (Inspector), A8 (`ORBIT_MCP_PROPOSALS` stays `false`), A9 decisions.
+
+**Rollback.** After A2: redeploy the previous `main` commit; the migration stays (additive). After A3: remove the `/mcp` domain. After the flag flips: flags off in reverse order (runbook "Rollback").
 
 ## Track M WP-M4: MCP proposal surface (2026-10-18, local; flags off)
 
