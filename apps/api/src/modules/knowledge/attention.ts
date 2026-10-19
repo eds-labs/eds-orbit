@@ -94,7 +94,7 @@ async function sourceItems(
     const source = data(row);
     if (!tracksFreshness(source)) continue;
     const { state, expiresAt } = sourceExpiry(source, now.getTime());
-    if (state === "fresh") continue;
+    if (state !== "stale" && state !== "expiring") continue;
     (state === "stale" ? stale : expiring).push({
       id: row.id,
       name: String(source.name ?? ""),

@@ -146,6 +146,26 @@ describe("sourceExpiry", () => {
 });
 
 describe("KnowledgeOverview", () => {
+  it("keeps imported facts visible without a stale or never-synced warning", () => {
+    answers["/sources"] = {
+      items: [
+        entity("facts", {
+          name: "Imported facts",
+          type: "verified_facts",
+          status: "active",
+          lastSuccessfulSyncAt: null,
+        }),
+      ],
+    };
+    const html = render(<KnowledgeOverview />);
+    expect(html).toContain("Imported facts");
+    expect(html).toContain("Manually maintained");
+    expect(html).toContain("No synchronization required");
+    expect(html).not.toContain("Never synced");
+    expect(html).not.toContain("Stale");
+    expect(html).not.toContain("1 stale");
+  });
+
   it("sorts sources by expiry, stale first, and leaves revoked ones out", () => {
     answers["/sources"] = {
       items: [

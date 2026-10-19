@@ -45,10 +45,31 @@ const CASES: Record<string, Record<string, unknown>> = {
     lastSuccessfulSyncAt: null,
     maxAgeHours: 168,
   },
+  "manually maintained facts, never synced": {
+    type: "verified_facts",
+    status: "active",
+  },
+  "manually maintained facts with an old sync": {
+    type: "verified_facts",
+    lastSuccessfulSyncAt: ago(9 * 24),
+    maxAgeHours: 1,
+  },
   active: { status: "active", lastSuccessfulSyncAt: ago(1) },
 };
 
 describe("source freshness parity (server and web)", () => {
+  it("does not apply synchronization expiry to manually maintained facts", () => {
+    for (const source of [
+      CASES["manually maintained facts, never synced"],
+      CASES["manually maintained facts with an old sync"],
+    ]) {
+      expect(sourceExpiry(source!, NOW)).toEqual({
+        state: "manual",
+        expiresAt: null,
+      });
+    }
+  });
+
   for (const [name, source] of Object.entries(CASES))
     it(`agrees on ${name}`, () => {
       expect(sourceExpiry(source, NOW)).toEqual(webSourceExpiry(source, NOW));
@@ -60,7 +81,12 @@ describe("source freshness parity (server and web)", () => {
     const states = new Set(
       Object.values(CASES).map((source) => sourceExpiry(source, NOW).state),
     );
-    expect([...states].sort()).toEqual(["expiring", "fresh", "stale"]);
+    expect([...states].sort()).toEqual([
+      "expiring",
+      "fresh",
+      "manual",
+      "stale",
+    ]);
     expect(Object.values(CASES).some((s) => !tracksFreshness(s))).toBe(true);
   });
 });

@@ -1,4 +1,8 @@
 import { scoped } from "../../../../../packages/db/src/index.ts";
+import {
+  sourceExpiry,
+  tracksFreshness,
+} from "../../../../../packages/knowledge/src/freshness.ts";
 import { listIndexGenerations } from "../../../../../packages/knowledge/src/index.ts";
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
@@ -29,9 +33,8 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
         ),
         staleSources: sources.filter(
           (x) =>
-            !data(x).lastSuccessfulSyncAt ||
-            Date.now() - new Date(data(x).lastSuccessfulSyncAt).valueOf() >
-              data(x).maxAgeHours * 3600000,
+            tracksFreshness(data(x)) &&
+            sourceExpiry(data(x), Date.now()).state === "stale",
         ),
         missingEvidence: contents.filter(
           (x) => data(x).status === "needs_review",

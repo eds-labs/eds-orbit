@@ -11,18 +11,27 @@ export const DEFAULT_MAX_AGE_HOURS = 168;
 
 export type SourceExpiry = {
   expiresAt: Date | null;
-  state: "fresh" | "expiring" | "stale";
+  state: "fresh" | "expiring" | "stale" | "manual";
 };
 
 /**
+ * Manually maintained verified facts do not require synchronization.
  * Stale without a sync or past `lastSuccessfulSyncAt + maxAgeHours` (the rule
  * of /knowledge-health `staleSources`), expiring within 48 h of that. A
  * missing or non-positive `maxAgeHours` falls back to the schema default.
  */
 export function sourceExpiry(
-  source: { lastSuccessfulSyncAt?: unknown; maxAgeHours?: unknown },
+  source: {
+    type?: unknown;
+    lastSuccessfulSyncAt?: unknown;
+    maxAgeHours?: unknown;
+  },
   now: number,
 ): SourceExpiry {
+  // Verified facts are maintained by their owners, not by a sync job.
+  // Their individual validity and verification checks remain authoritative.
+  if (source.type === "verified_facts")
+    return { expiresAt: null, state: "manual" };
   const synced =
     typeof source.lastSuccessfulSyncAt === "string"
       ? Date.parse(source.lastSuccessfulSyncAt)

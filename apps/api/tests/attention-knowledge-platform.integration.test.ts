@@ -246,6 +246,46 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
     ]);
   });
 
+  it("manual fact imports do not raise sync warnings in attention or health", async () => {
+    await source({
+      name: "Imported facts",
+      type: "verified_facts",
+      status: "active",
+    });
+    await source({
+      name: "Older facts",
+      type: "verified_facts",
+      lastSuccessfulSyncAt: ago(500),
+    });
+    await source({ name: "Revoked", status: "revoked" });
+    const website = await source({ name: "Never synced website" });
+    const gitbook = await source({
+      name: "Old docs",
+      type: "gitbook",
+      lastSuccessfulSyncAt: ago(500),
+    });
+    const body = await attention("viewer");
+    expect(body.counts["knowledge-sources"]).toBe(2);
+    expect(
+      body.items
+        .filter((item) => item.moduleId === "knowledge")
+        .map((item) => item.params.name)
+        .sort(),
+    ).toEqual(["Never synced website", "Old docs"]);
+    const health = await app.inject({
+      method: "GET",
+      url: `/api/projects/${owner.projectId}/knowledge-health`,
+      headers: { origin, cookie: cookies.viewer, [CLIENT_IP_HEADER]: ip() },
+    });
+    expect(health.statusCode, health.body).toBe(200);
+    expect(
+      health
+        .json()
+        .staleSources.map((source: { id: string }) => source.id)
+        .sort(),
+    ).toEqual([website.id, gitbook.id].sort());
+  });
+
   it("a never-synced source is stale", async () => {
     const never = await source({ name: "Never", lastSuccessfulSyncAt: null });
     const synced = ago(9 * 24);

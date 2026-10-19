@@ -44,10 +44,11 @@ const LIST_LIMIT = 6;
 
 export type SourceExpiry = {
   expiresAt: Date | null;
-  state: "fresh" | "expiring" | "stale";
+  state: "fresh" | "expiring" | "stale" | "manual";
 };
 
 /**
+ * Manually maintained verified facts have no synchronization expiry.
  * When a source's last successful sync stops counting as current: stale
  * without a sync or past `lastSuccessfulSyncAt + maxAgeHours` (the rule of
  * /knowledge-health `staleSources`), expiring within 48 h of that. The
@@ -55,9 +56,17 @@ export type SourceExpiry = {
  * freshness.ts, Ruling R14); freshness-parity.test.tsx keeps both equal.
  */
 export function sourceExpiry(
-  source: { lastSuccessfulSyncAt?: unknown; maxAgeHours?: unknown },
+  source: {
+    type?: unknown;
+    lastSuccessfulSyncAt?: unknown;
+    maxAgeHours?: unknown;
+  },
   now: number,
 ): SourceExpiry {
+  // Verified facts are maintained by their owners, not by a sync job.
+  // Their individual validity and verification checks remain authoritative.
+  if (source.type === "verified_facts")
+    return { expiresAt: null, state: "manual" };
   const synced =
     typeof source.lastSuccessfulSyncAt === "string"
       ? Date.parse(source.lastSuccessfulSyncAt)
@@ -92,8 +101,12 @@ export function byExpiry(sources: Entity[], now: number) {
     .map((source) => ({ source, expiry: sourceExpiry(source.data, now) }))
     .sort(
       (a, b) =>
-        (a.expiry.expiresAt?.getTime() ?? -Infinity) -
-          (b.expiry.expiresAt?.getTime() ?? -Infinity) ||
+        (a.expiry.state === "manual"
+          ? Infinity
+          : (a.expiry.expiresAt?.getTime() ?? -Infinity)) -
+          (b.expiry.state === "manual"
+            ? Infinity
+            : (b.expiry.expiresAt?.getTime() ?? -Infinity)) ||
         value(a.source, "name").localeCompare(value(b.source, "name")),
     );
 }
@@ -108,7 +121,13 @@ const TEXT = {
     freshnessEmpty: "No sources yet",
     freshnessHint: "Add a source to build your source of truth.",
     allSources: "All sources",
-    state: { fresh: "Fresh", expiring: "Expiring", stale: "Stale" },
+    state: {
+      fresh: "Fresh",
+      expiring: "Expiring",
+      stale: "Stale",
+      manual: "Manually maintained",
+    },
+    noSyncRequired: "No synchronization required",
     expires: "Expires",
     expired: "Expired",
     neverSynced: "Never synced",
@@ -140,7 +159,13 @@ const TEXT = {
     freshnessEmpty: "Noch keine Quellen",
     freshnessHint: "Füge eine Quelle hinzu, um deine Wissensbasis aufzubauen.",
     allSources: "Alle Quellen",
-    state: { fresh: "Aktuell", expiring: "Läuft ab", stale: "Veraltet" },
+    state: {
+      fresh: "Aktuell",
+      expiring: "Läuft ab",
+      stale: "Veraltet",
+      manual: "Manuell gepflegt",
+    },
+    noSyncRequired: "Keine Synchronisierung erforderlich",
     expires: "Läuft ab",
     expired: "Abgelaufen",
     neverSynced: "Nie synchronisiert",
@@ -167,6 +192,7 @@ const TEXT = {
 export const knowledgeText = (locale: Locale) => TEXT[locale];
 
 const STATE_TONE = {
+  manual: "neutral",
   fresh: "success",
   expiring: "warning",
   stale: "danger",
@@ -255,9 +281,11 @@ function FreshnessCard({ data, now }: { data: KnowledgeData; now: number }) {
                   <strong>{value(source, "name")}</strong>
                   <small>
                     {value(source, "type")} ·{" "}
-                    {expiry.expiresAt
-                      ? `${expiry.state === "stale" ? text.expired : text.expires} ${when(expiry.expiresAt.toISOString(), locale, project.timezone)}`
-                      : text.neverSynced}
+                    {expiry.state === "manual"
+                      ? text.noSyncRequired
+                      : expiry.expiresAt
+                        ? `${expiry.state === "stale" ? text.expired : text.expires} ${when(expiry.expiresAt.toISOString(), locale, project.timezone)}`
+                        : text.neverSynced}
                   </small>
                 </span>
                 <Badge tone={STATE_TONE[expiry.state]}>

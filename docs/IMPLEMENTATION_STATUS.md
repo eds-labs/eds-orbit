@@ -1,5 +1,12 @@
 # Implementation status
 
+## Verified-facts source freshness fix (2026-10-19, local)
+
+- Manually maintained `verified_facts` sources have no synchronization expiry. Sidebar attention, Knowledge overview and health diagnostics use this distinction; revoked sources remain excluded.
+- The overview keeps these sources visible as "Manually maintained" / "Manuell gepflegt", with "No synchronization required". Website and GitBook freshness and individual fact validity checks are unchanged.
+- Regression coverage: server/web freshness parity, overview rendering, and attention plus health integration. No migration or stored-data rewrite is needed; deployment remains separate from local validation.
+
+
 ## MCP 2.0 delegated work orders (2026-10-19, local; flag off)
 
 Branch `codex/orbit-mcp-2`, rebased onto `6028312` after Anthropic PR #179 merged. Scope and architecture:
