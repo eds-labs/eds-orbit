@@ -17,6 +17,8 @@ import {
 } from "@/platform/shell/settings-nav";
 import { AppLink } from "@/platform/ui/app-link";
 import { AgentRuns } from "./agent-runs";
+import { UnclearAiCost } from "./unclear-ai-cost";
+import { blockerReason } from "@/lib/readiness-text";
 import { GoogleDriveSettings } from "./google-drive";
 import {
   ConnectedApps,
@@ -360,12 +362,17 @@ export function Operations() {
                 )}
               </section>
             )}
+            <UnclearAiCost />
             {d.readiness.blockers.length > 0 && (
               <Alert kind="warning">
-                <strong>Required configuration</strong>
+                <strong>
+                  {locale === "de"
+                    ? "Erforderliche Konfiguration"
+                    : "Required configuration"}
+                </strong>
                 <ul>
                   {d.readiness.blockers.map((s) => (
-                    <li key={s}>{s.replaceAll("_", " ")}</li>
+                    <li key={s}>{blockerReason(locale, s)}</li>
                   ))}
                 </ul>
               </Alert>
@@ -578,7 +585,7 @@ export function ProjectSettings() {
                     {d.readiness.blockers.map((s) => (
                       <li key={s}>
                         <span className="checklist-dot" />
-                        {s.replaceAll("_", " ")}
+                        {blockerReason(locale, s)}
                       </li>
                     ))}
                   </ul>

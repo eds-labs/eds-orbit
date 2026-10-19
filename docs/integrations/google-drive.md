@@ -40,6 +40,8 @@ The existing OpenAI image flow records the normalized PNG in an Orbit asset firs
 
 Every Drive call first exchanges the stored refresh token for an access token. When Google rejects that exchange (HTTP 400, 401 or 403, for example `invalid_grant` after revocation or expiry), Orbit records `lastRefreshFailedAt` and a bounded `lastRefreshErrorCode` (a known OAuth error code or `HTTP_<status>`; never the provider description) on the project's `drive_connection` record. The API error stays `GOOGLE_DRIVE_OAUTH_FAILED`. Rate limits, server errors and timeouts are treated as transient and are not recorded. The next successful refresh, a reconnect or a disconnect clears the state; a failure recorded for a token that was replaced meanwhile is discarded.
 
+**`invalid_grant` about every seven days.** A refresh token that worked and is then rejected with `invalid_grant` after about a week is the expiry Google applies to refresh tokens of an OAuth app whose consent screen is still in the **Testing** publishing status (production uLiquid, 2026-10-12 connected, 2026-10-19 rejected). Orbit cannot prevent it: publish the app in the Google Cloud Console (APIs & Services → OAuth consent screen → **Publish app**, status "In production"), then reconnect once. An unverified production app shows Google's warning screen during consent and is limited to 100 users, but its refresh tokens no longer expire; the full Drive scope stays subject to Google's verification before a wider rollout (see "Scope decision"). The Drive card in Settings shows the recorded error code with this hint.
+
 Readiness uses only this recorded state and never calls Google, so a dashboard load costs no Google request. A failure therefore becomes visible after the next Drive use, such as **Test connection**, a Drive upload retry, a preview or a publish that reads a Drive asset. While it is set:
 
 - `drive_save` is blocked with `GOOGLE_DRIVE_RECONNECT_REQUIRED`.
@@ -54,7 +56,7 @@ Before production setup, back up the Orbit database, verify restore, provision t
 
 - `GOOGLE_DRIVE_NOT_CONFIGURED`: set both OAuth client variables on the server.
 - `GOOGLE_DRIVE_OAUTH_STATE_INVALID`: restart connect; the ten-minute state expired, was used, or belongs to another session/project.
-- `GOOGLE_DRIVE_RECONNECT_REQUIRED`: reconnect the Google account; its refresh grant may have been revoked. As a readiness blocker, it means Google rejected the last recorded refresh (see `lastRefreshErrorCode` in the Drive status).
+- `GOOGLE_DRIVE_RECONNECT_REQUIRED`: reconnect the Google account; its refresh grant may have been revoked. As a readiness blocker, it means Google rejected the last recorded refresh (see `lastRefreshErrorCode` in the Drive status). A recurring `invalid_grant` after about seven days means the OAuth app is still in the Testing status; publish it (see "Refresh failures and readiness").
 - `GOOGLE_DRIVE_OAUTH_FAILED`: the token exchange failed. If the Drive status then shows **Reconnect required**, reconnect; otherwise retry later, as the failure was transient.
 - `GOOGLE_DRIVE_FOLDER_OUTSIDE_ROOT`: choose a folder inside the configured project root.
 - `GOOGLE_DRIVE_REQUEST_FAILED`: inspect Google consent, API enablement, folder permission and quota without logging credentials.

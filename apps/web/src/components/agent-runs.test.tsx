@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { RunStepList } from "./agent-runs";
+import { moreRunsLabel, RUNS_PAGE, RunStepList } from "./agent-runs";
 
 const step = (name: string, extra: Record<string, unknown> = {}) => ({
   id: name,
@@ -58,5 +58,18 @@ describe("RunStepList", () => {
     expect(renderToStaticMarkup(<RunStepList de steps={[]} />)).toContain(
       "Keine Schritte aufgezeichnet",
     );
+  });
+});
+
+// Production, 2026-10-19: the operations page listed every run of the API's
+// page of 50 at once; now ten, with the rest and older pages on request.
+describe("moreRunsLabel", () => {
+  it("offers the loaded runs first, then the API's next page, else nothing", () => {
+    expect(RUNS_PAGE).toBe(10);
+    expect(moreRunsLabel(40, true, true)).toBe("40 weitere anzeigen");
+    expect(moreRunsLabel(3, false, false)).toBe("Show 3 more");
+    expect(moreRunsLabel(0, true, true)).toBe("Ältere Läufe laden");
+    expect(moreRunsLabel(0, true, false)).toBe("Load older runs");
+    expect(moreRunsLabel(0, false, true)).toBeNull();
   });
 });

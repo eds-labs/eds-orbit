@@ -14,31 +14,16 @@ import { RecordDetail } from "@/platform/ui/record-detail";
 import type { SettingsSection } from "@/platform/shell/types";
 import { PolicyEditor } from "./policy-editor";
 import { BrandApproval, MarketingProfileConfiguration } from "./advanced";
-import { Assignments, useAssignments } from "./assignments";
 
-// Marketing's tabs of the project settings (WP2.3b), moved unchanged from
-// ProjectSettings: assignments, the versioned operating policy, and the
-// brand.
+// Marketing's sections of the project settings (WP2.3b): the versioned
+// operating policy and the brand. The assignments are a Marketing page
+// since 2026-10-19 (they are operations, not configuration).
 
 const POLICY_TAB = {
   key: "policy",
   label: { en: "Policy & budget", de: "Richtlinie & Budget" },
   order: 20,
 };
-
-// Orbit Agents: the assignments tab shows only once its route answered
-// (agentsSurface); an error without an answer hides it.
-function useAgentsSection() {
-  const assignments = useAssignments();
-  if (assignments.surface === "assignments")
-    return {
-      label: { en: "Assignments", de: "Aufträge" },
-      content: assignments.available ? (
-        <Assignments resource={assignments.resource} data={assignments.data} />
-      ) : null,
-    };
-  return null;
-}
 
 function usePolicySection() {
   const { locale, isOwner } = useWorkspace();
@@ -95,7 +80,7 @@ function usePolicySection() {
 
 // In the Marketing group of the settings (UI restructure §5.4): policy &
 // budget first, which is always shown and so the sidebar's settings link,
-// then brand, then the assignments, which show only with Orbit Agents.
+// then brand.
 export const marketingSettings: readonly SettingsSection[] = [
   { tab: POLICY_TAB, order: 0, useSection: usePolicySection },
   {
@@ -109,15 +94,6 @@ export const marketingSettings: readonly SettingsSection[] = [
         </>
       ),
     }),
-  },
-  {
-    tab: {
-      key: "agents",
-      label: { en: "Assignments", de: "Aufträge" },
-      order: 40,
-    },
-    order: 0,
-    useSection: useAgentsSection,
   },
 ];
 

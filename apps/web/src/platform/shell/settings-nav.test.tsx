@@ -40,8 +40,9 @@ describe("groupSettings", () => {
         "project",
         ["project", "members", "integrations", "retention", "modules", "apps"],
       ],
-      // Spec §5.4: policy & budget, brand, then assignments.
-      ["marketing", ["policy", "brand", "agents"]],
+      // Spec §5.4: policy & budget, then brand (the assignments are a
+      // Marketing page since 2026-10-19).
+      ["marketing", ["policy", "brand"]],
       ["support", ["support"]],
     ]);
     expect(groups.map((g) => g.label.de)).toEqual([
@@ -235,17 +236,18 @@ describe("module settings links in the sidebar", () => {
   it("the first section is never a conditional one", () => {
     // The sidebar link targets the lowest-order section, so it must be shown
     // whenever the module is. Sections whose hook can return null (hidden
-    // until an API answers): marketing's Orbit Agents "agents".
-    const conditional = new Set(["agents"]);
+    // until an API answers) must not come first; none is left since the
+    // assignments became a page.
+    const conditional = new Set<string>([]);
     for (const m of webRegistry.modules) {
       const key = moduleSettingsSection(m.id, m.settings ?? []);
       if (key === undefined) continue;
       expect(conditional.has(key), `${m.id}: ${key}`).toBe(false);
     }
     const marketing = webRegistry.modules.find((m) => m.id === "marketing")!;
-    const order = (key: string) =>
-      marketing.settings!.find((s) => s.tab.key === key)!.tab.order;
-    expect(order("agents")).toBeGreaterThan(order("policy"));
+    expect(moduleSettingsSection("marketing", marketing.settings!)).toBe(
+      "policy",
+    );
   });
 
   it("the sidebar group shows Einstellungen linking to ?section=policy for marketing", () => {

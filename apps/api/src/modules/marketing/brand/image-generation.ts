@@ -312,7 +312,11 @@ async function generateProjectImageTraced(
     input.saveToDrive !== false && (await connectionStatus(scope)).enabled;
   const withReferences = Boolean(assignment?.references.length);
   const spanName = withReferences ? "images.edit" : "images.generate";
-  // Image cost is never known: the span keeps costMicros null, the reservation stays unknown.
+  // The provider reports no price per image. Once it returned, the call was
+  // billed: the reservation and span settle at the confirmed ceiling
+  // (maxCostMicrosPerImage), the amount the budget already counted. Only a
+  // provider that threw leaves an unknown outcome.
+  const ceiling = prepared.imageConfig.maxCostMicrosPerImage;
   let callStartedAt = new Date();
   let providerReturned = false;
   let spanRecorded = false;
@@ -341,7 +345,7 @@ async function generateProjectImageTraced(
       scope.workspaceId,
       scope.projectId,
       async (tx) => {
-        await settle(tx, scope, prepared.reservationId, null);
+        await settle(tx, scope, prepared.reservationId, ceiling);
         const asset = await create(tx, scope, "assets", {
           name: input.name,
           type: "generated_artwork",
@@ -394,7 +398,8 @@ async function generateProjectImageTraced(
         await audit(tx, scope, "asset.generate_openai", asset.id, {
           model: generated.model,
           reservationId: prepared.reservationId,
-          costState: "unknown",
+          costState: "ceiling",
+          costMicros: ceiling,
         });
         return asset;
       },
@@ -408,7 +413,7 @@ async function generateProjectImageTraced(
       status: "succeeded",
       startedAt: callStartedAt,
       durationMs: Date.now() - callStartedAt.valueOf(),
-      costMicros: null,
+      costMicros: ceiling,
       budgetReservationId: prepared.reservationId,
     });
     if (
@@ -434,10 +439,16 @@ async function generateProjectImageTraced(
           ? "VALIDATION_ERROR"
           : "IMAGE_PROVIDER_ERROR";
     await scoped(scope.workspaceId, scope.projectId, async (tx) => {
-      await settle(tx, scope, prepared.reservationId, null);
+      await settle(
+        tx,
+        scope,
+        prepared.reservationId,
+        providerReturned ? ceiling : null,
+      );
       await audit(tx, scope, "asset.generate_openai_failed", input.requestId, {
         reservationId: prepared.reservationId,
         errorCode: failureCode,
+        costState: providerReturned ? "ceiling" : "unknown",
       });
     });
     if (!spanRecorded)
@@ -450,7 +461,7 @@ async function generateProjectImageTraced(
         errorCode: providerReturned ? undefined : failureCode,
         startedAt: callStartedAt,
         durationMs: Date.now() - callStartedAt.valueOf(),
-        costMicros: null,
+        costMicros: providerReturned ? ceiling : null,
         budgetReservationId: prepared.reservationId,
       });
     throw error;
