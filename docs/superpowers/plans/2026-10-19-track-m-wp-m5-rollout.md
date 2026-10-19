@@ -79,13 +79,13 @@
 
 ### Task 5: Conformance smoke, runbook, prepared security review
 
-**Files:** `scripts/mcp-smoke.ts` (drives a gateway URL with a bearer token from env; never prints the token), `apps/api/tests/mcp-conformance.integration.test.ts` (runs the same checks against an in-process gateway for both revisions), `docs/deployment/MCP_ROLLOUT.md` (runbook), `docs/security/` or `docs/SECURITY_REVIEW.md` section "MCP gateway prepared review" (09 §9 checklist with evidence per item and open points).
+**Files:** scripts/mcp-smoke.ts (new) (drives a gateway URL with a bearer token from env; never prints the token), `apps/api/tests/mcp-conformance.integration.test.ts` (runs the same checks against an in-process gateway for both revisions), docs/deployment/MCP_ROLLOUT.md (new) (runbook), docs/security/ (new) or `docs/SECURITY_REVIEW.md` section "MCP gateway prepared review" (09 §9 checklist with evidence per item and open points).
 - Runbook sections: preconditions (merge #172 + this PR), approval steps in order (see Task 6), Coolify setup (service, domain path `/mcp`, verify prefix handling and router priority, verify `X-Forwarded-For` and peer trust), flag flip order (`ORBIT_MCP_OAUTH` → `ORBIT_MCP_GATEWAY` → `ORBIT_MCP_PROPOSALS`), smoke tests after each step (discovery, PRM, 401 challenge, consent flow, `tools/list`, `search`/`fetch`, revoke), ChatGPT developer-mode connector setup, MCP Inspector run, monitoring (Uptime Kuma `/healthz`, logs for 401/429/`MCP_*`), incident steps (revoke a grant or client, stop proposals, flag off, rotate JWKS), rollback.
 - [ ] Tests first for the conformance test; commit `docs(mcp): rollout runbook, conformance smoke and prepared security review (WP-M5)`.
 
 ### Task 6: Approval checklist and status docs
 
-**Files:** `docs/IMPLEMENTATION_STATUS.md` (WP-M5 entry; tick delivered checklist items across WP-M1…M4 lists), `docs/REQUIREMENTS_TRACEABILITY.md` (WP-M5 acceptance), `docs/deployment/MCP_ROLLOUT.md` "Approvals needed" table.
+**Files:** `docs/IMPLEMENTATION_STATUS.md` (WP-M5 entry; tick delivered checklist items across WP-M1…M4 lists), `docs/REQUIREMENTS_TRACEABILITY.md` (WP-M5 acceptance), docs/deployment/MCP_ROLLOUT.md (new) "Approvals needed" table.
 - Approval table (each a separate OK from Mario): A1 merge #172 (WP-M4), A2 merge this PR (migration + compose service; nothing exposed), A3 Coolify: domain path `/mcp` on the `mcp` service, A4 `ORBIT_MCP_OAUTH=true`, A5 `ORBIT_MCP_GATEWAY=true`, A6 ChatGPT developer-mode connector with Mario's account (read only), A7 MCP Inspector download/run, A8 `ORBIT_MCP_PROPOSALS=true`, A9 decisions from D-M5-9 (project_status fields, CORS, elicitation/notification, quota numbers).
 - [ ] Docs; full check (test DB, full vitest, tsc root + web, compose check incl. `docker compose config`, boundaries/source, secrets, framework, `next build --webpack`); commit `docs: WP-M5 status, approvals and traceability`.
 
