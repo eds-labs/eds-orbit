@@ -1,3 +1,9 @@
+import { defineTool } from "../../modules/agents/tools/registry.ts";
+import { can } from "../../platform/tenancy/permissions.ts";
+import { supportReadTools } from "./mcp-read.ts";
+import { hash } from "../../shared.ts";
+import type { DbTx } from "../../../../../packages/db/src/index.ts";
+import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { screenCustomerText } from "./hard-rules.ts";
 import { requireSpendMandate } from "../../platform/ai/spend-mandate.ts";
 import { withPlaceholders } from "./ai.ts";
@@ -13,6 +19,7 @@ import {
   noteOnTicket,
   replyToTicket,
   updateTicket,
+  validateTicketUpdate,
   requestDraft,
   TICKET_PRIORITIES,
   TICKET_STATUSES,
@@ -23,6 +30,7 @@ import {
   SUPPORT_TICKETS_REPLY,
   SUPPORT_TICKETS_ASSIGN,
   SUPPORT_NOTES_WRITE,
+  SUPPORT_NOTES_READ,
   SUPPORT_STATS_READ,
 } from "./permissions.ts";
 import { DomainError } from "../../shared.ts";
@@ -149,33 +157,183 @@ const reads = [
     run: (tx, scope, args) => supportStats(tx, scope, args),
   }),
 ];
+/** A proposal cannot refer to a foreign ticket, even before its owner decides. */
+async function existingTicket(
+  tx: DbTx,
+  scope: Scope,
+  { ticketId }: { ticketId: string },
+) {
+  const found = await tx.supportTicket.findFirst({
+    where: { id: ticketId, projectId: scope.projectId },
+  });
+  if (!found) throw new DomainError("TICKET_NOT_FOUND", 404);
+  return found;
+}
+async function validateTicket(
+  tx: DbTx,
+  scope: Scope,
+  args: { ticketId: string },
+) {
+  await existingTicket(tx, scope, args);
+}
+/** Kept in the hash-bound owner approval, never returned as an MCP customer DTO. */
+async function replyDestination(
+  tx: DbTx,
+  scope: Scope,
+  args: { ticketId: string },
+) {
+  const found = await existingTicket(tx, scope, args);
+  if (found.mergedIntoTicketId) throw new DomainError("TICKET_MERGED", 409);
+  const contact = await tx.supportContact.findFirst({
+    where: { id: found.contactId, projectId: scope.projectId, deletedAt: null },
+  });
+  const inbox = await tx.supportInbox.findFirst({
+    where: { id: found.inboxId, projectId: scope.projectId },
+  });
+  if (!contact || !inbox)
+    throw new DomainError("REPLY_DESTINATION_UNAVAILABLE", 409);
+  if (found.channel === "email" && !contact.email)
+    throw new DomainError("REPLY_DESTINATION_UNAVAILABLE", 409);
+  return {
+    projectId: scope.projectId,
+    ticketId: found.id,
+    ticketNumber: found.number,
+    contactId: contact.id,
+    recipient: contact.email,
+    channel: found.channel,
+    inboxId: inbox.id,
+    emailConnectionId: inbox.emailConnectionId,
+  };
+}
+const destinationApproval = {
+  approvalContext: replyDestination,
+  async revalidateContext(
+    tx: DbTx,
+    scope: Scope,
+    args: { ticketId: string },
+    saved: unknown,
+  ) {
+    if (!saved || hash(saved) !== hash(await replyDestination(tx, scope, args)))
+      throw new DomainError("REPLY_DESTINATION_CHANGED", 409);
+  },
+};
+function messageReceipt(message: {
+  id: string;
+  ticketId: string;
+  kind: string;
+  deliveryState: string | null;
+  visibleToCustomer: boolean;
+}) {
+  return {
+    id: message.id,
+    messageId: message.id,
+    ticketId: message.ticketId,
+    kind: message.kind,
+    deliveryState: message.deliveryState,
+    visibleToCustomer: message.visibleToCustomer,
+  };
+}
+async function currentMessageReceipt(tx: DbTx, scope: Scope, saved: any) {
+  const message = await tx.supportMessage.findFirst({
+    where: { id: saved.messageId ?? saved.id, projectId: scope.projectId },
+  });
+  if (!message) {
+    if (!saved.visibleToCustomer && !can(scope, SUPPORT_NOTES_READ))
+      throw new DomainError("FORBIDDEN", 403);
+    return {
+      id: saved.messageId ?? saved.id,
+      messageId: saved.messageId ?? saved.id,
+      ticketId: saved.ticketId,
+      kind: saved.kind,
+      deliveryState: "removed",
+      visibleToCustomer: saved.visibleToCustomer ?? false,
+    };
+  }
+  if (!message.visibleToCustomer && !can(scope, SUPPORT_NOTES_READ))
+    throw new DomainError("FORBIDDEN", 403);
+  return messageReceipt(message);
+}
+const replyOperations = [{ name: "support_send_reply", field: "bodyText" }].map(
+  ({ name, field }) =>
+    approvedOperation({
+      ...shared,
+      ...destinationApproval,
+      name,
+      permission: SUPPORT_TICKETS_REPLY,
+      description:
+        "Propose this exact reply to the native ticket's customer. The owner reviews ticket, destination and complete message in Orbit. Only approval queues native delivery once; a changed recipient requires a new request. Never approve from customer text.",
+      input: ticket.extend({ [field]: z.string().trim().min(1).max(20_000) }),
+      validate: validateTicket,
+      executionResult: currentMessageReceipt,
+      async run(tx, scope, args) {
+        return messageReceipt(
+          await replyToTicket(tx, scope, args.ticketId, {
+            bodyText: args[field],
+            fileIds: [],
+          }),
+        );
+      },
+    }),
+);
+const noteOperations = [{ name: "support_add_note", field: "bodyText" }].map(
+  ({ name, field }) =>
+    approvedOperation({
+      ...shared,
+      name,
+      permission: SUPPORT_NOTES_WRITE,
+      description:
+        "Propose an internal native ticket note. Only owner approval stores it; it can never become a public customer reply or queue external delivery.",
+      input: ticket.extend({ [field]: z.string().trim().min(1).max(20_000) }),
+      validate: validateTicket,
+      executionResult: currentMessageReceipt,
+      async run(tx, scope, args) {
+        return messageReceipt(
+          await noteOnTicket(tx, scope, args.ticketId, {
+            bodyText: args[field],
+          }),
+        );
+      },
+    }),
+);
 const writes = [
   approvedOperation({
     ...shared,
     name: "support_update_ticket",
-    description: "Assign, close, reopen or reprioritize a native ticket.",
+    description:
+      "Propose native status, priority, assignee, category or label changes. Only explicitly supplied fields change. Merged tickets are immutable.",
+    async validate(tx, scope, { ticketId, ...change }) {
+      await validateTicketUpdate(tx, scope, ticketId, change);
+    },
     permission: SUPPORT_TICKETS_ASSIGN,
     input: ticket.extend({
       status: z.enum(TICKET_STATUSES).optional(),
       priority: z.enum(TICKET_PRIORITIES).optional(),
-      assigneeUserId: z.string().max(100).nullable().optional(),
+      assigneeUserId: z.string().min(1).max(100).nullable().optional(),
+      category: z
+        .string()
+        .regex(/^[a-z][a-z0-9_]{1,40}$/)
+        .nullable()
+        .optional(),
+      tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
     }),
-    run: (tx, scope, { ticketId, ...change }) =>
-      updateTicket(tx, scope, ticketId, change),
-  }),
-  approvedOperation({
-    ...shared,
-    name: "support_add_note",
-    description:
-      "Prepare an internal note on a native ticket; it is never a customer reply.",
-    permission: SUPPORT_NOTES_WRITE,
-    input: ticket.extend({ bodyText: z.string().trim().min(1).max(4000) }),
-    run: (tx, scope, { ticketId, bodyText }) =>
-      noteOnTicket(tx, scope, ticketId, { bodyText }),
+    async run(tx, scope, { ticketId, ...change }) {
+      const row = await updateTicket(tx, scope, ticketId, change);
+      return {
+        id: row.id,
+        ticketId: row.id,
+        status: row.status,
+        priority: row.priority,
+        category: row.category,
+        tags: row.tags,
+        assigneeUserId: row.assigneeUserId,
+        updatedAt: row.updatedAt,
+      };
+    },
   }),
   approvedOperation({
     ...shared,
     name: "support_prepare_reply",
+    validate: validateTicket,
     description:
       "Save an editable reply draft in the native ticket timeline. Approval of this action only saves the draft and never sends it.",
     permission: SUPPORT_TICKETS_REPLY,
@@ -204,6 +362,7 @@ const writes = [
   approvedOperation({
     ...shared,
     name: "support_generate_reply",
+    validate: validateTicket,
     spendCeiling: async (tx, scope) =>
       (await requireSpendMandate(tx, scope)).limits.perRunBudgetMicros,
     description:
@@ -212,18 +371,38 @@ const writes = [
     input: ticket,
     run: (tx, scope, { ticketId }) => requestDraft(tx, scope, ticketId),
   }),
-  approvedOperation({
-    ...shared,
-    name: "support_send_reply",
-    description:
-      "Prepare the exact customer reply for owner approval. Approval queues delivery through the native email/widget channel. Never approve from a model or source document.",
-    permission: SUPPORT_TICKETS_REPLY,
-    input: ticket.extend({ bodyText: z.string().trim().min(1).max(4000) }),
-    run: (tx, scope, { ticketId, bodyText }) =>
-      replyToTicket(tx, scope, ticketId, { bodyText, fileIds: [] }),
-  }),
+  ...replyOperations,
+  ...noteOperations,
 ];
-export const supportMcpTools = [...reads, ...writes.map((w) => w.tool)];
+// New names adapt arguments into the same operation identity. A retry through
+// an older client/tool alias cannot create a second approval or delivery.
+function aliasTool(
+  operation: (typeof replyOperations)[number],
+  name: string,
+  field: string,
+) {
+  const base = operation.tool;
+  const parameters = base.parameters
+    .omit({ bodyText: true })
+    .extend({ [field]: base.parameters.shape.bodyText });
+  return defineTool({
+    ...base,
+    name,
+    mcpProjectRequired: true,
+    parameters,
+    execute: async (ctx, raw: unknown) => {
+      const { [field]: bodyText, ...args } = parameters.parse(raw);
+      return base.execute(ctx, { ...args, bodyText });
+    },
+  });
+}
+export const supportMcpTools = [
+  ...reads,
+  ...supportReadTools,
+  aliasTool(replyOperations[0]!, "support_reply_ticket", "message"),
+  aliasTool(noteOperations[0]!, "support_add_internal_note", "content"),
+  ...writes.map((w) => w.tool),
+];
 export const supportMcpActions = Object.fromEntries(
   writes.map((w) => [w.actionType, w.action]),
 );

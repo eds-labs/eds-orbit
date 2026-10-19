@@ -1,5 +1,21 @@
 # Requirements traceability
 
+## Native Support MCP completion (2026-10-19, local)
+
+| Requirement | Implementation / evidence | Status |
+| --- | --- | --- |
+| Canonical ticket list/detail/message tools | `support/mcp-read.ts`, native workspace; Support SQL tests and real OAuth/HTTP test | Local tests |
+| Full history, filters, date/assignee/SLA cursors | Native list/timeline; deterministic ties and resumable Unicode bodies | Local tests |
+| Internal content permission | `support.notes.read`, filtering before native/MCP search/pagination; viewer negative cases | Local tests |
+| Exact public reply approval | Native ActionRequest and reply service, destination snapshot + current revalidation; no send before owner approval | Local tests |
+| Internal notes and partial field changes | Native notes/update validation; alias dedupe, configured categories/tags/assignees, merged-ticket refusal | Local tests |
+| Scope/module/project/tenant isolation | Current grant/role checks, project predicates, FORCE RLS; negative SQL + HTTP cases | Local tests |
+| Replay/reject/expiry/revocation | Project lock, original ActionRequest decision/consumption; concurrent calls and decisions | Local tests |
+| Delivery, privacy and audit | Content-free receipts project native delivery state; content-free audit and native erasure | Local tests |
+| Main assistant + existing MCP/Marketing | Shared registry and canonical reply work-order test; full regression evidence | Local tests |
+| Production configuration / real clients / actual email delivery | Operator-run follow-up in `SUPPORT_MCP.md`; no customer operations in tests | Not run |
+
+
 ## MCP 2.0 work-order acceptance (2026-10-19, local)
 
 | Requirement | Implementation and evidence | Status |

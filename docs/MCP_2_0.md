@@ -60,6 +60,17 @@ Existing clients must reconnect and explicitly consent to new optional scopes
 before using capabilities they did not previously grant. No credential or
 provider call is made by installing this code or turning on the new flag alone.
 
+## Native Support completion
+
+[Support MCP](SUPPORT_MCP.md) documents the canonical ticket tools,
+`support_list_tickets`, `support_get_ticket`, `support_list_messages`,
+`support_reply_ticket`, `support_add_internal_note` and the extended
+`support_update_ticket`. Existing names below remain compatible. Reply/note
+aliases share one idempotent operation identity. Replies bind their native
+destination into the exact owner approval; action results project current
+native delivery state. Internal notes and private drafts require the new
+owner/editor `support.notes.read` permission in native and MCP reads/search.
+
 ## Tools
 
 All new results include `schemaVersion: 1` except proposal receipts, which retain

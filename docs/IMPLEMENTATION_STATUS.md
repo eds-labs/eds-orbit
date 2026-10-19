@@ -1,5 +1,31 @@
 # Implementation status
 
+## Native Support MCP completion (2026-10-19)
+
+Branch `codex/orbit-support-mcp` from merged `main` at `c232ecb`. Plan:
+`docs/plans/SUPPORT_MCP.md`; tool contracts, privacy, approval, deployment and
+client-test instructions: `docs/SUPPORT_MCP.md`. Adds canonical list/detail/
+message/reply/internal-note tools and extends partial ticket updates over the
+existing Support services and registered main-agent tools. No new tables,
+providers or dependencies.
+
+Replies snapshot project/ticket/contact/channel/recipient/mailbox into the
+hash-bound owner ActionRequest; changed destinations are refused. New/legacy
+aliases share idempotency. Current delivery receipts read native message state.
+Owner/editor-only `support.notes.read` protects native and MCP internal content
+before search/pagination. Complete long bodies use bounded Unicode chunks.
+Feature flags and explicit OAuth consent still apply. No production flag,
+customer action or paid call was changed/performed. The implementation was
+integrated with current main `6dac139` (including Knowledge fix `f1827f5`)
+for authorized direct-main delivery; activation/live-client acceptance remain
+separate from code deployment.
+
+Validation: 2776 tests in 260 files passed before integration; the final
+integrated regression passed 145 tests in 12 files. Lint, typecheck, build,
+Compose, secret and framework checks passed. Verification evidence:
+`docs/evidence/support-mcp-local-validation.md`.
+The older sections below retain their historical checkpoint wording.
+
 ## Verified-facts source freshness fix (2026-10-19, local)
 
 - Manually maintained `verified_facts` sources have no synchronization expiry. Sidebar attention, Knowledge overview and health diagnostics use this distinction; revoked sources remain excluded.

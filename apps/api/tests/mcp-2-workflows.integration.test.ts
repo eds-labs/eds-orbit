@@ -358,6 +358,69 @@ describe.skipIf(!enabled)(
       ).toBe(0);
     });
 
+    it("Support: the main agent proposes the canonical reply tool and still needs separate exact send approval", async () => {
+      const made = await run((tx) =>
+        createTicket(tx, project.owner, {
+          inboxId,
+          channel: "email",
+          inbound: {
+            externalId: randomUUID(),
+            contact: { email: `${randomUUID()}@example.invalid` },
+            subject: "Canonical task reply",
+            bodyText: "Please review my report.",
+            attachments: [],
+          },
+        }),
+      );
+      model.tool = "support_reply_ticket";
+      model.called = false;
+      model.args = {
+        ticketId: made.ticketId,
+        message: "Your report is being reviewed.",
+        idempotencyKey: randomUUID(),
+      };
+      const created = await native("orbit_create_task", {
+        description: "Propose a reply to the report ticket",
+        modules: ["support"],
+        idempotencyKey: randomUUID(),
+      });
+      await decide(created.actionRequestId);
+      const queued = await readTask(project.owner, created.taskId);
+      await runChatJob(project.owner, project.owner.userId, queued.runId);
+      const awaiting = await readTask(project.owner, created.taskId);
+      const reply = awaiting.approvals.find(
+        (a) => a.actionType === "support.mcp.support_send_reply",
+      );
+      expect(reply).toBeDefined();
+      expect(
+        await run((tx) =>
+          tx.supportMessage.count({
+            where: { ticketId: made.ticketId, kind: "agent_reply" },
+          }),
+        ),
+      ).toBe(0);
+      await decide(reply!.actionRequestId);
+      expect(
+        await run((tx) =>
+          tx.supportMessage.count({
+            where: { ticketId: made.ticketId, kind: "agent_reply" },
+          }),
+        ),
+      ).toBe(1);
+      const finished = await readTask(project.owner, created.taskId);
+      expect(finished.status).toBe("succeeded");
+      const replyMessage = await run((tx) =>
+        tx.supportMessage.findFirstOrThrow({
+          where: { ticketId: made.ticketId, kind: "agent_reply" },
+        }),
+      );
+      expect(
+        finished.artifacts.some(
+          (a) => a.id === replyMessage.id && a.kind === "operation_result",
+        ),
+      ).toBe(true);
+    });
+
     it("A/B: a support-only main-agent task prepares a native reply draft through the same approval path", async () => {
       const made = await run((tx) =>
         createTicket(tx, project.owner, {
@@ -604,6 +667,25 @@ describe.skipIf(!enabled)(
     });
 
     it("E: a model-injected support write is not offered and cannot escape a marketing/read work order", async () => {
+      const beforeReplies = await run((tx) =>
+        tx.supportMessage.count({
+          where: { projectId: project.owner.projectId, kind: "agent_reply" },
+        }),
+      );
+      const supportProposals = () =>
+        run((tx) =>
+          tx.entity.count({
+            where: {
+              projectId: project.owner.projectId,
+              kind: "action_requests",
+              data: {
+                path: ["actionType"],
+                equals: "support.mcp.support_send_reply",
+              },
+            },
+          }),
+        );
+      const beforeProposals = await supportProposals();
       model.tool = "support_send_reply";
       model.called = false;
       model.args = {
@@ -633,7 +715,8 @@ describe.skipIf(!enabled)(
             where: { projectId: project.owner.projectId, kind: "agent_reply" },
           }),
         ),
-      ).toBe(0);
+      ).toBe(beforeReplies);
+      expect(await supportProposals()).toBe(beforeProposals);
       model.tool = "";
     });
 

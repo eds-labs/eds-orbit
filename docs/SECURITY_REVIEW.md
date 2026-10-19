@@ -1,5 +1,24 @@
 # Security Review
 
+## Native Support MCP completion — local source/test review (2026-10-19)
+
+Scope: canonical Support tools, native query filtering and operation approvals.
+Threat model and test strategy: `docs/plans/SUPPORT_MCP.md`. Review checked
+current module roles/scopes and FORCE RLS/project predicates, exact owner-only
+reply approval with destination revalidation, alias/concurrent idempotency,
+terminal request refusal, private-note read/search and current-role draft
+projection isolation, content-free
+audit/receipts and erasure of approval/history copies. Native files remain
+metadata-only; customer text never authorizes actions. No new provider,
+migration, production configuration or real-customer action is introduced.
+The expanded native private-content read restriction is intentional: viewers
+retain public messages/events, owners/editors retain internal notes/drafts.
+Existing pending reply approvals without a destination snapshot fail closed;
+submit a new proposal/key. Local evidence:
+`docs/evidence/support-mcp-local-validation.md`. This is not an independent
+external audit or production/live-client security acceptance.
+
+
 Checkpoint refreshed: 2026-09-22. **Identified source findings corrected; current local regression and recorded Linux container variants passed. No production security PASS or live-provider acceptance is asserted.**
 
 The review covered authentication/project authorization, approval packages, model egress/accounting, worker replay, connector network boundaries, untrusted document parsing, and deployment behavior. The latest complete suite passed **280/280 tests across 20 files** on Node 24.18.0. Five current authenticated browser scenarios passed locally; the recorded production-build browser run remains 4/4. Both fresh isolated Linux ARM64 installations passed migration, role isolation, authenticated HTTPS, runtime isolation and PNG checks for their recorded image. Current evidence: `docs/evidence/vitest-results.json` and `docs/evidence/playwright-results.json`; historical production/container evidence remains in `docs/evidence/browser-tests.log` and `docs/evidence/container-acceptance.json`.

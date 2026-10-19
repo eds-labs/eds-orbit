@@ -62,7 +62,6 @@ export function withPlaceholders(
   // E-mail addresses first, then the full name and every part of the name
   // or of the address's local part with three or more letters, in any case,
   // on word boundaries (review fix 3).
-  let out = text.replace(ANY_EMAIL, EMAIL);
   const name = contact.name?.trim() ?? "";
   const locals = [contact.email, contact.claimedEmail]
     .filter((v): v is string => Boolean(v))
@@ -72,16 +71,21 @@ export function withPlaceholders(
     ...name.split(/\s+/),
     ...locals.flatMap((l) => l.split(/[._+-]+/)),
   ].filter((t) => t.length >= 3);
-  for (const token of [...new Set(tokens)].sort(
-    (a, b) => b.length - a.length,
-  )) {
-    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    out = out.replace(
-      new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "giu"),
-      NAME,
-    );
-  }
-  return out;
+  const escaped = [...new Set(tokens)]
+    .sort((a, b) => b.length - a.length)
+    .map((token) => token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  // Replace original text once: names such as "Customer" must not match
+  // placeholders inserted by an earlier replacement (including email ones).
+  const pattern = new RegExp(
+    `\\[customer (?:name|email)\\]|(${ANY_EMAIL.source})` +
+      (escaped.length
+        ? `|(?<![\\p{L}\\p{N}])(?:${escaped.join("|")})(?![\\p{L}\\p{N}])`
+        : ""),
+    "giu",
+  );
+  return text.replace(pattern, (match, email) =>
+    match === NAME || match === EMAIL ? match : email ? EMAIL : NAME,
+  );
 }
 
 /** Puts the contact's name back into a draft for the agent. */

@@ -33,6 +33,17 @@ type Operation = {
   input: z.ZodObject;
   permission: PermissionDef;
   sensitive?: boolean;
+  mcpProjectRequired?: boolean;
+  output?: z.ZodType;
+  validate?(tx: DbTx, scope: Scope, args: any): Promise<void>;
+  approvalContext?(tx: DbTx, scope: Scope, args: any): Promise<unknown>;
+  revalidateContext?(
+    tx: DbTx,
+    scope: Scope,
+    args: any,
+    saved: unknown,
+  ): Promise<void>;
+  executionResult?(tx: DbTx, scope: Scope, saved: any): Promise<unknown>;
   spendCeiling?(tx: DbTx, scope: Scope, args: any): Promise<number>;
   run(
     tx: DbTx,
@@ -130,12 +141,13 @@ export function readOperation(op: Operation) {
   return defineTool({
     name: op.name,
     namespace: op.module,
+    mcpProjectRequired: op.mcpProjectRequired,
     description: op.description,
     parameters: modelParameters(op.input),
     risk: "R0_read",
     permission: op.permission,
     exposure: { assistant: true, mcp: true },
-    outputSchema: envelope,
+    outputSchema: op.output ? envelope.extend({ result: op.output }) : envelope,
     deferLoading: true,
     feature: "mcp_tasks",
     ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
@@ -145,10 +157,11 @@ export function readOperation(op: Operation) {
         await check(tx, ctx.scope, op);
         return op.run(tx, ctx.scope, args);
       });
+      const serialized = JSON.parse(JSON.stringify(result));
       return {
         output: {
           schemaVersion: 1,
-          result: JSON.parse(JSON.stringify(result)),
+          result: op.output ? op.output.parse(serialized) : serialized,
         },
         cards: [],
       };
@@ -167,6 +180,7 @@ export function approvedOperation(op: Operation) {
       args: z.unknown(),
       idempotencyKey: z.string(),
       ceilingMicros: z.number().int().nonnegative(),
+      approvalContext: z.unknown().optional(),
     })
     .strict();
   const action: ActionDefinition<z.infer<typeof payload>> = {
@@ -188,7 +202,14 @@ export function approvedOperation(op: Operation) {
       );
       if (!actor) throw new DomainError("ACTOR_MEMBERSHIP_REQUIRED", 403);
       await check(tx, moduleScope(actor, op.module), op);
-      op.input.parse(p.args);
+      const args = op.input.parse(p.args);
+      await op.validate?.(tx, moduleScope(actor, op.module), args);
+      await op.revalidateContext?.(
+        tx,
+        moduleScope(actor, op.module),
+        args,
+        p.approvalContext,
+      );
       if (
         op.spendCeiling &&
         (await op.spendCeiling(tx, moduleScope(actor, op.module), p.args)) >
@@ -196,6 +217,16 @@ export function approvedOperation(op: Operation) {
       )
         throw new DomainError("COST_CEILING_CHANGED", 409);
     },
+    ...(op.executionResult
+      ? {
+          executionResult: (tx: DbTx, scope: Scope, row: any) =>
+            op.executionResult!(
+              tx,
+              moduleScope(scope, op.module),
+              data(row).executionResult,
+            ),
+        }
+      : {}),
     async onApproved(tx, scope, row) {
       const p = payload.parse(data(row).payload);
       const actor = await actorScope(
@@ -207,12 +238,10 @@ export function approvedOperation(op: Operation) {
       const asModule = moduleScope(actor, op.module);
       await check(tx, asModule, op);
       await tx.$executeRaw`SELECT set_config('app.user_id',${actor.userId},true)`;
-      const result = await op.run(
-        tx,
-        asModule,
-        op.input.parse(p.args),
-        data(row).requestedBy,
-      );
+      const args = op.input.parse(p.args);
+      await op.validate?.(tx, asModule, args);
+      await op.revalidateContext?.(tx, asModule, args, p.approvalContext);
+      const result = await op.run(tx, asModule, args, data(row).requestedBy);
       await update(tx, asModule, row, {
         ...data(row),
         status: "consumed",
@@ -230,6 +259,7 @@ export function approvedOperation(op: Operation) {
   const tool = defineTool({
     name: op.name,
     namespace: op.module,
+    mcpProjectRequired: op.mcpProjectRequired,
     description:
       op.description +
       " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey.",
@@ -284,6 +314,11 @@ export function approvedOperation(op: Operation) {
         });
         if (old && hash(data(old).payload.args) !== hash(args))
           throw new DomainError("IDEMPOTENCY_KEY_CONFLICT", 409);
+        if (!old) await op.validate?.(tx, ctx.scope, args);
+        const approvalContext =
+          !old && op.approvalContext
+            ? await op.approvalContext(tx, ctx.scope, args)
+            : undefined;
         const row =
           old ??
           (await createActionRequest(tx, ctx.scope, {
@@ -292,6 +327,7 @@ export function approvedOperation(op: Operation) {
               actorId: ctx.scope.userId,
               args,
               idempotencyKey,
+              ...(approvalContext === undefined ? {} : { approvalContext }),
               ceilingMicros: op.spendCeiling
                 ? await op.spendCeiling(tx, ctx.scope, args)
                 : 0,

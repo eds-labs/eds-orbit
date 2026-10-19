@@ -16,6 +16,11 @@ export const SUPPORT_TICKETS_ASSIGN = permission(
   "Assign tickets and change their status",
   ["owner", "editor"],
 );
+export const SUPPORT_NOTES_READ = permission(
+  "support.notes.read",
+  "Read internal notes and private support drafts",
+  ["owner", "editor"],
+);
 export const SUPPORT_NOTES_WRITE = permission(
   "support.notes.write",
   "Write internal notes",
@@ -47,6 +52,7 @@ export const supportPermissions = [
   SUPPORT_TICKETS_REPLY,
   SUPPORT_TICKETS_ASSIGN,
   SUPPORT_NOTES_WRITE,
+  SUPPORT_NOTES_READ,
   SUPPORT_CONTACTS_MANAGE,
   SUPPORT_STATS_READ,
   SUPPORT_SETTINGS_MANAGE,

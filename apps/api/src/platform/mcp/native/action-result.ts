@@ -60,7 +60,12 @@ export const actionResult: NativeTool = {
           schemaVersion: 1,
           actionRequestId: row.id,
           status: status.status,
-          result: d.executionResult ?? null,
+          result:
+            d.executionResult == null
+              ? null
+              : def?.executionResult
+                ? await def.executionResult(tx, scope, row)
+                : d.executionResult,
         };
       }),
     );

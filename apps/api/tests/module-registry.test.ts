@@ -84,6 +84,7 @@ describe("static module registry", () => {
     expect(support.defaultEnabled).toBe(false);
     expect(support.permissions.map((p) => p.key).sort()).toEqual([
       "support.contacts.manage",
+      "support.notes.read",
       "support.notes.write",
       "support.settings.manage",
       "support.stats.read",
@@ -91,6 +92,9 @@ describe("static module registry", () => {
       "support.tickets.read",
       "support.tickets.reply",
     ]);
+    expect(
+      support.permissions.find((p) => p.key === "support.notes.read"),
+    ).toMatchObject({ defaultRoles: ["owner", "editor"] });
     expect(
       support.permissions.find((p) => p.key === "support.settings.manage"),
     ).toMatchObject({ defaultRoles: ["owner"], sensitive: true });

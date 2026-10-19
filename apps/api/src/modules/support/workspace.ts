@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { Prisma, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { can } from "../../platform/tenancy/permissions.ts";
+import { SUPPORT_NOTES_READ } from "./permissions.ts";
 import { audit, DomainError } from "../../shared.ts";
 import { supportAgents } from "./agents.ts";
 import { deliverMessage } from "./channels/deliver.ts";
@@ -39,7 +41,7 @@ export const TICKET_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
 const STATUSES = TICKET_STATUSES;
 const PRIORITIES = TICKET_PRIORITIES;
 
-const listInput = z
+export const ticketListInput = z
   .object({
     view: z.enum(["mine", "unassigned", "all"]).default("all"),
     status: z.enum(STATUSES).optional(),
@@ -47,6 +49,11 @@ const listInput = z
     category: z.string().max(41).optional(),
     tag: z.string().max(41).optional(),
     priority: z.enum(PRIORITIES).optional(),
+    assigneeUserId: z.string().min(1).max(100).nullable().optional(),
+    createdFrom: z.iso.datetime().optional(),
+    createdTo: z.iso.datetime().optional(),
+    updatedFrom: z.iso.datetime().optional(),
+    updatedTo: z.iso.datetime().optional(),
     sort: z.enum(["updated", "sla"]).default("updated"),
     openOnly: z.enum(["true", "false"]).default("false"),
     q: z.string().trim().min(1).max(200).optional(),
@@ -71,6 +78,13 @@ const slaCursorOf = (row: Parameters<typeof slaDueAt>[0] & { id: string }) =>
   Buffer.from(`sla|${slaDueAt(row)?.toISOString() ?? "-"}|${row.id}`).toString(
     "base64url",
   );
+/** Native list cursor for a bounded transport page ending at this ticket. */
+export function ticketListCursor(
+  row: Parameters<typeof slaCursorOf>[0] & { id: string; updatedAt: Date },
+  sort: "updated" | "sla",
+) {
+  return sort === "sla" ? slaCursorOf(row) : cursorOf(row);
+}
 function parseSlaCursor(raw: string) {
   const [kind, at, id] = Buffer.from(raw, "base64url")
     .toString("utf8")
@@ -97,9 +111,12 @@ async function searchMatches(tx: DbTx, scope: Scope, q: string) {
     },
     select: { id: true },
   });
+  const internal = can(scope, SUPPORT_NOTES_READ);
   const messages = await tx.$queryRaw<{ ticketId: string }[]>`
     SELECT DISTINCT "ticketId" FROM "SupportMessage"
      WHERE "projectId" = ${scope.projectId}::uuid
+       AND (${internal} OR ("visibleToCustomer" = true
+         AND "kind" NOT IN ('internal_note', 'ai_draft')))
        AND "searchVector" @@ plainto_tsquery('simple', ${q})`;
   return {
     contactIds: contacts.map((c) => c.id),
@@ -115,7 +132,13 @@ const likeContains = (q: string) => `%${q.replace(/[\\%_]/g, "\\$&")}%`;
  * due time first, nulls last), with a keyset cursor.
  */
 export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
-  const input = listInput.parse(raw);
+  const input = ticketListInput.parse(raw);
+  for (const [from, to] of [
+    [input.createdFrom, input.createdTo],
+    [input.updatedFrom, input.updatedTo],
+  ])
+    if (from && to && Date.parse(from) > Date.parse(to))
+      throw new DomainError("DATE_RANGE_INVALID", 400);
   const sla = input.sort === "sla";
   const search = input.q
     ? await searchMatches(tx, scope, input.q)
@@ -125,7 +148,10 @@ export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
     : await updatedPage(tx, scope, input, search);
   const page = rows.slice(0, input.limit);
   const contacts = await tx.supportContact.findMany({
-    where: { id: { in: [...new Set(page.map((t) => t.contactId))] } },
+    where: {
+      projectId: scope.projectId,
+      id: { in: [...new Set(page.map((t) => t.contactId))] },
+    },
     select: { id: true, name: true, email: true },
   });
   return {
@@ -144,7 +170,7 @@ export async function listTickets(tx: DbTx, scope: Scope, raw: unknown) {
   };
 }
 
-type ListInput = z.infer<typeof listInput>;
+type ListInput = z.infer<typeof ticketListInput>;
 type Search = { contactIds: string[]; ticketIds: string[] };
 
 /** One page of tickets, newest change first, and whether more follow. */
@@ -164,6 +190,19 @@ async function updatedPage(
   if (input.category) and.push({ category: input.category });
   if (input.tag) and.push({ tags: { has: input.tag } });
   if (input.priority) and.push({ priority: input.priority });
+  if (input.assigneeUserId !== undefined)
+    and.push({ assigneeUserId: input.assigneeUserId });
+  for (const [field, from, to] of [
+    ["createdAt", input.createdFrom, input.createdTo],
+    ["updatedAt", input.updatedFrom, input.updatedTo],
+  ] as const)
+    if (from || to)
+      and.push({
+        [field]: {
+          ...(from ? { gte: new Date(from) } : {}),
+          ...(to ? { lte: new Date(to) } : {}),
+        },
+      });
   if (input.q)
     and.push({
       OR: [
@@ -213,6 +252,28 @@ async function slaPage(
   if (input.category) where.push(Prisma.sql`"category" = ${input.category}`);
   if (input.tag) where.push(Prisma.sql`${input.tag} = ANY("tags")`);
   if (input.priority) where.push(Prisma.sql`"priority" = ${input.priority}`);
+  if (input.assigneeUserId !== undefined)
+    where.push(
+      input.assigneeUserId === null
+        ? Prisma.sql`"assigneeUserId" IS NULL`
+        : Prisma.sql`"assigneeUserId" = ${input.assigneeUserId}`,
+    );
+  if (input.createdFrom)
+    where.push(
+      Prisma.sql`"createdAt" >= ${new Date(input.createdFrom)}::timestamptz`,
+    );
+  if (input.createdTo)
+    where.push(
+      Prisma.sql`"createdAt" <= ${new Date(input.createdTo)}::timestamptz`,
+    );
+  if (input.updatedFrom)
+    where.push(
+      Prisma.sql`"updatedAt" >= ${new Date(input.updatedFrom)}::timestamptz`,
+    );
+  if (input.updatedTo)
+    where.push(
+      Prisma.sql`"updatedAt" <= ${new Date(input.updatedTo)}::timestamptz`,
+    );
   if (input.q)
     where.push(Prisma.sql`("subject" ILIKE ${likeContains(input.q)}
       OR "contactId" = ANY(${search.contactIds}::uuid[])
@@ -261,32 +322,63 @@ export async function ticketDetail(
   tx: DbTx,
   scope: Scope,
   id: string,
-  page?: { cursor?: { at: Date; id: string }; limit: number },
+  page?: {
+    cursor?: { at: Date; id: string };
+    limit: number;
+    direction?: "asc" | "desc";
+    inclusive?: boolean;
+    includeInternal?: boolean;
+  },
 ) {
   const ticket = await loadTicket(tx, scope, id);
+  const includeInternal =
+    can(scope, SUPPORT_NOTES_READ) && page?.includeInternal !== false;
+  const direction = page?.direction ?? "desc";
+  const cursorWhere = page?.cursor
+    ? {
+        OR: [
+          {
+            createdAt: { [direction === "asc" ? "gt" : "lt"]: page.cursor.at },
+          },
+          {
+            createdAt: page.cursor.at,
+            id: {
+              [direction === "asc"
+                ? page.inclusive
+                  ? "gte"
+                  : "gt"
+                : page.inclusive
+                  ? "lte"
+                  : "lt"]: page.cursor.id,
+            },
+          },
+        ],
+      }
+    : {};
   const [contact, inbox, messages, events] = await Promise.all([
-    tx.supportContact.findFirst({ where: { id: ticket.contactId } }),
+    tx.supportContact.findFirst({
+      where: { projectId: scope.projectId, id: ticket.contactId },
+    }),
     tx.supportInbox.findFirst({
-      where: { id: ticket.inboxId },
+      where: { projectId: scope.projectId, id: ticket.inboxId },
       select: { id: true, name: true, channels: true, aiMode: true },
     }),
     tx.supportMessage.findMany({
       where: {
         projectId: scope.projectId,
         ticketId: id,
-        ...(page?.cursor
+        ...(!includeInternal
           ? {
-              OR: [
-                { createdAt: { lt: page.cursor.at } },
-                { createdAt: page.cursor.at, id: { lt: page.cursor.id } },
-              ],
+              visibleToCustomer: true,
+              kind: { notIn: ["internal_note", "ai_draft"] },
             }
           : {}),
+        ...cursorWhere,
       },
       ...(page
         ? {
             take: page.limit,
-            orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+            orderBy: [{ createdAt: direction }, { id: direction }],
           }
         : {}),
     }),
@@ -294,25 +386,21 @@ export async function ticketDetail(
       where: {
         projectId: scope.projectId,
         ticketId: id,
-        ...(page?.cursor
-          ? {
-              OR: [
-                { createdAt: { lt: page.cursor.at } },
-                { createdAt: page.cursor.at, id: { lt: page.cursor.id } },
-              ],
-            }
-          : {}),
+        ...cursorWhere,
       },
       ...(page
         ? {
             take: page.limit,
-            orderBy: [{ createdAt: "desc" as const }, { id: "desc" as const }],
+            orderBy: [{ createdAt: direction }, { id: direction }],
           }
         : {}),
     }),
   ]);
   const attachments = await tx.supportAttachment.findMany({
-    where: { messageId: { in: messages.map((m) => m.id) } },
+    where: {
+      projectId: scope.projectId,
+      messageId: { in: messages.map((m) => m.id) },
+    },
   });
   const timeline = [
     ...messages.map((m) => ({
@@ -469,8 +557,8 @@ const updateInput = z
   })
   .strict();
 
-/** Changes ticket fields: one event per changed field, SLA on priority. */
-export async function updateTicket(
+/** Validate a native partial update without changing state (also used by approvals). */
+export async function validateTicketUpdate(
   tx: DbTx,
   scope: Scope,
   id: string,
@@ -478,6 +566,8 @@ export async function updateTicket(
 ) {
   const input = updateInput.parse(raw);
   const ticket = await loadTicket(tx, scope, id);
+  // A merged ticket is immutable; changes belong on its canonical destination.
+  if (ticket.mergedIntoTicketId) throw new DomainError("TICKET_MERGED", 409);
   const settings = await supportSettings(tx, scope);
   if (
     input.category &&
@@ -499,6 +589,22 @@ export async function updateTicket(
     if (!agents.some((a) => a.userId === input.assigneeUserId))
       throw new DomainError("ASSIGNEE_NOT_AGENT", 409);
   }
+  return { input, ticket, settings };
+}
+
+/** Changes ticket fields: one event per changed field, SLA on priority. */
+export async function updateTicket(
+  tx: DbTx,
+  scope: Scope,
+  id: string,
+  raw: unknown,
+) {
+  const { input, ticket, settings } = await validateTicketUpdate(
+    tx,
+    scope,
+    id,
+    raw,
+  );
   const data: Record<string, unknown> = {};
   const changed: string[] = [];
   const now = new Date();

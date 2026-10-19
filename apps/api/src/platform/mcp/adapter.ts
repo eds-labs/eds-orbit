@@ -215,7 +215,10 @@ function inputSchemaFor(tool: OrbitTool, singleProject: boolean) {
   const projectId = z.uuid();
   return z.strictObject({
     ...tool.parameters.shape,
-    [PROJECT_ID]: singleProject ? projectId.optional() : projectId,
+    [PROJECT_ID]:
+      singleProject && !tool.mcpProjectRequired
+        ? projectId.optional()
+        : projectId,
   });
 }
 

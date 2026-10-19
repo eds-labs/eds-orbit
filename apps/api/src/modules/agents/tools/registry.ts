@@ -76,6 +76,8 @@ export type OrbitTool = {
   openWorld?: true;
   /** Extra explicit OAuth consent required for sensitive module content. */
   mcpScopes?: readonly string[];
+  /** Require an explicit MCP project argument even for a single-project grant. */
+  mcpProjectRequired?: boolean;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 

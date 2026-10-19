@@ -90,6 +90,8 @@ export type ActionDefinition<P> = {
   /** Rechecked at decision time; throws when the request no longer matches. */
   revalidate: (tx: DbTx, scope: Scope, payload: P) => Promise<void>;
   onApproved: (tx: DbTx, scope: Scope, request: Row) => Promise<void>;
+  /** Module-owned projection of a durable result, e.g. current delivery state. */
+  executionResult?: (tx: DbTx, scope: Scope, request: Row) => Promise<unknown>;
 };
 
 /**
@@ -708,7 +710,14 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
             }
           : {}),
         ...(String(d.actionType).includes(".mcp.")
-          ? { operation: d.payload.args }
+          ? {
+              operation: {
+                ...d.payload.args,
+                ...(d.payload.approvalContext === undefined
+                  ? {}
+                  : { approvalContext: d.payload.approvalContext }),
+              },
+            }
           : {}),
         prompt: d.payload?.prompt,
         model: d.payload?.model,

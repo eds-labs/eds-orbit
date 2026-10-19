@@ -178,10 +178,16 @@ export function createFlowDriver(ctx: {
 
   /** Drives the whole browser flow up to the client's redirect_uri. */
   async function connect(
-    options: { clientId?: string; selection?: Json; consent?: Json } = {},
+    options: {
+      clientId?: string;
+      selection?: Json;
+      consent?: Json;
+      scope?: string;
+    } = {},
   ): Promise<Flow> {
     const { location, verifier } = await authorize({
       client_id: options.clientId ?? ctx.defaultClientId,
+      ...(options.scope ? { scope: options.scope } : {}),
     });
     if (location?.pathname !== "/connect")
       throw new Error(`authorize did not reach /connect: ${location}`);

@@ -1,6 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
+import {
+  authDb,
+  scoped,
+  closeDatabase,
+} from "../../../packages/db/src/index.ts";
+import { createMailInbox } from "./fixtures/mailbox.ts";
+import { createTicket } from "../src/modules/support/tickets.ts";
+import { SCOPES } from "./mcp-oauth-flow-helpers.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import { buildServer } from "../src/server.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
@@ -25,13 +32,18 @@ describe.skipIf(!enabled)(
       userId = "",
       token = "";
     const client = `https://client.test/mcp2-${randomUUID()}.json`;
-    const cimdFetch = cimdFetchFor({ [client]: metadata(client) });
+    const supportScopes = `${SCOPES} orbit:support`;
+    const cimdFetch = cimdFetchFor({
+      [client]: metadata(client, { scope: supportScopes }),
+    });
     const saved: Record<string, string | undefined> = {};
     const flags = {
       ORBIT_MCP_OAUTH: "true",
       ORBIT_MCP_GATEWAY: "true",
       ORBIT_MCP_TASKS: "true",
       ORBIT_MCP_PROPOSALS: "true",
+      ORBIT_SUPPORT: "true",
+      ORBIT_MODULES: "true",
       ORBIT_MCP_CIMD_HOSTS: "client.test",
     };
     const driver = createFlowDriver({
@@ -112,7 +124,10 @@ describe.skipIf(!enabled)(
       cookie = (Array.isArray(cookies) ? cookies : [cookies!])
         .map((c) => c.split(";")[0])
         .join("; ");
-      const flow = await driver.connect();
+      const flow = await driver.connect({
+        scope: supportScopes,
+        consent: { scopes: supportScopes.split(" ") },
+      });
       const exchanged = await driver.exchange(flow);
       expect(exchanged.statusCode).toBe(200);
       token = exchanged.json().access_token;
@@ -211,6 +226,190 @@ describe.skipIf(!enabled)(
         inbox.json().items.find((r: any) => r.id === made.actionRequestId)
           .summary.task.description,
       ).toContain("synthetic");
+    });
+    it("exposes Support schemas over real OAuth and sends no reply until the exact native web approval", async () => {
+      const made = await scoped(
+        project.owner.workspaceId,
+        project.owner.projectId,
+        async (tx) => {
+          await tx.projectModule.create({
+            data: {
+              workspaceId: project.owner.workspaceId,
+              projectId: project.owner.projectId,
+              moduleId: "support",
+              moduleVersion: "1.0.0",
+              enabled: true,
+            },
+          });
+          const inbox = await createMailInbox(tx, project.owner, {
+            name: "Synthetic OAuth Support",
+            channels: ["email"],
+            emailAddress: "http-support@example.invalid",
+            rules: { autoAck: false },
+          });
+          return createTicket(tx, project.owner, {
+            inboxId: inbox.inbox.id,
+            channel: "email",
+            inbound: {
+              externalId: randomUUID(),
+              contact: { email: "http-customer@example.invalid" },
+              subject: "HTTP Support question",
+              bodyText: "Please help with the report.",
+              attachments: [],
+            },
+          });
+        },
+      );
+      const definitions = (await rpc("tools/list")).json().result.tools;
+      for (const name of [
+        "support_list_tickets",
+        "support_get_ticket",
+        "support_list_messages",
+        "support_reply_ticket",
+        "support_add_internal_note",
+        "support_update_ticket",
+      ]) {
+        const def = definitions.find((t: any) => t.name === name);
+        expect(def, name).toBeDefined();
+        expect(def.inputSchema.additionalProperties).toBe(false);
+        expect(def.outputSchema.additionalProperties).toBe(false);
+        expect(def._meta.securitySchemes[0].scopes).toContain("orbit:support");
+        expect(def.annotations.readOnlyHint).toBe(
+          ![
+            "support_reply_ticket",
+            "support_add_internal_note",
+            "support_update_ticket",
+          ].includes(name),
+        );
+      }
+      const call = async (name: string, args: any) => {
+        const res = await rpc("tools/call", {
+          name,
+          arguments: { projectId: project.owner.projectId, ...args },
+        });
+        expect(res.statusCode).toBe(200);
+        expect(res.json().result.isError, res.body).not.toBe(true);
+        return res.json().result.structuredContent;
+      };
+      expect(
+        (await call("support_list_tickets", { q: "HTTP Support question" }))
+          .result.items[0].id,
+      ).toBe(made.ticketId);
+      expect(
+        (await call("support_get_ticket", { ticketId: made.ticketId })).result
+          .ticket.id,
+      ).toBe(made.ticketId);
+      expect(
+        (
+          await call("support_list_messages", { ticketId: made.ticketId })
+        ).result.items.some((m: any) => m.bodyText?.includes("Please help")),
+      ).toBe(true);
+      const key = randomUUID();
+      const request = await call("support_reply_ticket", {
+        ticketId: made.ticketId,
+        message: "Your report is being reviewed.",
+        idempotencyKey: key,
+      });
+      expect(
+        (
+          await call("orbit_get_action_result", {
+            actionRequestId: request.actionRequestId,
+          })
+        ).result,
+      ).toBeNull();
+      // MCP bearer credentials must not authorize the cookie-only native REST
+      // reply endpoint, which would otherwise skip this proposal's approval.
+      const bypass = await api.inject({
+        method: "POST",
+        url: `/api/projects/${project.owner.projectId}/support/tickets/${made.ticketId}/replies`,
+        headers: {
+          authorization: `Bearer ${token}`,
+          origin: loadConfig().APP_ORIGIN,
+        },
+        payload: { bodyText: "Attempted direct reply" },
+      });
+      expect([401, 403]).toContain(bypass.statusCode);
+      expect(
+        await scoped(project.owner.workspaceId, project.owner.projectId, (tx) =>
+          tx.supportMessage.count({
+            where: { ticketId: made.ticketId, kind: "agent_reply" },
+          }),
+        ),
+      ).toBe(0);
+      const list = await driver.inject({
+        url: `/api/projects/${project.owner.projectId}/action-requests`,
+      });
+      const pending = list
+        .json()
+        .items.find((r: any) => r.id === request.actionRequestId);
+      expect(pending.summary.operation).toMatchObject({
+        ticketId: made.ticketId,
+        bodyText: "Your report is being reviewed.",
+        approvalContext: { recipient: "http-customer@example.invalid" },
+      });
+      const approved = await driver.inject({
+        method: "POST",
+        url: `/api/projects/${project.owner.projectId}/action-requests/${request.actionRequestId}/decide`,
+        payload: {
+          version: pending.version,
+          packageHash: pending.packageHash,
+          decision: "approve",
+        },
+      });
+      expect(approved.statusCode, approved.body).toBe(200);
+      const receipt = await call("orbit_get_action_result", {
+        actionRequestId: request.actionRequestId,
+      });
+      expect(receipt).toMatchObject({
+        status: "consumed",
+        result: { ticketId: made.ticketId, kind: "agent_reply" },
+      });
+      const retry = await call("support_reply_ticket", {
+        ticketId: made.ticketId,
+        message: "Your report is being reviewed.",
+        idempotencyKey: key,
+      });
+      expect(retry).toMatchObject({
+        actionRequestId: request.actionRequestId,
+        deduplicated: true,
+      });
+      const missingProject = await rpc("tools/call", {
+        name: "support_get_ticket",
+        arguments: { ticketId: made.ticketId },
+      });
+      expect(
+        missingProject.json().error ?? missingProject.json().result.isError,
+      ).toBeTruthy();
+      const invalid = await rpc("tools/call", {
+        name: "support_reply_ticket",
+        arguments: {
+          projectId: project.owner.projectId,
+          ticketId: made.ticketId,
+          message: "No unknown fields",
+          idempotencyKey: randomUUID(),
+          autoApprove: true,
+        },
+      });
+      expect(
+        invalid.json().error ?? invalid.json().result.isError,
+      ).toBeTruthy();
+      // A token with only the old scopes must not gain the new content surface.
+      const minimal = await driver.connect({
+        consent: { scopes: SCOPES.split(" ") },
+      });
+      const reduced = await driver.exchange(minimal);
+      expect(reduced.statusCode).toBe(200);
+      const originalToken = token;
+      token = reduced.json().access_token;
+      try {
+        expect(
+          (await rpc("tools/list"))
+            .json()
+            .result.tools.some((t: any) => t.name === "support_get_ticket"),
+        ).toBe(false);
+      } finally {
+        token = originalToken;
+      }
     });
   },
 );

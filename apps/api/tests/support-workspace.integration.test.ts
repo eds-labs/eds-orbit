@@ -258,8 +258,14 @@ describe.skipIf(!enabled)("support workspace API", () => {
       "event:created",
       "agent_reply",
       "event:status",
-      "internal_note",
     ]);
+    // Private notes/drafts now require support.notes.read on native and MCP
+    // paths alike: viewers keep public correspondence, agents keep notes.
+    const agentView = await call("editor", "GET", `/tickets/${t.ticketId}`);
+    expect(
+      agentView.json().timeline.some((m: any) => m.kind === "internal_note"),
+    ).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("Checked the payout queue.");
     expect(
       (
         await call("viewer", "POST", `/tickets/${t.ticketId}/replies`, {

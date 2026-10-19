@@ -1,3 +1,6 @@
+import { can } from "../../platform/tenancy/permissions.ts";
+import { effectiveRole } from "../../platform/tenancy/module-roles.ts";
+import { SUPPORT_NOTES_READ } from "./permissions.ts";
 import type { ConversationSections } from "../../platform/assistant/types.ts";
 import { data } from "../../shared.ts";
 import { withPlaceholders } from "./ai.ts";
@@ -8,6 +11,8 @@ export const supportConversationResults: ConversationSections = async (
   scope,
   conversationId,
 ) => {
+  const role = effectiveRole(scope, "support");
+  if (role === "none" || !can({ role }, SUPPORT_NOTES_READ)) return {};
   const task = await tx.entity.findFirst({
     where: {
       projectId: scope.projectId,

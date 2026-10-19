@@ -56,6 +56,7 @@ Foreign key checks bypass RLS. Every reference between support rows is therefore
 | `support.tickets.read` | owner, editor, viewer |
 | `support.tickets.reply` | owner, editor |
 | `support.tickets.assign` | owner, editor |
+| `support.notes.read` | owner, editor |
 | `support.notes.write` | owner, editor |
 | `support.contacts.manage` | owner, editor |
 | `support.stats.read` | owner, editor, viewer |
@@ -327,3 +328,11 @@ The channel contract is `SupportChannelAdapter` (`modules/support/channels/adapt
 The tables stay in both cases. The migration is additive; dropping the tables would need its own approved migration.
 
 **Several mailboxes (migration `202610180005_support_inbox_mailbox`).** The migration is additive: the nullable column `SupportInbox.emailConnectionId`, a same-project composite foreign key to `Entity("projectId", id)` and a partial unique index (one live inbox per mailbox). It binds each live e-mail inbox to the mailbox of its own address; inboxes without such a mailbox stay unbound and keep the old routing. Rolling the code back leaves the column unused: the previous code routes by address and sends through the oldest verified mailbox again, which for a project with one mailbox is the same as before. Mailboxes added in the meantime would then neither be fetched nor answer. Dropping the column would need its own approved migration.
+
+## External MCP clients
+
+The canonical tools, explicit Support content consent, destination-bound owner
+approval, resumable complete timeline and receipt polling are documented in
+[SUPPORT_MCP.md](SUPPORT_MCP.md). Internal notes and AI drafts now require
+`support.notes.read` (owner/editor); native detail/search and MCP share that
+permission. Viewer ticket reads retain public correspondence and system events.
