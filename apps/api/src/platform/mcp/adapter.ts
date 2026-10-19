@@ -19,6 +19,7 @@ import {
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
+  mcpExposureProblem,
   TOOL_NAME,
   type OrbitTool,
   type ToolRisk,
@@ -36,12 +37,16 @@ import {
   toolFailure,
   unauthenticatedResult,
 } from "./errors.ts";
+import { MCP_OUTPUT_LIMIT_BYTES, type McpProjectSlots } from "./limits.ts";
 import { nativeTools, type NativeToolContext } from "./native-tools.ts";
 import type { McpPrincipal } from "./principal.ts";
 import {
-  assertProposalCapacity,
-  chargeProposal,
+  recordableId,
+  recordMcpProposal,
+  reserveProposal,
   type ProposalQuota,
+  type ProposalQuotaKey,
+  type ProposalReservation,
 } from "./proposals.ts";
 import {
   authorizeMcpCall,
@@ -50,10 +55,10 @@ import {
 } from "./visibility.ts";
 
 export const MCP_SERVER_INFO = { name: "orbit-mcp-gateway", version: "1.0.0" };
-/** Largest JSON result a tool may return (09 §5.1, ADR 0007 §2). */
-export const MCP_OUTPUT_LIMIT_BYTES = 64 * 1024;
+/** Largest JSON result a tool may return (limits.ts). */
+export { MCP_OUTPUT_LIMIT_BYTES };
 /** Cheap bound on argument size the SDK checks before validation. */
-const MAX_TOOL_INPUT_ELEMENTS = 1000;
+export const MAX_TOOL_INPUT_ELEMENTS = 1000;
 /** How long a tool call may take before the client gets TIMEOUT (D-M3-11). */
 export const MCP_TOOL_TIMEOUT_MS = 25_000;
 /** The argument the adapter adds to every project-bound tool. */
@@ -116,8 +121,10 @@ export type McpRequestState = {
   startRun?: McpRunStarter;
   /** Overrides MCP_TOOL_TIMEOUT_MS (tests). */
   toolTimeoutMs?: number;
-  /** The proposal quotas of the grant (limits.ts, D-M4-8). */
+  /** The proposal quotas (limits.ts, D-M4-8; per user, client and workspace, D-M5-8). */
   proposalQuota: ProposalQuota;
+  /** The process's per-project execution slots (limits.ts, R-10). */
+  projectSlots: McpProjectSlots;
 };
 
 /** What one call tells the observer about itself while it runs. */
@@ -164,6 +171,24 @@ export function auditableToolName(name: unknown): string {
     // No registration (cannot happen in mcp-main.ts): know nothing, never throw.
     return MCP_UNKNOWN_TOOL;
   }
+}
+
+/**
+ * Refuses to start the gateway with a tool whose MCP contract is broken
+ * (D-M5-8): every exposed tool needs an object output schema, and every
+ * exposed proposal tool must report `deduplicated` and `actionRequestId`,
+ * which the quotas and `mcp.proposal` rely on. Module registration is the
+ * authoritative check: it applies `mcpExposureProblem` to every registered
+ * tool, also those of modules unavailable at startup. This repeats it over
+ * the tools the gateway can serve (`registeredTools()`), as a guard at
+ * gateway start.
+ */
+export function assertMcpToolContracts(tools: readonly OrbitTool[]): void {
+  const problems = tools
+    .map((tool) => mcpExposureProblem(tool))
+    .filter((problem): problem is string => problem !== undefined);
+  if (problems.length)
+    throw new Error(`MCP_TOOL_CONTRACT_INVALID: ${problems.join("; ")}`);
 }
 
 /** MCP annotations per registry risk (09 §5.1). */
@@ -217,6 +242,50 @@ async function registryToolsFor(principal: McpPrincipal): Promise<OrbitTool[]> {
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+/**
+ * Array items and object keys in `value`, counted until `max` is passed: the
+ * same count as the SDK's `maxToolInputElements` check (McpServer
+ * validateToolInput, SDK 2.3.1), which the SDK does not export.
+ */
+function toolInputElementCount(value: unknown, max: number): number {
+  let count = 0;
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (node === null || typeof node !== "object") continue;
+    const children = Array.isArray(node)
+      ? node
+      : Object.keys(node).map((key) => (node as Record<string, unknown>)[key]);
+    for (const child of children) {
+      if (++count > max) return count;
+      if (child !== null && typeof child === "object") stack.push(child);
+    }
+  }
+  return count;
+}
+
+/**
+ * Whether the SDK will accept `args` for a tool with `schema` (D-M5-6): the
+ * element cap first, then the schema with missing arguments as `{}`,
+ * asynchronously as the SDK validates (async refinements run). A schema that
+ * throws counts as a refusal, as the SDK answers it with an error result.
+ */
+export async function sdkAcceptsArguments(
+  schema: z.ZodType,
+  args: unknown,
+): Promise<boolean> {
+  if (
+    toolInputElementCount(args, MAX_TOOL_INPUT_ELEMENTS) >
+    MAX_TOOL_INPUT_ELEMENTS
+  )
+    return false;
+  try {
+    return (await schema.safeParseAsync(args ?? {})).success;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Runs one call and maps every outcome to a result: output parsed with the
@@ -393,6 +462,9 @@ function nativeContext(
     setAuditProject: (projectId) =>
       void attributeCall(principal, call, projectId),
     startRun: (projectId) => startCallRun(state, call, tool, projectId),
+    withProjectSlot: (projectId, work, options) =>
+      state.projectSlots.run(projectId, work, options),
+    projectSlotDeadline: () => state.projectSlots.deadline(),
     log: state.log,
   };
 }
@@ -432,7 +504,7 @@ async function executeRegistryTool(
   call: CallTrace,
   toolName: string,
 ): Promise<unknown> {
-  const { principal, requestId } = state;
+  const { principal } = state;
   const { [PROJECT_ID]: requested, ...rest } = args;
   const projectId =
     typeof requested === "string"
@@ -443,46 +515,123 @@ async function executeRegistryTool(
   if (!projectId) throw new DomainError("PROJECT_REQUIRED", 400);
   // Audit rows go to the project only when it is one of the grant's.
   attributeCall(principal, call, projectId);
+  // Authorization, the run and the execution all read the project (each
+  // `scoped()` call locks it): one of its slots holds them (R-10). A BUSY
+  // call starts no run.
+  return state.projectSlots.run(projectId, () =>
+    executeInProject(state, tool, rest, call, toolName, projectId),
+  );
+}
+
+/** executeRegistryTool's work inside the project's slot. */
+async function executeInProject(
+  state: McpRequestState & { principal: McpPrincipal },
+  tool: OrbitTool,
+  rest: Record<string, unknown>,
+  call: CallTrace,
+  toolName: string,
+  projectId: string,
+): Promise<unknown> {
+  const { principal, requestId } = state;
   const { tool: allowed, scope } = await authorizeMcpCall(
     principal,
     tool.name,
     projectId,
   );
-  // Object-level rules of the tool's own schema apply too.
-  const input = allowed.parameters.parse(rest);
-  // A proposal tool runs only inside the grant's quotas (D-M4-8).
+  // Object-level rules of the tool's own schema apply too; asynchronously,
+  // so async refinements run instead of throwing.
+  const input = await allowed.parameters.parseAsync(rest);
+  // A proposal tool runs only inside the quotas of the user, client and
+  // workspace (D-M4-8, D-M5-8): a re-selection, a new grant id, keeps them.
   const proposing = allowed.risk === "P_proposal";
-  if (proposing)
-    await assertProposalCapacity(state.proposalQuota, {
-      grantId: principal.grantId,
-      workspaceId: principal.workspaceId,
-    });
+  const quotaKey: ProposalQuotaKey = {
+    userId: principal.userId,
+    clientId: principal.clientId,
+    workspaceId: principal.workspaceId,
+  };
+  // The hourly place is taken before the tool runs (review M4); a call
+  // that creates nothing gives it back.
+  const reservation = proposing
+    ? await reserveProposal(state.proposalQuota, quotaKey)
+    : null;
   // The run exists before the tool works, so its spans and costs can hang on
-  // it; without one the request id stands in, as before.
+  // it; without one the request id stands in, as before (it never rejects).
   const agentRunId = await startCallRun(state, call, toolName, projectId);
-  const { output } = await allowed.execute(
-    {
-      // The tool runs with the member's role in its module (as chat-runner).
-      scope: moduleScope(scope, registeredToolOwner(allowed.name)),
-      runId: agentRunId ?? requestId,
-      conversationId: `mcp:${requestId}`,
-      callIndex: 0,
-      channel: {
-        kind: "mcp",
-        clientId: principal.clientId,
-        grantId: principal.grantId,
-        requestId,
+  let output: unknown;
+  try {
+    ({ output } = await allowed.execute(
+      {
+        // The tool runs with the member's role in its module (as chat-runner).
+        scope: moduleScope(scope, registeredToolOwner(allowed.name)),
+        runId: agentRunId ?? requestId,
+        conversationId: `mcp:${requestId}`,
+        callIndex: 0,
+        channel: {
+          kind: "mcp",
+          clientId: principal.clientId,
+          grantId: principal.grantId,
+          requestId,
+        },
       },
-    },
-    input,
-  );
-  // Only a created proposal uses the hourly quota: a tool that reports a
-  // deduplicated retry (`deduplicated: true`) costs nothing. A tool that
-  // does not say counts, so a new proposal tool cannot dodge the quota.
-  if (proposing && !(isPlainObject(output) && output.deduplicated === true))
-    chargeProposal(state.proposalQuota, principal.grantId);
+      input,
+    ));
+  } catch (error) {
+    // A thrown call created nothing it reports: its hourly place goes back.
+    reservation?.release();
+    throw error;
+  }
+  if (reservation)
+    await settleProposal(state, toolName, quotaKey, reservation, output);
   // Chat cards are never sent over MCP (Orbit links follow in WP-M3).
   return output;
+}
+
+/**
+ * Settles a proposal call centrally for every proposal tool (D-M5-8): a tool
+ * that reports a deduplicated retry (`deduplicated: true`) gives its hourly
+ * place back and writes nothing; any other result keeps the place and is
+ * recorded (`mcp.proposal`), so no proposal tool can dodge the quota
+ * (registration also requires the field). Runs after the tool's own
+ * transaction committed, also when the call has timed out meanwhile, so a
+ * late creation still counts. A failed event write is logged with the
+ * identifiers to reconcile it and leaves the result alone: the proposal
+ * exists, and the daily count is one short (the hourly place is kept).
+ */
+async function settleProposal(
+  state: McpRequestState & { principal: McpPrincipal },
+  toolName: string,
+  key: ProposalQuotaKey,
+  reservation: ProposalReservation,
+  output: unknown,
+): Promise<void> {
+  if (isPlainObject(output) && output.deduplicated === true) {
+    reservation.release();
+    return;
+  }
+  const actionRequestId = recordableId(
+    isPlainObject(output) ? output.actionRequestId : null,
+  );
+  try {
+    await recordMcpProposal({
+      ...key,
+      grantId: state.principal.grantId,
+      tool: toolName,
+      actionRequestId,
+    });
+  } catch (error) {
+    state.log.error(
+      {
+        code: "MCP_PROPOSAL_RECORD_FAILED",
+        tool: toolName,
+        requestId: state.requestId,
+        actionRequestId,
+        clientId: key.clientId,
+        workspaceId: key.workspaceId,
+        errorName: (error as Error)?.name,
+      },
+      "mcp proposal event not recorded",
+    );
+  }
 }
 
 /** For a token whose grant is gone: every tools/call answers with the challenge. */
@@ -596,7 +745,7 @@ export async function mcpServerFor(
     const definition = definitions.get(state.toolName ?? "");
     if (
       !definition ||
-      !definition.inputSchema.safeParse(state.args ?? {}).success
+      !(await sdkAcceptsArguments(definition.inputSchema, state.args))
     )
       await notify(principalState, {
         tool: auditableToolName(state.toolName),

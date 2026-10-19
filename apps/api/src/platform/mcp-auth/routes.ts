@@ -15,6 +15,7 @@ import {
   selectionView,
   setGrantProposals,
 } from "./grants.ts";
+import { authorizationRequestHash } from "./plugins.ts";
 
 // The /connect page's API (Track M, WP-M1): the signed OAuth request, the
 // workspace/project selection and the consent answer, plus listing and
@@ -61,6 +62,8 @@ export async function readOAuthRequest(auth: Auth, query: string) {
   return {
     clientId,
     scopes: (params.get("scope") ?? "").split(" ").filter(Boolean),
+    // The authorization request a selection made from this query answers.
+    requestHash: authorizationRequestHash(params),
   };
 }
 
@@ -125,7 +128,11 @@ export function registerMcpConnectRoutes(
       client: { id: client.clientId, name: client.name, uri: client.uri },
       scopes: request.scopes,
       // The selection this session already made (consent step), else null.
-      selection: await selectionView(session.id, request.clientId),
+      selection: await selectionView(
+        session.id,
+        request.clientId,
+        request.requestHash,
+      ),
       workspaces: await connectWorkspaces(user.id),
     };
   });
@@ -138,6 +145,7 @@ export function registerMcpConnectRoutes(
       userId: user.id,
       sessionId: session.id,
       clientId: request.clientId,
+      requestHash: request.requestHash,
       workspaceId: input.workspaceId,
       projectIds: input.projectIds,
     });

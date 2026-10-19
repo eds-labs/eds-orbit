@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import {
   generateKeyPairSync,
   randomBytes,
@@ -96,7 +96,11 @@ const FLAGS = {
   ORBIT_MCP_GATEWAY: "true",
   ORBIT_MCP_CIMD_HOSTS: "client.test",
 } as const;
-type FlagKey = keyof typeof FLAGS | "ORBIT_MCP_ALLOWED_ORIGINS";
+type FlagKey =
+  | keyof typeof FLAGS
+  | "ORBIT_MCP_ALLOWED_ORIGINS"
+  | "MCP_JWKS_URL"
+  | "MCP_RESOURCE";
 
 /** Sets env keys for `run`, then restores them. */
 async function withEnv<T>(
@@ -161,27 +165,8 @@ describe.skipIf(!enabled)("MCP gateway: flag off", () => {
       },
     );
   });
-
-  it("mcp-main.ts exits with code 1 and a clear message while the flag is off", () => {
-    const result = spawnSync(
-      resolve("node_modules/.bin/tsx"),
-      ["apps/api/src/mcp-main.ts"],
-      {
-        env: {
-          ...process.env,
-          ORBIT_MCP_OAUTH: "true",
-          ORBIT_MCP_GATEWAY: "false",
-        },
-        encoding: "utf8",
-        timeout: 60_000,
-      },
-    );
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain(
-      'MCP gateway disabled: set ORBIT_MCP_GATEWAY to "true" to start it',
-    );
-    expect(result.stdout).not.toContain("listening");
-  });
+  // mcp-main.ts with a flag off serves a health-only app (D-M5-1); see
+  // mcp-gateway-disabled.unit.test.ts.
 });
 
 describe.skipIf(!enabled)("MCP gateway", () => {
@@ -230,13 +215,15 @@ describe.skipIf(!enabled)("MCP gateway", () => {
     headers?: Record<string, string>;
     id?: number;
     app?: FastifyInstance;
+    /** Request path; default "/mcp" (the endpoint is also served at "/"). */
+    url?: string;
   };
   /** A 2026-07-28 request to the gateway. */
   function mcp(method: string, params: Json = {}, opts: McpOptions = {}) {
     const token = opts.token === undefined ? tokens["editor-one"] : opts.token;
     return (opts.app ?? gateway).inject({
       method: "POST",
-      url: "/mcp",
+      url: opts.url ?? "/mcp",
       headers: {
         "content-type": "application/json",
         "mcp-protocol-version": MODERN,
@@ -441,6 +428,14 @@ describe.skipIf(!enabled)("MCP gateway", () => {
           authorization_servers: [ISSUER],
           scopes_supported: ["orbit:read", "orbit:propose"],
           bearer_methods_supported: ["header"],
+          // WP-M5: DPoP-bound tokens are verified (mcp-gateway-audit).
+          dpop_signing_alg_values_supported: [
+            "EdDSA",
+            "ES256",
+            "ES512",
+            "PS256",
+            "RS256",
+          ],
         });
       }
     });
@@ -461,6 +456,109 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       const health = await gateway.inject({ method: "GET", url: "/healthz" });
       expect(health.statusCode).toBe(200);
       expect(health.json()).toEqual({ status: "ok" });
+    });
+
+    it("serves the endpoint at / exactly like /mcp (D-M5-3)", async () => {
+      // A proxy that strips the /mcp prefix delivers the request at "/".
+      const viaRoot = await mcp("tools/list", {}, { url: "/" });
+      const viaMcp = await mcp("tools/list");
+      expect(viaRoot.statusCode).toBe(200);
+      expect(rpcBody(viaRoot)).toEqual(rpcBody(viaMcp));
+      expect(
+        (rpcBody(viaRoot).result.tools as Json[]).map((t) => t.name),
+      ).toContain("orbit_projects");
+      // The same 401 challenge, with the unchanged resource metadata URL.
+      for (const headers of [
+        {} as Record<string, string>,
+        { authorization: "Bearer not-a-jwt" },
+      ]) {
+        const denied = await mcp(
+          "tools/list",
+          {},
+          { url: "/", token: null, headers },
+        );
+        expect(denied.statusCode).toBe(401);
+        expect(denied.headers["www-authenticate"]).toBe(CHALLENGE);
+      }
+      // The Origin policy and the stateless method policy apply too.
+      const foreign = await mcp(
+        "tools/list",
+        {},
+        { url: "/", headers: { origin: "https://evil.test" } },
+      );
+      expect(foreign.statusCode).toBe(403);
+      for (const method of ["GET", "DELETE"] as const) {
+        const response = await gateway.inject({
+          method,
+          url: "/",
+          headers: { authorization: `Bearer ${tokens["editor-one"]}` },
+        });
+        expect(response.statusCode).toBe(405);
+        expect(response.headers.allow).toBe("POST");
+      }
+    });
+
+    it("MCP_JWKS_URL (D-M5-5) is where the gateway fetches signing keys", async () => {
+      // The configured internal URL works without any option ...
+      const internal = await withEnv({ ...FLAGS, MCP_JWKS_URL: jwksUrl }, () =>
+        buildMcpServer({ cimdFetch }),
+      );
+      try {
+        expect(
+          (await mcp("tools/list", {}, { app: internal })).statusCode,
+        ).toBe(200);
+      } finally {
+        await internal.close();
+      }
+      // ... and an unreachable one is really used: the token cannot be verified.
+      const dead = await withEnv(
+        { ...FLAGS, MCP_JWKS_URL: "http://127.0.0.1:1/api/auth/jwks" },
+        () => buildMcpServer({ cimdFetch }),
+      );
+      try {
+        expect(
+          (await mcp("tools/list", {}, { app: dead })).statusCode,
+        ).not.toBe(200);
+      } finally {
+        await dead.close();
+      }
+      // The option wins over the environment.
+      const optioned = await withEnv(
+        { ...FLAGS, MCP_JWKS_URL: "http://127.0.0.1:1/api/auth/jwks" },
+        () => buildMcpServer({ cimdFetch, jwksUrl }),
+      );
+      try {
+        expect(
+          (await mcp("tools/list", {}, { app: optioned })).statusCode,
+        ).toBe(200);
+      } finally {
+        await optioned.close();
+      }
+    });
+
+    it("MCP_RESOURCE in another spelling is served and checked in its canonical form (WP-M5)", async () => {
+      const canonical = new URL(config.MCP_RESOURCE);
+      const variant = `${canonical.protocol}//${canonical.host.toUpperCase()}${canonical.pathname}/`;
+      expect(variant).not.toBe(config.MCP_RESOURCE);
+      const spelled = await withEnv({ ...FLAGS, MCP_RESOURCE: variant }, () =>
+        buildMcpServer({ cimdFetch, jwksUrl }),
+      );
+      try {
+        const prm = await spelled.inject({ method: "GET", url: PRM_PATH });
+        expect(prm.json().resource).toBe(config.MCP_RESOURCE);
+        // Tokens carry the canonical audience; the gateway accepts them.
+        expect((await mcp("tools/list", {}, { app: spelled })).statusCode).toBe(
+          200,
+        );
+        const anonymous = await mcp(
+          "tools/list",
+          {},
+          { app: spelled, token: null },
+        );
+        expect(anonymous.headers["www-authenticate"]).toBe(CHALLENGE);
+      } finally {
+        await spelled.close();
+      }
     });
 
     it("server/discover (2026-07-28) names the gateway and its tool capability", async () => {
@@ -817,7 +915,9 @@ describe.skipIf(!enabled)("MCP gateway", () => {
       expect(result.isError).toBeFalsy();
       expect(result.structuredContent).toEqual({
         id: expect.any(String),
+        actionRequestId: result.structuredContent.id,
         status: "pending",
+        deduplicated: false,
       });
       expect(JSON.parse(result.content[0].text)).toEqual(
         result.structuredContent,
@@ -928,7 +1028,12 @@ describe.skipIf(!enabled)("MCP gateway", () => {
 
     it("caps the output at 64 KB", async () => {
       vi.spyOn(suggestTask, "execute").mockResolvedValueOnce({
-        output: { id: "y".repeat(70 * 1024), status: "pending" },
+        output: {
+          id: "y".repeat(70 * 1024),
+          actionRequestId: "z",
+          status: "pending",
+          deduplicated: true,
+        },
         cards: [],
       });
       const response = await call("tasks_suggest_task", { title: "Big" });

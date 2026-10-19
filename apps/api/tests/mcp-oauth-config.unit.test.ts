@@ -11,7 +11,10 @@ import {
   oauthApi,
 } from "../src/platform/mcp-auth/plugins.ts";
 import { authRequestHeaders } from "../src/platform/mcp-auth/http.ts";
-import { loadConfig } from "../../../packages/config/src/index.ts";
+import {
+  loadConfig,
+  normalizeMcpResource,
+} from "../../../packages/config/src/index.ts";
 
 const ENV_KEYS = [
   "ORBIT_MCP_OAUTH",
@@ -19,6 +22,7 @@ const ENV_KEYS = [
   "MCP_RESOURCE",
   "ORBIT_MCP_CIMD_HOSTS",
   "APP_ORIGIN",
+  "MCP_JWKS_URL",
 ] as const;
 const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 afterEach(() => {
@@ -205,11 +209,78 @@ describe("MCP_RESOURCE validation", () => {
       expect(() => parse({ MCP_RESOURCE: value }), value).toThrow();
   });
 
+  it("is normalized at load: scheme and host lower-cased, default port and trailing slash dropped (WP-M5)", () => {
+    for (const [value, expected] of [
+      ["HTTPS://Orbit.Example/mcp", "https://orbit.example/mcp"],
+      ["https://orbit.example/mcp/", "https://orbit.example/mcp"],
+      ["https://orbit.example:443/mcp", "https://orbit.example/mcp"],
+      ["https://ORBIT.example:443/Mcp/", "https://orbit.example/Mcp"],
+      ["http://LOCALHOST:80/mcp/", "http://localhost/mcp"],
+      ["http://localhost:4310/mcp", "http://localhost:4310/mcp"],
+      // The bare origin keeps its one slash.
+      ["https://orbit.example", "https://orbit.example/"],
+      ["https://orbit.example/", "https://orbit.example/"],
+    ])
+      expect(parse({ MCP_RESOURCE: value }).MCP_RESOURCE, value).toBe(expected);
+    expect(
+      parse({ APP_ORIGIN: "https://Orbit.Example:443/" }).MCP_RESOURCE,
+    ).toBe("https://orbit.example/mcp");
+    for (const [value, expected] of [
+      ["https://orbit.example/mcp/", "https://orbit.example/mcp"],
+      ["not a url", "not a url"],
+    ])
+      expect(normalizeMcpResource(value)).toBe(expected);
+  });
+
+  it("the provider is configured with the normalized resource (advertised and aud)", () => {
+    setEnv({
+      ORBIT_MCP_OAUTH: "true",
+      MCP_RESOURCE: "HTTPS://Orbit.Example:443/mcp/",
+    });
+    const options = mcpAuthPluginOptions(loadConfig(), {
+      fetchClientMetadataResource,
+      consentReference: async () => undefined,
+      shouldRedirect: async () => false,
+    });
+    expect(options.mcp.resource).toBe(RESOURCE);
+    expect(options.mcp.resources).toEqual([
+      { identifier: RESOURCE, allowedScopes: [...MCP_SCOPES] },
+    ]);
+  });
+
   it("a non-loopback http APP_ORIGIN only fails the derived default when the flag is on", () => {
     expect(() => parse({ APP_ORIGIN: "http://staging.example" })).not.toThrow();
     expect(() =>
       parse({ APP_ORIGIN: "http://staging.example", ORBIT_MCP_OAUTH: "true" }),
     ).toThrow();
+  });
+});
+
+describe("MCP_JWKS_URL validation (WP-M5)", () => {
+  const parse = (values: Record<string, string>) => {
+    setEnv(values);
+    return loadConfig();
+  };
+
+  it("accepts http and https URLs; empty means unset (compose-safe)", () => {
+    for (const value of [
+      "http://api:4311/api/auth/jwks",
+      "https://orbit.example/api/auth/jwks",
+    ])
+      expect(parse({ MCP_JWKS_URL: value }).MCP_JWKS_URL).toBe(value);
+    expect(parse({ MCP_JWKS_URL: "" }).MCP_JWKS_URL).toBeUndefined();
+    expect(parse({}).MCP_JWKS_URL).toBeUndefined();
+  });
+
+  it("rejects any other scheme", () => {
+    for (const value of [
+      "ftp://api:4311/api/auth/jwks",
+      "file:///etc/jwks.json",
+      "data:application/json,{}",
+      "javascript:alert(1)",
+      "not a url",
+    ])
+      expect(() => parse({ MCP_JWKS_URL: value }), value).toThrow();
   });
 });
 

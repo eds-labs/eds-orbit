@@ -21,8 +21,10 @@ export type GrantEventAction =
   // One gateway tool call without a project (WP-M2): identifiers, outcome
   // code, duration and argument hash in `detail`, never values or results.
   | "mcp.call"
-  // One proposal an MCP client created (WP-M4): action type and request id
-  // in `detail`; deduplicated retries write none. Counted for the daily quota.
+  // One proposal an MCP client created (WP-M4), written by the gateway for
+  // every proposal tool (WP-M5): MCP tool and request id in `detail`;
+  // deduplicated retries write none. Counted for the daily quota of the
+  // user, client and workspace.
   | "mcp.proposal";
 
 export type GrantEvent = {

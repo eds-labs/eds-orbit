@@ -4,25 +4,36 @@
  * Auth's `requireMcpAuth`, the protected resource metadata, and a health
  * check. It runs in its own process (mcp-main.ts), never inside the API.
  *
- * Per request: Origin policy (D-M2-6), token verification by the library
- * (signature via JWKS, `iss`, `aud` ⊇ MCP_RESOURCE, `exp`, DPoP), the rate
- * limits keyed from the verified claims, then the principal resolved again
- * from the grant (never cached), then the SDK handler with a server built
- * for that principal (adapter.ts).
+ * Per request: Origin policy (D-M2-6), the per-address limit for a request
+ * without a token this process verified (before verification, D-M5-6),
+ * token verification by the library (signature via JWKS, `iss`, `aud` ⊇
+ * MCP_RESOURCE, `exp`, DPoP), the rate limits keyed from the verified
+ * claims, then the principal resolved again from the grant (never cached),
+ * then the SDK handler with a server built for that principal (adapter.ts).
  * The caller registers the modules first (mcp-main.ts is the composition root).
  */
 import { randomUUID } from "node:crypto";
 import { isIP } from "node:net";
-import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import Fastify, {
+  type FastifyInstance,
+  type FastifyReply,
+  type FastifyRequest,
+} from "fastify";
 import { requireMcpAuth } from "@better-auth/mcp";
 import { createMcpHandler, type AuthInfo } from "@modelcontextprotocol/server";
 import type { JWTPayload } from "better-auth";
+import {
+  DPOP_SIGNING_ALGORITHMS,
+  parseAccessTokenAuthorization,
+} from "better-auth/oauth2";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { isTrustedPeer } from "../../client-ip.ts";
 import { sendWebResponse } from "../mcp-auth/http.ts";
 import { ORBIT_WORKSPACE_CLAIM } from "../mcp-auth/plugins.ts";
 import { makeAuth } from "../tenancy/auth.ts";
+import { registeredTools } from "../modules/contributions.ts";
 import {
+  assertMcpToolContracts,
   mcpServerFor,
   type McpCallObserver,
   type McpRequestState,
@@ -40,11 +51,16 @@ import {
   parseAllowedOrigins,
 } from "./gateway-guard.ts";
 import {
+  ipBucket,
   MCP_RATE_LIMITS,
+  McpProjectSlots,
   McpRateLimiter,
+  McpVerifiedTokens,
+  type McpProjectConcurrency,
   type McpRateLimits,
 } from "./limits.ts";
 import { resolvePrincipal } from "./principal.ts";
+import { McpProposalDayCache } from "./proposals.ts";
 
 /** Request body limit of the gateway (bytes). */
 export const MCP_BODY_LIMIT = 256 * 1024;
@@ -56,14 +72,20 @@ export type McpServerOptions = {
   /** Test seam: the CIMD metadata transport (see makeAuth). */
   cimdFetch?: typeof fetch;
   /**
-   * Where requireMcpAuth fetches the signing keys; default (Better Auth)
-   * `${APP_ORIGIN}/api/auth/jwks`. Test seam and the knob for an internal URL.
+   * Where requireMcpAuth fetches the signing keys; default MCP_JWKS_URL, then
+   * (Better Auth) `${APP_ORIGIN}/api/auth/jwks`. Wins over the environment.
    */
   jwksUrl?: string;
   /** Called after the built-in audit and telemetry for every finished tool call (tests). */
   observe?: McpCallObserver;
   /** Test seam: replaces MCP_RATE_LIMITS (limits.ts), key by key. */
   rateLimits?: Partial<McpRateLimits>;
+  /** Test seam: replaces MCP_PROJECT_CONCURRENCY (limits.ts, R-10), key by key. */
+  projectConcurrency?: Partial<McpProjectConcurrency>;
+  /** Test seam: the project slots themselves (wins over projectConcurrency). */
+  projectSlots?: McpProjectSlots;
+  /** Test seam: the size cap of the per-address limiter (MCP_RATE_LIMITER_MAX_KEYS). */
+  ipLimiterMaxKeys?: number;
   /** Test seam: the clock for rate-limit windows and the lastUsedAt pacing. */
   clock?: () => number;
   /** Test seam: replaces the 25 s tool timeout (adapter.ts). */
@@ -149,14 +171,28 @@ export async function buildMcpServer(
 ): Promise<FastifyInstance> {
   const config = loadConfig();
   assertMcpGatewayEnabled(config);
+  // A tool whose MCP contract is broken stops the gateway before it serves
+  // anything (D-M5-8); registration has refused it already.
+  assertMcpToolContracts(registeredTools());
   const allowedOrigins = new Set(
     parseAllowedOrigins(config.ORBIT_MCP_ALLOWED_ORIGINS),
   );
   const resource = config.MCP_RESOURCE;
   const issuer = `${config.APP_ORIGIN}/api/auth`;
+  const jwksUrl = options.jwksUrl ?? config.MCP_JWKS_URL;
   const auth = makeAuth({ cimdFetch: options.cimdFetch });
   const limits = { ...MCP_RATE_LIMITS, ...options.rateLimits };
+  // Two limiters with their own size caps: the per-address buckets anyone
+  // can create without a token, and the buckets of verified requests
+  // (grant, user, client, search, proposals). A flood of new addresses
+  // fills only the first, so it can never refuse authenticated traffic.
   const limiter = new McpRateLimiter(options.clock);
+  const ipLimiter = new McpRateLimiter(options.clock, options.ipLimiterMaxKeys);
+  const verifiedTokens = new McpVerifiedTokens(options.clock);
+  const projectSlots =
+    options.projectSlots ?? new McpProjectSlots(options.projectConcurrency);
+  // Keys whose daily proposal quota is used up, until UTC midnight (D-M5-8).
+  const proposalsUsedUp = new McpProposalDayCache();
 
   const app = Fastify({
     bodyLimit: MCP_BODY_LIMIT,
@@ -243,10 +279,21 @@ export async function buildMcpServer(
   app.addHook("onClose", async () => handler.close());
 
   /** Per verified request: charge the limits, resolve the principal again, then hand over to the SDK. */
-  const serve = (req: FastifyRequest, startedAt: number) =>
+  const serve = (
+    req: FastifyRequest,
+    startedAt: number,
+    token: string | undefined,
+  ) =>
     requireMcpAuth(
       auth,
       async (request: Request, claims: JWTPayload) => {
+        // Verified: later requests with this token skip the per-address
+        // count before verification.
+        if (token)
+          verifiedTokens.remember(
+            token,
+            typeof claims.exp === "number" ? claims.exp : undefined,
+          );
         // Authenticated requests are counted per grant, user and client,
         // keyed from the verified claims and charged before the principal is
         // resolved: a refused request costs no database read. The grant
@@ -319,10 +366,12 @@ export async function buildMcpServer(
           startRun: startMcpRun,
           proposalQuota: {
             limiter,
-            perHour: limits.proposalsPerHourPerGrant,
-            perDay: limits.proposalsPerDayPerGrant,
+            perHour: limits.proposalsPerHour,
+            perDay: limits.proposalsPerDay,
             now: options.clock ?? Date.now,
+            usedUp: proposalsUsedUp,
           },
+          projectSlots,
           ...(options.toolTimeoutMs !== undefined
             ? { toolTimeoutMs: options.toolTimeoutMs }
             : {}),
@@ -332,11 +381,14 @@ export async function buildMcpServer(
       {
         resource,
         issuer,
-        ...(options.jwksUrl ? { jwksUrl: options.jwksUrl } : {}),
+        ...(jwksUrl ? { jwksUrl } : {}),
       },
     );
 
-  app.post("/mcp", async (req, reply) => {
+  // The endpoint lives at /mcp; a proxy that strips that prefix delivers the
+  // same request at "/" (WP-M5, D-M5-3). Both behave identically.
+  const ENDPOINT_PATHS = ["/mcp", "/"];
+  const handlePost = async (req: FastifyRequest, reply: FastifyReply) => {
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {
       // Cookies are never a credential here.
@@ -350,12 +402,21 @@ export async function buildMcpServer(
       headers,
       body: typeof req.body === "string" ? req.body : "",
     });
-    // Requests without a usable token are counted per client address: those
-    // without credentials before anything is looked at, those whose token
-    // fails verification (a 401) afterwards.
-    const credentials = Boolean(req.headers.authorization);
+    // Requests without a token this process verified are counted per
+    // client address (an IPv6 client by its /64) before the token is looked
+    // at, so a burst of bad tokens is refused without verification work
+    // (D-M5-6). A known token is verified as always but not counted here;
+    // a request that still ends in 401 is counted afterwards. When the
+    // address limiter is full (capacity, not the address's own limit), a
+    // request with a token is verified anyway: an address flood must not
+    // lock out clients whose token this process has not seen yet.
+    const header = req.headers.authorization;
+    const token =
+      parseAccessTokenAuthorization(
+        typeof header === "string" ? header : undefined,
+      )?.token || undefined;
     const ipRule = {
-      key: `ip:${mcpClientIp(req)}`,
+      key: `ip:${ipBucket(mcpClientIp(req))}`,
       max: limits.unauthenticatedPerIp,
       label: "ip",
     };
@@ -367,15 +428,21 @@ export async function buildMcpServer(
       );
       return rateLimitedResponse(verdict.retryAfterSeconds);
     };
-    if (!credentials) {
-      const refused = refuse(limiter.take([ipRule]));
-      if (refused) return sendWebResponse(reply, refused);
+    let counted = false;
+    if (!(token && verifiedTokens.has(token))) {
+      const verdict = ipLimiter.take([ipRule]);
+      if (verdict.allowed) counted = true;
+      else if (!(token && verdict.label === "capacity"))
+        return sendWebResponse(reply, refuse(verdict)!);
     }
     let response: Response;
     try {
-      response = await serve(req, Date.now())(request);
-      if (credentials && response.status === 401)
-        response = refuse(limiter.take([ipRule])) ?? response;
+      response = await serve(req, Date.now(), token)(request);
+      if (response.status === 401) {
+        // The token is no longer good (its grant is gone): count it again.
+        if (token) verifiedTokens.forget(token);
+        if (!counted) response = refuse(ipLimiter.take([ipRule])) ?? response;
+      }
     } catch (error) {
       // Key-set outages and other failures outside a challenge: no detail.
       req.log.error(
@@ -385,29 +452,35 @@ export async function buildMcpServer(
       response = rpcErrorResponse(503, "Service unavailable");
     }
     return sendWebResponse(reply, response);
-  });
+  };
+  for (const url of ENDPOINT_PATHS) app.post(url, handlePost);
 
   // Stateless serving (D-M2-7): no event stream, no session to delete.
-  for (const method of ["GET", "DELETE"] as const)
-    app.route({
-      method,
-      url: "/mcp",
-      handler: async (_req, reply) => {
-        reply.header("allow", "POST");
-        return sendWebResponse(
-          reply,
-          rpcErrorResponse(405, "Method not allowed."),
-        );
-      },
-    });
+  for (const url of ENDPOINT_PATHS)
+    for (const method of ["GET", "DELETE"] as const)
+      app.route({
+        method,
+        url,
+        handler: async (_req, reply) => {
+          reply.header("allow", "POST");
+          return sendWebResponse(
+            reply,
+            rpcErrorResponse(405, "Method not allowed."),
+          );
+        },
+      });
 
   // RFC 9728: the path-inserted location of the resource and the root one
   // some clients probe; both describe the same resource.
+  // DPoP is verified by requireMcpAuth with Better Auth's default
+  // algorithms (no signingAlgorithms are configured), the list Better
+  // Auth's own resource metadata advertises.
   const metadata = {
     resource,
     authorization_servers: [issuer],
     scopes_supported: [...MCP_RESOURCE_SCOPES],
     bearer_methods_supported: ["header"],
+    dpop_signing_alg_values_supported: [...DPOP_SIGNING_ALGORITHMS],
   };
   const resourcePath = new URL(resource).pathname.replace(/\/$/, "");
   for (const path of new Set([`${PRM_PATH}${resourcePath}`, PRM_PATH]))

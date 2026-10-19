@@ -16,9 +16,24 @@ import { ticketSummary } from "./workspace.ts";
 // parse to change.
 
 const count = z.number().int().nonnegative();
-const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
-// The statuses that are not resolved or closed (OPEN_STATUSES in common.ts).
-const OPEN = ["new", "open", "pending_customer", "pending_internal"] as const;
+// Literal copies for the strict output schema (zod enums need literal
+// tuples). support-insights-lists.test.ts keeps them equal to their sources:
+// SUPPORT_PRIORITIES (settings.ts) and OPEN_STATUSES (common.ts), the
+// statuses that are not resolved or closed.
+export const SUPPORT_INSIGHTS_PRIORITIES = [
+  "low",
+  "normal",
+  "high",
+  "urgent",
+] as const;
+export const SUPPORT_INSIGHTS_OPEN_STATUSES = [
+  "new",
+  "open",
+  "pending_customer",
+  "pending_internal",
+] as const;
+const PRIORITIES = SUPPORT_INSIGHTS_PRIORITIES;
+const OPEN = SUPPORT_INSIGHTS_OPEN_STATUSES;
 // A category key as the settings and tickets store it; "none" counts the
 // tickets without one. At most 50 configured keys plus "none" (settings), with
 // a margin for keys removed from the settings later.

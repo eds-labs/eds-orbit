@@ -10,12 +10,14 @@ import {
   fetchFactForModel,
 } from "../../knowledge/mcp-read.ts";
 import type { NativeTool } from "../native-tools.ts";
+import type { McpPrincipal } from "../principal.ts";
 import {
   itemUrl,
   knowledgeScope,
   notFound,
   parseItemId,
   resultTitle,
+  type ItemRef,
 } from "./knowledge.ts";
 
 const fetchInput = z.object({ id: z.string().max(200) }).strict();
@@ -53,7 +55,7 @@ const factText = (fact: {
 export const fetchTool: NativeTool = {
   name: "fetch",
   description:
-    "Fetch one result of search by its id: the passage's document text (at most 48 KB) or the verified fact, with its citation URL.",
+    "Fetch one result of search by its id: the passage's document text (at most 48 KB of JSON text) or the verified fact, with its citation URL.",
   risk: "R0_read",
   inputSchema: fetchInput,
   outputSchema: fetchOutput,
@@ -63,36 +65,48 @@ export const fetchTool: NativeTool = {
     if (!ref) throw notFound();
     // Audited in the id's project only when it is one of the grant's.
     ctx.setAuditProject(ref.projectId);
-    const scope = await knowledgeScope(principal, ref.projectId);
-    if (!scope) throw notFound();
-    if (ref.kind === "chunk") {
-      const chunk = await fetchChunkForModel(scope, ref.itemId);
-      return {
-        id,
-        title: resultTitle(chunk.title, "chunk"),
-        text: chunk.text,
-        url: itemUrl(ref.projectId, "chunk", chunk.canonicalUrl),
-        metadata: {
-          projectId: ref.projectId,
-          kind: "chunk",
-          sourceId: chunk.sourceId,
-          documentVersionId: chunk.documentVersionId,
-          fetchedAt: chunk.fetchedAt,
-          truncated: chunk.truncated,
-        },
-      };
-    }
-    const fact = await fetchFactForModel(scope, ref.itemId);
-    return {
-      id,
-      title: resultTitle(fact.key, "fact"),
-      text: factText(fact),
-      url: itemUrl(ref.projectId, "fact", fact.canonicalUrl),
-      metadata: {
-        projectId: ref.projectId,
-        kind: "fact",
-        sourceId: fact.sourceId,
-      },
-    };
+    // Inside one of the project's slots (R-10).
+    return ctx.withProjectSlot(ref.projectId, () =>
+      fetchItem(principal, id, ref),
+    );
   },
 };
+
+/** The fetch of one parsed id, authorized again in its project. */
+async function fetchItem(
+  principal: McpPrincipal,
+  id: string,
+  ref: ItemRef,
+): Promise<z.infer<typeof fetchOutput>> {
+  const scope = await knowledgeScope(principal, ref.projectId);
+  if (!scope) throw notFound();
+  if (ref.kind === "chunk") {
+    const chunk = await fetchChunkForModel(scope, ref.itemId);
+    return {
+      id,
+      title: resultTitle(chunk.title, "chunk"),
+      text: chunk.text,
+      url: itemUrl(ref.projectId, "chunk", chunk.canonicalUrl),
+      metadata: {
+        projectId: ref.projectId,
+        kind: "chunk",
+        sourceId: chunk.sourceId,
+        documentVersionId: chunk.documentVersionId,
+        fetchedAt: chunk.fetchedAt,
+        truncated: chunk.truncated,
+      },
+    };
+  }
+  const fact = await fetchFactForModel(scope, ref.itemId);
+  return {
+    id,
+    title: resultTitle(fact.key, "fact"),
+    text: factText(fact),
+    url: itemUrl(ref.projectId, "fact", fact.canonicalUrl),
+    metadata: {
+      projectId: ref.projectId,
+      kind: "fact",
+      sourceId: fact.sourceId,
+    },
+  };
+}

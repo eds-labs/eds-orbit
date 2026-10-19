@@ -1,35 +1,28 @@
-// Entrypoint of the MCP gateway process (Track M, WP-M2): `tsx
-// apps/api/src/mcp-main.ts`. It refuses to start unless ORBIT_MCP_GATEWAY
-// and ORBIT_MCP_OAUTH are both "true" (exit code 1); the API and web never
-// load it. Only the config and the guard are imported before the check.
+// Entrypoint of the MCP gateway process (Track M, WP-M2/WP-M5): `tsx
+// apps/api/src/mcp-main.ts`. With ORBIT_MCP_GATEWAY and ORBIT_MCP_OAUTH both
+// "true" it serves the gateway; otherwise it stays up as a health-only app
+// (`/healthz` → disabled, everything else 404) that loads no auth, database
+// or SDK code, so the compose service never crash-loops (platform/mcp/
+// bootstrap.ts). The API and web never load this file.
 import { loadConfig } from "../../../packages/config/src/index.ts";
-import { assertMcpGatewayEnabled } from "./platform/mcp/gateway-guard.ts";
+import { createMcpGatewayProcess } from "./platform/mcp/bootstrap.ts";
+import { makeShutdown } from "./platform/mcp/shutdown.ts";
 
 const config = loadConfig();
-try {
-  assertMcpGatewayEnabled(config);
-} catch (error) {
-  console.error((error as Error).message);
-  process.exit(1);
-}
-
-const { registerModules } = await import("./modules/registry.ts");
-const { buildMcpServer } = await import("./platform/mcp/server.ts");
-const { closeDatabase } = await import("../../../packages/db/src/index.ts");
-const { makeShutdown } = await import("./platform/mcp/shutdown.ts");
-
-// A broken module manifest stops the gateway before it serves anything.
-registerModules();
-const app = await buildMcpServer();
+const { app, closers, mode } = await createMcpGatewayProcess(config);
 await app.listen({
   port: config.MCP_PORT,
   host: process.env.BIND_HOST ?? "127.0.0.1",
 });
-console.log("Orbit MCP gateway listening on configured interface");
+console.log(
+  mode === "enabled"
+    ? "Orbit MCP gateway listening on configured interface"
+    : "Orbit MCP gateway disabled (health check only), listening on configured interface",
+);
 // One shutdown however many signals arrive; a failing close is logged by
 // error name and the process still exits.
 const shutdown = makeShutdown({
-  steps: [() => app.close(), () => closeDatabase()],
+  steps: [() => app.close(), ...closers],
   exit: (code) => process.exit(code),
   log: (...args) => console.error(...args),
 });

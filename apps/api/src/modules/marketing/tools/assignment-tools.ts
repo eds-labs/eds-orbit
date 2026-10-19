@@ -24,7 +24,10 @@ import {
   dropNullFields,
   type OrbitTool,
 } from "../../agents/tools/registry.ts";
-import { mcpApproveUrl } from "../../../platform/mcp/proposals.ts";
+import {
+  mcpApproveUrl,
+  mcpProposalOrigin,
+} from "../../../platform/mcp/proposals.ts";
 
 /**
  * Orbit Core's tools for assignments. Every server ruling (OWNER_REQUIRED,
@@ -351,18 +354,11 @@ export const assignmentTools: readonly OrbitTool[] = [
       // second parse changes nothing; the service then parses them with the
       // authoritative assignmentInput (defaults, limits, cross-field rules),
       // which decides, as for the assistant.
-      const channel = context.channel;
-      if (channel?.kind === "mcp") {
+      // The requester is derived centrally from the call's channel (D-M5-8).
+      if (context.channel !== undefined) {
         const proposal = await proposeAssignmentFromMcp(
           context.scope,
-          {
-            tool: MCP_PROPOSE_NAME,
-            clientId: channel.clientId,
-            grantId: channel.grantId,
-            // Without an AgentRun the gateway passes its request id as runId.
-            agentRunId:
-              context.runId === channel.requestId ? null : context.runId,
-          },
+          mcpProposalOrigin(context, MCP_PROPOSE_NAME),
           dropNullFields(args),
         );
         // Cards are chat-only; the client gets the pending request instead.

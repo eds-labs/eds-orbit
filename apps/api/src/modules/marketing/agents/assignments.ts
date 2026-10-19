@@ -29,8 +29,8 @@ import {
   type RequestedBy,
 } from "../../action-requests.ts";
 import {
-  mcpProposalArgsHash,
-  recordMcpProposal,
+  mcpRequester,
+  type McpProposalOrigin,
 } from "../../../platform/mcp/proposals.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import {
@@ -509,24 +509,16 @@ async function saveProposal(
   return { assignment, actionRequest };
 }
 
-/** The MCP client a proposal comes from (WP-M4); set by the gateway only. */
-export type McpProposalOrigin = {
-  /** The MCP tool name, part of the dedupe key. */
-  tool: string;
-  clientId: string;
-  grantId: string;
-  /** The call's AgentRun, null when the gateway had none. */
-  agentRunId: string | null;
-};
-
 /**
  * An MCP client's proposal (WP-M4): the same role, flag and mandate checks
  * and the same draft and owner request as from chat, but bound to no
  * conversation (`conversationId` null) and requested by the client. A retry
  * with the same normalized arguments from the same user and client returns
  * the pending proposal instead of creating another (D-M4-4), as long as the
- * grant it came from still stands; only a creation is recorded on the grant
- * (`mcp.proposal`). Inside the project transaction the grant is checked
+ * grant it came from still stands; the gateway records a creation on the
+ * grant (`mcp.proposal`, from `deduplicated`). The origin comes from
+ * `mcpProposalOrigin` (the call's channel, D-M5-8) and must name the
+ * scope's user. Inside the project transaction the grant is checked
  * again (`mcpGrantStillProposes`): a grant revoked or stopped since the
  * gateway resolved it refuses with MCP_GRANT_ENDED, and one stopped after
  * this check waits for the project lock and cancels what this commits.
@@ -538,9 +530,12 @@ export async function proposeAssignmentFromMcp(
   raw: unknown,
 ) {
   requireEditor(scope);
+  if (origin.userId !== scope.userId)
+    throw new DomainError("MCP_CHANNEL_INCOMPLETE", 500);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const content = assignmentInput.parse(raw);
-  const argsHash = mcpProposalArgsHash(origin.tool, scope.projectId, content);
+  const requester = mcpRequester(origin, scope.projectId, content);
+  const { argsHash } = requester;
   // The project transaction serializes proposals, so a concurrent retry sees the first one.
   return chatScoped(scope, async (tx) => {
     const now = new Date();
@@ -579,26 +574,8 @@ export async function proposeAssignmentFromMcp(
       scope,
       content,
       null,
-      {
-        kind: "mcp",
-        userId: scope.userId,
-        clientId: origin.clientId,
-        grantId: origin.grantId,
-        agentRunId: origin.agentRunId,
-        argsHash,
-      },
+      requester,
     );
-    // Last, inside the transaction: a failed write rolls the proposal back,
-    // so every created proposal is counted (an event without a commit only
-    // overcounts the quota).
-    await recordMcpProposal({
-      userId: scope.userId,
-      clientId: origin.clientId,
-      grantId: origin.grantId,
-      workspaceId: scope.workspaceId,
-      actionType: "assignment.confirm",
-      actionRequestId: actionRequest.id,
-    });
     return { assignmentId: assignment.id, actionRequest, deduplicated: false };
   });
 }

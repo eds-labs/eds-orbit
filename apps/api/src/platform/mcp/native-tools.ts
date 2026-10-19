@@ -38,6 +38,19 @@ export type NativeToolContext = {
    * (telemetry is best effort); the call goes on either way.
    */
   startRun(projectId: string): Promise<string | null>;
+  /**
+   * Runs `work` in one of the project's execution slots (R-10, limits.ts):
+   * at most two tool executions per project at a time in this process; a
+   * call that finds none free within the wait fails as BUSY. A native wraps
+   * the part that reads the project (every `scoped()` call locks it).
+   */
+  withProjectSlot<T>(
+    projectId: string,
+    work: () => Promise<T>,
+    options?: { deadline?: number },
+  ): Promise<T>;
+  /** A wait deadline starting now, to share one wait over several projects. */
+  projectSlotDeadline(): number;
   log: FastifyBaseLogger;
 };
 

@@ -1,5 +1,42 @@
 # Implementation status
 
+## Track M WP-M5: rollout preparation (2026-10-19, local; flags off)
+
+Branch `claude/track-m-wp-m5`, stacked on #172 (`claude/track-m-wp-m4`); retarget its PR to `main` after #172 merges. Plan: `docs/superpowers/plans/2026-10-19-track-m-wp-m5-rollout.md` (decisions D-M5-1…10). Risk: high (prepares a public endpoint and OAuth changes). Environment: local only. Nothing was pushed, merged or deployed, no flag was changed, no production call was made and no external tool was downloaded. Every production step is an approval in the runbook `docs/deployment/MCP_ROLLOUT.md` ("Approvals needed", A1…A9). Prepared security review: `docs/SECURITY_REVIEW.md`, "MCP gateway prepared review". Acceptance mapping: `docs/REQUIREMENTS_TRACEABILITY.md` ("Track M WP-M5 acceptance").
+
+- **Task 1: deploy-safe gateway service (D-M5-1…5).** With `ORBIT_MCP_GATEWAY` or `ORBIT_MCP_OAUTH` not `"true"`, `apps/api/src/mcp-main.ts` starts a disabled app (`apps/api/src/platform/mcp/bootstrap.ts`): `GET /healthz` answers `{"status":"disabled"}`, every other request an empty 404 before any body is read; auth, database and SDK code are never loaded. New compose service `mcp` (same image, port 4312 pinned, health check on `/healthz`, `stop_grace_period: 15s`, `SERVICE_URL_MCP_4312: /mcp`, no host port), asserted by `scripts/check-coolify-compose.mjs`. The gateway serves the endpoint at `/mcp` and `/` (in case Coolify strips the prefix). The web `.well-known` route forwards exactly the two Protected Resource Metadata paths to `ORBIT_MCP_ORIGIN` (default `http://mcp:4312`). New config key `MCP_JWKS_URL` (empty = `${APP_ORIGIN}/api/auth/jwks`; compose sets `http://api:4311/api/auth/jwks` for `mcp`).
+- **Task 2: gateway hardening (D-M5-6).** Unauthenticated limit keyed by IPv6 /64 and counted before token verification (a token this process verified is not counted per address); separate address and key limiters with a 50 000-key cap each; pre-validation follows the SDK's element cap and async refinements; forced exit after 10 s in shutdown; DPoP-bound tokens tested and `dpop_signing_alg_values_supported` advertised; per-project concurrency (R-10: 2 slots per project and process, queue 16, 10 s wait, then `BUSY`; a busy project is skipped in a multi-project search); canonical URLs over 2048 characters fall back to the Orbit deep link and `fetch` text is clipped by its JSON-escaped size; query text absent from logs, audit, grant events and runs (tested); support list sync test.
+- **Task 3: OAuth pre-flip hardening (D-M5-7).** `MCP_RESOURCE` normalized at load and in the authorize and token comparisons; migration `202610190001_mcp_grant_constraints`: `CHECK` on `McpGrant.status`, index on `McpGrant.sessionId` and a nullable column `McpGrant.requestHash`; the pending selection is bound to its authorization request (hash of the stable parameters); a `/oauth2/token` after-hook deletes tokens minted for a non-active grant; any `token_endpoint_auth_method` change revokes the client's grants; tests for deny after a replacement, `GRANT_CONFLICT` and the sign-in continuation; expired pending selections are deleted on the user's next selection; RFC 7009 revocation keeps the grant (decided).
+- **Task 4: proposal controls (D-M5-8).** Quotas keyed on (user, client, workspace) (`proposalsPerHour`, `proposalsPerDay`), the hourly bucket charged before the call, a daily "used up" cache until UTC midnight; `mcp.proposal` recorded centrally by the adapter after the tool commits; registration requires every MCP-exposed `P_proposal` tool to report `deduplicated` and `actionRequestId`; the requester derived centrally (`mcpProposalOrigin`, `mcpRequester`); the inbox list and the project export trim an MCP requester to `{ kind, userId, clientId }`; cancellations run as an explicit system actor, one transaction per request, failures logged as `MCP_PROPOSAL_CANCEL_FAILED` while the sweep continues.
+- **Task 5: smoke, runbook, prepared review.** `scripts/mcp-conformance.ts` and the CLI `scripts/mcp-smoke.ts` (raw JSON-RPC for 2026-07-28 and 2025-11-25, disabled mode, the token never printed), run in-process by `apps/api/tests/mcp-conformance.integration.test.ts`; the runbook; the prepared security review; the web forwarding drops `Set-Cookie` from the gateway.
+- **Task 6: this entry,** the ticks in the WP-M1…M4 checklists below, the WP-M5 traceability rows, the final approvals table and the full check.
+
+**What a merge changes in production (approval A2).**
+- The migration `202610190001_mcp_grant_constraints` (additive: constraint, index, nullable column), through the `migrate` service and its release gate. Read-only pre-check before the merge (A2a): no `McpGrant` row with a status outside pending, active and revoked (the table is expected to be empty with the flag off).
+- The new `mcp` container in disabled mode: health only, everything else 404. It receives the whole API environment and the `database` and `egress` networks (a least-privilege follow-up). Coolify may generate a public domain for the path-only `SERVICE_URL_MCP_4312`; clearing it is sub-step A2b.
+- Live without any flag:
+  - Web: `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp` are no longer answered 404 by web itself but forwarded to the `mcp` service. In disabled mode the gateway answers 404 (as before); when the `mcp` service is unreachable or down, web answers 502 with the shared `API_UNAVAILABLE` body (also in the non-Coolify `infra/compose.yml`, which has no `mcp` service). Cookies from the gateway are never passed on; the API's obsolete `Set-Cookie2` header is no longer passed either.
+  - The owner inbox list and the project export show an MCP requester as `{ kind, userId, clientId }`; other requesters are unchanged. Production has no MCP requests, so nothing visible changes.
+  - Tool registration (API startup) refuses an MCP-exposed `P_proposal` tool without `deduplicated` and `actionRequestId` in its output schema; the only such tool, `marketing_assignment_propose`, satisfies it.
+  - Config: `MCP_RESOURCE` is normalized at load (empty in production, so the default `<APP_ORIGIN>/mcp` in canonical form); `MCP_JWKS_URL` is validated in the shared base config (http or https URLs only; empty = unset; an invalid value would stop the API and worker too).
+  - The decide guard (`mcpGrantStillProposes`) is unchanged from WP-M4 and only applies to MCP requests. The cancellation actor runs only on a grant revocation, a proposal stop or a client change, all of which need `ORBIT_MCP_OAUTH`.
+- Flag-gated, inactive until the approvals: the OAuth pre-flip hardening (A4), the gateway hardening and the read tools (A5), the proposal controls (A8).
+
+**Verification (local, 2026-10-19, after Task 6).** Full suite on the per-worktree test database (`node scripts/test-db-for-worktree.ts`, which applies `202610190001`): `vitest run` with the local env file, 248 files, 2653 of 2653 tests passed. `tsc --noEmit` (root and `apps/web`), `next build --webpack` (`apps/web`), `scripts/check-coolify-compose.mjs`, `docker compose config -q` (with a placeholder `ORBIT_RELEASE_APPROVAL`; without one it fails by design, the release gate), `scripts/source-check.mjs` and `scripts/boundaries.mjs` (0 known import violations, none new) and `python3 scripts/check-secrets.py` pass. `python3 scripts/check_framework.py --require-full-validation` reports 0 errors in the repository; its only errors come from the git-ignored local `.superpowers/` work folder. Not done (approvals): MCP Inspector (A7), ChatGPT developer mode (A6), the smoke against the deployed endpoint (A3, A5), a load test and the independent security review.
+
+**Known limitations and deferred findings (accepted for WP-M5).**
+- Coolify behaviour is not verified locally and is written as runbook checks: the render of the `<<:` merge key in the `mcp` environment, a domain generated from the path-only `SERVICE_URL_MCP_4312` before A3, whether `/mcp` is stripped (then `/mcp/healthz` shows the gateway mode publicly), router priority, `stop_grace_period`.
+- The `mcp` container gets the whole API environment and the `database` and `egress` networks, also while disabled; the compose check does not assert the hardening keys for `mcp`.
+- Forwarding errors for the PRM paths reuse the API's 502 body (`API_UNAVAILABLE`, "workspace service").
+- Limits: the address limiter refuses new keys when full (a holder of a /48 could fill it), and under such a flood a legitimate client with an expired token from a new address gets 429 instead of the 401 challenge; after a restart the verified-token cache is empty, so clients behind shared addresses can see 429 for a minute; limits are per process (a second replica needs Redis-backed limits).
+- Concurrency slots: a registry tool call takes its project's slot before the project is authorized (bounded by 2 slots and 10 s); a `BUSY` single-project search still starts an AgentRun.
+- Proposal counting: the daily quota can be overshot by calls in flight; it undercounts when the `mcp.proposal` write fails (`MCP_PROPOSAL_RECORD_FAILED`) and when a tool saves and then throws (its place is given back and no event is written). `assertMcpToolContracts` does not see modules unavailable at startup (registration checks all tools anyway). Cancellation reason codes are now `mcp_grant_ended`, `mcp_proposals_stopped` and `mcp_client_changed`, and `canceledBy` is always `system`.
+- OAuth: existing pending selections (none expected in production) need a new selection after the merge; the token-endpoint resource rewrite covers a single `resource` value; the token after-hook relies on the provider's token body shape and the element counter copies MCP SDK 2.3.1 internals (re-run `mcp-oauth-preflip` and `mcp-hardening.unit` on every upgrade).
+- Open security items: no central client disable (`09` §7); the CIMD fetch timeout, address pinning and caching are library behaviour without an Orbit test; the JWKS rotation is not rehearsed; the dependency advisory re-check before A2 is open (no network in this work); the independent security review is pending.
+- Hygiene: `apps/api/src/platform/mcp-auth/plugins.ts` is about 730 lines, `limits.ts` and the gateway audit test are large; the disabled-mode test duplicates a port helper; the conformance `search` check validates the result shape only.
+
+**Rollback.** Nothing is deployed. After A2: redeploy the previous `main` commit; the migration stays (additive). After A3: remove the `/mcp` domain. After the flag flips: flags off in reverse order (runbook "Rollback").
+
 ## Track M WP-M4: MCP proposal surface (2026-10-18, local; flags off)
 
 Branch `claude/track-m-wp-m4`, built from `main` after WP-M2 (#165) and WP-M3 (#169). Plan: `docs/superpowers/plans/2026-10-18-track-m-wp-m4-proposals.md` (decisions D-M4-1…12 below). Risk: high (a write path for external agents). Environment: local only. **Merging:** WP-M4 adds no migration and no dependency. The code deploys, but the gateway stays off in production (`ORBIT_MCP_GATEWAY` is `false`, no compose service runs it) and `ORBIT_MCP_PROPOSALS` defaults to `false`, so nothing MCP-related runs until WP-M5. Two changes reach running code on deploy: the `requestedBy` union and `createActionRequest` gain the `mcp` variant (every existing requester is unchanged), and `assignment_propose` gains an MCP branch that the assistant path never takes (its output and checks are unchanged).
@@ -16,17 +53,17 @@ Branch `claude/track-m-wp-m4`, built from `main` after WP-M2 (#165) and WP-M3 (#
   - Inside the proposal transaction the grant is checked again with the decide guard (`mcpGrantStillProposes`): a grant revoked or stopped after the gateway resolved the principal refuses with `MCP_GRANT_ENDED` (409) and creates nothing. A stop that commits after this check runs its sweep under the same project lock, so it cancels what the transaction commits; no orphan proposal remains.
   - Output (strict `outputSchema`, D-M4-5): `{ status: "pending_approval", actionRequestId, assignmentId, expiresAt, approveUrl, deduplicated }` with `approveUrl = ${APP_ORIGIN}/p/<projectId>/approvals` (no per-request deep link exists). The `deduplicated` field exists so the quota can count creations only.
   - `argsHash` = hash of `{ tool: "marketing_assignment_propose", projectId, args }` with the arguments as `assignmentInput` normalized them, so a retry that spells out a default still matches, and a second tool on the same action type would get its own dedupe key. Only the hash is stored.
-  - Each created proposal writes one `McpGrantEvent` `mcp.proposal` (action type and request id; no arguments) as the last step of the proposal transaction. A deduplicated call writes none.
+  - Each created proposal writes one `McpGrantEvent` `mcp.proposal` (no arguments). A deduplicated call writes none. WP-M4 wrote it (action type and request id) as the last step of the proposal transaction; since WP-M5 (Task 4) the adapter writes it centrally after the tool commits, with the detail `{ tool, actionRequestId }` (a failed write is logged as `MCP_PROPOSAL_RECORD_FAILED` and the daily count is then one short).
   - No side effect before the decision: the draft assignment has no confirmation and schedules no runs. The decision revalidates the assignment (hash, policy, budget), so a stale or replayed decision does nothing.
   - The assistant path is unchanged: same conversation check, `requestedBy: agent`, same output. The MCP adapter alone validates against `outputSchema`; the chat runner never reads it.
   - MCP visibility now computes module features with `toolSearch: true` (`apps/api/src/platform/mcp/visibility.ts`). Marketing offers its `agents` tools only then, and MCP lists every tool directly. It affects only MCP-exposed tools (`project_status`, `support_insights`, `assignment_propose`); the same role and permission checks apply. With Orbit Agents off, or for a viewer, the tool is unlisted and a call answers JSON-RPC -32602 (the WP-M2 behaviour for unknown tools).
 - **`ORBIT_MCP_PROPOSALS`** (D-M4-9; `packages/config/src/index.ts`, `.env.example`, `docker-compose.yml`, `scripts/check-coolify-compose.mjs`). `"false"` (default, compose-safe: empty means unset) or `"true"`. While off, every `P_proposal` tool is dropped from the principal's visible tools: not listed, and a call is refused. The same gate backs listing and `authorizeMcpCall` (which throws `MCP_TOOL_NOT_ALLOWED` 403; the adapter does not register a hidden tool, so a client sees -32602). The flag is read per request, so turning it off acts at once. It gates the WP-M2 fixture tool `tasks_suggest_task` too. `orbit_action_status` does not depend on it.
-- **Quotas (D-M4-8)** per grant, enforced in the adapter for every `P_proposal` registry tool before its run starts. Numbers are `proposalsPerHourPerGrant: 20` and `proposalsPerDayPerGrant: 100` in `MCP_RATE_LIMITS`, so the existing `rateLimits` option can override them.
-  - Hourly: a fixed one-hour window in the in-process limiter (`RateRule.windowMs`, new `check()` and `charge()`); it resets on restart and is per gateway process.
-  - Daily: the count of the grant's `mcp.proposal` events since the start of the UTC day, read from `McpGrantEvent`, so it survives restarts and also counts a creation whose call timed out.
-  - Check before, charge after: capacity is checked after the input parse, and the hourly bucket is charged after a successful execute unless the output says `deduplicated === true`. A dedupe hit does not count, and a P tool that does not report `deduplicated` is counted.
+- **Quotas (D-M4-8, as amended by WP-M5 Task 4)** keyed on (user, client, workspace), not on the grant id, so a re-selection (a new grant) does not reset them. Enforced in the adapter for every `P_proposal` registry tool before its run starts. Numbers are `proposalsPerHour: 20` and `proposalsPerDay: 100` in `MCP_RATE_LIMITS` (WP-M4 named them `proposalsPerHourPerGrant` and `proposalsPerDayPerGrant`), so the existing `rateLimits` option can override them.
+  - Hourly: a fixed one-hour window in the in-process limiter (`RateRule.windowMs`, `check()`, `charge()` and, since WP-M5, `refund()`); it resets on restart and is per gateway process.
+  - Daily: the count of the key's `mcp.proposal` events (all grants of that user, client and workspace) since the start of the UTC day, read from `McpGrantEvent`, so it survives restarts and also counts a creation whose call timed out. Since WP-M5 a key that reached the limit is cached as used up until the next UTC midnight (`McpProposalDayCache`, at most 10 000 keys), so further refusals need no count.
+  - Charge first (WP-M5; WP-M4 checked before and charged after): `reserveProposal` checks and charges the hourly bucket in one synchronous step before the tool runs, and gives the place back on `deduplicated: true`, on a thrown call, on a daily refusal and on a failed count. A dedupe hit does not count, and every MCP-exposed P tool must report `deduplicated` (registration contract, WP-M5).
   - Refusal: an `isError` result `PROPOSAL_QUOTA_EXCEEDED`, fixed text "the proposal quota of this connection is used up for now", `retryable: false`, audited with that outcome.
-  - Concurrency: calls in flight together can all pass the check, so the quota can be overshot by the number of concurrent calls of one grant (bounded by the 120 requests a minute grant rate; the project lock serializes creations in one project). It is never undercounted, except for a late completion after TIMEOUT, which is charged too.
+  - Concurrency: concurrent calls of one key cannot pass the hourly quota together (charge first); the daily quota can still be overshot by calls already in flight (no database guard). It undercounts when the `mcp.proposal` write fails and when a tool saves and then throws.
 - **Non-retryable failures (D-M4-11).** `TIMEOUT`, 429 and 5xx answers carry `retryable: false` for `P_proposal` and `W0_internal` tools (`transientRetryable` in `apps/api/src/platform/mcp/errors.ts`); read tools keep `retryable: true`. A timed-out proposal may still complete, and the client finds it through the dedupe or `orbit_action_status`.
 - **`orbit_action_status`** (D-M4-12; native tool, `R0_read`, `orbit:read`; `apps/api/src/platform/mcp/native/action-status.ts`).
   - Input (strict): `{ projectId: uuid, actionRequestId: uuid }`. Output (strict): `{ actionRequestId, actionType, status, createdAt, expiresAt, decidedAt: string | null, approveUrl }` with `status` in `pending | approved | rejected | consumed | canceled | expired`.
@@ -48,13 +85,13 @@ Branch `claude/track-m-wp-m4`, built from `main` after WP-M2 (#165) and WP-M3 (#
   5. Proposal output with `approveUrl`. Amended: the MCP shape carries `deduplicated`.
   6. URL-mode elicitation deferred to WP-M5: support in ChatGPT and dots is undocumented, a legacy client cannot receive it statelessly, and it needs an HMAC-protected `requestState`. The fallback is `approveUrl` plus `orbit_action_status`.
   7. Stricter mode: every action type is already `approval_required` with a human decider, the strictest mode implemented; no `auto*` mode exists, so there is no code. If a looser mode is ever added, MCP requests must stay one step stricter (ADR 0008 §4).
-  8. Quotas of 20 an hour and 100 a day per grant. Amended: the daily number counts UTC days and creations only.
+  8. Quotas of 20 an hour and 100 a day. Amended: the daily number counts UTC days and creations only; WP-M5 (D-M5-8) keys both on (user, client, workspace) instead of the grant.
   9. Central switch `ORBIT_MCP_PROPOSALS` and the per-grant "stop proposals".
   10. Revocation and stopping cancel pending proposals. Amended: best effort after the grant change, plus the decide guard.
   11. `TIMEOUT` and transient failures are not retryable for P and W0 tools.
   12. `orbit_action_status`. Amended: malformed ids are rejected by the SDK's input validation, `expired` is derived for pending requests only, and the lookup matches the caller's user and client (not grant id).
 
-  Rulings beyond the plan: the visibility `toolSearch: true` above; the MCP `agentRunId` falls back to null when the gateway had no AgentRun; the `mcp.proposal` event is the last step inside the proposal transaction (a failed commit after it overcounts the quota by one, never undercounts); the guard accepts the active successor of a replaced grant, so a re-consent does not strand pending proposals, but only while no non-continuing revocation and no stop happened since the request was created; `toolFailure` and `timeoutResult` require the tool's risk (a missing risk must never read as retryable).
+  Rulings beyond the plan: the visibility `toolSearch: true` above; the MCP `agentRunId` falls back to null when the gateway had no AgentRun; the `mcp.proposal` event is the last step inside the proposal transaction (a failed commit after it overcounts the quota by one, never undercounts; superseded in WP-M5 by central recording after the commit, see above); the guard accepts the active successor of a replaced grant, so a re-consent does not strand pending proposals, but only while no non-continuing revocation and no stop happened since the request was created; `toolFailure` and `timeoutResult` require the tool's risk (a missing risk must never read as retryable).
 - **Tests** (all under `apps/api/tests/` unless noted).
   - `mcp-proposals-contract.integration.test.ts` (17): the `requestedBy` union, the registry-wide allowlist, `ACTION_TYPE_NOT_PROPOSABLE` for non-proposable types, `action_request.proposed` without payload, `findPendingMcpProposal`.
   - `mcp-proposal-flow.integration.test.ts` (8): real WP-M1 tokens end to end. Proposal → owner inbox → owner approves → assignment confirmed by the existing executor; `mcp proposal: decide, replay and hash mismatch`; dedupe; domain refusals; the assistant path; agents off.
@@ -74,22 +111,22 @@ Branch `claude/track-m-wp-m4`, built from `main` after WP-M2 (#165) and WP-M3 (#
 - Re-consent pre-ticks `orbit:propose` again (the WP-M1 default scopes), so a user who stopped proposals must untick it on the consent step the next connect shows. Stopping proposals is not remembered across a new grant beyond that consent step.
 - The hourly window is fixed, not sliding (up to twice the limit across a boundary), in process, and resets on restart; the daily quota is the durable one. A full hourly bucket also refuses a call that would have been a dedupe hit.
 - A dedupe hit does not re-run the mandate check; the decision revalidates the assignment, so the client learns of a changed mandate only at decision time or from the status.
-- The owner inbox list returns the raw `requestedBy` (grant id, `argsHash`, agent run id) and the full assignment payload; it reaches owners only (`listActionRequests` authorizes `PROJECT_OWN`).
-- The cancellation scope uses a fabricated owner role (no role is checked there; the grant change was authorized before), and the cancellation-failure path (logging, the sweep continuing) has no test of its own; the tests simulate a failed sweep by setting a cancelled request back to pending.
-- The daily quota count runs on every `P_proposal` call that passes the hourly check (one indexed count over a day of the grant's events), and both quotas key on the grant id, so a re-selection (a new grant id) starts with fresh hourly and daily buckets.
-- The requester of a proposal is derived in the tool from `context.channel` (`kind === "mcp"`), not centrally by the adapter.
+- The owner inbox list returns the full assignment payload; it reaches owners only (`listActionRequests` authorizes `PROJECT_OWN`). WP-M4 also returned the raw `requestedBy`; since WP-M5 (Task 4) the list and the project export show an MCP requester as `{ kind, userId, clientId }` only.
+- Resolved in WP-M5 (Task 4): the cancellation used a fabricated owner role and its failure path had no test. It now runs as the system actor (`canceledBy: "system"`, reason, `initiatedBy`), one transaction per request, and a failure is logged (`MCP_PROPOSAL_CANCEL_FAILED`) while the sweep continues (tested).
+- Resolved in WP-M5 (Task 4): the daily count ran on every call and both quotas keyed on the grant id, so a re-selection reset them. They now key on (user, client, workspace), and a used-up day is cached until UTC midnight.
+- Resolved in WP-M5 (Task 4): the requester was derived in the tool. It now comes from the central helpers `mcpProposalOrigin` and `mcpRequester` (`apps/api/src/platform/mcp/proposals.ts`), which refuse an incomplete channel.
 - Smaller test gaps: the dedupe tests lack approved-then-same-args, pending-but-expired, an event-write rollback and a null `agentRunId`; `channels` order is not normalized in `argsHash`.
 
 **WP-M5 checklist additions (on top of the WP-M2, WP-M3 and WP-M1 lists).**
-- [ ] Cache "daily quota used up" per grant until UTC midnight, so calls stop counting a day of events each time.
-- [ ] Add a registry assertion (or a test) that every `P_proposal` tool writes `mcp.proposal`, and reports `deduplicated`; the daily quota relies on both. `tasks_suggest_task` (a fixture) does neither.
-- [ ] Trim `requestedBy` (grant id, `argsHash`, agent run id) in the owner inbox list output.
-- [ ] Add a test for a failing cancellation (logged, sweep continues, the guard still refuses the approval), and give the cancellation scope an explicit system role instead of a fabricated owner role.
-- [ ] Key the proposal quotas on (user, client, workspace) rather than the grant id, so a re-selection does not reset them; cache the daily count (see above).
-- [ ] Derive the MCP requester centrally (adapter or `ToolContext`) from `context.channel`, so a future proposal tool cannot forget it.
-- [ ] Decouple `apps/api/src/modules/action-requests.ts` from the auth grant table and `apps/api/src/platform/mcp-auth/grants.ts` (about 1,000 lines) from the cancellation: ports between action requests and MCP auth.
-- [ ] Decide whether to implement URL-mode elicitation, an owner notification on creation and a per-request deep link.
-- [ ] Review the wording and numbers of the quotas with real client behaviour (dots loops) and decide whether the hourly window should be sliding or durable.
+- [x] Cache "daily quota used up" per (user, client, workspace) until UTC midnight, so calls stop counting a day of events each time. WP-M5 Task 4.
+- [x] Add a registry assertion (or a test) that every `P_proposal` tool writes `mcp.proposal`, and reports `deduplicated`; the daily quota relies on both. `tasks_suggest_task` (a fixture) does neither. WP-M5 Task 4: the adapter records `mcp.proposal` centrally, registration requires `deduplicated` and `actionRequestId`, and the fixture now reports both.
+- [x] Trim `requestedBy` (grant id, `argsHash`, agent run id) in the owner inbox list output. WP-M5 Task 4 (the project export too).
+- [x] Add a test for a failing cancellation (logged, sweep continues, the guard still refuses the approval), and give the cancellation scope an explicit system role instead of a fabricated owner role. WP-M5 Task 4.
+- [x] Key the proposal quotas on (user, client, workspace) rather than the grant id, so a re-selection does not reset them; cache the daily count (see above). WP-M5 Task 4.
+- [x] Derive the MCP requester centrally (adapter or `ToolContext`) from `context.channel`, so a future proposal tool cannot forget it. WP-M5 Task 4.
+- [ ] Decouple `apps/api/src/modules/action-requests.ts` from the auth grant table and `apps/api/src/platform/mcp-auth/grants.ts` (about 1,000 lines) from the cancellation: ports between action requests and MCP auth. Open: a refactor, recommended for later (D-M5-9, A9).
+- [ ] Decide whether to implement URL-mode elicitation, an owner notification on creation and a per-request deep link. Open: Mario decision A9 (recommendation: later).
+- [ ] Review the wording and numbers of the quotas with real client behaviour (dots loops) and decide whether the hourly window should be sliding or durable. Open: Mario decision A9 (recommendation: keep for A6, review before A8).
 
 **Follow-ups for the other proposal tools.**
 - `propose_campaign`: a ChatProposal bound to a conversation; needs either a conversation-less variant or an ActionRequest type.
@@ -227,16 +264,16 @@ Branch `claude/track-m-wp-m3`, stacked on `claude/track-m-wp-m2` (draft PR #165)
 - Other deferred review findings (tests and hygiene only): the `_meta` merge is covered but a late rejection after a timeout is not; the search-side negative passage assertions are partly vacuous (`topK` and a shared token); the fact cases lack "generated authority" and "not yet valid"; `projectLanguage` raises a Prisma error instead of `NOT_FOUND` for a vanished project; `modelFacts` queries the sources twice; of the readiness states only `not_configured` is exercised end to end for `marketing_project_status`; the registry test's schema walker skips `patternProperties`.
 
 **WP-M4 items (write path).**
-- Proposal tools go through ActionRequests with `requestedBy` of kind `mcp`, with quotas per grant, the central kill switch and `orbit_action_status`.
+- Proposal tools go through ActionRequests with `requestedBy` of kind `mcp`, with quotas (per grant in WP-M4, keyed on user, client and workspace since WP-M5), the central kill switch and `orbit_action_status`.
 - `TIMEOUT` must be `retryable: false` for proposal tools.
 
 **WP-M5 checklist additions (on top of the WP-M2 and WP-M1 lists).**
-- [ ] Review the fields `marketing_project_status` exposes (AI spend limits, draft titles, pending approval content ids, readiness blockers and actions, channel ids, names and providers, official links), and decide whether any should stay internal.
-- [ ] Clip long canonical URLs and escape-heavy text so `search` and `fetch` cannot hit `OUTPUT_TOO_LARGE`.
-- [ ] Add a test that the query text is absent from logs, audit rows and run data (arguments are stored nowhere today; only the hash and the error code are logged).
-- [ ] Add a sync check for the support status and priority lists that `support_insights` duplicates (a new status makes the tool fail its schema until it is updated).
-- [ ] Per-project concurrency (R-10) for searches and the other tools; searches run sequentially over at most 5 projects today.
-- [ ] Run the ChatGPT connector end to end (search, cite, fetch) against the deployed gateway.
+- [ ] Review the fields `marketing_project_status` exposes (AI spend limits, draft titles, pending approval content ids, readiness blockers and actions, channel ids, names and providers, official links), and decide whether any should stay internal. Open: Mario decision A9 (recommendation in `docs/SECURITY_REVIEW.md`: keep for the read-only start).
+- [x] Clip long canonical URLs and escape-heavy text so `search` and `fetch` cannot hit `OUTPUT_TOO_LARGE`. WP-M5 Task 2.
+- [x] Add a test that the query text is absent from logs, audit rows and run data (arguments are stored nowhere today; only the hash and the error code are logged). WP-M5 Task 2.
+- [x] Add a sync check for the support status and priority lists that `support_insights` duplicates (a new status makes the tool fail its schema until it is updated). WP-M5 Task 2.
+- [x] Per-project concurrency (R-10) for searches and the other tools; searches run sequentially over at most 5 projects today. WP-M5 Task 2 (2 slots per project and process, 10 s wait, then `BUSY`).
+- [ ] Run the ChatGPT connector end to end (search, cite, fetch) against the deployed gateway. Open: approval A6.
 
 ## Track M WP-M2: MCP gateway core (2026-10-18, local; flag off)
 
@@ -306,21 +343,22 @@ Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpower
   - a module role raise is not a case of the permission matrix.
 
 **WP-M5 checklist (before `ORBIT_MCP_GATEWAY=true` and the WP-M1 pre-flip checklist below).**
-- [ ] The compose service `mcp` (same image, command `tsx apps/api/src/mcp-main.ts`, healthcheck on `/healthz`) and the Traefik routes for `/mcp` and the two Protected Resource Metadata paths (Q-22, `https://orbit.eds-labs.io/mcp`, no subdomain).
-- [ ] Decide an internal JWKS URL config key, so verification does not hairpin through the public origin (`buildMcpServer({ jwksUrl })` is the seam; a JWKS outage answers 503 without detail).
-- [ ] Redis-backed limits if more than one gateway runs (limits are per process today).
-- [ ] Verify peer trust and the right-most `X-Forwarded-For` behind Traefik, including docker-proxy published ports where the TCP peer looks like a private bridge IP (`isTrustedPeer` would then trust a forwarded header the proxy did not set).
-- [ ] Tune the limits for shared client egress IPs (ChatGPT calls from a few addresses): 401 polling by many users fills one IP bucket of 30 per minute, and every authenticated request (also `tools/list`) counts toward the grant, user and client buckets.
-- [ ] Keep the compose default for `MCP_PORT` (validated in the shared base config, so an invalid value stops the API and worker too; see "Flags and config").
-- [ ] Key the unauthenticated limit by the IPv6 /64 prefix and cap the limiter map size (IPv6 address rotation evades the per-IP limit today; the map only drops expired windows).
-- [ ] Verify before the IP limit: a request with a bad token is verified (JWKS work) before it is counted.
-- [ ] The adapter's pre-validation skips the SDK's `maxToolInputElements` and would throw on async schema refinements; align it or use the SDK's own check.
-- [ ] A test with a DPoP-bound token, and advertise `dpop_signing_alg_values_supported` if DPoP is supported.
-- [ ] MCP Inspector conformance for both revisions (2026-07-28 and 2025-11-25), plus the ChatGPT developer-mode run (Q-21, Q-23).
-- [ ] Decide CORS for browser clients (today none).
-- [ ] A forced-exit timeout in the shutdown path (a hung `app.close()` would block the exit).
-- [ ] Salt or key the `argsHash` if audit read access is wider than needed.
-- [ ] The independent security review (`09` §9), including the O-6 check that the scope is built through `projectMembership`.
+- [x] The compose service `mcp` (same image, command `tsx apps/api/src/mcp-main.ts`, healthcheck on `/healthz`) and the two Protected Resource Metadata paths (Q-22, `https://orbit.eds-labs.io/mcp`, no subdomain). WP-M5 Task 1: the service runs in disabled mode while a flag is off, and the web origin forwards the PRM paths to it (D-M5-4), so no Traefik route outside `/mcp` is needed.
+- [ ] The Coolify/Traefik route for `/mcp` on the `mcp` service. Open: approval A3 (runbook "Coolify setup").
+- [x] Decide an internal JWKS URL config key, so verification does not hairpin through the public origin (`buildMcpServer({ jwksUrl })` is the seam; a JWKS outage answers 503 without detail). WP-M5 Task 1: `MCP_JWKS_URL`, compose default `http://api:4311/api/auth/jwks` for `mcp`.
+- [ ] Redis-backed limits if more than one gateway runs (limits are per process today). Open: not needed for the single replica of A2–A8; a follow-up before a second replica.
+- [ ] Verify peer trust and the right-most `X-Forwarded-For` behind Traefik, including docker-proxy published ports where the TCP peer looks like a private bridge IP (`isTrustedPeer` would then trust a forwarded header the proxy did not set). Prepared in WP-M5 Task 1 (the `mcp` service publishes no host port, asserted by `scripts/check-coolify-compose.mjs`) and Task 5 (runbook check). Open: the production check after approval A5.
+- [ ] Tune the limits for shared client egress IPs (ChatGPT calls from a few addresses): 401 polling by many users fills one IP bucket of 30 per minute, and every authenticated request (also `tools/list`) counts toward the grant, user and client buckets. Partly WP-M5 Task 2: a token this process verified no longer counts against its address, and the address limiter has its own cap. Open: the numbers are Mario decision A9, checked with real traffic after A5/A6.
+- [x] Keep the compose default for `MCP_PORT` (validated in the shared base config, so an invalid value stops the API and worker too; see "Flags and config"). WP-M5 Task 1: the `mcp` service pins `MCP_PORT: "4312"` (its expose, health check and `SERVICE_URL_MCP_4312` depend on it).
+- [x] Key the unauthenticated limit by the IPv6 /64 prefix and cap the limiter map size (IPv6 address rotation evades the per-IP limit today; the map only drops expired windows). WP-M5 Task 2.
+- [x] Verify before the IP limit: a request with a bad token is verified (JWKS work) before it is counted. WP-M5 Task 2: requests are counted before verification.
+- [x] The adapter's pre-validation skips the SDK's `maxToolInputElements` and would throw on async schema refinements; align it or use the SDK's own check. WP-M5 Task 2.
+- [x] A test with a DPoP-bound token, and advertise `dpop_signing_alg_values_supported` if DPoP is supported. WP-M5 Task 2.
+- [ ] MCP Inspector conformance for both revisions (2026-07-28 and 2025-11-25), plus the ChatGPT developer-mode run (Q-21, Q-23). Prepared in WP-M5 Task 5 (local conformance of both revisions, `scripts/mcp-smoke.ts`). Open: approvals A7 (Inspector) and A6 (ChatGPT).
+- [ ] Decide CORS for browser clients (today none). Open: Mario decision A9 (recommendation: none).
+- [x] A forced-exit timeout in the shutdown path (a hung `app.close()` would block the exit). WP-M5 Task 2 (10 s).
+- [ ] Salt or key the `argsHash` if audit read access is wider than needed. Open: Mario decision A9 (recommendation: not needed while audit access stays narrow).
+- [ ] The independent security review (`09` §9), including the O-6 check that the scope is built through `projectMembership`. Prepared in WP-M5 Task 5 (`docs/SECURITY_REVIEW.md`, "MCP gateway prepared review"). Open: the independent review is not one of the approvals A1–A9; Mario decides whether it must come before A5.
 
 **WP-M3 items (status after WP-M3; details in "Track M WP-M3" above).**
 - Expose reviewed read tools with `outputSchema`s; filter results by `modelUse` and hard floors; render cards as Orbit links; add the native `search`, `fetch` and `orbit_profile`; add `orbit:propose` tools through ActionRequests. Delivered: `search`, `fetch`, `orbit_profile`, `marketing_project_status`, `support_insights` with the `modelUse` and eligibility filtering. Not delivered: cards as links (results carry a `url` instead) and the `orbit:propose` tools (WP-M4).
@@ -329,7 +367,7 @@ Branch `claude/track-m-wp-m2` (from `main` at `89c4694`). Plan: `docs/superpower
 - ActionRequests from MCP carry `requestedBy: { kind: "mcp", clientId, grantId }`. Moved to WP-M4.
 - Refuse MCP exposure of tools that need a conversation (the package and proposal tools key rows by `conversationId`; the adapter passes a synthetic `mcp:<requestId>`). Open for WP-M4: the two WP-M3 registry tools are read-only and do not key rows by conversation.
 - Review per tool that its arguments are parsed twice (the SDK's schema check, then the adapter's `parameters.parse`). Delivered for the two WP-M3 tools (a note in each tool file).
-- `09` §7 global concurrency per project (R-10) and tool-execution timeouts. The 25 s timeout is delivered (D-M3-11); concurrency is a WP-M5 item.
+- `09` §7 global concurrency per project (R-10) and tool-execution timeouts. The 25 s timeout is delivered (D-M3-11); concurrency is delivered in WP-M5 (Task 2).
 
 **Final review fixes (2026-10-18).** Limits are charged from the verified claims before `resolvePrincipal` (a 429 costs no database read) and membership checks run at most four at a time; refused calls store a client-supplied tool name only when it is a known tool name (`<unknown>` otherwise, and no `AgentRun` for an unknown tool); MCP exposure requires an object output schema. Test counts and the full run are in the verification below.
 
@@ -679,17 +717,17 @@ Branch `claude/track-m-mcp-gateway-phase-4-657900`. Plan: `docs/superpowers/plan
 - `docs/evidence/source-manifest.json` is stale for `docker-compose.yml` (and has been since the initial commits); regenerate it with `node scripts/source-manifest.mjs` at the next evidence refresh.
 
 **WP-M5 pre-flip checklist (before `ORBIT_MCP_OAUTH=true` in production).**
-- [ ] Normalize `MCP_RESOURCE` (trailing slash, host case) at config load and in the `resource` comparison.
-- [ ] Add a `CHECK` constraint on `McpGrant.status` (allowed values only).
-- [ ] Bind the pending selection to the signed OAuth query, not only to session and client.
-- [ ] Characterization test for the provider's sign-in continuation: the after-hook re-run after `/connect/login`.
-- [ ] A `/oauth2/token` after-hook that deletes tokens minted for a non-active grant (closes the code-consume and refresh-rotation millisecond windows).
-- [ ] Decide on a `token_endpoint_auth_method` downgrade (`private_key_jwt` → `none`); recommended: revoke the client's grants.
-- [ ] Tests for deny after a replacement and for `GRANT_CONFLICT`.
-- [ ] Review the per-IP limits against hosted clients (ChatGPT egress IPs share addresses).
-- [ ] Cleanup of abandoned pending selections.
-- [ ] RFC 7009 client revocation vs grant status: decide whether a client's token revocation changes the grant (WP-M2 decision).
-- [ ] Index on `McpGrant.sessionId`.
+- [x] Normalize `MCP_RESOURCE` (trailing slash, host case) at config load and in the `resource` comparison. WP-M5 Task 3.
+- [x] Add a `CHECK` constraint on `McpGrant.status` (allowed values only). WP-M5 Task 3 (migration `202610190001_mcp_grant_constraints`; applied in production with approval A2).
+- [x] Bind the pending selection to the signed OAuth query, not only to session and client. WP-M5 Task 3 (a hash of the stable authorization parameters, stored in the new `McpGrant.requestHash`).
+- [x] Characterization test for the provider's sign-in continuation: the after-hook re-run after `/connect/login`. WP-M5 Task 3.
+- [x] A `/oauth2/token` after-hook that deletes tokens minted for a non-active grant (closes the code-consume and refresh-rotation millisecond windows). WP-M5 Task 3 (narrows them: the check waits on an uncommitted revocation).
+- [x] Decide on a `token_endpoint_auth_method` downgrade (`private_key_jwt` → `none`); recommended: revoke the client's grants. WP-M5 Task 3: any change of the method revokes.
+- [x] Tests for deny after a replacement and for `GRANT_CONFLICT`. WP-M5 Task 3.
+- [ ] Review the per-IP limits against hosted clients (ChatGPT egress IPs share addresses). Partly WP-M5 Task 2 (verified tokens no longer count per address). Open: Mario decision A9 on the numbers and the production check after A5.
+- [x] Cleanup of abandoned pending selections. WP-M5 Task 3 (expired pending rows of the user, at most 100 per new selection).
+- [x] RFC 7009 client revocation vs grant status: decide whether a client's token revocation changes the grant (WP-M2 decision). WP-M5 Task 3: it keeps the grant (decided and tested).
+- [x] Index on `McpGrant.sessionId`. WP-M5 Task 3 (same migration).
 
 **WP-M2 entry criteria.**
 - Split `grants.ts` and `plugins.ts` (selection, revocation, client events, queries, hooks) before adding the gateway.

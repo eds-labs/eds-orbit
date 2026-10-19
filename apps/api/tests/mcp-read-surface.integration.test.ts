@@ -42,6 +42,10 @@ import {
   nativeTools,
   type NativeTool,
 } from "../src/platform/mcp/native-tools.ts";
+import {
+  MCP_OUTPUT_LIMIT_BYTES,
+  McpProjectSlots,
+} from "../src/platform/mcp/limits.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
 import {
   cimdFetchFor,
@@ -68,8 +72,12 @@ const HOUR = 3600000;
 // Every document carries this word, every fact key this prefix.
 const TOKEN = "quorvanthmcp";
 const FACT_PREFIX = "mcpsurfacefix";
+// A citation URL above the 2048-character cap (WP-M5).
+const LONG_URL = `https://docs.example.com/${"l".repeat(2100)}`;
+// Must never be stored or logged (lower-case letters: a valid search word).
+const QUERY_MARKER = "querymarkerzx9secret";
 
-const names = ["one", "beta", "two", "all", "charlie"] as const;
+const names = ["one", "beta", "two", "all", "charlie", "hotel"] as const;
 type Name = (typeof names)[number];
 const CLIENT = Object.fromEntries(
   names.map((n) => [n, `https://client.test/read-surface-${n}.json`]),
@@ -153,8 +161,13 @@ describe.skipIf(!enabled)(
       return (response.json() as Json).access_token as string;
     }
 
-    function rpc(method: string, params: Json, token: string) {
-      return gateway.inject({
+    function rpc(
+      method: string,
+      params: Json,
+      token: string,
+      app: FastifyInstance = gateway,
+    ) {
+      return app.inject({
         method: "POST",
         url: "/mcp",
         headers: {
@@ -463,6 +476,23 @@ describe.skipIf(!enabled)(
           name.toLowerCase(),
           await document(name, await source(name), `${name} guide`),
         );
+      // Hotel (WP-M5 clipping): a passage whose canonical URL is longer than
+      // 2048 characters, and one whose text is escape-heavy (every character
+      // doubles in JSON) and longer than the fetch limit.
+      const hotel = await source("Hotel");
+      sources.set("hotel", hotel);
+      chunks.set(
+        "hotel long url",
+        await document("Hotel", hotel, "Hotel long url", {
+          canonicalUrl: LONG_URL,
+        }),
+      );
+      chunks.set(
+        "hotel escape heavy",
+        await document("Hotel", hotel, "Hotel escape heavy", {
+          text: `Orbit ${TOKEN} escape heavy ${'"\\'.repeat(30_000)}`,
+        }),
+      );
       // Charlie's only index is retired: it cannot be searched at all (the
       // baseline index is created lazily only for a project without any).
       await run(ownerScope("Charlie"), (tx) =>
@@ -503,6 +533,7 @@ describe.skipIf(!enabled)(
         ),
       );
       tokens.charlie = await tokenFor("charlie", [project.Charlie]);
+      tokens.hotel = await tokenFor("hotel", [project.Hotel]);
     }, 180_000);
 
     afterAll(async () => {
@@ -1296,6 +1327,215 @@ describe.skipIf(!enabled)(
           }
           await expectBetaVisible();
         });
+      });
+    });
+
+    describe("hardening (WP-M5, D-M5-6)", () => {
+      it("a canonical URL above 2048 characters is cited by the Orbit deep link", async () => {
+        const library = `${appOrigin()}/p/${project.Hotel}/knowledge/library`;
+        const fetched = await fetchItem(
+          chunkId("Hotel", "hotel long url"),
+          "hotel",
+        );
+        expect(fetched.isError).toBeFalsy();
+        expect(fetched.structuredContent.url).toBe(library);
+        const found = await search({ query: TOKEN }, "hotel");
+        const hit = (found.structuredContent.results as Json[]).find(
+          (r) => r.id === chunkId("Hotel", "hotel long url"),
+        );
+        expect(hit?.url).toBe(library);
+        expect(JSON.stringify(found)).not.toContain("l".repeat(2049));
+      });
+
+      it("an escape-heavy passage is clipped so fetch stays within the 64 KB cap", async () => {
+        const result = await fetchItem(
+          chunkId("Hotel", "hotel escape heavy"),
+          "hotel",
+        );
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent.metadata.truncated).toBe(true);
+        const sent = result.content[0].text as string;
+        expect(Buffer.byteLength(sent)).toBeLessThanOrEqual(
+          MCP_OUTPUT_LIMIT_BYTES,
+        );
+        const version = await run(ownerScope("Hotel"), (tx) =>
+          tx.documentVersion.findUniqueOrThrow({
+            where: { id: chunks.get("hotel escape heavy")!.versionId },
+          }),
+        );
+        const text = result.structuredContent.text as string;
+        expect(version.text.startsWith(text)).toBe(true);
+        expect(text.length).toBeGreaterThan(20_000);
+      });
+
+      it("a busy project is skipped in a multi-project search; all busy is BUSY; waits share one budget", async () => {
+        const logLines: string[] = [];
+        const level = process.env.LOG_LEVEL;
+        process.env.LOG_LEVEL = "info";
+        const slots = new McpProjectSlots({ perProject: 1, waitMs: 300 });
+        const app = await withFlags(() =>
+          buildMcpServer({
+            cimdFetch,
+            jwksUrl,
+            projectSlots: slots,
+            toolTimeoutMs: 1000,
+            logStream: { write: (line: string) => void logLines.push(line) },
+          }),
+        );
+        if (level === undefined) delete process.env.LOG_LEVEL;
+        else process.env.LOG_LEVEL = level;
+        const searchOn = async (who: Name) => {
+          const response = await rpc(
+            "tools/call",
+            { name: "search", arguments: { query: TOKEN } },
+            tokens[who],
+            app,
+          );
+          expect(response.statusCode).toBe(200);
+          return rpcBody(response).result as Json;
+        };
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        const held: Promise<void>[] = [];
+        const hold = (name: ProjectName) =>
+          held.push(slots.run(project[name], () => gate));
+        try {
+          // Alpha busy: a search over Alpha and Beta returns Beta's results.
+          hold("Alpha");
+          const partial = await searchOn("two");
+          expect(partial.isError).toBeFalsy();
+          expect(projectsIn(partial)).toEqual(new Set([project.Beta]));
+          expect(logLines.join("")).toContain("MCP_SEARCH_PROJECT_BUSY");
+          expect(logLines.join("")).not.toContain(TOKEN);
+          // Every project busy: BUSY, retryable (a read).
+          hold("Beta");
+          const busy = await searchOn("two");
+          expect(busy).toMatchObject({
+            isError: true,
+            structuredContent: { code: "BUSY", retryable: true },
+          });
+          // Five busy projects wait one shared budget (300 ms), not 300 ms
+          // each: the call answers BUSY before its 1 s timeout.
+          for (const name of ["Charlie", "Echo", "Foxtrot", "Golf"] as const)
+            hold(name);
+          const started = Date.now();
+          const all = await searchOn("all");
+          expect(all.structuredContent).toMatchObject({ code: "BUSY" });
+          expect(Date.now() - started).toBeLessThan(1000);
+        } finally {
+          release();
+          await Promise.all(held);
+          await app.close();
+        }
+        // Free again: the multi-project search has both projects.
+        expect(projectsIn(await search({ query: TOKEN }, "two"))).toEqual(
+          new Set([project.Alpha, project.Beta]),
+        );
+      });
+
+      it("query text and argument values are absent from logs, audit rows, grant events and runs", async () => {
+        const logLines: string[] = [];
+        const level = process.env.LOG_LEVEL;
+        process.env.LOG_LEVEL = "info";
+        const logged = await withFlags(() =>
+          buildMcpServer({
+            cimdFetch,
+            jwksUrl,
+            logStream: { write: (line: string) => void logLines.push(line) },
+          }),
+        );
+        if (level === undefined) delete process.env.LOG_LEVEL;
+        else process.env.LOG_LEVEL = level;
+        const callOn = async (name: string, args: Json, who: Name) => {
+          const response = await logged.inject({
+            method: "POST",
+            url: "/mcp",
+            headers: {
+              "content-type": "application/json",
+              "mcp-protocol-version": MODERN,
+              "mcp-method": "tools/call",
+              "mcp-name": name,
+              authorization: `Bearer ${tokens[who]}`,
+            },
+            payload: JSON.stringify({
+              jsonrpc: "2.0",
+              id: 1,
+              method: "tools/call",
+              params: {
+                name,
+                arguments: args,
+                _meta: {
+                  [`${META}protocolVersion`]: MODERN,
+                  [`${META}clientInfo`]: { name: "marker-test", version: "1" },
+                  [`${META}clientCapabilities`]: {},
+                },
+              },
+            }),
+          });
+          expect(response.statusCode).toBe(200);
+          return rpcBody(response).result as Json;
+        };
+        const runsBefore = (await runsIn("Alpha", "mcp")).length;
+        try {
+          // Paid single-project search (run, span, reservation), a
+          // project-less search over two projects, fetches that miss.
+          await callOn(
+            "search",
+            { query: `${TOKEN} ${QUERY_MARKER}`, projectId: project.Alpha },
+            "one",
+          );
+          await callOn("search", { query: QUERY_MARKER }, "two");
+          await callOn(
+            "fetch",
+            { id: `p:${project.Alpha}:chunk:${QUERY_MARKER}` },
+            "one",
+          );
+          await callOn("fetch", { id: QUERY_MARKER }, "two");
+          await callOn(
+            "search",
+            { query: QUERY_MARKER, extra: QUERY_MARKER },
+            "one",
+          );
+        } finally {
+          await logged.close();
+        }
+        const runs = await Promise.all(
+          (["Alpha", "Beta"] as const).map((name) =>
+            scoped(workspaceId, project[name], (tx) =>
+              tx.agentRun.findMany({
+                where: { workspaceId, projectId: project[name] },
+                include: { spans: true },
+              }),
+            ),
+          ),
+        );
+        const rows = {
+          audit: [...(await auditRows("Alpha")), ...(await auditRows("Beta"))],
+          events: await authDb.mcpGrantEvent.findMany({
+            where: { userId: { in: users } },
+          }),
+          runs: runs.flat(),
+        };
+        expect(logLines.length).toBeGreaterThan(0);
+        expect((await runsIn("Alpha", "mcp")).length).toBeGreaterThan(
+          runsBefore,
+        );
+        expect(rows.runs.some((r) => r.spans.length > 0)).toBe(true);
+        expect(rows.events.some((e) => e.action === "mcp.call")).toBe(true);
+        const stored = JSON.stringify(rows, (_key, value: unknown) =>
+          typeof value === "bigint" ? String(value) : value,
+        );
+        expect(stored).toContain("search");
+        expect(stored).not.toContain(QUERY_MARKER);
+        // Not vacuous: the query reached the knowledge engine, whose own
+        // evidence record keeps it (as for the assistant's searches).
+        const evidence = await scoped(workspaceId, project.Alpha, (tx) =>
+          tx.entity.findMany({
+            where: { workspaceId, projectId: project.Alpha, kind: "evidence" },
+          }),
+        );
+        expect(JSON.stringify(evidence)).toContain(QUERY_MARKER);
+        expect(logLines.join("")).not.toContain(QUERY_MARKER);
       });
     });
 

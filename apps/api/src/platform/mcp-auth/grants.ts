@@ -3,13 +3,17 @@ import { getOAuthProviderState } from "@better-auth/oauth-provider";
 import {
   authDb,
   Prisma,
-  scoped,
   type DbTx,
 } from "../../../../../packages/db/src/index.ts";
-import { cancelMcpProposals } from "../../modules/action-requests.ts";
+import {
+  cancelMcpProposals,
+  SYSTEM_ACTOR_ID,
+  type McpCancellationReason,
+} from "../../modules/action-requests.ts";
 import { DomainError } from "../shared.ts";
 import { recordGrantEvent } from "./events.ts";
 import {
+  authorizationRequestHash,
   ORBIT_WORKSPACE_CLAIM,
   PENDING_REFERENCE_PREFIX,
   type McpAuthDeps,
@@ -23,7 +27,9 @@ import {
 //
 // Lifecycle:
 // - The selection on /connect is a grant row bound to the browser session
-//   (`sessionId`). Without an active grant for (user, client, workspace) it is
+//   (`sessionId`) and to the authorization request it was made for
+//   (`requestHash`, see `authorizationRequestHash`): it serves only that
+//   request, never another authorization of the same session. Without an active grant for (user, client, workspace) it is
 //   `pending` for SELECTION_TTL_SECONDS and an accepted consent activates it
 //   (before the provider stores the consent and issues the code). With an
 //   active grant the selection replaces it at once (the stored consent usually
@@ -34,11 +40,20 @@ import {
 //   selection is withheld.
 // - Issuing the authorization code consumes the selection: `sessionId` is
 //   cleared, so a later authorization in the same session selects again.
-// - Revocation and denial set `revoked`; grant rows are never deleted here.
+// - Revocation and denial set `revoked`; grant rows are never deleted here,
+//   except pending selections whose TTL ran out (`dropExpiredSelections`).
+//   That cleanup runs only on the same user's next selection (a user who
+//   never selects again keeps the expired rows), and it deletes rows that
+//   their `grant.selected` audit events still name (McpGrantEvent has no
+//   foreign key, so those events keep a grant id that no longer exists).
 //   Invariant: stored consent, refresh tokens and outstanding authorization
 //   codes for (user, client, workspace) exist only while an active grant does,
 //   so every path that ends an active grant also deletes them
-//   (`dropStoredAuthorization`).
+//   (`dropStoredAuthorization`), and tokens the provider mints for a grant
+//   that is no longer active are deleted again (`keepIssuedTokens`).
+// - A client revoking its own token (RFC 7009, /oauth2/revoke) gives up that
+//   token only: the grant stays active until the user or an owner revokes it
+//   (decided in WP-M5).
 
 /** The signed OAuth query and the authorization code share this lifetime (codeExpiresIn). */
 export const SELECTION_TTL_SECONDS = 600;
@@ -89,22 +104,50 @@ export async function connectWorkspaces(userId: string) {
   );
 }
 
-/** The newest unconsumed selection of this session for this client, if still within the TTL. */
+/**
+ * The newest unconsumed selection of this session for this client made for
+ * this authorization request, if still within the TTL.
+ */
 async function currentSelection(
   db: Db,
   sessionId: string,
   clientId: string,
+  requestHash: string,
   now = new Date(),
 ) {
   return db.mcpGrant.findFirst({
     where: {
       sessionId,
       clientId,
+      requestHash,
       status: { in: ["pending", "active"] },
       createdAt: { gt: ttlStart(now) },
     },
     orderBy: { createdAt: "desc" },
   });
+}
+
+/** At most this many abandoned selections are removed per new selection. */
+export const EXPIRED_SELECTION_BATCH = 100;
+
+/**
+ * Deletes a user's abandoned selections: pending rows whose TTL ran out
+ * (`expiresAt` in the past). Such a row can never be activated or consumed
+ * (`currentSelection` only sees rows within the TTL) and holds no consent or
+ * token. Bounded per call, so a new selection never waits on a large backlog;
+ * the next one removes the rest.
+ */
+async function dropExpiredSelections(tx: DbTx, userId: string, now: Date) {
+  const expired = await tx.mcpGrant.findMany({
+    where: { userId, status: "pending", expiresAt: { lt: now } },
+    select: { id: true },
+    orderBy: { expiresAt: "asc" },
+    take: EXPIRED_SELECTION_BATCH,
+  });
+  if (expired.length)
+    await tx.mcpGrant.deleteMany({
+      where: { id: { in: expired.map(({ id }) => id) }, status: "pending" },
+    });
 }
 
 const isUniqueViolation = (error: unknown) =>
@@ -113,13 +156,17 @@ const isUniqueViolation = (error: unknown) =>
 
 /**
  * Records the workspace/project selection for the client named by the signed
- * OAuth query. Replaces an active grant for (user, client, workspace) at once;
- * otherwise creates a pending grant, which the consent step must activate.
+ * OAuth query, bound to that authorization request (`requestHash`). Replaces
+ * an active grant for (user, client, workspace) at once; otherwise creates a
+ * pending grant, which the consent step must activate. Removes the user's
+ * abandoned selections on the way (`dropExpiredSelections`).
  */
 export async function recordSelection(input: {
   userId: string;
   sessionId: string;
   clientId: string;
+  /** `authorizationRequestHash` of the signed query the selection answers. */
+  requestHash: string;
   workspaceId: string;
   projectIds: ProjectSelection;
   modules?: string[];
@@ -144,6 +191,7 @@ export async function recordSelection(input: {
     allCurrentProjects,
     modules: input.modules ?? [],
     sessionId: input.sessionId,
+    requestHash: input.requestHash,
     createdAt: now,
   };
   const selectedDetail = {
@@ -152,6 +200,7 @@ export async function recordSelection(input: {
   };
   try {
     return await authDb.$transaction(async (tx) => {
+      await dropExpiredSelections(tx, input.userId, now);
       const active = await tx.mcpGrant.findFirst({
         where: {
           userId: input.userId,
@@ -228,8 +277,17 @@ export async function recordSelection(input: {
  * a code being issued. Undefined without a selection. Idempotent: it is asked
  * up to three times per authorization.
  */
-export async function pendingReference(sessionId: string, clientId: string) {
-  const selection = await currentSelection(authDb, sessionId, clientId);
+export async function pendingReference(
+  sessionId: string,
+  clientId: string,
+  requestHash: string,
+) {
+  const selection = await currentSelection(
+    authDb,
+    sessionId,
+    clientId,
+    requestHash,
+  );
   if (!selection) return undefined;
   return selection.status === "active"
     ? selection.workspaceId
@@ -238,10 +296,20 @@ export async function pendingReference(sessionId: string, clientId: string) {
 
 /**
  * What the consent page shows as chosen: this session's current selection for
- * the client, or null. Identifiers only; the consent endpoint decides.
+ * the client and authorization request, or null. Identifiers only; the
+ * consent endpoint decides.
  */
-export async function selectionView(sessionId: string, clientId: string) {
-  const selection = await currentSelection(authDb, sessionId, clientId);
+export async function selectionView(
+  sessionId: string,
+  clientId: string,
+  requestHash: string,
+) {
+  const selection = await currentSelection(
+    authDb,
+    sessionId,
+    clientId,
+    requestHash,
+  );
   return selection
     ? {
         workspaceId: selection.workspaceId,
@@ -251,9 +319,15 @@ export async function selectionView(sessionId: string, clientId: string) {
     : null;
 }
 
-/** Whether this session holds an unconsumed selection for the client. */
-export async function hasCurrentSelection(sessionId: string, clientId: string) {
-  return Boolean(await currentSelection(authDb, sessionId, clientId));
+/** Whether this session holds an unconsumed selection for the client and request. */
+export async function hasCurrentSelection(
+  sessionId: string,
+  clientId: string,
+  requestHash: string,
+) {
+  return Boolean(
+    await currentSelection(authDb, sessionId, clientId, requestHash),
+  );
 }
 
 /**
@@ -266,6 +340,7 @@ export async function activateGrant(input: {
   sessionId: string;
   clientId: string;
   scopes: string[];
+  requestHash: string;
 }) {
   const now = new Date();
   try {
@@ -274,6 +349,7 @@ export async function activateGrant(input: {
         tx,
         input.sessionId,
         input.clientId,
+        input.requestHash,
         now,
       );
       if (!selection || selection.userId !== input.userId)
@@ -409,6 +485,7 @@ export async function denyGrant(input: {
   userId: string;
   sessionId: string;
   clientId: string;
+  requestHash: string;
 }) {
   const now = new Date();
   await authDb.$transaction(async (tx) => {
@@ -416,6 +493,7 @@ export async function denyGrant(input: {
       tx,
       input.sessionId,
       input.clientId,
+      input.requestHash,
       now,
     );
     const own = selection?.userId === input.userId ? selection : null;
@@ -450,13 +528,16 @@ export async function denyGrant(input: {
 
 /**
  * The authorization code was issued: the session's selection for the client
- * is used up. Only an active selection may end in a code; anything else is
- * refused (the caller withholds the code). Older pending selections of the
- * same session and client are closed as `superseded`.
+ * and this authorization request is used up. Only an active selection may
+ * end in a code; anything else is refused (the caller withholds the code).
+ * Every pending selection of the same session and client is closed as
+ * `superseded`, also one made for another authorization request (another
+ * tab): that fails safe, its request simply selects again.
  */
 export async function consumeSelection(input: {
   sessionId: string;
   clientId: string;
+  requestHash: string;
 }) {
   const now = new Date();
   return authDb.$transaction(async (tx) => {
@@ -464,6 +545,7 @@ export async function consumeSelection(input: {
       tx,
       input.sessionId,
       input.clientId,
+      input.requestHash,
       now,
     );
     if (selection?.status !== "active") return false;
@@ -509,9 +591,9 @@ export async function recordRefreshReplay(input: {
 }
 
 /**
- * The client and requested scope of the authorization Better Auth is handling, from
- * its request state (the verified signed query, or the authorize parameters).
- * Null outside an OAuth request.
+ * The client, requested scope and request fingerprint of the authorization
+ * Better Auth is handling, from its request state (the verified signed query,
+ * or the authorize parameters). Null outside an OAuth request.
  */
 async function providerRequest() {
   let state: Awaited<ReturnType<typeof getOAuthProviderState>>;
@@ -526,6 +608,7 @@ async function providerRequest() {
   return {
     clientId,
     scope: query.get("scope") ?? undefined,
+    requestHash: authorizationRequestHash(query),
   };
 }
 
@@ -552,12 +635,20 @@ export function grantPostLogin(): Pick<
     shouldRedirect: async ({ session }) => {
       const request = await providerRequest();
       if (!request) return true;
-      return !(await hasCurrentSelection(session.id, request.clientId));
+      return !(await hasCurrentSelection(
+        session.id,
+        request.clientId,
+        request.requestHash,
+      ));
     },
     consentReference: async ({ session }) => {
       const request = await providerRequest();
       const reference = request
-        ? await pendingReference(session.id, request.clientId)
+        ? await pendingReference(
+            session.id,
+            request.clientId,
+            request.requestHash,
+          )
         : undefined;
       if (!reference) throw setWorkspace();
       return reference;
@@ -616,6 +707,68 @@ export async function refreshAllowed(input: {
   return Boolean(active) && !revokedSince;
 }
 
+/**
+ * Whether tokens the provider just minted for (user, client, reference) may
+ * stay: only while an active grant for that workspace exists and no grant of
+ * that reference that was active was revoked since `checkedAt` (when the
+ * token request started; replacement and supersession do not count, as in
+ * `refreshAllowed`). Otherwise the stored refresh and access tokens of that
+ * reference are deleted (the invariant: none exist without an active grant)
+ * and false is returned, so the hook answers `invalid_grant` instead of
+ * handing them out. It narrows the windows in which a revocation commits
+ * after a code was consumed or a refresh passed `refreshAllowed`, but before
+ * the new tokens were stored:
+ * - the active row is read `FOR SHARE`, so a revocation that changed it but
+ *   has not committed yet is waited for, and its outcome is what counts;
+ * - the revocation check keeps tokens of the revoked lineage from being kept
+ *   under a re-grant of the same reference made right after.
+ * A refusal deletes every refresh and access token of the (user, client,
+ * workspace) reference, not only the ones this request minted. That includes
+ * tokens a concurrent, legitimate exchange under a fresh re-grant just stored.
+ * This fails safe: that client gets 401 on its next call and reconnects.
+ */
+export async function keepIssuedTokens(input: {
+  userId: string;
+  clientId: string;
+  referenceId?: string;
+  checkedAt: Date;
+}) {
+  const workspaceId =
+    input.referenceId && UUID.test(input.referenceId)
+      ? input.referenceId
+      : undefined;
+  const reference = {
+    userId: input.userId,
+    clientId: input.clientId,
+    referenceId: input.referenceId ?? null,
+  };
+  return authDb.$transaction(async (tx) => {
+    if (workspaceId) {
+      const active = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "McpGrant"
+        WHERE "userId" = ${input.userId} AND "clientId" = ${input.clientId}
+          AND "workspaceId" = ${workspaceId}::uuid AND "status" = 'active'
+        FOR SHARE`;
+      const revokedSince = await tx.mcpGrant.findFirst({
+        where: {
+          userId: input.userId,
+          clientId: input.clientId,
+          workspaceId,
+          status: "revoked",
+          activatedAt: { not: null },
+          revokedAt: { gte: input.checkedAt },
+          revokedBy: { notIn: KEEPS_AUTHORIZATION },
+        },
+        select: { id: true },
+      });
+      if (active.length && !revokedSince) return true;
+    }
+    await tx.oauthRefreshToken.deleteMany({ where: reference });
+    await tx.oauthAccessToken.deleteMany({ where: reference });
+    return false;
+  });
+}
+
 /** Grant bookkeeping for the provider's consent, code and refresh events. */
 export function grantHookDeps(): McpHookDeps {
   return {
@@ -634,16 +787,26 @@ export function grantHookDeps(): McpHookDeps {
     onConsentDenied: async ({ userId, sessionId }) => {
       const request = await providerRequest();
       if (!request) throw setWorkspace();
-      await denyGrant({ userId, sessionId, clientId: request.clientId });
+      await denyGrant({
+        userId,
+        sessionId,
+        clientId: request.clientId,
+        requestHash: request.requestHash,
+      });
     },
     // False (the hook withholds the code) unless the selection is active.
     onCodeIssued: async ({ sessionId }) => {
       const request = await providerRequest();
       return request
-        ? consumeSelection({ sessionId, clientId: request.clientId })
+        ? consumeSelection({
+            sessionId,
+            clientId: request.clientId,
+            requestHash: request.requestHash,
+          })
         : false;
     },
     refreshAllowed,
+    onTokensIssued: keepIssuedTokens,
     onRefreshReplay: recordRefreshReplay,
   };
 }
@@ -686,18 +849,22 @@ async function changeableGrant(
 
 /**
  * Cancels the pending MCP proposals a grant's user made through its client,
- * in every project of the grant's workspace (D-M4-10). It runs after the
- * grant change has committed, in project transactions on the other database
- * role, so it cannot share the grant's transaction. Failure never undoes the
- * grant change: it is logged at error level and the remaining projects still
- * run. Deciding such a proposal stays refused meanwhile, because an approval
- * re-checks the grant (action-requests.ts `mcpGrantStillProposes`), and
- * repeating the owner action runs the sweep again.
+ * in every project of the grant's workspace (D-M4-10). The platform is the
+ * actor (D-M5-8: `canceledBy` "system", no role assumed); `initiatedBy`
+ * names the user whose grant change caused it, null for a client change. It
+ * runs after the grant change has committed, in project transactions on the
+ * other database role, so it cannot share the grant's transaction. Failure
+ * never undoes the grant change: a request that cannot be canceled is logged
+ * at error level (identifiers and the error name only) and the sweep goes
+ * on with the others and the remaining projects. Deciding such a proposal
+ * stays refused meanwhile, because an approval re-checks the grant
+ * (action-requests.ts `mcpGrantStillProposes`), and repeating the owner
+ * action runs the sweep again.
  */
 async function cancelGrantProposals(
   grant: { id: string; userId: string; clientId: string; workspaceId: string },
-  actor: { userId: string },
-  reason: "grant_revoked" | "proposals_disabled",
+  initiatedBy: string | null,
+  reason: McpCancellationReason,
   log?: Log,
 ) {
   let projects: { id: string }[] = [];
@@ -715,21 +882,21 @@ async function cancelGrantProposals(
   }
   for (const { id: projectId } of projects) {
     try {
-      // The actor withdraws; no role is checked here, the grant change was
-      // authorized by changeableGrant.
-      const scope = {
-        workspaceId: grant.workspaceId,
-        projectId,
-        userId: actor.userId,
-        role: "owner" as const,
-      };
-      await scoped(grant.workspaceId, projectId, (tx) =>
-        cancelMcpProposals(
-          tx,
-          scope,
-          { userId: grant.userId, clientId: grant.clientId },
-          reason,
-        ),
+      await cancelMcpProposals(
+        { workspaceId: grant.workspaceId, projectId },
+        { userId: grant.userId, clientId: grant.clientId },
+        { kind: "system", reason, initiatedBy },
+        (actionRequestId, error) =>
+          log?.error(
+            {
+              code: "MCP_PROPOSAL_CANCEL_FAILED",
+              grantId: grant.id,
+              projectId,
+              actionRequestId,
+              reason,
+            },
+            `mcp proposal cancellation failed: ${failureName(error)}`,
+          ),
       );
     } catch (error) {
       log?.error(
@@ -787,7 +954,7 @@ export async function revokeGrant(
     );
     return grant;
   });
-  await cancelGrantProposals(grant, actor, "grant_revoked", log);
+  await cancelGrantProposals(grant, actor.userId, "mcp_grant_ended", log);
 }
 
 /** The scope that lets a client propose (WP-M4); removed when proposals stop. */
@@ -869,11 +1036,11 @@ export async function setGrantProposals(
     );
     return grant;
   });
-  await cancelGrantProposals(grant, actor, "proposals_disabled", log);
+  await cancelGrantProposals(grant, actor.userId, "mcp_proposals_stopped", log);
 }
 
 /** Client events are about no particular user; nor is their cancellation. */
-const SYSTEM_ACTOR = "system";
+const SYSTEM_ACTOR = SYSTEM_ACTOR_ID;
 
 /** Grant changes outside a request log their failures to the process log. */
 const consoleLog: Log = {
@@ -931,17 +1098,21 @@ export async function revokeClientGrants(
     return ended;
   });
   for (const grant of revoked)
-    await cancelGrantProposals(
-      grant,
-      { userId: SYSTEM_ACTOR },
-      "grant_revoked",
-      log,
-    );
+    await cancelGrantProposals(grant, null, "mcp_client_changed", log);
   return revoked.length;
 }
 
-/** Fields whose change ends the grants given to the previous document. */
-const REVOKING_CLIENT_FIELDS = ["redirect_uris", "jwks_uri", "jwks"];
+/**
+ * Fields whose change ends the grants given to the previous document. Any
+ * change of `token_endpoint_auth_method` counts (WP-M5): a downgrade such as
+ * `private_key_jwt` to `none` drops the key the grant was given to.
+ */
+const REVOKING_CLIENT_FIELDS = [
+  "redirect_uris",
+  "jwks_uri",
+  "jwks",
+  "token_endpoint_auth_method",
+];
 
 /** Names the failure only: errors of the database can carry query text. */
 const failureName = (error: unknown) =>

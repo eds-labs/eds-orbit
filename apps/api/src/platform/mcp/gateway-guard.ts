@@ -1,13 +1,23 @@
 /**
  * Start guard and origin list of the MCP gateway process (Track M, WP-M2).
- * The gateway is a separate process; this keeps it from running half-configured.
+ * The gateway is a separate process; this keeps it from serving half-configured.
  */
 import type { Config } from "../../../../../packages/config/src/index.ts";
 
+/** True when the gateway flag and the OAuth server flag are both "true". */
+export function mcpGatewayEnabled(
+  config: Pick<Config, "ORBIT_MCP_GATEWAY" | "ORBIT_MCP_OAUTH">,
+): boolean {
+  return (
+    config.ORBIT_MCP_GATEWAY === "true" && config.ORBIT_MCP_OAUTH === "true"
+  );
+}
+
 /**
  * Throws unless the gateway flag and the OAuth server flag are both "true".
- * `mcp-main.ts` lets the error end the process with exit code 1, so the API
- * and web (which never call this) are unaffected.
+ * `buildMcpServer` calls it, so the real gateway never builds half-configured;
+ * `mcp-main.ts` decides with `mcpGatewayEnabled` first and serves a
+ * health-only app while a flag is off (bootstrap.ts).
  */
 export function assertMcpGatewayEnabled(
   config: Pick<Config, "ORBIT_MCP_GATEWAY" | "ORBIT_MCP_OAUTH">,

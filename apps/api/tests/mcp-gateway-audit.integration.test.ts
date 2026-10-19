@@ -1,5 +1,13 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createHash,
+  generateKeyPairSync,
+  randomBytes,
+  randomUUID,
+  sign,
+  type KeyObject,
+} from "node:crypto";
 import type { FastifyInstance } from "fastify";
+import { z } from "zod";
 import {
   afterAll,
   afterEach,
@@ -24,17 +32,25 @@ import {
 } from "../src/modules/registry.ts";
 import { hashText } from "../src/platform/ai/telemetry.ts";
 import { argsHash } from "../src/platform/mcp/audit.ts";
+import { DPOP_SIGNING_ALGORITHMS } from "better-auth/oauth2";
+import type { McpCallRecord } from "../src/platform/mcp/adapter.ts";
 import { McpRateLimiter, MCP_RATE_LIMITS } from "../src/platform/mcp/limits.ts";
+import { orbitProfile } from "../src/platform/mcp/native/profile.ts";
 import { makeShutdown } from "../src/platform/mcp/shutdown.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
 import {
   suggestTask,
+  taskDigest,
   tasksFixture,
 } from "./fixtures/modules/tasks/contributions.ts";
 import {
   cimdFetchFor,
   createFlowDriver,
+  FORM,
+  ISSUER,
+  jwtPayload,
   metadata,
+  REDIRECT_URI,
   type Json,
 } from "./mcp-oauth-flow-helpers.ts";
 
@@ -65,6 +81,22 @@ vi.mock("../src/platform/mcp/principal.ts", async (importOriginal) => {
     resolvePrincipal: (...args: Parameters<typeof real.resolvePrincipal>) => {
       principalCalls.count++;
       return real.resolvePrincipal(...args);
+    },
+  };
+});
+// Counts token verifications (requireMcpAuth runs them): a request refused
+// for its address before verification must not run one (WP-M5).
+const verifications = { count: 0 };
+vi.mock("@better-auth/mcp", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@better-auth/mcp")>();
+  return {
+    ...real,
+    requireMcpAuth: (...args: Parameters<typeof real.requireMcpAuth>) => {
+      const handler = real.requireMcpAuth(...args);
+      return (request: Request) => {
+        verifications.count++;
+        return handler(request);
+      };
     },
   };
 });
@@ -101,6 +133,7 @@ const names = [
   "limit-client-viewer",
   "limit-window",
   "limit-ip",
+  "dpop",
 ] as const;
 type Name = (typeof names)[number];
 const CLIENT = Object.fromEntries(
@@ -185,8 +218,8 @@ describe("rate limiter", () => {
       perClient: 600,
       unauthenticatedPerIp: 30,
       searchPerGrant: 30,
-      proposalsPerHourPerGrant: 20,
-      proposalsPerDayPerGrant: 100,
+      proposalsPerHour: 20,
+      proposalsPerDay: 100,
     });
   });
 });
@@ -981,6 +1014,17 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       const burst = MCP_RATE_LIMITS.unauthenticatedPerIp;
       const anonymous = (ip: string) =>
         rpc(app, "tools/list", {}, { token: null, ip });
+      // The valid token is verified once, from elsewhere.
+      expect(
+        (
+          await rpc(
+            app,
+            "tools/list",
+            {},
+            { token: tokens["limit-ip"], ip: "203.0.113.200" },
+          )
+        ).statusCode,
+      ).toBe(200);
       for (let i = 0; i < burst; i++) {
         const r = await anonymous("203.0.113.7");
         expect(r.statusCode).toBe(401);
@@ -990,7 +1034,9 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       expect(limited.statusCode).toBe(429);
       expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
       expect(limited.headers["www-authenticate"]).toBeUndefined();
-      // Another address, and a valid token from the same one, are unaffected.
+      // Another address, and a token this gateway already verified sent from
+      // the same one, are unaffected (WP-M5: a token it has not seen yet is
+      // counted per address before verification, see "hardening").
       expect((await anonymous("203.0.113.8")).statusCode).toBe(401);
       expect(
         (
@@ -1063,6 +1109,458 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       expect(rpcBody(response).error).toEqual({
         code: -32600,
         message: "Batch requests are not supported",
+      });
+    });
+  });
+
+  describe("hardening (WP-M5, D-M5-6)", () => {
+    // A JWT-shaped token signed by nobody: verification would fetch keys for
+    // its unknown key id.
+    const forged = () =>
+      [
+        Buffer.from(
+          JSON.stringify({ alg: "RS256", kid: `forged-${randomUUID()}` }),
+        ).toString("base64url"),
+        Buffer.from(JSON.stringify({ sub: "nobody" })).toString("base64url"),
+        "c2lnbmF0dXJl",
+      ].join(".");
+
+    describe("unauthenticated requests are counted before verification", () => {
+      it("a burst of bad tokens is refused after the limit without verifying them", async () => {
+        const app = await gatewayWith({
+          rateLimits: { unauthenticatedPerIp: 3 },
+        });
+        const ip = "198.51.100.20";
+        const bad = () => rpc(app, "tools/list", {}, { token: forged(), ip });
+        const before = verifications.count;
+        for (let i = 0; i < 3; i++) expect((await bad()).statusCode).toBe(401);
+        expect(verifications.count).toBe(before + 3);
+        for (let i = 0; i < 5; i++) {
+          const limited = await bad();
+          expect(limited.statusCode).toBe(429);
+          expect(Number(limited.headers["retry-after"])).toBeGreaterThan(0);
+        }
+        // None of the refused ones reached token verification.
+        expect(verifications.count).toBe(before + 3);
+        expect(logLines.join("")).toContain('"bucket":"ip"');
+      });
+
+      it("a token this gateway verified passes from a full address; a new one waits for the window", async () => {
+        const app = await gatewayWith({
+          rateLimits: { unauthenticatedPerIp: 2 },
+        });
+        const ip = "198.51.100.30";
+        const list = (token: string | null) =>
+          rpc(app, "tools/list", {}, { token, ip });
+        // Verified once from another address.
+        expect(
+          (
+            await rpc(
+              app,
+              "tools/list",
+              {},
+              { token: tokens["limit-ip"], ip: "198.51.100.31" },
+            )
+          ).statusCode,
+        ).toBe(200);
+        expect((await list(null)).statusCode).toBe(401);
+        expect((await list(forged())).statusCode).toBe(401);
+        expect((await list(null)).statusCode).toBe(429);
+        // Known token: not counted per address, verified as always.
+        const before = verifications.count;
+        expect((await list(tokens["limit-ip"])).statusCode).toBe(200);
+        expect(verifications.count).toBe(before + 1);
+        // A valid token the gateway has not verified yet is counted like
+        // any unverified request (shared egress addresses: NAT trade-off).
+        expect((await list(tokens["limit-window"])).statusCode).toBe(429);
+        clock += 61_000;
+        // Its first request in the new window is counted (one of two)...
+        expect((await list(tokens["limit-window"])).statusCode).toBe(200);
+        expect((await list(null)).statusCode).toBe(401);
+        expect((await list(null)).statusCode).toBe(429);
+        // ...then it is known: not counted, still served.
+        for (let i = 0; i < 3; i++)
+          expect((await list(tokens["limit-window"])).statusCode).toBe(200);
+      });
+
+      it("a full address limiter never refuses an authenticated request (separate caps)", async () => {
+        const app = await gatewayWith({ ipLimiterMaxKeys: 2 });
+        const anonymous = (ip: string) =>
+          rpc(app, "tools/list", {}, { token: null, ip });
+        const authed = (token: string, ip: string) =>
+          rpc(app, "tools/list", {}, { token, ip });
+        // A token verified while there was room.
+        expect(
+          (await authed(tokens["limit-ip"], "2001:db8:77:1::1")).statusCode,
+        ).toBe(200);
+        expect((await anonymous("2001:db8:77:2::1")).statusCode).toBe(401);
+        // The address limiter is full: a third /64 is refused for capacity.
+        const flooded = await anonymous("2001:db8:77:3::1");
+        expect(flooded.statusCode).toBe(429);
+        expect(logLines.join("")).toContain('"bucket":"capacity"');
+        // Authenticated traffic is unaffected: a known token, and a valid
+        // token this gateway never saw, from yet another address.
+        expect(
+          (await authed(tokens["limit-ip"], "2001:db8:77:4::1")).statusCode,
+        ).toBe(200);
+        expect(
+          (await authed(tokens["limit-user-1"], "2001:db8:77:5::1")).statusCode,
+        ).toBe(200);
+        expect(
+          (await authed(tokens["limit-user-2"], "2001:db8:77:6::1")).statusCode,
+        ).toBe(200);
+        // A bad token still gets no answer but a refusal.
+        expect([401, 429]).toContain(
+          (await authed(forged(), "2001:db8:77:7::1")).statusCode,
+        );
+        expect((await anonymous("2001:db8:77:8::1")).statusCode).toBe(429);
+      });
+
+      it("keys IPv6 clients by their /64, so rotating addresses inside it does not evade the limit", async () => {
+        const app = await gatewayWith({
+          rateLimits: { unauthenticatedPerIp: 3 },
+        });
+        const anonymous = (ip: string) =>
+          rpc(app, "tools/list", {}, { token: null, ip });
+        for (let i = 1; i <= 3; i++)
+          expect((await anonymous(`2001:db8:5:6::${i}`)).statusCode).toBe(401);
+        expect((await anonymous("2001:db8:5:6:ffff:1:2:3")).statusCode).toBe(
+          429,
+        );
+        // Another /64 has its own bucket; IPv4-mapped is the IPv4 address.
+        expect((await anonymous("2001:db8:5:7::1")).statusCode).toBe(401);
+        for (let i = 0; i < 3; i++)
+          expect((await anonymous("198.51.100.41")).statusCode).toBe(401);
+        expect((await anonymous("::ffff:198.51.100.41")).statusCode).toBe(429);
+      });
+    });
+
+    describe("DPoP-bound tokens", () => {
+      type DpopKey = { privateKey: KeyObject; jwk: Record<string, unknown> };
+      const dpopKey = (): DpopKey => {
+        const { privateKey, publicKey } = generateKeyPairSync("ec", {
+          namedCurve: "P-256",
+        });
+        const { kty, crv, x, y } = publicKey.export({ format: "jwk" });
+        return { privateKey, jwk: { kty, crv, x, y } };
+      };
+      const b64 = (value: unknown) =>
+        Buffer.from(JSON.stringify(value)).toString("base64url");
+      /** An RFC 9449 proof (ES256), signed with node:crypto. */
+      const proof = (
+        key: DpopKey,
+        claims: { htu: string; ath?: string; jti?: string },
+      ) => {
+        const input = `${b64({ typ: "dpop+jwt", alg: "ES256", jwk: key.jwk })}.${b64(
+          {
+            jti: claims.jti ?? randomUUID(),
+            htm: "POST",
+            htu: claims.htu,
+            iat: Math.floor(Date.now() / 1000),
+            ...(claims.ath ? { ath: claims.ath } : {}),
+          },
+        )}`;
+        const signature = sign("sha256", Buffer.from(input), {
+          key: key.privateKey,
+          dsaEncoding: "ieee-p1363",
+        });
+        return `${input}.${signature.toString("base64url")}`;
+      };
+      const ath = (token: string) =>
+        createHash("sha256").update(token).digest("base64url");
+
+      let key: DpopKey;
+      let bound = "";
+      beforeAll(async () => {
+        key = dpopKey();
+        cookie = cookies.editor;
+        selection = { workspaceId, projectIds: [projectA] };
+        const flow = await driver.connect({ clientId: CLIENT.dpop });
+        const response = await driver.inject({
+          method: "POST",
+          url: "/api/auth/oauth2/token",
+          session: false,
+          noOrigin: true,
+          headers: {
+            ...FORM,
+            dpop: proof(key, { htu: `${ISSUER}/oauth2/token` }),
+          },
+          payload: new URLSearchParams({
+            grant_type: "authorization_code",
+            code: flow.final.searchParams.get("code")!,
+            redirect_uri: REDIRECT_URI,
+            client_id: CLIENT.dpop,
+            code_verifier: flow.verifier,
+            resource: config.MCP_RESOURCE,
+          }).toString(),
+        });
+        expect(response.statusCode).toBe(200);
+        const body = response.json() as Json;
+        expect(body.token_type).toBe("DPoP");
+        bound = body.access_token as string;
+        expect(jwtPayload(bound).cnf?.jkt).toEqual(expect.any(String));
+      });
+
+      const list = (headers: Record<string, string>) =>
+        gateway.inject({
+          method: "POST",
+          url: "/mcp",
+          headers: {
+            "content-type": "application/json",
+            "mcp-protocol-version": MODERN,
+            "mcp-method": "tools/list",
+            "x-forwarded-for": "198.51.100.50",
+            ...headers,
+          },
+          payload: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/list",
+            params: {
+              _meta: {
+                [`${META}protocolVersion`]: MODERN,
+                [`${META}clientInfo`]: { name: "audit-test", version: "1" },
+                [`${META}clientCapabilities`]: {},
+              },
+            },
+          }),
+        });
+
+      it("accepts the bound token with a valid proof", async () => {
+        const response = await list({
+          authorization: `DPoP ${bound}`,
+          dpop: proof(key, { htu: config.MCP_RESOURCE, ath: ath(bound) }),
+        });
+        expect(response.statusCode).toBe(200);
+        expect(
+          (rpcBody(response).result.tools as Json[]).map((t) => t.name),
+        ).toContain("orbit_projects");
+      });
+
+      it("refuses it without a proof, as a bearer token, with a foreign key or a replayed proof", async () => {
+        const refusals: Record<string, string>[] = [
+          { authorization: `DPoP ${bound}` },
+          { authorization: `Bearer ${bound}` },
+          {
+            authorization: `Bearer ${bound}`,
+            dpop: proof(key, { htu: config.MCP_RESOURCE, ath: ath(bound) }),
+          },
+          {
+            authorization: `DPoP ${bound}`,
+            dpop: proof(dpopKey(), {
+              htu: config.MCP_RESOURCE,
+              ath: ath(bound),
+            }),
+          },
+          {
+            authorization: `DPoP ${bound}`,
+            dpop: proof(key, { htu: config.MCP_RESOURCE, ath: ath("other") }),
+          },
+          {
+            authorization: `DPoP ${bound}`,
+            dpop: proof(key, {
+              htu: "https://elsewhere.example/mcp",
+              ath: ath(bound),
+            }),
+          },
+        ];
+        for (const headers of refusals) {
+          const response = await list(headers);
+          expect(response.statusCode).toBe(401);
+          expect(response.headers["www-authenticate"]).toBeDefined();
+        }
+        const once = proof(key, {
+          htu: config.MCP_RESOURCE,
+          ath: ath(bound),
+          jti: randomUUID(),
+        });
+        const headers = { authorization: `DPoP ${bound}`, dpop: once };
+        expect((await list(headers)).statusCode).toBe(200);
+        expect((await list(headers)).statusCode).toBe(401);
+      });
+
+      it("the protected resource metadata advertises the DPoP algorithms Better Auth supports", async () => {
+        const own = await auth.handler(
+          new Request(
+            `${new URL(config.APP_ORIGIN).origin}/.well-known/oauth-protected-resource${new URL(config.MCP_RESOURCE).pathname}`,
+          ),
+        );
+        expect(own.status).toBe(200);
+        const expected = ((await own.json()) as Json)
+          .dpop_signing_alg_values_supported;
+        expect(expected).toEqual([...DPOP_SIGNING_ALGORITHMS]);
+        for (const url of [
+          `/.well-known/oauth-protected-resource${new URL(config.MCP_RESOURCE).pathname}`,
+          "/.well-known/oauth-protected-resource",
+        ]) {
+          const response = await gateway.inject({ method: "GET", url });
+          expect(response.json().dpop_signing_alg_values_supported).toEqual(
+            expected,
+          );
+        }
+      });
+    });
+
+    describe("per-project concurrency (R-10)", () => {
+      it("a third call in one project waits, then answers BUSY; retryable for reads only", async () => {
+        const records: McpCallRecord[] = [];
+        const app = await gatewayWith({
+          projectConcurrency: { waitMs: 150 },
+          observe: (record) => void records.push(record),
+        });
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        const digest = vi
+          .spyOn(taskDigest, "execute")
+          .mockImplementation(async () => {
+            await gate;
+            return { output: { total: 0 }, cards: [] };
+          });
+        const proposal = vi.spyOn(suggestTask, "execute");
+        // Two grants of one project hold both slots.
+        const running = [
+          call(app, "tasks_task_digest", {}, { token: tokens["limit-user-1"] }),
+          call(app, "tasks_task_digest", {}, { token: tokens["limit-user-2"] }),
+        ];
+        await vi.waitFor(() => expect(digest).toHaveBeenCalledTimes(2));
+        const started = Date.now();
+        const busyRead = await call(
+          app,
+          "tasks_task_digest",
+          {},
+          { token: tokens["limit-window"] },
+        );
+        expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+        expect(busyRead.statusCode).toBe(200);
+        expect(rpcBody(busyRead).result).toMatchObject({
+          isError: true,
+          structuredContent: {
+            code: "BUSY",
+            message:
+              "too many tool calls are running in this project; try again shortly",
+            retryable: true,
+          },
+        });
+        const busyProposal = await call(
+          app,
+          "tasks_suggest_task",
+          { title: "Busy project" },
+          { token: tokens["limit-grant"] },
+        );
+        expect(rpcBody(busyProposal).result.structuredContent).toMatchObject({
+          code: "BUSY",
+          retryable: false,
+        });
+        expect(proposal).not.toHaveBeenCalled();
+        expect(digest).toHaveBeenCalledTimes(2);
+        release();
+        for (const response of await Promise.all(running))
+          expect(rpcBody(response).result.isError).toBeFalsy();
+        expect(
+          records.filter((r) => r.outcome === "BUSY").map((r) => r.projectId),
+        ).toEqual([projectA, projectA]);
+        // The project is free again.
+        const after = await call(
+          app,
+          "tasks_task_digest",
+          {},
+          { token: tokens["limit-window"] },
+        );
+        expect(rpcBody(after).result.isError).toBeFalsy();
+      });
+    });
+
+    describe("pre-validation matches the SDK", () => {
+      it("a call the SDK refuses for the element cap is audited as INVALID_PARAMS", async () => {
+        const records: McpCallRecord[] = [];
+        const app = await gatewayWith({
+          observe: (record) => void records.push(record),
+        });
+        const saved = taskDigest.parameters;
+        taskDigest.parameters = z
+          .object({ items: z.array(z.number()).optional() })
+          .strict();
+        try {
+          const response = await call(
+            app,
+            "tasks_task_digest",
+            { items: Array.from({ length: 1000 }, () => 1) },
+            { token: tokens["limit-user-1"] },
+          );
+          expect(rpcBody(response).result.isError).toBe(true);
+          expect(JSON.stringify(rpcBody(response))).toContain(
+            "more than the maximum",
+          );
+        } finally {
+          taskDigest.parameters = saved;
+        }
+        expect(records.map((r) => [r.tool, r.outcome])).toEqual([
+          ["tasks_task_digest", "INVALID_PARAMS"],
+        ]);
+      });
+
+      it("a native input schema with an async refinement is checked, not thrown on", async () => {
+        const records: McpCallRecord[] = [];
+        const app = await gatewayWith({
+          observe: (record) => void records.push(record),
+        });
+        const saved = orbitProfile.inputSchema;
+        orbitProfile.inputSchema = z
+          .object({ name: z.string().optional() })
+          .strict()
+          .refine(async (value) => value.name !== "refused");
+        try {
+          const ok = await call(
+            app,
+            "orbit_profile",
+            {},
+            {
+              token: tokens["limit-user-1"],
+            },
+          );
+          expect(ok.statusCode).toBe(200);
+          expect(rpcBody(ok).result.structuredContent).toEqual({
+            id: ids.editor,
+          });
+          const refused = await call(
+            app,
+            "orbit_profile",
+            { name: "refused" },
+            {
+              token: tokens["limit-user-1"],
+            },
+          );
+          expect(refused.statusCode).toBe(200);
+          expect(rpcBody(refused).result.isError).toBe(true);
+        } finally {
+          orbitProfile.inputSchema = saved;
+        }
+        expect(records.map((r) => r.outcome)).toEqual(["ok", "INVALID_PARAMS"]);
+      });
+
+      it("registry parameters with an async refinement run instead of failing", async () => {
+        const app = await gatewayWith();
+        const saved = taskDigest.parameters;
+        taskDigest.parameters = z
+          .object({})
+          .strict()
+          .refine(async () => true);
+        try {
+          const response = await call(
+            app,
+            "tasks_task_digest",
+            {},
+            {
+              token: tokens["limit-user-1"],
+            },
+          );
+          expect(rpcBody(response).result).toMatchObject({
+            structuredContent: { total: expect.any(Number) },
+          });
+          expect(rpcBody(response).result.isError).toBeFalsy();
+        } finally {
+          taskDigest.parameters = saved;
+        }
       });
     });
   });

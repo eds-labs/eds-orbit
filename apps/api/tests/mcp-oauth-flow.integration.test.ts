@@ -19,6 +19,7 @@ import { makeAuth } from "../src/auth.ts";
 import { buildServer } from "../src/server.ts";
 import { ORBIT_WORKSPACE_CLAIM } from "../src/platform/mcp-auth/plugins.ts";
 import { recordSelection } from "../src/platform/mcp-auth/grants.ts";
+import { authorizationRequestHash } from "../src/platform/mcp-auth/plugins.ts";
 import { loadConfig } from "../../../packages/config/src/index.ts";
 import {
   cimdFetchFor,
@@ -643,7 +644,8 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     // Session 1 selects project A and leaves the consent page open.
     const first = await authorize({ client_id: TWO_SESSIONS_CLIENT_ID });
     const selected = await select(queryOf(first.location!));
-    expect(new URL(selected.json().next, origin).pathname).toBe("/connect");
+    const consentPage = new URL(selected.json().next, origin);
+    expect(consentPage.pathname).toBe("/connect");
     // Session 2 grants A and B; its consent is stored for the workspace.
     const second = await inSecondSession(() =>
       connect({
@@ -656,14 +658,26 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
       (g) => g.status === "active",
     );
     expect(broad!.projectIds.sort()).toEqual([projectA, projectB].sort());
-    // Session 1 authorizes again: its selection is still pending, so the
-    // stored consent of session 2 must not hand out a code; consent runs.
-    const again = await authorize({ client_id: TWO_SESSIONS_CLIENT_ID });
+    // Session 1 authorizes again with the same request: its selection is
+    // still pending, so the stored consent of session 2 must not hand out a
+    // code; consent runs.
+    const again = await authorize({
+      client_id: TWO_SESSIONS_CLIENT_ID,
+      state: first.location!.searchParams.get("state")!,
+      code_challenge: first.location!.searchParams.get("code_challenge")!,
+    });
     expect(again.location?.pathname).toBe("/connect");
     expect(again.location?.searchParams.get("code")).toBeNull();
     expect(again.location?.searchParams.get("ba_pl")).toBe(sessionId);
-    // Accepting makes session 1's narrower choice the one active grant.
-    const consented = await consent(queryOf(again.location!));
+    // A new authorization request of session 1 has no selection: it starts
+    // at the selection step, also without a code.
+    const fresh = await authorize({ client_id: TWO_SESSIONS_CLIENT_ID });
+    expect(fresh.location?.pathname).toBe("/connect");
+    expect(fresh.location?.searchParams.get("code")).toBeNull();
+    expect(fresh.location?.searchParams.get("ba_pl")).toBeNull();
+    // Accepting on the open consent page makes session 1's narrower choice
+    // the one active grant.
+    const consented = await consent(queryOf(consentPage));
     expect(consented.statusCode).toBe(200);
     expect(
       new URL(consented.json().redirect).searchParams.get("code"),
@@ -706,8 +720,13 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
       data: { disabled: false },
     });
     // The accepted consent activated the selection before the provider
-    // stored it, so the later code is backed by the one active grant.
-    const later = await authorize({ client_id: FAILED_CONSENT_CLIENT_ID });
+    // stored it, so the code of the request sent again is backed by the one
+    // active grant.
+    const later = await authorize({
+      client_id: FAILED_CONSENT_CLIENT_ID,
+      state: location!.searchParams.get("state")!,
+      code_challenge: location!.searchParams.get("code_challenge")!,
+    });
     expect(later.location?.searchParams.get("code")).toBeTruthy();
     const rows = await grants(FAILED_CONSENT_CLIENT_ID);
     expect(rows.filter((g) => g.status === "active")).toHaveLength(1);
@@ -716,13 +735,14 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
   });
 
   it("a top-level authorize never hands a code to the client for a pending selection", async () => {
-    // Register the client, then hold a pending selection for it.
+    // Register the client, then hold a pending selection for that request.
     const first = await authorize({ client_id: REFUSAL_CLIENT_ID });
     expect(first.location?.pathname).toBe("/connect");
     const pending = await recordSelection({
       userId,
       sessionId,
       clientId: REFUSAL_CLIENT_ID,
+      requestHash: authorizationRequestHash(queryOf(first.location!)),
       workspaceId,
       projectIds: [projectA],
     });
@@ -743,7 +763,11 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
         updatedAt: now,
       },
     });
-    const refused = await authorize({ client_id: REFUSAL_CLIENT_ID });
+    const refused = await authorize({
+      client_id: REFUSAL_CLIENT_ID,
+      state: first.location!.searchParams.get("state")!,
+      code_challenge: first.location!.searchParams.get("code_challenge")!,
+    });
     expect(refused.response.statusCode).toBe(400);
     expect(refused.response.headers.location).toBeUndefined();
     expect(refused.response.body).not.toContain("code=");
@@ -834,26 +858,38 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     expect(current).toMatchObject({ allCurrentProjects: true, projectIds: [] });
   });
 
-  it("an unconsumed selection serves one authorization, then selection runs again", async () => {
+  it("an unconsumed selection serves its own authorization once, then selection runs again", async () => {
     // A selection whose continuation never ran (e.g. the page was closed).
+    const first = await authorize();
+    expect(first.location?.pathname).toBe("/connect");
     const selection = await recordSelection({
       userId,
       sessionId,
       clientId: CLIENT_ID,
+      requestHash: authorizationRequestHash(queryOf(first.location!)),
       workspaceId,
       projectIds: [projectA],
     });
     expect(selection.status).toBe("active");
-    // The next authorization of that client uses it; the stored consent
+    const sameRequest = {
+      state: first.location!.searchParams.get("state")!,
+      code_challenge: first.location!.searchParams.get("code_challenge")!,
+    };
+    // Another authorization request of the same session does not use it.
+    const other = await authorize();
+    expect(other.location?.pathname).toBe("/connect");
+    expect(other.location?.searchParams.get("code")).toBeNull();
+    // The request it was made for (sent again) uses it; the stored consent
     // covers the request, so the code comes straight from authorize ...
-    const { location } = await authorize();
+    const { location } = await authorize(sameRequest);
     expect(`${location!.origin}${location!.pathname}`).toBe(REDIRECT_URI);
     expect(location!.searchParams.get("code")).toBeTruthy();
     // ... and issuing it consumed the selection.
     expect(
       (await grants()).filter((g) => g.sessionId === sessionId),
     ).toHaveLength(0);
-    const again = await authorize();
+    // Even the same request selects again once its selection is used up.
+    const again = await authorize(sameRequest);
     expect(again.location?.pathname).toBe("/connect");
     expect(again.location?.searchParams.get("ba_pl")).toBeNull();
   });

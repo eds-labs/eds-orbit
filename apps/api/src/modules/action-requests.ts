@@ -4,7 +4,11 @@ import {
   PROJECT_OWN,
   PROJECT_WRITE,
 } from "../platform/tenancy/permissions.ts";
-import { authDb, type DbTx } from "../../../../packages/db/src/index.ts";
+import {
+  authDb,
+  scoped,
+  type DbTx,
+} from "../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../packages/schemas/src/index.ts";
 import {
   audit,
@@ -14,6 +18,7 @@ import {
   entity,
   hash,
   list,
+  listedRequester,
   update,
 } from "../shared.ts";
 import { activePolicyRecord } from "../platform/ai/spend-mandate.ts";
@@ -444,15 +449,18 @@ export async function consumeActionRequest(
 
 /**
  * Withdraws a request before it is used; a consumed request is returned
- * unchanged. A `reason` (a short code) is recorded on the request and its
- * audit event. `pendingOnly` leaves an approved request unchanged too.
+ * unchanged. The scope's user is the actor (a member, or the platform's
+ * "system"); no role is read. A `reason` (a short code) is recorded on the
+ * request and its audit event, and so is `initiatedBy`, the user whose
+ * action made the platform withdraw it. `pendingOnly` leaves an approved
+ * request unchanged too.
  */
 export async function cancelActionRequest(
   tx: DbTx,
-  scope: Scope,
+  scope: Pick<Scope, "workspaceId" | "projectId" | "userId">,
   id: string,
   reason?: string,
-  options: { pendingOnly?: boolean } = {},
+  options: { pendingOnly?: boolean; initiatedBy?: string | null } = {},
 ) {
   const row = await entity(tx, scope, KIND, id);
   const d = data(row);
@@ -466,74 +474,119 @@ export async function cancelActionRequest(
     canceledBy: scope.userId,
     canceledAt: new Date().toISOString(),
     ...(reason ? { canceledReason: reason } : {}),
+    ...(options.initiatedBy
+      ? { canceledInitiatedBy: options.initiatedBy }
+      : {}),
   });
   await audit(tx, scope, "action_request.canceled", row.id, {
     actionType: d.actionType,
     ...(reason ? { reason } : {}),
+    ...(options.initiatedBy ? { initiatedBy: options.initiatedBy } : {}),
   });
   return canceled;
 }
 
-/** Pending requests canceled per round; the loop ends when a round finds fewer. */
+/** Pending requests listed per round; the sweep ends when a round finds fewer. */
 const CANCEL_BATCH = 100;
 const CANCEL_ROUNDS = 20;
+
+/** The actor id of everything the platform does on its own (also mcp-auth/grants.ts). */
+export const SYSTEM_ACTOR_ID = "system";
+
+/** Why the platform withdrew MCP proposals (D-M4-10, D-M5-8). */
+export type McpCancellationReason =
+  "mcp_grant_ended" | "mcp_proposals_stopped" | "mcp_client_changed";
+
+/**
+ * Who withdraws MCP proposals (D-M5-8): the platform, never a member, so no
+ * role is assumed. `initiatedBy` names the user whose grant change caused
+ * it (the grant's user or an owner), null when the platform did it alone
+ * (a client change).
+ */
+export type McpCancellationActor = {
+  kind: "system";
+  reason: McpCancellationReason;
+  initiatedBy: string | null;
+};
 
 /**
  * Cancels the PENDING proposals an MCP client made for one user in this
  * project (WP-M4, D-M4-10): used when the user's grant for the client is
- * revoked or stops proposing. Matches on user and client, not on the grant
- * id, so proposals of an earlier grant that was replaced go too. Approved
- * requests are not touched: their approval already ran. The caller runs this
- * in a project transaction (`scoped()`), which holds the project's advisory
- * lock that a decision holds too, so the pending query and the cancellations
- * see one state and an approval cannot land in between; `pendingOnly` keeps
- * it that way defensively. The scope's user is the actor who withdrew the
- * grant (or "system") and no role is checked; the caller has authorized the
- * grant change. Returns the number canceled.
+ * revoked, stops proposing or its client changed. Matches on user and
+ * client, not on the grant id, so proposals of an earlier grant that was
+ * replaced go too. Approved requests are not touched: their approval
+ * already ran.
+ *
+ * Each request is canceled in its own project transaction (`scoped()`,
+ * which holds the project lock a decision holds too, so an approval cannot
+ * land in the middle of one, and `pendingOnly` keeps an approval that came
+ * first): a failure of one is handed to `onFailure` and the sweep goes on
+ * with the others (D-M5-8). A request left pending that way stays
+ * unapprovable, because an approval re-checks the grant
+ * (`mcpGrantStillProposes`). The listing itself failing throws. Returns the
+ * numbers canceled and failed.
  */
 export async function cancelMcpProposals(
-  tx: DbTx,
-  scope: Scope,
+  project: { workspaceId: string; projectId: string },
   proposer: { userId: string; clientId: string },
-  reason: string,
-) {
+  actor: McpCancellationActor,
+  onFailure: (actionRequestId: string, error: unknown) => void,
+): Promise<{ canceled: number; failed: number }> {
+  const scope = { ...project, userId: SYSTEM_ACTOR_ID };
+  const failed: string[] = [];
   let canceled = 0;
   for (let round = 0; round < CANCEL_ROUNDS; round += 1) {
-    const rows = await tx.entity.findMany({
-      where: {
-        workspaceId: scope.workspaceId,
-        projectId: scope.projectId,
-        kind: KIND,
-        AND: [
-          { data: { path: ["status"], equals: "pending" } },
-          { data: { path: ["requestedBy", "kind"], equals: "mcp" } },
-          {
-            data: {
-              path: ["requestedBy", "userId"],
-              equals: proposer.userId,
+    const rows = await scoped(project.workspaceId, project.projectId, (tx) =>
+      tx.entity.findMany({
+        where: {
+          workspaceId: project.workspaceId,
+          projectId: project.projectId,
+          kind: KIND,
+          // A request that failed once is not tried again in this sweep.
+          ...(failed.length ? { id: { notIn: failed } } : {}),
+          AND: [
+            { data: { path: ["status"], equals: "pending" } },
+            { data: { path: ["requestedBy", "kind"], equals: "mcp" } },
+            {
+              data: {
+                path: ["requestedBy", "userId"],
+                equals: proposer.userId,
+              },
             },
-          },
-          {
-            data: {
-              path: ["requestedBy", "clientId"],
-              equals: proposer.clientId,
+            {
+              data: {
+                path: ["requestedBy", "clientId"],
+                equals: proposer.clientId,
+              },
             },
-          },
-        ],
-      },
-      orderBy: { createdAt: "asc" },
-      take: CANCEL_BATCH,
-    });
-    for (const row of rows) {
-      await cancelActionRequest(tx, scope, row.id, reason, {
-        pendingOnly: true,
-      });
-      canceled += 1;
+          ],
+        },
+        orderBy: { createdAt: "asc" },
+        select: { id: true },
+        take: CANCEL_BATCH,
+      }),
+    );
+    for (const { id } of rows) {
+      try {
+        await scoped(project.workspaceId, project.projectId, (tx) =>
+          cancelActionRequest(tx, scope, id, actor.reason, {
+            pendingOnly: true,
+            initiatedBy: actor.initiatedBy,
+          }),
+        );
+        canceled += 1;
+      } catch (error) {
+        failed.push(id);
+        onFailure(id, error);
+      }
     }
     if (rows.length < CANCEL_BATCH) break;
   }
-  return canceled;
+  return { canceled, failed: failed.length };
 }
+
+/** The trimmed requester of the inbox list (platform/shared.ts). */
+export { listedRequester };
 
 /**
  * Owners' open decisions as rows: pending, unexpired requests whose action
@@ -611,7 +664,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
       costCeilingMicros: d.costCeilingMicros,
       expiresAt: d.expiresAt,
       createdAt: row.createdAt,
-      requestedBy: d.requestedBy,
+      requestedBy: listedRequester(d.requestedBy),
       summary: {
         prompt: d.payload?.prompt,
         model: d.payload?.model,

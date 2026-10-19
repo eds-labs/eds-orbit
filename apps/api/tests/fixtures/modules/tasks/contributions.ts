@@ -109,8 +109,14 @@ export const suggestTask = defineTool({
   permission: TASKS_MANAGE,
   deferLoading: false,
   exposure: { assistant: false, mcp: true },
+  // A proposal tool reports its request and whether it was a retry (D-M5-8).
   outputSchema: z
-    .object({ id: z.string(), status: z.literal("pending") })
+    .object({
+      id: z.string(),
+      actionRequestId: z.string(),
+      status: z.literal("pending"),
+      deduplicated: z.boolean(),
+    })
     .strict(),
   async execute(context, args) {
     const { title } = taskPayload.parse(args);
@@ -128,7 +134,15 @@ export const suggestTask = defineTool({
           },
         }),
     );
-    return { output: { id: request.id, status: "pending" }, cards: [] };
+    return {
+      output: {
+        id: request.id,
+        actionRequestId: request.id,
+        status: "pending",
+        deduplicated: false,
+      },
+      cards: [],
+    };
   },
 });
 

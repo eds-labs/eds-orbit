@@ -13,7 +13,10 @@ import { buildServer } from "../src/server.ts";
 import { data } from "../src/shared.ts";
 import { registerModules } from "../src/modules/registry.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
-import { revokeClientGrants } from "../src/platform/mcp-auth/grants.ts";
+import {
+  revokeClientGrants,
+  revokeGrant,
+} from "../src/platform/mcp-auth/grants.ts";
 import { proposeAssignmentFromMcp } from "../src/modules/marketing/agents/assignments.ts";
 import { dropNullFields } from "../src/modules/agents/tools/registry.ts";
 import {
@@ -51,6 +54,7 @@ const names = [
   "clientChanged",
   "coverage",
   "race",
+  "cancelFail",
 ] as const;
 type Name = (typeof names)[number];
 const CLIENT = Object.fromEntries(
@@ -362,10 +366,12 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
     // Its pending proposals are canceled with a reason; the same user's other
     // client keeps its proposal and its tool.
     for (const out of [first, second]) {
+      // The platform withdraws them (D-M5-8), naming who stopped the grant.
       expect(await requestData(out.actionRequestId as string)).toMatchObject({
         status: "canceled",
-        canceledBy: ids.editor,
-        canceledReason: "proposals_disabled",
+        canceledBy: "system",
+        canceledReason: "mcp_proposals_stopped",
+        canceledInitiatedBy: ids.editor,
       });
       expect(
         (
@@ -375,8 +381,20 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
           )
         ).map((row) => row.metadata),
       ).toEqual([
-        { actionType: "assignment.confirm", reason: "proposals_disabled" },
+        {
+          actionType: "assignment.confirm",
+          reason: "mcp_proposals_stopped",
+          initiatedBy: ids.editor,
+        },
       ]);
+      expect(
+        (
+          await auditOf(
+            "action_request.canceled",
+            out.actionRequestId as string,
+          )
+        ).map((row) => row.actorId),
+      ).toEqual(["system"]);
       expect(
         (await status("stop", out.actionRequestId as string)).structuredContent,
       ).toMatchObject({ status: "canceled" });
@@ -438,8 +456,9 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
     expect(revoked.statusCode).toBe(204);
     expect(await requestData(pending.actionRequestId as string)).toMatchObject({
       status: "canceled",
-      canceledBy: ids.editor,
-      canceledReason: "grant_revoked",
+      canceledBy: "system",
+      canceledReason: "mcp_grant_ended",
+      canceledInitiatedBy: ids.editor,
     });
     const late = await decide(pending.actionRequestId as string, "approve");
     expect(late.statusCode).toBe(409);
@@ -468,8 +487,9 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
     expect(revoked.statusCode).toBe(204);
     expect(await requestData(pending.actionRequestId as string)).toMatchObject({
       status: "canceled",
-      canceledBy: ids.owner,
-      canceledReason: "grant_revoked",
+      canceledBy: "system",
+      canceledReason: "mcp_grant_ended",
+      canceledInitiatedBy: ids.owner,
     });
   });
 
@@ -601,7 +621,8 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
     );
     expect(await requestData(pending.actionRequestId as string)).toMatchObject({
       status: "canceled",
-      canceledBy: ids.owner,
+      canceledBy: "system",
+      canceledInitiatedBy: ids.owner,
     });
     const ownGrant = await asUser("owner", "PATCH", url, body);
     expect(ownGrant.statusCode).toBe(204);
@@ -686,8 +707,11 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
       expect(await requestData(out.actionRequestId as string)).toMatchObject({
         status: "canceled",
         canceledBy: "system",
-        canceledReason: "grant_revoked",
+        canceledReason: "mcp_client_changed",
       });
+    expect(
+      Object.keys(await requestData(pending.actionRequestId as string)),
+    ).not.toContain("canceledInitiatedBy");
     // Simulate a sweep that failed for one of them.
     await run(async (tx) => {
       const row = await tx.entity.findFirstOrThrow({
@@ -781,6 +805,7 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
     };
     const origin = {
       tool: TOOL,
+      userId: ids.editor,
       clientId: CLIENT.race,
       grantId: grant.id,
       agentRunId: null,
@@ -814,5 +839,57 @@ describe.skipIf(!enabled)("MCP owner controls over proposals", () => {
     );
     expect(created.deduplicated).toBe(false);
     expect(await count()).toBe(before + 1);
+  });
+  it("a failed cancellation is logged, the sweep goes on, and the guard still refuses the approval", async () => {
+    const broken = await propose("cancelFail");
+    const fine = await propose("cancelFail", { topicFrame: "Second" });
+    const third = await propose("cancelFail", { topicFrame: "Third" });
+    // The next version of `broken` already exists: its cancellation write
+    // fails in the database (unique entity version), the others do not.
+    const row = await requestRow(broken.actionRequestId as string);
+    await run((tx) =>
+      tx.entityVersion.create({
+        data: {
+          workspaceId: row.workspaceId,
+          projectId: row.projectId,
+          entityId: row.id,
+          version: row.version + 1,
+          data: data(row),
+        },
+      }),
+    );
+    const logged: { fields: Record<string, unknown>; message: string }[] = [];
+    const grant = await grantOf("cancelFail");
+    await revokeGrant({ userId: ids.editor }, grant.id, {
+      error: (fields, message) => void logged.push({ fields, message }),
+    });
+    expect(await requestData(broken.actionRequestId as string)).toMatchObject({
+      status: "pending",
+    });
+    for (const out of [fine, third])
+      expect(await requestData(out.actionRequestId as string)).toMatchObject({
+        status: "canceled",
+        canceledBy: "system",
+        canceledReason: "mcp_grant_ended",
+      });
+    expect(logged).toEqual([
+      {
+        fields: {
+          code: "MCP_PROPOSAL_CANCEL_FAILED",
+          grantId: grant.id,
+          projectId: projectId(),
+          actionRequestId: broken.actionRequestId,
+          reason: "mcp_grant_ended",
+        },
+        message: expect.stringMatching(/^mcp proposal cancellation failed: /),
+      },
+    ]);
+    // Identifiers and an error name only: no token, payload or message text.
+    expect(JSON.stringify(logged)).not.toContain(tokens.cancelFail);
+    expect(JSON.stringify(logged)).not.toContain("Unique constraint");
+    // The request stayed pending, but its grant ended: no approval.
+    const late = await decide(broken.actionRequestId as string, "approve");
+    expect(late.statusCode).toBe(409);
+    expect(late.json()).toMatchObject({ error: { code: "MCP_GRANT_ENDED" } });
   });
 });

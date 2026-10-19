@@ -43,7 +43,12 @@ export type KnowledgeHit =
       canonicalUrl: string | null;
     };
 
-/** The most a fetched version text carries (D-M3-8; the gateway caps at 64 KB). */
+/**
+ * The most a fetched version text carries (D-M3-8), measured as it is sent:
+ * the UTF-8 bytes of its JSON-escaped form (D-M5-6). With the title, URL
+ * and ids a fetch result then stays below the gateway's 64 KB cap however
+ * many characters need escaping.
+ */
 export const FETCH_TEXT_MAX_BYTES = 48 * 1024;
 
 /**
@@ -191,15 +196,51 @@ export async function searchForModel(
   return { mode: result.retrieval.mode, hits };
 }
 
-/** The longest prefix of `text` that fits `maxBytes` in UTF-8, ending on a character boundary. */
-function clipUtf8(text: string, maxBytes: number) {
-  const bytes = Buffer.from(text, "utf8");
-  if (bytes.length <= maxBytes) return text;
-  let end = maxBytes;
-  // bytes[end] is the first byte left out; a continuation byte there means
-  // the character started before the limit, so it is left out whole.
-  while (end > 0 && (bytes[end]! & 0xc0) === 0x80) end--;
-  return bytes.subarray(0, end).toString("utf8");
+/**
+ * The UTF-8 bytes the code unit(s) at `index` take inside a JSON string, as
+ * JSON.stringify writes them, and how many code units they are.
+ */
+function jsonUnit(text: string, index: number): [bytes: number, units: number] {
+  const code = text.charCodeAt(index);
+  if (code === 0x22 || code === 0x5c) return [2, 1];
+  if (code < 0x20)
+    // \b \t \n \f \r have short escapes; other controls are \u00XX.
+    return [[8, 9, 10, 12, 13].includes(code) ? 2 : 6, 1];
+  if (code < 0x80) return [1, 1];
+  if (code < 0x800) return [2, 1];
+  if (code >= 0xd800 && code <= 0xdbff) {
+    const next = text.charCodeAt(index + 1);
+    if (next >= 0xdc00 && next <= 0xdfff) return [4, 2];
+  }
+  // A lone surrogate is escaped as \uXXXX (well-formed JSON.stringify).
+  if (code >= 0xd800 && code <= 0xdfff) return [6, 1];
+  return [3, 1];
+}
+
+/** The UTF-8 length of `text` JSON-escaped, without the surrounding quotes. */
+export function jsonTextBytes(text: string): number {
+  let bytes = 0;
+  for (let index = 0; index < text.length;) {
+    const [size, units] = jsonUnit(text, index);
+    bytes += size;
+    index += units;
+  }
+  return bytes;
+}
+
+/**
+ * The longest prefix of `text` whose JSON-escaped UTF-8 form fits
+ * `maxBytes`, ending on a character boundary (never inside a surrogate pair).
+ */
+export function clipJsonText(text: string, maxBytes: number): string {
+  let bytes = 0;
+  for (let index = 0; index < text.length;) {
+    const [size, units] = jsonUnit(text, index);
+    if (bytes + size > maxBytes) return text.slice(0, index);
+    bytes += size;
+    index += units;
+  }
+  return text;
 }
 
 async function projectLanguage(tx: DbTx, scope: Scope) {
@@ -246,9 +287,10 @@ async function modelFacts(tx: DbTx, scope: Scope, ids: readonly string[]) {
 }
 
 /**
- * A chunk's document version text (the active version, at most 48 KB),
- * only when the chunk passes every rule `retrieve(forModel: true, purpose:
- * "public")` applies, through the engine's own eligibility query.
+ * A chunk's document version text (the active version, at most
+ * FETCH_TEXT_MAX_BYTES of JSON text), only when the chunk passes every rule
+ * `retrieve(forModel: true, purpose: "public")` applies, through the
+ * engine's own eligibility query. `truncated` says whether text was left out.
  */
 export async function fetchChunkForModel(
   scope: Scope,
@@ -276,10 +318,16 @@ export async function fetchChunkForModel(
       FETCH_TEXT_MAX_BYTES,
     );
     if (!passage) throw notFound();
+    // The query returns at most FETCH_TEXT_MAX_BYTES characters, and every
+    // character takes at least one byte, so the clip below is the only cut
+    // unless the version is longer than that.
+    const text = clipJsonText(passage.text, FETCH_TEXT_MAX_BYTES);
     return {
       title: passage.title,
-      text: clipUtf8(passage.text, FETCH_TEXT_MAX_BYTES),
-      truncated: passage.textBytes > FETCH_TEXT_MAX_BYTES,
+      text,
+      truncated:
+        text.length < passage.text.length ||
+        passage.textBytes > Buffer.byteLength(passage.text, "utf8"),
       documentVersionId: passage.documentVersionId,
       sourceId: passage.sourceId,
       canonicalUrl: passage.canonicalUrl,
