@@ -85,9 +85,24 @@ const connector = (id: string, data: Record<string, unknown>) => ({
   data,
 });
 
+/** The providers of the enabled marketing module. */
+const MARKETING_PROVIDERS = [
+  { id: "postiz", name: "Postiz" },
+  { id: "matomo", name: "Matomo" },
+  { id: "slack", name: "Slack" },
+];
+
 function render(
   attention: AttentionState,
-  { locale = "en", owner = true }: { locale?: Locale; owner?: boolean } = {},
+  {
+    locale = "en",
+    owner = true,
+    providers = MARKETING_PROVIDERS,
+  }: {
+    locale?: Locale;
+    owner?: boolean;
+    providers?: { id: string; name: string }[];
+  } = {},
 ) {
   const shell = {
     hrefOf: (key: string) =>
@@ -96,10 +111,7 @@ function render(
         table.routes.find((r) => r.key === key)!,
       ),
     attention,
-    connectors: {
-      providers: [{ id: "postiz", name: "Postiz" }],
-      extras: [],
-    },
+    connectors: { providers, extras: [] },
   } as unknown as ShellContextValue;
   return renderToStaticMarkup(
     <ShellContext.Provider value={shell}>
@@ -195,6 +207,29 @@ describe("SystemStatusCard", () => {
     const viewer = lines(render(loaded([]), { owner: false }));
     expect(viewer.map(([, text]) => text)).not.toContain(
       "Mailbox support@example.invalid · connected",
+    );
+  });
+
+  it("lists only providers of enabled, visible modules; mailboxes stay the owner's", () => {
+    answers["/connectors"] = {
+      items: [
+        connector("c1", { provider: "postiz", status: "write_verified" }),
+        connector("c2", { provider: "matomo", status: "failed" }),
+        connector("c4", {
+          provider: "email",
+          status: "read_verified",
+          fromAddress: "support@example.invalid",
+        }),
+      ],
+    };
+    // Marketing hidden or switched off: its providers are not contributed.
+    expect(lines(render(loaded([]), { providers: [] })).slice(1)).toEqual([
+      ["ok", "Mailbox support@example.invalid · connected"],
+    ]);
+    const viewer = lines(render(loaded([]), { providers: [], owner: false }));
+    expect(viewer.slice(1)).toEqual([]);
+    expect(render(loaded([]), { providers: [], owner: false })).toContain(
+      "No connections set up",
     );
   });
 

@@ -40,9 +40,11 @@ const stateWord = (tone: Tone, t: Text) =>
       : t("connectorUnchecked");
 
 /**
- * One line per configured provider (its first connection that is not
- * revoked, as the Connections page shows it) and, for owners, one per
- * mailbox address; a verified connection of an address wins.
+ * One line per configured provider that an enabled, visible module
+ * contributes (`names`, keyed by provider id: its first connection that is
+ * not revoked, as the Connections page shows it) and, for owners, one per
+ * mailbox address; a verified connection of an address wins. A provider of
+ * a hidden or switched-off module is left out, as on the Connections page.
  */
 export function connectionLines(
   rows: readonly Entity[],
@@ -57,7 +59,8 @@ export function connectionLines(
     const provider = String(row.data.provider ?? "");
     if (!provider) continue;
     if (provider !== EMAIL) {
-      if (!providers.has(provider)) providers.set(provider, row);
+      if (Object.hasOwn(names, provider) && !providers.has(provider))
+        providers.set(provider, row);
       continue;
     }
     const address = String(row.data.fromAddress ?? row.data.username ?? "");
@@ -68,14 +71,12 @@ export function connectionLines(
     )
       mailboxes.set(address, row);
   }
-  const named = (provider: string) =>
-    names[provider] ?? provider.charAt(0).toUpperCase() + provider.slice(1);
   const lines: Line[] = [...providers].map(([provider, row]) => {
     const tone = connectorTone(row);
     return {
       key: row.id,
       tone,
-      text: `${named(provider)} · ${stateWord(tone, t)}`,
+      text: `${names[provider]} · ${stateWord(tone, t)}`,
     };
   });
   if (withMailboxes)
