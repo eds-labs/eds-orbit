@@ -131,7 +131,7 @@ test("pickers, project home and every page have their own URL", async ({
   await page.locator(`a[href="/p/${user.projectId}"]`).click();
 
   // Project home: greeting, assistant prompt, status strip, the attention
-  // list and the marketing section; the project's name is in the breadcrumb.
+  // list and the module cards; the project's name is in the breadcrumb.
   const base = `/p/${user.projectId}`;
   await expect(page).toHaveURL(new RegExp(`${base}$`));
   await expect(
@@ -152,7 +152,10 @@ test("pickers, project home and every page have their own URL", async ({
   ).toBeVisible();
   await expect(page.locator(".module-tile")).toHaveCount(0);
   await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
+    page.getByRole("heading", { level: 2, name: "Marketing · in progress" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "System status" }),
   ).toBeVisible();
 
   // Every page from the sidebar, in order; the URL is shareable.

@@ -51,10 +51,14 @@ async function login(
   await page.waitForURL(/\/(p|o)(\/|$)/);
   if (!new URL(page.url()).pathname.startsWith("/p/"))
     await page.goto(`/p/${account().projectId}`);
-  await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
-  ).toBeVisible();
+  await expect(homeGreeting(page)).toBeVisible();
 }
+// The project home's heading: a greeting by the time of day (UI restructure).
+const homeGreeting = (page: Page) =>
+  page.getByRole("heading", {
+    level: 1,
+    name: /^(Good (morning|afternoon|evening)|Guten (Morgen|Tag|Abend))\b/,
+  });
 async function checkedPost(
   request: APIRequestContext,
   path: string,
@@ -104,10 +108,10 @@ async function newProject(page: Page, name: string) {
     await page.getByRole("dialog", { name: "Workspace navigation" }).isVisible()
   )
     await page.keyboard.press("Escape");
+  await expect(homeGreeting(page)).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
+    page.getByRole("heading", { level: 2, name: "Marketing · in progress" }),
   ).toBeVisible();
-  await expect(page.locator(".mode-band")).toBeVisible();
   return project.id as string;
 }
 // Pages by their old name; the shell serves them under /p/:projectId (WP1.7).
@@ -676,6 +680,12 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await expect(
       page.getByRole("dialog", { name: "Workspace navigation" }),
     ).toHaveCount(0);
+    // The marketing card leads to the overview, where missions start.
+    await page
+      .locator('.home-section[data-module="marketing"]')
+      .getByRole("link", { name: "Go to overview" })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/p/${projectId}/marketing$`));
     await page
       .getByRole("button", { name: "New mission", exact: true })
       .click();
@@ -701,7 +711,13 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await page.goto("/");
     await page.getByRole("button", { name: "DE", exact: true }).click();
     await expect(
-      page.getByRole("heading", { name: "Dein Marketing, im Orbit." }),
+      page.getByRole("heading", {
+        level: 1,
+        name: /^Guten (Morgen|Tag|Abend)\b/,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Marketing · laufende Aufgaben" }),
     ).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("lang", "de");
     await page.getByRole("button", { name: "EN", exact: true }).click();
@@ -783,6 +799,10 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
     await login(page, viewer);
     await expect(
       page.getByText("You have read-only access to this project."),
+    ).toBeVisible();
+    await page.goto(`/p/${projectId}/marketing`);
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Marketing" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "New mission", exact: true }),
@@ -1289,4 +1309,97 @@ test("an old support notification link opens the ticket", async ({ page }) => {
       .getByRole("link", { name: "Tickets", exact: true }),
   ).toHaveAttribute("aria-current", "page");
   if (first) await expect(page.getByText(first.subject).first()).toBeVisible();
+});
+
+test("the home shows the module cards and each leads to its overview", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  // Ruling R24: the system status card never reads /operations.
+  const apiReads: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/")) apiReads.push(path);
+  });
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await login(page);
+  const { projectId } = account();
+  const base = `/p/${projectId}`;
+  await page.goto(base);
+  await expect(homeGreeting(page)).toBeVisible();
+
+  // The cards by homeOrder, then the platform's system status.
+  const modules = [
+    ...(process.env.E2E_SUPPORT === "1" ? ["support"] : []),
+    "marketing",
+    "knowledge",
+    "platform",
+  ];
+  const cards = page.locator(".home-cards > .home-section:not(:empty)");
+  await expect(
+    page.getByRole("heading", { level: 2, name: "System status" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Marketing · in progress" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "Knowledge", exact: true }),
+  ).toBeVisible();
+  await expect(cards).toHaveCount(modules.length);
+  expect(
+    await cards.evaluateAll((all) =>
+      all.map((card) => card.getAttribute("data-module")),
+    ),
+  ).toEqual(modules);
+  // The full marketing overview is no longer part of the home.
+  await expect(page.locator(".mode-band")).toHaveCount(0);
+  const status = page.locator('.home-section[data-module="platform"]');
+  await expect(status.locator(".system-status-line").first()).toHaveText(
+    /^Worker/,
+  );
+  expect(apiReads.some((path) => path.endsWith("/operations"))).toBe(false);
+
+  // Each card's link opens its overview.
+  type Target = [module: string, link: string, path: string, heading: string];
+  const support: Target[] =
+    process.env.E2E_SUPPORT === "1"
+      ? [["support", "Go to overview", "/support", "Support"]]
+      : [];
+  const targets: Target[] = [
+    ...support,
+    ["marketing", "Go to overview", "/marketing", "Marketing"],
+    ["knowledge", "Go to overview", "/knowledge", "Knowledge"],
+    ["platform", "Operations", "/operations", "Operations"],
+  ];
+  for (const [module, link, path, heading] of targets) {
+    await page
+      .locator(`.home-section[data-module="${module}"]`)
+      .getByRole("link", { name: link })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`${base}${path}$`));
+    await expect(
+      page.getByRole("heading", { level: 1, name: heading, exact: true }),
+    ).toBeVisible();
+    await page.goBack();
+    await expect(homeGreeting(page)).toBeVisible();
+  }
+
+  // On a phone the cards stack in one column without horizontal scroll,
+  // and every card link is a 44 px target.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base);
+  await expect(cards).toHaveCount(modules.length);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  const lefts = await cards.evaluateAll((all) =>
+    all.map((card) => Math.round(card.getBoundingClientRect().left)),
+  );
+  expect(new Set(lefts).size).toBe(1);
+  for (const height of await page
+    .locator(".home-card-link")
+    .evaluateAll((all) => all.map((a) => a.getBoundingClientRect().height)))
+    expect(height).toBeGreaterThanOrEqual(44);
 });
