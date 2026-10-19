@@ -317,6 +317,12 @@ export async function buildMcpServer(
           log: req.log,
           observe,
           startRun: startMcpRun,
+          proposalQuota: {
+            limiter,
+            perHour: limits.proposalsPerHourPerGrant,
+            perDay: limits.proposalsPerDayPerGrant,
+            now: options.clock ?? Date.now,
+          },
           ...(options.toolTimeoutMs !== undefined
             ? { toolTimeoutMs: options.toolTimeoutMs }
             : {}),

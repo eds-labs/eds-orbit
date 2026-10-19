@@ -39,6 +39,11 @@ import {
 import { nativeTools, type NativeToolContext } from "./native-tools.ts";
 import type { McpPrincipal } from "./principal.ts";
 import {
+  assertProposalCapacity,
+  chargeProposal,
+  type ProposalQuota,
+} from "./proposals.ts";
+import {
   authorizeMcpCall,
   requiredScope,
   visibleMcpTools,
@@ -111,6 +116,8 @@ export type McpRequestState = {
   startRun?: McpRunStarter;
   /** Overrides MCP_TOOL_TIMEOUT_MS (tests). */
   toolTimeoutMs?: number;
+  /** The proposal quotas of the grant (limits.ts, D-M4-8). */
+  proposalQuota: ProposalQuota;
 };
 
 /** What one call tells the observer about itself while it runs. */
@@ -219,6 +226,7 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 async function runCall(
   state: McpRequestState,
   tool: string,
+  risk: ToolRisk,
   args: unknown,
   outputSchema: z.ZodType,
   work: (call: CallTrace) => Promise<unknown>,
@@ -259,7 +267,7 @@ async function runCall(
         };
     }
   } catch (error) {
-    const failure = toolFailure(error, state.requestId);
+    const failure = toolFailure(error, state.requestId, risk);
     outcome = failure.code;
     result = failure.result;
     if (outcome === "TIMEOUT")
@@ -442,6 +450,13 @@ async function executeRegistryTool(
   );
   // Object-level rules of the tool's own schema apply too.
   const input = allowed.parameters.parse(rest);
+  // A proposal tool runs only inside the grant's quotas (D-M4-8).
+  const proposing = allowed.risk === "P_proposal";
+  if (proposing)
+    await assertProposalCapacity(state.proposalQuota, {
+      grantId: principal.grantId,
+      workspaceId: principal.workspaceId,
+    });
   // The run exists before the tool works, so its spans and costs can hang on
   // it; without one the request id stands in, as before.
   const agentRunId = await startCallRun(state, call, toolName, projectId);
@@ -461,6 +476,11 @@ async function executeRegistryTool(
     },
     input,
   );
+  // Only a created proposal uses the hourly quota: a tool that reports a
+  // deduplicated retry (`deduplicated: true`) costs nothing. A tool that
+  // does not say counts, so a new proposal tool cannot dodge the quota.
+  if (proposing && !(isPlainObject(output) && output.deduplicated === true))
+    chargeProposal(state.proposalQuota, principal.grantId);
   // Chat cards are never sent over MCP (Orbit links follow in WP-M3).
   return output;
 }
@@ -609,6 +629,7 @@ export async function mcpServerFor(
         runCall(
           principalState,
           definition.name,
+          definition.risk,
           args,
           definition.outputSchema,
           (call) => definition.run(args, call),

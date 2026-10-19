@@ -208,3 +208,23 @@ export async function remove(path: string): Promise<void> {
   const value = await response.json().catch(() => null);
   throw new ApiError(value?.error?.code ?? "REQUEST_FAILED", response.status);
 }
+
+/**
+ * A PATCH whose success answers 204 with no body (`remove`'s counterpart for
+ * changing a resource), so `api` cannot be used: it parses JSON.
+ */
+export async function patchNoContent(
+  path: string,
+  data: unknown,
+): Promise<void> {
+  const response = await fetch(`/api${path}`, {
+    method: "PATCH",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (response.ok) return;
+  const value = await response.json().catch(() => null);
+  throw new ApiError(value?.error?.code ?? "REQUEST_FAILED", response.status);
+}

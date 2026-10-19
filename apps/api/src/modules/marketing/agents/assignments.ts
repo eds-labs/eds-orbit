@@ -24,7 +24,14 @@ import { chatScoped, conversation } from "../../chat.ts";
 import {
   cancelActionRequest,
   createActionRequest,
+  findPendingMcpProposal,
+  mcpGrantStillProposes,
+  type RequestedBy,
 } from "../../action-requests.ts";
+import {
+  mcpProposalArgsHash,
+  recordMcpProposal,
+} from "../../../platform/mcp/proposals.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import {
   channelTextLength,
@@ -424,6 +431,11 @@ function confirmationRequest(
   scope: Scope,
   assignmentId: string,
   content: Content,
+  requester: RequestedBy = {
+    kind: "agent",
+    userId: scope.userId,
+    agentRunId: null,
+  },
 ) {
   return createActionRequest(tx, scope, {
     actionType: "assignment.confirm",
@@ -432,7 +444,7 @@ function confirmationRequest(
       assignmentHash: assignmentHash(content),
       ...contentOf(content),
     },
-    requestedBy: { kind: "agent", userId: scope.userId, agentRunId: null },
+    requestedBy: requester,
   });
 }
 
@@ -461,6 +473,17 @@ export async function proposeAssignmentInTx(
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const content = assignmentInput.parse(raw);
   await conversation(tx, scope, conversationId);
+  return saveProposal(tx, scope, content, conversationId);
+}
+
+/** The draft and its confirmation request; the caller checked role, flag and origin. */
+async function saveProposal(
+  tx: DbTx,
+  scope: Scope,
+  content: Content,
+  conversationId: string | null,
+  requester?: RequestedBy,
+) {
   await assertWithinMandate(tx, scope, content, null);
   const row = await create(tx, scope, KIND, {
     ...content,
@@ -469,7 +492,13 @@ export async function proposeAssignmentInTx(
     confirmation: null,
     actionRequestId: null,
   });
-  const actionRequest = await confirmationRequest(tx, scope, row.id, content);
+  const actionRequest = await confirmationRequest(
+    tx,
+    scope,
+    row.id,
+    content,
+    requester,
+  );
   const assignment = await update(tx, scope, row, {
     ...data(row),
     actionRequestId: actionRequest.id,
@@ -478,6 +507,100 @@ export async function proposeAssignmentInTx(
     assignmentHash: assignmentHash(content),
   });
   return { assignment, actionRequest };
+}
+
+/** The MCP client a proposal comes from (WP-M4); set by the gateway only. */
+export type McpProposalOrigin = {
+  /** The MCP tool name, part of the dedupe key. */
+  tool: string;
+  clientId: string;
+  grantId: string;
+  /** The call's AgentRun, null when the gateway had none. */
+  agentRunId: string | null;
+};
+
+/**
+ * An MCP client's proposal (WP-M4): the same role, flag and mandate checks
+ * and the same draft and owner request as from chat, but bound to no
+ * conversation (`conversationId` null) and requested by the client. A retry
+ * with the same normalized arguments from the same user and client returns
+ * the pending proposal instead of creating another (D-M4-4), as long as the
+ * grant it came from still stands; only a creation is recorded on the grant
+ * (`mcp.proposal`). Inside the project transaction the grant is checked
+ * again (`mcpGrantStillProposes`): a grant revoked or stopped since the
+ * gateway resolved it refuses with MCP_GRANT_ENDED, and one stopped after
+ * this check waits for the project lock and cancels what this commits.
+ * Nothing runs before the owner confirms.
+ */
+export async function proposeAssignmentFromMcp(
+  scope: Scope,
+  origin: McpProposalOrigin,
+  raw: unknown,
+) {
+  requireEditor(scope);
+  if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
+  const content = assignmentInput.parse(raw);
+  const argsHash = mcpProposalArgsHash(origin.tool, scope.projectId, content);
+  // The project transaction serializes proposals, so a concurrent retry sees the first one.
+  return chatScoped(scope, async (tx) => {
+    const now = new Date();
+    const proposer = { userId: scope.userId, clientId: origin.clientId };
+    if (
+      !(await mcpGrantStillProposes(
+        { ...proposer, grantId: origin.grantId },
+        scope,
+        now,
+      ))
+    )
+      throw new DomainError("MCP_GRANT_ENDED", 409);
+    const pending = await findPendingMcpProposal(tx, scope, {
+      ...proposer,
+      actionType: "assignment.confirm",
+      argsHash,
+      now,
+    });
+    // A hit of a replaced grant counts only while that grant's line stands.
+    if (
+      pending &&
+      (data(pending).requestedBy.grantId === origin.grantId ||
+        (await mcpGrantStillProposes(
+          data(pending).requestedBy,
+          scope,
+          pending.createdAt,
+        )))
+    )
+      return {
+        assignmentId: String(data(pending).payload.assignmentId),
+        actionRequest: pending,
+        deduplicated: true,
+      };
+    const { assignment, actionRequest } = await saveProposal(
+      tx,
+      scope,
+      content,
+      null,
+      {
+        kind: "mcp",
+        userId: scope.userId,
+        clientId: origin.clientId,
+        grantId: origin.grantId,
+        agentRunId: origin.agentRunId,
+        argsHash,
+      },
+    );
+    // Last, inside the transaction: a failed write rolls the proposal back,
+    // so every created proposal is counted (an event without a commit only
+    // overcounts the quota).
+    await recordMcpProposal({
+      userId: scope.userId,
+      clientId: origin.clientId,
+      grantId: origin.grantId,
+      workspaceId: scope.workspaceId,
+      actionType: "assignment.confirm",
+      actionRequestId: actionRequest.id,
+    });
+    return { assignmentId: assignment.id, actionRequest, deduplicated: false };
+  });
 }
 
 /** Free share of the project's monthly budget: the policy budget minus what confirmed assignments hold. */

@@ -185,6 +185,8 @@ describe("rate limiter", () => {
       perClient: 600,
       unauthenticatedPerIp: 30,
       searchPerGrant: 30,
+      proposalsPerHourPerGrant: 20,
+      proposalsPerDayPerGrant: 100,
     });
   });
 });
@@ -361,7 +363,11 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
       where: { userId, clientId: CLIENT[name] },
     });
 
+  let savedProposals: string | undefined;
   beforeAll(async () => {
+    // The central proposal switch (WP-M4) is off by default; these tests use proposal tools.
+    savedProposals = process.env.ORBIT_MCP_PROPOSALS;
+    process.env.ORBIT_MCP_PROPOSALS = "true";
     await withFlags(async () => {
       config = loadConfig();
       api = await buildServer(undefined, { cimdFetch });
@@ -481,6 +487,8 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
     failures.grantEvent = false;
   });
   afterAll(async () => {
+    if (savedProposals === undefined) delete process.env.ORBIT_MCP_PROPOSALS;
+    else process.env.ORBIT_MCP_PROPOSALS = savedProposals;
     for (const app of spawned) await app.close();
     await api?.close();
     if (workspaceId)

@@ -96,6 +96,9 @@ const baseConfigSchema = z.object({
   MCP_PORT: unset(z.coerce.number().int().min(1).max(65535).default(4312)),
   // Browser origins allowed to call the gateway (comma list); empty allows none.
   ORBIT_MCP_ALLOWED_ORIGINS: unset(z.string().default("")),
+  // Central switch for MCP proposal tools (Track M, WP-M4): while "false" the
+  // gateway neither lists nor runs a P_proposal tool. Status polling stays.
+  ORBIT_MCP_PROPOSALS: unset(z.enum(["false", "true"]).default("false")),
   // Module-level roles (WP4.5): off until the security review and approval.
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.

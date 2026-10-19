@@ -29,6 +29,35 @@ export function channelLabel(summary: {
     : summary.channelName;
 }
 
+type Requester = { kind: string; userId: string; clientId?: string };
+
+/** The host of an MCP client's id (a URL), else the id as written; null for other requesters. */
+export function mcpClientHost(requestedBy: Requester) {
+  if (requestedBy.kind !== "mcp" || !requestedBy.clientId) return null;
+  try {
+    return new URL(requestedBy.clientId).hostname || requestedBy.clientId;
+  } catch {
+    return requestedBy.clientId;
+  }
+}
+
+/** Where an MCP proposal came from, as plain text, so the owner knows before deciding. */
+export function RequestedViaMcp({
+  requestedBy,
+  de,
+}: {
+  requestedBy: Requester;
+  de: boolean;
+}) {
+  const host = mcpClientHost(requestedBy);
+  if (!host) return null;
+  return (
+    <p className="chat-package-note">
+      {de ? "über MCP-Client" : "via MCP client"} {host}
+    </p>
+  );
+}
+
 type ActionRequestItem = {
   id: string;
   version: number;
@@ -36,7 +65,7 @@ type ActionRequestItem = {
   packageHash: string;
   costCeilingMicros: number;
   expiresAt: string;
-  requestedBy: { kind: string; userId: string };
+  requestedBy: Requester;
   summary: {
     prompt?: string;
     model?: string;
@@ -55,6 +84,26 @@ type ActionRequestItem = {
     assignment?: Record<string, any>;
   };
 };
+
+/**
+ * The text of a failed decision: a short sentence for codes an owner can act
+ * on, otherwise the error's own message (the code in words).
+ */
+export function decisionErrorText(cause: unknown, de: boolean) {
+  const code =
+    typeof cause === "object" && cause !== null && "code" in cause
+      ? (cause as { code: unknown }).code
+      : undefined;
+  if (code === "MCP_GRANT_ENDED")
+    return de
+      ? "Die App, die das vorgeschlagen hat, darf nicht mehr vorschlagen (Verbindung getrennt, Vorschläge gestoppt oder Zugriff geändert). Du kannst den Vorschlag nur noch ablehnen."
+      : "The app that proposed this may no longer propose (it was disconnected, its proposals were stopped or its access changed). You can only reject it now.";
+  return cause instanceof Error
+    ? cause.message
+    : de
+      ? "Entscheidung fehlgeschlagen"
+      : "Decision failed";
+}
 
 /** Owners decide open action requests here, for example an editor's package image. */
 export function ActionRequestInbox() {
@@ -79,7 +128,7 @@ export function ActionRequestInbox() {
       await decideRequest(item, decision, imageRightsConsent);
       requests.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Decision failed");
+      setError(decisionErrorText(cause, de));
     } finally {
       setPending("");
     }
@@ -96,13 +145,17 @@ export function ActionRequestInbox() {
       {items.map((item) => {
         const view = renderers[item.actionType];
         return view?.accepts(item) ? (
-          <view.component
-            key={item.id}
-            item={item}
-            de={de}
-            pending={Boolean(pending)}
-            decide={(decision, consent) => void decide(item, decision, consent)}
-          />
+          <div key={item.id}>
+            <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
+            <view.component
+              item={item}
+              de={de}
+              pending={Boolean(pending)}
+              decide={(decision, consent) =>
+                void decide(item, decision, consent)
+              }
+            />
+          </div>
         ) : (
           <article key={item.id} className="action-request">
             <div className="chat-proposal-head">
@@ -137,6 +190,7 @@ export function ActionRequestInbox() {
                 </Badge>
               )}
             </div>
+            <RequestedViaMcp requestedBy={item.requestedBy} de={de} />
             {item.summary.packageGoal && (
               <p>
                 {de ? "Paket" : "Package"}: {item.summary.packageGoal}

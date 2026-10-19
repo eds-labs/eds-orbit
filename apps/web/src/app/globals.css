@@ -955,6 +955,13 @@ td:first-child {
 .data-row > svg {
   color: #62829d;
 }
+.data-row > .connected-app-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .run-steps {
   margin: 10px 0 0;
   padding-left: 18px;

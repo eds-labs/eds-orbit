@@ -1,7 +1,13 @@
 "use client";
 import { useState } from "react";
 import { Plug } from "lucide-react";
-import { remove, useMutation, useResource, when } from "@/lib/api";
+import {
+  patchNoContent,
+  remove,
+  useMutation,
+  useResource,
+  when,
+} from "@/lib/api";
 import type { Locale, Text } from "@/lib/i18n";
 import { useWorkspace } from "@/components/workspace-context";
 import {
@@ -41,6 +47,23 @@ export function revokeGrant(
   return del(`/mcp-grants/${encodeURIComponent(grant.id)}`);
 }
 
+/** Whether the app may still propose actions for the owner to decide. */
+export const canPropose = (grant: Pick<McpGrant, "scopes">) =>
+  grant.scopes.includes("orbit:propose");
+
+/**
+ * Stops one grant from proposing. The API answers 204; proposing comes back
+ * only when the app asks for it again at the next connection.
+ */
+export function stopProposals(
+  patch: (path: string, body: unknown) => Promise<void>,
+  grant: Pick<McpGrant, "id">,
+) {
+  return patch(`/mcp-grants/${encodeURIComponent(grant.id)}`, {
+    proposals: false,
+  });
+}
+
 /** The list without data access, so it can be rendered in tests. */
 export function GrantList({
   t,
@@ -53,6 +76,9 @@ export function GrantList({
   confirm,
   onConfirm,
   onRevoke,
+  stopConfirm,
+  onStopConfirm,
+  onStopProposals,
   pending,
   error,
 }: {
@@ -67,6 +93,10 @@ export function GrantList({
   confirm: McpGrant | null;
   onConfirm: (grant: McpGrant | null) => void;
   onRevoke: (grant: McpGrant) => void;
+  /** The grant whose "Stop proposals" awaits confirmation. */
+  stopConfirm: McpGrant | null;
+  onStopConfirm: (grant: McpGrant | null) => void;
+  onStopProposals: (grant: McpGrant) => void;
   pending: boolean;
   error: string | null;
 }) {
@@ -105,18 +135,51 @@ export function GrantList({
                   : t("connectedNeverUsed")}
               </p>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={pending}
-              aria-label={`${t("connectedRevoke")}: ${grant.clientName}`}
-              onClick={() => onConfirm(grant)}
-            >
-              {t("connectedRevoke")}
-            </Button>
+            <div className="connected-app-actions">
+              {canPropose(grant) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending}
+                  aria-label={`${t("connectedStopProposals")}: ${grant.clientName}`}
+                  onClick={() => onStopConfirm(grant)}
+                >
+                  {t("connectedStopProposals")}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                aria-label={`${t("connectedRevoke")}: ${grant.clientName}`}
+                onClick={() => onConfirm(grant)}
+              >
+                {t("connectedRevoke")}
+              </Button>
+            </div>
           </div>
         ))}
       </div>
+      {stopConfirm && (
+        <Modal
+          title={`${t("connectedStopProposalsTitle")} ${stopConfirm.clientName}?`}
+          description={t("connectedStopProposalsHint")}
+          onClose={() => onStopConfirm(null)}
+        >
+          <div className="form-actions">
+            <Button variant="outline" onClick={() => onStopConfirm(null)}>
+              {t("cancel")}
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={pending}
+              onClick={() => onStopProposals(stopConfirm)}
+            >
+              {t("connectedStopProposalsConfirm")}
+            </Button>
+          </div>
+        </Modal>
+      )}
       {confirm && (
         <Modal
           title={`${t("connectedRevokeTitle")} ${confirm.clientName}?`}
@@ -154,8 +217,10 @@ export function ConnectedApps({ mine }: { mine: GrantsResource }) {
       : null,
   );
   const [confirm, setConfirm] = useState<McpGrant | null>(null);
+  const [stopConfirm, setStopConfirm] = useState<McpGrant | null>(null);
   const mutation = useMutation(() => {
     setConfirm(null);
+    setStopConfirm(null);
     mine.refresh();
     organization.refresh();
   });
@@ -173,6 +238,10 @@ export function ConnectedApps({ mine }: { mine: GrantsResource }) {
     onConfirm: setConfirm,
     onRevoke: (grant: McpGrant) =>
       void mutation.run(() => revokeGrant(remove, grant)),
+    stopConfirm,
+    onStopConfirm: setStopConfirm,
+    onStopProposals: (grant: McpGrant) =>
+      void mutation.run(() => stopProposals(patchNoContent, grant)),
     pending: mutation.pending,
     error: mutation.error,
   };

@@ -685,6 +685,13 @@
     "editor": "not_found",
     "owner": "not_found"
   },
+  "PATCH /api/mcp-grants/{grantId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
   "PATCH /api/projects/{projectId}/content/{id}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

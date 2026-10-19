@@ -72,6 +72,7 @@ describe.skipIf(!enabled)("MCP grants, flag off", () => {
       ["GET", "/api/mcp-grants"],
       ["GET", `/api/workspaces/${id}/mcp-grants`],
       ["DELETE", `/api/mcp-grants/${id}`],
+      ["PATCH", `/api/mcp-grants/${id}`],
     ] as const) {
       const r = await app.inject({ method, url, headers: { origin } });
       expect(r.statusCode).toBe(404);
@@ -613,17 +614,21 @@ describe.skipIf(!enabled)("MCP grants: revoke, list, lookup", () => {
       ["GET", "/api/mcp-grants"],
       ["GET", `/api/workspaces/${workspaceId}/mcp-grants`],
       ["DELETE", `/api/mcp-grants/${id}`],
+      ["PATCH", `/api/mcp-grants/${id}`],
     ] as const) {
       const r = await inject({ method, url, session: false });
       expect(r.statusCode).toBe(401);
     }
     as("owner");
-    const noOrigin = await inject({
-      method: "DELETE",
-      url: `/api/mcp-grants/${id}`,
-      noOrigin: true,
-    });
-    expect(noOrigin.statusCode).toBe(403);
-    expect(noOrigin.json().error.code).toBe("ORIGIN_REQUIRED");
+    for (const method of ["DELETE", "PATCH"] as const) {
+      const noOrigin = await inject({
+        method,
+        url: `/api/mcp-grants/${id}`,
+        payload: method === "PATCH" ? { proposals: false } : undefined,
+        noOrigin: true,
+      });
+      expect(noOrigin.statusCode).toBe(403);
+      expect(noOrigin.json().error.code).toBe("ORIGIN_REQUIRED");
+    }
   });
 });
