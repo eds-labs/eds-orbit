@@ -110,3 +110,12 @@ already approved native child job or transmitted external action; use its native
 cancellation/reconciliation path. Disable the new flag before rollback and keep
 new approval types inert if returning to an older image. No push, merge or
 production deployment is included in this handoff.
+
+## Main delivery authorization (2026-10-19)
+
+After the local handoff, Mario explicitly authorized committing/pushing the
+complete change to `main`, with Coolify deploying automatically. The release
+adds no migration or dependency and does not change live feature flags. Existing
+2739-test, browser, build and quality evidence applies to the unchanged code;
+this delivery follow-up adds the changelog and this authorization record only.
+Remote CI and Coolify deployment/health are checked separately from local tests.
