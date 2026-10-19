@@ -440,8 +440,9 @@ function nativeContext(
     setAuditProject: (projectId) =>
       void attributeCall(principal, call, projectId),
     startRun: (projectId) => startCallRun(state, call, tool, projectId),
-    withProjectSlot: (projectId, work) =>
-      state.projectSlots.run(projectId, work),
+    withProjectSlot: (projectId, work, options) =>
+      state.projectSlots.run(projectId, work, options),
+    projectSlotDeadline: () => state.projectSlots.deadline(),
     log: state.log,
   };
 }

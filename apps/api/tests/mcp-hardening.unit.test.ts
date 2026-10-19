@@ -218,6 +218,33 @@ describe("project slots (R-10)", () => {
     expect(slots.size).toBe(0);
   });
 
+  it("a shared deadline bounds the wait: once it has passed, a busy project fails at once", async () => {
+    vi.useFakeTimers();
+    const slots = new McpProjectSlots({ perProject: 1, waitMs: 1000 });
+    let release!: () => void;
+    const held = slots.run(
+      "p",
+      () => new Promise<void>((resolve) => (release = resolve)),
+    );
+    const deadline = slots.deadline();
+    const first = slots
+      .run("p", async () => "x", { deadline })
+      .catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await first).toBeInstanceOf(McpBusyError);
+    // The deadline has passed: no waiting at all now.
+    await expect(
+      slots.run("p", async () => "y", { deadline }),
+    ).rejects.toBeInstanceOf(McpBusyError);
+    // A free project still runs past the deadline.
+    await expect(slots.run("q", async () => "z", { deadline })).resolves.toBe(
+      "z",
+    );
+    release();
+    await held;
+    expect(slots.size).toBe(0);
+  });
+
   it("BUSY is fixed text, retryable for reads only", () => {
     expect(busyResult("R0_read").structuredContent).toEqual({
       code: "BUSY",

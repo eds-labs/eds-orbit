@@ -12,6 +12,7 @@ import { requireSpendMandate } from "../../ai/spend-mandate.ts";
 import { DomainError } from "../../shared.ts";
 import { searchForModel, type KnowledgeHit } from "../../knowledge/mcp-read.ts";
 import type { SearchBudget, SearchTrace } from "../../knowledge/search.ts";
+import { McpBusyError } from "../errors.ts";
 import { MCP_OUTPUT_LIMIT_BYTES } from "../limits.ts";
 import type { NativeTool, NativeToolContext } from "../native-tools.ts";
 import {
@@ -213,14 +214,33 @@ export const searchTool: NativeTool = {
       if (runId) trace = { agentRunId: runId, taskClass: searchTool.name };
     }
     // One project at a time, each inside one of its slots (R-10): a search
-    // never holds two projects' slots at once.
+    // never holds two projects' slots at once. Over several projects, a busy
+    // one contributes nothing (like one that cannot be searched) and the
+    // waits share one deadline, so they cannot add up to the tool timeout;
+    // only when every project was busy is the call BUSY.
     const lists: Candidate[][] = [];
-    for (const scope of scopes)
-      lists.push(
-        await ctx.withProjectSlot(scope.projectId, () =>
-          searchProject(scope, query, ctx, trace),
-        ),
-      );
+    const several = scopes.length > 1;
+    const deadline = several ? ctx.projectSlotDeadline() : undefined;
+    let busy = 0;
+    for (const scope of scopes) {
+      try {
+        lists.push(
+          await ctx.withProjectSlot(
+            scope.projectId,
+            () => searchProject(scope, query, ctx, trace),
+            deadline === undefined ? {} : { deadline },
+          ),
+        );
+      } catch (error) {
+        if (!several || !(error instanceof McpBusyError)) throw error;
+        busy++;
+        ctx.log.warn(
+          { code: "MCP_SEARCH_PROJECT_BUSY", requestId: ctx.requestId },
+          "mcp search skipped a busy project",
+        );
+      }
+    }
+    if (several && busy === scopes.length) throw new McpBusyError();
     return {
       results: fitSearchResults(interleave(lists, SEARCH_MAX_RESULTS)),
     };

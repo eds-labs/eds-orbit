@@ -79,6 +79,10 @@ export type McpServerOptions = {
   rateLimits?: Partial<McpRateLimits>;
   /** Test seam: replaces MCP_PROJECT_CONCURRENCY (limits.ts, R-10), key by key. */
   projectConcurrency?: Partial<McpProjectConcurrency>;
+  /** Test seam: the project slots themselves (wins over projectConcurrency). */
+  projectSlots?: McpProjectSlots;
+  /** Test seam: the size cap of the per-address limiter (MCP_RATE_LIMITER_MAX_KEYS). */
+  ipLimiterMaxKeys?: number;
   /** Test seam: the clock for rate-limit windows and the lastUsedAt pacing. */
   clock?: () => number;
   /** Test seam: replaces the 25 s tool timeout (adapter.ts). */
@@ -172,9 +176,15 @@ export async function buildMcpServer(
   const jwksUrl = options.jwksUrl ?? config.MCP_JWKS_URL;
   const auth = makeAuth({ cimdFetch: options.cimdFetch });
   const limits = { ...MCP_RATE_LIMITS, ...options.rateLimits };
+  // Two limiters with their own size caps: the per-address buckets anyone
+  // can create without a token, and the buckets of verified requests
+  // (grant, user, client, search, proposals). A flood of new addresses
+  // fills only the first, so it can never refuse authenticated traffic.
   const limiter = new McpRateLimiter(options.clock);
+  const ipLimiter = new McpRateLimiter(options.clock, options.ipLimiterMaxKeys);
   const verifiedTokens = new McpVerifiedTokens(options.clock);
-  const projectSlots = new McpProjectSlots(options.projectConcurrency);
+  const projectSlots =
+    options.projectSlots ?? new McpProjectSlots(options.projectConcurrency);
 
   const app = Fastify({
     bodyLimit: MCP_BODY_LIMIT,
@@ -387,7 +397,10 @@ export async function buildMcpServer(
     // client address (an IPv6 client by its /64) before the token is looked
     // at, so a burst of bad tokens is refused without verification work
     // (D-M5-6). A known token is verified as always but not counted here;
-    // a request that still ends in 401 is counted afterwards.
+    // a request that still ends in 401 is counted afterwards. When the
+    // address limiter is full (capacity, not the address's own limit), a
+    // request with a token is verified anyway: an address flood must not
+    // lock out clients whose token this process has not seen yet.
     const header = req.headers.authorization;
     const token =
       parseAccessTokenAuthorization(
@@ -406,10 +419,12 @@ export async function buildMcpServer(
       );
       return rateLimitedResponse(verdict.retryAfterSeconds);
     };
-    const counted = !(token && verifiedTokens.has(token));
-    if (counted) {
-      const refused = refuse(limiter.take([ipRule]));
-      if (refused) return sendWebResponse(reply, refused);
+    let counted = false;
+    if (!(token && verifiedTokens.has(token))) {
+      const verdict = ipLimiter.take([ipRule]);
+      if (verdict.allowed) counted = true;
+      else if (!(token && verdict.label === "capacity"))
+        return sendWebResponse(reply, refuse(verdict)!);
     }
     let response: Response;
     try {
@@ -417,7 +432,7 @@ export async function buildMcpServer(
       if (response.status === 401) {
         // The token is no longer good (its grant is gone): count it again.
         if (token) verifiedTokens.forget(token);
-        if (!counted) response = refuse(limiter.take([ipRule])) ?? response;
+        if (!counted) response = refuse(ipLimiter.take([ipRule])) ?? response;
       }
     } catch (error) {
       // Key-set outages and other failures outside a challenge: no detail.

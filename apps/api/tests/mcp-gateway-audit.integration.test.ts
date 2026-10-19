@@ -1183,6 +1183,39 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
           expect((await list(tokens["limit-window"])).statusCode).toBe(200);
       });
 
+      it("a full address limiter never refuses an authenticated request (separate caps)", async () => {
+        const app = await gatewayWith({ ipLimiterMaxKeys: 2 });
+        const anonymous = (ip: string) =>
+          rpc(app, "tools/list", {}, { token: null, ip });
+        const authed = (token: string, ip: string) =>
+          rpc(app, "tools/list", {}, { token, ip });
+        // A token verified while there was room.
+        expect(
+          (await authed(tokens["limit-ip"], "2001:db8:77:1::1")).statusCode,
+        ).toBe(200);
+        expect((await anonymous("2001:db8:77:2::1")).statusCode).toBe(401);
+        // The address limiter is full: a third /64 is refused for capacity.
+        const flooded = await anonymous("2001:db8:77:3::1");
+        expect(flooded.statusCode).toBe(429);
+        expect(logLines.join("")).toContain('"bucket":"capacity"');
+        // Authenticated traffic is unaffected: a known token, and a valid
+        // token this gateway never saw, from yet another address.
+        expect(
+          (await authed(tokens["limit-ip"], "2001:db8:77:4::1")).statusCode,
+        ).toBe(200);
+        expect(
+          (await authed(tokens["limit-user-1"], "2001:db8:77:5::1")).statusCode,
+        ).toBe(200);
+        expect(
+          (await authed(tokens["limit-user-2"], "2001:db8:77:6::1")).statusCode,
+        ).toBe(200);
+        // A bad token still gets no answer but a refusal.
+        expect([401, 429]).toContain(
+          (await authed(forged(), "2001:db8:77:7::1")).statusCode,
+        );
+        expect((await anonymous("2001:db8:77:8::1")).statusCode).toBe(429);
+      });
+
       it("keys IPv6 clients by their /64, so rotating addresses inside it does not evade the limit", async () => {
         const app = await gatewayWith({
           rateLimits: { unauthenticatedPerIp: 3 },

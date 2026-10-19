@@ -44,7 +44,13 @@ export type NativeToolContext = {
    * call that finds none free within the wait fails as BUSY. A native wraps
    * the part that reads the project (every `scoped()` call locks it).
    */
-  withProjectSlot<T>(projectId: string, work: () => Promise<T>): Promise<T>;
+  withProjectSlot<T>(
+    projectId: string,
+    work: () => Promise<T>,
+    options?: { deadline?: number },
+  ): Promise<T>;
+  /** A wait deadline starting now, to share one wait over several projects. */
+  projectSlotDeadline(): number;
   log: FastifyBaseLogger;
 };
 

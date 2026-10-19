@@ -354,9 +354,30 @@ export class McpProjectSlots {
     return this.projects.size;
   }
 
-  /** Runs `work` in one of the project's slots; McpBusyError when none frees up in time. */
-  async run<T>(projectId: string, work: () => Promise<T>): Promise<T> {
-    await this.acquire(projectId);
+  /**
+   * When a wait that starts now would end: the deadline one call shares
+   * over several projects (a multi-project search waits `waitMs` in total,
+   * not per project).
+   */
+  deadline(): number {
+    return Date.now() + this.limits.waitMs;
+  }
+
+  /**
+   * Runs `work` in one of the project's slots; McpBusyError when none frees
+   * up in time. With `deadline` the wait ends then at the latest (at once
+   * when it has passed), never later than `waitMs`.
+   */
+  async run<T>(
+    projectId: string,
+    work: () => Promise<T>,
+    options: { deadline?: number } = {},
+  ): Promise<T> {
+    const waitMs =
+      options.deadline === undefined
+        ? this.limits.waitMs
+        : Math.min(this.limits.waitMs, options.deadline - Date.now());
+    await this.acquire(projectId, waitMs);
     try {
       return await work();
     } finally {
@@ -364,7 +385,7 @@ export class McpProjectSlots {
     }
   }
 
-  private acquire(projectId: string): Promise<void> {
+  private acquire(projectId: string, waitMs: number): Promise<void> {
     let queue = this.projects.get(projectId);
     if (!queue) {
       queue = { active: 0, waiting: [] };
@@ -374,7 +395,7 @@ export class McpProjectSlots {
       queue.active++;
       return Promise.resolve();
     }
-    if (queue.waiting.length >= this.limits.queuePerProject)
+    if (waitMs <= 0 || queue.waiting.length >= this.limits.queuePerProject)
       return Promise.reject(new McpBusyError());
     const waiting = queue;
     return new Promise<void>((resolve, reject) => {
@@ -386,7 +407,7 @@ export class McpProjectSlots {
         const index = waiting.waiting.indexOf(grant);
         if (index >= 0) waiting.waiting.splice(index, 1);
         reject(new McpBusyError());
-      }, this.limits.waitMs);
+      }, waitMs);
       waiting.waiting.push(grant);
     });
   }

@@ -161,6 +161,9 @@ services:
       # Token verification stays on the internal network.
       MCP_JWKS_URL: ${MCP_JWKS_URL:-http://api:4311/api/auth/jwks}
       SERVICE_URL_MCP_4312: /mcp
+    # Longer than the gateway's 10 s forced-exit timeout (shutdown.ts), so a
+    # hung close still exits on its own before Docker sends SIGKILL.
+    stop_grace_period: 15s
     expose:
       - "4312"
     networks:

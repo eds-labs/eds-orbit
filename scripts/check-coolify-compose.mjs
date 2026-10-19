@@ -305,6 +305,11 @@ assert.deepEqual(
   "the gateway is reached through the proxy only",
 );
 assert.equal(mcp.ports, undefined, "the gateway publishes no host port");
+assert.equal(
+  mcp.stop_grace_period,
+  "15s",
+  "mcp must outlast the gateway's 10 s forced-exit timeout before SIGKILL",
+);
 assert.equal(mcp.healthcheck.test[0], "CMD");
 assert.match(mcp.healthcheck.test.join(" "), /127\.0\.0\.1:4312\/healthz/);
 for (const name of Object.keys(services))

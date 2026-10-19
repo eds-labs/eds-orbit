@@ -42,7 +42,10 @@ import {
   nativeTools,
   type NativeTool,
 } from "../src/platform/mcp/native-tools.ts";
-import { MCP_OUTPUT_LIMIT_BYTES } from "../src/platform/mcp/limits.ts";
+import {
+  MCP_OUTPUT_LIMIT_BYTES,
+  McpProjectSlots,
+} from "../src/platform/mcp/limits.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
 import {
   cimdFetchFor,
@@ -158,8 +161,13 @@ describe.skipIf(!enabled)(
       return (response.json() as Json).access_token as string;
     }
 
-    function rpc(method: string, params: Json, token: string) {
-      return gateway.inject({
+    function rpc(
+      method: string,
+      params: Json,
+      token: string,
+      app: FastifyInstance = gateway,
+    ) {
+      return app.inject({
         method: "POST",
         url: "/mcp",
         headers: {
@@ -1358,6 +1366,71 @@ describe.skipIf(!enabled)(
         const text = result.structuredContent.text as string;
         expect(version.text.startsWith(text)).toBe(true);
         expect(text.length).toBeGreaterThan(20_000);
+      });
+
+      it("a busy project is skipped in a multi-project search; all busy is BUSY; waits share one budget", async () => {
+        const logLines: string[] = [];
+        const level = process.env.LOG_LEVEL;
+        process.env.LOG_LEVEL = "info";
+        const slots = new McpProjectSlots({ perProject: 1, waitMs: 300 });
+        const app = await withFlags(() =>
+          buildMcpServer({
+            cimdFetch,
+            jwksUrl,
+            projectSlots: slots,
+            toolTimeoutMs: 1000,
+            logStream: { write: (line: string) => void logLines.push(line) },
+          }),
+        );
+        if (level === undefined) delete process.env.LOG_LEVEL;
+        else process.env.LOG_LEVEL = level;
+        const searchOn = async (who: Name) => {
+          const response = await rpc(
+            "tools/call",
+            { name: "search", arguments: { query: TOKEN } },
+            tokens[who],
+            app,
+          );
+          expect(response.statusCode).toBe(200);
+          return rpcBody(response).result as Json;
+        };
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => (release = resolve));
+        const held: Promise<void>[] = [];
+        const hold = (name: ProjectName) =>
+          held.push(slots.run(project[name], () => gate));
+        try {
+          // Alpha busy: a search over Alpha and Beta returns Beta's results.
+          hold("Alpha");
+          const partial = await searchOn("two");
+          expect(partial.isError).toBeFalsy();
+          expect(projectsIn(partial)).toEqual(new Set([project.Beta]));
+          expect(logLines.join("")).toContain("MCP_SEARCH_PROJECT_BUSY");
+          expect(logLines.join("")).not.toContain(TOKEN);
+          // Every project busy: BUSY, retryable (a read).
+          hold("Beta");
+          const busy = await searchOn("two");
+          expect(busy).toMatchObject({
+            isError: true,
+            structuredContent: { code: "BUSY", retryable: true },
+          });
+          // Five busy projects wait one shared budget (300 ms), not 300 ms
+          // each: the call answers BUSY before its 1 s timeout.
+          for (const name of ["Charlie", "Echo", "Foxtrot", "Golf"] as const)
+            hold(name);
+          const started = Date.now();
+          const all = await searchOn("all");
+          expect(all.structuredContent).toMatchObject({ code: "BUSY" });
+          expect(Date.now() - started).toBeLessThan(1000);
+        } finally {
+          release();
+          await Promise.all(held);
+          await app.close();
+        }
+        // Free again: the multi-project search has both projects.
+        expect(projectsIn(await search({ query: TOKEN }, "two"))).toEqual(
+          new Set([project.Alpha, project.Beta]),
+        );
       });
 
       it("query text and argument values are absent from logs, audit rows, grant events and runs", async () => {
