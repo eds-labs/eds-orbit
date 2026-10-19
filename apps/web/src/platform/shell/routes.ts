@@ -1,4 +1,11 @@
-import type { Label, StandaloneView, ViewDef, WebRegistry } from "./types";
+import type { ComponentType } from "react";
+import type {
+  Label,
+  StandaloneView,
+  ViewDef,
+  WebModule,
+  WebRegistry,
+} from "./types";
 
 // URL scheme of the web shell (ADR 0009 AD-12, plans/orbit-modularization/02):
 //   /                                  start: last project, else the pickers
@@ -233,6 +240,21 @@ export function moduleShown(
   if (!states) return !optIn;
   const state = states.find((m) => m.id === id);
   return state ? moduleUsable(state) : false;
+}
+
+/**
+ * The cards of the project home (UI restructure §5.1): the `home` of every
+ * shown module, ordered by `homeOrder`. The platform's system status card
+ * follows them on the page.
+ */
+export function homeSections(
+  modules: readonly WebModule[],
+  enabled: (id: string) => boolean,
+): Array<{ moduleId: string; component: ComponentType }> {
+  return modules
+    .filter((m) => m.home && enabled(m.id))
+    .sort((a, b) => (a.homeOrder ?? 0) - (b.homeOrder ?? 0))
+    .map((m) => ({ moduleId: m.id, component: m.home! }));
 }
 
 /**

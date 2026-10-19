@@ -40,7 +40,7 @@ All three concepts and the latest desktop/mobile captures were opened with `view
 
 ## Above-the-fold copy comparison
 
-Preserved: “Your marketing, in orbit.”, its supporting sentence, “New mission”, “Observe mode”, “Review setup”, the three metric meanings, “Mission control”, “Start with a clear objective”, “Create mission”, “Readiness”, and all eleven desktop navigation destinations. Knowledge preserves “Trusted context. Traceable decisions.”, all six tab names, “Your sources”, “Source details”, “Build your source of truth”, and “Add source”.
+Since UI restructure phase 4 the project home opens with a greeting and the attention list; the former home heading and its supporting sentence are gone. Preserved on the marketing overview: “New mission”, “Observe mode”, “Review setup”, the three metric meanings, “Mission control”, “Start with a clear objective”, “Create mission”, “Readiness”, and all eleven desktop navigation destinations. Knowledge preserves “Trusted context. Traceable decisions.”, all six tab names, “Your sources”, “Source details”, “Build your source of truth”, and “Add source”.
 
 Intentional functional differences:
 

@@ -42,14 +42,19 @@ export type AttentionResponse = {
 /** The project's state the home page's status strip shows. */
 export type AttentionStatus = {
   paused: boolean;
-  /** The active marketing policy's mode, while marketing is usable. */
+  /**
+   * The project's mode (as the marketing overview's mode band shows it),
+   * while marketing is usable.
+   */
   mode?: string;
   /**
    * The AI spend of the UTC calendar month as the budget enforcement counts
-   * it (settled, reserved, in flight and unclear reservations), and the
-   * active policy's monthly limit or null.
+   * it (settled, reserved, in flight and unclear reservations), for owners
+   * and editors only. `limitMicros` is the active policy's monthly limit,
+   * null without one, and absent while the policies are hidden from the
+   * member.
    */
-  aiMonth: { spentMicros: number; limitMicros: number | null };
+  aiMonth?: { spentMicros: number; limitMicros?: number | null };
 };
 
 /**

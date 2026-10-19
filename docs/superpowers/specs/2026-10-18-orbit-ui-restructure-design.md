@@ -92,7 +92,9 @@ type AttentionResponse = {
   status: {
     paused: boolean;
     mode?: string;
-    aiMonth?: { spentMicros: number; limitMicros: number | null };
+    // UTC calendar month, counted like budget enforcement (R11); only for members
+    // with PROJECT_WRITE; limitMicros absent while policies are hidden, null = no limit set (R26)
+    aiMonth?: { spentMicros: number; limitMicros?: number | null };
   };
 };
 ```
@@ -144,7 +146,7 @@ Top to bottom, max width 1180 px:
 
 1. **Head**: "Guten Morgen/Tag/Abend, <first name>" by local time (first word of `identity.user.name`; without a name only the greeting); subtitle with the date and "N Dinge brauchen dich heute" (N = items with severity critical or warning).
 2. **Assistant prompt**: a single-line input with a send button; same behaviour as today (`storeAssistantDraft`, then the chat).
-3. **Status strip**: paused or active, the marketing mode if marketing is enabled, the AI budget of the month if known, a link to Betrieb. Data: `status` of the attention response.
+3. **Status strip**: paused or active, the project's marketing mode (the same mode the marketing overview shows, R25) if marketing is enabled, the AI budget of the UTC month for owners and editors (R11, R26), a link to Betrieb. Data: `status` of the attention response.
 4. **Braucht deine Aufmerksamkeit**: the attention items, at most 8 with "Alle anzeigen". Each row: module chip, title, detail, a due or age pill, one action button linking to `link`. Empty state: "Nichts offen. Alles erledigt."
 5. **Module cards**: the enabled modules' `home` components in a responsive grid (`minmax(360px, 1fr)`), ordered by `homeOrder`, followed by the platform's system status card.
 
