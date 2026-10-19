@@ -43,14 +43,22 @@ function upstreamTarget(origin: string) {
 
 type Upstream = {
   origin: string;
-  /** The API-only proxy headers (client address, Sec-Fetch-Mode); never sent to other upstreams. */
-  apiHeaders: boolean;
+  /**
+   * The API's own upstream: the proxy-only request headers (client address,
+   * Sec-Fetch-Mode) are sent and its Set-Cookie headers reach the browser.
+   * Any other upstream gets neither, so it can never set an Orbit cookie.
+   */
+  api: boolean;
 };
+
+/** Cookie-setting response headers; only the API's reach the browser. */
+const cookieHeaders = ["set-cookie", "set-cookie2"];
 
 /**
  * Forwards `request` to `pathname` on `upstream`. Only the listed request
- * headers are passed on; hop-by-hop headers and the response's cookies are
- * rewritten as before. Failures answer 502 API_UNAVAILABLE.
+ * headers are passed on; hop-by-hop headers are dropped from the response, and
+ * its cookies are passed on for the API only. Failures answer 502
+ * API_UNAVAILABLE.
  */
 async function forward(
   upstreamOrigin: Upstream,
@@ -67,7 +75,7 @@ async function forward(
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
-    if (upstreamOrigin.apiHeaders) {
+    if (upstreamOrigin.api) {
       // Set by the proxy only; a value sent by the browser is not on the list.
       const client = clientIp(request);
       if (client) headers.set("x-orbit-client-ip", client);
@@ -89,9 +97,10 @@ async function forward(
     } as RequestInit & { duplex: "half" });
     const returned = new Headers(upstream.headers);
     for (const name of hopHeaders) returned.delete(name);
-    returned.delete("set-cookie");
-    for (const cookie of upstream.headers.getSetCookie())
-      returned.append("set-cookie", cookie);
+    for (const name of cookieHeaders) returned.delete(name);
+    if (upstreamOrigin.api)
+      for (const cookie of upstream.headers.getSetCookie())
+        returned.append("set-cookie", cookie);
     returned.set("Cache-Control", "no-store, max-age=0");
     returned.set("X-Content-Type-Options", "nosniff");
     return new Response(upstream.body, {
@@ -124,7 +133,7 @@ export function forwardToApi(
   return forward(
     {
       origin: process.env.ORBIT_API_ORIGIN || "http://127.0.0.1:4311",
-      apiHeaders: true,
+      api: true,
     },
     request,
     pathname,
@@ -134,7 +143,8 @@ export function forwardToApi(
 
 /**
  * Forwards `request` to `pathname` on the MCP gateway (ORBIT_MCP_ORIGIN,
- * default the compose service). Only the listed request headers are passed on.
+ * default the compose service). Only the listed request headers are passed on,
+ * and no cookie the gateway sets reaches the browser.
  */
 export function forwardToMcp(
   request: NextRequest,
@@ -144,7 +154,7 @@ export function forwardToMcp(
   return forward(
     {
       origin: process.env.ORBIT_MCP_ORIGIN || "http://mcp:4312",
-      apiHeaders: false,
+      api: false,
     },
     request,
     pathname,

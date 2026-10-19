@@ -128,6 +128,36 @@ describe("well-known route", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("never passes cookies from the MCP gateway back to the browser", async () => {
+    const answer = () => {
+      const headers = new Headers({ "content-type": "application/json" });
+      headers.append("set-cookie", "planted=1; Path=/");
+      headers.append("set-cookie", "other=2; Path=/; HttpOnly");
+      headers.set("set-cookie2", "legacy=1");
+      headers.set("connection", "close");
+      return new Response('{"resource":"x"}', { status: 200, headers });
+    };
+    for (const path of [
+      ["oauth-protected-resource"],
+      ["oauth-protected-resource", "mcp"],
+    ]) {
+      fetchMock.mockImplementationOnce(async () => answer());
+      const response = await call(path);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ resource: "x" });
+      expect(response.headers.getSetCookie()).toEqual([]);
+      expect(response.headers.has("set-cookie2")).toBe(false);
+      expect(response.headers.has("connection")).toBe(false);
+    }
+    // The API's cookies are still passed through as before.
+    fetchMock.mockImplementationOnce(async () => answer());
+    const api = await call(["oauth-authorization-server", "api", "auth"]);
+    expect(api.headers.getSetCookie()).toEqual([
+      "planted=1; Path=/",
+      "other=2; Path=/; HttpOnly",
+    ]);
+  });
+
   it("does not use the API origin for the protected-resource paths", async () => {
     await call(["oauth-protected-resource"]);
     expect(String(fetchMock.mock.calls[0]![0])).not.toContain("api.internal");
