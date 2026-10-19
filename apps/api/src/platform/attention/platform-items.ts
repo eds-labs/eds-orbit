@@ -4,7 +4,7 @@ import { openOwnerRequests } from "../../modules/action-requests.ts";
 import { budgetMonthStart } from "../ai/budget.ts";
 import { activePolicyRecord } from "../ai/spend-mandate.ts";
 import { data } from "../shared.ts";
-import { can, PROJECT_OWN } from "../tenancy/permissions.ts";
+import { can, PROJECT_OWN, PROJECT_WRITE } from "../tenancy/permissions.ts";
 import { hiddenKinds } from "../tenancy/module-roles.ts";
 import type { AttentionItem, AttentionStatus } from "./types.ts";
 
@@ -63,21 +63,23 @@ export async function reservationMonth(
 }
 
 /**
- * The month's AI spend and the active policy's monthly limit. The limit is
- * null without an active policy, and for a member the policies are hidden
- * from (module role `none`), as the dashboard leaves the policy out.
+ * The month's AI spend and the active policy's monthly limit, for owners and
+ * editors only (the level of /ai-cost; ruling R26): a viewer gets undefined.
+ * The limit is null without an active policy and left out for a member the
+ * policies are hidden from (module role `none`), as the dashboard leaves the
+ * policy out: unknown, not "no limit".
  */
 export async function aiMonthStatus(
   tx: DbTx,
   scope: Scope,
   month: ReservationMonth,
 ): Promise<AttentionStatus["aiMonth"]> {
-  const policy = hiddenKinds(scope).includes("policies")
-    ? null
-    : await activePolicyRecord(tx, scope);
-  const limit = data(policy).monthlyBudgetMicros;
+  if (!can(scope, PROJECT_WRITE)) return undefined;
+  const spentMicros = month.spentMicros;
+  if (hiddenKinds(scope).includes("policies")) return { spentMicros };
+  const limit = data(await activePolicyRecord(tx, scope)).monthlyBudgetMicros;
   return {
-    spentMicros: month.spentMicros,
+    spentMicros,
     limitMicros: typeof limit === "number" ? limit : null,
   };
 }

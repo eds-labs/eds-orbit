@@ -12,7 +12,6 @@ import { draftsAwaitingOwner } from "./agents/assignment-overview.ts";
 import { agentsEnabled } from "./agents/assignments.ts";
 import { assignmentsMonthSpend } from "./agents/specialists/runner.ts";
 import { APPROVAL_STATUSES, isPausedPost } from "./approval-state.ts";
-import { activePolicy } from "./policy/policy.ts";
 
 // The marketing module's attention items (UI restructure §4.1): what waits on
 // the approvals page, plus failed runs. Params carry names, codes and times
@@ -253,11 +252,18 @@ export const marketingAttention: AttentionContribution = async (
   ];
 };
 
-/** The active policy's mode for the home page's status strip; none without one. */
+/**
+ * The project's mode for the home page's status strip, as the marketing
+ * overview's mode band shows it (GET /dashboard `project.mode`; ruling R25):
+ * activating a policy sets it, so a policy's own mode is not read here.
+ */
 export const marketingAttentionStatus: AttentionStatusContribution = async (
   tx,
   scope,
 ) => {
-  const mode = data(await activePolicy(tx, scope)).mode;
-  return typeof mode === "string" ? { mode } : {};
+  const project = await tx.project.findUnique({
+    where: { id: scope.projectId },
+    select: { mode: true },
+  });
+  return project ? { mode: project.mode } : {};
 };

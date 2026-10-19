@@ -36,6 +36,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { Identity, Project } from "@/lib/api";
 import { labels, type Locale } from "@/lib/i18n";
 import { WorkspaceContext } from "@/components/workspace-context";
+import type { AttentionState } from "@/platform/shell/attention";
+import {
+  ShellContext,
+  type ShellContextValue,
+} from "@/platform/shell/shell-context";
 import {
   MarketingOverview,
   monthStart,
@@ -62,13 +67,19 @@ const entity = (id: string, data: Record<string, unknown>) =>
   ({ id, version: 1, data }) as never;
 const dashboard = (
   overrides: Partial<{
+    mode: string;
+    paused: boolean;
     monthlyLimitMicros: number | null;
     publications: unknown[];
     exceptions: unknown[];
     jobs: unknown[];
   }> = {},
 ) => ({
-  project: { ...project, mode: "observe", paused: false },
+  project: {
+    ...project,
+    mode: overrides.mode ?? "observe",
+    paused: overrides.paused ?? false,
+  },
   counts: { verifiedFacts: 2, connectedConnectors: 1 },
   exceptions: overrides.exceptions ?? [],
   publications: overrides.publications ?? [],
@@ -96,23 +107,35 @@ const post = (id: string, at: string, excerpt: string) => ({
   ownerReleased: false,
 });
 
-function render(locale: Locale = "en", canEdit = true, embedded = false) {
+/** The shell's attention with these badge counts. */
+const attentionWith = (counts: Record<string, number>): AttentionState => ({
+  loading: false,
+  data: { items: [], counts, status: { paused: false } },
+});
+
+function render(
+  locale: Locale = "en",
+  canEdit = true,
+  attention: AttentionState = attentionWith({}),
+) {
   return renderToStaticMarkup(
-    <WorkspaceContext.Provider
-      value={{
-        project,
-        identity,
-        locale,
-        t: (k) => labels[locale][k],
-        canEdit,
-        isOwner: canEdit,
-        revision: 0,
-        refresh: () => {},
-        href: (p) => p,
-      }}
-    >
-      <MarketingOverview embedded={embedded} />
-    </WorkspaceContext.Provider>,
+    <ShellContext.Provider value={{ attention } as ShellContextValue}>
+      <WorkspaceContext.Provider
+        value={{
+          project,
+          identity,
+          locale,
+          t: (k) => labels[locale][k],
+          canEdit,
+          isOwner: canEdit,
+          revision: 0,
+          refresh: () => {},
+          href: (p) => p,
+        }}
+      >
+        <MarketingOverview />
+      </WorkspaceContext.Provider>
+    </ShellContext.Provider>,
   );
 }
 
@@ -133,14 +156,8 @@ describe("MarketingOverview", () => {
         entity("m2", { status: "completed", title: "Two" }),
       ],
     };
-    answers["/content"] = {
-      items: [
-        entity("c1", { status: "review" }),
-        entity("c2", { status: "x" }),
-      ],
-    };
     answers["/ai-cost"] = new Error("forbidden");
-    const html = render();
+    const html = render("en", true, attentionWith({ approvals: 3 }));
     expect(html.match(/class="metric"/g)).toHaveLength(4);
     for (const label of [
       "Active missions",
@@ -153,19 +170,49 @@ describe("MarketingOverview", () => {
       (m) => m[1],
     );
     // Missions, approvals, published, budget — in the order of the strip.
-    expect(amounts.slice(0, 4)).toEqual(["1", "1", "0", "—"]);
+    expect(amounts.slice(0, 4)).toEqual(["1", "3", "0", "—"]);
   });
 
-  it("counts the open exceptions with the approvals and shows what the limit counts against it", () => {
+  it("R27: open approvals are the attention count of the badge, — while unknown", () => {
     answers["/dashboard"] = dashboard({
-      monthlyLimitMicros: 10_000_000,
-      exceptions: [
-        entity("e1", { status: "open", lastSeenAt: iso(-1) }),
-        entity("e2", { status: "resolved", lastSeenAt: iso(-2) }),
-      ],
+      exceptions: [entity("e1", { status: "open", lastSeenAt: iso(-1) })],
     });
     answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [entity("c1", { status: "draft" })] };
+    answers["/ai-cost"] = { rows: [] };
+    const amounts = (attention: AttentionState) =>
+      [
+        ...render("en", true, attention).matchAll(/<strong>([^<]*)<\/strong>/g),
+      ].map((m) => m[1]);
+    expect(amounts(attentionWith({ approvals: 7 }))[1]).toBe("7");
+    // No approvals item: nothing waits.
+    expect(amounts(attentionWith({ "support-tickets": 2 }))[1]).toBe("0");
+    expect(amounts({ loading: true })[1]).toBe("—");
+    expect(amounts({ loading: false, error: new Error("failed") })[1]).toBe(
+      "—",
+    );
+    // The overview no longer reads the content to count them.
+    expect(requested.some((p) => p.includes("/content"))).toBe(false);
+  });
+
+  it("R25: the mode band names the project's mode like the home strip", () => {
+    answers["/missions"] = { items: [] };
+    answers["/ai-cost"] = { rows: [] };
+    answers["/dashboard"] = dashboard({ mode: "assisted" });
+    expect(render()).toContain("<h2>Assisted mode</h2>");
+    expect(render("de")).toContain("<h2>Assisted-Modus</h2>");
+    answers["/dashboard"] = dashboard({ mode: "autopilot" });
+    expect(render("de")).toContain("<h2>Autopilot-Modus</h2>");
+    answers["/dashboard"] = dashboard({ mode: "observe" });
+    expect(render("de")).toContain("<h2>Beobachtungsmodus</h2>");
+    answers["/dashboard"] = dashboard({ mode: "custom" });
+    expect(render()).toContain("<h2>custom</h2>");
+    answers["/dashboard"] = dashboard({ mode: "assisted", paused: true });
+    expect(render()).toContain("<h2>Paused</h2>");
+  });
+
+  it("shows what the limit counts against it", () => {
+    answers["/dashboard"] = dashboard({ monthlyLimitMicros: 10_000_000 });
+    answers["/missions"] = { items: [] };
     answers["/ai-cost"] = {
       rows: [
         {
@@ -187,14 +234,12 @@ describe("MarketingOverview", () => {
     // against the monthly limit, as the server enforces it.
     expect(html).toContain("<strong>$2.00</strong>");
     expect(html).toContain("of $10.00 · incl. $0.50 reserved");
-    expect(html).toMatch(/<strong>2<\/strong>/);
     expect(render("de")).toContain("von $10.00 · inkl. $0.50 reserviert");
   });
 
   it("asks for the spend of the UTC calendar month the limit counts", () => {
     answers["/dashboard"] = dashboard();
     answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
     answers["/ai-cost"] = { rows: [] };
     render();
     const path = requested.find((p) => p.includes("/ai-cost"));
@@ -206,7 +251,6 @@ describe("MarketingOverview", () => {
   it("shows the spend when no monthly limit is set", () => {
     answers["/dashboard"] = dashboard({ monthlyLimitMicros: null });
     answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
     answers["/ai-cost"] = {
       rows: [
         {
@@ -226,7 +270,6 @@ describe("MarketingOverview", () => {
   it("lists at most six next posts sorted by time", () => {
     answers["/dashboard"] = dashboard();
     answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
     answers["/ai-cost"] = { rows: [] };
     answers["/assignment-posts"] = {
       items: [8, 3, 30, 1, 100, 5, 2, 20].map((h) =>
@@ -264,7 +307,6 @@ describe("MarketingOverview", () => {
       ],
     });
     answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
     answers["/ai-cost"] = { rows: [] };
     const html = render();
     expect(html.indexOf(">soon<")).toBeGreaterThan(-1);
@@ -278,7 +320,6 @@ describe("MarketingOverview", () => {
       jobs: [entity("j1", { topic: "Job topic xyz", status: "done" })],
     });
     answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
     answers["/ai-cost"] = { rows: [] };
     const html = render();
     expect(html).not.toContain("Job topic xyz");
@@ -288,7 +329,6 @@ describe("MarketingOverview", () => {
   it("heads the page with the module eyebrow, an h1 and both actions", () => {
     answers["/dashboard"] = dashboard();
     answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
     const html = render("de");
     expect(html).toContain("Modul");
     expect(html).toContain("<h1>Marketing</h1>");
@@ -296,15 +336,6 @@ describe("MarketingOverview", () => {
     expect(html).toContain('href="/content"');
     expect(html).toContain("Neue Mission");
     expect(render("de", false)).not.toContain("Neue Mission");
-  });
-
-  it("keeps the home section's heading when embedded", () => {
-    answers["/dashboard"] = dashboard();
-    answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
-    const html = render("en", true, true);
-    expect(html).toContain("<h2>Your marketing, in orbit.</h2>");
-    expect(html).not.toContain("<h1>");
   });
 });
 

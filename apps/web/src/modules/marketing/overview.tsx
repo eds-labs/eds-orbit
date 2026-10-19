@@ -23,7 +23,7 @@ import {
   type Dashboard,
   type Entity,
 } from "@/lib/api";
-import type { Locale } from "@/lib/i18n";
+import { modeLabel, type Locale } from "@/lib/i18n";
 import { actionLabel, actionOrder, blockerReason } from "@/lib/readiness-text";
 import {
   Badge,
@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { AppLink } from "@/platform/ui/app-link";
+import { useAttention } from "@/platform/shell/attention";
 import { Metric } from "@/platform/ui/metric";
 import {
   PageHead,
@@ -42,8 +43,6 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { AgentActivityPanel } from "./agent-activity";
-import { openExceptions } from "./approval-lists";
-import { approvalItems } from "./draft-cleanup";
 import type { UpcomingPost } from "./assignments";
 import { MissionEditor } from "./work";
 
@@ -218,21 +217,19 @@ function NextPosts({
   );
 }
 
-/**
- * The marketing overview, the root of the Marketing module. `embedded` is the
- * project home's section until it gets its own cards (it keeps its heading).
- */
-export function MarketingOverview({
-  embedded = false,
-}: {
-  embedded?: boolean;
-}) {
+/** The marketing overview, the root of the Marketing module. */
+export function MarketingOverview() {
   const { project, t, locale, revision, canEdit } = useWorkspace();
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
   );
   const missions = useCollection("missions");
-  const content = useCollection("content");
+  // Ruling R27: the number of the Approvals badge and the home card.
+  const attention = useAttention();
+  const approvals =
+    attention.data && !attention.error
+      ? String(attention.data.counts.approvals ?? 0)
+      : "—";
   // One instant per load, so the cost request keeps its path between renders.
   const now = useMemo(() => Date.now(), [project.id, revision]);
   // The AI cost route is for editors; a viewer's budget stays unknown.
@@ -251,10 +248,9 @@ export function MarketingOverview({
   return (
     <>
       <PageHead
-        title={embedded ? t("heading") : "Marketing"}
-        description={embedded ? t("subtitle") : t("marketingOverviewHint")}
-        eyebrow={embedded ? undefined : t("moduleEyebrow")}
-        as={embedded ? "h2" : "h1"}
+        title="Marketing"
+        description={t("marketingOverviewHint")}
+        eyebrow={t("moduleEyebrow")}
       >
         <Button asChild variant="outline">
           <AppLink href="/content">
@@ -283,9 +279,7 @@ export function MarketingOverview({
                 <h2>
                   {d.project.paused
                     ? t("paused")
-                    : d.project.mode === "observe"
-                      ? t("observe")
-                      : d.project.mode}
+                    : modeLabel(d.project.mode, t)}
                 </h2>
                 <p className="mode-desktop-copy">
                   {d.project.mode === "observe"
@@ -331,14 +325,7 @@ export function MarketingOverview({
               <Metric
                 icon={ShieldCheck}
                 label={t("openApprovals")}
-                amount={
-                  content.data
-                    ? String(
-                        approvalItems(content.data.items).length +
-                          openExceptions(d.exceptions).length,
-                      )
-                    : "—"
-                }
+                amount={approvals}
               />
               <Metric
                 icon={Send}

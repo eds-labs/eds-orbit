@@ -2,8 +2,8 @@
 import { Skeleton } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
-import { AppLink } from "@/platform/ui/app-link";
 import { ResourceError } from "@/platform/ui/collection";
+import { HomeCard } from "@/platform/ui/home-card";
 import { figure, knowledgeText, useKnowledgeData } from "./overview";
 
 /**
@@ -19,16 +19,18 @@ export function KnowledgeHomeCard() {
   if (data.health.error?.status === 404) return null;
   const title = t("knowledge");
   return (
-    <section className="panel knowledge-home" aria-label={title}>
-      <div className="panel-head">
-        <h2>{title}</h2>
-      </div>
+    <HomeCard
+      id="home-card-knowledge"
+      title={title}
+      href={shell.hrefOf("knowledge")}
+      className="knowledge-home"
+    >
       {data.health.loading ? (
         <Skeleton />
       ) : data.health.error ? (
         <ResourceError error={data.health.error} retry={data.health.refresh} />
       ) : (
-        <dl className="knowledge-home-counts">
+        <dl className="home-counts">
           <div>
             <dt>{t("sources")}</dt>
             <dd>{data.sources.data ? data.listed.length : "—"}</dd>
@@ -37,7 +39,7 @@ export function KnowledgeHomeCard() {
             <dt>{text.verifiedFacts}</dt>
             <dd>{figure(data.verified)}</dd>
           </div>
-          <div>
+          <div data-tone={data.conflicts?.length ? "warning" : undefined}>
             <dt>{t("conflicts")}</dt>
             <dd>{figure(data.conflicts?.length)}</dd>
           </div>
@@ -49,7 +51,6 @@ export function KnowledgeHomeCard() {
           )}
         </dl>
       )}
-      <AppLink href={shell.hrefOf("knowledge")}>{text.homeLink}</AppLink>
-    </section>
+    </HomeCard>
   );
 }

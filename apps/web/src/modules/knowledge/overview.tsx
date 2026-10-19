@@ -130,7 +130,6 @@ const TEXT = {
     impactHint: "Content to review after knowledge changed",
     inspectorHint: "Test what retrieval returns for a question",
     separate: "Knowledge and generated content stay separate.",
-    homeLink: "Open the knowledge overview",
   },
   de: {
     verifiedFacts: "Verifizierte Fakten",
@@ -163,7 +162,6 @@ const TEXT = {
     impactHint: "Inhalte, die nach einer Wissensänderung zu prüfen sind",
     inspectorHint: "Prüfe, was der Abruf zu einer Frage liefert",
     separate: "Wissen und generierte Inhalte bleiben getrennt.",
-    homeLink: "Wissensübersicht öffnen",
   },
 } as const;
 export const knowledgeText = (locale: Locale) => TEXT[locale];

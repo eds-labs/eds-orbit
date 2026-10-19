@@ -42,8 +42,12 @@ async function signIn(page: Page) {
   await page.waitForURL(/\/(p|o)(\/|$)/);
   if (!new URL(page.url()).pathname.startsWith("/p/"))
     await page.goto(`/p/${user.projectId}`);
+  // The project home greets by the time of day.
   await expect(
-    page.getByRole("heading", { name: "Your marketing, in orbit." }),
+    page.getByRole("heading", {
+      level: 1,
+      name: /^Good (morning|afternoon|evening)\b/,
+    }),
   ).toBeVisible();
   return user;
 }
