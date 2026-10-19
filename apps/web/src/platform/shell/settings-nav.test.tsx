@@ -11,6 +11,7 @@ import {
   platformSettingsTabs,
   SettingsNav,
   sectionFromSearch,
+  settingsSectionHref,
   type SettingsTab,
 } from "./settings-nav";
 
@@ -168,6 +169,20 @@ describe("sectionFromSearch", () => {
   });
 });
 
+describe("settingsSectionHref", () => {
+  it("is the page for Project and ?section=<key>, encoded, otherwise", () => {
+    expect(settingsSectionHref("/p/p1/settings", "project")).toBe(
+      "/p/p1/settings",
+    );
+    expect(settingsSectionHref("/p/p1/settings", "policy")).toBe(
+      "/p/p1/settings?section=policy",
+    );
+    expect(settingsSectionHref("/p/p1/settings", "a b&c")).toBe(
+      "/p/p1/settings?section=a%20b%26c",
+    );
+  });
+});
+
 describe("SettingsNav", () => {
   const groups = groupSettings(
     collectSettingsTabs(owner, contributed),
@@ -221,7 +236,7 @@ describe("module settings links in the sidebar", () => {
     const groups = withSettingsLinks(
       buildNavGroups(table.routes, shellModules),
       shellModules,
-      "/p/p1/settings",
+      (key) => settingsSectionHref("/p/p1/settings", key),
     );
     const html = renderToStaticMarkup(
       <SidebarNav

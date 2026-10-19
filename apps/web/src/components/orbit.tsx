@@ -70,7 +70,10 @@ import {
   writeCollapsed,
 } from "@/platform/shell/nav-collapse";
 import { NavBadge, SidebarNav } from "@/platform/shell/sidebar-nav";
-import { moduleSettingsSection } from "@/platform/shell/settings-nav";
+import {
+  moduleSettingsSection,
+  settingsSectionHref,
+} from "@/platform/shell/settings-nav";
 import {
   attentionRenderers,
   clearAttentionCache,
@@ -535,7 +538,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   const navGroups = withSettingsLinks(
     buildNavGroups(table.routes, shell.modules),
     shell.modules,
-    shell.hrefOf("settings"),
+    (key) => settingsSectionHref(shell.hrefOf("settings"), key),
   );
   const mobileBar = mobileEntries(table.routes, isOn);
   const mobileCurrent = mobileCurrentKey(mobileBar, route);

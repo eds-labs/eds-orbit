@@ -1743,7 +1743,8 @@ td:first-child {
 }
 .settings-nav {
   position: sticky;
-  top: 16px;
+  /* Below the sticky 64px .topbar (z-index 20), which would cover it. */
+  top: calc(64px + 16px);
   display: flex;
   flex-direction: column;
   gap: 16px;

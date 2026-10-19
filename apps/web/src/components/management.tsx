@@ -12,6 +12,7 @@ import {
   groupSettings,
   platformSettingsTabs,
   sectionFromSearch,
+  settingsSectionHref,
   SettingsNav,
 } from "@/platform/shell/settings-nav";
 import { AppLink } from "@/platform/ui/app-link";
@@ -489,8 +490,7 @@ export function ProjectSettings() {
     groups.flatMap((g) => g.tabs.map((s) => s.key)),
   );
   const settingsHref = shell?.hrefOf("settings") ?? "";
-  const sectionHref = (key: string) =>
-    key === "project" ? settingsHref : `${settingsHref}?section=${key}`;
+  const sectionHref = (key: string) => settingsSectionHref(settingsHref, key);
   function select(key: string) {
     const url = new URL(window.location.href);
     if (key === "project") url.searchParams.delete("section");

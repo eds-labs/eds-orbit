@@ -81,21 +81,17 @@ export function buildNavGroups(
 
 /**
  * Gives each module group with a settings section its settings link (spec
- * §3.4): `<settings>?section=<key>`, shown after the group's entries.
+ * §3.4), shown after the group's entries; `sectionHref` is the URL of a
+ * settings section (settingsSectionHref).
  */
 export function withSettingsLinks(
   groups: readonly NavGroup[],
   modules: ReadonlyArray<{ id: string; settingsSection?: string }>,
-  settingsHref: string,
+  sectionHref: (key: string) => string,
 ): NavGroup[] {
   return groups.map((group) => {
     const key = modules.find((m) => m.id === group.id)?.settingsSection;
-    return key
-      ? {
-          ...group,
-          settingsHref: `${settingsHref}?section=${encodeURIComponent(key)}`,
-        }
-      : group;
+    return key ? { ...group, settingsHref: sectionHref(key) } : group;
   });
 }
 

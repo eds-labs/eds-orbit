@@ -126,6 +126,16 @@ export function sectionFromSearch(
   return wanted && available.includes(wanted) ? wanted : PROJECT;
 }
 
+/**
+ * The URL of a settings section below the page's URL: Project is the page
+ * itself, any other section `?section=<key>` (encoded).
+ */
+export function settingsSectionHref(settingsHref: string, key: string) {
+  return key === PROJECT
+    ? settingsHref
+    : `${settingsHref}?section=${encodeURIComponent(key)}`;
+}
+
 /** The key of a module's first own section by order (spec §3.4), if any. */
 export function moduleSettingsSection(
   moduleId: string,
