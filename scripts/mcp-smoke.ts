@@ -27,37 +27,44 @@ import {
 } from "./mcp-conformance.ts";
 
 const env = (name: string) => process.env[name] || undefined;
-const url = env("MCP_SMOKE_URL");
-if (!url) {
-  console.error(
-    "MCP_SMOKE_URL is required (the MCP endpoint, e.g. <APP_ORIGIN>/mcp)",
-  );
-  process.exit(2);
-}
-const token = env("MCP_SMOKE_TOKEN");
 
-try {
-  const results = await runConformance({
-    url,
-    token,
-    webUrl: env("MCP_SMOKE_WEB_URL"),
-    resource: env("MCP_SMOKE_RESOURCE"),
-    healthUrl: env("MCP_SMOKE_HEALTH_URL"),
-    mode: process.argv.includes("--disabled") ? "disabled" : "enabled",
-    search: env("MCP_SMOKE_SKIP_SEARCH") !== "1",
-  });
-  console.log(formatResults(results));
-  const count = (status: string) =>
-    results.filter((r) => r.status === status).length;
-  const passed = conformancePassed(results);
-  console.log(
-    `RESULT ${passed ? "PASS" : "FAIL"} (${count("pass")} passed, ${count("fail")} failed, ${count("skip")} skipped)`,
-  );
-  process.exit(passed ? 0 : 1);
-} catch (error) {
-  // Usage errors (bad URL, token over plain http); never the token itself.
-  let message = `${(error as Error)?.name ?? "Error"}: ${(error as Error)?.message ?? ""}`;
-  if (token) message = message.split(token).join("[redacted]");
-  console.error(message);
-  process.exit(2);
+/** Runs the checks and prints them; returns the exit code. */
+async function main(): Promise<number> {
+  const url = env("MCP_SMOKE_URL");
+  if (!url) {
+    console.error(
+      "MCP_SMOKE_URL is required (the MCP endpoint, e.g. <APP_ORIGIN>/mcp)",
+    );
+    return 2;
+  }
+  const token = env("MCP_SMOKE_TOKEN");
+  try {
+    const results = await runConformance({
+      url,
+      token,
+      webUrl: env("MCP_SMOKE_WEB_URL"),
+      resource: env("MCP_SMOKE_RESOURCE"),
+      healthUrl: env("MCP_SMOKE_HEALTH_URL"),
+      mode: process.argv.includes("--disabled") ? "disabled" : "enabled",
+      search: env("MCP_SMOKE_SKIP_SEARCH") !== "1",
+    });
+    console.log(formatResults(results));
+    const count = (status: string) =>
+      results.filter((r) => r.status === status).length;
+    const passed = conformancePassed(results);
+    console.log(
+      `RESULT ${passed ? "PASS" : "FAIL"} (${count("pass")} passed, ${count("fail")} failed, ${count("skip")} skipped)`,
+    );
+    return passed ? 0 : 1;
+  } catch (error) {
+    // Usage errors (bad URL, token over plain http); never the token itself.
+    let message = `${(error as Error)?.name ?? "Error"}: ${(error as Error)?.message ?? ""}`;
+    if (token) message = message.split(token).join("[redacted]");
+    console.error(message);
+    return 2;
+  }
 }
+
+// exitCode instead of process.exit(): stdout to a pipe is asynchronous, so
+// the output is flushed before the process ends.
+process.exitCode = await main();

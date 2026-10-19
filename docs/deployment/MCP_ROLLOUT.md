@@ -16,17 +16,17 @@ Design and decisions: `plans/orbit-modularization/09-mcp-gateway.md` (§3.1 plac
 
 ## Approvals needed
 
-Each row is a separate OK from Mario, given in order. A later step never starts before the earlier one is verified.
+Each row is a separate OK from Mario, given in order (exceptions: A7 may come before A6, and A9 at any time). A later step never starts before the earlier one is verified. Sub-steps named in a row are part of that row's OK; a sub-step marked "own OK" needs a separate one.
 
 | # | Step | Production effect | Verify with |
 |---|---|---|---|
 | A1 | Merge #172 (WP-M4) | Code only, no migration; flags stay off, nothing MCP-related runs | Deployment healthy; existing smoke of the app |
-| A2 | Merge the WP-M5 PR | Migration `202610190001_mcp_grant_constraints` (additive) and the new `mcp` compose service in disabled mode; nothing is exposed | "A2 in detail" below; `node scripts/mcp-smoke.ts --disabled` once A3 routes `/mcp` |
+| A2 | Merge the WP-M5 PR. Sub-steps: (a) the read-only pre-check query before the merge; (b) clearing a domain Coolify generated for `mcp`, if any (own OK, a Coolify change) | Migration `202610190001_mcp_grant_constraints` (additive) and the new `mcp` compose service in disabled mode; nothing is exposed | "A2 in detail" below; `node scripts/mcp-smoke.ts --disabled` once A3 routes `/mcp` |
 | A3 | Coolify: domain `<APP_ORIGIN>/mcp` on the `mcp` service | `/mcp` reaches the disabled gateway (404, health only) | "Coolify setup" below |
 | A4 | `ORBIT_MCP_OAUTH=true` | OAuth server, `/connect` and Connected apps live; gateway still disabled | "Flag flips", step 1 |
 | A5 | `ORBIT_MCP_GATEWAY=true` | Gateway serves read tools to granted clients | "Flag flips", step 2 |
 | A6 | ChatGPT developer-mode connector with Mario's account, read only | First real client connects (consent, search, fetch) | "ChatGPT developer mode" below |
-| A7 | MCP Inspector download and run | A tool is downloaded and run locally; may need a temporary registration path | "MCP Inspector" below |
+| A7 | MCP Inspector download and run | A tool is downloaded and run locally. In production it may also need `ORBIT_MCP_DCR=true` for the run, or an extra host in `ORBIT_MCP_CIMD_HOSTS`; each of these is its own OK (A7a), and is reverted after the run | "MCP Inspector" below |
 | A8 | `ORBIT_MCP_PROPOSALS=true` | Proposal tool listed for granted editors; proposals wait for the owner's decision in Orbit | "Flag flips", step 3 |
 | A9 | Decisions from D-M5-9 | Product decisions only | `docs/SECURITY_REVIEW.md`, "Open points and Mario decisions" |
 
@@ -34,13 +34,14 @@ A7 can run before A6: the Inspector shows an access token, which the authenticat
 
 ## A2 in detail: what the merge changes in production
 
-- **Migration `202610190001_mcp_grant_constraints`** (auth schema, additive): a `CHECK` constraint `McpGrant_status_check` (`status IN ('pending','active','revoked')`), an index `McpGrant_sessionId_idx`, and a nullable column `McpGrant.requestHash` (binds a pending selection to its authorization request). Before merging, run this read-only query in the production database (Coolify, postgres service terminal, owner role); the result must be `0`, otherwise the migration fails and the stack does not start:
+- **Migration `202610190001_mcp_grant_constraints`** (auth tables, additive; `McpGrant` is unqualified, in the default schema): a `CHECK` constraint `McpGrant_status_check` (`status IN ('pending','active','revoked')`), an index `McpGrant_sessionId_idx`, and a nullable column `McpGrant.requestHash` (binds a pending selection to its authorization request). Before merging (sub-step A2a), run this read-only query in the production database (Coolify, postgres service terminal, `psql` as the owner role `orbit_migrator`); the result must be `0`, otherwise the migration fails and the stack does not start:
 
   ```sql
   SELECT count(*) FROM "McpGrant" WHERE "status" NOT IN ('pending','active','revoked');
   ```
 
   With `ORBIT_MCP_OAUTH` off the table should be empty. Existing pending selections (none expected) would need a new selection after the merge.
+- **Release gate**: the `migrate` service runs `scripts/db-deploy.ts --allow-remote-migration`, which refuses without `ORBIT_RELEASE_APPROVAL` (compose blocks the deployment while it is empty). It is already set in Coolify; check that it is present and update it to the A2 change reference if desired, as for earlier releases (`docs/deployment/MODULAR_PLATFORM_ROLLOUT.md`).
 - **New compose service `mcp`** (same image, `node_modules/.bin/tsx apps/api/src/mcp-main.ts`, port 4312, health check on `/healthz`, `stop_grace_period: 15s`). With either flag off it runs in **disabled mode** (D-M5-1): `GET /healthz` answers `{"status":"disabled"}`, everything else 404 before any body is read; no auth, database or tool code is loaded.
 - **Web**: `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp` are forwarded to the `mcp` service (D-M5-4). While disabled they answer 404 as before; if the `mcp` container is down they answer 502. The forwarding passes no cookies back to the browser.
 - **Code with flags off**: the OAuth pre-flip hardening, gateway hardening and proposal controls are inactive until A4/A5/A8.
@@ -50,7 +51,7 @@ After the deployment, in Coolify:
 1. The `mcp` service is healthy and its log shows a "listening" line; `migrate` completed once.
 2. The constraint and index exist (read-only): `SELECT conname FROM pg_constraint WHERE conname = 'McpGrant_status_check';` and `SELECT indexname FROM pg_indexes WHERE indexname = 'McpGrant_sessionId_idx';`.
 3. **The `<<:` merge key renders**: the `mcp` service's environment in Coolify contains the shared API variables (for example `DATABASE_URL`, `ORBIT_MCP_GATEWAY`) plus `MCP_PORT=4312` and `MCP_JWKS_URL`. Docker Compose renders the YAML merge key locally (`node scripts/check-coolify-compose.mjs`); Coolify parses the file itself, so check its render.
-4. **No public domain yet**: open the `mcp` service's domain field. Coolify may generate a domain from the path-only `SERVICE_URL_MCP_4312: /mcp` at deploy time. If a generated domain appeared, clear it (or leave it empty until A3); it would only expose the disabled health check, but the route belongs to A3.
+4. **No public domain yet**: open the `mcp` service's domain field. Coolify may generate a domain from the path-only `SERVICE_URL_MCP_4312: /mcp` at deploy time. If a generated domain appeared, clearing it is a Coolify change and needs its own OK (sub-step A2b); until then it exposes only the disabled health check (everything else 404). The route itself belongs to A3.
 
 ## Coolify setup (A3)
 
@@ -94,16 +95,17 @@ Q-21/Q-23: check first that Mario's ChatGPT plan offers developer mode with cust
 
 ## MCP Inspector (A7)
 
-The Inspector is an external tool: its download (exact version, source, size) and run need the approval. It runs locally against the deployed endpoint, for both revisions, with its conformance checks and the OAuth flow. The Inspector must be able to register: either temporarily `ORBIT_MCP_DCR=true` (Better Auth allows 5 registrations a minute per IP; set it back to `false` right after and revoke the Inspector's grant), or add its client metadata host to `ORBIT_MCP_CIMD_HOSTS` for the run. Check which one the pinned Inspector version supports before the run; both are configuration changes covered by A7. The access token it shows can feed the authenticated smoke above (never copy it anywhere else).
+The Inspector is an external tool: its download (exact version, source, size) and run need the approval. It runs locally against the deployed endpoint, for both revisions, with its conformance checks and the OAuth flow. The Inspector must be able to register: either temporarily `ORBIT_MCP_DCR=true` in production (Better Auth allows 5 registrations a minute per IP; set it back to `false` right after and revoke the Inspector's grant), or an extra host in `ORBIT_MCP_CIMD_HOSTS` for the run. Check which one the pinned Inspector version supports before the run. Either change is a production configuration change with its own OK (A7a), separate from the download. The access token it shows can feed the authenticated smoke above (never copy it anywhere else).
 
 ## Monitoring
 
 - **Uptime Kuma**: the gateway's `/healthz` is not public unless Coolify strips the prefix (then `<APP_ORIGIN>/mcp/healthz`, keyword `"ok"`). Otherwise monitor `<APP_ORIGIN>/.well-known/oauth-protected-resource/mcp` (keyword `authorization_servers`, 5 minutes): it goes through web to the gateway, so it fails when either is down. The container health check covers `/healthz` inside Coolify.
-- **Logs** (`mcp` service, JSON lines with `code`; no tokens, arguments or bodies are logged):
+- **Logs** (JSON lines with `code`; no tokens, arguments or bodies are logged). In the `mcp` service unless noted:
   - `MCP_RATE_LIMITED` with `bucket`: `ip` (unauthenticated per address), `capacity` (the address limiter is full: an address flood; alert on any), `grant`, `user`, `client`, `search`, `proposal`.
   - After every gateway restart the verified-token cache is empty, so each client's first request counts against its address again: watch `bucket: ip` 429s for a few minutes after a deploy (ChatGPT calls from shared egress addresses).
   - Plain 401s are challenges and expected; a rise without matching reconnects points at a key-set or grant problem.
-  - `MCP_REQUEST_FAILED` (503, for example the JWKS URL unreachable), `MCP_PROPOSAL_RECORD_FAILED` (a proposal was created but its quota event was not written; the daily quota is then one short), `MCP_PROPOSAL_CANCEL_FAILED`, `MCP_OUTPUT_INVALID`, `MCP_TOOL_TIMEOUT`, `MCP_SEARCH_PROJECT_BUSY`, `MCP_AUDIT_FAILED`, `MCP_CALL_LOG_FAILED`, `MCP_OBSERVER_FAILED`.
+  - `MCP_REQUEST_FAILED` (503, for example the JWKS URL unreachable), `MCP_PROPOSAL_RECORD_FAILED` (a proposal was created but its quota event was not written; the daily quota is then one short), `MCP_OUTPUT_INVALID`, `MCP_TOOL_TIMEOUT`, `MCP_SEARCH_PROJECT_BUSY` and `MCP_SEARCH_PROJECT_UNAVAILABLE` (a project skipped in a multi-project search), `MCP_AUDIT_FAILED`, `MCP_CALL_LOG_FAILED`, `MCP_LAST_USED_FAILED`, `MCP_OBSERVER_FAILED`.
+  - In the `api` service: `MCP_PROPOSAL_CANCEL_FAILED` (a pending proposal could not be cancelled after a grant revocation, a proposal stop or a client change; the approval guard still refuses it).
 - **Data**: `AuditEvent` `mcp.tool_call` per project call, `McpGrantEvent` for project-less calls and grant changes, `AgentRun` kind `mcp` in the AI cost views.
 
 ## Incident steps

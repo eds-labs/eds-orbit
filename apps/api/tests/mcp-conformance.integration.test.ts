@@ -314,6 +314,23 @@ describe.skipIf(!enabled)("MCP conformance (D-M5-10)", () => {
     expect(formatResults(await runConformance(target()))).not.toContain(token);
   });
 
+  it("the REST API refuses an MCP access token (09 §9: audience binding)", async () => {
+    // The member API authenticates by session cookie only; a valid MCP
+    // bearer token without a cookie is no credential there.
+    for (const url of ["/api/me", "/api/projects", "/api/mcp-grants"]) {
+      const response = await driver.inject({
+        url,
+        session: false,
+        headers: { authorization: `Bearer ${token}` },
+      });
+      expect(response.statusCode, url).toBe(401);
+      expect(response.body).not.toContain(projectId);
+    }
+    // Control: the same routes answer the member's session.
+    const me = await driver.inject({ url: "/api/me" });
+    expect(me.statusCode).toBe(200);
+  });
+
   it("refuses to send a token over plain HTTP to a non-loopback host", async () => {
     await expect(
       runConformance({ url: "http://orbit.example/mcp", token }),
