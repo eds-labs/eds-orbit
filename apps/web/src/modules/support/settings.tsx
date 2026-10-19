@@ -398,6 +398,7 @@ function InboxForm({
           <label>
             <span>{t.settings.mailbox}</span>
             <select
+              className="input"
               value={chosen}
               onChange={(e) => set({ emailConnectionId: e.target.value })}
             >
@@ -442,6 +443,7 @@ function InboxForm({
         <label>
           <span>{t.settings.aiMode}</span>
           <select
+            className="input"
             value={form.aiMode}
             onChange={(e) => set({ aiMode: e.target.value })}
           >
@@ -452,6 +454,7 @@ function InboxForm({
         <label>
           <span>{t.settings.language}</span>
           <select
+            className="input"
             value={form.language}
             onChange={(e) => set({ language: e.target.value })}
           >
