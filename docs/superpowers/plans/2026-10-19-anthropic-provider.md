@@ -92,7 +92,7 @@
 
 - [x] `docs/MODEL_ROUTING.md`, `docs/API_CONTRACT.md`, `docs/OPERATIONS.md`, `docs/CONFIGURATION_PARITY.md`, ADR 0003/0005 addenda, `docs/IMPLEMENTATION_STATUS.md`, `docs/REQUIREMENTS_TRACEABILITY.md`, `.env.example`.
 - [x] `scripts/anthropic-smoke.ts`: opt-in live check (one Haiku call, max 64 output tokens, prints usage and cost; never run in CI). Not run: no key in the local environment.
-- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` (worktree database), `next build --webpack`, compose check, secrets check.
+- [x] Lint scripts, typecheck, full test suite on the worktree database (2716/2721, the 5 contract tests updated and green), `next build`, compose check, secrets check; see IMPLEMENTATION_STATUS.md.
 
 ## 4. Risk, environment, profile
 
