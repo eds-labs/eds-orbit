@@ -598,6 +598,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           role={menu ? "dialog" : undefined}
           aria-modal={menu || undefined}
           aria-label={menu ? "Workspace navigation" : undefined}
+          // A link to a section of the page that is already open changes only
+          // the search, which the pathname effect does not see: close the
+          // drawer on any link click inside it.
+          onClick={(event) => {
+            if ((event.target as Element).closest("a[href]")) setMenu(false);
+          }}
         >
           <div className="brand-row">
             <Brand />

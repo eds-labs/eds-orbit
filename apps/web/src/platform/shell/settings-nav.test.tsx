@@ -232,6 +232,22 @@ describe("module settings links in the sidebar", () => {
     ]);
   });
 
+  it("the first section is never a conditional one", () => {
+    // The sidebar link targets the lowest-order section, so it must be shown
+    // whenever the module is. Sections whose hook can return null (hidden
+    // until an API answers): marketing's Orbit Agents "agents".
+    const conditional = new Set(["agents"]);
+    for (const m of webRegistry.modules) {
+      const key = moduleSettingsSection(m.id, m.settings ?? []);
+      if (key === undefined) continue;
+      expect(conditional.has(key), `${m.id}: ${key}`).toBe(false);
+    }
+    const marketing = webRegistry.modules.find((m) => m.id === "marketing")!;
+    const order = (key: string) =>
+      marketing.settings!.find((s) => s.tab.key === key)!.tab.order;
+    expect(order("agents")).toBeGreaterThan(order("policy"));
+  });
+
   it("the sidebar group shows Einstellungen linking to ?section=policy for marketing", () => {
     const groups = withSettingsLinks(
       buildNavGroups(table.routes, shellModules),

@@ -764,6 +764,18 @@ test.describe("Authenticated Orbit workspace, real local API", () => {
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBeTruthy();
+    // A module's settings link to the section that is already open closes the
+    // drawer (only the search could change, not the path).
+    await page
+      .getByRole("button", { name: "Open navigation", exact: true })
+      .click();
+    await page
+      .getByRole("navigation", { name: "Workspace" })
+      .getByRole("link", { name: "Marketing Settings", exact: true })
+      .click();
+    await expect(
+      page.getByRole("dialog", { name: "Workspace navigation" }),
+    ).toBeHidden();
     // Tabs move the focus with Arrow, Home and End (the analytics tabs; the
     // settings use a section list and no tab bar navigates between pages).
     await open(page, projectId, "analytics");
@@ -1369,7 +1381,11 @@ test("an old support notification link opens the ticket", async ({ page }) => {
   if (first) await expect(page.getByText(first.subject).first()).toBeVisible();
 });
 
-test("settings open by ?section", async ({ page }) => {
+test("settings open by ?section and the legacy path forwards", async ({
+  page,
+}) => {
+  // One login for both: navigation.spec.ts covers the sidebar links, section
+  // changes, history and the unknown-section fallback.
   test.setTimeout(120_000);
   await page.setViewportSize({ width: 1440, height: 960 });
   await login(page);
@@ -1378,14 +1394,6 @@ test("settings open by ?section", async ({ page }) => {
   const current = page
     .getByRole("navigation", { name: "Settings sections" })
     .locator('[aria-current="page"]');
-
-  // Without a section the page opens Project; the URL stays as it was typed.
-  await page.goto(`${base}/settings`);
-  await expect(current).toHaveText("Project");
-  await expect(
-    page.getByRole("heading", { name: "Autopilot readiness" }),
-  ).toBeVisible();
-  await expect(page).toHaveURL(new RegExp(`${base}/settings$`));
 
   // A module's section opens straight from its URL, in its own group.
   await page.goto(`${base}/settings?section=policy`);
@@ -1396,30 +1404,19 @@ test("settings open by ?section", async ({ page }) => {
   await page.goto(`${base}/settings?section=brand`);
   await expect(current).toHaveText("Brand");
 
-  // An unknown section falls back to Project.
-  await page.goto(`${base}/settings?section=nope`);
-  await expect(current).toHaveText("Project");
-});
-
-test("legacy /settings still redirects", async ({ page }) => {
-  test.setTimeout(120_000);
-  await login(page);
-  const { projectId } = account();
-  // The pre-restructure path forwards into the project; a section survives.
+  // The pre-restructure path forwards into the project (bare: Project, with
+  // the URL as typed); a section survives the redirect.
   await page.goto("/settings");
-  await expect(page).toHaveURL(new RegExp(`/p/${projectId}/settings$`));
+  await expect(page).toHaveURL(new RegExp(`${base}/settings$`));
+  await expect(current).toHaveText("Project");
   await expect(
-    page
-      .getByRole("navigation", { name: "Settings sections" })
-      .locator('[aria-current="page"]'),
-  ).toHaveText("Project");
+    page.getByRole("heading", { name: "Autopilot readiness" }),
+  ).toBeVisible();
   await page.goto("/settings?section=policy");
   await expect(page).toHaveURL(
-    new RegExp(`/p/${projectId}/settings\\?section=policy$`),
+    new RegExp(`${base}/settings\\?section=policy$`),
   );
-  await expect(
-    page.getByRole("heading", { name: "Versioned operating policy" }),
-  ).toBeVisible();
+  await expect(current).toHaveText("Policy & budget");
 });
 
 test("the home shows the module cards and each leads to its overview", async ({
