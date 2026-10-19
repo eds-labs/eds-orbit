@@ -12,10 +12,11 @@ import { storeAssistantDraft } from "./assistant-draft";
 import { useAttention } from "./attention";
 import { AttentionList } from "./attention-list";
 import { useShell } from "./shell-context";
+import { SystemStatusCard } from "./system-status";
 
 // The project home (UI restructure §5.1): a greeting with what needs the
 // member today, the assistant prompt, the status strip, the attention items
-// of every module, then the sections the modules contribute.
+// of every module, then a grid of the modules' cards and the system status.
 
 /** At most this many attention rows until "Show all". */
 const ROWS = 8;
@@ -119,11 +120,16 @@ export function ProjectHome() {
           </ul>
         )}
       </section>
-      {shell.homeSections.map(({ moduleId, component: Section }) => (
-        <div key={moduleId} className="home-section" data-module={moduleId}>
-          <Section />
+      <div className="home-cards">
+        {shell.homeSections.map(({ moduleId, component: Section }) => (
+          <div key={moduleId} className="home-section" data-module={moduleId}>
+            <Section />
+          </div>
+        ))}
+        <div className="home-section" data-module="platform">
+          <SystemStatusCard />
         </div>
-      ))}
+      </div>
     </div>
   );
 }

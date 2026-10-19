@@ -289,16 +289,51 @@ describe("SupportOverview", () => {
 });
 
 describe("SupportHome", () => {
-  it("links to the support overview", () => {
-    answers["/summary"] = {
-      open: 3,
-      unassigned: 1,
-      atRisk: 0,
-      breached: 0,
-      openByInbox: {},
-    };
+  const summary = {
+    open: 3,
+    unassigned: 1,
+    atRisk: 0,
+    breached: 0,
+    openByInbox: {},
+  };
+
+  it("links to the support overview from its header", () => {
+    answers["/summary"] = summary;
+    answers["openOnly=true&limit=3"] = { items: [], nextCursor: null };
     const en = render("en", <SupportHome />);
-    expect(en).toMatch(/<a[^>]*href="\/p\/p1\/support"[^>]*>Open support<\/a>/);
-    expect(render("de", <SupportHome />)).toContain(">Support öffnen</a>");
+    expect(en).toMatch(
+      /<a[^>]*href="\/p\/p1\/support"[^>]*>Go to overview<svg/,
+    );
+    expect(render("de", <SupportHome />)).toMatch(/>Zur Übersicht<svg/);
+  });
+
+  it("support card lists three tickets with ticket links", () => {
+    answers["/summary"] = summary;
+    answers["openOnly=true&limit=3"] = {
+      items: [ticket(9), ticket(4), ticket(6)],
+      nextCursor: null,
+    };
+    const html = render("en", <SupportHome />);
+    expect(
+      requested.some((p) =>
+        p.endsWith("/support/tickets?openOnly=true&limit=3"),
+      ),
+    ).toBe(true);
+    const order = [...html.matchAll(/subject-(\d\d)/g)].map((m) => m[1]);
+    expect(order).toEqual(["09", "04", "06"]);
+    for (const n of [9, 4, 6])
+      expect(html).toContain(`href="/p/p1/support/tickets?ticket=t${n}"`);
+    expect(html).toMatch(/<dd>3<\/dd>/);
+  });
+
+  it("says so without open tickets", () => {
+    answers["/summary"] = summary;
+    answers["openOnly=true&limit=3"] = { items: [], nextCursor: null };
+    expect(render("en", <SupportHome />)).toContain("No open tickets");
+    expect(render("de", <SupportHome />)).toContain("Keine offenen Tickets");
+  });
+
+  it("renders nothing while the module answers 404", () => {
+    expect(render("en", <SupportHome />)).toBe("");
   });
 });

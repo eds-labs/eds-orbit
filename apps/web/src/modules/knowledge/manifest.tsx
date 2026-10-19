@@ -17,6 +17,7 @@ import {
 } from "@/modules/knowledge/knowledge";
 import { KnowledgeOverview } from "@/modules/knowledge/overview";
 import { knowledgeAttention } from "./attention";
+import { KnowledgeHomeCard } from "./home";
 
 // Each tab but the overview is a page of its own (WP3.3), reachable by URL.
 // Names of the pages in the sidebar and the breadcrumb.
@@ -65,6 +66,8 @@ export const knowledgeWeb: WebModule = {
     en: "Sources, verified facts and the search index.",
     de: "Quellen, verifizierte Fakten und der Suchindex.",
   },
+  home: KnowledgeHomeCard,
+  homeOrder: 20,
   groupOrder: 30,
   attention: knowledgeAttention,
   views: [

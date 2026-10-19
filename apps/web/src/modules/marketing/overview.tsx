@@ -218,15 +218,8 @@ function NextPosts({
   );
 }
 
-/**
- * The marketing overview, the root of the Marketing module. `embedded` is the
- * project home's section until it gets its own cards (it keeps its heading).
- */
-export function MarketingOverview({
-  embedded = false,
-}: {
-  embedded?: boolean;
-}) {
+/** The marketing overview, the root of the Marketing module. */
+export function MarketingOverview() {
   const { project, t, locale, revision, canEdit } = useWorkspace();
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
@@ -251,10 +244,9 @@ export function MarketingOverview({
   return (
     <>
       <PageHead
-        title={embedded ? t("heading") : "Marketing"}
-        description={embedded ? t("subtitle") : t("marketingOverviewHint")}
-        eyebrow={embedded ? undefined : t("moduleEyebrow")}
-        as={embedded ? "h2" : "h1"}
+        title="Marketing"
+        description={t("marketingOverviewHint")}
+        eyebrow={t("moduleEyebrow")}
       >
         <Button asChild variant="outline">
           <AppLink href="/content">

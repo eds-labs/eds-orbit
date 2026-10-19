@@ -96,7 +96,7 @@ const post = (id: string, at: string, excerpt: string) => ({
   ownerReleased: false,
 });
 
-function render(locale: Locale = "en", canEdit = true, embedded = false) {
+function render(locale: Locale = "en", canEdit = true) {
   return renderToStaticMarkup(
     <WorkspaceContext.Provider
       value={{
@@ -111,7 +111,7 @@ function render(locale: Locale = "en", canEdit = true, embedded = false) {
         href: (p) => p,
       }}
     >
-      <MarketingOverview embedded={embedded} />
+      <MarketingOverview />
     </WorkspaceContext.Provider>,
   );
 }
@@ -296,15 +296,6 @@ describe("MarketingOverview", () => {
     expect(html).toContain('href="/content"');
     expect(html).toContain("Neue Mission");
     expect(render("de", false)).not.toContain("Neue Mission");
-  });
-
-  it("keeps the home section's heading when embedded", () => {
-    answers["/dashboard"] = dashboard();
-    answers["/missions"] = { items: [] };
-    answers["/content"] = { items: [] };
-    const html = render("en", true, true);
-    expect(html).toContain("<h2>Your marketing, in orbit.</h2>");
-    expect(html).not.toContain("<h1>");
   });
 });
 

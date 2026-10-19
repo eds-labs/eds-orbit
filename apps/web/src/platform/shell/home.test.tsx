@@ -23,7 +23,7 @@ import {
   submitAssistantPrompt,
 } from "./home";
 import { attentionWhen } from "./relative-time";
-import { navOrder, projectHref, routeTable } from "./routes";
+import { homeSections, navOrder, projectHref, routeTable } from "./routes";
 import { ShellContext, type ShellContextValue } from "./shell-context";
 
 const table = routeTable(webRegistry);
@@ -373,9 +373,16 @@ describe("ProjectHome", () => {
     expect(html).toContain("Needs your attention");
     expect(html).toContain('for="home-assistant-input"');
     expect(html).toContain('aria-label="Continue in chat"');
-    // The module sections follow the list.
+    // The module sections follow the list, in the card grid, and the
+    // platform's system status card comes last.
     expect(html.indexOf("marketing section")).toBeGreaterThan(
       html.indexOf("attention-row"),
+    );
+    expect(html.indexOf('class="home-cards"')).toBeLessThan(
+      html.indexOf("marketing section"),
+    );
+    expect(html.indexOf("System status")).toBeGreaterThan(
+      html.indexOf("marketing section"),
     );
   });
 
@@ -406,6 +413,16 @@ describe("ProjectHome", () => {
     expect(html).toContain('class="skeleton"');
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain("marketing section");
+  });
+});
+
+describe("homeSections", () => {
+  const ids = (enabled: (id: string) => boolean) =>
+    homeSections(webRegistry.modules, enabled).map((s) => s.moduleId);
+
+  it("knowledge card registered: support, marketing, knowledge by homeOrder", () => {
+    expect(ids(() => true)).toEqual(["support", "marketing", "knowledge"]);
+    expect(ids((id) => id !== "support")).toEqual(["marketing", "knowledge"]);
   });
 });
 

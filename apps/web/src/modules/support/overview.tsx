@@ -56,7 +56,7 @@ function pendingDue(ticket: Ticket): string | null {
 }
 
 /** One ticket as a link into the inbox, with its status and SLA state. */
-function TicketLink({
+export function TicketLink({
   ticket,
   showDue,
 }: {

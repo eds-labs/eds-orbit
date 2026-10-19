@@ -96,6 +96,9 @@ const runStatus: Record<string, Text> = {
   failed: ["failed", "fehlgeschlagen"],
   canceled: ["canceled", "abgebrochen"],
 };
+/** A run's state in the viewer's language; unknown states as they are. */
+export const runStatusText = (status: string, de: boolean) =>
+  (runStatus[status] ?? [status, status])[de ? 1 : 0];
 const healthText: Record<AgentActivity["health"]["state"], Text> = {
   ok: ["All good", "Alles in Ordnung"],
   attention: ["Needs attention", "Braucht Aufmerksamkeit"],
@@ -562,7 +565,7 @@ export function AgentActivityView({
           </h2>
           <p>
             {run
-              ? `${live ? (de ? "Aktueller Lauf" : "Current run") : de ? "Letzter Lauf" : "Last run"}: ${run.assignmentName ?? "—"} · ${(runStatus[run.status] ?? [run.status, run.status])[de ? 1 : 0]} · ${usd(run.costMicros)}`
+              ? `${live ? (de ? "Aktueller Lauf" : "Current run") : de ? "Letzter Lauf" : "Last run"}: ${run.assignmentName ?? "—"} · ${runStatusText(run.status, de)} · ${usd(run.costMicros)}`
               : data.activeAssignments
                 ? de
                   ? "Noch kein Lauf – die Agenten sind bereit."

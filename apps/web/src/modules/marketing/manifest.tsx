@@ -23,16 +23,13 @@ import {
   ContentStudio,
   Missions,
 } from "@/modules/marketing/work";
+import { MarketingHomeCard } from "./home";
 import { MarketingOverview } from "./overview";
 
 const label = (key: keyof typeof labels.en): Label => ({
   en: labels.en[key],
   de: labels.de[key],
 });
-
-function MarketingHome() {
-  return <MarketingOverview embedded />;
-}
 
 /**
  * Marketing in the web shell. Transitional (WP1.7): the views are today's
@@ -45,7 +42,7 @@ export const marketingWeb: WebModule = {
     en: "Missions, content, calendar, assets and results.",
     de: "Missionen, Inhalte, Kalender, Assets und Ergebnisse.",
   },
-  home: MarketingHome,
+  home: MarketingHomeCard,
   homeOrder: 10,
   groupOrder: 10,
   chat: marketingChat,

@@ -4316,6 +4316,210 @@ svg.agent-graph {
 .attention-more:hover {
   background: #f4f9fd;
 }
+/* Home cards (UI restructure §5.2): the modules' cards and the system
+   status in a responsive grid; a card that renders nothing (module off,
+   404) leaves no empty cell. */
+.home-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.home-section:empty {
+  display: none;
+}
+.home-card .panel-head {
+  flex-wrap: wrap;
+  padding: 14px 20px 6px;
+}
+.home-card .panel-head h2 {
+  font-size: 16px;
+}
+.home-card-link {
+  min-height: 44px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.home-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 0 20px 18px;
+}
+.home-card-body .empty {
+  min-height: 0;
+  padding: 14px;
+  gap: 6px;
+}
+.home-card-body .alert {
+  margin: 0;
+}
+.home-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.home-counts > div {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f3f8fc;
+}
+.home-counts dt {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.home-counts dd {
+  margin: 2px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+}
+.home-counts > div[data-tone="warning"] {
+  background: #fff7e6;
+}
+.home-counts > div[data-tone="warning"] :is(dt, dd) {
+  color: #7a5a10;
+}
+.home-counts > div[data-tone="critical"] {
+  background: #fcebed;
+}
+.home-counts > div[data-tone="critical"] :is(dt, dd) {
+  color: #a5384b;
+}
+.home-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.home-card-list h3 {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.home-run {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: #f3f8fc;
+}
+.home-run-icon {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #dbeafe;
+  color: var(--primary);
+}
+.home-run-icon svg {
+  width: 18px;
+  height: 18px;
+}
+.home-run-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+.home-run-text span {
+  font-size: 12.5px;
+  color: var(--muted-foreground);
+}
+.home-posts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.home-posts li {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 4px;
+  border-top: 1px solid #edf3f8;
+  font-size: 13px;
+}
+.home-posts svg {
+  width: 15px;
+  height: 15px;
+  color: var(--muted-foreground);
+}
+.home-post-when {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.home-post-title {
+  color: #33475b;
+  overflow-wrap: anywhere;
+}
+.home-card-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.home-card-counts strong {
+  color: var(--foreground);
+}
+.system-status-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
+  gap: 8px 16px;
+  font-size: 13px;
+}
+.system-status-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.system-status-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #9aabbb;
+}
+.system-status-line[data-tone="ok"] .system-status-dot {
+  background: var(--success);
+}
+.system-status-line[data-tone="warning"] {
+  grid-column: 1 / -1;
+  color: #7a5a10;
+}
+.system-status-line[data-tone="warning"] .system-status-dot {
+  background: #d9a300;
+}
+.system-status-line[data-tone="critical"] {
+  color: var(--danger);
+  font-weight: 600;
+}
+.system-status-line[data-tone="critical"] .system-status-dot {
+  background: var(--danger);
+}
+@media (max-width: 760px) {
+  .home-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .home-posts li {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+  .home-posts li svg {
+    display: none;
+  }
+}
 .connect-card {
   max-width: 640px;
   margin: 0 auto;
@@ -4696,24 +4900,6 @@ a.support-row {
 .support-back {
   display: none;
 }
-.support-home-counts,
-.knowledge-home-counts {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  padding: 0 21px 12px;
-}
-.support-home-counts dd,
-.knowledge-home-counts dd {
-  font-size: 22px;
-  font-weight: 600;
-  margin: 0;
-}
-.support-home > a,
-.knowledge-home > a {
-  display: block;
-  padding: 0 21px 16px;
-}
 .support-form {
   display: grid;
   gap: 12px;
@@ -4768,10 +4954,6 @@ a.support-row {
   }
   .support-ticket-body {
     grid-template-columns: minmax(0, 1fr);
-  }
-  .support-home-counts,
-  .knowledge-home-counts {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 .support-stats {
