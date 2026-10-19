@@ -66,6 +66,34 @@ const platformAttention: Readonly<Record<string, AttentionRenderer>> = {
           action: CHECK,
         };
   },
+  platform_provider_budget: (item, locale) => {
+    const spent = usd(
+      typeof item.params.spentMicros === "number" ? item.params.spentMicros : null,
+    );
+    const stop = usd(
+      typeof item.params.stopMicros === "number" ? item.params.stopMicros : null,
+    );
+    const stopped = item.params.level === "stopped";
+    return locale === "de"
+      ? {
+          title: stopped
+            ? `Claude-Budget erschöpft: ${spent} von ${stop}`
+            : `Claude-Budget: ${spent} von ${stop} verbraucht`,
+          detail: stopped
+            ? "Keine weiteren Claude-Aufrufe bis zum nächsten Abrechnungszeitraum oder bis das Budget angehoben wird."
+            : "Berechneter Verbrauch dieses Abrechnungszeitraums; der Guthabenstand wird nicht live abgeglichen.",
+          action: { en: "Review", de: "Prüfen" },
+        }
+      : {
+          title: stopped
+            ? `Claude budget exhausted: ${spent} of ${stop}`
+            : `Claude budget: ${spent} of ${stop} used`,
+          detail: stopped
+            ? "No further Claude calls until the next billing period or a higher budget."
+            : "Orbit's calculated spend this billing period; the credit balance is not synchronized live.",
+          action: { en: "Review", de: "Prüfen" },
+        };
+  },
   platform_action_request: (item, locale) => {
     const n = item.count ?? 1;
     return {

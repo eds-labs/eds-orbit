@@ -2,6 +2,8 @@ import { z } from "zod";
 import { Prisma, scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../shared.ts";
+import { providerOfModel } from "../../../../../packages/ai/src/index.ts";
+import { runtimeProviderBudgets } from "./openai-configuration.ts";
 
 const PAGE_SIZE = 50;
 const MAX_RANGE_MS = 93 * 24 * 3600 * 1000;
@@ -14,7 +16,15 @@ export const RUN_KINDS = [
   "evaluation",
   "image",
 ] as const;
-const GROUPS = ["day", "category", "model", "taskClass", "mission"] as const;
+const GROUPS = [
+  "day",
+  "category",
+  "model",
+  "taskClass",
+  "mission",
+  // The provider of the reservation's model (registry, else model prefix).
+  "provider",
+] as const;
 type Group = (typeof GROUPS)[number];
 
 export const agentRunsQuery = z.object({
@@ -169,8 +179,13 @@ export async function aiCostSummary(
         model: "model",
         taskClass: "taskClass",
         mission: "missionId",
+        provider: "model",
       } as const
     )[groupBy];
+    const registry =
+      groupBy === "provider"
+        ? (await runtimeProviderBudgets(tx, scope)).models
+        : undefined;
     const grouped = await tx.budgetReservation.groupBy({
       by: [field, "state"],
       where: {
@@ -182,7 +197,12 @@ export async function aiCostSummary(
       _count: { _all: true },
     });
     return grouped.map((g) => ({
-      key: (g as Record<string, unknown>)[field] as string | null,
+      key:
+        groupBy === "provider"
+          ? g.model === null
+            ? null
+            : providerOfModel(g.model, registry)
+          : ((g as Record<string, unknown>)[field] as string | null),
       state: g.state,
       amount: g._sum.amountMicros,
       settled: g._sum.settledMicros,
