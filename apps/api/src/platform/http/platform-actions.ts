@@ -12,7 +12,10 @@ import {
   update,
 } from "../shared.ts";
 import { budgetMonthStart } from "../ai/budget.ts";
-import { saveOpenAiConfiguration } from "../ai/openai-configuration.ts";
+import {
+  saveAiProviderConfiguration,
+  saveOpenAiConfiguration,
+} from "../ai/openai-configuration.ts";
 import {
   CONNECTION_KIND,
   decryptCredential,
@@ -46,6 +49,28 @@ export const platformActions: Record<string, ActionHandler> = {
           configured: result.configured,
           source: result.source,
           modelCount: result.verifiedModels.length,
+        },
+      );
+      return result;
+    }),
+  ),
+  // The provider fields of the same configuration (Anthropic key, default
+  // provider, Anthropic tiers, model registry, provider budgets, fallback).
+  "ai-provider-configure": ownTransaction(({ scope, input }) =>
+    scoped(scope.workspaceId, scope.projectId, async (tx) => {
+      const result = await saveAiProviderConfiguration(tx, scope, input);
+      await audit(
+        tx,
+        scope,
+        "openai_configuration.update",
+        "openai_configuration",
+        {
+          configured: result.configured,
+          source: result.source,
+          modelCount: result.verifiedModels.length,
+          defaultProvider: result.defaultProvider,
+          anthropicKeyConfigured: result.providers.anthropic.keyConfigured,
+          fallback: result.fallback.onProviderBudgetStop,
         },
       );
       return result;

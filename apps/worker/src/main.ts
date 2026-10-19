@@ -194,7 +194,7 @@ const workers = classes.map(
           await scoped(workspaceId, projectId, async (tx) => {
             const job = await entity(tx, scope, "jobs", jobId);
             retryable =
-              !/BUDGET|NOT_|REQUIRED|EXPIRED|EVIDENCE|CAPABILITY|POLICY|PAUSED|UNKNOWN/.test(
+              !/BUDGET|NOT_|REQUIRED|EXPIRED|EVIDENCE|CAPABILITY|POLICY|PAUSED|UNKNOWN|REFUSAL|UNSUPPORTED/.test(
                 code,
               ) && data(job).attempts < data(job).maxAttempts;
             await update(tx, scope, job, {

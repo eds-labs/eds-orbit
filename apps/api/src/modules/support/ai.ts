@@ -5,6 +5,8 @@ import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
   estimateCost,
+  providerCallName,
+  type ProviderId,
   isRejectedRequest,
   resolveRoute,
   respond,
@@ -12,6 +14,7 @@ import {
 } from "../../../../../packages/ai/src/index.ts";
 import { validateEvidence } from "../../../../../packages/knowledge/src/index.ts";
 import { markTransmitted, reserve, settle } from "../../platform/ai/budget.ts";
+import { planCall } from "../../platform/ai/call-plan.ts";
 import {
   openAiConfigurationVersion,
   runtimeOpenAiConfiguration,
@@ -229,6 +232,7 @@ async function modelCall<T>(
   });
   let reservationId: string | null = null;
   let model: string | undefined;
+  let provider: ProviderId = "openai";
   const startedAt = new Date();
   try {
     const prepared = await scoped(
@@ -243,14 +247,24 @@ async function modelCall<T>(
         const runtime = await runtimeOpenAiConfiguration(tx, scope);
         if ((runtime.routeVersion ?? null) !== routeVersion)
           throw new DomainError("SUPPORT_ROUTE_CHANGED", 409);
-        const route = resolveRoute(input.taskClass, runtime);
         const bytes = Buffer.byteLength(input.instructions + input.content);
-        const estimate = estimateCost(
-          route.model,
-          bytes,
-          route.maxOutputTokens,
+        // The task's route, or its OpenAI tier when the Anthropic budget
+        // stops the call and the owner allowed the fallback (plan D-A7).
+        const plan = await planCall(
+          tx,
+          scope,
+          input.taskClass,
           runtime,
+          (candidate) =>
+            estimateCost(
+              candidate.model,
+              bytes,
+              candidate.maxOutputTokens,
+              runtime,
+            ),
         );
+        const route = plan.route;
+        const estimate = plan.estimateMicros;
         await assertDailySupportBudget(tx, scope, estimate);
         // One key per job attempt: a retried job finds its call already
         // reserved and never pays twice (review fix 5).
@@ -271,11 +285,18 @@ async function modelCall<T>(
           },
         );
         await markTransmitted(tx, scope, reservation.id);
-        return { runtime, route, reservationId: reservation.id };
+        return {
+          runtime,
+          route,
+          provider: plan.provider,
+          fallbackFrom: plan.fallbackFrom,
+          reservationId: reservation.id,
+        };
       },
     );
     reservationId = prepared.reservationId;
     model = prepared.route.model;
+    provider = prepared.provider;
     input.state.paid = true;
     const result = await respond({
       route: prepared.route,
@@ -296,7 +317,9 @@ async function modelCall<T>(
     const { model: _m, costMicros, ...usage } = result.usage;
     await recordSpan(scope, agentRunId, {
       type: "model_call",
-      name: "responses.create",
+      name:
+        providerCallName(provider, "create") +
+        (prepared.fallbackFrom ? " (fallback)" : ""),
       model,
       status: "succeeded",
       startedAt,
@@ -334,7 +357,7 @@ async function modelCall<T>(
       ).catch(() => undefined);
       await recordSpan(scope, agentRunId, {
         type: "model_call",
-        name: "responses.create",
+        name: providerCallName(provider, "create"),
         model,
         status: rejected ? "failed" : "unknown",
         startedAt,

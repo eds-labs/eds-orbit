@@ -201,6 +201,7 @@ describe("module contributions", () => {
       "activate-index",
       "adapt-content",
       "add-member",
+      "ai-provider-configure",
       "analyze",
       "approve",
       "archive-mission",
@@ -286,6 +287,7 @@ describe("module contributions", () => {
         .sort(),
     ).toEqual([
       "add-member",
+      "ai-provider-configure",
       "connector-health",
       "import-matomo",
       "knowledge-import-preview",

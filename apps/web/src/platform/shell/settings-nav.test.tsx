@@ -38,7 +38,15 @@ describe("groupSettings", () => {
     expect(shape(groups)).toEqual([
       [
         "project",
-        ["project", "members", "integrations", "retention", "modules", "apps"],
+        [
+          "project",
+          "members",
+          "integrations",
+          "ai",
+          "retention",
+          "modules",
+          "apps",
+        ],
       ],
       // Spec §5.4: policy & budget, then brand (the assignments are a
       // Marketing page since 2026-10-19).

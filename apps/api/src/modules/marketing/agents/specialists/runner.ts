@@ -7,11 +7,13 @@ import type { Scope } from "../../../../../../../packages/schemas/src/index.ts";
 import {
   estimateCost,
   isRejectedRequest,
-  resolveRoute,
+  providerCallName,
   respond,
   webSearchFee,
   webSearchInputTokens,
+  type ProviderId,
 } from "../../../../../../../packages/ai/src/index.ts";
+import { planCall } from "../../../../platform/ai/call-plan.ts";
 import {
   data,
   DomainError,
@@ -491,6 +493,7 @@ export async function runSpecialist(
   const inFlight = {
     reservationId: null as string | null,
     model: undefined as string | undefined,
+    provider: "openai" as ProviderId,
     startedAt: new Date(),
   };
   const deadline = AbortSignal.timeout(specialist.limits.timeoutMs);
@@ -547,19 +550,29 @@ export async function runSpecialist(
           // Fail closed: the task records one configuration version.
           if ((runtime.routeVersion ?? null) !== routeVersion)
             throw new DomainError("AGENT_ROUTE_CHANGED", 409);
-          const route = resolveRoute(specialist.taskClass, runtime);
           const searches = searchTool ? searchesLeft : 0;
-          const estimate =
-            // The search results come back as input tokens: an allowance per search is reserved with the request.
-            estimateCost(
-              route.model,
-              bytes + webSearchInputTokens(route.model, searches, runtime),
-              route.maxOutputTokens,
-              runtime,
-            ) +
-            // Every search this call may still run, at the per-search fee.
-            webSearchFee(route.model, searches, runtime);
           const now = new Date();
+          // The task's route, or its OpenAI tier when the Anthropic budget
+          // stops the call and the owner allowed the fallback (plan D-A7).
+          const plan = await planCall(
+            tx,
+            scope,
+            specialist.taskClass,
+            runtime,
+            (route) =>
+              // The search results come back as input tokens: an allowance per search is reserved with the request.
+              estimateCost(
+                route.model,
+                bytes + webSearchInputTokens(route.model, searches, runtime),
+                route.maxOutputTokens,
+                runtime,
+              ) +
+              // Every search this call may still run, at the per-search fee.
+              webSearchFee(route.model, searches, runtime),
+            now,
+          );
+          const route = plan.route;
+          const estimate = plan.estimateMicros;
           // The run pool of the step (R75), then the assignment's month; project refusals from `reserve` fail the task (R25).
           await assertTaskBudget(tx, scope, task, estimate, now);
           const reservation = await reserve(
@@ -579,11 +592,18 @@ export async function runSpecialist(
             },
           );
           await markTransmitted(tx, scope, reservation.id);
-          return { runtime, route, reservationId: reservation.id };
+          return {
+            runtime,
+            route,
+            provider: plan.provider,
+            fallbackFrom: plan.fallbackFrom,
+            reservationId: reservation.id,
+          };
         },
       );
       inFlight.reservationId = prepared.reservationId;
       inFlight.model = prepared.route.model;
+      inFlight.provider = prepared.provider;
       inFlight.startedAt = new Date();
       const result = await respond({
         route: prepared.route,
@@ -616,7 +636,9 @@ export async function runSpecialist(
       const { model: _model, costMicros: _tokenCost, ...usage } = result.usage;
       await recordSpan(scope, agentRunId, {
         type: "model_call",
-        name: "responses.create",
+        name:
+          providerCallName(prepared.provider, "create") +
+          (prepared.fallbackFrom ? " (fallback)" : ""),
         model: prepared.route.model,
         status: "succeeded",
         startedAt: inFlight.startedAt,
@@ -747,7 +769,7 @@ export async function runSpecialist(
       );
       await recordSpan(scope, agentRunId, {
         type: "model_call",
-        name: "responses.create",
+        name: providerCallName(inFlight.provider, "create"),
         model: inFlight.model,
         status: rejected ? "failed" : "unknown",
         errorCode: code,
@@ -893,7 +915,7 @@ export async function runAgentTask(scope: Scope, taskId: string) {
   for (const crashed of recovered) {
     await recordSpan(scope, crashed.agentRunId, {
       type: "model_call",
-      name: "responses.create",
+      name: "model.create",
       status: "unknown",
       errorCode: "AGENT_OUTCOME_UNKNOWN",
       startedAt: new Date(),

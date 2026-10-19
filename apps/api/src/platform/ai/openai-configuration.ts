@@ -3,8 +3,17 @@ import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import {
+  anthropicCatalog,
+  anthropicCatalogRateCard,
+  anthropicCatalogRegistry,
   environmentRuntimeConfig,
+  fallbackConfigurationSchema,
   imageGenerationConfigurationSchema,
+  modelRegistrySchema,
+  providerBudgetsSchema,
+  providerIdSchema,
+  providerOfModel,
+  providerTierRoutesSchema,
   rateCardSchema,
   rateStatus,
   resolveRoute,
@@ -12,6 +21,7 @@ import {
   taskRoutesSchema,
   type ModelRoute,
   type OpenAiRuntimeConfig,
+  type ProviderId,
   type TaskClass,
 } from "../../../../../packages/ai/src/index.ts";
 import {
@@ -27,12 +37,20 @@ import {
   DomainError,
 } from "../shared.ts";
 
+/**
+ * The project's AI configuration: one entity of kind `openai_configuration`
+ * (the name predates the second provider). `openai-configure` saves the
+ * OpenAI keys, verified models, rate card, tiers, task routes and image
+ * settings as before; `ai-provider-configure` saves the provider fields
+ * added with the Anthropic provider (plan D-A4). Every save bumps the
+ * entity version, which is the route version runs are bound to.
+ */
 const key = z.string().trim().min(20).max(1000);
 export const openAiConfigurationInput = z
   .object({
     apiKey: key.optional(),
     imageApiKey: key.optional(),
-    verifiedModels: z.array(z.string().trim().min(1).max(120)).max(20),
+    verifiedModels: z.array(z.string().trim().min(1).max(120)).max(40),
     rateCard: rateCardSchema,
     modelRoutes: z
       .object({
@@ -53,7 +71,7 @@ export const openAiConfigurationInput = z
   .superRefine((value, context) => {
     if (new Set(value.verifiedModels).size !== value.verifiedModels.length)
       context.addIssue({ code: "custom", message: "DUPLICATE_MODEL" });
-    if (Object.keys(value.rateCard).length > 20)
+    if (Object.keys(value.rateCard).length > 40)
       context.addIssue({ code: "custom", message: "RATE_CARD_LIMIT" });
     // Every tier, including the unused escalation tier, must name a verified model.
     // `resolveRoute` repeats the capability gate at call time.
@@ -86,26 +104,72 @@ export const openAiConfigurationInput = z
       context.addIssue({ code: "custom", message: "IMAGE_MODEL_NOT_VERIFIED" });
   });
 
+/** The provider fields of `ai-provider-configure` (plan D-A4..D-A7). */
+export const aiProviderConfigurationInput = z
+  .object({
+    anthropicApiKey: key.optional(),
+    /** Forgets the saved Anthropic key (the environment fallback applies again). */
+    clearAnthropicApiKey: z.boolean().default(false),
+    defaultProvider: providerIdSchema.default("openai"),
+    anthropicTierRoutes: providerTierRoutesSchema.optional(),
+    models: modelRegistrySchema.default({}),
+    providerBudgets: providerBudgetsSchema.default({}),
+    fallback: fallbackConfigurationSchema.default({
+      onProviderBudgetStop: "none",
+    }),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (Object.keys(value.models).length > 40)
+      context.addIssue({ code: "custom", message: "MODEL_REGISTRY_LIMIT" });
+    if (value.anthropicApiKey && value.clearAnthropicApiKey)
+      context.addIssue({ code: "custom", message: "ANTHROPIC_KEY_CONFLICT" });
+  });
+
 type StoredConfiguration = Omit<
   z.infer<typeof openAiConfigurationInput>,
   "apiKey" | "imageApiKey"
-> & {
-  encryptedApiKey?: string;
-  encryptedImageApiKey?: string;
-  updatedBy: string;
-  updatedAt: string;
-};
+> &
+  Omit<
+    z.infer<typeof aiProviderConfigurationInput>,
+    "anthropicApiKey" | "clearAnthropicApiKey"
+  > & {
+    encryptedApiKey?: string;
+    encryptedImageApiKey?: string;
+    encryptedAnthropicApiKey?: string;
+    updatedBy: string;
+    updatedAt: string;
+  };
 
-function stored(row: { data: unknown }) {
+const defaultProviderFields = () => aiProviderConfigurationInput.parse({});
+
+function stored(row: { data: unknown }): StoredConfiguration {
   const value = data(row);
+  const providerFields = aiProviderConfigurationInput.parse({
+    ...(value.defaultProvider
+      ? { defaultProvider: value.defaultProvider }
+      : {}),
+    ...(value.anthropicTierRoutes
+      ? { anthropicTierRoutes: value.anthropicTierRoutes }
+      : {}),
+    ...(value.models ? { models: value.models } : {}),
+    ...(value.providerBudgets
+      ? { providerBudgets: value.providerBudgets }
+      : {}),
+    ...(value.fallback ? { fallback: value.fallback } : {}),
+  });
   return {
     encryptedApiKey: z.string().optional().parse(value.encryptedApiKey),
     encryptedImageApiKey: z
       .string()
       .optional()
       .parse(value.encryptedImageApiKey),
-    verifiedModels: z.array(z.string()).parse(value.verifiedModels),
-    rateCard: rateCardSchema.parse(value.rateCard),
+    encryptedAnthropicApiKey: z
+      .string()
+      .optional()
+      .parse(value.encryptedAnthropicApiKey),
+    verifiedModels: z.array(z.string()).parse(value.verifiedModels ?? []),
+    rateCard: rateCardSchema.parse(value.rateCard ?? {}),
     modelRoutes: z
       .object({
         fast: z.string(),
@@ -119,17 +183,35 @@ function stored(row: { data: unknown }) {
     imageGeneration: imageGenerationConfigurationSchema.parse(
       value.imageGeneration ?? {},
     ),
+    defaultProvider: providerFields.defaultProvider,
+    anthropicTierRoutes: providerFields.anthropicTierRoutes,
+    models: providerFields.models,
+    providerBudgets: providerFields.providerBudgets,
+    fallback: providerFields.fallback,
     updatedBy: z.string().parse(value.updatedBy),
     updatedAt: z.iso.datetime().parse(value.updatedAt),
-  } satisfies StoredConfiguration;
+  };
 }
+
+type EffectiveRoute =
+  | (ModelRoute & {
+      provider: ProviderId;
+      price: ReturnType<typeof rateStatus>;
+    })
+  | { error: "MODEL_CAPABILITY_NOT_VERIFIED" | "ROUTE_EFFORT_UNSUPPORTED" };
 
 // Never throws: unverified routes and missing or stale prices are reported
 // instead of failing the view; a run fails closed on either.
 function effectiveRoutes(
   runtime: Pick<
     OpenAiRuntimeConfig,
-    "verifiedModels" | "modelRoutes" | "taskRoutes" | "rateCard"
+    | "verifiedModels"
+    | "modelRoutes"
+    | "taskRoutes"
+    | "rateCard"
+    | "models"
+    | "defaultProvider"
+    | "anthropicTierRoutes"
   >,
 ) {
   return Object.fromEntries(
@@ -138,24 +220,83 @@ function effectiveRoutes(
         const route = resolveRoute(taskClass, runtime);
         return [
           taskClass,
-          { ...route, price: rateStatus(route.model, runtime.rateCard) },
+          {
+            ...route,
+            provider: providerOfModel(route.model, runtime.models),
+            price: rateStatus(route.model, runtime.rateCard),
+          },
         ];
-      } catch {
-        return [taskClass, { error: "MODEL_CAPABILITY_NOT_VERIFIED" }];
+      } catch (error) {
+        return [
+          taskClass,
+          {
+            error:
+              error instanceof Error &&
+              error.message === "ROUTE_EFFORT_UNSUPPORTED"
+                ? "ROUTE_EFFORT_UNSUPPORTED"
+                : "MODEL_CAPABILITY_NOT_VERIFIED",
+          },
+        ];
       }
     }),
-  ) as Record<
-    TaskClass,
-    | (ModelRoute & { price: ReturnType<typeof rateStatus> })
-    | { error: "MODEL_CAPABILITY_NOT_VERIFIED" }
-  >;
+  ) as Record<TaskClass, EffectiveRoute>;
+}
+
+/**
+ * The dated Claude suggestion the admin view can prefill (plan D-A5): model
+ * ids, prices, tiers and routes as read from the official documentation on
+ * `verifiedAt`, with the sources. Nothing is applied without an owner save.
+ */
+export function anthropicSuggestions() {
+  return {
+    verifiedAt: anthropicCatalog.verifiedAt,
+    sources: [...anthropicCatalog.sources],
+    rateCard: anthropicCatalogRateCard(),
+    models: anthropicCatalogRegistry(),
+    tiers: { ...anthropicCatalog.tiers },
+    routes: { ...anthropicCatalog.suggestedRoutes },
+  };
+}
+
+/** Provider status for the admin view: configured where, never a key. */
+function providerStatus(
+  fallback: OpenAiRuntimeConfig,
+  value: StoredConfiguration | null,
+) {
+  const source = (orbit: boolean, environment: boolean) =>
+    orbit ? "orbit" : environment ? "environment" : "none";
+  return {
+    openai: {
+      keyConfigured: Boolean(value?.encryptedApiKey || fallback.apiKey),
+      source: source(Boolean(value?.encryptedApiKey), Boolean(fallback.apiKey)),
+    },
+    anthropic: {
+      keyConfigured: Boolean(
+        value?.encryptedAnthropicApiKey || fallback.anthropicApiKey,
+      ),
+      source: source(
+        Boolean(value?.encryptedAnthropicApiKey),
+        Boolean(fallback.anthropicApiKey),
+      ),
+    },
+  };
 }
 
 export function publicOpenAiConfiguration(
   row: { data: unknown; version?: number } | null,
   fallback = environmentRuntimeConfig(),
 ) {
-  if (!row)
+  if (!row) {
+    const providerFields = defaultProviderFields();
+    const runtime = {
+      verifiedModels: fallback.verifiedModels,
+      modelRoutes,
+      taskRoutes: fallback.taskRoutes,
+      rateCard: fallback.rateCard,
+      models: providerFields.models,
+      defaultProvider: fallback.defaultProvider ?? "openai",
+      anthropicTierRoutes: fallback.anthropicTierRoutes,
+    };
     return {
       configured: Boolean(fallback.apiKey || fallback.imageApiKey),
       source: fallback.apiKey || fallback.imageApiKey ? "environment" : "none",
@@ -166,17 +307,20 @@ export function publicOpenAiConfiguration(
       rateCard: fallback.rateCard,
       modelRoutes,
       taskRoutes: fallback.taskRoutes ?? {},
-      effectiveRoutes: effectiveRoutes({
-        verifiedModels: fallback.verifiedModels,
-        modelRoutes,
-        taskRoutes: fallback.taskRoutes,
-        rateCard: fallback.rateCard,
-      }),
+      effectiveRoutes: effectiveRoutes(runtime),
       routeVersion: null,
       imageGeneration:
         fallback.imageGeneration ??
         imageGenerationConfigurationSchema.parse({}),
+      providers: providerStatus(fallback, null),
+      defaultProvider: runtime.defaultProvider,
+      anthropicTierRoutes: fallback.anthropicTierRoutes ?? null,
+      models: providerFields.models,
+      providerBudgets: providerFields.providerBudgets,
+      fallback: providerFields.fallback,
+      suggestions: { anthropic: anthropicSuggestions() },
     };
+  }
   const value = stored(row);
   return {
     configured: true,
@@ -193,9 +337,26 @@ export function publicOpenAiConfiguration(
     effectiveRoutes: effectiveRoutes(value),
     routeVersion: row.version ?? null,
     imageGeneration: value.imageGeneration,
+    providers: providerStatus(fallback, value),
+    defaultProvider: value.defaultProvider,
+    anthropicTierRoutes: value.anthropicTierRoutes ?? null,
+    models: value.models,
+    providerBudgets: value.providerBudgets,
+    fallback: value.fallback,
+    suggestions: { anthropic: anthropicSuggestions() },
     updatedAt: value.updatedAt,
     version: row.version,
   };
+}
+
+async function configurationRow(tx: DbTx, scope: Scope) {
+  return tx.entity.findFirst({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "openai_configuration",
+    },
+  });
 }
 
 /** Entity version of the stored configuration; null for the environment fallback. No secrets are read. */
@@ -218,29 +379,48 @@ export async function runtimeOpenAiConfiguration(
   tx: DbTx,
   scope: Scope,
 ): Promise<OpenAiRuntimeConfig> {
-  const row = await tx.entity.findFirst({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "openai_configuration",
-    },
-  });
+  const row = await configurationRow(tx, scope);
   if (!row) return environmentRuntimeConfig();
   const value = stored(row);
+  const credentialKey = loadConfig().CREDENTIAL_KEY;
+  const environment = environmentRuntimeConfig();
   return {
     apiKey: value.encryptedApiKey
-      ? decrypt(value.encryptedApiKey, loadConfig().CREDENTIAL_KEY)
+      ? decrypt(value.encryptedApiKey, credentialKey)
       : undefined,
     imageApiKey: value.encryptedImageApiKey
-      ? decrypt(value.encryptedImageApiKey, loadConfig().CREDENTIAL_KEY)
+      ? decrypt(value.encryptedImageApiKey, credentialKey)
       : undefined,
+    // The saved key wins; the environment key is the bootstrap fallback.
+    anthropicApiKey: value.encryptedAnthropicApiKey
+      ? decrypt(value.encryptedAnthropicApiKey, credentialKey)
+      : environment.anthropicApiKey,
     verifiedModels: value.verifiedModels,
     rateCard: value.rateCard,
     modelRoutes: value.modelRoutes,
+    anthropicTierRoutes: value.anthropicTierRoutes,
     taskRoutes: value.taskRoutes,
+    models: value.models,
+    defaultProvider: value.defaultProvider,
+    providerBudgets: value.providerBudgets,
+    fallback: value.fallback,
     routeVersion: row.version,
     imageGeneration: value.imageGeneration,
   };
+}
+
+/**
+ * The provider budgets and model registry of the project, for the budget
+ * check inside `reserve`: one row read, no key decrypted.
+ */
+export async function runtimeProviderBudgets(
+  tx: DbTx,
+  scope: Scope,
+): Promise<Pick<OpenAiRuntimeConfig, "providerBudgets" | "models">> {
+  const row = await configurationRow(tx, scope);
+  if (!row) return { providerBudgets: {}, models: {} };
+  const value = stored(row);
+  return { providerBudgets: value.providerBudgets, models: value.models };
 }
 
 export async function saveOpenAiConfiguration(
@@ -250,28 +430,104 @@ export async function saveOpenAiConfiguration(
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = openAiConfigurationInput.parse(raw);
-  const current = await tx.entity.findFirst({
-    where: {
-      workspaceId: scope.workspaceId,
-      projectId: scope.projectId,
-      kind: "openai_configuration",
-    },
-  });
-  if (!current && !input.apiKey && !input.imageApiKey)
-    throw new DomainError("OPENAI_API_KEY_REQUIRED");
+  const current = await configurationRow(tx, scope);
   const currentValue = current ? stored(current) : null;
+  if (
+    !current &&
+    !input.apiKey &&
+    !input.imageApiKey &&
+    !environmentRuntimeConfig().anthropicApiKey
+  )
+    throw new DomainError("OPENAI_API_KEY_REQUIRED");
+  // A model that leaves the verified list must not stay in a saved Anthropic tier.
+  if (
+    currentValue?.anthropicTierRoutes &&
+    input.verifiedModels.length &&
+    Object.values(currentValue.anthropicTierRoutes).some(
+      (model) => !input.verifiedModels.includes(model),
+    )
+  )
+    throw new DomainError("ROUTED_MODEL_NOT_VERIFIED");
   const next = {
+    ...(currentValue ?? defaultProviderFields()),
     encryptedApiKey: input.apiKey
       ? encrypt(input.apiKey, loadConfig().CREDENTIAL_KEY)
       : currentValue?.encryptedApiKey,
     encryptedImageApiKey: input.imageApiKey
       ? encrypt(input.imageApiKey, loadConfig().CREDENTIAL_KEY)
       : currentValue?.encryptedImageApiKey,
+    encryptedAnthropicApiKey: currentValue?.encryptedAnthropicApiKey,
     verifiedModels: input.verifiedModels,
     rateCard: input.rateCard,
     modelRoutes: input.modelRoutes,
     taskRoutes: input.taskRoutes,
     imageGeneration: input.imageGeneration,
+    updatedBy: scope.userId,
+    updatedAt: new Date().toISOString(),
+  };
+  const row = current
+    ? await update(tx, scope, current, next)
+    : await create(tx, scope, "openai_configuration", next);
+  return publicOpenAiConfiguration(row);
+}
+
+/**
+ * Saves the provider fields (Anthropic key, default provider, Anthropic
+ * tiers, model registry, provider budgets, fallback). Tier models must be
+ * verified; a Claude route may not use the effort `none`. Creating the
+ * configuration with an Anthropic key alone is allowed: OpenAI then stays
+ * unconfigured until its key is saved.
+ */
+export async function saveAiProviderConfiguration(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+) {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  const input = aiProviderConfigurationInput.parse(raw);
+  const current = await configurationRow(tx, scope);
+  const currentValue = current ? stored(current) : null;
+  const verifiedModels = currentValue?.verifiedModels ?? [];
+  if (
+    input.anthropicTierRoutes &&
+    Object.values(input.anthropicTierRoutes).some(
+      (model) => !verifiedModels.includes(model),
+    )
+  )
+    throw new DomainError("ROUTED_MODEL_NOT_VERIFIED");
+  for (const route of Object.values(currentValue?.taskRoutes ?? {}))
+    if (
+      route.reasoningEffort === "none" &&
+      providerOfModel(route.model, input.models) === "anthropic"
+    )
+      throw new DomainError("ROUTE_EFFORT_UNSUPPORTED");
+  const encryptedAnthropicApiKey = input.anthropicApiKey
+    ? encrypt(input.anthropicApiKey, loadConfig().CREDENTIAL_KEY)
+    : input.clearAnthropicApiKey
+      ? undefined
+      : currentValue?.encryptedAnthropicApiKey;
+  if (
+    !current &&
+    !encryptedAnthropicApiKey &&
+    !environmentRuntimeConfig().anthropicApiKey &&
+    !environmentRuntimeConfig().apiKey
+  )
+    throw new DomainError("ANTHROPIC_API_KEY_REQUIRED");
+  const base = currentValue ?? {
+    verifiedModels: [],
+    rateCard: {},
+    modelRoutes,
+    taskRoutes: {},
+    imageGeneration: imageGenerationConfigurationSchema.parse({}),
+  };
+  const next = {
+    ...base,
+    encryptedAnthropicApiKey,
+    defaultProvider: input.defaultProvider,
+    anthropicTierRoutes: input.anthropicTierRoutes,
+    models: input.models,
+    providerBudgets: input.providerBudgets,
+    fallback: input.fallback,
     updatedBy: scope.userId,
     updatedAt: new Date().toISOString(),
   };
