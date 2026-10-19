@@ -259,6 +259,7 @@ test("module settings links open their section of the grouped settings", async (
     "Project",
     "Members & roles",
     "Integrations",
+    "AI",
     "Retention",
     "Modules",
   ].entries())

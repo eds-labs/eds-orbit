@@ -1293,7 +1293,7 @@ test("OpenAI configuration loads a persisted rate card into the settings form", 
     dialog.getByLabel("Chat operator maximum output tokens", { exact: true }),
   ).toHaveValue("2500");
   await expect(dialog).toContainText(
-    "Effective route: gpt-5.6-terra · high · 2500 max tokens.",
+    "Effective route: gpt-5.6-terra (openai) · high · 2500 max tokens.",
   );
   await expect(
     dialog.getByLabel("Blog drafts model", { exact: true }),
