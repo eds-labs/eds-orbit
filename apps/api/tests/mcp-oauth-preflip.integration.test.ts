@@ -45,10 +45,21 @@ const CLIENTS = {
   cleanup: clientUrl("cleanup"),
   cleanupOther: clientUrl("cleanup-other"),
   revoke: clientUrl("revoke"),
+  keepRace: clientUrl("keep-race"),
+  lineage: clientUrl("lineage"),
+  jwtOnly: clientUrl("jwt-only"),
+  jwtRevoked: clientUrl("jwt-revoked"),
 };
 const clientIds = Object.values(CLIENTS);
 const cimdFetch = cimdFetchFor(
   Object.fromEntries(clientIds.map((id) => [id, metadata(id)])),
+);
+
+/** What the /oauth2/token after-hook answers (the before-hook's text differs). */
+const AFTER_HOOK_REFUSAL = "the grant behind this authorization is not active";
+/** The requested scopes without offline_access: no refresh token is issued. */
+const NO_REFRESH_SCOPES = SCOPES.split(" ").filter(
+  (scope) => scope !== "offline_access",
 );
 
 const tokenHash = (token: string) =>
@@ -106,12 +117,18 @@ describe.skipIf(!enabled)("MCP OAuth pre-flip hardening (WP-M5)", () => {
     expect(next.pathname).toBe("/connect");
     return { first: location!, next };
   }
-  /** Waits until another connection of this database waits on a row lock. */
-  async function waitForLockWait() {
+  /**
+   * Waits until another connection of this database waits on a row lock
+   * while running a statement that mentions `table` (so a lock wait of
+   * another test file never counts).
+   */
+  async function waitForLockWait(table: string) {
+    const pattern = `%"${table}"%`;
     for (let i = 0; i < 100; i++) {
       const [row] = await authDb.$queryRaw<{ n: number }[]>`
         SELECT count(*)::int AS n FROM pg_stat_activity
-        WHERE datname = current_database() AND wait_event_type = 'Lock'`;
+        WHERE datname = current_database() AND wait_event_type = 'Lock'
+          AND pid <> pg_backend_pid() AND query ILIKE ${pattern}`;
       if (row!.n > 0) return;
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
@@ -348,6 +365,7 @@ describe.skipIf(!enabled)("MCP OAuth pre-flip hardening (WP-M5)", () => {
     const token = await exchange(flow, { client_id: CLIENTS.exchange });
     expect(token.statusCode).toBe(400);
     expect(token.json().error).toBe("invalid_grant");
+    expect(token.json().error_description).toBe(AFTER_HOOK_REFUSAL);
     expect(token.body).not.toContain("access_token");
     expect(
       await authDb.oauthRefreshToken.count({
@@ -383,12 +401,14 @@ describe.skipIf(!enabled)("MCP OAuth pre-flip hardening (WP-M5)", () => {
     );
     await hold.isLocked;
     const pending = refresh(tokens.refresh_token, CLIENTS.rotation);
-    await waitForLockWait();
+    await waitForLockWait("oauthRefreshToken");
     hold.release();
     await hold.done;
     const rotated = await pending;
     expect(rotated.statusCode).toBe(400);
     expect(rotated.json().error).toBe("invalid_grant");
+    // Refused after the rotation (after-hook), not by the refresh check.
+    expect(rotated.json().error_description).toBe(AFTER_HOOK_REFUSAL);
     expect(rotated.body).not.toContain("access_token");
     expect(
       await authDb.oauthRefreshToken.count({
@@ -400,6 +420,133 @@ describe.skipIf(!enabled)("MCP OAuth pre-flip hardening (WP-M5)", () => {
         where: reference(CLIENTS.rotation),
       }),
     ).toBe(0);
+  });
+
+  it("the token check waits for an uncommitted revocation of the grant", async () => {
+    const flow = await connect({ clientId: CLIENTS.keepRace });
+    const [grant] = (await grants(CLIENTS.keepRace)).filter(
+      (g) => g.status === "active",
+    );
+    // The revocation has changed the row but not committed yet when the
+    // exchange stores its tokens: the check must wait for its outcome
+    // instead of reading the old, still active row version.
+    const hold = holdTransaction((tx) =>
+      tx.mcpGrant.update({
+        where: { id: grant!.id },
+        data: { status: "revoked", revokedAt: new Date(), revokedBy: userId },
+      }),
+    );
+    await hold.isLocked;
+    const pending = exchange(flow, { client_id: CLIENTS.keepRace });
+    await waitForLockWait("McpGrant");
+    hold.release();
+    await hold.done;
+    const token = await pending;
+    expect(token.statusCode).toBe(400);
+    expect(token.json().error_description).toBe(AFTER_HOOK_REFUSAL);
+    expect(
+      await authDb.oauthRefreshToken.count({
+        where: reference(CLIENTS.keepRace),
+      }),
+    ).toBe(0);
+  });
+
+  it("a re-grant right after a revocation does not keep tokens of the revoked lineage", async () => {
+    const flow = await connect({ clientId: CLIENTS.lineage });
+    const tokens = (
+      await exchange(flow, { client_id: CLIENTS.lineage })
+    ).json() as Json;
+    const [grant] = (await grants(CLIENTS.lineage)).filter(
+      (g) => g.status === "active",
+    );
+    // While the refresh waits at its rotation, the grant is revoked and the
+    // same reference is granted again before the new tokens are stored.
+    const hold = holdTransaction(
+      (tx) =>
+        tx.$queryRaw`SELECT id FROM "oauthRefreshToken"
+          WHERE token = ${tokenHash(tokens.refresh_token)} FOR UPDATE`,
+      async (tx) => {
+        const now = new Date();
+        await tx.mcpGrant.update({
+          where: { id: grant!.id },
+          data: { status: "revoked", revokedAt: now, revokedBy: userId },
+        });
+        await tx.mcpGrant.create({
+          data: {
+            userId,
+            clientId: CLIENTS.lineage,
+            workspaceId,
+            projectIds: [projectA],
+            scopes: grant!.scopes,
+            status: "active",
+            activatedAt: now,
+          },
+        });
+      },
+    );
+    await hold.isLocked;
+    const pending = refresh(tokens.refresh_token, CLIENTS.lineage);
+    await waitForLockWait("oauthRefreshToken");
+    hold.release();
+    await hold.done;
+    const rotated = await pending;
+    expect(rotated.statusCode).toBe(400);
+    expect(rotated.json().error_description).toBe(AFTER_HOOK_REFUSAL);
+    expect(
+      await authDb.oauthRefreshToken.count({
+        where: reference(CLIENTS.lineage),
+      }),
+    ).toBe(0);
+    // The re-grant itself is untouched.
+    expect(
+      (await grants(CLIENTS.lineage)).filter((g) => g.status === "active"),
+    ).toHaveLength(1);
+  });
+
+  it("an exchange without offline_access (JWT only) is kept for an active grant and refused for a revoked one", async () => {
+    /** The browser flow up to the code, without offline_access. */
+    async function connectWithoutRefresh(clientId: string) {
+      const { location, verifier } = await authorize({
+        client_id: clientId,
+        scope: NO_REFRESH_SCOPES.join(" "),
+      });
+      const selected = await select(queryOf(location!));
+      const next = new URL(selected.json().next, origin);
+      expect(next.pathname).toBe("/connect");
+      const consented = await consent(queryOf(next), {
+        scopes: NO_REFRESH_SCOPES,
+      });
+      expect(consented.statusCode).toBe(200);
+      return { steps: [], final: new URL(consented.json().redirect), verifier };
+    }
+    const kept = await exchange(await connectWithoutRefresh(CLIENTS.jwtOnly), {
+      client_id: CLIENTS.jwtOnly,
+    });
+    expect(kept.statusCode).toBe(200);
+    expect(kept.json().refresh_token).toBeUndefined();
+    expect(jwtPayload(kept.json().access_token)[ORBIT_WORKSPACE_CLAIM]).toBe(
+      workspaceId,
+    );
+
+    const flow = await connectWithoutRefresh(CLIENTS.jwtRevoked);
+    const [grant] = (await grants(CLIENTS.jwtRevoked)).filter(
+      (g) => g.status === "active",
+    );
+    await authDb.mcpGrant.update({
+      where: { id: grant!.id },
+      data: { status: "revoked", revokedAt: new Date(), revokedBy: userId },
+    });
+    const refused = await exchange(flow, { client_id: CLIENTS.jwtRevoked });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toBe("invalid_grant");
+    expect(refused.json().error_description).toBe(AFTER_HOOK_REFUSAL);
+    expect(refused.body).not.toContain("access_token");
+    for (const table of [authDb.oauthRefreshToken, authDb.oauthAccessToken])
+      expect(
+        await (table as typeof authDb.oauthRefreshToken).count({
+          where: reference(CLIENTS.jwtRevoked),
+        }),
+      ).toBe(0);
   });
 
   it("a deny after a replacement drops the replaced grant's consent and tokens", async () => {
@@ -466,7 +613,7 @@ describe.skipIf(!enabled)("MCP OAuth pre-flip hardening (WP-M5)", () => {
     );
     await hold.isLocked;
     const pendingOne = consent(queryOf(one.next));
-    await waitForLockWait();
+    await waitForLockWait("McpGrant");
     const answerTwo = await inSecondSession(() => consent(queryOf(two.next)));
     expect(answerTwo.statusCode).toBe(200);
     expect(

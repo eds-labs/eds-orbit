@@ -326,12 +326,15 @@ export type McpHookDeps = {
   /**
    * The token endpoint minted tokens for (user, client, reference). Returns
    * false, after deleting the stored tokens of that reference, unless an
-   * active grant backs them; the hook then answers `invalid_grant`.
+   * active grant backs them and no grant of that reference was revoked since
+   * `checkedAt` (when this token request started); the hook then answers
+   * `invalid_grant`.
    */
   onTokensIssued: (args: {
     userId: string;
     clientId: string;
     referenceId?: string;
+    checkedAt: Date;
   }) => Promise<boolean>;
   /** A rotated refresh token was replayed after the reuse window. */
   onRefreshReplay: (args: {
@@ -510,6 +513,9 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
     Request,
     { userId: string; clientId: string; referenceId?: string }
   >();
+  // When each token request started: a revocation after this moment may have
+  // raced the code or refresh token the request presented.
+  const tokenRequestStarted = new WeakMap<Request, Date>();
   return {
     before: createAuthMiddleware(async (ctx) => {
       if (ctx.path === "/oauth2/authorize") {
@@ -583,6 +589,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
         return;
       }
       if (ctx.path !== "/oauth2/token") return;
+      if (ctx.request) tokenRequestStarted.set(ctx.request, new Date());
       const body = ctx.body as {
         grant_type?: unknown;
         refresh_token?: unknown;
@@ -600,7 +607,6 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
         typeof body.refresh_token !== "string"
       )
         return rewrite;
-      // Refresh tokens are stored as their unsalted SHA-256 (base64url).
       const row = await ctx.context.adapter.findOne<{
         userId: string;
         clientId: string;
@@ -612,9 +618,7 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
         where: [
           {
             field: "token",
-            value: createHash("sha256")
-              .update(body.refresh_token)
-              .digest("base64url"),
+            value: storedTokenHash(body.refresh_token),
           },
         ],
       });
@@ -665,7 +669,12 @@ export function mcpAuthHooks(config: Config, deps: McpHookDeps) {
           body,
           ORBIT_WORKSPACE_CLAIM,
         );
-        if (owner && (await deps.onTokensIssued(owner))) return;
+        // Without a request (direct server calls, which Orbit makes none of)
+        // only the active grant is checked.
+        const checkedAt =
+          (ctx.request && tokenRequestStarted.get(ctx.request)) || new Date();
+        if (owner && (await deps.onTokensIssued({ ...owner, checkedAt })))
+          return;
         throw new APIError("BAD_REQUEST", {
           error: "invalid_grant",
           error_description:

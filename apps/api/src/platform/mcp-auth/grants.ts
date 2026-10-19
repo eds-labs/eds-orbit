@@ -39,6 +39,10 @@ import {
 //   cleared, so a later authorization in the same session selects again.
 // - Revocation and denial set `revoked`; grant rows are never deleted here,
 //   except pending selections whose TTL ran out (`dropExpiredSelections`).
+//   That cleanup runs only on the same user's next selection (a user who
+//   never selects again keeps the expired rows), and it deletes rows that
+//   their `grant.selected` audit events still name (McpGrantEvent has no
+//   foreign key, so those events keep a grant id that no longer exists).
 //   Invariant: stored consent, refresh tokens and outstanding authorization
 //   codes for (user, client, workspace) exist only while an active grant does,
 //   so every path that ends an active grant also deletes them
@@ -521,9 +525,11 @@ export async function denyGrant(input: {
 
 /**
  * The authorization code was issued: the session's selection for the client
- * is used up. Only an active selection may end in a code; anything else is
- * refused (the caller withholds the code). Older pending selections of the
- * same session and client are closed as `superseded`.
+ * and this authorization request is used up. Only an active selection may
+ * end in a code; anything else is refused (the caller withholds the code).
+ * Every pending selection of the same session and client is closed as
+ * `superseded`, also one made for another authorization request (another
+ * tab): that fails safe, its request simply selects again.
  */
 export async function consumeSelection(input: {
   sessionId: string;
@@ -700,40 +706,60 @@ export async function refreshAllowed(input: {
 
 /**
  * Whether tokens the provider just minted for (user, client, reference) may
- * stay: only while an active grant for that workspace exists. Otherwise the
- * stored refresh and access tokens of that reference are deleted (the
- * invariant: none exist without an active grant) and false is returned, so
- * the hook answers `invalid_grant` instead of handing them out. This closes
- * the windows in which a revocation commits after a code was consumed or a
- * refresh passed `refreshAllowed`, but before the new tokens were stored.
+ * stay: only while an active grant for that workspace exists and no grant of
+ * that reference that was active was revoked since `checkedAt` (when the
+ * token request started; replacement and supersession do not count, as in
+ * `refreshAllowed`). Otherwise the stored refresh and access tokens of that
+ * reference are deleted (the invariant: none exist without an active grant)
+ * and false is returned, so the hook answers `invalid_grant` instead of
+ * handing them out. It narrows the windows in which a revocation commits
+ * after a code was consumed or a refresh passed `refreshAllowed`, but before
+ * the new tokens were stored:
+ * - the active row is read `FOR SHARE`, so a revocation that changed it but
+ *   has not committed yet is waited for, and its outcome is what counts;
+ * - the revocation check keeps tokens of the revoked lineage from being kept
+ *   under a re-grant of the same reference made right after.
  */
 export async function keepIssuedTokens(input: {
   userId: string;
   clientId: string;
   referenceId?: string;
+  checkedAt: Date;
 }) {
-  if (input.referenceId && UUID.test(input.referenceId)) {
-    const active = await authDb.mcpGrant.findFirst({
-      where: {
-        userId: input.userId,
-        clientId: input.clientId,
-        workspaceId: input.referenceId,
-        status: "active",
-      },
-      select: { id: true },
-    });
-    if (active) return true;
-  }
+  const workspaceId =
+    input.referenceId && UUID.test(input.referenceId)
+      ? input.referenceId
+      : undefined;
   const reference = {
     userId: input.userId,
     clientId: input.clientId,
     referenceId: input.referenceId ?? null,
   };
-  await authDb.$transaction([
-    authDb.oauthRefreshToken.deleteMany({ where: reference }),
-    authDb.oauthAccessToken.deleteMany({ where: reference }),
-  ]);
-  return false;
+  return authDb.$transaction(async (tx) => {
+    if (workspaceId) {
+      const active = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "McpGrant"
+        WHERE "userId" = ${input.userId} AND "clientId" = ${input.clientId}
+          AND "workspaceId" = ${workspaceId}::uuid AND "status" = 'active'
+        FOR SHARE`;
+      const revokedSince = await tx.mcpGrant.findFirst({
+        where: {
+          userId: input.userId,
+          clientId: input.clientId,
+          workspaceId,
+          status: "revoked",
+          activatedAt: { not: null },
+          revokedAt: { gte: input.checkedAt },
+          revokedBy: { notIn: KEEPS_AUTHORIZATION },
+        },
+        select: { id: true },
+      });
+      if (active.length && !revokedSince) return true;
+    }
+    await tx.oauthRefreshToken.deleteMany({ where: reference });
+    await tx.oauthAccessToken.deleteMany({ where: reference });
+    return false;
+  });
 }
 
 /** Grant bookkeeping for the provider's consent, code and refresh events. */
