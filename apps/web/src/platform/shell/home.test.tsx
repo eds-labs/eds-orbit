@@ -176,6 +176,36 @@ describe("attentionWhen", () => {
     expect(attentionWhen(day, NOW, "en")?.text).toBe("overdue by 1 day");
   });
 
+  it("due times: minute precision under 2 h, rounded hours and days above", () => {
+    const due = (ms: number) =>
+      item({ dueAt: new Date(NOW.getTime() + ms).toISOString() });
+    const MIN = 60_000;
+    const cases: [ms: number, de: string, en: string, overdue: boolean][] = [
+      [0, "jetzt fällig", "due now", false],
+      [59_000, "in 1 Min.", "in 1 min", false],
+      [119 * MIN, "in 1 Std. 59 Min.", "in 1 h 59 min", false],
+      [60 * MIN, "in 1 Std.", "in 1 h", false],
+      [150 * MIN, "in 3 Std.", "in 3 h", false],
+      [(23 * 60 + 59) * MIN, "in 1 Tag", "in 1 day", false],
+      [24 * 60 * MIN, "in 1 Tag", "in 1 day", false],
+      [47 * 60 * MIN, "in 2 Tagen", "in 2 days", false],
+      [
+        -90 * MIN,
+        "überfällig seit 1 Std. 30 Min.",
+        "overdue by 1 h 30 min",
+        true,
+      ],
+      [-26 * 60 * MIN, "überfällig seit 1 Tag", "overdue by 1 day", true],
+    ];
+    for (const [ms, de, en, overdue] of cases) {
+      expect(attentionWhen(due(ms), NOW, "de"), de).toEqual({
+        text: de,
+        overdue,
+      });
+      expect(attentionWhen(due(ms), NOW, "en")?.text, en).toBe(en);
+    }
+  });
+
   it("falls back to the age, else nothing", () => {
     const old = item({ since: at("2026-10-19T07:00:00Z") });
     expect(attentionWhen(old, NOW, "de")).toEqual({
@@ -367,7 +397,9 @@ describe("StatusStrip", () => {
         locale,
       });
       expect(html).not.toMatch(/AI budget|KI-Budget/);
-      expect(html).toContain(locale === "de" ? "Betrieb ansehen" : "View operations");
+      expect(html).toContain(
+        locale === "de" ? "Betrieb ansehen" : "View operations",
+      );
     }
   });
 

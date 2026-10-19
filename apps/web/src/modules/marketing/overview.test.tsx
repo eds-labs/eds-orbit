@@ -187,9 +187,9 @@ describe("MarketingOverview", () => {
     // No approvals item: nothing waits.
     expect(amounts(attentionWith({ "support-tickets": 2 }))[1]).toBe("0");
     expect(amounts({ loading: true })[1]).toBe("—");
-    expect(
-      amounts({ loading: false, error: new Error("failed") })[1],
-    ).toBe("—");
+    expect(amounts({ loading: false, error: new Error("failed") })[1]).toBe(
+      "—",
+    );
     // The overview no longer reads the content to count them.
     expect(requested.some((p) => p.includes("/content"))).toBe(false);
   });
