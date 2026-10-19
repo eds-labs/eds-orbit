@@ -1,5 +1,22 @@
 # Implementation status
 
+## UI restructure, phase 5: grouped settings (2026-10-19, local; no flag) - restructure complete
+
+Spec §3.4 and §5.4. No schema change, no migration, no new permission, no new dependency, no new endpoint. Rollback is a revert and redeploy. With this phase the UI restructure is complete: phase 1 grouped sidebar (#167), phase 2 module overviews (#171), phase 3 attention (#173), phase 4 attention-first home (#174) are live; phase 5 follows as its own PR.
+- **Settings page** (`platform/shell/settings-nav.tsx`, `components/management.tsx`): the settings tabs become a grouped section list. The group "Project" holds the platform's sections (Project, Members & roles, Integrations, Retention, Modules, Connected apps), then one group per module in sidebar order with the sections the module contributes. Members and Retention are offered to owners only; Connected apps only while the MCP grants answer. Marketing contributes Policy & budget, Brand and, with Orbit Agents on, Assignments (order 40, last); Support contributes one section, "Support". Knowledge has none.
+- **URL sections** (ruling R29): the open section is read from `?section=<key>` on every render, a choice replaces the URL in place (no new history entry, no remount), and in-app links between sections and browser back/forward work on the same page. `/settings` without a section, an unknown key, or a section that is hidden for the member (for example `members` for a non-owner) opens Project. `settingsSectionHref` is the one helper that builds the URL.
+- **Sidebar**: each module group ends with a subdued "Settings" link to the module's first section (`ShellModule.settingsSection`: Marketing -> `policy`, Support -> `support`); Knowledge and the Project group have no such link (the Project group's own Settings entry opens `/settings`). Marketing's "Review setup" and the budget readiness link to `?section=policy`; the paused-project issue links to operations, where pause lives.
+- **Ruling R28**: module groups list exactly the sections the module contributes today; module settings content is not split further in this phase (Support has one entry, not "Mailboxes & widget" and "SLA").
+- **Phones**: at 760 px and below the section list is a labelled select ("Section") above the content; a choice replaces `?section=` the same way. The section list is sticky below the 64 px topbar on desktop.
+- **Tests**: `platform/shell/settings-nav.test.tsx` (tabs by role and stack, grouping, URL parsing, href helper), `modules/marketing/settings-sections.test.tsx`. e2e: `navigation.spec.ts` "module settings links open their section of the grouped settings" (sidebar links, group order, in-place section changes, back/forward, unknown section); `workspace.spec.ts` "settings open by ?section" (bare `/settings` opens Project, `?section=policy`/`brand` by URL, unknown section), "legacy /settings still redirects" (also with a section), the 390 px select, and the owner-only sections for a non-owner. The 390 px keyboard check for Tabs moved to the analytics tabs (ruling R8b: the settings tabs no longer exist). The e2e "an old support notification link opens the ticket" finds the Tickets entry by its badge-tolerant name ("Tickets 2 to do").
+- **Post-deploy smoke** (uLiquid):
+  1. `/p/:id/settings` opens Project; the list shows Project, Marketing and Support groups.
+  2. `/p/:id/settings?section=policy` opens Marketing "Policy & budget" with the policy form.
+  3. The sidebar's Marketing "Settings" link opens the same section; the Support "Settings" link opens the Support section.
+  4. The Support section shows the mailboxes and the website widget.
+  5. As owner, Members & roles and Retention are listed; as editor or viewer they are not, and their URLs open Project.
+  6. At 390 px the section list is a select, a choice changes the URL's `?section=`, and the page has no horizontal scroll.
+
 ## UI restructure, phase 4: attention-first home (2026-10-19, local; no flag)
 
 Spec §5.1 and §5.2. No schema change, no migration, no new permission, no new dependency, no new endpoint. Rollback is a revert and redeploy.

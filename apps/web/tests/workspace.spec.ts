@@ -13,6 +13,12 @@ function account() {
     readFileSync(resolve(".runtime/e2e-user.json"), "utf8"),
   ) as { email: string; password: string; projectId: string };
 }
+// A navigation entry's accessible name, with or without its attention badge
+// ("Tickets 2 to do"): the counts depend on the stack's data.
+function badged(name: string): RegExp {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}(?:\\s?!?\\d+\\s.*)?$`);
+}
 const localDate = (date: Date) =>
   new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
     .toISOString()
@@ -1358,9 +1364,62 @@ test("an old support notification link opens the ticket", async ({ page }) => {
   await expect(
     page
       .getByRole("navigation", { name: "Workspace" })
-      .getByRole("link", { name: "Tickets", exact: true }),
+      .getByRole("link", { name: badged("Tickets") }),
   ).toHaveAttribute("aria-current", "page");
   if (first) await expect(page.getByText(first.subject).first()).toBeVisible();
+});
+
+test("settings open by ?section", async ({ page }) => {
+  test.setTimeout(120_000);
+  await page.setViewportSize({ width: 1440, height: 960 });
+  await login(page);
+  const { projectId } = account();
+  const base = `/p/${projectId}`;
+  const current = page
+    .getByRole("navigation", { name: "Settings sections" })
+    .locator('[aria-current="page"]');
+
+  // Without a section the page opens Project; the URL stays as it was typed.
+  await page.goto(`${base}/settings`);
+  await expect(current).toHaveText("Project");
+  await expect(
+    page.getByRole("heading", { name: "Autopilot readiness" }),
+  ).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`${base}/settings$`));
+
+  // A module's section opens straight from its URL, in its own group.
+  await page.goto(`${base}/settings?section=policy`);
+  await expect(current).toHaveText("Policy & budget");
+  await expect(
+    page.getByRole("heading", { name: "Versioned operating policy" }),
+  ).toBeVisible();
+  await page.goto(`${base}/settings?section=brand`);
+  await expect(current).toHaveText("Brand");
+
+  // An unknown section falls back to Project.
+  await page.goto(`${base}/settings?section=nope`);
+  await expect(current).toHaveText("Project");
+});
+
+test("legacy /settings still redirects", async ({ page }) => {
+  test.setTimeout(120_000);
+  await login(page);
+  const { projectId } = account();
+  // The pre-restructure path forwards into the project; a section survives.
+  await page.goto("/settings");
+  await expect(page).toHaveURL(new RegExp(`/p/${projectId}/settings$`));
+  await expect(
+    page
+      .getByRole("navigation", { name: "Settings sections" })
+      .locator('[aria-current="page"]'),
+  ).toHaveText("Project");
+  await page.goto("/settings?section=policy");
+  await expect(page).toHaveURL(
+    new RegExp(`/p/${projectId}/settings\\?section=policy$`),
+  );
+  await expect(
+    page.getByRole("heading", { name: "Versioned operating policy" }),
+  ).toBeVisible();
 });
 
 test("the home shows the module cards and each leads to its overview", async ({
