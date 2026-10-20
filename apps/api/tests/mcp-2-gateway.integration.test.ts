@@ -145,6 +145,10 @@ describe.skipIf(!enabled)(
       await closeDatabase();
     });
     it("keeps old tools, lists new capabilities, creates through real OAuth and reads durable task state after the gateway restarts", async () => {
+      const profile = (
+        await rpc("tools/call", { name: "orbit_profile", arguments: {} })
+      ).json().result.structuredContent;
+      expect(profile.effectiveScopes).toContain("orbit:support");
       const list = await rpc("tools/list");
       expect(list.statusCode).toBe(200);
       const names = list.json().result.tools.map((t: any) => t.name);

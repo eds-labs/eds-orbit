@@ -739,43 +739,50 @@ describe.skipIf(!enabled)(
         }
       `);
         expect(pinned("orbit_profile")).toMatchInlineSnapshot(`
-        {
-          "_meta": {
-            "openai/profile": true,
-            "securitySchemes": [
-              {
-                "scopes": [
-                  "orbit:read",
-                ],
-                "type": "oauth2",
-              },
-            ],
-          },
-          "annotations": {
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "inputSchema": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "additionalProperties": false,
-            "properties": {},
-            "type": "object",
-          },
-          "outputSchema": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "additionalProperties": false,
-            "properties": {
-              "id": {
-                "type": "string",
-              },
+          {
+            "_meta": {
+              "openai/profile": true,
+              "securitySchemes": [
+                {
+                  "scopes": [
+                    "orbit:read",
+                  ],
+                  "type": "oauth2",
+                },
+              ],
             },
-            "required": [
-              "id",
-            ],
-            "type": "object",
-          },
-        }
-      `);
+            "annotations": {
+              "openWorldHint": false,
+              "readOnlyHint": true,
+            },
+            "inputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {},
+              "type": "object",
+            },
+            "outputSchema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "additionalProperties": false,
+              "properties": {
+                "effectiveScopes": {
+                  "items": {
+                    "type": "string",
+                  },
+                  "type": "array",
+                },
+                "id": {
+                  "type": "string",
+                },
+              },
+              "required": [
+                "id",
+                "effectiveScopes",
+              ],
+              "type": "object",
+            },
+          }
+        `);
       });
 
       it("a native tool's _meta cannot replace securitySchemes", async () => {
@@ -809,8 +816,16 @@ describe.skipIf(!enabled)(
       it("returns the opaque user id and no e-mail", async () => {
         const result = await call("orbit_profile", {});
         expect(result.isError).toBeFalsy();
-        expect(result.structuredContent).toEqual({ id: ids.editor });
-        expect(JSON.parse(result.content[0].text)).toEqual({ id: ids.editor });
+        expect(result.structuredContent).toMatchObject({ id: ids.editor });
+        expect(result.structuredContent.effectiveScopes).toContain(
+          "orbit:read",
+        );
+        expect(result.structuredContent.effectiveScopes).not.toContain(
+          "orbit:support",
+        );
+        expect(JSON.parse(result.content[0].text)).toEqual(
+          result.structuredContent,
+        );
         expect(JSON.stringify(result)).not.toContain(emails.editor);
         expect(JSON.stringify(result)).not.toContain("@");
       });

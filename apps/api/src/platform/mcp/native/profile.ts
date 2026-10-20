@@ -11,9 +11,19 @@ export const orbitProfile: NativeTool = {
   description: "Return the opaque Orbit user id of the connected account.",
   risk: "R0_read",
   inputSchema: z.object({}).strict(),
-  outputSchema: z.object({ id: z.string() }).strict(),
+  outputSchema: z
+    .object({
+      id: z.string(),
+      effectiveScopes: z.array(z.string()),
+    })
+    .strict(),
   meta: { "openai/profile": true },
   async run(principal) {
-    return { id: principal.userId };
+    // Report only the verified token/grant intersection, never a token or
+    // the broader stored consent. This also works with a cached tool list.
+    return {
+      id: principal.userId,
+      effectiveScopes: [...principal.scopes].sort(),
+    };
   },
 };

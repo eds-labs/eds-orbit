@@ -37,6 +37,14 @@ content scope. Existing `support_tickets`, `support_ticket`,
 `support_send_reply` and `support_add_note` remain available. Existing task,
 Marketing and Knowledge scopes and workflows are unchanged.
 
+### Connection diagnostics
+
+`orbit_profile` retains its stable opaque `id` and reports `effectiveScopes`: the
+verified access-token scopes intersected with the current active grant. A stored
+`orbit:support` consent alone does not prove the client is sending that scope.
+This read exposes no token, credential, email address or ticket content and works
+through an existing cached profile-tool definition.
+
 ## Tools and parameters
 
 New tools require an explicit `projectId` UUID in MCP requests. Their native
