@@ -84,9 +84,11 @@ Production introduction is separate: register/install the GitHub App, enter prod
 
 ## Validation evidence (local, 2026-10-20)
 
-- Provider/review/UI/isolation/queue focused coverage: 105 cases, including the final preview-time invalidation, failed-fetch preservation and reverted-file scenarios. The feature-specific SQL subset passes 26 cases after the invalidation correction; the aggregate run is recorded in the handoff.
+- Final integrated targeted run: 124 tests passed in 11 files, including Knowledge provider/review/UI/isolation/queue coverage and the concurrent Support taxonomy/gateway changes. The Knowledge SQL subset passes 27 cases, including missing provider credentials before reservation, preview-time invalidation, failed-fetch preservation, cancellation and reverted-file scenarios.
 - Real-stack browser workflow: desktop 1440 px and mobile 390 px, both passed. Screenshots are ignored local artifacts under `.runtime/knowledge-desktop.png` and `.runtime/knowledge-mobile.png`; each uses synthetic FamilyPlan data. The confirmation pass asserts exactly the three intended primary entries, with no Facts or Import entry.
 - Typecheck, production build, source/import boundaries, Compose and secret-pattern scan passed. Framework validation passed after naming the UI text module `workspace-text.ts`.
 - The design detector found only the pre-existing `globals.css` line with `border-left: 3px solid #a7d0f3` outside this patch. No existing unrelated style was changed to silence it.
 - The existing I7b agent resume regression was independently reproduced against unchanged commit `dd902d8`, in a disposable worktree and its own isolated database. That worktree and database were removed afterward. It expects a paused agent job to return to queued but observes blocked_dependency / PROJECT_PAUSED. This feature changes no agent resume behavior.
 - No real GitHub installation, private repository, paid provider call, production credential or deployment was used in this validation.
+
+The broad suite recorded 2,864 passes and three failures across 267 files (506.96 seconds). One was the independently reproduced baseline I7b failure. Two Support renderer import failures occurred when the concurrent upstream Support commit was integrated during that run; both exact failed tests pass in the fresh integrated 124-test run. The broad run is therefore not represented as entirely green. Current build, lint, typecheck and focused integration/browser results are separate evidence.

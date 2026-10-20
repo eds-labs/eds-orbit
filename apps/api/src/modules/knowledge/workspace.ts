@@ -382,6 +382,12 @@ async function analyze(
         runtime,
       ),
     );
+    if (
+      !(plan.provider === "anthropic"
+        ? runtime.anthropicApiKey
+        : runtime.apiKey)
+    )
+      throw new DomainError("KNOWLEDGE_MODEL_NOT_CONFIGURED", 409);
     const reservation = await reserve(
       tx,
       s,

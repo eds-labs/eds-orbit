@@ -646,6 +646,9 @@ export function WorkspaceError({
   const { locale } = useWorkspace();
   const de = locale === "de";
   const known: Record<string, string> = {
+    KNOWLEDGE_MODEL_NOT_CONFIGURED: de
+      ? "Für die KI-Analyse fehlt ein eingerichteter Modellanbieter. Hinterlege den Zugang unter Einstellungen → KI."
+      : "AI analysis needs a configured model provider. Add its credentials under Settings → AI.",
     KNOWLEDGE_PREVIEW_EXPIRED: t.previewExpired,
     KNOWLEDGE_ANALYSIS_IN_PROGRESS: de
       ? "Eine KI-Analyse läuft bereits. Warte ihren Abschluss ab und versuche es danach erneut."

@@ -82,6 +82,7 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     workspaceId = w.id;
   });
   beforeEach(async () => {
+    process.env.OPENAI_API_KEY = "synthetic-knowledge-key";
     process.env.ORBIT_KNOWLEDGE_WORKSPACE = "true";
     const p = await authDb.project.create({
       data: { workspaceId, name: "Synthetic FamilyPlan" },
@@ -663,6 +664,19 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
     expect((await proposals()).some((p) => data(p).status === "pending")).toBe(
       true,
     );
+  });
+  it("reports a missing model key before reserving or transmitting a paid call", async () => {
+    delete process.env.OPENAI_API_KEY;
+    const { job } = await paidSource();
+    expect((await runAnalysis(s, job.id)).errorCode).toBe(
+      "KNOWLEDGE_MODEL_NOT_CONFIGURED",
+    );
+    expect(respond).not.toHaveBeenCalled();
+    expect(
+      await run((tx) =>
+        tx.budgetReservation.count({ where: { projectId: s.projectId } }),
+      ),
+    ).toBe(0);
   });
   it("requires consent and budget for GitHub analysis", async () => {
     vi.mocked(readRepository).mockResolvedValue({
