@@ -1519,8 +1519,9 @@ describe.skipIf(!enabled)("MCP gateway: audit, telemetry and limits", () => {
             },
           );
           expect(ok.statusCode).toBe(200);
-          expect(rpcBody(ok).result.structuredContent).toEqual({
+          expect(rpcBody(ok).result.structuredContent).toMatchObject({
             id: ids.editor,
+            effectiveScopes: expect.arrayContaining(["orbit:read"]),
           });
           const refused = await call(
             app,

@@ -26,6 +26,7 @@ import { createMcpHandler, type AuthInfo } from "@modelcontextprotocol/server";
 import type { JWTPayload } from "better-auth";
 import {
   DPOP_SIGNING_ALGORITHMS,
+  createInsufficientScopeError,
   parseAccessTokenAuthorization,
 } from "better-auth/oauth2";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
@@ -62,6 +63,7 @@ import {
   type McpRateLimits,
 } from "./limits.ts";
 import { resolvePrincipal } from "./principal.ts";
+import { missingDiscoveryScopes } from "./visibility.ts";
 import { McpProposalDayCache } from "./proposals.ts";
 
 /** Request body limit of the gateway (bytes). */
@@ -346,6 +348,17 @@ export async function buildMcpServer(
         // before the principal is resolved or the SDK sees it.
         if (peek.batch) return batchRefusedResponse();
         const principal = await resolvePrincipal(claims);
+        if (principal && peek.method === "tools/list") {
+          const missing = await missingDiscoveryScopes(principal);
+          if (missing.length) {
+            throw createInsufficientScopeError([
+              ...[...principal.scopes].filter((scope) =>
+                scope.startsWith("orbit:"),
+              ),
+              ...missing,
+            ]);
+          }
+        }
         // Without an active grant only a tool call gets an answer, as an
         // isError result carrying the challenge; everything else is a 401.
         if (!principal && peek.method !== "tools/call")

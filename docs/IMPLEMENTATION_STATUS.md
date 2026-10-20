@@ -1,5 +1,20 @@
 # Implementation status
 
+## Support discovery after a scope upgrade (2026-10-20)
+
+An older access token can remain in use after explicit expanded Support consent.
+Previously `tools/list` returned 200 with a reduced catalog, hiding ticket tools
+from the client. The profile read now distinguishes effective token/grant scopes
+from stored consent. Discovery issues an RFC 6750 insufficient-scope challenge
+only for an already-consented Support scope that would expose a tool under all
+other current authorization/activation checks. Actual calls retain the original
+token/grant intersection and exact owner approvals. No migrations or flags.
+The real HTTP/OAuth regression failed before the fix (200 instead of 403) and
+passes with the fix, including denied consent, disabled features/module and
+restricted-grant cases. Relevant regression: 257 tests in four files, lint,
+typecheck and build pass. Full suite and live-client completion tracked separately.
+
+
 ## Native Support MCP completion (2026-10-19)
 
 Branch `codex/orbit-support-mcp` from merged `main` at `c232ecb`. Plan:

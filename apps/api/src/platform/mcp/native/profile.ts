@@ -15,6 +15,7 @@ export const orbitProfile: NativeTool = {
     .object({
       id: z.string(),
       effectiveScopes: z.array(z.string()),
+      grantedScopes: z.array(z.string()),
     })
     .strict(),
   meta: { "openai/profile": true },
@@ -24,6 +25,7 @@ export const orbitProfile: NativeTool = {
     return {
       id: principal.userId,
       effectiveScopes: [...principal.scopes].sort(),
+      grantedScopes: [...(principal.grantedScopes ?? principal.scopes)].sort(),
     };
   },
 };

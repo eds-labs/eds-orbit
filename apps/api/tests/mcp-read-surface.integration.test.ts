@@ -771,6 +771,12 @@ describe.skipIf(!enabled)(
                   },
                   "type": "array",
                 },
+                "grantedScopes": {
+                  "items": {
+                    "type": "string",
+                  },
+                  "type": "array",
+                },
                 "id": {
                   "type": "string",
                 },
@@ -778,6 +784,7 @@ describe.skipIf(!enabled)(
               "required": [
                 "id",
                 "effectiveScopes",
+                "grantedScopes",
               ],
               "type": "object",
             },

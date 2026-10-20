@@ -19,6 +19,8 @@ export type McpPrincipal = {
   workspaceId: string;
   /** Token `scope` ∩ grant scopes. */
   scopes: ReadonlySet<string>;
+  /** Stored consent, for upgrade challenges only; never authorizes a call. */
+  grantedScopes?: ReadonlySet<string>;
   /** Granted projects the user is still a member of, at resolution time. */
   projectIds: readonly string[];
   /** The grant's module restriction; empty means no restriction. */
@@ -110,6 +112,7 @@ export async function resolvePrincipal(
     grantId: grant.id,
     workspaceId: grant.workspaceId,
     scopes,
+    grantedScopes: granted,
     projectIds,
     modules: [...grant.modules],
   };

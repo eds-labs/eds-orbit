@@ -406,14 +406,110 @@ describe.skipIf(!enabled)(
       const originalToken = token;
       token = reduced.json().access_token;
       try {
-        expect(
-          (await rpc("tools/list"))
-            .json()
-            .result.tools.some((t: any) => t.name === "support_get_ticket"),
-        ).toBe(false);
+        // Stored consent still contains Support; the new narrower token
+        // must trigger scope step-up instead of a misleading successful list.
+        expect((await rpc("tools/list")).statusCode).toBe(403);
       } finally {
         token = originalToken;
       }
+    });
+    it("challenges an older token after explicit Support consent instead of silently caching a reduced catalog", async () => {
+      const minimal = await driver.connect({
+        scope: SCOPES,
+        consent: { scopes: SCOPES.split(" ") },
+      });
+      const old = await driver.exchange(minimal);
+      expect(old.statusCode).toBe(200);
+      const upgraded = await driver.connect({
+        scope: supportScopes,
+        consent: { scopes: supportScopes.split(" ") },
+      });
+      const fresh = await driver.exchange(upgraded);
+      expect(fresh.statusCode).toBe(200);
+      token = old.json().access_token;
+      const profile = (
+        await rpc("tools/call", { name: "orbit_profile", arguments: {} })
+      ).json().result.structuredContent;
+      expect(profile.effectiveScopes).not.toContain("orbit:support");
+      expect(profile.grantedScopes).toContain("orbit:support");
+      const list = await rpc("tools/list");
+      expect(list.statusCode).toBe(403);
+      expect(list.headers["www-authenticate"]).toContain(
+        'error="insufficient_scope"',
+      );
+      expect(list.headers["www-authenticate"]).toContain("orbit:support");
+      expect(list.headers["www-authenticate"]).toContain("resource_metadata=");
+      expect(list.body).not.toContain("HTTP Support question");
+      // A narrower token never gains the stored consent's content access.
+      const refused = await rpc("tools/call", {
+        name: "support_list_tickets",
+        arguments: { projectId: project.owner.projectId },
+      });
+      expect(
+        refused.json().error ?? refused.json().result.isError,
+      ).toBeTruthy();
+      process.env.ORBIT_MCP_TASKS = "false";
+      try {
+        expect((await rpc("tools/list")).statusCode).toBe(200);
+      } finally {
+        process.env.ORBIT_MCP_TASKS = "true";
+      }
+      process.env.ORBIT_SUPPORT = "false";
+      try {
+        expect((await rpc("tools/list")).statusCode).toBe(200);
+      } finally {
+        process.env.ORBIT_SUPPORT = "true";
+      }
+      const activeGrant = {
+        clientId: client,
+        userId,
+        workspaceId: project.owner.workspaceId,
+        status: "active",
+      };
+      await authDb.mcpGrant.updateMany({
+        where: activeGrant,
+        data: { scopes: SCOPES.split(" ") },
+      });
+      try {
+        expect((await rpc("tools/list")).statusCode).toBe(200);
+      } finally {
+        await authDb.mcpGrant.updateMany({
+          where: activeGrant,
+          data: { scopes: supportScopes.split(" ") },
+        });
+      }
+      await authDb.mcpGrant.updateMany({
+        where: activeGrant,
+        data: { modules: ["knowledge"] },
+      });
+      try {
+        expect((await rpc("tools/list")).statusCode).toBe(200);
+      } finally {
+        await authDb.mcpGrant.updateMany({
+          where: activeGrant,
+          data: { modules: [] },
+        });
+      }
+      await scoped(project.owner.workspaceId, project.owner.projectId, (tx) =>
+        tx.projectModule.updateMany({
+          where: { projectId: project.owner.projectId, moduleId: "support" },
+          data: { enabled: false },
+        }),
+      );
+      try {
+        expect((await rpc("tools/list")).statusCode).toBe(200);
+      } finally {
+        await scoped(project.owner.workspaceId, project.owner.projectId, (tx) =>
+          tx.projectModule.updateMany({
+            where: { projectId: project.owner.projectId, moduleId: "support" },
+            data: { enabled: true },
+          }),
+        );
+      }
+      token = fresh.json().access_token;
+      expect(
+        (await rpc("tools/list")).json().result.tools.map((t: any) => t.name),
+      ).toContain("support_list_tickets");
     });
   },
 );

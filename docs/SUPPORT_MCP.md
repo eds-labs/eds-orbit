@@ -40,10 +40,21 @@ Marketing and Knowledge scopes and workflows are unchanged.
 ### Connection diagnostics
 
 `orbit_profile` retains its stable opaque `id` and reports `effectiveScopes`: the
-verified access-token scopes intersected with the current active grant. A stored
+verified access-token scopes intersected with the current active grant.
+`grantedScopes` separately reports that grant's stored consent. A stored
 `orbit:support` consent alone does not prove the client is sending that scope.
 This read exposes no token, credential, email address or ticket content and works
 through an existing cached profile-tool definition.
+
+When a user already consented to `orbit:support` but the client still sends a
+narrower token, `tools/list` now returns HTTP 403 with an RFC 6750
+`insufficient_scope` challenge and the protected-resource metadata URL. The
+client must reauthorize with the named scopes before refreshing its catalog.
+Previously the successful reduced list could cache away Support indefinitely.
+A denied/ungranted scope, unavailable module, restricted project/module role or
+disabled feature never causes this upgrade challenge. Tool execution continues
+to require the token/grant intersection; stored consent cannot grant a token
+additional powers. Existing cached catalogs still require a client refresh.
 
 ## Tools and parameters
 
