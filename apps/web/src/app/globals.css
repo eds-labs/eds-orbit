@@ -5570,3 +5570,8 @@ a.support-row {
 .knowledge-workspace .knowledge-form {
   width: 100%;
 }
+
+/* Assignment counts remain readable inside the existing horizontal scroller. */
+.assignments-table {
+  min-width: 720px;
+}

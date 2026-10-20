@@ -1,3 +1,8 @@
+import { assertDistinctDraft } from "../agents/novelty.ts";
+import {
+  draftSimilarity,
+  DUPLICATE_DRAFT_SIMILARITY,
+} from "./draft-similarity.ts";
 import { z } from "zod";
 import {
   authorize,
@@ -307,7 +312,18 @@ export async function adaptContent(
     .filter(
       (c) =>
         data(c).channel === input.channel &&
-        overlap(claimKeys(data(c).claims ?? []), claimKeys(claims)) >= 0.8,
+        overlap(claimKeys(data(c).claims ?? []), claimKeys(claims)) >= 0.8 &&
+        (draftSimilarity(String(data(c).body ?? ""), input.body) >=
+          DUPLICATE_DRAFT_SIMILARITY ||
+          normalize(
+            String(data(c).body ?? "").replace(
+              /\s+(?:Learn more|Mehr erfahren)[.!]?$/iu,
+              "",
+            ),
+          ) ===
+            normalize(
+              input.body.replace(/\s+(?:Learn more|Mehr erfahren)[.!]?$/iu, ""),
+            )),
     )
     .map((c) => ({
       contentId: c.id,
@@ -315,6 +331,7 @@ export async function adaptContent(
       reason: "claim_overlap",
     }));
   if (matches.length) throw new DomainError("CLAIM_OVERLAP_DUPLICATE", 409);
+  await assertDistinctDraft(tx, scope, input.channel, input.body);
   // New variants never inherit approval, schedule or a human body-review hash.
   const draft = await create(tx, scope, "content", {
     title: input.title,

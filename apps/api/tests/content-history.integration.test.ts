@@ -73,9 +73,13 @@ describe.skipIf(!enabled)("Recent content history for the operator", () => {
         await draft(tx, TELEGRAM, `Telegram note ${index}`);
       await draft(tx, X, "Archived idea", { status: "archived" });
       await draft(tx, X, "Replaced wording", { supersededBy: packaged });
-      const old = await draft(tx, X, "Last month's post");
+      const old = await draft(tx, X, "Last month's post", {
+        status: "published",
+      });
       await ageDays(tx, old.id, 30);
-      const older = await draft(tx, TELEGRAM, "Six weeks ago");
+      const older = await draft(tx, TELEGRAM, "Six weeks ago", {
+        status: "published",
+      });
       await ageDays(tx, older.id, 42);
     });
   });

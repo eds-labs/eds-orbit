@@ -49,6 +49,14 @@ export type AssignmentItem = Pick<
   nextRunAt: string | null;
   monthCostMicros: number;
   monthlyBudgetMicros: number;
+  pendingReviewLimit?: number;
+  backlog?: {
+    limit: number | null;
+    pending: number;
+    held: number;
+    available: number | null;
+    blocked: boolean;
+  };
   actionRequestId: string | null;
 };
 type AssignmentList = {
@@ -231,16 +239,14 @@ export function AssignmentTable({
   const editor = role !== "viewer";
   return (
     <div className="table-wrap">
-      <table>
+      <table className="assignments-table">
         <thead>
           <tr>
             <th>{de ? "Auftrag" : "Assignment"}</th>
             <th>Status</th>
             <th>{de ? "Nächste Vorbereitung" : "Next preparation"}</th>
             <th>{de ? "Kosten diesen Monat" : "Cost this month"}</th>
-            <th>
-              <span className="sr-only">{de ? "Aktionen" : "Actions"}</span>
-            </th>
+            <th scope="col" aria-label={de ? "Aktionen" : "Actions"} />
           </tr>
         </thead>
         <tbody>
@@ -311,6 +317,22 @@ export function AssignmentTable({
                   {usd(item.monthCostMicros)} {de ? "von" : "of"}{" "}
                   {usd(item.monthlyBudgetMicros)}
                   {used !== null && <small>{used} %</small>}
+                  <small>
+                    {item.backlog?.limit != null
+                      ? de
+                        ? `${item.backlog.pending} warten · ${item.backlog.held} reserviert · Limit ${item.backlog.limit}`
+                        : `${item.backlog.pending} waiting · ${item.backlog.held} reserved · limit ${item.backlog.limit}`
+                      : de
+                        ? "Review-Limit nicht festgelegt"
+                        : "No review limit configured"}
+                  </small>
+                  {item.backlog?.blocked && (
+                    <small role="status">
+                      {de
+                        ? "Erstellung wartet auf freie Review-Kapazität"
+                        : "Generation waits for review capacity"}
+                    </small>
+                  )}
                 </td>
                 <td>
                   {editor && item.status !== "ended" && (

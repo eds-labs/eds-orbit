@@ -62,6 +62,7 @@ import { attachRunImage, composeRunBanners } from "./visual.ts";
 const SLOT_WINDOW_MS = 2 * 3600000;
 
 export type Brief = {
+  novelty?: { topic: string; angle: string; pillar?: string };
   channel: string;
   slotAt: string;
   topic: string;
@@ -233,9 +234,17 @@ async function briefMission(
     status: "ready",
     plannedSlotAt: new Date(slot).toISOString(),
     factKeys: facts.map((fact) => data(fact).key),
+    ...(brief.novelty
+      ? {
+          novelty: brief.novelty,
+          noveltyOwnerKey: `run:${task.runId}:${brief.channel}:${brief.slotAt}`,
+        }
+      : {}),
     assignmentId: task.assignmentId,
     assignmentRunId: task.runId,
-    ...(assignment.marketingPlan ? { marketingPlan: assignment.marketingPlan } : {}),
+    ...(assignment.marketingPlan
+      ? { marketingPlan: assignment.marketingPlan }
+      : {}),
     briefKey: briefKey(brief),
     brief: {
       topic: brief.topic,

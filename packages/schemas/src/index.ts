@@ -71,12 +71,20 @@ export const source = z
     generation: z.literal(1).default(1),
   })
   .strict();
+export const marketingTopic = z
+  .object({
+    topic: z.string().trim().min(1).max(2000),
+    angle: z.string().trim().min(1).max(2000),
+    pillar: z.string().trim().max(200).optional(),
+  })
+  .strict();
 export const mission = z
   .object({
     title: z.string().min(3).max(160),
     goal: z.string().min(5).max(2000),
     audience: z.string().min(1).max(300),
     product: z.string().max(300).default(""),
+    novelty: marketingTopic.optional(),
     allowedTopics: z.array(z.string().min(1).max(200)).max(20).default([]),
     allowedActions: z
       .array(z.enum(["draft", "review", "publish_test", "publish_live"]))
@@ -103,6 +111,7 @@ export const mission = z
   .refine((v) => v.endAt > v.startAt, { message: "End must follow start" });
 export const content = z
   .object({
+    novelty: marketingTopic.optional(),
     title: z.string().min(1).max(200),
     body: z.string().min(1).max(40000),
     type: z.enum(["social", "blog", "newsletter", "ad", "script", "community"]),

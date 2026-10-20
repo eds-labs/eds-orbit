@@ -1,5 +1,26 @@
 # Implementation status
 
+## Marketing Agent v2 — MA-05 (2026-10-20, local)
+
+Common bounded source-aware history now feeds assistant/strategy/all generation
+entry points. Scoped exact topic/angle/channel holds serialize competing assignments;
+manual and generated outputs participate. Shared facts alone no longer establish a
+duplicate angle. Explicit optional owner-confirmed review limits bind plan children,
+reserve admitted capacity, and stop new paid work while full. Native cards/management
+show the configuration and counts; unsent work resumes safely after capacity returns,
+while expired slots stop. Legacy absent fields preserve their hashes and behavior.
+
+No migration, paid provider call, live Postiz write, production flag, push or deployment.
+Verification, exact bounds, changed files and MA-06 preparation (not implementation):
+`docs/plans/marketing-agent-v2-ma05.md`.
+
+
+
+Final MA-05 local verification: **2,995 tests in 275 files pass**, including 17
+MA-05 integration cases. The unchanged final application/test source manifest was
+verified after the complete run. Affected desktop/mobile Playwright, lint, root/web
+typecheck, production build, generated contracts, framework/secret checks and zero
+import-boundary violations pass. No production/pilot acceptance is inferred.
 
 ## Marketing Agent v2 — MA-04 (2026-10-20, local)
 

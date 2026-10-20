@@ -517,6 +517,10 @@ export async function preflight(
       const overlap =
         ownClaims.length > 0 &&
         ownClaims.every((id: string) => priorClaims.has(id)) &&
+        // Reusing verified facts is allowed. A duplicate also needs substantially
+        // the same wording; fact identity alone does not establish an angle.
+        draftSimilarity(String(c.body ?? ""), String(d.body ?? "")) >=
+          DUPLICATE_DRAFT_SIMILARITY &&
         withinClaimRepeatWindow(
           postTime(c, pkg.content.createdAt),
           postTime(d, previous.createdAt),

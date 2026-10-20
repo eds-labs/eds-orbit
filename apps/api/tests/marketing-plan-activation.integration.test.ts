@@ -68,8 +68,11 @@ describe.skipIf(!enabled)("MA-04 exact atomic plan activation", () => {
     image = false,
     existingWork: any[] = [],
     styles: string[] = [],
+    pendingReviewLimit?: number,
   ) {
     const spec = await run((tx) => planSpec(tx, project.owner));
+    if (pendingReviewLimit !== undefined)
+      spec.pendingReviewLimit = pendingReviewLimit;
     spec.creative.image = image;
     spec.creative.styleAssetIds = styles;
     spec.channels = [X, TELEGRAM];
@@ -120,6 +123,20 @@ describe.skipIf(!enabled)("MA-04 exact atomic plan activation", () => {
     await project.cleanup();
   });
   afterAll(() => closeDatabase());
+  it("binds a configured plan review limit to every exact child mandate", async () => {
+    const p = await strategy(false, [], [], 4);
+    const proposed = child(p);
+    proposed.assignment.pendingReviewLimit = 2;
+    await expect(propose(p, [proposed])).rejects.toThrow(
+      "PLAN_CHILD_EXCEEDS_ENVELOPE",
+    );
+    proposed.assignment.pendingReviewLimit = 4;
+    const activation = await propose(p, [proposed]);
+    await decide(activation.activationRequest);
+    expect(
+      data((await run((tx) => list(tx, project.owner, "assignments")))[0]),
+    ).toMatchObject({ pendingReviewLimit: 4, status: "active" });
+  });
   it("proposes without effects, serializes concurrent proposal/decisions and records one exact child set", async () => {
     const p = await strategy(true),
       input = [child(p, X), child(p, TELEGRAM)];

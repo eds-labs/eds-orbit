@@ -125,6 +125,7 @@ const assignmentFields = z
     styleAssetIds: z.array(z.uuid()).max(10),
     vetoMinutes: z.number().int().min(30).max(1440).default(180),
     monthlyBudgetMicros: z.number().int().min(0).max(10_000_000_000),
+    pendingReviewLimit: z.number().int().min(1).max(100).optional(),
     // How approved posts leave Orbit (R73): published after the veto window,
     // or only created as drafts in Postiz at their slot, which the owner
     // publishes himself. Absent means "publish" (rows from before R73).
@@ -183,6 +184,12 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(["banner"], "Only social posts have a banner");
   if (value.banner && !value.image)
     issue(["banner"], "A banner needs the image consent (image: true)");
+  if (
+    value.pendingReviewLimit !== undefined &&
+    value.pendingReviewLimit <
+      value.channels.length * value.schedule.times.length
+  )
+    issue(["pendingReviewLimit"], "Review limit must cover one complete run");
   if (value.format) {
     if (value.contentType !== "social")
       issue(["format"], "Only social posts have a format");

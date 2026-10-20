@@ -141,6 +141,17 @@ export function PlanCard({
           </dd>
         </div>
         <div>
+          <dt>
+            {de
+              ? "Offene Reviews je Auftrag"
+              : "Pending reviews per assignment"}
+          </dt>
+          <dd>
+            {s.pendingReviewLimit ??
+              (de ? "Kein Limit festgelegt" : "No limit configured")}
+          </dd>
+        </div>
+        <div>
           <dt>{de ? "Budgetprojektion" : "Budget projection"}</dt>
           <dd>
             {(s.monthlyBudgetMicros / 1000000).toLocaleString(

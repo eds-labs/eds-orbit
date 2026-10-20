@@ -127,6 +127,7 @@ export const marketingPlanSpec = z
       .object({ image: z.boolean(), styleAssetIds: z.array(z.uuid()).max(5) })
       .strict(),
     monthlyBudgetMicros: z.number().int().min(0).max(10_000_000_000),
+    pendingReviewLimit: z.number().int().min(1).max(100).optional(),
     assumptions: z.array(z.string().min(1).max(500)).max(10),
     unknowns: z.array(z.string().min(1).max(500)).max(10),
   })

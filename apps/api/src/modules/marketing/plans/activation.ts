@@ -137,6 +137,8 @@ async function validate(
       a.approvalMode !== spec.approvalMode ||
       (a.delivery ?? "publish") !== spec.delivery ||
       (a.format?.cta !== undefined && a.format.cta !== spec.cta.url) ||
+      (spec.pendingReviewLimit !== undefined &&
+        a.pendingReviewLimit !== spec.pendingReviewLimit) ||
       a.image !== spec.creative.image ||
       hash([...a.styleAssetIds].sort()) !==
         hash([...spec.creative.styleAssetIds].sort())

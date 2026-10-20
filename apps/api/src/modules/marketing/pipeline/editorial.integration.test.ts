@@ -271,6 +271,17 @@ describe.skipIf(!enabled)(
           }),
         ),
       ).rejects.toThrow("CLAIM_OVERLAP_DUPLICATE");
+      await expect(
+        run((tx) =>
+          adaptContent(tx, scope, {
+            parentContentId: parent.id,
+            version: parent.version,
+            title: "A different angle",
+            body: `Use this checklist to prepare your team. ${body}. Troubleshoot invitations before planning your onboarding workflow.`,
+            channel: "test-social",
+          }),
+        ),
+      ).resolves.toBeTruthy();
     });
     it("blocks stale parent versions and revoked evidence before creating a derivative", async () => {
       const { parent, source, body } = await parentFixture();

@@ -49,6 +49,17 @@ const render = (
   );
 
 describe("AssignmentTable", () => {
+  it("shows the confirmed review bound and real admission blocker without inventing a legacy limit", () => {
+    const html = render([
+      item({
+        pendingReviewLimit: 4,
+        backlog: { limit: 4, pending: 3, held: 1, available: 0, blocked: true },
+      }),
+    ]);
+    expect(html).toContain("3 warten · 1 reserviert · Limit 4");
+    expect(html).toContain("Erstellung wartet auf freie Review-Kapazität");
+    expect(render([item()])).toContain("Review-Limit nicht festgelegt");
+  });
   it("shows status, next run and budget use", () => {
     const html = render([item()]);
     expect(html).toContain("Two posts a day");

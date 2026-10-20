@@ -155,6 +155,14 @@ const proposeParameters = z
       .int()
       .describe("USD millionths per month, within the project's model budget"),
     delivery,
+    pendingReviewLimit: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe(
+        "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
+      ),
     approvalMode,
     sharedAcrossChannels,
     format,
@@ -213,6 +221,14 @@ const changeParameters = z
         vetoMinutes: z.number().int().nullable(),
         monthlyBudgetMicros: z.number().int().nullable(),
         delivery,
+        pendingReviewLimit: z
+          .number()
+          .int()
+          .nullable()
+          .optional()
+          .describe(
+            "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
+          ),
         approvalMode,
         sharedAcrossChannels,
         format,
@@ -264,6 +280,9 @@ export function assignmentCardOf(row: {
     styleAssetIds: d.styleAssetIds,
     vetoMinutes: d.vetoMinutes,
     monthlyBudgetMicros: d.monthlyBudgetMicros,
+    ...(d.pendingReviewLimit !== undefined
+      ? { pendingReviewLimit: d.pendingReviewLimit }
+      : {}),
     delivery: deliveryOf(d),
     approvalMode: approvalModeOf(d),
     sharedAcrossChannels: sharedAcrossChannelsOf(d),
@@ -560,6 +579,9 @@ export const assignmentTools: readonly OrbitTool[] = [
                   : null,
               monthCostMicros: listed.monthCost.get(row.id) ?? 0,
               monthlyBudgetMicros: d.monthlyBudgetMicros,
+              ...(d.pendingReviewLimit !== undefined
+                ? { pendingReviewLimit: d.pendingReviewLimit }
+                : {}),
               delivery: deliveryOf(d),
               approvalMode: approvalModeOf(d),
               sharedAcrossChannels: sharedAcrossChannelsOf(d),

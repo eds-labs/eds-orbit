@@ -1,3 +1,8 @@
+import {
+  assertReviewCapacity,
+  REVIEW_BACKLOG_FULL,
+} from "../review-backlog.ts";
+import { reserveStrategyBriefs } from "../topic-briefs.ts";
 import { ownedPlanRefusal } from "../../plans/execution.ts";
 import { zodTextFormat } from "openai/helpers/zod";
 import {
@@ -319,6 +324,7 @@ export async function taskBudgetLeft(
   const assignment = data(
     await entity(tx, scope, "assignments", task.assignmentId),
   );
+  await assertReviewCapacity(tx, scope, task.assignmentId, task.runId);
   const planRefusal = await ownedPlanRefusal(tx, scope, assignment);
   if (planRefusal) throw new DomainError(planRefusal, 409);
   const run = data(await entity(tx, scope, RUNS, task.runId));
@@ -568,6 +574,7 @@ export async function runSpecialist(
             data(await entity(tx, scope, "assignments", task.assignmentId)),
           );
           if (ownedRefusal) throw new DomainError(ownedRefusal, 409);
+          await assertReviewCapacity(tx, scope, task.assignmentId, task.runId);
           const active = await requireSpendMandate(tx, scope);
           const approved = active.limits;
           const runtime = await runtimeOpenAiConfiguration(tx, scope);
@@ -930,6 +937,23 @@ export async function runAgentTask(scope: Scope, taskId: string) {
       await cancelAssignmentRuns(tx, scope, d.assignmentId);
       return null;
     }
+    try {
+      await assertReviewCapacity(tx, scope, d.assignmentId, d.runId);
+    } catch (error) {
+      if (
+        error instanceof DomainError &&
+        error.code === "ASSIGNMENT_REVIEW_BACKLOG_FULL"
+      ) {
+        await update(tx, scope, row, {
+          ...d,
+          status: "queued",
+          output: null,
+          errorCode: error.code,
+        });
+        return null;
+      }
+      throw error;
+    }
     const input = await taskInput(tx, scope, d, run);
     const saved = await update(tx, scope, row, {
       ...d,
@@ -1002,7 +1026,22 @@ export async function runAgentTask(scope: Scope, taskId: string) {
         await requeueAgentTask(tx, scope, taskId, project.generation, {
           fromCurrentJob: true,
         });
-    } else if (!failure)
+    } else if (failure?.code === REVIEW_BACKLOG_FULL && !reservations.length) {
+      await update(tx, scope, row, {
+        ...d,
+        status: "queued",
+        output: null,
+        errorCode: REVIEW_BACKLOG_FULL,
+        costMicros,
+      });
+    } else if (!failure) {
+      if (d.role === "strategy")
+        output = await reserveStrategyBriefs(
+          tx,
+          scope,
+          { ...d, id: taskId },
+          output,
+        );
       await update(tx, scope, row, {
         ...d,
         status: "done",
@@ -1010,7 +1049,7 @@ export async function runAgentTask(scope: Scope, taskId: string) {
         errorCode: null,
         costMicros,
       });
-    else
+    } else
       await update(tx, scope, row, {
         ...d,
         status: unknown ? "outcome_unknown" : "failed",

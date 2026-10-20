@@ -1,3 +1,7 @@
+import {
+  prepareContentNovelty,
+  commitTopic,
+} from "./modules/marketing/agents/novelty.ts";
 import { registerTaskRoutes } from "./platform/tasks/routes.ts";
 import {
   authorize,
@@ -1260,7 +1264,12 @@ export async function buildServer(
       else if (collection === "experiments")
         parsed = { ...schemas.experiment.parse(req.body), status: "planned" };
       else throw new DomainError("COLLECTION_NOT_WRITABLE", 403);
+      const hold =
+        collection === "content"
+          ? await prepareContentNovelty(tx, scope, parsed)
+          : null;
       const row = await create(tx, scope, collection, parsed);
+      if (hold) await commitTopic(tx, scope, hold, row.id);
       if (
         collection === "policies" &&
         parsed.mode === "autopilot" &&

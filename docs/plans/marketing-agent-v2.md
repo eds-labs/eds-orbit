@@ -1,5 +1,10 @@
 # Marketing Agent v2 — connect the existing Orbit system
 
+Implementation checkpoint (2026-10-20, local): MA-05 is implemented on
+`codex/marketing-agent-v2-ma05`; see [MA-05 evidence and limits](marketing-agent-v2-ma05.md).
+MA-06 is prepared there and remains unimplemented. The phase scope below remains
+the original roadmap; local tests are not production/pilot acceptance.
+
 Status: proposed implementation plan; documentation only. Date: 2026-10-20 (Europe/Berlin).
 
 ## 1. Decision and evidence boundary

@@ -1,3 +1,4 @@
+import { prepareContentNovelty, commitTopic } from "./agents/novelty.ts";
 import { marketingPlanRoutes } from "./plans/routes.ts";
 import { z } from "zod";
 import { jsonSafe, scoped } from "../../../../../packages/db/src/index.ts";
@@ -340,6 +341,8 @@ export const marketingRoutes: RoutesContribution = (context) => {
         throw new DomainError("VERSION_CONFLICT", 409);
       await entity(tx, scope, "evidence", input.data.evidenceId);
       await assertContentCampaignContext(tx, scope, input.data);
+      const hold = await prepareContentNovelty(tx, scope, input.data, id);
+      if (hold) await commitTopic(tx, scope, hold, id);
       await invalidateContent(tx, scope, id);
       return update(tx, scope, row, {
         ...withGenerationProvenance(data(row), input.data),

@@ -1,3 +1,4 @@
+import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
 import { latestAssignmentResult } from "./assignment-result.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
@@ -128,6 +129,10 @@ export async function listAssignments(
           )?.toISOString() ?? null),
       monthCostMicros: await assignmentMonthSpend(tx, scope, row.id, now),
       monthlyBudgetMicros: Number(d.monthlyBudgetMicros ?? 0),
+      ...(d.pendingReviewLimit !== undefined
+        ? { pendingReviewLimit: d.pendingReviewLimit }
+        : {}),
+      backlog: await reviewBacklog(tx, scope, row.id),
       actionRequestId:
         d.status === "draft" && data(request).status === "pending"
           ? request!.id

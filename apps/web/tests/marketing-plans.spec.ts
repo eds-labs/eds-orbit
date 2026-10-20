@@ -42,6 +42,9 @@ test("strategy survives chat closure; exact owner activation and pause remain se
         exact: false,
       }),
     ).toBeVisible();
+    await expect(
+      page.getByText("Pending reviews per assignment", { exact: true }),
+    ).toBeVisible();
     await page.reload();
     await expect(
       page.getByRole("button", { name: "Approve strategy only" }),
@@ -119,6 +122,7 @@ test("strategy survives chat closure; exact owner activation and pause remain se
               image: true,
               styleAssetIds: [],
               monthlyBudgetMicros: 20_000_000,
+              pendingReviewLimit: 4,
               vetoMinutes: 180,
               approvalMode: "human_each",
               delivery: "publish",
@@ -137,6 +141,11 @@ test("strategy survives chat closure; exact owner activation and pause remain se
     await page.goto(
       `/p/${account.projectId}/marketing/plans?plan=${account.planId}`,
     );
+    await expect(
+      page.getByText("At most 4; new generation waits when full", {
+        exact: true,
+      }),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Activate assignments", exact: true }),
     ).toBeDisabled();
@@ -178,6 +187,29 @@ test("strategy survives chat closure; exact owner activation and pause remain se
     `/api/projects/${account.projectId}/assignments`,
   );
   expect((await assignments.json()).items).toHaveLength(1);
+  for (const viewport of [
+    { width: 1280, height: 900 },
+    { width: 390, height: 844 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto(`/p/${account.projectId}/marketing/assignments`);
+    await expect(
+      page.getByText("0 waiting · 0 reserved · limit 4", { exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByText("0 waiting · 0 reserved · limit 4", { exact: true }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    ).toBe(false);
+    await page.screenshot({
+      path: `.runtime/ma05-review-limit-${viewport.width}.png`,
+      fullPage: true,
+    });
+  }
   for (const kind of ["jobs", "content", "publications", "postiz_drafts"]) {
     const response = await context.request.get(
       `/api/projects/${account.projectId}/${kind}`,

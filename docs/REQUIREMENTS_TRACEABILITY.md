@@ -1,5 +1,28 @@
 # Requirements traceability
 
+## Marketing Agent v2 — MA-05 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Common bounded current/history projection with explicit remote uncertainty | `marketing-novelty-backlog.integration.test.ts`, content-history/channel-posts/strategy regressions | PASS_TEST |
+| Revoked model-use/evidence omits prior text while retaining visible history state | MA-05 rights-change case | PASS_TEST |
+| Concurrent exact topic/angle/channel reservation, retry and atomic shared-channel rollback | MA-05 real scoped SQL cases | PASS_TEST |
+| Distinct angles may reuse verified facts; all entry points contribute | MA-05 body/preflight checks, editorial adaptation and generation/package/batch regressions | PASS_TEST |
+| Explicit owner-confirmed review bound, exact plan-child setting, unchanged legacy hashes | MA-05 and plan activation cases | PASS_TEST |
+| Full queue stops admission/worker/paid query at zero cost, safe exact recovery and expired-slot stop | MA-05 real DB/model mock cases | PASS_TEST |
+| Revision/handoff/cancellation capacity accounting | Same MA-05 cases | PASS_TEST |
+| Human release, permission/module/project/policy/budget and publishing guards remain intact | Full regression plus targeted Marketing/activation tests; unchanged access matrix | PASS_TEST |
+| Review limit and live management counts, reload, desktop/mobile | `marketing-plans.spec.ts`, synthetic local API/web; assignment component case | PASS_LOCAL_BROWSER |
+| Semantic topic equivalence, global backlog limit, live/paid pilot and production rollout | Explicit limits in MA-05 report | NOT_IMPLEMENTED_OR_RUN |
+| Unified status/recovery/notification presentation | MA-06 preparation in MA-05 report only | NOT_IMPLEMENTED |
+
+
+
+Final MA-05 local verification: **2,995 tests in 275 files pass**, including 17
+MA-05 integration cases. The unchanged final application/test source manifest was
+verified after the complete run. Affected desktop/mobile Playwright, lint, root/web
+typecheck, production build, generated contracts, framework/secret checks and zero
+import-boundary violations pass. No production/pilot acceptance is inferred.
 
 ## Marketing Agent v2 — MA-04 (2026-10-20, local)
 

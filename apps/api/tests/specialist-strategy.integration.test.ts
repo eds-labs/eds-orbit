@@ -194,7 +194,7 @@ describe.skipIf(!enabled)("Strategy specialist", () => {
     channel: slot.channel,
     slotAt: slot.at,
     topic: "Beta access for product teams",
-    angle: "Lead with what teams can do on day one.",
+    angle: `Lead with a useful scenario for ${slot.at}.`,
     factKeys: ["beta.access"],
     cta: "Join the beta.",
     imageIdea: null,

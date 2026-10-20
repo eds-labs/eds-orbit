@@ -192,7 +192,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
   ) => ({
     channel: slot.channel,
     slotAt: slot.at,
-    topic: `Beta access on ${slot.channel}`,
+    topic: `Beta access on ${slot.channel} at ${slot.at}`,
     angle: "Lead with what teams can do on day one.",
     factKeys: ["beta.access"],
     cta: "Join the beta.",
@@ -760,7 +760,7 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
       instruction: "Make it shorter.",
       previousBody: draft.body,
     });
-    expect(contract.brief.topic).toBe(`Beta access on ${X}`);
+    expect(contract.brief.topic).toContain(`Beta access on ${X} at `);
     expect(data(revised)).toMatchObject({
       assignmentRunId: draft.assignmentRunId,
       briefKey: draft.briefKey,

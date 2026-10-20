@@ -11415,6 +11415,7 @@ export interface operations {
                         styleAssetIds: string[];
                     };
                     monthlyBudgetMicros: number;
+                    pendingReviewLimit?: number;
                     assumptions: string[];
                     unknowns: string[];
                 };
@@ -11750,6 +11751,7 @@ export interface operations {
                             styleAssetIds: string[];
                         };
                         monthlyBudgetMicros: number;
+                        pendingReviewLimit?: number;
                         assumptions: string[];
                         unknowns: string[];
                     };
@@ -11905,6 +11907,7 @@ export interface operations {
                             /** @default 180 */
                             vetoMinutes?: number;
                             monthlyBudgetMicros: number;
+                            pendingReviewLimit?: number;
                             /** @enum {string} */
                             delivery?: "publish" | "postiz_draft";
                             /** @enum {string} */

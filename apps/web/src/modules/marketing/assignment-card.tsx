@@ -27,6 +27,7 @@ export type AssignmentContent = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
+  pendingReviewLimit?: number;
   // How approved posts leave Orbit (R73); absent means "publish".
   delivery?: "publish" | "postiz_draft";
   approvalMode?: "human_each" | "delegated_review";
@@ -358,6 +359,18 @@ export function AssignmentCard({
                 : de
                   ? `${assignment.vetoMinutes} Minuten vor dem Termin`
                   : `${assignment.vetoMinutes} minutes before the slot`}
+          </dd>
+        </div>
+        <div>
+          <dt>{de ? "Offene Reviews" : "Pending reviews"}</dt>
+          <dd>
+            {assignment.pendingReviewLimit === undefined
+              ? de
+                ? "Kein Limit festgelegt"
+                : "No limit configured"
+              : de
+                ? `Höchstens ${assignment.pendingReviewLimit}; neue Erstellung wartet bei vollem Limit`
+                : `At most ${assignment.pendingReviewLimit}; new generation waits when full`}
           </dd>
         </div>
         <div>

@@ -31,6 +31,7 @@ export type AssignmentCard = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
+  pendingReviewLimit?: number;
   // How approved posts leave Orbit (R73): published, or only drafts in Postiz.
   delivery: "publish" | "postiz_draft";
   approvalMode?: "human_each" | "delegated_review";

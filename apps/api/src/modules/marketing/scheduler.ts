@@ -1,3 +1,4 @@
+import { resumeReviewBacklog } from "./agents/assignment-runs.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type { SchedulerContribution } from "../../platform/jobs/types.ts";
@@ -24,6 +25,7 @@ async function marketingSweep(tx: DbTx, scope: Scope, at: Date) {
   await releaseMissedSlots(tx, scope, at);
   // Assignment runs plan the project's posts (they replaced the weekly autopilot).
   if (agentsEnabled()) {
+    await resumeReviewBacklog(tx, scope, at);
     await planAssignmentRuns(tx, scope, at);
     // Runs whose approved posts could not be scheduled after their review (R54).
     await scheduleUnscheduledRuns(tx, scope);

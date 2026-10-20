@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { scoped } from "../../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import {
   retrieve,
   getActiveIndex,
@@ -36,6 +36,8 @@ export async function retrieveHybrid(
     agentRunId: string | null;
     missionId?: string | null;
     taskClass?: string;
+    /** Consumer-owned admission check in the reservation transaction. */
+    beforeReserve?: (tx: DbTx) => Promise<void>;
   },
 ) {
   const inputHash = hash({
@@ -96,6 +98,7 @@ export async function retrieveHybrid(
       scope.workspaceId,
       scope.projectId,
       async (tx) => {
+        await trace?.beforeReserve?.(tx);
         const index = await getActiveIndex(tx, scope),
           p = await requireSpendMandate(tx, scope);
         const approved = p.limits;

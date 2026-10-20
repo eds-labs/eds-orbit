@@ -47,7 +47,7 @@ const plan = await chatScoped(owner, async (tx) => {
   const saved = await proposePlan(
     tx,
     owner,
-    await planSpec(tx, owner),
+    { ...(await planSpec(tx, owner)), pendingReviewLimit: 4 },
     thread.id,
   );
   await tx.chatMessage.create({

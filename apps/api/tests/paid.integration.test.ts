@@ -1168,7 +1168,12 @@ describe.skipIf(!enabled)(
         ...generated(),
         output: {
           title: "Control first",
-          body: "Approved fixture content.",
+          body:
+            provider.generate.mock.calls.length > 2
+              ? "A shorter user-control explanation."
+              : provider.generate.mock.calls.length > 1
+                ? "A distinct explanation of user control."
+                : "Approved fixture content.",
           claims: [{ text: "Fixture style", kind: "style" }],
         },
       }));
@@ -1218,7 +1223,12 @@ describe.skipIf(!enabled)(
         ...generated(),
         output: {
           title: "Control on X",
-          body: "Approved fixture content.",
+          body:
+            provider.generate.mock.calls.length > 2
+              ? "A shorter user-control explanation."
+              : provider.generate.mock.calls.length > 1
+                ? "A distinct explanation of user control."
+                : "Approved fixture content.",
           claims: [{ text: "Fixture style", kind: "style" }],
         },
       }));
@@ -1237,7 +1247,9 @@ describe.skipIf(!enabled)(
           body: "Approved fixture content.",
         }),
       ]);
-      expect(secondGoal.recentChannelPosts).toBeUndefined();
+      expect(secondGoal.recentChannelPosts).toEqual([
+        { title: "Control on X", claims: ["Fixture style"] },
+      ]);
       // A revision rewrites its own previous draft and sees no sibling drafts.
       const draft = (await run((tx) => list(tx, s, "content"))).find(
         (row) => data(row).missionId === missionId,

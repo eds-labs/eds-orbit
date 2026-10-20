@@ -1,3 +1,13 @@
+import {
+  marketingHistory,
+  reserveTopic,
+  assertDistinctDraft,
+  missionTopic,
+  missionTopicOwner,
+  commitTopic,
+  topicKey,
+} from "../agents/novelty.ts";
+import { assertReviewCapacity } from "../agents/review-backlog.ts";
 import { postingSlot } from "../publishing/posting-slots.ts";
 import { resolveFactPlaceholders } from "../policy/fact-placeholders.ts";
 import { finishMissionRun } from "./planning.ts";
@@ -18,12 +28,7 @@ import {
   estimateCost,
 } from "../../../../../../packages/ai/src/index.ts";
 import { planCall } from "../../../platform/ai/call-plan.ts";
-import {
-  activePolicy,
-  CLAIM_REPEAT_WINDOW_DAYS,
-  withinClaimRepeatWindow,
-} from "../policy/policy.ts";
-import { externalChannelPosts } from "../agents/channel-posts.ts";
+import { activePolicy, CLAIM_REPEAT_WINDOW_DAYS } from "../policy/policy.ts";
 import { reserve, settle, markTransmitted } from "../../budget.ts";
 import { errorCode, finishRun, recordSpan, startRun } from "../../telemetry.ts";
 import {
@@ -63,6 +68,12 @@ import {
   MAX_BATCH_DRAFTS,
 } from "./draft-batch.ts";
 type GenerationContract = {
+  historyCoverage?: {
+    coverage: string;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    complete: boolean;
+  };
   goal: string;
   audience: string;
   product: string;
@@ -163,39 +174,20 @@ export async function recentChannelPosts(
   channel: string | string[],
   slot: number,
 ) {
-  // A shared text (R76) avoids the recent posts of every channel it goes to.
   const channels = Array.isArray(channel) ? channel : [channel];
-  const at = (row: Awaited<ReturnType<typeof list>>[number]) =>
-    Date.parse(String(data(row).scheduledAt ?? "")) || row.createdAt.valueOf();
-  const own = (await list(tx, scope, "content"))
-    .filter(
-      (row) =>
-        channels.includes(data(row).channel) &&
-        data(row).missionId !== missionId &&
-        data(row).status !== "archived" &&
-        withinClaimRepeatWindow(at(row), slot),
-    )
-    .map((row) => ({
-      at: at(row),
-      title: String(data(row).title ?? ""),
-      claims: (data(row).claims ?? []).map((claim: any) => String(claim.text)),
+  const history = await marketingHistory(
+    tx,
+    scope,
+    channels,
+    new Date(slot),
+    CLAIM_REPEAT_WINDOW_DAYS,
+  );
+  return history.items
+    .filter((i) => i.missionId !== missionId && !i.withheld)
+    .map((i) => ({
+      title: i.title,
+      claims: i.claims.length ? i.claims : [i.text],
     }));
-  // Posts made outside Orbit count as well (channel history from Postiz).
-  const external: Array<{ at: number; title: string; claims: string[] }> = [];
-  for (const one of channels)
-    external.push(
-      ...(await externalChannelPosts(
-        tx,
-        scope,
-        one,
-        slot,
-        CLAIM_REPEAT_WINDOW_DAYS,
-      )),
-    );
-  return [...own, ...external]
-    .sort((a, b) => Math.abs(a.at - slot) - Math.abs(b.at - slot))
-    .slice(0, MAX_BATCH_DRAFTS * channels.length)
-    .map(({ title, claims }) => ({ title, claims }));
 }
 
 /**
@@ -345,6 +337,25 @@ async function generateMissionDraft(
         !activeScope.allowedOrigins?.includes(new URL(m.targetUrl).origin)
       )
         throw new DomainError("LINK_NOT_ALLOWED", 409);
+      if (m.assignmentId)
+        await assertReviewCapacity(
+          tx,
+          scope,
+          m.assignmentId,
+          m.assignmentRunId,
+        );
+      if (m.novelty && !m.revisionOf) {
+        const ownerKey = missionTopicOwner(m, missionId);
+        await reserveTopic(tx, scope, {
+          channel,
+          identity: missionTopic(m),
+          ownerKey,
+          missionId,
+          runId: m.assignmentRunId,
+        });
+        // Reservation identity is separate from mission version: no configuration
+        // write may invalidate an already started generation attempt.
+      }
       const configuration = await runtimeOpenAiConfiguration(tx, scope);
       resolveRoute(draftTaskClass(m.contentType), configuration);
       routeVersion = configuration.routeVersion ?? null;
@@ -376,7 +387,21 @@ async function generateMissionDraft(
     "mission:" + jobId,
     // A content package shares one run key, so one per-run limit covers all its drafts.
     data(initial).budgetRunKey ?? undefined,
-    { agentRunId: trace.runId, missionId, taskClass },
+    {
+      agentRunId: trace.runId,
+      missionId,
+      taskClass,
+      beforeReserve: async (tx) => {
+        const m = data(await entity(tx, scope, "missions", missionId));
+        if (m.assignmentId)
+          await assertReviewCapacity(
+            tx,
+            scope,
+            m.assignmentId,
+            m.assignmentRunId,
+          );
+      },
+    },
   );
   const prepared = await scoped(
     scope.workspaceId,
@@ -462,6 +487,7 @@ async function generateMissionDraft(
         : null;
       const contract: GenerationContract = {
         ...(revision ? { revision } : {}),
+        historyCoverage: (await marketingHistory(tx, scope, [channel])).remote,
         goal: m.goal,
         audience: m.audience,
         product: campaignContext?.product ?? m.product,
@@ -561,19 +587,17 @@ async function generateMissionDraft(
               sharedChannels: await sharedChannelRules(tx, scope, m),
             }
           : {}),
-        ...(m.autopilot === true || m.assignmentRunId
-          ? {
-              recentChannelPosts: await recentChannelPosts(
-                tx,
-                scope,
-                missionId,
-                Array.isArray(m.sharedChannels) && m.sharedChannels.length > 1
-                  ? (m.sharedChannels as string[])
-                  : channel,
-                Date.parse(m.plannedSlotAt ?? "") || Date.now(),
-              ),
-            }
-          : {}),
+        ...{
+          recentChannelPosts: await recentChannelPosts(
+            tx,
+            scope,
+            missionId,
+            Array.isArray(m.sharedChannels) && m.sharedChannels.length > 1
+              ? (m.sharedChannels as string[])
+              : channel,
+            Date.parse(m.plannedSlotAt ?? "") || Date.now(),
+          ),
+        },
         planContext: m.planContext
           ? {
               ...m.planContext,
@@ -642,6 +666,13 @@ async function generateMissionDraft(
           m.batch.costCeilingMicros
       )
         throw new DomainError("BATCH_BUDGET_EXHAUSTED", 409);
+      if (m.assignmentId)
+        await assertReviewCapacity(
+          tx,
+          scope,
+          m.assignmentId,
+          m.assignmentRunId,
+        );
       const reservation = await reserve(
         tx,
         scope,
@@ -723,6 +754,14 @@ async function generateMissionDraft(
       ) !== hash(prepared.channelRules)
     )
       throw new DomainError("GENERATION_DEPENDENCY_CHANGED");
+    const assignmentMission = data(mission);
+    if (assignmentMission.assignmentId)
+      await assertReviewCapacity(
+        tx,
+        scope,
+        assignmentMission.assignmentId,
+        assignmentMission.assignmentRunId,
+      );
     await markTransmitted(tx, scope, prepared.reservationId);
   });
   let outcome: Awaited<ReturnType<typeof generate>>;
@@ -873,14 +912,33 @@ async function generateMissionDraft(
             m.completedRuns ?? 0,
           )
         : null;
+    const resolvedOutput = resolveFactPlaceholders(
+      outcome.output,
+      data(prepared.evidence).facts ?? [],
+    );
+    await assertDistinctDraft(
+      tx,
+      scope,
+      m.channels[(m.completedRuns ?? 0) % m.channels.length],
+      resolvedOutput.body,
+      missionTopic(m),
+      missionId,
+      m.revisionOf?.contentId,
+    );
     const content = await create(tx, scope, "content", {
+      ...(m.novelty
+        ? {
+            novelty: m.novelty,
+            noveltyKey: topicKey(
+              m.channels[(m.completedRuns ?? 0) % m.channels.length],
+              m.novelty,
+            ),
+          }
+        : {}),
       ...(scheduledAt && scheduledAt < new Date(m.endAt)
         ? { scheduledAt: scheduledAt.toISOString() }
         : {}),
-      ...resolveFactPlaceholders(
-        outcome.output,
-        data(prepared.evidence).facts ?? [],
-      ),
+      ...resolvedOutput,
       // The banner's button is the mission CTA, never the copywriter's own
       // call to action (R78): no banner competes with its post.
       ...(outcome.output.banner
@@ -919,6 +977,22 @@ async function generateMissionDraft(
       usage: outcome.usage,
       jobId,
     });
+    if (m.novelty && !m.revisionOf) {
+      const holds = await tx.entity.findMany({
+        where: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          kind: "marketing_topic_reservations",
+          data: {
+            path: ["ownerKey"],
+            equals: missionTopicOwner(m, missionId),
+          },
+        },
+      });
+      for (const hold of holds)
+        if (data(hold).channel === data(content).channel)
+          await commitTopic(tx, scope, hold.id, content.id);
+    }
     const finished = await finishMissionRun(tx, scope, missionId, content.id);
     await enqueueNextBatchRun(tx, scope, finished, jobId);
     await audit(tx, scope, "generation.completed", content.id, {

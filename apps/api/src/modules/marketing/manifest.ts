@@ -15,6 +15,10 @@ export const marketingModule: ServerModule = {
   defaultEnabled: true,
   entityKinds: [
     {
+      kind: "marketing_topic_reservations",
+      description: "Scoped topic and angle holds; no spend authority",
+    },
+    {
       kind: "marketing_plans",
       description: "Versioned strategic proposals; no execution authority",
       collection: true,
