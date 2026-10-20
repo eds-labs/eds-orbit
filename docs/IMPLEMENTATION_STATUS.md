@@ -5,9 +5,9 @@
 An older access token can remain in use after explicit expanded Support consent.
 Previously `tools/list` returned 200 with a reduced catalog, hiding ticket tools
 from the client. The profile read now distinguishes effective token/grant scopes
-from stored consent. Discovery issues an RFC 6750 insufficient-scope challenge
-only for an already-consented Support scope that would expose a tool under all
-other current authorization/activation checks. Actual calls retain the original
+from stored consent. Discovery exposes tool schemas under all other current authorization/activation
+checks so a client can learn the needed scope. Content calls with a missing
+scope return a tool-level OAuth challenge, without reading customer data. Actual calls retain the original
 token/grant intersection and exact owner approvals. No migrations or flags.
 The real HTTP/OAuth regression failed before the fix (200 instead of 403) and
 passes with the fix, including denied consent, disabled features/module and

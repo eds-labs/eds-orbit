@@ -19,7 +19,7 @@ export type McpPrincipal = {
   workspaceId: string;
   /** Token `scope` ∩ grant scopes. */
   scopes: ReadonlySet<string>;
-  /** Stored consent, for upgrade challenges only; never authorizes a call. */
+  /** Stored consent, for diagnostics only; never authorizes a call. */
   grantedScopes?: ReadonlySet<string>;
   /** Granted projects the user is still a member of, at resolution time. */
   projectIds: readonly string[];

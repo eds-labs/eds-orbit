@@ -189,31 +189,18 @@ export async function principalModules(
 }
 
 /**
- * A client can keep an older token after the user expands its stored consent.
- * Returning a successful, silently reduced tools/list then caches away the new
- * tools and prevents scope step-up. Challenge only for already-consented
- * content scopes that would actually expose a tool under every other current
- * project/module/role/flag check. The hypothetical scopes never execute a tool.
+ * Discovery advertises content-tool schemas with their required OAuth scopes.
+ * Hiding their descriptions behind those scopes creates a bootstrap loop: a
+ * client cannot learn which scope to request. This never reads ticket content.
+ * Base risk scopes, current membership, modules, roles and flags still apply.
+ * authorizeMcpCall always uses the original token/grant intersection.
  */
-export async function missingDiscoveryScopes(
+export async function visibleMcpToolsForDiscovery(
   principal: McpPrincipal,
-): Promise<string[]> {
-  const scope = "orbit:support";
-  if (principal.scopes.has(scope) || !principal.grantedScopes?.has(scope))
-    return [];
-  const upgraded = {
-    ...principal,
-    scopes: new Set([...principal.scopes, scope]),
-  };
-  for (const projectId of principal.projectIds) {
-    const tools = await visibleMcpTools(upgraded, projectId).catch(
-      (error: unknown) => {
-        if (error instanceof DomainError && error.code === "NOT_FOUND")
-          return [];
-        throw error;
-      },
-    );
-    if (tools.some((tool) => tool.mcpScopes?.includes(scope))) return [scope];
-  }
-  return [];
+  projectId: string,
+): Promise<OrbitTool[]> {
+  return allowedTools(
+    { ...principal, scopes: new Set([...principal.scopes, "orbit:support"]) },
+    await projectScope(principal, projectId),
+  );
 }

@@ -27,10 +27,14 @@ Live profile diagnosis on 2026-10-20 showed only `orbit:read` and
 The HTTP/OAuth regression reproduces this with an older token after explicit
 expanded consent: discovery previously returned 200 and omitted Support.
 
-Keep consent separately in the principal for diagnosis/challenges only. On
-`tools/list`, require step-up only if an already-consented missing Support scope
-would reveal a tool under the current feature, project, module, role and grant
-restrictions. Use Better Auth's verified insufficient-scope challenge. Do not
-union consent into the token's effective permissions. Actual calls stay denied
-until a correctly scoped token is presented. Negative tests include absent
-consent, disabled tasks/Support/project module and a restricted module grant.
+Keep consent separately in the principal for diagnostics only. Live UI testing
+showed that a 403 on tools/list alone makes ChatGPT's refresh fail, while its
+reconnect still requests only scopes from the older catalog.
+
+Advertise Support tool descriptions and their scope metadata under all other
+current project/module/role/grant/risk-scope checks, without reading customer
+content. Scope-less calls return a tool-level RFC 6750 challenge in
+mcp/www_authenticate. Recheck the requested project before a challenge and
+retain strict execution authorization. An ungranted scope is never execution
+permission; it requires explicit OAuth consent. Test disabled flags, restricted
+grants, foreign projects, absent scope/consent and fresh tokens.

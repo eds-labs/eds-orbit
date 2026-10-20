@@ -406,14 +406,16 @@ describe.skipIf(!enabled)(
       const originalToken = token;
       token = reduced.json().access_token;
       try {
-        // Stored consent still contains Support; the new narrower token
-        // must trigger scope step-up instead of a misleading successful list.
-        expect((await rpc("tools/list")).statusCode).toBe(403);
+        // Descriptions must remain discoverable so the client can request
+        // Support; execution still requires a correctly scoped token.
+        expect(
+          (await rpc("tools/list")).json().result.tools.map((t: any) => t.name),
+        ).toContain("support_get_ticket");
       } finally {
         token = originalToken;
       }
     });
-    it("challenges an older token after explicit Support consent instead of silently caching a reduced catalog", async () => {
+    it("discovers Support schemas with an older token and challenges content calls without granting access", async () => {
       const minimal = await driver.connect({
         scope: SCOPES,
         consent: { scopes: SCOPES.split(" ") },
@@ -433,21 +435,74 @@ describe.skipIf(!enabled)(
       expect(profile.effectiveScopes).not.toContain("orbit:support");
       expect(profile.grantedScopes).toContain("orbit:support");
       const list = await rpc("tools/list");
-      expect(list.statusCode).toBe(403);
-      expect(list.headers["www-authenticate"]).toContain(
-        'error="insufficient_scope"',
+      expect(list.statusCode).toBe(200);
+      const definition = list
+        .json()
+        .result.tools.find((t: any) => t.name === "support_list_tickets");
+      expect(definition._meta.securitySchemes[0].scopes).toContain(
+        "orbit:support",
       );
-      expect(list.headers["www-authenticate"]).toContain("orbit:support");
-      expect(list.headers["www-authenticate"]).toContain("resource_metadata=");
       expect(list.body).not.toContain("HTTP Support question");
       // A narrower token never gains the stored consent's content access.
       const refused = await rpc("tools/call", {
         name: "support_list_tickets",
         arguments: { projectId: project.owner.projectId },
       });
+      expect(refused.json().result.isError).toBe(true);
+      expect(refused.json().result.structuredContent.code).toBe(
+        "INSUFFICIENT_SCOPE",
+      );
+      const challenge = refused.json().result._meta["mcp/www_authenticate"][0];
+      expect(challenge).toContain('error="insufficient_scope"');
+      expect(challenge).toContain("orbit:support");
+      expect(challenge).toContain("resource_metadata=");
+      expect(refused.body).not.toContain("HTTP Support question");
+      const foreign = await rpc("tools/call", {
+        name: "support_list_tickets",
+        arguments: { projectId: randomUUID() },
+      });
+      expect(foreign.json().result.structuredContent.code).toBe("NOT_FOUND");
       expect(
-        refused.json().error ?? refused.json().result.isError,
-      ).toBeTruthy();
+        foreign.json().result._meta?.["mcp/www_authenticate"],
+      ).toBeUndefined();
+      // ChatGPT's 2025 protocol path must discover and step up identically.
+      for (const method of ["tools/list", "tools/call"]) {
+        const legacy = await gateway.inject({
+          method: "POST",
+          url: "/mcp",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            "mcp-protocol-version": "2025-11-25",
+          },
+          payload: {
+            jsonrpc: "2.0",
+            id: 42,
+            method,
+            params:
+              method === "tools/list"
+                ? {}
+                : {
+                    name: "support_list_tickets",
+                    arguments: { projectId: project.owner.projectId },
+                  },
+          },
+        });
+        expect(legacy.statusCode, legacy.body).toBe(200);
+        const frame = legacy.body
+          .split("\n")
+          .find((line) => line.startsWith("data: "));
+        const body = frame ? JSON.parse(frame.slice(6)) : legacy.json();
+        if (method === "tools/list")
+          expect(body.result.tools.map((t: any) => t.name)).toContain(
+            "support_list_tickets",
+          );
+        else
+          expect(body.result._meta["mcp/www_authenticate"][0]).toContain(
+            "orbit:support",
+          );
+      }
       process.env.ORBIT_MCP_TASKS = "false";
       try {
         expect((await rpc("tools/list")).statusCode).toBe(200);
@@ -471,7 +526,18 @@ describe.skipIf(!enabled)(
         data: { scopes: SCOPES.split(" ") },
       });
       try {
-        expect((await rpc("tools/list")).statusCode).toBe(200);
+        const unconsented = (await rpc("tools/list")).json().result.tools;
+        expect(unconsented.map((t: any) => t.name)).toContain(
+          "support_list_tickets",
+        );
+        const denied = await rpc("tools/call", {
+          name: "support_list_tickets",
+          arguments: { projectId: project.owner.projectId },
+        });
+        expect(denied.json().result.structuredContent.code).toBe(
+          "INSUFFICIENT_SCOPE",
+        );
+        expect(denied.body).not.toContain("HTTP Support question");
       } finally {
         await authDb.mcpGrant.updateMany({
           where: activeGrant,

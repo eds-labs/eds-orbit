@@ -36,6 +36,7 @@ import {
   codeResult,
   internalFailure,
   McpToolTimeoutError,
+  McpScopeRequiredError,
   toolFailure,
   unauthenticatedResult,
 } from "./errors.ts";
@@ -53,7 +54,7 @@ import {
 import {
   authorizeMcpCall,
   requiredScope,
-  visibleMcpTools,
+  visibleMcpToolsForDiscovery,
 } from "./visibility.ts";
 
 export const MCP_SERVER_INFO = { name: "orbit-mcp-gateway", version: "2.0.0" };
@@ -230,7 +231,7 @@ function inputSchemaFor(tool: OrbitTool, singleProject: boolean) {
 async function registryToolsFor(principal: McpPrincipal): Promise<OrbitTool[]> {
   const byName = new Map<string, OrbitTool>();
   for (const projectId of principal.projectIds) {
-    const tools = await visibleMcpTools(principal, projectId).catch(
+    const tools = await visibleMcpToolsForDiscovery(principal, projectId).catch(
       (error: unknown) => {
         // Membership lost since the principal was resolved.
         if (error instanceof DomainError && error.code === "NOT_FOUND")
@@ -538,6 +539,25 @@ async function executeInProject(
   projectId: string,
 ): Promise<unknown> {
   const { principal, requestId } = state;
+  if ((tool.mcpScopes ?? []).some((scope) => !principal.scopes.has(scope))) {
+    // Recheck the requested project before asking for OAuth step-up. A tool
+    // discovered in another project cannot disclose or authorize this one.
+    const discovered = (
+      await visibleMcpToolsForDiscovery(principal, projectId)
+    ).find((candidate) => candidate.name === tool.name);
+    if (!discovered) throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
+    throw new McpScopeRequiredError(
+      [
+        ...new Set([
+          ...[...principal.scopes].filter((scope) =>
+            scope.startsWith("orbit:"),
+          ),
+          ...(tool.mcpScopes ?? []),
+        ]),
+      ],
+      state.resource,
+    );
+  }
   const { tool: allowed, scope } = await authorizeMcpCall(
     principal,
     tool.name,

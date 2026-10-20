@@ -46,15 +46,17 @@ verified access-token scopes intersected with the current active grant.
 This read exposes no token, credential, email address or ticket content and works
 through an existing cached profile-tool definition.
 
-When a user already consented to `orbit:support` but the client still sends a
-narrower token, `tools/list` now returns HTTP 403 with an RFC 6750
-`insufficient_scope` challenge and the protected-resource metadata URL. The
-client must reauthorize with the named scopes before refreshing its catalog.
-Previously the successful reduced list could cache away Support indefinitely.
-A denied/ungranted scope, unavailable module, restricted project/module role or
-disabled feature never causes this upgrade challenge. Tool execution continues
-to require the token/grant intersection; stored consent cannot grant a token
-additional powers. Existing cached catalogs still require a client refresh.
+Support descriptions/input schemas remain discoverable before `orbit:support`
+is on the token. Otherwise a cached client catalog cannot learn that it must
+request that scope. Discovery never returns ticket data and still enforces the
+base read/proposal scopes, current membership, module activation/roles, grants
+and feature flags. Execution always requires the token/grant intersection.
+A content call without the required scope returns an `INSUFFICIENT_SCOPE` tool
+error with `_meta["mcp/www_authenticate"]`, including the scope and protected
+resource metadata URL, so ChatGPT can initiate explicit OAuth authorization.
+Stored consent alone never grants a token additional powers. Existing cached
+catalogs must be refreshed before reconnecting; a reconnect based on the old
+catalog keeps requesting only its older scopes.
 
 ## Tools and parameters
 

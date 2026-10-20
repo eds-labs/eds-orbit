@@ -8,6 +8,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/server";
 import { createResourceServerChallenge } from "@better-auth/oauth-provider";
 import { APIError } from "better-auth/api";
+import { createInsufficientScopeError } from "better-auth/oauth2";
 import { ZodError } from "zod";
 import { KnowledgeError } from "../../../../../packages/knowledge/src/index.ts";
 import type { ToolRisk } from "../../modules/agents/tools/registry.ts";
@@ -15,6 +16,17 @@ import { DomainError } from "../shared.ts";
 
 /** Tool-result `_meta` key that carries a WWW-Authenticate challenge (ChatGPT links from it). */
 export const WWW_AUTHENTICATE_META = "mcp/www_authenticate";
+
+/** A discovered content tool still requires a correctly scoped token. */
+export class McpScopeRequiredError extends Error {
+  constructor(
+    readonly scopes: string[],
+    readonly resource: string,
+  ) {
+    super("INSUFFICIENT_SCOPE");
+    this.name = "McpScopeRequiredError";
+  }
+}
 
 /** Thrown by the adapter when a tool call outlives its time limit (D-M3-11). */
 export class McpToolTimeoutError extends Error {
@@ -137,6 +149,27 @@ export function toolFailure(
   requestId: string,
   risk: ToolRisk,
 ): { result: CallToolResult; code: string } {
+  if (error instanceof McpScopeRequiredError) {
+    const challenge = createResourceServerChallenge(
+      createInsufficientScopeError(error.scopes),
+      error.resource,
+    );
+    const header =
+      challenge && new Headers(challenge.headers).get("WWW-Authenticate");
+    if (!header)
+      return { result: internalFailure(requestId), code: "REQUEST_FAILED" };
+    return {
+      code: "INSUFFICIENT_SCOPE",
+      result: errorResult(
+        {
+          code: "INSUFFICIENT_SCOPE",
+          message: "Reconnect with the required Orbit scopes",
+          retryable: false,
+        },
+        { [WWW_AUTHENTICATE_META]: [header] },
+      ),
+    };
+  }
   if (error instanceof McpToolTimeoutError)
     return { result: timeoutResult(risk), code: "TIMEOUT" };
   if (error instanceof McpProposalQuotaError)
