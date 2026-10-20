@@ -1,5 +1,9 @@
 # Implementation status
 
+## Support per-tool OAuth scope declarations (2026-10-20, local)
+
+Marketing reads succeeded in ChatGPT while ticket reads prompted repeated reconnection; the reported token lacked effective `orbit:support` despite saved consent. A separate wire-contract defect is reproduced: the catalog contained only `_meta.securitySchemes`, which OpenAI defines as a legacy mirror, and lacked the top-level declaration. SDK 2.3.1 drops that extension from `registerTool` configuration. The adapter now uses the SDK's public `tools/list` handler to publish both from the same authorized tool definitions; SDK call validation remains unchanged. Support step-up challenges preserve existing identity/refresh scopes. The actual HTTP regression fails on the previous code and passes with the fix for both protocol revisions, including explicit consent, ticket reads and refresh. Stored grants never widen an old token. Plan, risk and rollback: `docs/plans/MCP_SUPPORT_SCOPE_INTEROP.md`. Validation: 227 focused tests and lint/typecheck/build/Compose/secrets/framework pass. Full suite: 2,798 passed / 1 failed, with the identical agent-resume failure reproduced on unchanged base code. Evidence: `docs/evidence/mcp-support-scope-validation.md`. Deployment and real ChatGPT ticket acceptance remain separate.
+
 ## MCP client authentication-method list compatibility (2026-10-20, local)
 
 Plan and risk/rollback: `docs/plans/MCP_OAUTH_METHOD_INTEROP.md`; pinned patch maintenance: `patches/README.md`. A harmless production token-endpoint probe demonstrates that a ChatGPT client offering both `none` and `private_key_jwt` was pinned to its singular preference: public PKCE requests failed with `invalid_client` before validating a code. This is a server interoperability defect; correlation with Mario's particular reconnect-loop request is still unverified because raw production logs are not available to this connector.
@@ -15,9 +19,7 @@ from stored consent. Discovery exposes tool schemas under all other current auth
 checks so a client can learn the needed scope. Content calls with a missing
 scope return a tool-level OAuth challenge, without reading customer data. Actual calls retain the original
 token/grant intersection and exact owner approvals. No migrations or flags.
-The real HTTP/OAuth regression failed before the fix (200 instead of 403) and
-passes with the fix, including denied consent, disabled features/module and
-restricted-grant cases. Relevant regression: 257 tests in four files, lint,
+The real HTTP/OAuth regression covers a 200 catalog of authorized schemas and a tool-level insufficient-scope challenge, including denied consent, disabled features/module and restricted-grant cases. The earlier transport-level 403 experiment was superseded. Relevant regression: 257 tests in four files, lint,
 typecheck and build pass. Full suite and live-client completion tracked separately.
 
 

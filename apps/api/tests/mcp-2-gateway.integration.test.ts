@@ -553,6 +553,9 @@ describe.skipIf(!enabled)(
       expect(definition._meta.securitySchemes[0].scopes).toContain(
         "orbit:support",
       );
+      expect(definition.securitySchemes).toEqual(
+        definition._meta.securitySchemes,
+      );
       expect(list.body).not.toContain("HTTP Support question");
       // A narrower token never gains the stored consent's content access.
       const refused = await rpc("tools/call", {
@@ -566,7 +569,37 @@ describe.skipIf(!enabled)(
       const challenge = refused.json().result._meta["mcp/www_authenticate"][0];
       expect(challenge).toContain('error="insufficient_scope"');
       expect(challenge).toContain("orbit:support");
+      expect(challenge).toContain("offline_access");
       expect(challenge).toContain("resource_metadata=");
+      // Follow the scope declaration and challenge as a real client would.
+      // Identity/refresh scopes survive step-up; consent never authorizes the
+      // old narrow token to read content.
+      const challengedScopes = /scope="([^"]+)"/.exec(challenge)![1]!;
+      const stepUp = await driver.connect({
+        scope: challengedScopes,
+        consent: { scopes: challengedScopes.split(" ") },
+      });
+      const stepUpToken = await driver.exchange(stepUp);
+      expect(stepUpToken.statusCode, stepUpToken.body).toBe(200);
+      expect(stepUpToken.json().refresh_token).toEqual(expect.any(String));
+      const narrowToken = token;
+      for (const issued of [
+        stepUpToken,
+        await driver.refresh(stepUpToken.json().refresh_token),
+      ]) {
+        expect(issued.statusCode, issued.body).toBe(200);
+        token = issued.json().access_token;
+        const read = await rpc("tools/call", {
+          name: "support_list_tickets",
+          arguments: { projectId: project.owner.projectId },
+        });
+        expect(read.json().result.isError, read.body).not.toBe(true);
+        const items = read.json().result.structuredContent.result.items;
+        expect(items).toHaveLength(1);
+        expect(items[0].subject).toMatch(/Support question$/);
+        expect(items[0].untrusted).toBe(true);
+      }
+      token = narrowToken;
       expect(refused.body).not.toContain("HTTP Support question");
       const foreign = await rpc("tools/call", {
         name: "support_list_tickets",
@@ -605,11 +638,17 @@ describe.skipIf(!enabled)(
           .split("\n")
           .find((line) => line.startsWith("data: "));
         const body = frame ? JSON.parse(frame.slice(6)) : legacy.json();
-        if (method === "tools/list")
+        if (method === "tools/list") {
           expect(body.result.tools.map((t: any) => t.name)).toContain(
             "support_list_tickets",
           );
-        else
+          const support = body.result.tools.find(
+            (t: any) => t.name === "support_list_tickets",
+          );
+          expect(support.securitySchemes).toEqual(
+            support._meta.securitySchemes,
+          );
+        } else
           expect(body.result._meta["mcp/www_authenticate"][0]).toContain(
             "orbit:support",
           );

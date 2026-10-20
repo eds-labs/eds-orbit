@@ -18,6 +18,7 @@ import {
   Server,
   type CallToolResult,
   type ToolAnnotations,
+  type Tool,
 } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import {
@@ -547,14 +548,7 @@ async function executeInProject(
     ).find((candidate) => candidate.name === tool.name);
     if (!discovered) throw new DomainError("MCP_TOOL_NOT_ALLOWED", 403);
     throw new McpScopeRequiredError(
-      [
-        ...new Set([
-          ...[...principal.scopes].filter((scope) =>
-            scope.startsWith("orbit:"),
-          ),
-          ...(tool.mcpScopes ?? []),
-        ]),
-      ],
+      [...new Set([...principal.scopes, ...(tool.mcpScopes ?? [])])],
       state.resource,
     );
   }
@@ -818,9 +812,18 @@ export async function mcpServerFor(
   }
 
   // Name order, so clients can cache the list (09 §5.1).
-  for (const definition of [...definitions.values()].sort((a, b) =>
+  const ordered = [...definitions.values()].sort((a, b) =>
     a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
-  ))
+  );
+  const securitySchemes = (definition: ToolDefinition) => [
+    {
+      type: "oauth2" as const,
+      scopes: [
+        ...new Set([requiredScope(definition), ...(definition.scopes ?? [])]),
+      ],
+    },
+  ];
+  for (const definition of ordered)
     server.registerTool(
       definition.name,
       {
@@ -830,12 +833,7 @@ export async function mcpServerFor(
         annotations: toolAnnotations(definition.risk, definition.openWorld),
         _meta: {
           ...definition.meta,
-          securitySchemes: [
-            {
-              type: "oauth2",
-              scopes: [requiredScope(definition), ...(definition.scopes ?? [])],
-            },
-          ],
+          securitySchemes: securitySchemes(definition),
         },
       },
       async (args: Record<string, unknown>) =>
@@ -848,5 +846,29 @@ export async function mcpServerFor(
           (call) => definition.run(args, call),
         ),
     );
+  if (state.method === "tools/list") {
+    // SDK 2.3.1 registerTool retains only known fields and drops the top-level
+    // securitySchemes extension. Use its public low-level catalog handler;
+    // calls still use the SDK registrations/validation above. OpenAI requires
+    // the top-level declaration; _meta is its backward-compatibility mirror.
+    server.server.setRequestHandler("tools/list", async () => ({
+      tools: ordered.map((definition) => {
+        const schemes = securitySchemes(definition);
+        return {
+          name: definition.name,
+          description: definition.description,
+          inputSchema: z.toJSONSchema(definition.inputSchema, {
+            io: "input",
+          }) as Tool["inputSchema"],
+          outputSchema: z.toJSONSchema(definition.outputSchema, {
+            io: "output",
+          }) as Tool["outputSchema"],
+          annotations: toolAnnotations(definition.risk, definition.openWorld),
+          securitySchemes: schemes,
+          _meta: { ...definition.meta, securitySchemes: schemes },
+        };
+      }),
+    }));
+  }
   return server;
 }

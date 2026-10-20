@@ -1,5 +1,14 @@
 # Requirements traceability
 
+## Support OAuth client interoperability (2026-10-20, local)
+
+| Requirement                                                                              | Evidence                                                                                                              | State     |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | --------- |
+| Ticket descriptors publish canonical OAuth scopes and legacy mirror                      | Real HTTP `mcp-2-gateway.integration` checks `securitySchemes` in both protocol revisions; pre-fix failure reproduced | PASS_TEST |
+| Support step-up retains identity/refresh scopes and reads tickets after explicit consent | Challenge-driven authorization, exchange, ticket read, refresh and ticket read in the same synthetic HTTP regression  | PASS_TEST |
+| Saved consent never promotes a narrower token; project/module/role guards remain         | Same regression and `mcp-principal.integration` permission matrix                                                     | PASS_TEST |
+| Real ChatGPT Support access                                                              | Mario's Marketing read succeeds; Support reconnect loop reported; post-fix ticket call pending                        | NOT_RUN   |
+
 ## Native Support MCP completion (2026-10-19, local)
 
 | Requirement | Implementation / evidence | Status |
