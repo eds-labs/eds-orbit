@@ -5,7 +5,12 @@ import { data, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
-import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
+import {
+  agentsEnabled,
+  confirmedDelivery,
+  deliveryOf,
+  approvalModeOf,
+} from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
 import { assignmentMonthSpend } from "./specialists/runner.ts";
 import { assignmentCardOf } from "../tools/assignment-tools.ts";
@@ -113,6 +118,7 @@ export async function listAssignments(
       image: d.image === true,
       vetoMinutes: d.vetoMinutes,
       delivery: deliveryOf(d),
+      approvalMode: approvalModeOf(d),
       // A paused project runs nothing, so no run is due.
       nextRunAt: project.paused
         ? null

@@ -12,6 +12,7 @@ import { runDeliverables } from "../agents/veto.ts";
 import { assignmentMonthSpend } from "../agents/specialists/runner.ts";
 import {
   CLEARABLE,
+  approvalModeOf,
   deliveryOf,
   sharedAcrossChannels as sharedAcrossChannelsOf,
   proposeAssignment,
@@ -61,10 +62,17 @@ const delivery = z
   .enum(["publish", "postiz_draft"])
   .nullable()
   .describe(
-    "publish (default when null): posts go out after the veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off)",
+    "publish (default when null): posts go through the publisher after required human approval or the delegated veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off)",
   );
 
 // R76: one text and one image per slot for all channels.
+const approvalMode = z
+  .enum(["human_each", "delegated_review"])
+  .nullable()
+  .optional()
+  .describe(
+    "human_each (new assignment default): each post needs the owner's exact approval before publishing or creating a Postiz draft. delegated_review: existing bounded agent-review/veto rules; only when the owner explicitly requests delegation. null in a change leaves the mode unchanged",
+  );
 const sharedAcrossChannels = z
   .boolean()
   .nullable()
@@ -145,6 +153,7 @@ const proposeParameters = z
       .int()
       .describe("USD millionths per month, within the project's model budget"),
     delivery,
+    approvalMode,
     sharedAcrossChannels,
     format,
     banner,
@@ -195,6 +204,7 @@ const changeParameters = z
         vetoMinutes: z.number().int().nullable(),
         monthlyBudgetMicros: z.number().int().nullable(),
         delivery,
+        approvalMode,
         sharedAcrossChannels,
         format,
         banner,
@@ -246,6 +256,7 @@ export function assignmentCardOf(row: {
     vetoMinutes: d.vetoMinutes,
     monthlyBudgetMicros: d.monthlyBudgetMicros,
     delivery: deliveryOf(d),
+    approvalMode: approvalModeOf(d),
     sharedAcrossChannels: sharedAcrossChannelsOf(d),
     ...(d.format ? { format: d.format } : {}),
     ...(d.banner ? { banner: d.banner } : {}),
@@ -339,7 +350,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "assignment_propose",
     namespace: "assignments",
     description:
-      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
+      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. New assignments default to human_each: each post waits for the owner before either delivery; propose delegated_review only when explicitly requested. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
     parameters: proposeParameters,
     risk: "P_proposal",
     permission: PROJECT_WRITE,
@@ -456,6 +467,7 @@ export const assignmentTools: readonly OrbitTool[] = [
               monthCostMicros: listed.monthCost.get(row.id) ?? 0,
               monthlyBudgetMicros: d.monthlyBudgetMicros,
               delivery: deliveryOf(d),
+              approvalMode: approvalModeOf(d),
               sharedAcrossChannels: sharedAcrossChannelsOf(d),
               format: d.format ?? null,
               banner: d.banner ?? null,

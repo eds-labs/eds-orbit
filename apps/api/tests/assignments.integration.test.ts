@@ -394,6 +394,7 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
         "styleAssetIds",
         "vetoMinutes",
         "monthlyBudgetMicros",
+        "approvalMode",
       ]
         .filter((key) => d[key] !== undefined)
         .map((key) => [key, d[key]]),

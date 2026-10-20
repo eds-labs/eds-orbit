@@ -19,6 +19,7 @@ import { validateDraftMission } from "../../assistant/proposals.ts";
 import { resolveChannelRules } from "../../publishing/channel-rules.ts";
 import { exportContentBundle } from "../../pipeline/content-export.ts";
 import { generateMissionLive } from "../../pipeline/generation.ts";
+import { assignmentHumanApprovalBlocker } from "../../policy/policy.ts";
 import { saveDraftDocument } from "../../brand/drive-assets.ts";
 import {
   currentMarketingProfile,
@@ -236,6 +237,9 @@ async function briefMission(
     // The confirmed delivery travels with the draft (R73, I1): the publish
     // guard reads it, never the live assignment row.
     delivery: confirmedDelivery(assignment) ?? deliveryOf(assignment),
+    ...(assignment.approvalMode
+      ? { approvalMode: assignment.approvalMode }
+      : {}),
     // The confirmed format and the channels of a shared text reach the generation contract (R76, R77).
     ...(format ? { format } : {}),
     ...(sharedChannels.length > 1 ? { sharedChannels } : {}),
@@ -451,6 +455,10 @@ export async function saveDraftToDrive(scope: Scope, contentId: string) {
   const v = data(content);
   if (v.type !== "blog" && v.type !== "newsletter")
     throw new DomainError("DRAFT_NOT_EXPORTABLE", 409);
+  const humanBlocker = await inScope((tx) =>
+    assignmentHumanApprovalBlocker(tx, scope, contentId),
+  );
+  if (humanBlocker) throw new DomainError(humanBlocker, 409);
   const bodyHash = hash(v.body);
   // An agent review counts here without the publishing conditions: a draft on Drive is never published.
   const agentApproved =

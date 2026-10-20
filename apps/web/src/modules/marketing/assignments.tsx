@@ -16,6 +16,7 @@ import {
   channelText,
   contentTypeLabels,
   deliveryText,
+  approvalModeText,
   formatText,
   sharedText,
   scheduleText,
@@ -36,6 +37,7 @@ export type AssignmentItem = Pick<
   | "channelNames"
   | "image"
   | "delivery"
+  | "approvalMode"
   | "sharedAcrossChannels"
   | "format"
   | "banner"
@@ -266,7 +268,9 @@ export function AssignmentTable({
                   </small>
                   <small>
                     {de ? "Zustellung" : "Delivery"}:{" "}
-                    {deliveryText(item.delivery, de)}
+                    {deliveryText(item.delivery, de, item.approvalMode)}
+                    <br />
+                    {approvalModeText(item.approvalMode, de)}
                   </small>
                   {item.sharedAcrossChannels && (
                     <small>{sharedText(true, de, item.image)}</small>

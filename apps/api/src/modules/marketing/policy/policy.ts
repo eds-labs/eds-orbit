@@ -15,11 +15,16 @@ import {
   resolveChannelRules,
 } from "../publishing/channel-rules.ts";
 import { channelPostsNear } from "../agents/channel-posts.ts";
-import { agentReviewAccepted } from "../agents/agent-review.ts";
+import { agentReviewAccepted, confirmedHash } from "../agents/agent-review.ts";
 import {
   ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS,
   confirmedDelivery,
+  approvalModeOf,
+  assignmentHash,
 } from "../agents/assignments.ts";
+import { actorScope } from "../../../platform/tenancy/member-scope.ts";
+import { assertModuleEnabled } from "../../../platform/modules/enforcement.ts";
+import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import { factClaimMatches, loadBrandTerms } from "./fact-claims.ts";
 import {
   DUPLICATE_DRAFT_SIMILARITY,
@@ -58,9 +63,15 @@ export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
     "evidence",
     data(content).evidenceId,
   );
+  const assignment = await contentAssignment(tx, scope, data(content));
+  const humanEach = requiresHuman(data(content), assignment);
   const connector = (await list(tx, scope, "connectors")).find(
-    (x) => data(x).provider === "postiz" && data(x).status === "write_verified",
+    (x) =>
+      data(x).provider === "postiz" &&
+      (data(x).status === "write_verified" ||
+        (humanEach && data(x).status === "read_verified")),
   );
+  const profile = humanEach ? await currentMarketingProfile(tx, scope) : null;
   const packageData = {
     projectId: scope.projectId,
     connectorId: connector?.id ?? null,
@@ -81,6 +92,16 @@ export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
     evidenceHash: hash(data(evidence)),
     policyId: policy?.id ?? null,
     policyVersion: policy?.version ?? null,
+    ...(humanEach
+      ? {
+          approvalMode: "human_each",
+          assignmentHash: assignment ? assignmentHash(data(assignment)) : null,
+          confirmedAssignmentHash: assignment
+            ? (data(assignment).confirmation?.assignmentHash ?? null)
+            : null,
+          profileVersion: profile?.version ?? null,
+        }
+      : {}),
   };
   return {
     content,
@@ -90,6 +111,97 @@ export async function packageFor(tx: DbTx, scope: Scope, contentId: string) {
     packageHash: hash(packageData),
   };
 }
+export const ASSIGNMENT_HUMAN_APPROVAL_REQUIRED =
+  "ASSIGNMENT_HUMAN_APPROVAL_REQUIRED";
+
+async function contentAssignment(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+) {
+  if (
+    typeof content.assignmentId !== "string" ||
+    !/^[0-9a-f-]{36}$/i.test(content.assignmentId)
+  )
+    return null;
+  return tx.entity.findFirst({
+    where: {
+      id: content.assignmentId,
+      kind: "assignments",
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+    },
+  });
+}
+const requiresHuman = (
+  content: Record<string, any>,
+  assignment: { data: unknown } | null,
+) =>
+  approvalModeOf(content) === "human_each" ||
+  (assignment !== null && approvalModeOf(data(assignment)) === "human_each");
+
+/** Shared decision for all external handoffs; missing legacy modes keep their original mandate. */
+export async function assignmentNeedsHumanApproval(
+  tx: DbTx,
+  scope: Scope,
+  content: Record<string, any>,
+) {
+  return requiresHuman(content, await contentAssignment(tx, scope, content));
+}
+
+/** Shared final gate for publication and every Postiz draft path. Never bypassed by ignoreApproval or agent flags. */
+export async function assignmentHumanApprovalBlocker(
+  tx: DbTx,
+  scope: Scope,
+  contentId: string,
+  at = new Date(),
+  publicationId?: string,
+) {
+  const content = await entity(tx, scope, "content", contentId);
+  const assignment = await contentAssignment(tx, scope, data(content));
+  if (!requiresHuman(data(content), assignment)) return null;
+  const pkg = await packageFor(tx, scope, contentId);
+  if (!assignment || !confirmedHash(data(assignment)))
+    return ASSIGNMENT_HUMAN_APPROVAL_REQUIRED;
+  await assertModuleEnabled(tx, scope, "marketing");
+  const publication = publicationId
+    ? await tx.entity.findFirst({
+        where: {
+          id: publicationId,
+          kind: "publications",
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+        },
+      })
+    : null;
+  const continuing =
+    publication &&
+    data(publication).status === "sending" &&
+    data(publication).contentId === contentId &&
+    data(publication).packageHash === pkg.packageHash;
+  const approvals = (await list(tx, scope, "approvals")).filter((row) => {
+    const a = data(row);
+    return (
+      a.contentId === contentId &&
+      a.packageHash === pkg.packageHash &&
+      (a.status === "approved" ||
+        (continuing &&
+          a.status === "consumed" &&
+          a.publicationId === publicationId)) &&
+      new Date(a.expiresAt) > at
+    );
+  });
+  for (const row of approvals) {
+    const actor = await actorScope(
+      scope.workspaceId,
+      scope.projectId,
+      String(data(row).userId),
+    );
+    if (actor?.role === "owner") return null;
+  }
+  return ASSIGNMENT_HUMAN_APPROVAL_REQUIRED;
+}
+
 export async function checkClaims(
   tx: DbTx,
   scope: Scope,
@@ -99,6 +211,11 @@ export async function checkClaims(
   const content = await entity(tx, scope, "content", contentId),
     v = data(content),
     problems: string[] = [];
+  if (
+    requiresHuman(v, await contentAssignment(tx, scope, v)) &&
+    v.humanReviewedBodyHash !== hash(v.body)
+  )
+    problems.push("HUMAN_CONTENT_REVIEW_REQUIRED");
   // The owner's review of exactly this text, or an agent review that stands in for it (spec §6).
   let reviewed: boolean | undefined;
   const contentReviewed = async () =>
@@ -304,6 +421,8 @@ export async function preflight(
     test: boolean;
     at?: Date;
     ignoreApproval?: boolean;
+    // Only a claimed publication may continue using its own consumed exact approval.
+    approvalPublicationId?: string;
     // Only for a publication scheduled by an assignment run (R52).
     veto?: VetoWindow;
   } = {
@@ -314,6 +433,14 @@ export async function preflight(
     pkg = await packageFor(tx, scope, contentId),
     c = data(pkg.content);
   const blockers: string[] = [];
+  const humanBlocker = await assignmentHumanApprovalBlocker(
+    tx,
+    scope,
+    contentId,
+    at,
+    options.approvalPublicationId,
+  );
+  if (humanBlocker) blockers.push(humanBlocker);
   let released: boolean | undefined;
   const vetoReleased = async () =>
     (released ??= await releasedByVeto(tx, scope, c, options.veto));

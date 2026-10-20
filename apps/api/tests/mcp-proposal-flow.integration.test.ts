@@ -406,7 +406,10 @@ describe.skipIf(!enabled)(
       // The request names the MCP client and grant, the arguments only by hash.
       const request = await requestRow(out.actionRequestId);
       const grant = await grantOf("editor");
-      const normalized = assignmentInput.parse(dropNullFields(args));
+      const normalized = {
+        ...assignmentInput.parse(dropNullFields(args)),
+        approvalMode: "human_each",
+      };
       expect(data(request)).toMatchObject({
         actionType: "assignment.confirm",
         status: "pending",
@@ -465,7 +468,13 @@ describe.skipIf(!enabled)(
       )!;
       expect(item).toMatchObject({
         actionType: "assignment.confirm",
-        summary: { assignment: { id: out.assignmentId, name: args.name } },
+        summary: {
+          assignment: {
+            id: out.assignmentId,
+            name: args.name,
+            approvalMode: "human_each",
+          },
+        },
       });
       // The list names the client, never the grant, run or argument hash
       // (D-M5-8); the stored request keeps them.

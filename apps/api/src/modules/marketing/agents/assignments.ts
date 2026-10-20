@@ -129,6 +129,8 @@ const assignmentFields = z
     // or only created as drafts in Postiz at their slot, which the owner
     // publishes himself. Absent means "publish" (rows from before R73).
     delivery: z.enum(["publish", "postiz_draft"]).optional(),
+    // Absent on legacy rows: retain their delegated review/veto mandate.
+    approvalMode: z.enum(["human_each", "delegated_review"]).optional(),
     // One text and one image per slot for all channels (R76). Absent means
     // false: one text per channel, as before R76.
     sharedAcrossChannels: z.boolean().optional(),
@@ -192,6 +194,14 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
 });
 export type AssignmentInput = z.output<typeof assignmentInput>;
 
+export type ApprovalMode = "human_each" | "delegated_review";
+/** Missing fields preserve legacy authority; unknown values fail closed. */
+export const approvalModeOf = (source: Record<string, any>) =>
+  source.approvalMode === undefined ||
+  source.approvalMode === "delegated_review"
+    ? ("delegated_review" as const)
+    : ("human_each" as const);
+
 export type Delivery = "publish" | "postiz_draft";
 /** Preflight blocker for any publication of a draft-delivery assignment's content (R73). */
 export const ASSIGNMENT_DELIVERS_POSTIZ_DRAFTS =
@@ -232,6 +242,7 @@ export const sharedAcrossChannels = (
 // Field values that equal the behaviour before the field existed; the hash leaves them out.
 const LEGACY_DEFAULTS: Partial<Record<keyof Content, unknown>> = {
   delivery: "publish",
+  approvalMode: "delegated_review",
   sharedAcrossChannels: false,
 };
 
@@ -484,6 +495,7 @@ async function saveProposal(
   conversationId: string | null,
   requester?: RequestedBy,
 ) {
+  content = { ...content, approvalMode: content.approvalMode ?? "human_each" };
   await assertWithinMandate(tx, scope, content, null);
   const row = await create(tx, scope, KIND, {
     ...content,
@@ -534,6 +546,7 @@ export async function proposeAssignmentFromMcp(
     throw new DomainError("MCP_CHANNEL_INCOMPLETE", 500);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const content = assignmentInput.parse(raw);
+  content.approvalMode ??= "human_each";
   const requester = mcpRequester(origin, scope.projectId, content);
   const { argsHash } = requester;
   // The project transaction serializes proposals, so a concurrent retry sees the first one.
@@ -644,6 +657,7 @@ export async function confirmAssignment(
       imageRightsConsent: d.image === true,
       // The confirmed delivery (R73); the content guard and the runs read it from here.
       delivery: deliveryOf(d),
+      approvalMode: approvalModeOf(d),
     },
   });
   await audit(tx, scope, "assignment.confirmed", row.id, {

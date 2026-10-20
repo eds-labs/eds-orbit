@@ -432,3 +432,12 @@ describe("refreshOnConflict", () => {
     expect(await refreshOnConflict(async () => 7, refresh)).toBe(7);
   });
 });
+
+it("shows the human approval requirement on the management table", () => {
+  const html = render([item({ approvalMode: "human_each" })]);
+  expect(html).toContain(
+    "Jeden Beitrag vor externer Übergabe selbst freigeben",
+  );
+  expect(html).toContain("Veröffentlichen nach deiner Freigabe");
+  expect(html).not.toContain("Veröffentlichen nach dem Veto-Fenster");
+});

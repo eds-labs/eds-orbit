@@ -906,6 +906,7 @@ async function generateMissionDraft(
             briefKey: m.briefKey,
             // The delivery confirmed when the mission was made (R73, I1).
             ...(m.delivery ? { delivery: m.delivery } : {}),
+            ...(m.approvalMode ? { approvalMode: m.approvalMode } : {}),
           }
         : {}),
       evidenceId: prepared.evidence.id,

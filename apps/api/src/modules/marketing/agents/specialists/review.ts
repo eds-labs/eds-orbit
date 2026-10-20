@@ -102,6 +102,7 @@ export const AGENT_SECOND_REVIEW_NOT_APPROVED =
 const DECIDED_BY_REVIEW = new Set([
   // The owner or agent content review: what this step produces.
   "HUMAN_CONTENT_REVIEW_REQUIRED",
+  "ASSIGNMENT_HUMAN_APPROVAL_REQUIRED",
   // The `reviewed` status: set by the outcome of this step.
   "REVIEW_REQUIRED",
   // Assignment missions are draft-only; the publishing permission is checked at handoff.

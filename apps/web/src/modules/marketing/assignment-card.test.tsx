@@ -209,3 +209,35 @@ describe("AssignmentCard", () => {
     expect(html).toContain("Wartet auf Bestätigung durch den Owner");
   });
 });
+
+describe("Approval-first assignment presentation", () => {
+  for (const delivery of ["publish", "postiz_draft"] as const) {
+    it(`shows human_each separately from ${delivery} without promising veto publishing`, () => {
+      const html = renderToStaticMarkup(
+        <AssignmentCard
+          assignment={{
+            ...assignment(false),
+            approvalMode: "human_each",
+            delivery,
+          }}
+          status="draft"
+          request={{
+            id: "request",
+            version: 1,
+            packageHash: "a".repeat(64),
+            status: "pending",
+          }}
+          de={false}
+          canDecide
+          pending={false}
+          onConfirm={() => {}}
+          onReject={() => {}}
+        />,
+      );
+      expect(html).toContain("Approve each post before any external handoff");
+      expect(html).toContain("You must explicitly approve each post");
+      expect(html).not.toContain("unless you stop them");
+      expect(html).not.toContain("Published after the veto window");
+    });
+  }
+});

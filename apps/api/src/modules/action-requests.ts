@@ -770,6 +770,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
                 image: d.payload.image,
                 styleAssetIds: d.payload.styleAssetIds,
                 vetoMinutes: d.payload.vetoMinutes,
+                approvalMode: d.payload.approvalMode ?? "delegated_review",
                 monthlyBudgetMicros: d.payload.monthlyBudgetMicros,
                 // Absent in the payload means "publish" (R73).
                 delivery:

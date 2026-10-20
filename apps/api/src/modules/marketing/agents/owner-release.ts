@@ -10,7 +10,12 @@ import { activePolicy, approve, packageFor } from "../policy/policy.ts";
 import { publishIntent, reviewContent } from "../pipeline/workflow.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { SLOT_UNAVAILABLE } from "./assignment-runs.ts";
-import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
+import {
+  agentsEnabled,
+  confirmedDelivery,
+  deliveryOf,
+  approvalModeOf,
+} from "./assignments.ts";
 import { bookPostizDraft } from "./draft-delivery.ts";
 import { postizDraftsEnabled } from "../publishing/postiz-draft.ts";
 import {
@@ -266,7 +271,11 @@ export async function releaseAssignmentDraft(
         "CONTENT_REVIEW_REQUIRED",
       409,
     );
-  if (data(policyRow).mode === "assisted") {
+  if (
+    data(policyRow).mode === "assisted" ||
+    c.approvalMode === "human_each" ||
+    approvalModeOf(assignment) === "human_each"
+  ) {
     const post = await packageFor(tx, scope, reviewed.id);
     await approve(
       tx,
@@ -381,6 +390,27 @@ async function releaseAsPostizDraft(
         "CONTENT_REVIEW_REQUIRED",
       409,
     );
+  const assignment = data(
+    await entity(tx, scope, "assignments", c.assignmentId),
+  );
+  if (
+    c.approvalMode === "human_each" ||
+    approvalModeOf(assignment) === "human_each"
+  ) {
+    const pkg = await packageFor(tx, scope, reviewed.id);
+    await approve(
+      tx,
+      scope,
+      {
+        contentId: reviewed.id,
+        version: reviewed.version,
+        packageHash: pkg.packageHash,
+      },
+      new Date(
+        Math.max(Date.now() + 86400000, target.valueOf() + SLOT_WINDOW_MS),
+      ),
+    );
+  }
   const handoff = await bookPostizDraft(tx, scope, {
     content: reviewed,
     slotAt: target,

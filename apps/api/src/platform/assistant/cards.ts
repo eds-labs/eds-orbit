@@ -32,6 +32,7 @@ export type AssignmentCard = {
   monthlyBudgetMicros: number;
   // How approved posts leave Orbit (R73): published, or only drafts in Postiz.
   delivery: "publish" | "postiz_draft";
+  approvalMode?: "human_each" | "delegated_review";
   // One text and one image per slot for all channels (R76).
   sharedAcrossChannels: boolean;
   // The shape of every post (R77); absent for none.
