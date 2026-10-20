@@ -245,6 +245,10 @@ export function mcpAuthPluginOptions(config: Config, deps: McpAuthDeps) {
     resources: [
       { identifier: config.MCP_RESOURCE, allowedScopes: [...MCP_SCOPES] },
     ],
+    // Reconcile the code-owned scope ceiling on upgrades. insertOnly leaves
+    // old installations silently stripping newly consented Support scopes.
+    // Merge preserves unspecified admin policy (disabled, TTL, keys, DPoP).
+    resourceSeedMode: "merge",
     // Authorization code with PKCE plus refresh; no client credentials.
     grantTypes: ["authorization_code", "refresh_token"],
     accessTokenExpiresIn: 600,

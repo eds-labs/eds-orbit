@@ -1,5 +1,14 @@
 # Requirements traceability
 
+## Persisted resource scope upgrades (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Upgrade the existing configured resource ceiling | Pre-seeded legacy resource fails before merge and passes after in `mcp-2-gateway.integration` | PASS_TEST |
+| Preserve non-scope resource policy | Disabled flag, access/refresh TTL and custom claims survive auth initialization in the same fixture | PASS_TEST |
+| Read tickets and refresh after an upgrade | Complete HTTP/OAuth suite runs against the legacy resource fixture; consent, narrow tokens and foreign projects remain guarded | PASS_TEST |
+| Real failing ChatGPT ticket request | Observed support scope in actual authorization URL and reproduced reconnect before correction; post-deploy acceptance pending | NOT_RUN |
+
 ## Support OAuth client interoperability (2026-10-20, local)
 
 | Requirement                                                                              | Evidence                                                                                                              | State     |

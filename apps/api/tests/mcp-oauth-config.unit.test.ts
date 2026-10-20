@@ -93,6 +93,7 @@ describe("MCP OAuth configuration", () => {
       refreshTokenReuseInterval: 30,
       scopes: MCP_SCOPES,
       resources: [{ identifier: RESOURCE, allowedScopes: MCP_SCOPES }],
+      resourceSeedMode: "merge",
       allowDynamicClientRegistration: false,
       loginPage: "/connect/login",
       consentPage: "/connect",

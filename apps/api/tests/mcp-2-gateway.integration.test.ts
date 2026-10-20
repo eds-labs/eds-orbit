@@ -17,6 +17,7 @@ import { loadConfig } from "../../../packages/config/src/index.ts";
 import { buildServer } from "../src/server.ts";
 import { buildMcpServer } from "../src/platform/mcp/server.ts";
 import { makeAuth } from "../src/auth.ts";
+import { MCP_SCOPES } from "../src/platform/mcp-auth/plugins.ts";
 import { createPackageProject } from "./support/package-project.ts";
 import {
   createFlowDriver,
@@ -38,6 +39,7 @@ describe.skipIf(!enabled)(
       token = "";
     const client = `https://client.test/mcp2-${randomUUID()}.json`;
     const supportScopes = `${SCOPES} orbit:support`;
+    const resource = `${process.env.APP_ORIGIN}/mcp-upgrade-${randomUUID()}`;
     const clientKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const clientJwk = {
       ...clientKeys.publicKey.export({ format: "jwk" }),
@@ -73,6 +75,7 @@ describe.skipIf(!enabled)(
       ORBIT_SUPPORT: "true",
       ORBIT_MODULES: "true",
       ORBIT_MCP_CIMD_HOSTS: "client.test",
+      MCP_RESOURCE: resource,
     };
     const driver = createFlowDriver({
       app: () => api,
@@ -121,6 +124,34 @@ describe.skipIf(!enabled)(
         saved[key] = process.env[key];
         process.env[key] = value;
       }
+      // Existing installations retain the first resource policy across deploys.
+      // Use a unique resource so this upgrade fixture never alters other tests.
+      await authDb.oauthResource.create({
+        data: {
+          id: randomUUID(),
+          identifier: resource,
+          name: "Legacy MCP resource",
+          allowedScopes: SCOPES.split(" "),
+          accessTokenTtl: 91,
+          refreshTokenTtl: 3600,
+          disabled: true,
+          customClaims: { upgradeSentinel: "preserved" },
+        },
+      });
+      await makeAuth({ cimdFetch }).$context;
+      const bootstrapped = await authDb.oauthResource.findUniqueOrThrow({
+        where: { identifier: resource },
+      });
+      expect(bootstrapped.disabled).toBe(true);
+      expect(bootstrapped.accessTokenTtl).toBe(91);
+      expect(bootstrapped.refreshTokenTtl).toBe(3600);
+      expect(bootstrapped.customClaims).toEqual({
+        upgradeSentinel: "preserved",
+      });
+      await authDb.oauthResource.update({
+        where: { identifier: resource },
+        data: { disabled: false },
+      });
       api = await buildServer(undefined, { cimdFetch });
       await api.listen({ port: 0, host: "127.0.0.1" });
       const jwksUrl = `http://127.0.0.1:${(api.server.address() as { port: number }).port}/api/auth/jwks`;
@@ -166,11 +197,28 @@ describe.skipIf(!enabled)(
       await project?.cleanup();
       if (userId) await authDb.user.delete({ where: { id: userId } });
       await authDb.oauthClient.deleteMany({ where: { clientId: client } });
+      await authDb.oauthResource.deleteMany({
+        where: { identifier: resource },
+      });
       for (const [key, value] of Object.entries(saved)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;
       }
       await closeDatabase();
+    });
+    it("reconciles legacy resource scopes on startup without replacing other policy", async () => {
+      const stored = await authDb.oauthResource.findUniqueOrThrow({
+        where: { identifier: resource },
+      });
+      expect(stored.allowedScopes).toEqual([...MCP_SCOPES]);
+      expect(stored.accessTokenTtl).toBe(91);
+      expect(stored.refreshTokenTtl).toBe(3600);
+      expect(stored.customClaims).toEqual({ upgradeSentinel: "preserved" });
+      const profile = (
+        await rpc("tools/call", { name: "orbit_profile", arguments: {} })
+      ).json().result.structuredContent;
+      expect(profile.grantedScopes).toContain("orbit:support");
+      expect(profile.effectiveScopes).toContain("orbit:support");
     });
     it("keeps old tools, lists new capabilities, creates through real OAuth and reads durable task state after the gateway restarts", async () => {
       const profile = (

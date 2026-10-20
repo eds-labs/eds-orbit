@@ -162,3 +162,10 @@ A diagnostic POST with an intentionally nonexistent code and public client ID mu
 ## Support scope interoperability follow-up (2026-10-20)
 
 `tools/list` publishes top-level `securitySchemes` and an identical `_meta.securitySchemes` compatibility mirror, including `orbit:support` for ticket content tools. A missing Support token scope returns a tool-level challenge that retains existing token scopes (including refresh access) plus the required Support scope. The client's new authorization and explicit consent must issue a correctly scoped token; a saved grant alone cannot authorize the old token. No flag, secret or migration change is needed. After deployment, refresh the existing development plugin's tool catalog; do not delete/recreate the app as a first step. Confirm an actual `support_list_tickets` read and later refresh in ChatGPT separately from a successful profile/Marketing read. See `docs/plans/MCP_SUPPORT_SCOPE_INTEROP.md` for tests and rollback.
+
+
+## Persisted resource scopes during upgrades (2026-10-20)
+
+OAuth provider resources use `resourceSeedMode: merge`. Orbit owns the explicitly configured `allowedScopes` list for its canonical MCP resource; other policy fields and other resources are preserved. The default `insertOnly` leaves an older installation stripping `orbit:support`/`orbit:write` even after those scopes are advertised and consented. Reauthorization is necessary to obtain a fresh Support-scoped token; refreshing an older narrow token must not widen it. Normal user consent, active grants and per-call scope intersection remain required.
+
+This startup reconciliation persists the configured resource ceiling. Rolling code back to insertOnly does not revert that policy: explicitly configure the prior allowedScopes list with merge and redeploy, or use the supported operator resource-policy API with approval. Do not delete resource/client/grant data. See `docs/plans/MCP_RESOURCE_SCOPE_UPGRADE.md`. Real ticket reads and refresh are separate from profile/Marketing readiness.
