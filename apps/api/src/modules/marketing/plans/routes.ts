@@ -11,6 +11,7 @@ import { scopeFor, userFor } from "../../../platform/tenancy/auth.ts";
 import { chatScoped } from "../../chat.ts";
 import { data, entity } from "../../../shared.ts";
 import { PLAN_KIND, planAccess, planView, proposePlan } from "./service.ts";
+import { activationInput, proposeActivation, pausePlan } from "./activation.ts";
 const projectParams = z.object({ projectId: z.uuid() }).strict();
 const params = z.object({ projectId: z.uuid(), id: z.uuid() }).strict();
 const json = (schema: z.ZodType) => {
@@ -119,6 +120,48 @@ export const marketingPlanRoutes: RoutesContribution = ({ app, auth }) => {
             version: input.version,
           }),
         ),
+      );
+    },
+  );
+  app.post(
+    "/api/projects/:projectId/marketing-plans/:id/activation",
+    {
+      preValidation: gate(true),
+      schema: {
+        params: json(params),
+        body: json(activationInput),
+        response: { 200: json(marketingPlanView) },
+      },
+    },
+    async (req) => {
+      const { projectId, id } = params.parse(req.params),
+        scope = await scopeFor(auth, req, projectId);
+      return jsonSafe(
+        await chatScoped(scope, (tx) =>
+          proposeActivation(tx, scope, id, req.body),
+        ),
+      );
+    },
+  );
+  app.post(
+    "/api/projects/:projectId/marketing-plans/:id/pause",
+    {
+      preValidation: gate(true),
+      schema: {
+        params: json(params),
+        body: json(z.object({ version: z.number().int().positive() }).strict()),
+        response: { 200: json(marketingPlanView) },
+      },
+    },
+    async (req) => {
+      const { projectId, id } = params.parse(req.params),
+        scope = await scopeFor(auth, req, projectId);
+      const { version } = z
+        .object({ version: z.number().int().positive() })
+        .strict()
+        .parse(req.body);
+      return jsonSafe(
+        await chatScoped(scope, (tx) => pausePlan(tx, scope, id, version)),
       );
     },
   );

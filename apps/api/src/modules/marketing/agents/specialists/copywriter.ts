@@ -163,6 +163,22 @@ async function briefMission(
         brief.factKeys,
       );
   if (!link) throw new DomainError("LINK_NOT_ALLOWED", 409);
+  const plan = assignment.marketingPlan
+    ? data(
+        await entity(
+          tx,
+          scope,
+          "marketing_plans",
+          assignment.marketingPlan.planId,
+        ),
+      ).spec
+    : null;
+  if (
+    plan &&
+    (link.url !== plan.cta.url ||
+      facts.some((f) => !plan.facts.some((r: any) => r.id === f.id)))
+  )
+    throw new DomainError("PLAN_BRIEF_OUTSIDE_ENVELOPE", 409);
   const slot = Date.parse(brief.slotAt);
   if (!Number.isFinite(slot) || slot <= now.valueOf())
     throw new DomainError("SLOT_PASSED", 409);
@@ -183,18 +199,18 @@ async function briefMission(
           160,
         ),
       goal: `${brief.topic}. ${brief.angle}`.slice(0, 2000),
-      audience: profile.audience.slice(0, 300),
-      product: profile.productName,
+      audience: plan?.audience ?? profile.audience.slice(0, 300),
+      product: plan?.productScope ?? profile.productName,
       language: profile.contentLanguage,
       channels: [brief.channel],
       maxContents: 1,
       // The CTA stays the profile's approved one; the brief's cta only steers the text.
-      targetAction: profile.primaryCtas[0],
+      targetAction: plan?.cta.label ?? profile.primaryCtas[0],
       targetUrl: link.url,
       sourceIds: [...new Set(facts.map((fact) => data(fact).sourceId))],
       assetIds: [],
       contentType: assignment.contentType,
-      campaignType: "product",
+      campaignType: plan?.campaignType ?? "product",
       profileVersion: profileRow.version,
       startAt: now.toISOString(),
       endAt: new Date(
@@ -219,6 +235,7 @@ async function briefMission(
     factKeys: facts.map((fact) => data(fact).key),
     assignmentId: task.assignmentId,
     assignmentRunId: task.runId,
+    ...(assignment.marketingPlan ? { marketingPlan: assignment.marketingPlan } : {}),
     briefKey: briefKey(brief),
     brief: {
       topic: brief.topic,

@@ -36,7 +36,11 @@ import {
 } from "../../../platform/knowledge/facts.ts";
 import { activePolicy } from "../policy/policy.ts";
 import { assertAssignedSocialChannels } from "../publishing/postiz-assignment.ts";
-import { agentsEnabled, committedBudget } from "../agents/assignments.ts";
+import {
+  assignmentHash,
+  agentsEnabled,
+  committedBudget,
+} from "../agents/assignments.ts";
 import {
   createActionRequest,
   cancelActionRequest,
@@ -47,6 +51,8 @@ import { connectionVerified } from "../../../platform/connections/connections.ts
 import { conversation } from "../../chat.ts";
 import { budgetMonthStart } from "../../../platform/ai/budget.ts";
 
+import { latestAssignmentResult } from "../agents/assignment-result.ts";
+import { pauseOwnedChildren } from "./lifecycle.ts";
 export const PLAN_KIND = "marketing_plans";
 export async function planAccess(tx: DbTx, scope: Scope, write = false) {
   await assertModuleEnabled(tx, scope, "marketing");
@@ -86,10 +92,16 @@ function assertSource(raw: unknown) {
 }
 
 /** Current references and capacity, never a new spend mandate. */
-async function validateSpec(tx: DbTx, scope: Scope, spec: MarketingPlanSpec) {
+async function validateSpec(
+  tx: DbTx,
+  scope: Scope,
+  spec: MarketingPlanSpec,
+  execution = false,
+  ownedIds: string[] = [],
+) {
   const now = Date.now();
   if (
-    Date.parse(spec.horizon.startAt) < now - 300000 ||
+    (!execution && Date.parse(spec.horizon.startAt) < now - 300000) ||
     Date.parse(spec.horizon.startAt) > now + 90 * 86400000 ||
     Date.parse(spec.horizon.endAt) <= now
   )
@@ -178,12 +190,13 @@ async function validateSpec(tx: DbTx, scope: Scope, spec: MarketingPlanSpec) {
       )
         throw new DomainError("PLAN_BASELINE_STALE", 409);
     }
-  let linkedBudget = 0;
+  let linkedBudget = 0,
+    ownedBudget = 0;
   for (const ref of spec.existingWork) {
     const row = await entity(tx, scope, ref.kind, ref.id);
     const d = data(row);
     if (
-      row.version !== ref.version ||
+      (!ownedIds.includes(ref.id) && row.version !== ref.version) ||
       ["ended", "archived", "completed"].includes(d.status)
     )
       throw new DomainError("PLAN_WORK_STALE", 409);
@@ -191,12 +204,21 @@ async function validateSpec(tx: DbTx, scope: Scope, spec: MarketingPlanSpec) {
       ref.kind === "assignments" &&
       ["active", "paused", "budget_exhausted"].includes(d.status)
     )
-      linkedBudget += Number(d.monthlyBudgetMicros ?? 0);
+      if (ownedIds.includes(row.id))
+        ownedBudget += Number(d.monthlyBudgetMicros ?? 0);
+      else linkedBudget += Number(d.monthlyBudgetMicros ?? 0);
+  }
+  for (const id of ownedIds.filter(
+    (id) => !spec.existingWork.some((r) => r.id === id),
+  )) {
+    const owned = await entity(tx, scope, "assignments", id);
+    if (["active", "paused", "budget_exhausted"].includes(data(owned).status))
+      ownedBudget += Number(data(owned).monthlyBudgetMicros ?? 0);
   }
   const committed = await committedBudget(tx, scope, null);
   if (
     spec.monthlyBudgetMicros < linkedBudget ||
-    committed - linkedBudget + spec.monthlyBudgetMicros >
+    committed - linkedBudget - ownedBudget + spec.monthlyBudgetMicros >
       Number(p.monthlyBudgetMicros)
   )
     throw new DomainError("PLAN_BUDGET_EXCEEDS_PROJECT", 409);
@@ -208,12 +230,19 @@ async function validateSpec(tx: DbTx, scope: Scope, spec: MarketingPlanSpec) {
   return [...sources.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-async function validateSaved(tx: DbTx, scope: Scope, row: { data: unknown }) {
+export async function validateSaved(
+  tx: DbTx,
+  scope: Scope,
+  row: { data: unknown },
+  execution = false,
+) {
   const d = data(row);
   const sources = await validateSpec(
     tx,
     scope,
     marketingPlanSpec.parse(d.spec),
+    execution,
+    execution ? (d.activation?.children ?? []).map((c: any) => c.id) : [],
   );
   if (hash({ spec: d.spec, sources }) !== d.specHash)
     throw new DomainError("PLAN_SOURCE_SNAPSHOT_STALE", 409);
@@ -224,7 +253,7 @@ export async function planView(tx: DbTx, scope: Scope, id: string) {
     d = data(row);
   const blockers: string[] = [];
   try {
-    await validateSaved(tx, scope, row);
+    await validateSaved(tx, scope, row, Boolean(d.activation));
   } catch (error) {
     if (!(error instanceof DomainError)) throw error;
     blockers.push(
@@ -237,12 +266,58 @@ export async function planView(tx: DbTx, scope: Scope, id: string) {
       scope.projectId,
       d.review.userId,
     );
-    if (reviewer?.role !== "owner")
+    if (!reviewer || moduleScope(reviewer, "marketing").role !== "owner")
       blockers.push("PLAN_REVIEWER_NO_LONGER_OWNER");
+  }
+  if (d.activation && d.status === "active") {
+    const activator = await actorScope(
+      scope.workspaceId,
+      scope.projectId,
+      d.activation.userId,
+    );
+    if (!activator || moduleScope(activator, "marketing").role !== "owner")
+      blockers.push("PLAN_OWNER_REVOKED");
+    for (const child of d.activation.children) {
+      const work = await tx.entity.findFirst({
+        where: {
+          id: child.id,
+          kind: "assignments",
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+        },
+      });
+      if (
+        !work ||
+        assignmentHash(data(work)) !== child.assignmentHash ||
+        data(work).marketingPlan?.requestId !== d.activation.requestId
+      )
+        blockers.push("PLAN_CHILD_CHANGED");
+    }
+    for (const ref of d.activation.assets) {
+      const asset = await tx.entity.findFirst({
+        where: {
+          id: ref.id,
+          kind: "assets",
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+        },
+      });
+      if (!asset || asset.version !== ref.version)
+        blockers.push("PLAN_ASSET_VERSION_STALE");
+    }
   }
   const spec = marketingPlanSpec.parse(d.spec);
   const linkedWork = await Promise.all(
-    spec.existingWork.map(async (ref) => {
+    [
+      ...spec.existingWork,
+      ...(d.activation?.children ?? [])
+        .filter((c: any) => !spec.existingWork.some((r) => r.id === c.id))
+        .map((c: any) => ({
+          kind: "assignments" as const,
+          id: c.id,
+          version: c.version,
+        })),
+    ].map(async (ref) => {
       const work = await tx.entity.findFirst({
         where: {
           workspaceId: scope.workspaceId,
@@ -253,19 +328,31 @@ export async function planView(tx: DbTx, scope: Scope, id: string) {
       });
       const latest =
         ref.kind === "assignments" && work
-          ? await tx.entity.findFirst({
-              where: {
-                workspaceId: scope.workspaceId,
-                projectId: scope.projectId,
-                kind: "assignment_runs",
-                data: { path: ["assignmentId"], equals: ref.id },
-              },
-              orderBy: { createdAt: "desc" },
-            })
+          ? await latestAssignmentResult(tx, scope, ref.id)
           : null;
+      const deliveryIds =
+        latest?.deliverables.flatMap((item) =>
+          [item.publicationId, item.postizDraftId].filter((id): id is string =>
+            Boolean(id),
+          ),
+        ) ?? [];
+      const deliveryRows = deliveryIds.length
+        ? await tx.entity.findMany({
+            where: {
+              workspaceId: scope.workspaceId,
+              projectId: scope.projectId,
+              kind: { in: ["publications", "postiz_drafts"] },
+              id: { in: deliveryIds },
+            },
+            take: 32,
+          })
+        : [];
       return {
         id: ref.id,
         kind: ref.kind,
+        owned: Boolean(
+          d.activation?.children.some((c: any) => c.id === ref.id),
+        ),
         expectedVersion: ref.version,
         currentVersion: work?.version ?? null,
         title: work
@@ -276,8 +363,17 @@ export async function planView(tx: DbTx, scope: Scope, id: string) {
         latestRun: latest
           ? {
               id: latest.id,
-              status: String(data(latest).status),
-              costMicros: Number(data(latest).costMicros ?? 0),
+              status: latest.status,
+              costMicros: latest.costMicros,
+              deliveries: deliveryRows.map((r) => ({
+                id: r.id,
+                kind: r.kind,
+                status: String(data(r).status),
+                remoteId:
+                  typeof data(r).remoteId === "string"
+                    ? data(r).remoteId
+                    : null,
+              })),
             }
           : null,
       };
@@ -295,12 +391,22 @@ export async function planView(tx: DbTx, scope: Scope, id: string) {
     spec: marketingPlanSpec.parse(d.spec),
     sourceSnapshot: d.sources,
     linkedWork,
-    status: blockers.length ? ("blocked" as const) : ("proposed" as const),
+    status: blockers.length
+      ? ("blocked" as const)
+      : ((d.status ?? "proposed") as
+          "proposed" | "active" | "paused" | "completed"),
     blockers,
     strategicallyReviewed:
       !blockers.length && d.review?.specHash === d.specHash,
     reviewedAt: d.review?.at ?? null,
-    activationAvailable: false as const,
+    activationAvailable:
+      !blockers.length &&
+      d.review?.specHash === d.specHash &&
+      d.status !== "active",
+    activation: d.activation ?? null,
+    activationRequest: d.activationRequestId
+      ? await activationRequestView(tx, scope, d.activationRequestId)
+      : null,
     actionRequest: request
       ? {
           id: request.id,
@@ -323,7 +429,18 @@ export async function proposePlan(
   await planAccess(tx, scope, true);
   if (originConversation) await conversation(tx, scope, originConversation);
   const spec = marketingPlanSpec.parse(raw);
-  const sources = await validateSpec(tx, scope, spec);
+  const previous = changing
+    ? await entity(tx, scope, PLAN_KIND, changing.id)
+    : null;
+  const sources = await validateSpec(
+    tx,
+    scope,
+    spec,
+    Boolean(previous && data(previous).activation),
+    previous
+      ? (data(previous).activation?.children ?? []).map((c: any) => c.id)
+      : [],
+  );
   const specHash = hash({ spec, sources });
   let row;
   if (changing) {
@@ -331,6 +448,14 @@ export async function proposePlan(
     if (row.version !== changing.version)
       throw new DomainError("VERSION_CONFLICT", 409);
     if (data(row).specHash === specHash) return planView(tx, scope, row.id);
+    if (data(row).activation) await pauseOwnedChildren(tx, scope, row);
+    if (data(row).activationRequestId)
+      await cancelActionRequest(
+        tx,
+        scope,
+        data(row).activationRequestId,
+        "PLAN_REVISED",
+      );
     if (data(row).actionRequestId)
       await cancelActionRequest(
         tx,
@@ -345,6 +470,7 @@ export async function proposePlan(
       specHash,
       revision: Number(data(row).revision) + 1,
       review: null,
+      activationRequestId: null,
       status: "proposed",
       actionRequestId: null,
     });
@@ -419,7 +545,7 @@ export async function revalidatePlanReview(
     hash(d.sources) !== hash(payload.sourceSnapshot)
   )
     throw new DomainError("PLAN_REVISION_STALE", 409);
-  await validateSaved(tx, scope, row);
+  await validateSaved(tx, scope, row, Boolean(d.activation));
 }
 export async function recordPlanReview(
   tx: DbTx,
@@ -616,7 +742,8 @@ export async function planContext(tx: DbTx, scope: Scope) {
             (link: any) => String(link.url).length > 600,
           )),
     },
-    activationAvailable: false,
+    activationAvailable: true,
+    activationContextTool: "marketing_plan_activation_context",
     specContract: z.toJSONSchema(marketingPlanSpec, { io: "input" }),
   };
   const bounded = [
@@ -635,4 +762,17 @@ export async function planContext(tx: DbTx, scope: Scope) {
   if (Buffer.byteLength(JSON.stringify(output)) > 32000)
     throw new DomainError("PLAN_CONTEXT_TOO_LARGE", 409);
   return output;
+}
+
+async function activationRequestView(tx: DbTx, scope: Scope, id: string) {
+  const row = await entity(tx, scope, "action_requests", id),
+    d = data(row);
+  return {
+    id: row.id,
+    version: row.version,
+    packageHash: d.packageHash,
+    status: d.status,
+    expiresAt: d.expiresAt,
+    payload: d.payload,
+  };
 }

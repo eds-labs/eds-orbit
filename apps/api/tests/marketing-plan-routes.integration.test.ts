@@ -137,7 +137,7 @@ describe.skipIf(!enabled)("Marketing plan native routes", () => {
     expect(saved.json()).toMatchObject({
       status: "proposed",
       strategicallyReviewed: true,
-      activationAvailable: false,
+      activationAvailable: true,
     });
     const exported = await request(
       "viewer",
@@ -267,5 +267,108 @@ describe.skipIf(!enabled)("Marketing plan native routes", () => {
     expect(
       (await request("owner", "GET", "marketing-plans")).json(),
     ).toMatchObject({ items: [] });
+  });
+  it("proposes exact activation with native role guards, owner consent and pause", async () => {
+    const created = (
+      await request("owner", "POST", "marketing-plans", await input())
+    ).json();
+    const review = await request(
+      "owner",
+      "POST",
+      `action-requests/${created.actionRequest.id}/decide`,
+      {
+        version: created.actionRequest.version,
+        packageHash: created.actionRequest.packageHash,
+        decision: "approve",
+      },
+    );
+    expect(review.statusCode).toBe(200);
+    let plan = (
+      await request("owner", "GET", `marketing-plans/${created.id}`)
+    ).json();
+    const body = {
+      version: plan.version,
+      children: [
+        {
+          key: "weekly",
+          assignment: {
+            name: "Native exact assignment",
+            kind: "standing",
+            contentType: "social",
+            channels: plan.spec.channels,
+            schedule: { ...plan.spec.cadence, leadMinutes: 360 },
+            topicFrame: "Reviewed synthetic beta education",
+            image: true,
+            styleAssetIds: [],
+            monthlyBudgetMicros: 20_000_000,
+            approvalMode: "human_each",
+            delivery: "publish",
+            vetoMinutes: 180,
+          },
+        },
+      ],
+    };
+    expect(
+      (
+        await request(
+          "viewer",
+          "POST",
+          `marketing-plans/${plan.id}/activation`,
+          body,
+        )
+      ).statusCode,
+    ).toBe(403);
+    const proposed = await request(
+      "editor",
+      "POST",
+      `marketing-plans/${plan.id}/activation`,
+      body,
+    );
+    expect(proposed.statusCode, proposed.body).toBe(200);
+    plan = proposed.json();
+    const r = plan.activationRequest;
+    expect(
+      (
+        await request("editor", "POST", `action-requests/${r.id}/decide`, {
+          version: r.version,
+          packageHash: r.packageHash,
+          decision: "approve",
+          imageRightsConsent: true,
+        })
+      ).statusCode,
+    ).toBe(403);
+    expect(
+      (
+        await request("owner", "POST", `action-requests/${r.id}/decide`, {
+          version: r.version,
+          packageHash: r.packageHash,
+          decision: "approve",
+        })
+      ).statusCode,
+    ).toBe(409);
+    const approved = await request(
+      "owner",
+      "POST",
+      `action-requests/${r.id}/decide`,
+      {
+        version: r.version,
+        packageHash: r.packageHash,
+        decision: "approve",
+        imageRightsConsent: true,
+      },
+    );
+    expect(approved.statusCode, approved.body).toBe(200);
+    plan = (await request("owner", "GET", `marketing-plans/${plan.id}`)).json();
+    expect(plan.status).toBe("active");
+    expect(plan.linkedWork[0].owned).toBe(true);
+    const paused = await request(
+      "owner",
+      "POST",
+      `marketing-plans/${plan.id}/pause`,
+      { version: plan.version },
+    );
+    expect(paused.statusCode, paused.body).toBe(200);
+    expect(paused.json().status).toBe("paused");
+    expect(paused.json().linkedWork[0].status).toBe("paused");
   });
 });

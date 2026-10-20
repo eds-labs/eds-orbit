@@ -1,4 +1,4 @@
-/** Isolated synthetic MA-03 browser fixture; no worker or provider. */
+/** Isolated synthetic MA-04 browser fixture; no worker or provider. */
 import { randomBytes, randomUUID } from "node:crypto";
 import { writeFileSync, rmSync } from "node:fs";
 import { loadWorktreeTestEnv } from "./test-database.ts";
@@ -28,7 +28,7 @@ const { proposePlan } =
 const { planCard } =
   await import("../apps/api/src/modules/marketing/tools/plan-tools.ts");
 const app = await buildServer(),
-  fixture = await createPackageProject({ name: "Synthetic MA-03 strategy" });
+  fixture = await createPackageProject({ name: "Synthetic MA-04 strategy" });
 const email = `${randomUUID()}@example.invalid`,
   password = randomBytes(24).toString("base64url");
 const created = await makeAuth().api.signUpEmail({
@@ -77,7 +77,7 @@ writeFileSync(
   { mode: 0o600 },
 );
 await app.listen({ port: 44431, host: "127.0.0.1" });
-console.log("Synthetic MA-03 browser API ready; no worker/provider started.");
+console.log("Synthetic MA-04 browser API ready; no worker/provider started.");
 for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.on(signal, async () => {
     await app.close();

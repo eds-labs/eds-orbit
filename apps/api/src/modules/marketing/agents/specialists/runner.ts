@@ -1,3 +1,4 @@
+import { ownedPlanRefusal } from "../../plans/execution.ts";
 import { zodTextFormat } from "openai/helpers/zod";
 import {
   scoped,
@@ -318,6 +319,8 @@ export async function taskBudgetLeft(
   const assignment = data(
     await entity(tx, scope, "assignments", task.assignmentId),
   );
+  const planRefusal = await ownedPlanRefusal(tx, scope, assignment);
+  if (planRefusal) throw new DomainError(planRefusal, 409);
   const run = data(await entity(tx, scope, RUNS, task.runId));
   return {
     taskMicros: stepPoolMicros(
@@ -375,6 +378,21 @@ async function taskInput(
   }
   return {
     step: { key: task.stepKey, role: task.role },
+    ...(assignment.marketingPlan
+      ? {
+          marketingPlan: {
+            ...assignment.marketingPlan,
+            spec: data(
+              await entity(
+                tx,
+                scope,
+                "marketing_plans",
+                assignment.marketingPlan.planId,
+              ),
+            ).spec,
+          },
+        }
+      : {}),
     assignment: {
       id: task.assignmentId,
       name: assignment.name,
@@ -544,6 +562,12 @@ export async function runSpecialist(
             where: { id: scope.projectId },
           });
           if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
+          const ownedRefusal = await ownedPlanRefusal(
+            tx,
+            scope,
+            data(await entity(tx, scope, "assignments", task.assignmentId)),
+          );
+          if (ownedRefusal) throw new DomainError(ownedRefusal, 409);
           const active = await requireSpendMandate(tx, scope);
           const approved = active.limits;
           const runtime = await runtimeOpenAiConfiguration(tx, scope);
@@ -891,9 +915,12 @@ export async function runAgentTask(scope: Scope, taskId: string) {
     // Only an active assignment whose confirmation covers its current content
     // runs (R70): a changed, paused or ended one is refused at no cost, and
     // its open runs stop with it. The input below is therefore the confirmed content.
-    const refusal = assignmentRefusal(
-      data(await entity(tx, scope, "assignments", d.assignmentId)),
+    const assignment = data(
+      await entity(tx, scope, "assignments", d.assignmentId),
     );
+    const refusal =
+      assignmentRefusal(assignment) ??
+      (await ownedPlanRefusal(tx, scope, assignment));
     if (refusal) {
       await update(tx, scope, row, {
         ...d,

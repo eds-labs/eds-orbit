@@ -1,3 +1,4 @@
+import { ownedPlanRefusal } from "../plans/execution.ts";
 import { hasFactPlaceholder } from "./fact-placeholders.ts";
 import {
   authorize,
@@ -159,6 +160,16 @@ export async function assignmentHumanApprovalBlocker(
 ) {
   const content = await entity(tx, scope, "content", contentId);
   const assignment = await contentAssignment(tx, scope, data(content));
+  if (assignment) {
+    const planRefusal = await ownedPlanRefusal(
+      tx,
+      scope,
+      data(assignment),
+      new Date(),
+      at,
+    );
+    if (planRefusal) return planRefusal;
+  }
   if (!requiresHuman(data(content), assignment)) return null;
   const pkg = await packageFor(tx, scope, contentId);
   if (!assignment || !confirmedHash(data(assignment)))

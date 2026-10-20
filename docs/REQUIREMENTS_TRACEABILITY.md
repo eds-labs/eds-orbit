@@ -1,5 +1,27 @@
 # Requirements traceability
 
+
+## Marketing Agent v2 — MA-04 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Separate exact strategic/child activation authority, native image consent | `marketing-plan-activation.integration.test.ts`, native route and PlanCard tests | PASS_TEST |
+| Concurrent proposal/decision replay yields one child set; storage failure rolls back every staged child and decision | Same real scoped SQL activation cases | PASS_TEST |
+| Explicit expected-version adoption and read-only independent assignment/mission links | Same activation cases; original MA-03 linked-work test | PASS_TEST |
+| Envelope/budget/source/profile/policy/asset/role/module/foreign-project refusal | Same negative matrix, native routes and two-route access-matrix delta | PASS_TEST |
+| Pause, exact resumption, revised lower budget, horizon expiry and zero expired paid reservation | Same scheduler/worker/budget-boundary cases | PASS_TEST |
+| Reverse approved origin on assignment/run/mission/content, unchanged human_each post gates | Extended `marketing-agent-v2.integration.test.ts`, all providers fake | PASS_TEST |
+| Actual unknown external handoff remains unchanged after pause and visible in status | Same activation SQL handoff projection case | PASS_TEST |
+| Shared assistant tool contracts stay bounded and valid | Activation context size check and offline assistant replay | PASS_TEST |
+| Desktop/mobile owner activation consent, reload and pause | `marketing-plans.spec.ts`, isolated real stack without worker/provider | PASS_LOCAL_BROWSER |
+| Mission-edit activation, automatic archival/supersession, remote recall, paid/live pilot | Deliberately not added; boundaries documented in MA-04 report | NOT_IMPLEMENTED_OR_RUN |
+| Shared novelty reservations and bounded review backlog | MA-05 prerequisites only | NOT_IMPLEMENTED |
+
+Final local evidence: 2,976 tests / 274 files pass; the final delivery-time delta
+is additionally covered by 121 passing targeted tests. Build, lint, typecheck,
+OpenAPI/client generation, framework/secret/boundary checks and the desktop/mobile
+browser flow pass. No production or paid/live-provider acceptance is inferred.
+
 ## Marketing Agent v2 — MA-03 (2026-10-20, local)
 
 | Requirement | Evidence | State |

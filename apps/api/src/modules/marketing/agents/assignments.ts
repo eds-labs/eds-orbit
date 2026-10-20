@@ -390,11 +390,12 @@ async function assertFormatFits(
   }
 }
 
-async function assertWithinMandate(
+export async function assertWithinMandate(
   tx: DbTx,
   scope: Scope,
   content: Content,
   selfId: string | null,
+  excludedIds: string[] = [],
 ) {
   if (content.contentType === "report")
     throw new DomainError(REPORT_NOT_AVAILABLE, 409);
@@ -426,7 +427,14 @@ async function assertWithinMandate(
       content.format?.cta,
       mandate.allowedOrigins ?? [],
     );
-  const committed = await committedBudget(tx, scope, selfId);
+  const committed = (await list(tx, scope, KIND))
+    .filter(
+      (r) =>
+        r.id !== selfId &&
+        !excludedIds.includes(r.id) &&
+        ["active", "paused", "budget_exhausted"].includes(data(r).status),
+    )
+    .reduce((sum, r) => sum + Number(data(r).monthlyBudgetMicros ?? 0), 0);
   if (
     committed + content.monthlyBudgetMicros >
     Number(mandate.monthlyBudgetMicros)
@@ -910,4 +918,66 @@ export async function setAssignmentStatus(
     to: status,
   });
   return saved;
+}
+
+/** Shared plan executor: stages exact children, never impersonates child approvals.
+ * Caller validates the entire set under the project lock before staging any row. */
+export async function stagePlanAssignment(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+  existing: { id: string; version: number } | undefined,
+  origin: {
+    planId: string;
+    childKey: string;
+    revision: number;
+    specHash: string;
+    requestId: string;
+  },
+) {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  const content = assignmentInput.parse(raw);
+  let row;
+  if (existing) {
+    row = await entity(tx, scope, KIND, existing.id);
+    if (row.version !== existing.version)
+      throw new DomainError("PLAN_WORK_STALE", 409);
+    if (data(row).status === "ended")
+      throw new DomainError("ASSIGNMENT_ENDED", 409);
+    await cancelAssignmentRuns(tx, scope, row.id);
+    await withdrawAssignmentPublications(
+      tx,
+      scope,
+      row.id,
+      "ASSIGNMENT_CHANGED",
+    );
+    if (data(row).actionRequestId)
+      await cancelActionRequest(
+        tx,
+        scope,
+        data(row).actionRequestId,
+        "PLAN_ACTIVATION",
+      );
+    row = await update(tx, scope, row, {
+      ...Object.fromEntries(
+        Object.entries(data(row)).filter(
+          ([key]) => !CONTENT_KEYS.includes(key as keyof Content),
+        ),
+      ),
+      ...content,
+      status: "draft",
+      confirmation: null,
+      actionRequestId: null,
+      marketingPlan: origin,
+    });
+  } else
+    row = await create(tx, scope, KIND, {
+      ...content,
+      conversationId: null,
+      status: "draft",
+      confirmation: null,
+      actionRequestId: null,
+      marketingPlan: origin,
+    });
+  return row;
 }

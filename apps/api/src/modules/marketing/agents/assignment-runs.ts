@@ -1,3 +1,4 @@
+import { ownedPlanRefusal } from "../plans/execution.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, create, data, entity, list, update } from "../../../shared.ts";
@@ -332,6 +333,7 @@ async function freeSlot(
   requested: Date,
   date: string,
   held: HeldSlot[],
+  endAt?: Date,
 ) {
   if (requested <= ctx.now) return null;
   for (
@@ -339,6 +341,7 @@ async function freeSlot(
     localDate(candidate, ctx.timezone) === date;
     candidate = new Date(candidate.valueOf() + SLOT_STEP_MS)
   ) {
+    if (endAt && candidate >= endAt) return null;
     const status = await slotStatus(ctx, channel, candidate, held);
     // Preflight has its own lead; here only the veto window of the run matters, and the run is created ahead of it.
     if (status.reasons.every((reason) => reason === "TOO_SOON"))
@@ -354,6 +357,7 @@ async function allocateSlots(
   channels: string[],
   now: Date,
   shared = false,
+  endAt?: Date,
 ) {
   const ctx = await slotContext(tx, scope, now);
   // A shared run (R76) records the requested time each channel's slot belongs to.
@@ -365,7 +369,14 @@ async function allocateSlots(
   }> = [];
   for (const requested of due.slots)
     for (const channel of channels) {
-      const found = await freeSlot(ctx, channel, requested, due.date, slots);
+      const found = await freeSlot(
+        ctx,
+        channel,
+        requested,
+        due.date,
+        slots,
+        endAt,
+      );
       if (found)
         slots.push({
           channel,
@@ -441,6 +452,7 @@ export async function planAssignmentRuns(
   let created = 0;
   for (const row of assignments) {
     const d = data(row);
+    if (await ownedPlanRefusal(tx, scope, d, now)) continue;
     // Nothing delivers a report yet (R71): a report confirmed before reports
     // were refused plans no paid run and sends no notice.
     if (d.contentType === "report") continue;
@@ -468,6 +480,19 @@ export async function planAssignmentRuns(
         due.slots[due.slots.length - 1]! <= now
       )
         continue;
+      let horizonEnd: Date | undefined;
+      if (d.marketingPlan) {
+        const plan = data(
+          await entity(tx, scope, "marketing_plans", d.marketingPlan.planId),
+        );
+        horizonEnd = new Date(plan.spec.horizon.endAt);
+        due.slots = due.slots.filter(
+          (slot) =>
+            slot >= new Date(plan.spec.horizon.startAt) &&
+            slot < new Date(plan.spec.horizon.endAt),
+        );
+        if (!due.slots.length) continue;
+      }
       const shared = sharedAcrossChannels(d);
       const allocation = await allocateSlots(
         tx,
@@ -476,6 +501,7 @@ export async function planAssignmentRuns(
         d.channels,
         now,
         shared,
+        horizonEnd,
       );
       // No slot of the day can be reached any more: no run (nothing could be
       // delivered), only the drop notice (R75).
@@ -488,6 +514,7 @@ export async function planAssignmentRuns(
         assignmentId: row.id,
         // The run works with the assignment as it was confirmed when it started.
         assignmentVersion: row.version,
+        ...(d.marketingPlan ? { marketingPlan: d.marketingPlan } : {}),
         assignmentHash: d.confirmation?.assignmentHash ?? null,
         idempotencyKey: key,
         date: due.date,
@@ -531,15 +558,31 @@ export async function nextAssignmentRunAt(
   // A report plans no run (R71).
   if (data(row).status !== "active" || data(row).contentType === "report")
     return null;
+  const d = data(row);
+  const horizon = d.marketingPlan
+    ? data(await entity(tx, scope, "marketing_plans", d.marketingPlan.planId))
+        .spec.horizon
+    : null;
+  const start = horizon ? new Date(horizon.startAt) : now;
+  const refusal = await ownedPlanRefusal(
+    tx,
+    scope,
+    d,
+    start > now ? start : now,
+  );
+  if (refusal) return null;
   const known = await plannedDates(tx, scope, row.id, localDate(now, timezone));
   let next: Date | null = null;
-  for (const due of dueDays(data(row).schedule, timezone, now))
+  for (const due of dueDays(d.schedule, timezone, now)) {
     if (
-      !known.has(due.date) &&
-      due.createAt > now &&
-      (!next || due.createAt < next)
+      horizon &&
+      !due.slots.some((slot) => slot >= start && slot < new Date(horizon.endAt))
     )
-      next = due.createAt;
+      continue;
+    const createAt = horizon && due.createAt < start ? start : due.createAt;
+    if (!known.has(due.date) && createAt > now && (!next || createAt < next))
+      next = createAt;
+  }
   return next;
 }
 
@@ -615,6 +658,15 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     return costMicros === d.costMicros
       ? row
       : update(tx, scope, row, { ...d, costMicros });
+  if (d.marketingPlan) {
+    const assignment = data(
+      await entity(tx, scope, "assignments", d.assignmentId),
+    );
+    if (await ownedPlanRefusal(tx, scope, assignment)) {
+      await cancelAssignmentRuns(tx, scope, d.assignmentId);
+      return entity(tx, scope, RUNS, runId);
+    }
+  }
   const steps: WorkStep[] = (d.steps as WorkStep[]).map((step) => {
     const task = step.taskId ? tasks.get(step.taskId) : undefined;
     const mapped = task ? TASK_TO_STEP[String(data(task).status)] : undefined;

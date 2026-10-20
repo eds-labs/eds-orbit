@@ -1,5 +1,30 @@
 # Implementation status
 
+
+## Marketing Agent v2 — MA-04 (2026-10-20, local)
+
+A separate exact owner activation now applies at most six bounded standing-assignment
+create/adopt deltas atomically under the existing project lock. Strategy review starts
+nothing. Current authority, immutable strategy/source/asset snapshots, expected child
+versions, full child envelopes, replacement budgets and generated-image consent are
+rechecked. Exact retries/concurrent decisions create one child set without synthetic
+child approvals. Legacy assignment hashes and independent assignment/mission links stay
+intact; reverse plan/revision/ActionRequest origin follows owned assignments, runs,
+generated missions and content.
+
+Pause/revision stops owned runs and withdraws unsent work through existing services.
+Resumption requires a fresh exact child mandate. Scheduler and paid/delivery boundaries
+revalidate active plan authority and finite horizon. Current delivery projection keeps
+provider-owned or unknown outcomes visible. Native plans, chat and generic decisions
+share the exact activation review and existing EDS Labs UI. No migration, new runtime,
+production flag, paid provider call, real publication or deployment. Checks, limits,
+changed files, rollback and MA-05 preparation: `docs/plans/marketing-agent-v2-ma04.md`.
+MA-05 remains prepared only; implementation and tests are local evidence.
+Local regression: 2,976 tests in 274 files pass; 121 targeted publishing/activation
+tests pass after the final delivery-time guard. Desktop/mobile browser, final
+production build, lint, root/web typecheck, generated contracts, framework/secret
+checks and import boundaries pass. No previous access-matrix row changed.
+
 ## Marketing Agent v2 — MA-03 (2026-10-20, local)
 
 Versioned `marketing_plans` persist reviewed strategic proposals independently of

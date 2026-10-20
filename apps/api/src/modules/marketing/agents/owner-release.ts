@@ -1,3 +1,4 @@
+import { ownedPlanRefusal } from "../plans/execution.ts";
 import { z } from "zod";
 import {
   authorize,
@@ -170,6 +171,8 @@ export async function releaseAssignmentDraft(
   const assignment = data(
     await entity(tx, scope, "assignments", c.assignmentId),
   );
+  const planRefusal = await ownedPlanRefusal(tx, scope, assignment);
+  if (planRefusal) throw new DomainError(planRefusal, 409);
   if (!confirmedHash(assignment) || !withinConfirmation(assignment, c))
     throw new DomainError("ASSIGNMENT_NOT_CONFIRMED", 409);
   // The delivery the draft was written under, else the confirmed one (I1).

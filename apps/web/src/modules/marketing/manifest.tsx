@@ -1,5 +1,5 @@
 import { MarketingPlansPage } from "./plans-page";
-import { planReviewRenderer } from "./plan-card";
+import { planReviewRenderer, planActivationRenderer } from "./plan-card";
 import {
   Brain,
   CalendarDays,
@@ -53,6 +53,7 @@ export const marketingWeb: WebModule = {
   actionRequests: {
     "assignment.confirm": assignmentConfirmRenderer,
     "marketing_plan.review": planReviewRenderer,
+    "marketing_plan.activate": planActivationRenderer,
   },
   attention: marketingAttention,
   settings: marketingSettings,

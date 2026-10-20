@@ -2,13 +2,13 @@
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { MarketingPlanView } from "../../../../../packages/schemas/src/marketing-plan";
-import { collectionPath, useResource, useMutation } from "@/lib/api";
+import { collectionPath, useResource, useMutation, post } from "@/lib/api";
 import { useWorkspace } from "@/components/workspace-context";
 import { useDecideActionRequest } from "@/platform/assistant/decide";
 import { AppLink } from "@/platform/ui/app-link";
 import { PageHead } from "@/platform/ui/collection";
 import { Alert, Button } from "@/components/ui/primitives";
-import { PlanCard } from "./plan-card";
+import { PlanCard, PlanActivationCard } from "./plan-card";
 export function MarketingPlansPage() {
   const { project, locale } = useWorkspace();
   return (
@@ -45,8 +45,8 @@ function ProjectPlans() {
         title={de ? "Marketingpläne" : "Marketing plans"}
         description={
           de
-            ? "Dauerhaft gespeicherte Strategievorschläge. Noch keine automatische Ausführung."
-            : "Saved strategic proposals. Automatic execution is not available yet."
+            ? "Gespeicherte Strategien mit separat freigegebenen Aufträgen."
+            : "Saved strategies with separately approved assignments."
         }
       >
         {selected && (
@@ -112,6 +112,47 @@ function ProjectPlans() {
               void mutation.run(() => decide(r, decision));
             }}
           />
+          {detail.data.activationRequest && (
+            <PlanActivationCard
+              key={detail.data.activationRequest.id}
+              request={detail.data.activationRequest}
+              payload={detail.data.activationRequest.payload}
+              de={de}
+              pending={mutation.pending}
+              canDecide={isOwner}
+              blockers={detail.data.blockers}
+              onDecide={(decision, consent) => {
+                void mutation.run(() =>
+                  decide(detail.data!.activationRequest!, decision, consent),
+                );
+              }}
+            />
+          )}
+          {isOwner &&
+            detail.data.activation &&
+            (detail.data.status === "active" ||
+              detail.data.status === "blocked") && (
+              <Button
+                variant="outline"
+                disabled={mutation.pending}
+                onClick={() => {
+                  void mutation.run(() =>
+                    post(`${base}/${detail.data!.id}/pause`, {
+                      version: detail.data!.version,
+                    }),
+                  );
+                }}
+              >
+                {de ? "Plan pausieren" : "Pause plan"}
+              </Button>
+            )}
+          {detail.data.activationAvailable && (
+            <p>
+              {de
+                ? "Konkrete Aufträge oder die Wiederaufnahme im Chat vorschlagen; der Owner bestätigt die vollständige Fassung separat."
+                : "Propose exact assignments or resumption in chat; the owner separately approves the complete mandate."}
+            </p>
+          )}
           <p>
             <a href={`/api${base}/${detail.data.id}/export`} download>
               {de

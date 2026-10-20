@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import type { MarketingPlanSpec } from "../../../../../packages/schemas/src/marketing-plan";
 import type {
   ActionRequestRenderer,
@@ -11,23 +12,38 @@ import {
 } from "@/platform/assistant/decide";
 import { Badge, Button } from "@/components/ui/primitives";
 import {
+  AssignmentCard,
+  IMAGE_RIGHTS_CONSENT,
+  BANNER_CONSENT,
   approvalModeText,
   deliveryText,
   scheduleText,
 } from "./assignment-card";
 export type PlanSnapshot = {
   id: string;
+  status?: string;
   revision: number;
   specHash: string;
   spec: MarketingPlanSpec;
   sourceSnapshot?: Array<{ id: string; version: number }>;
   linkedWork?: Array<{
     id: string;
+    owned?: boolean;
     title: string | null;
     status: string | null;
     currentVersion: number | null;
     href: string;
-    latestRun: { id: string; status: string; costMicros: number } | null;
+    latestRun: {
+      id: string;
+      status: string;
+      costMicros: number;
+      deliveries?: Array<{
+        id: string;
+        kind: string;
+        status: string;
+        remoteId: string | null;
+      }>;
+    } | null;
   }>;
 };
 type Request = DecidableRequest & { status: string; expiresAt?: string };
@@ -38,6 +54,7 @@ export function PlanCard({
   pending,
   canDecide,
   reviewed = false,
+  contextOnly = false,
   blockers = [],
   onDecide,
 }: {
@@ -47,6 +64,7 @@ export function PlanCard({
   pending: boolean;
   canDecide: boolean;
   reviewed?: boolean;
+  contextOnly?: boolean;
   blockers?: string[];
   onDecide: (request: Request, decision: "approve" | "reject") => void;
 }) {
@@ -65,9 +83,25 @@ export function PlanCard({
     >
       <div className="chat-proposal-head">
         <strong>{s.title}</strong>
-        <Badge tone={blockers.length ? "warning" : "blue"}>
-          {de ? "Vorgeschlagen · nicht aktiv" : "Proposed · not active"}
-        </Badge>
+        {!contextOnly && (
+          <Badge tone={blockers.length ? "warning" : "blue"}>
+            {plan.status === "active"
+              ? de
+                ? "Aktiv"
+                : "Active"
+              : plan.status === "paused"
+                ? de
+                  ? "Pausiert"
+                  : "Paused"
+                : plan.status === "blocked"
+                  ? de
+                    ? "Blockiert"
+                    : "Blocked"
+                  : de
+                    ? "Vorgeschlagen · nicht aktiv"
+                    : "Proposed · not active"}
+          </Badge>
+        )}
       </div>
       <p>{s.goal}</p>
       <dl>
@@ -206,18 +240,29 @@ export function PlanCard({
       </details>
       {plan.linkedWork && plan.linkedWork.length > 0 && (
         <section aria-label={de ? "Bestehende Arbeit" : "Existing work"}>
-          <h3>
-            {de ? "Unabhängig laufende Arbeit" : "Independent existing work"}
-          </h3>
+          <h3>{de ? "Verknüpfte Arbeit" : "Linked work"}</h3>
           <ul>
             {plan.linkedWork.map((item) => (
               <li key={item.id}>
                 <a href={item.href}>{item.title ?? item.id}</a> ·{" "}
-                {item.status ?? (de ? "Nicht verfügbar" : "Unavailable")} ·{" "}
+                {item.owned
+                  ? de
+                    ? "Vom Plan gesteuert"
+                    : "Owned by this plan"
+                  : de
+                    ? "Unabhängige Referenz"
+                    : "Independent reference"}{" "}
+                · {item.status ?? (de ? "Nicht verfügbar" : "Unavailable")} ·{" "}
                 {item.id} v{item.currentVersion ?? "?"}
                 {item.latestRun && (
                   <p>
                     Run: {item.latestRun.id} · {item.latestRun.status}
+                    {item.latestRun.deliveries?.map((delivery) => (
+                      <span style={{ display: "block" }} key={delivery.id}>
+                        {delivery.kind}: {delivery.id} · {delivery.status}
+                        {delivery.remoteId ? ` · ${delivery.remoteId}` : ""}
+                      </span>
+                    ))}
                   </p>
                 )}
               </li>
@@ -237,11 +282,13 @@ export function PlanCard({
           {de ? "Blockiert" : "Blocked"}: {blockers.join(", ")}
         </p>
       )}
-      <p className="chat-package-note">
-        {de
-          ? "Die Freigabe bestätigt nur diese Strategie. Der Plan wird nicht aktiv und startet keine Aufträge, KI-Ausgaben oder Veröffentlichungen. Die Aktivierung ist noch nicht verfügbar; Beiträge brauchen weiterhin ihre eigene Freigabe."
-          : "Approval reviews this strategy only. The plan stays inactive and starts no assignments, AI spend or publishing. Activation is not available yet; posts still require their own approval."}
-      </p>
+      {!contextOnly && plan.status !== "active" && plan.status !== "paused" && (
+        <p className="chat-package-note">
+          {de
+            ? "Die Freigabe bestätigt nur diese Strategie. Der Plan wird nicht aktiv und startet keine Aufträge, KI-Ausgaben oder Veröffentlichungen. Für den Start ist eine separate Freigabe der konkreten Aufträge erforderlich; Beiträge behalten ihren eigenen Freigabemodus."
+            : "Approval reviews this strategy only. The plan stays inactive and starts no assignments, AI spend or publishing. Starting work requires separate approval of the exact assignments; posts retain their own approval mode."}
+        </p>
+      )}
       {request?.status === "pending" && canDecide && (
         <div className="chat-links">
           <Button
@@ -281,7 +328,11 @@ export function ChatPlanCard({ card, host }: { card: any; host: ChatHost }) {
   return (
     <>
       <PlanCard
-        plan={{ ...shown, linkedWork: live?.linkedWork ?? shown.linkedWork }}
+        plan={{
+          ...shown,
+          status: live?.status ?? shown.status,
+          linkedWork: live?.linkedWork ?? shown.linkedWork,
+        }}
         request={own}
         de={host.de}
         pending={host.pending}
@@ -297,6 +348,26 @@ export function ChatPlanCard({ card, host }: { card: any; host: ChatHost }) {
           );
         }}
       />
+      {live?.activationRequest && (
+        <PlanActivationCard
+          key={live.activationRequest.id}
+          request={live.activationRequest}
+          payload={live.activationRequest.payload}
+          de={host.de}
+          pending={host.pending}
+          canDecide={isOwner}
+          blockers={live.blockers}
+          onDecide={(decision, consent) => {
+            void host.run(
+              () =>
+                decide(live.activationRequest, decision, consent).then(
+                  () => undefined,
+                ),
+              "Plan activation failed",
+            );
+          }}
+        />
+      )}
       <p>
         <a href={`/p/${project.id}/marketing/plans?plan=${shown.id}`}>
           {host.de ? "Gespeicherten Plan öffnen" : "Open saved plan"}
@@ -318,6 +389,174 @@ export const planReviewRenderer: ActionRequestRenderer = {
       pending={pending}
       canDecide
       onDecide={(_, decision) => decide(decision)}
+    />
+  ),
+};
+
+/** Exact immutable child deltas from the ActionRequest; no model-generated
+ * explanation substitutes for the executable assignment contents. */
+export function PlanActivationCard({
+  request,
+  payload,
+  de,
+  pending,
+  canDecide,
+  blockers = [],
+  onDecide,
+}: {
+  request: Request;
+  payload: any;
+  de: boolean;
+  pending: boolean;
+  canDecide: boolean;
+  blockers?: string[];
+  onDecide: (decision: "approve" | "reject", consent?: boolean) => void;
+}) {
+  const [consent, setConsent] = useState(false);
+  const images = payload.children.some((c: any) => c.assignment.image);
+  return (
+    <section
+      className="chat-proposal assignment-card"
+      style={{ overflowWrap: "anywhere" }}
+      aria-label={de ? "Planaktivierung" : "Plan activation"}
+    >
+      <h3>
+        {de ? "Konkrete Aufträge aktivieren" : "Activate exact assignments"}
+      </h3>
+      <p>
+        {de ? "Plan" : "Plan"} {payload.planId} · Revision {payload.revision}
+      </p>
+      <p>
+        {payload.spec.title} ·{" "}
+        {new Date(payload.spec.horizon.startAt).toLocaleString(
+          de ? "de-DE" : "en-GB",
+          { timeZone: payload.spec.timezone },
+        )}{" "}
+        –{" "}
+        {new Date(payload.spec.horizon.endAt).toLocaleString(
+          de ? "de-DE" : "en-GB",
+          { timeZone: payload.spec.timezone },
+        )}{" "}
+        · {payload.spec.timezone}
+      </p>
+      <details>
+        <summary>
+          {de
+            ? "Freigegebene Strategie und Belege"
+            : "Reviewed strategy and evidence"}
+        </summary>
+        <PlanCard
+          plan={{
+            id: payload.planId,
+            revision: payload.revision,
+            specHash: payload.specHash,
+            spec: payload.spec,
+            sourceSnapshot: payload.sourceSnapshot,
+          }}
+          de={de}
+          pending={pending}
+          canDecide={false}
+          reviewed
+          contextOnly
+          onDecide={() => {}}
+        />
+      </details>
+      <p>
+        {de
+          ? "Diese Freigabe startet die Vorbereitung innerhalb des gezeigten Budgets und Zeitraums. Referenzierte Arbeit bleibt unabhängig, außer sie wird unten ausdrücklich übernommen. Veröffentlichte oder unklare Übergaben werden durch eine Pause nicht zurückgeholt."
+          : "This approval starts preparation within the shown budget and horizon. Referenced work stays independent unless explicitly adopted below. A pause does not recall published or unknown handoffs."}
+      </p>
+      {payload.children.map((c: any) => (
+        <div key={c.key}>
+          <h4>
+            {c.existing
+              ? de
+                ? "Übernehmen und ersetzen"
+                : "Adopt and replace"
+              : de
+                ? "Neuer Auftrag"
+                : "New assignment"}{" "}
+            · {c.key}
+          </h4>
+          {c.existing && (
+            <p>
+              {c.existing.id} · {de ? "Erwartete Version" : "Expected version"}{" "}
+              {c.existing.version}
+            </p>
+          )}
+          <AssignmentCard
+            assignment={{ ...c.assignment, id: c.existing?.id ?? c.key }}
+            status="draft"
+            request={null}
+            de={de}
+            pending={pending}
+            canDecide={false}
+            onConfirm={() => {}}
+            onReject={() => {}}
+          />
+        </div>
+      ))}
+      {!!payload.assets?.length && (
+        <p>
+          {de ? "Stilreferenzen" : "Style references"}:{" "}
+          {payload.assets.map((a: any) => `${a.id} v${a.version}`).join(", ")}
+        </p>
+      )}
+      {blockers.length > 0 && <p role="alert">{blockers.join(", ")}</p>}
+      {request.status === "pending" && canDecide && (
+        <>
+          {images && (
+            <label className="assignment-consent">
+              <input
+                type="checkbox"
+                checked={consent}
+                onChange={(event) => setConsent(event.target.checked)}
+              />
+              <span>
+                {IMAGE_RIGHTS_CONSENT[de ? 1 : 0]}
+                {payload.children.some((c: any) => c.assignment.banner) && (
+                  <>
+                    <br />
+                    {BANNER_CONSENT[de ? 1 : 0]}
+                  </>
+                )}
+              </span>
+            </label>
+          )}
+          <div className="chat-links">
+            <Button
+              disabled={pending || blockers.length > 0 || (images && !consent)}
+              onClick={() => onDecide("approve", images && consent)}
+            >
+              {de ? "Aufträge aktivieren" : "Activate assignments"}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={pending}
+              onClick={() => onDecide("reject")}
+            >
+              {de ? "Ablehnen" : "Reject"}
+            </Button>
+          </div>
+        </>
+      )}
+      {request.status === "pending" && !canDecide && (
+        <p>{de ? "Wartet auf den Owner." : "Waiting for the owner."}</p>
+      )}
+      {request.status !== "pending" && <p>{request.status}</p>}
+    </section>
+  );
+}
+export const planActivationRenderer: ActionRequestRenderer = {
+  accepts: (item) => Boolean(item.summary?.marketingPlanActivation),
+  component: ({ item, de, pending, decide }) => (
+    <PlanActivationCard
+      request={{ ...item, status: "pending" } as Request}
+      payload={item.summary.marketingPlanActivation}
+      de={de}
+      pending={pending}
+      canDecide
+      onDecide={decide}
     />
   ),
 };

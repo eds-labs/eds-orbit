@@ -105,6 +105,22 @@ const assignmentConfirm: ActionDefinition<Record<string, unknown>> = {
     await assignments.executeAssignmentConfirm(tx, scope, request);
   },
 };
+import {
+  activationPayload,
+  revalidateActivation,
+  activatePlan,
+} from "./plans/activation.ts";
+const planActivate: ActionDefinition<z.infer<typeof activationPayload>> = {
+  riskClass: "W0_internal",
+  approvalMode: "approval_required",
+  deciderRole: "owner",
+  ttlMs: 24 * 3600000,
+  payload: activationPayload,
+  costCeilingMicros: () => 0,
+  summary: (payload) => ({ marketingPlanActivation: payload }),
+  revalidate: revalidateActivation,
+  onApproved: activatePlan,
+};
 const planReview: ActionDefinition<z.infer<typeof marketingPlanReview>> = {
   riskClass: "W0_internal",
   approvalMode: "approval_required",
@@ -118,6 +134,7 @@ const planReview: ActionDefinition<z.infer<typeof marketingPlanReview>> = {
 };
 export const marketingActionTypes = {
   "marketing_plan.review": planReview,
+  "marketing_plan.activate": planActivate,
   "image.generate": imageGenerate,
   "content_package.start": contentPackageStart,
   "content.schedule": contentSchedule,

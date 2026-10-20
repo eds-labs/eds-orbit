@@ -152,17 +152,30 @@ export const marketingPlanView = z
     specHash: z.string(),
     spec: marketingPlanSpec,
     sourceSnapshot: z.array(ref).max(40),
-    status: z.enum(["proposed", "blocked"]),
+    status: z.enum(["proposed", "blocked", "active", "paused", "completed"]),
     blockers: z.array(z.string()),
     strategicallyReviewed: z.boolean(),
     reviewedAt: z.iso.datetime().nullable(),
-    activationAvailable: z.literal(false),
+    activationAvailable: z.boolean(),
+    activation: z.record(z.string(), z.json()).nullable(),
+    activationRequest: z
+      .object({
+        id: z.uuid(),
+        version: z.number().int(),
+        packageHash: z.string(),
+        status: z.string(),
+        expiresAt: z.string(),
+        payload: z.record(z.string(), z.json()),
+      })
+      .strict()
+      .nullable(),
     linkedWork: z
       .array(
         z
           .object({
             id: z.uuid(),
             kind: z.enum(["assignments", "missions"]),
+            owned: z.boolean().optional(),
             expectedVersion: z.number().int(),
             currentVersion: z.number().int().nullable(),
             title: z.string().nullable(),
@@ -173,13 +186,26 @@ export const marketingPlanView = z
                 id: z.uuid(),
                 status: z.string(),
                 costMicros: z.number(),
+                deliveries: z
+                  .array(
+                    z
+                      .object({
+                        id: z.uuid(),
+                        kind: z.string(),
+                        status: z.string(),
+                        remoteId: z.string().nullable(),
+                      })
+                      .strict(),
+                  )
+                  .max(32)
+                  .optional(),
               })
               .strict()
               .nullable(),
           })
           .strict(),
       )
-      .max(20),
+      .max(26),
     actionRequest: z
       .object({
         id: z.uuid(),

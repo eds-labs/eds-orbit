@@ -903,6 +903,7 @@ async function generateMissionDraft(
         ? {
             assignmentId: m.assignmentId,
             assignmentRunId: m.assignmentRunId,
+            ...(m.marketingPlan ? { marketingPlan: m.marketingPlan } : {}),
             briefKey: m.briefKey,
             // The delivery confirmed when the mission was made (R73, I1).
             ...(m.delivery ? { delivery: m.delivery } : {}),

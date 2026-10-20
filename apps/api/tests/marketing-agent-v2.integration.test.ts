@@ -12,6 +12,12 @@ import { randomUUID } from "node:crypto";
 
 // The real chat runner, specialist runner, scheduler, DB and publication services
 // run here. All model/image/connector transports are synthetic and fail closed.
+import { planSpec } from "./support/marketing-plan.ts";
+import {
+  proposePlan,
+  planView,
+} from "../src/modules/marketing/plans/service.ts";
+import { proposeActivation } from "../src/modules/marketing/plans/activation.ts";
 const fake = vi.hoisted(() => ({
   chat: [] as unknown[][],
   chatInputs: [] as any[],
@@ -272,7 +278,7 @@ describe.skipIf(!enabled)(
     });
     afterAll(() => closeDatabase());
 
-    async function start(delivery = "publish", image = true) {
+    async function start(delivery = "publish", image = true, fromPlan = false) {
       const conversation = await createConversation(project.owner);
       fake.chat = [
         [
@@ -345,20 +351,106 @@ describe.skipIf(!enabled)(
         approvalMode: "human_each",
       });
       expect(await h.rows("assignment_runs")).toEqual([]);
-      await h.run(async (tx) => {
-        const request = await entity(
-          tx,
-          project.owner,
-          "action_requests",
-          assignment!.actionRequestId,
-        );
-        await decideActionRequest(tx, project.owner, request.id, {
-          version: request.version,
-          packageHash: data(request).packageHash,
-          decision: "approve",
-          ...(image ? { imageRightsConsent: true } : {}),
+      if (fromPlan)
+        await h.run(async (tx) => {
+          const spec = await planSpec(tx, project.owner);
+          spec.channels = [X, TELEGRAM];
+          spec.monthlyBudgetMicros = 30_000_000;
+          spec.horizon.startAt = new Date(Date.now() - 1000).toISOString();
+          spec.cadence = {
+            rhythm: "weekly",
+            weekdays: assignment!.schedule.weekdays,
+            times: assignment!.schedule.times,
+          };
+          const beta = await entity(
+            tx,
+            project.owner,
+            "facts",
+            project.betaFactId,
+          );
+          if (!spec.facts.some((f) => f.id === beta.id))
+            spec.facts.push({ id: beta.id, version: beta.version });
+          spec.existingWork = [
+            {
+              kind: "assignments",
+              id: assignment!.id,
+              version: assignment!.version,
+              proposedChange: "Adopt this exact recurring assignment",
+            },
+          ];
+          let plan = await proposePlan(tx, project.owner, spec);
+          await decideActionRequest(tx, project.owner, plan.actionRequest!.id, {
+            version: plan.actionRequest!.version,
+            packageHash: plan.actionRequest!.packageHash,
+            decision: "approve",
+          });
+          plan = await planView(tx, project.owner, plan.id);
+          const original = data(
+            await entity(tx, project.owner, "assignments", assignment!.id),
+          );
+          const contents = Object.fromEntries(
+            [
+              "name",
+              "kind",
+              "schedule",
+              "contentType",
+              "channels",
+              "topicFrame",
+              "tone",
+              "image",
+              "styleAssetIds",
+              "vetoMinutes",
+              "monthlyBudgetMicros",
+              "approvalMode",
+              "delivery",
+              "sharedAcrossChannels",
+              "format",
+              "banner",
+            ]
+              .filter((key) => original[key] !== undefined)
+              .map((key) => [key, original[key]]),
+          );
+          plan = await proposeActivation(tx, project.owner, plan.id, {
+            version: plan.version,
+            children: [
+              {
+                key: "weekly",
+                existing: { id: assignment!.id, version: assignment!.version },
+                assignment: contents,
+              },
+            ],
+          });
+          await decideActionRequest(
+            tx,
+            project.owner,
+            plan.activationRequest!.id,
+            {
+              version: plan.activationRequest!.version,
+              packageHash: plan.activationRequest!.packageHash,
+              decision: "approve",
+              imageRightsConsent: image,
+            },
+          );
+          expect((await planView(tx, project.owner, plan.id)).status).toBe(
+            "active",
+          );
+          expect((await list(tx, project.owner, "assignments")).length).toBe(1);
         });
-      });
+      else
+        await h.run(async (tx) => {
+          const request = await entity(
+            tx,
+            project.owner,
+            "action_requests",
+            assignment!.actionRequestId,
+          );
+          await decideActionRequest(tx, project.owner, request.id, {
+            version: request.version,
+            packageHash: data(request).packageHash,
+            decision: "approve",
+            ...(image ? { imageRightsConsent: true } : {}),
+          });
+        });
       // The weekly planner prepares a day ahead. Clock stays within the fixture's fact validity.
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(
@@ -402,6 +494,14 @@ describe.skipIf(!enabled)(
           ]),
         );
       const drafts = await h.rows("content");
+      if (fromPlan) {
+        expect(drafts.every((d) => d.marketingPlan?.revision === 1)).toBe(true);
+        expect(
+          (await h.rows("missions")).every(
+            (m) => m.marketingPlan?.revision === 1,
+          ),
+        ).toBe(true);
+      }
       expect(drafts).toHaveLength(2);
       expect(drafts.every((d) => d.language === "en")).toBe(true);
       expect(
@@ -437,8 +537,8 @@ describe.skipIf(!enabled)(
     const release = (draft: any, actor = project.owner) =>
       h.run((tx) => releaseAssignmentDraft(tx, actor, draft.id, draft.version));
 
-    it("runs chat → confirmation → scheduler → all specialists → human release → one publication; remains recurring", async () => {
-      const { drafts, run } = await start();
+    it("runs chat → plan activation with existing work → scheduler → all specialists → human release → one publication; remains recurring", async () => {
+      const { drafts, run } = await start("publish", true, true);
       await expect(release(drafts[0], project.editor)).rejects.toThrow(
         "OWNER_REQUIRED",
       );

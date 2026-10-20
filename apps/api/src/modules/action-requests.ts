@@ -69,7 +69,7 @@ export const actionDecision = z
     version: z.number().int().positive(),
     packageHash: z.string().regex(/^[a-f0-9]{64}$/),
     decision: z.enum(["approve", "reject"]),
-    // Only read by `assignment.confirm`: consent that the assignment may use generated images.
+    // Assignment confirmation and plan activation require this exact human image-use consent.
     imageRightsConsent: z.boolean().optional(),
   })
   .strict();

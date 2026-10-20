@@ -75,7 +75,7 @@ describe.skipIf(!enabled)(
     it("reads bounded fresh context without providers or fabricated baselines", async () => {
       const context = await run((tx) => planContext(tx, project.owner));
       expect(context).toMatchObject({
-        activationAvailable: false,
+        activationAvailable: true,
         baselineState: "no_data",
         existingPlans: [],
         existingWork: [],
@@ -120,7 +120,7 @@ describe.skipIf(!enabled)(
       expect(saved).toMatchObject({
         status: "proposed",
         strategicallyReviewed: true,
-        activationAvailable: false,
+        activationAvailable: true,
         revision: 1,
       });
       await run(async (tx) => {
@@ -419,7 +419,7 @@ describe.skipIf(!enabled)(
         expect.objectContaining({
           id: assignment.id,
           status: "active",
-          latestRun: { id: runRow.id, status: "done", costMicros: 1234 },
+          latestRun: { id: runRow.id, status: "done", costMicros: 1234, deliveries: [] },
         }),
       ]);
       await approve(plan);

@@ -1665,6 +1665,20 @@
     "editor": "allowed:400",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/marketing-plans/{id}/activation": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/marketing-plans/{id}/pause": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "allowed:400",
+    "owner": "allowed:400"
+  },
   "POST /api/projects/{projectId}/matomo_schedules": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",

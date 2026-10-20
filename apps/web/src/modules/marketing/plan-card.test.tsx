@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { PlanCard } from "./plan-card";
+import { PlanCard, PlanActivationCard } from "./plan-card";
 const spec = {
   title: "Organic strategy",
   goal: "Useful product education",
@@ -111,5 +111,58 @@ describe("MA-03 strategic review card", () => {
     expect(blocked).toContain("PLAN_SOURCE_SNAPSHOT_STALE");
     expect(blocked).toContain("disabled");
     expect(blocked).not.toContain("<script>");
+  });
+});
+
+describe("MA-04 exact activation review", () => {
+  it("shows owned deltas and requires image consent without weakening post approval", () => {
+    const html = renderToStaticMarkup(
+      <PlanActivationCard
+        request={request}
+        payload={{
+          planId: plan.id,
+          revision: 2,
+          specHash: plan.specHash,
+          spec,
+          sourceSnapshot: [],
+          assets: [],
+          children: [
+            {
+              key: "weekly",
+              existing: { id: "existing", version: 7 },
+              assignment: {
+                name: "Exact mandate",
+                kind: "standing",
+                contentType: "social",
+                channels: ["x-int"],
+                topicFrame: "Reviewed beta",
+                schedule: { ...spec.cadence, leadMinutes: 360 },
+                image: true,
+                styleAssetIds: [],
+                monthlyBudgetMicros: 20_000_000,
+                vetoMinutes: 180,
+                approvalMode: "human_each",
+                delivery: "postiz_draft",
+              },
+            },
+          ],
+        }}
+        de={false}
+        pending={false}
+        canDecide
+        onDecide={() => {}}
+      />,
+    );
+    for (const text of [
+      "Adopt and replace",
+      "Expected version",
+      "Exact mandate",
+      "checkbox",
+      "disabled",
+      "Activate assignments",
+      "Approve each post before any external handoff",
+      "does not recall published or unknown handoffs",
+    ])
+      expect(html).toContain(text);
   });
 });
