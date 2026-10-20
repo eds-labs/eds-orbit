@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { KnowledgeWorkspaceGate } from "./workspace";
+import { KnowledgeWorkspaceGate, WorkspaceError } from "./workspace";
 import { knowledgeWeb } from "./manifest";
 import { WorkspaceContext } from "@/components/workspace-context";
 import { ShellContext } from "@/platform/shell/shell-context";
@@ -168,5 +168,21 @@ describe("understandable knowledge workspace", () => {
   it("returns to the existing interface while disabled", () => {
     response.value = { enabled: false };
     expect(render()).toContain("Legacy interface");
+  });
+});
+
+describe("Knowledge error messages", () => {
+  it.each([
+    ["MODEL USE FORBIDDEN", "Bestätige die Weitergabe"],
+    ["GITHUB_INVALID_PRIVATE_KEY", "SHA256-Fingerabdruck"],
+    ["MODEL_CAPABILITY_NOT_VERIFIED", "Standardprovider"],
+    ["KNOWLEDGE_OUTPUT_LIMIT", "Antwortlimit"],
+  ])("explains %s without exposing request contents", (code, expected) => {
+    const markup = renderToStaticMarkup(
+      <WorkspaceContext.Provider value={{ locale: "de" } as any}>
+        <WorkspaceError code={code} t={knowledgeCopy.de} />
+      </WorkspaceContext.Provider>,
+    );
+    expect(markup).toContain(expected);
   });
 });

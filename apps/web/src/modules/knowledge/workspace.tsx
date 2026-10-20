@@ -645,7 +645,21 @@ export function WorkspaceError({
 }) {
   const { locale } = useWorkspace();
   const de = locale === "de";
+  // ApiError.message is humanized by the transport; worker errors retain codes.
+  const normalizedCode = code.replaceAll(" ", "_");
   const known: Record<string, string> = {
+    KNOWLEDGE_OUTPUT_LIMIT: de
+      ? "Die Modellantwort wurde am Antwortlimit abgeschnitten. Es wurde kein Wissen übernommen. Erstelle eine neue Vorschau mit weniger Dateien oder passe das Antwortlimit der Analyse-Route an."
+      : "The model response reached its output limit. No knowledge was accepted. Preview fewer files or adjust the analysis route's output limit.",
+    MODEL_CAPABILITY_NOT_VERIFIED: de
+      ? "Die Analyse-Route verwendet ein nicht freigegebenes Modell. Prüfe unter Einstellungen → KI den Standardprovider und die Aufgaben-Routen."
+      : "The analysis route uses an unverified model. Check the default provider and task routes under Settings → AI.",
+    VERIFIED_PRICE_CONFIGURATION_REQUIRED: de
+      ? "Für das ausgewählte Modell fehlt ein aktueller verifizierter Preis. Prüfe die KI-Einstellungen."
+      : "The selected model needs a current verified price. Check AI settings.",
+    GITHUB_INVALID_PRIVATE_KEY: de
+      ? "Füge den vollständigen Inhalt der privaten PEM-Datei ein, einschließlich BEGIN- und END-Zeile. Ein SHA256-Fingerabdruck reicht nicht aus."
+      : "Paste the complete private PEM file, including its BEGIN and END lines. A SHA256 fingerprint is not sufficient.",
     KNOWLEDGE_MODEL_NOT_CONFIGURED: de
       ? "Für die KI-Analyse fehlt ein eingerichteter Modellanbieter. Hinterlege den Zugang unter Einstellungen → KI."
       : "AI analysis needs a configured model provider. Add its credentials under Settings → AI.",
@@ -689,10 +703,12 @@ export function WorkspaceError({
     KNOWLEDGE_EVIDENCE_CHANGED: t.previewExpired,
     KNOWLEDGE_REFRESH_REQUIRED: t.previewExpired,
   };
-  const budget = /BUDGET|COST_ESTIMATE|MODEL_NOT|RATE_CARD/.test(code);
+  const budget = /BUDGET|COST_ESTIMATE|MODEL_NOT|RATE_CARD/.test(
+    normalizedCode,
+  );
   return (
     <Alert kind="error">
-      {known[code] ??
+      {known[normalizedCode] ??
         (budget
           ? de
             ? "Modell oder Budget ist nicht bereit. Prüfe die KI-Einstellungen und die Budgetfreigabe."
