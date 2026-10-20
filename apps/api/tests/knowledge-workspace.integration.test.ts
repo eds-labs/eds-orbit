@@ -34,6 +34,7 @@ import {
 } from "../src/modules/knowledge/workspace.ts";
 import { retrieve } from "../../../packages/knowledge/src/index.ts";
 import { exportProject } from "../src/platform/governance/export.ts";
+import { planCall } from "../src/platform/ai/call-plan.ts";
 import { respond } from "../../../packages/ai/src/index.ts";
 import {
   readRepository,
@@ -442,7 +443,10 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       responseId: "synthetic-response",
     } as any);
     expect((await runAnalysis(s, job.id)).status).toBe("succeeded");
-    expect(vi.mocked(respond).mock.calls[0]![0].tools).toEqual([]);
+    const request = vi.mocked(respond).mock.calls[0]![0];
+    expect(request.tools).toEqual([]);
+    expect(request.instructions).toContain("Maximum 3 proposals");
+    expect((request.outputSchema as any).properties.proposals.maxItems).toBe(3);
     expect(data((await proposals())[0]).status).toBe("pending");
     expect(
       (
@@ -465,6 +469,55 @@ describe.skipIf(!enabled)("reviewed knowledge workspace", () => {
       "KNOWLEDGE_COST_UNKNOWN",
     );
     expect(vi.mocked(respond)).toHaveBeenCalledTimes(1);
+  });
+  it("preserves a model readiness error before reserving or transmitting", async () => {
+    const { job } = await paidSource();
+    vi.mocked(planCall).mockRejectedValueOnce(
+      new Error("MODEL_CAPABILITY_NOT_VERIFIED"),
+    );
+    expect((await runAnalysis(s, job.id)).errorCode).toBe(
+      "MODEL_CAPABILITY_NOT_VERIFIED",
+    );
+    expect(respond).not.toHaveBeenCalled();
+    expect(
+      await run((tx) =>
+        tx.budgetReservation.count({ where: { projectId: s.projectId } }),
+      ),
+    ).toBe(0);
+  });
+  it("reports output exhaustion, settles the known cost and never promotes truncated JSON", async () => {
+    const { job } = await paidSource();
+    vi.mocked(respond).mockResolvedValue({
+      output: [
+        {
+          type: "message",
+          content: [{ type: "output_text", text: '{"proposals":[' }],
+        },
+      ],
+      usage: {
+        model: "gpt-5.6-terra",
+        inputTokens: 20,
+        outputTokens: 3000,
+        costMicros: 50,
+      },
+      responseId: "synthetic-truncated-response",
+    } as any);
+    expect((await runAnalysis(s, job.id)).errorCode).toBe(
+      "KNOWLEDGE_OUTPUT_LIMIT",
+    );
+    expect(respond).toHaveBeenCalledTimes(1);
+    expect(await proposals()).toHaveLength(0);
+    const saved = await run((tx) => entity(tx, s, "knowledge_runs", job.id));
+    expect(data(saved).outputDiagnostics).toMatchObject({
+      outputTokens: 3000,
+      maxOutputTokens: 3000,
+      proposalLimit: 3,
+    });
+    expect(
+      await run((tx) =>
+        tx.budgetReservation.findFirst({ where: { projectId: s.projectId } }),
+      ),
+    ).toMatchObject({ state: "settled", settledMicros: 50n });
   });
   it("rejects fabricated quotes after settling known model usage", async () => {
     const { job } = await paidSource();
