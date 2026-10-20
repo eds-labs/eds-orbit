@@ -1,5 +1,27 @@
 # Implementation status
 
+## Support category/tag administration through MCP (2026-10-20)
+
+Eight shared Support tools list categories/tags and propose individual create,
+label/colour update and unused-definition deletion operations. Native schemas,
+versioned settings, sensitive owner permissions, exact ActionRequests, project
+locks and audit are reused. Snapshot revalidation protects same-key changes;
+current-state merges retain unrelated settings and independent batch proposals.
+Ticket/inbox references block deletion. Stable keys keep ticket assignments intact.
+These actions always require approval, irrespective of inbox direct-reply settings.
+Native App approvals show before/after labels/colours and a Support settings link.
+No production definitions, inbox rules, provider configuration or messages are
+changed by implementation/testing. Plan: `docs/plans/MCP_SUPPORT_TAXONOMY.md`.
+
+Validation: 18 focused tests in three files passed, including the real HTTP/OAuth
+wire catalog, same-list batch merges, current-owner demotion and escaped approval
+labels. Local browser creation/approval of both definitions persisted in native
+Support settings with Marketing disabled; zero public replies, no worker/provider.
+Lint, root/web typecheck, production build, API generation, Compose, secrets and
+framework checks passed. Full suite: 2,824 passed / one previously reproduced
+agent-resume I7b failure in 265 files (620 seconds). The final focused run also
+passes the subsequently added current-owner demotion regression.
+
 ## Inbox-specific MCP reply authorization (2026-10-20)
 
 The standing owner authorization now belongs exclusively to `SupportInbox.rules`.

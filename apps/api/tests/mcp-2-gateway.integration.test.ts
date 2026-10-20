@@ -348,6 +348,14 @@ describe.skipIf(!enabled)(
         "support_reply_ticket",
         "support_add_internal_note",
         "support_update_ticket",
+        "support_list_categories",
+        "support_list_tags",
+        "support_create_category",
+        "support_update_category",
+        "support_delete_category",
+        "support_create_tag",
+        "support_update_tag",
+        "support_delete_tag",
       ]) {
         const def = definitions.find((t: any) => t.name === name);
         expect(def, name).toBeDefined();
@@ -367,6 +375,12 @@ describe.skipIf(!enabled)(
             "support_reply_ticket",
             "support_add_internal_note",
             "support_update_ticket",
+            "support_create_category",
+            "support_update_category",
+            "support_delete_category",
+            "support_create_tag",
+            "support_update_tag",
+            "support_delete_tag",
           ].includes(name),
         );
       }
@@ -379,6 +393,22 @@ describe.skipIf(!enabled)(
         expect(res.json().result.isError, res.body).not.toBe(true);
         return res.json().result.structuredContent;
       };
+      expect((await call("support_list_categories", {})).result.items).toEqual(
+        [],
+      );
+      expect((await call("support_list_tags", {})).result.items).toEqual([]);
+      const taxonomyProposal = await call("support_create_category", {
+        key: "http_category",
+        label: "HTTP category",
+        idempotencyKey: randomUUID(),
+      });
+      expect(taxonomyProposal).toMatchObject({
+        status: "pending",
+        requiresApproval: true,
+      });
+      expect((await call("support_list_categories", {})).result.items).toEqual(
+        [],
+      );
       expect(
         (await call("support_list_tickets", { q: "HTTP Support question" }))
           .result.items[0].id,

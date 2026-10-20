@@ -108,6 +108,121 @@ export const supportDecisionRenderer: ActionRequestRenderer = {
     );
   },
 };
-export const supportActionRequests = Object.fromEntries(
-  names.map((name) => [`support.mcp.${name}`, supportDecisionRenderer]),
-);
+export const supportTaxonomyRenderer: ActionRequestRenderer = {
+  accepts: (item) =>
+    Boolean(item.summary?.operation?.approvalContext?.taxonomy),
+  component: ({ item, de, pending, decide }) => {
+    const { project } = useWorkspace();
+    const change = item.summary.operation.approvalContext.taxonomy;
+    const kind =
+      change.kind === "category" ? (de ? "Kategorie" : "Category") : "Tag";
+    const action = (
+      {
+        create: de ? "anlegen" : "create",
+        update: de ? "ändern" : "update",
+        delete: de ? "löschen" : "delete",
+      } as Record<string, string>
+    )[change.action];
+    const colors: Record<string, string> = de
+      ? {
+          gray: "Grau",
+          blue: "Blau",
+          green: "Grün",
+          yellow: "Gelb",
+          orange: "Orange",
+          red: "Rot",
+          purple: "Violett",
+          pink: "Rosa",
+        }
+      : {
+          gray: "Gray",
+          blue: "Blue",
+          green: "Green",
+          yellow: "Yellow",
+          orange: "Orange",
+          red: "Red",
+          purple: "Purple",
+          pink: "Pink",
+        };
+    return (
+      <article className="action-request">
+        <h3>
+          {de
+            ? `${kind} ${action}`
+            : `${action[0].toUpperCase()}${action.slice(1)} ${kind.toLowerCase()}`}
+        </h3>
+        <AppLink
+          href={`/p/${encodeURIComponent(project.id)}/settings?section=support`}
+        >
+          {de ? "Support-Einstellungen öffnen" : "Open Support settings"}
+        </AppLink>
+        <p>
+          {de ? "Kennung" : "Key"}: <code>{change.key}</code>
+        </p>
+        <dl>
+          {(["before", "after"] as const).map((side) => (
+            <div key={side}>
+              <dt>
+                {side === "before"
+                  ? de
+                    ? "Bisher"
+                    : "Before"
+                  : de
+                    ? "Danach"
+                    : "After"}
+              </dt>
+              <dd>
+                {change[side] ? (
+                  <>
+                    {change[side].label}
+                    {change[side].color
+                      ? ` · ${colors[change[side].color] ?? change[side].color}`
+                      : ""}
+                  </>
+                ) : de ? (
+                  "Nicht vorhanden"
+                ) : (
+                  "Absent"
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="panel-note">
+          {change.action === "delete"
+            ? de
+              ? "Löschen ist nur möglich, solange die Kennung nicht verwendet wird."
+              : "Deletion is allowed only while the key is unused."
+            : de
+              ? "Die Freigabe ändert nur diese Definition. Bestehende Ticketzuordnungen bleiben erhalten."
+              : "Approval changes only this definition. Existing ticket assignments are preserved."}
+        </p>
+        <div className="form-actions">
+          <Button disabled={pending} onClick={() => decide("approve")}>
+            {de ? "Freigeben" : "Approve"}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={pending}
+            onClick={() => decide("reject")}
+          >
+            {de ? "Ablehnen" : "Reject"}
+          </Button>
+        </div>
+      </article>
+    );
+  },
+};
+export const supportActionRequests = {
+  ...Object.fromEntries(
+    names.map((name) => [`support.mcp.${name}`, supportDecisionRenderer]),
+  ),
+  ...Object.fromEntries(
+    ["category", "tag"].flatMap((kind) =>
+      ["create", "update", "delete"].map((action) => [
+        `support.mcp.support_${action}_${kind}`,
+        supportTaxonomyRenderer,
+      ]),
+    ),
+  ),
+};

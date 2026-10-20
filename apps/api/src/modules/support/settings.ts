@@ -28,17 +28,24 @@ export const TAG_COLORS = [
   "pink",
 ] as const;
 
+export const supportCategorySchema = z
+  .object({
+    key: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/),
+    label: z.string().min(1).max(60),
+  })
+  .strict();
+export const supportTagSchema = z
+  .object({
+    key: supportCategorySchema.shape.key,
+    label: z.string().trim().min(1).max(40),
+    color: z.enum(TAG_COLORS),
+  })
+  .strict();
+
 export const supportSettingsSchema = z
   .object({
     categories: z
-      .array(
-        z
-          .object({
-            key: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/),
-            label: z.string().min(1).max(60),
-          })
-          .strict(),
-      )
+      .array(supportCategorySchema)
       .max(50)
       .refine(
         (items) => new Set(items.map((c) => c.key)).size === items.length,
@@ -46,15 +53,7 @@ export const supportSettingsSchema = z
       ),
     // Ticket tags, like Chatwoot labels: several per ticket, from this list.
     tags: z
-      .array(
-        z
-          .object({
-            key: z.string().regex(/^[a-z][a-z0-9_]{1,40}$/),
-            label: z.string().trim().min(1).max(40),
-            color: z.enum(TAG_COLORS),
-          })
-          .strict(),
-      )
+      .array(supportTagSchema)
       .max(50)
       .refine(
         (items) => new Set(items.map((t) => t.key)).size === items.length,

@@ -4,7 +4,10 @@ vi.mock("@/components/workspace-context", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/components/workspace-context")>()),
   useWorkspace: () => ({ project: { id: "p1" } }),
 }));
-import { supportDecisionRenderer } from "./action-requests";
+import {
+  supportDecisionRenderer,
+  supportTaxonomyRenderer,
+} from "./action-requests";
 const View = supportDecisionRenderer.component;
 
 describe("Support decision card", () => {
@@ -53,5 +56,79 @@ describe("Support decision card", () => {
     expect(html).toContain("Höchstkosten");
     expect(html).toContain("$0.50");
     expect(html).toContain('disabled=""');
+  });
+});
+
+describe("Support taxonomy approval", () => {
+  it("shows escaped before/after values and a settings link without a fabricated ticket", () => {
+    const View = supportTaxonomyRenderer.component;
+    const item = {
+      actionType: "support.mcp.support_update_tag",
+      summary: {
+        operation: {
+          approvalContext: {
+            taxonomy: {
+              kind: "tag",
+              action: "update",
+              key: "billing",
+              before: {
+                key: "billing",
+                label: "Old",
+                color: "gray",
+              },
+              after: {
+                key: "billing",
+                label: "Billing <script>unsafe</script>",
+                color: "blue",
+              },
+            },
+          },
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <View de pending={true} decide={() => {}} item={item} />,
+    );
+    expect(html).toContain("Tag ändern");
+    expect(html).toContain("Bisher");
+    expect(html).toContain("Old");
+    expect(html).toContain("Blau");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("/p/p1/settings?section=support");
+    expect(html).not.toContain("ticket=");
+    expect(html).toContain('disabled=""');
+  });
+  it("explains deletion usage protection and validates the renderer context", () => {
+    const View = supportTaxonomyRenderer.component;
+    const item = {
+      summary: {
+        operation: {
+          approvalContext: {
+            taxonomy: {
+              kind: "category",
+              action: "delete",
+              key: "unused",
+              before: {
+                label: "Unused",
+              },
+              after: null,
+            },
+          },
+        },
+      },
+    };
+    expect(supportTaxonomyRenderer.accepts(item)).toBe(true);
+    expect(
+      supportTaxonomyRenderer.accepts({
+        summary: { operation: { ticketId: "t" } },
+      }),
+    ).toBe(false);
+    const html = renderToStaticMarkup(
+      <View item={item} de={false} pending={false} decide={() => {}} />,
+    );
+    expect(html).toContain("Delete category");
+    expect(html).toContain("only while the key is unused");
+    expect(html).toContain("Absent");
   });
 });
