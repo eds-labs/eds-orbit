@@ -484,7 +484,61 @@ export async function proposeAssignmentInTx(
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const content = assignmentInput.parse(raw);
   await conversation(tx, scope, conversationId);
-  return saveProposal(tx, scope, content, conversationId);
+  // scoped() serializes project mutations. Replays across chats must not book
+  // another budget or create another recurring job for the same mandate.
+  const normalized = {
+    ...content,
+    approvalMode: content.approvalMode ?? "human_each",
+  };
+  const key = proposalMatchKey(normalized);
+  for (const row of await list(tx, scope, KIND)) {
+    const d = data(row);
+    if (
+      d.status === "ended" ||
+      typeof d.conversationId !== "string" ||
+      proposalMatchKey(d) !== key ||
+      !d.actionRequestId
+    )
+      continue;
+    const request = await entity(
+      tx,
+      scope,
+      "action_requests",
+      d.actionRequestId,
+    );
+    const r = data(request);
+    if (r.requestedBy?.kind !== "agent") continue;
+    if (
+      d.status === "draft" &&
+      (r.status !== "pending" || Date.parse(r.expiresAt) <= Date.now())
+    )
+      continue;
+    await assertWithinMandate(tx, scope, normalized, row.id);
+    return { assignment: row, actionRequest: request, reused: true };
+  }
+  return {
+    ...(await saveProposal(tx, scope, content, conversationId)),
+    reused: false,
+  };
+}
+
+/** Identity for equivalent chat requests; no fuzzy topic or authority merging. */
+function proposalMatchKey(source: Record<string, any>) {
+  const value = contentOf(source);
+  delete value.name;
+  value.topicFrame = String(value.topicFrame ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+  for (const key of ["channels", "styleAssetIds"])
+    if (Array.isArray(value[key])) value[key] = [...value[key]].sort();
+  if (value.schedule)
+    value.schedule = {
+      ...value.schedule,
+      times: [...(value.schedule.times ?? [])].sort(),
+      weekdays: [...(value.schedule.weekdays ?? [])].sort(),
+    };
+  return hash(value);
 }
 
 /** The draft and its confirmation request; the caller checked role, flag and origin. */

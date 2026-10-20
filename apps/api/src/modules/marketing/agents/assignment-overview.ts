@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { latestAssignmentResult } from "./assignment-result.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
@@ -155,23 +156,26 @@ export async function conversationAssignments(
     "action_requests",
     [...rows.values()].map((row) => data(row).actionRequestId),
   );
-  return [...rows.values()].map((row) => {
-    const request = requests.get(String(data(row).actionRequestId));
-    const r = data(request);
-    return {
-      ...assignmentCardOf(row),
-      channelNames: namesOf(data(row).channels, names),
-      actionRequest: request
-        ? {
-            id: request.id,
-            version: request.version,
-            packageHash: r.packageHash,
-            status: r.status,
-            expiresAt: r.expiresAt,
-          }
-        : null,
-    };
-  });
+  return Promise.all(
+    [...rows.values()].map(async (row) => {
+      const request = requests.get(String(data(row).actionRequestId));
+      const r = data(request);
+      return {
+        ...assignmentCardOf(row),
+        latestRun: await latestAssignmentResult(tx, scope, row.id),
+        channelNames: namesOf(data(row).channels, names),
+        actionRequest: request
+          ? {
+              id: request.id,
+              version: request.version,
+              packageHash: r.packageHash,
+              status: r.status,
+              expiresAt: r.expiresAt,
+            }
+          : null,
+      };
+    }),
+  );
 }
 
 /**

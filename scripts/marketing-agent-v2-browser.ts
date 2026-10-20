@@ -1,4 +1,4 @@
-/** Synthetic MA-01 browser fixture, isolated worktree DB; never starts a worker. */
+/** Synthetic MA-00–02 browser fixture, isolated worktree DB; never starts a worker. */
 import { randomBytes, randomUUID } from "node:crypto";
 import { writeFileSync, rmSync } from "node:fs";
 import { loadWorktreeTestEnv } from "./test-database.ts";
@@ -21,7 +21,8 @@ const { createPackageProject, X } =
 const { assignmentRun } =
   await import("../apps/api/tests/support/assignment-review.ts");
 const { makeAuth } = await import("../apps/api/src/auth.ts");
-const { createConversation } = await import("../apps/api/src/modules/chat.ts");
+const { createConversation, chatScoped } =
+  await import("../apps/api/src/modules/chat.ts");
 const { proposeAssignment } =
   await import("../apps/api/src/modules/marketing/agents/assignments.ts");
 const app = await buildServer();
@@ -61,10 +62,51 @@ const legacy = await assignmentRun(fixture).makeAssignment({
   name: "Existing delegated marketing",
   monthlyBudgetMicros: 10_000_000,
 });
-const { update, data } = await import("../apps/api/src/shared.ts");
+const { update, data, create } = await import("../apps/api/src/shared.ts");
 await assignmentRun(fixture).run((tx) =>
   update(tx, fixture.owner, legacy, { ...data(legacy), status: "paused" }),
 );
+// Saved synthetic evidence only: no specialist, AI provider or delivery runs.
+const { assignmentCardOf } =
+  await import("../apps/api/src/modules/marketing/tools/assignment-tools.ts");
+const resultRun = await chatScoped(owner, async (tx) => {
+  const run = await create(tx, owner, "assignment_runs", {
+    assignmentId: assignment.id,
+    date: "2026-10-20",
+    status: "done",
+    costMicros: 1200,
+    steps: [],
+    unavailable: [],
+  });
+  const content = await create(tx, owner, "content", {
+    assignmentId: assignment.id,
+    assignmentRunId: run.id,
+    type: "social",
+    channel: X,
+    status: "needs_review",
+    body: "Synthetic browser evidence only.",
+    approvalMode: "human_each",
+  });
+  await tx.chatMessage.create({
+    data: {
+      workspaceId: owner.workspaceId,
+      projectId: owner.projectId,
+      userId: owner.userId,
+      conversationId: conversation.id,
+      sequence: 1,
+      role: "assistant",
+      text: "Synthetic assignment result",
+      cards: [
+        {
+          kind: "assignment",
+          label: "Assignment",
+          assignment: assignmentCardOf(assignment),
+        },
+      ],
+    },
+  });
+  return { id: run.id, contentId: content.id };
+});
 const file = ".runtime/marketing-v2-browser.json";
 writeFileSync(
   file,
@@ -73,6 +115,8 @@ writeFileSync(
     password,
     projectId: owner.projectId,
     assignmentId: assignment.id,
+    conversationId: conversation.id,
+    resultRun,
   }),
   { mode: 0o600 },
 );

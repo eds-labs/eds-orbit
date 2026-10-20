@@ -345,6 +345,7 @@ describe("proposal tool", () => {
       "recent_content",
       "schedule_options",
       "propose_schedule",
+      "assignment_intake",
       "assignment_propose",
       "assignment_list",
       "assignment_change",
@@ -358,6 +359,7 @@ describe("proposal tool", () => {
       features: ToolFeature[],
     ) => availableTools(chatTools, role, features).map((tool) => tool.name);
     const assignmentTools = [
+      "assignment_intake",
       "assignment_propose",
       "assignment_list",
       "assignment_change",
@@ -376,7 +378,7 @@ describe("proposal tool", () => {
     // Viewers read only: no proposal or change tool.
     expect(
       names("viewer", ["agents"]).filter((n) => assignmentTools.includes(n)),
-    ).toEqual(["assignment_list", "run_status"]);
+    ).toEqual(["assignment_intake", "assignment_list", "run_status"]);
     const defined = (name: string) =>
       chatTools.find((tool) => tool.name === name)!;
     expect(defined("assignment_propose").risk).toBe("P_proposal");

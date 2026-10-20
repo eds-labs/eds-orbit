@@ -204,7 +204,12 @@ describe.skipIf(!enabled)("Assignments behind ORBIT_AGENTS", () => {
 
   it("counts a draft only once it is confirmed", async () => {
     const first = await propose({ monthlyBudgetMicros: 60_000_000 });
-    const second = await propose({ monthlyBudgetMicros: 60_000_000 });
+    // Distinct mandates compete for capacity; equivalent retries reuse one draft.
+    const second = await propose({
+      monthlyBudgetMicros: 60_000_000,
+      topicFrame: "Developer onboarding tutorials",
+    });
+    expect(second.assignment.id).not.toBe(first.assignment.id);
     await decide(project.owner, first.actionRequest);
     await expect(decide(project.owner, second.actionRequest)).rejects.toThrow(
       "ASSIGNMENT_BUDGET_EXCEEDS_PROJECT",

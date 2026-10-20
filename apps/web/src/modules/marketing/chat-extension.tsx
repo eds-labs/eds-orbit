@@ -22,9 +22,54 @@ import {
 // unchanged from chat.tsx and action-request-inbox.tsx: content packages,
 // assignment cards and the owner's decisions on them.
 
+const resultLabels: Record<string, [string, string]> = {
+  planned: ["Preparation planned", "Vorbereitung geplant"],
+  running: ["Preparing", "Wird vorbereitet"],
+  done: ["Preparation complete", "Vorbereitung abgeschlossen"],
+  partial: ["Partially prepared", "Teilweise vorbereitet"],
+  failed: ["Failed", "Fehlgeschlagen"],
+  canceled: ["Canceled", "Abgebrochen"],
+  awaiting_owner: ["Awaiting your approval", "Wartet auf deine Freigabe"],
+  scheduled: ["Scheduled in Orbit", "In Orbit eingeplant"],
+  handed_over: [
+    "Handed over; publication not confirmed",
+    "Übergeben; Veröffentlichung unbestätigt",
+  ],
+  published: ["Published", "Veröffentlicht"],
+  blocked: ["Blocked", "Blockiert"],
+  stopped: ["Stopped", "Gestoppt"],
+  withdrawn: ["Withdrawn", "Zurückgezogen"],
+  dropped: ["Not scheduled", "Nicht eingeplant"],
+  postiz_draft_pending: ["Postiz draft pending", "Postiz-Entwurf ausstehend"],
+  postiz_draft: ["Draft created in Postiz", "Entwurf in Postiz erstellt"],
+  postiz_draft_unknown: [
+    "Postiz draft outcome unknown; reconciliation required",
+    "Postiz-Ergebnis unklar; Abgleich erforderlich",
+  ],
+  postiz_draft_failed: ["Postiz draft failed", "Postiz-Entwurf fehlgeschlagen"],
+};
+const resultLabel = (value: string, de: boolean) =>
+  resultLabels[value]?.[de ? 1 : 0] ?? value;
+
 // Live state of an assignment a card names, read by its ID.
 type LiveAssignment = AssignmentContent & {
   status: string;
+  latestRun?: {
+    id: string;
+    date: string;
+    status: string;
+    costMicros: number;
+    blockers: string[];
+    deliverables: Array<{
+      contentId: string;
+      assetId?: string | null;
+      channel: string;
+      outcome: string;
+      reason: string | null;
+      publicationId: string | null;
+      postizDraftId: string | null;
+    }>;
+  } | null;
   actionRequest: (AssignmentRequest & { expiresAt: string }) | null;
 };
 
@@ -35,7 +80,7 @@ function ChatAssignmentCard({
   card: { assignment?: AssignmentContent & Record<string, any> };
   host: ChatHost;
 }) {
-  const { isOwner } = useWorkspace();
+  const { isOwner, project } = useWorkspace();
   const decide = useDecideActionRequest();
   if (!card.assignment) return null;
   const shown = card.assignment;
@@ -65,27 +110,91 @@ function ChatAssignmentCard({
     );
   };
   return (
-    <AssignmentCard
-      assignment={{
-        ...shown,
-        channelNames: shown.channelNames ?? live?.channelNames,
-      }}
-      status={live?.status ?? shown.status ?? "draft"}
-      request={own}
-      expiresAt={own?.expiresAt}
-      de={host.de}
-      canDecide={isOwner}
-      pending={host.pending}
-      superseded={
-        Boolean(live?.actionRequest) &&
-        !own &&
-        live?.actionRequest?.status === "pending"
-      }
-      onConfirm={(request, consent) =>
-        void decideAssignment(request, "approve", consent)
-      }
-      onReject={(request) => void decideAssignment(request, "reject")}
-    />
+    <>
+      {live?.latestRun && (
+        <section
+          className="chat-proposal"
+          aria-label={host.de ? "Auftragsergebnis" : "Assignment result"}
+        >
+          <strong>
+            {host.de ? "Letzter Lauf" : "Latest run"}: {live.latestRun.date}
+          </strong>
+          <p>
+            {resultLabel(live.latestRun.status, host.de)} ·{" "}
+            {(live.latestRun.costMicros / 1_000_000).toLocaleString(
+              host.de ? "de-DE" : "en-US",
+              {
+                style: "currency",
+                currency: "USD",
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 6,
+              },
+            )}{" "}
+            {host.de ? "erfasste KI-Kosten" : "recorded AI cost"}
+          </p>
+          <p className="chat-package-note">Run: {live.latestRun.id}</p>
+          {live.latestRun.blockers.length > 0 && (
+            <p>
+              {host.de ? "Blocker" : "Blockers"}:{" "}
+              {live.latestRun.blockers.join(", ")}
+            </p>
+          )}
+          <ul>
+            {live.latestRun.deliverables.map((item) => (
+              <li key={`${item.contentId}:${item.channel}`}>
+                <strong>{item.channel}</strong>:{" "}
+                {resultLabel(item.outcome, host.de)}
+                {item.reason ? ` · ${item.reason}` : ""}
+                <p className="chat-package-note">
+                  Content: {item.contentId}
+                  {item.assetId ? ` · Image: ${item.assetId}` : ""}
+                  {item.publicationId
+                    ? ` · Publication: ${item.publicationId}`
+                    : ""}
+                  {item.postizDraftId
+                    ? ` · Postiz draft: ${item.postizDraftId}`
+                    : ""}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <p>
+            {host.de
+              ? "Eine Übergabe oder ein Postiz-Entwurf ist noch keine Veröffentlichung."
+              : "Handoff or a Postiz draft does not mean published."}
+          </p>
+          <div className="chat-links">
+            <a href={`/p/${project.id}/approvals`}>
+              {host.de ? "Beiträge prüfen" : "Review posts"}
+            </a>
+            <a href={`/p/${project.id}/marketing/assignments`}>
+              {host.de ? "Aufträge verwalten" : "Manage assignments"}
+            </a>
+          </div>
+        </section>
+      )}
+      <AssignmentCard
+        assignment={{
+          ...shown,
+          channelNames: shown.channelNames ?? live?.channelNames,
+        }}
+        status={live?.status ?? shown.status ?? "draft"}
+        request={own}
+        expiresAt={own?.expiresAt}
+        de={host.de}
+        canDecide={isOwner}
+        pending={host.pending}
+        superseded={
+          Boolean(live?.actionRequest) &&
+          !own &&
+          live?.actionRequest?.status === "pending"
+        }
+        onConfirm={(request, consent) =>
+          void decideAssignment(request, "approve", consent)
+        }
+        onReject={(request) => void decideAssignment(request, "reject")}
+      />
+    </>
   );
 }
 
@@ -179,6 +288,9 @@ export const marketingChat: ChatExtension = {
   afterMessages: ChatPackages,
   busy: (conversation) =>
     Boolean(
+      (conversation.assignments as LiveAssignment[] | undefined)?.some((item) =>
+        ["planned", "running"].includes(item.latestRun?.status ?? ""),
+      ) ||
       (conversation.packages as ContentPackage[] | undefined)?.some(
         packageInProgress,
       ),

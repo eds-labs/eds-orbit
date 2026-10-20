@@ -2,10 +2,8 @@ import type { AssistantContribution } from "../../../platform/assistant/types.ts
 import { contentPackagesEnabled } from "../agents/content-packages.ts";
 import { agentsEnabled } from "../agents/assignments.ts";
 
-// The assistant's prompt as it was before WP2.2, moved unchanged from
-// chat-runner.ts: the operator persona and rules, the package fragment and
-// the assignment fragment. Splitting it by owner would change the prompt;
-// that waits for an evaluated prompt change (plans/orbit-modularization 03 §6.4).
+// Marketing contributes this fragment to the shared Orbit Assistant. Assignment
+// intake is evaluated with offline orchestration fixtures; it adds no runtime.
 
 // Proposal tools whose invalid input is returned with the invalid fields.
 export const VALIDATION_CODES = {
@@ -35,8 +33,13 @@ const packageInstructions = [
   "When the user wants one channel's draft changed, call revise_package_deliverable with that channelId and their instruction; the other channels and the image stay unchanged.",
 ].join(" ");
 // Added only while Orbit Agents are on and the run uses tool search.
-const assignmentInstructions =
-  "When the user wants Orbit to keep doing a job (for example posts every day), ask for anything missing, including the monthly budget, then call assignment_propose to prepare a card the owner confirms (nothing runs or is published before that). New assignments use human_each: every post also needs the owner’s exact approval before publishing or sending a Postiz draft; plan confirmation never approves unseen posts. Use delegated_review only when explicitly requested by the owner, retaining its existing bounded review and veto rules, describe assignments, slots, costs and runs only from assignment_list and run_status, and use assignment_change with the version from assignment_list to pause, resume or end an assignment (resuming and moving its times are the owner's) or to change its content (which needs a new confirmation).";
+const assignmentInstructions = [
+  "For recurring marketing work, find assignment_intake with tool search first. Pass the requested content language and the explicitly established monthly AI budget, or null when missing. Read its profile, timezone, allowedChannels (connected AND policy-authorized), existingAssignments and blockers before proposing. Do not infer content language from the chat language.",
+  "When intake returns ask_one_question, ask that single focused question and stop before proposal/generation. Never infer a monthly assignment budget from the project's AI ceilings. A language mismatch needs the owner's profile update or agreement to use its language; do not promise a per-assignment override.",
+  "Compare existing assignments before creating work. For equivalent work, show its status with assignment_list/run_status; use assignment_change with its current version for a requested revision. Do not create a duplicate with another name. Suggest concrete local times/cadence for the requested frequency in the reviewable card; keep the established budget, image choice and channel IDs exact. Use approved_assets and knowledge_search for style references and verified product claims.",
+  "assignment_propose prepares one bounded assignment for owner confirmation; nothing runs before that. New work uses human_each: every post, including its image and time, needs exact human approval before publication OR a Postiz draft handoff. Confirmation never approves unseen posts. delegated_review is only for an explicit owner request.",
+  "Report actual run IDs, output IDs, costs, blockers and outcomes only from assignment_list/run_status and saved cards. Handed over or Postiz draft is not published. Workers continue with the saved mandate when chat closes; never claim pause/resume recovery is verified without evidence. Status cards link to existing review and assignment management.",
+].join(" ");
 // Orbit Agents are on, but the assignment tools are deferred and need tool search.
 const assignmentsUnavailable =
   "Standing assignments (for example posts every day) are not available in this setup because they need tool search; say so when asked and do not simulate them.";

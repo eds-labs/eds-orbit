@@ -61,7 +61,36 @@ test("approval mode remains explicit in management and the confirmation card aft
       () => document.documentElement.scrollWidth > window.innerWidth,
     );
     expect(overflow).toBe(false);
-    await page.screenshot({ path: `.runtime/ma01-approval-${viewport.width}.png`, fullPage: true });
+    await page.goto(
+      `/p/${account.projectId}/assistant?conversation=${account.conversationId}`,
+    );
+    await expect(
+      page.getByRole("region", { name: "Assignment result" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(`Run: ${account.resultRun.id}`, { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText(`Content: ${account.resultRun.contentId}`, {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Awaiting your approval", { exact: false }),
+    ).toBeVisible();
+    await page.reload();
+    await expect(
+      page.getByRole("region", { name: "Assignment result" }),
+    ).toBeVisible();
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth > window.innerWidth,
+      ),
+    ).toBe(false);
+    await page.screenshot({
+      path: `.runtime/ma01-approval-${viewport.width}.png`,
+      fullPage: true,
+    });
   }
   const assignments = await context.request.get(
     `/api/projects/${account.projectId}/assignments`,

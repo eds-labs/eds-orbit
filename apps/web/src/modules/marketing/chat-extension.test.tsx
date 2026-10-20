@@ -76,6 +76,50 @@ describe("marketing chat parts", () => {
     ).toBe("");
   });
 
+  it("shows persisted output evidence and refreshes running assignments", () => {
+    const Card = marketingChat.messageCards!.assignment!;
+    const latestRun = {
+      id: "run-actual",
+      date: "2026-10-20",
+      status: "running",
+      costMicros: 1200,
+      blockers: ["REVIEW_PENDING"],
+      deliverables: [
+        {
+          contentId: "content-actual",
+          channel: "x-int",
+          outcome: "awaiting_owner",
+          reason: null,
+          publicationId: null,
+          postizDraftId: null,
+        },
+      ],
+    };
+    const conversation = {
+      assignments: [
+        { ...assignment, status: "active", actionRequest: null, latestRun },
+      ],
+    };
+    const html = workspace(
+      <Card
+        card={{ kind: "assignment", assignment }}
+        host={host(conversation)}
+      />,
+    );
+    expect(html).toContain("run-actual");
+    expect(html).toContain("content-actual");
+    expect(html).toContain("REVIEW_PENDING");
+    expect(html).toContain("Awaiting your approval");
+    expect(html).toContain("$0.0012");
+    expect(html).toContain("/p/p1/approvals");
+    expect(marketingChat.busy!(conversation)).toBe(true);
+    expect(
+      marketingChat.busy!({
+        assignments: [{ latestRun: { ...latestRun, status: "done" } }],
+      }),
+    ).toBe(false);
+  });
+
   it("keeps the chat refreshing only while a package is in progress", () => {
     expect(marketingChat.busy!({ packages: [] })).toBe(false);
     expect(marketingChat.busy!({})).toBe(false);

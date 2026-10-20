@@ -70,6 +70,7 @@ import { renderRasterTemplate } from "../../../packages/creative/src/index.ts";
 import { data, entity, create, list, update, encrypt } from "../src/shared.ts";
 import {
   createConversation,
+  getConversation,
   sendMessage,
   getRun,
 } from "../src/modules/chat.ts";
@@ -285,7 +286,14 @@ describe.skipIf(!enabled)(
           },
         ],
         [
+          call("assignment_intake", {
+            requestedLanguage: "en",
+            monthlyBudgetMicros: 30_000_000,
+          }),
+        ],
+        [
           call("assignment_propose", {
+            requestedLanguage: "en",
             name: "Weekly organic product marketing",
             kind: "standing",
             schedule: {
@@ -324,7 +332,7 @@ describe.skipIf(!enabled)(
         ],
       ];
       const sent = await sendMessage(project.owner, conversation.id, {
-        text: "Take over our weekly organic marketing in English. Prepare posts and images for my approval.",
+        text: "Take over our weekly organic marketing in English. Prepare posts and images for my approval, with a monthly AI budget of USD 30.",
         clientRequestId: randomUUID(),
       });
       await runChat(project.owner, sent.runId);
@@ -353,7 +361,11 @@ describe.skipIf(!enabled)(
       });
       // The weekly planner prepares a day ahead. Clock stays within the fixture's fact validity.
       vi.useFakeTimers({ toFake: ["Date"] });
-      vi.setSystemTime(new Date(morning.valueOf() - 86400000 + 8 * 3600000));
+      vi.setSystemTime(
+        new Date(
+          Math.max(Date.now(), morning.valueOf() - 86400000 + 8 * 3600000),
+        ),
+      );
       await h.run((tx) => sweepProject(tx, project.owner, new Date()));
       await h.run((tx) => sweepProject(tx, project.owner, new Date()));
       expect(await h.rows("assignment_runs")).toHaveLength(1);
@@ -365,7 +377,16 @@ describe.skipIf(!enabled)(
         for (const task of queued) await runAgentTask(h.worker(), task.id);
       }
       const tasks = await h.rows("agent_tasks");
-      expect(tasks.map((t) => [t.role, t.status])).toEqual(
+      expect(
+        tasks.map((t) => [t.role, t.status]),
+        JSON.stringify(
+          tasks.map((t) => ({
+            role: t.role,
+            error: t.error,
+            errorCode: t.errorCode,
+          })),
+        ),
+      ).toEqual(
         expect.arrayContaining([
           ["analytics", "done"],
           ["research", "done"],
@@ -396,6 +417,21 @@ describe.skipIf(!enabled)(
       expect(await h.rows("postiz_drafts")).toEqual([]);
       expect(fake.posts).not.toHaveBeenCalled();
       expect(fake.upload).not.toHaveBeenCalled();
+      const reloaded = await getConversation(project.owner, conversation.id);
+      const live = (reloaded.assignments as any[]).find(
+        (item) => item.id === assignment!.id,
+      );
+      expect(live.latestRun).toMatchObject({
+        id: run!.id,
+        status: run!.status,
+        costMicros: run!.costMicros,
+        deliverables: expect.arrayContaining([
+          expect.objectContaining({
+            contentId: drafts[0].id,
+            outcome: "awaiting_owner",
+          }),
+        ]),
+      });
       return { assignment: assignment!, drafts, run: run! };
     }
     const release = (draft: any, actor = project.owner) =>
