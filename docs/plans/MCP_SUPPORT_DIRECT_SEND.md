@@ -1,5 +1,8 @@
 # Owner MCP Support send setting and independent decisions inbox
 
+The project-wide policy below is superseded by the inbox-specific policy in
+`MCP_SUPPORT_INBOX_POLICY.md`; the independent decisions inbox remains current.
+
 Risk: high; backend/authz + existing Next.js web UI. Feature/bugfix in the existing stack; authorized main/Coolify workflow. No schema migration, new provider/dependency, paid call or real customer send.
 
 ## Plan and acceptance

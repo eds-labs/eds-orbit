@@ -38,7 +38,8 @@ type Operation = {
   ownerMcpAutoApproval?(
     tx: DbTx,
     scope: Scope,
-  ): Promise<{ settingsVersion: number } | null>;
+    args: any,
+  ): Promise<{ inboxId: string; inboxVersion: number } | null>;
   mcpProjectRequired?: boolean;
   output?: z.ZodType;
   validate?(tx: DbTx, scope: Scope, args: any): Promise<void>;
@@ -272,7 +273,7 @@ export function approvedOperation(op: Operation) {
     description:
       op.description +
       (op.ownerMcpAutoApproval
-        ? " Sends without another Orbit approval only when the owner has enabled direct MCP replies and makes the call personally through MCP; otherwise saves an owner approval request. Read requiresApproval/status and the delivery receipt; queued does not mean delivered. Retry with the same idempotencyKey."
+        ? " Sends without another Orbit approval only when the owner has enabled direct MCP replies for the ticket inbox and makes the call personally through MCP; otherwise saves an owner approval request. Read requiresApproval/status and the delivery receipt; queued does not mean delivered. Retry with the same idempotencyKey."
         : " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey."),
     parameters: modelParameters(input),
     risk: "P_proposal",
@@ -364,7 +365,7 @@ export function approvedOperation(op: Operation) {
           : null;
         const standingApproval =
           currentOwner && can(currentOwner, PROJECT_OWN)
-            ? await op.ownerMcpAutoApproval?.(tx, currentOwner)
+            ? await op.ownerMcpAutoApproval?.(tx, currentOwner, args)
             : null;
         if (standingApproval) {
           await decideActionRequest(
@@ -378,7 +379,8 @@ export function approvedOperation(op: Operation) {
             },
             {
               channel: "mcp_setting",
-              settingsVersion: standingApproval.settingsVersion,
+              inboxId: standingApproval.inboxId,
+              inboxVersion: standingApproval.inboxVersion,
             },
           );
           row = await entity(tx, ctx.scope, "action_requests", row.id);

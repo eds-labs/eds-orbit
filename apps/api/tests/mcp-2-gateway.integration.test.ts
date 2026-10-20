@@ -360,6 +360,7 @@ describe.skipIf(!enabled)(
           expect(def.description).toContain(
             "owner has enabled direct MCP replies",
           );
+          expect(def.description).toContain("for the ticket inbox");
         }
         expect(def.annotations.readOnlyHint).toBe(
           ![

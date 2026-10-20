@@ -31,7 +31,6 @@ type Settings = {
     { firstResponseMinutes: number; resolutionMinutes: number }
   >;
   autoAck: boolean;
-  mcpOwnerRepliesWithoutApproval?: boolean;
   autoCloseDays: number;
   reopenOnReply: boolean;
   retention: {
@@ -132,8 +131,8 @@ export function inboxBody(form: {
   origins: string;
   aiMode: string;
   language: string;
-  /** Per-inbox switches (WP5.5); left out, the project defaults apply. */
-  rules?: { autoAck: boolean; autoClose: boolean; sla: boolean };
+  /** Inbox rules; direct MCP replies require an explicit opt-in on this inbox. */
+  rules?: NonNullable<Inbox["rules"]>;
 }) {
   const channels = [
     ...(form.email ? ["email"] : []),
@@ -191,6 +190,12 @@ function Inboxes({ t }: { t: SupportText }) {
               <Badge tone="warning">{t.settings.archived}</Badge>
             )}
             {inbox.emailAddress && <span> {inbox.emailAddress}</span>}
+            <Badge>
+              {inbox.rules?.mcpOwnerRepliesWithoutApproval === true &&
+              !inbox.archivedAt
+                ? t.settings.mcpDirect
+                : t.settings.mcpApproval}
+            </Badge>
             {isOwner && !inbox.archivedAt && (
               <span className="support-inbox-actions">
                 <Button
@@ -198,7 +203,7 @@ function Inboxes({ t }: { t: SupportText }) {
                   variant="outline"
                   onClick={() => setEditing(inbox)}
                 >
-                  {t.save}
+                  {t.settings.editInbox}
                 </Button>
                 {inbox.channels.includes("widget") && (
                   <Button
@@ -315,7 +320,7 @@ function InboxForm({
   onClose: () => void;
   onSaved: (widgetSecret?: string) => void;
 }) {
-  const { project } = useWorkspace();
+  const { project, isOwner } = useWorkspace();
   const mailboxes = useResource<{ items: Mailbox[] }>(
     supportPath(project.id, "/mailboxes"),
   );
@@ -327,6 +332,9 @@ function InboxForm({
     origins: (inbox?.allowedOrigins ?? []).join("\n"),
     aiMode: inbox?.aiMode ?? "off",
     rules: {
+      ...inbox?.rules,
+      mcpOwnerRepliesWithoutApproval:
+        inbox?.rules?.mcpOwnerRepliesWithoutApproval === true,
       autoAck: inbox?.rules?.autoAck ?? true,
       autoClose: inbox?.rules?.autoClose ?? true,
       sla: inbox?.rules?.sla ?? true,
@@ -474,6 +482,16 @@ function InboxForm({
             />
           ))}
         </fieldset>
+        <McpReplySetting
+          enabled={form.rules.mcpOwnerRepliesWithoutApproval}
+          disabled={!isOwner || save.pending}
+          onChange={(enabled) =>
+            set({
+              rules: { ...form.rules, mcpOwnerRepliesWithoutApproval: enabled },
+            })
+          }
+          t={t}
+        />
         <Button type="submit" disabled={save.pending}>
           {t.save}
         </Button>
@@ -550,14 +568,6 @@ function Rules({ t }: { t: SupportText }) {
           );
         }}
       >
-        <McpReplySetting
-          enabled={s.mcpOwnerRepliesWithoutApproval === true}
-          disabled={!isOwner}
-          onChange={(enabled) =>
-            update({ mcpOwnerRepliesWithoutApproval: enabled })
-          }
-          t={t}
-        />
         <label>
           <span>{t.settings.categories}</span>
           <Textarea

@@ -1,5 +1,21 @@
 # Implementation status
 
+## Inbox-specific MCP reply authorization (2026-10-20)
+
+The standing owner authorization now belongs exclusively to `SupportInbox.rules`.
+Settings → Support → Inboxes → Edit exposes the default-off toggle for each
+inbox; badges show direct replies vs approval required. Only the current ticket
+inbox's explicit true permits execution. The deprecated project flag is ignored,
+including already stored true values. Moving tickets and archived inboxes cannot
+inherit an opt-in from another inbox. Decisions/audits name inbox id/version.
+Other inbox rules survive edits; sensitive owner/version checks are unchanged.
+No production inbox is enabled and no real customer send is performed.
+
+Validation: 59 focused tests in six files passed; the final Support and wire-catalog checks passed (29 and six tests). Full suite: 2,815 passed / one known baseline agent-resume I7b failure. Build, typecheck, lint, API generation, Compose, secrets and framework checks passed. Browser opt-in/reload and a deduplicated synthetic direct reply versus a pending Admin reply passed without a worker or real send.
+
+Plan, tests and compatibility rollback: `docs/plans/MCP_SUPPORT_INBOX_POLICY.md`.
+The project-wide setting section below is the superseded historical checkpoint.
+
 ## Owner MCP replies and independent app approvals (2026-10-20)
 
 Default-off Support setting `mcpOwnerRepliesWithoutApproval` lets owners authorize

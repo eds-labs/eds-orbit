@@ -1,5 +1,17 @@
 # Requirements traceability
 
+## Inbox-specific MCP reply authorization (2026-10-20)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Support direct, Admin approval required (off or absent rule) | Support MCP SQL regression with two real synthetic inboxes | PASS_TEST |
+| Legacy global true never opts in an inbox | Same regression; stored project flag remains compatibility-only | PASS_TEST |
+| Ticket moved into denied inbox cannot send directly | Same ticket after current-inbox change; no second public message | PASS_TEST |
+| Archived inbox cannot use a stored opt-in | Support MCP SQL regression with a true rule on an archived Admin inbox | PASS_TEST |
+| Owner/version checks and isolated opt-out | Support inbox HTTP regression, stale version and nonowner write negatives | PASS_TEST |
+| Inbox-specific copy and preservation of other rules | Settings rendering and inbox body tests | PASS_TEST |
+| Support direct / Admin pending after UI save and reload | Synthetic browser fixture plus dedupe/message-count probe; no worker or delivery | PASS_LOCAL_BROWSER |
+
 ## Owner MCP Support setting and independent decisions (2026-10-20)
 
 | Requirement | Evidence | State |

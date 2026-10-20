@@ -69,6 +69,7 @@ export const supportSettingsSchema = z
       )
       .strict(),
     autoAck: z.boolean(),
+    // Deprecated project flag: accepted for stored JSON compatibility; never authorizes sends.
     mcpOwnerRepliesWithoutApproval: z.boolean().default(false),
     // Support AI per day, in micros, on top of the project's spend mandate.
     aiDailyBudgetMicros: z.number().int().min(0).max(100_000_000),
@@ -124,8 +125,8 @@ export function supportSettingsDefaults(): SupportSettings {
 }
 
 /**
- * Per-inbox switches over the project's settings (WP5.5); a missing key
- * keeps the project default.
+ * Per-inbox automation overrides (WP5.5) use project defaults when absent.
+ * MCP direct replies are a separate explicit opt-in, never inherited.
  */
 export const inboxRulesSchema = z
   .object({
@@ -134,6 +135,8 @@ export const inboxRulesSchema = z
     autoCloseDays: z.number().int().min(1).max(90),
     reopenOnReply: z.boolean(),
     sla: z.boolean(),
+    // No project fallback: only an explicit inbox opt-in authorizes direct MCP replies.
+    mcpOwnerRepliesWithoutApproval: z.boolean(),
   })
   .partial()
   .strict();

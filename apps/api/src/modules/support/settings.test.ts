@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { supportSettingsDefaults, supportSettingsSchema } from "./settings.ts";
+import {
+  supportSettingsDefaults,
+  supportSettingsSchema,
+  inboxRulesSchema,
+} from "./settings.ts";
 
 describe("support settings (WP5.1)", () => {
   it("accepts the defaults, with the Q-12b retention", () => {
@@ -20,6 +24,20 @@ describe("support settings (WP5.1)", () => {
       supportSettingsDefaults();
     expect(
       supportSettingsSchema.parse(legacy).mcpOwnerRepliesWithoutApproval,
+    ).toBe(false);
+  });
+
+  it("accepts explicit inbox opt-in and leaves legacy inboxes unapproved", () => {
+    expect(
+      inboxRulesSchema.parse({ autoAck: false }).mcpOwnerRepliesWithoutApproval,
+    ).toBeUndefined();
+    expect(
+      inboxRulesSchema.parse({ mcpOwnerRepliesWithoutApproval: true })
+        .mcpOwnerRepliesWithoutApproval,
+    ).toBe(true);
+    expect(
+      inboxRulesSchema.safeParse({ mcpOwnerRepliesWithoutApproval: "true" })
+        .success,
     ).toBe(false);
   });
 

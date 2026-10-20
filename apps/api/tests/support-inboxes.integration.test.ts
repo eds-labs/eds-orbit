@@ -265,6 +265,56 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
     expect(mailOnly.json().inbox.hasWidgetSecret).toBe(false);
   });
 
+  it("saves direct MCP authorization per inbox with owner and version checks", async () => {
+    await switchOn();
+    const { inbox: created } = (
+      await call("owner", "POST", "/support/inboxes", await inbox())
+    ).json();
+    expect(created.rules?.mcpOwnerRepliesWithoutApproval).not.toBe(true);
+    const url = `/support/inboxes/${created.id}`;
+    for (const who of ["editor", "viewer"] as const) {
+      expect(
+        (
+          await call(who, "PATCH", url, {
+            version: created.version,
+            rules: { mcpOwnerRepliesWithoutApproval: true },
+          })
+        ).statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await call(who, "POST", "/support/inboxes", {
+            ...(await inbox()),
+            rules: { mcpOwnerRepliesWithoutApproval: true },
+          })
+        ).statusCode,
+      ).toBe(403);
+    }
+    const enabled = await call("owner", "PATCH", url, {
+      version: created.version,
+      rules: { autoAck: false, mcpOwnerRepliesWithoutApproval: true },
+    });
+    expect(enabled.statusCode).toBe(200);
+    expect(enabled.json().rules).toMatchObject({
+      autoAck: false,
+      mcpOwnerRepliesWithoutApproval: true,
+    });
+    expect(
+      (
+        await call("owner", "PATCH", url, {
+          version: created.version,
+          rules: { mcpOwnerRepliesWithoutApproval: false },
+        })
+      ).statusCode,
+    ).toBe(409);
+    const disabled = await call("owner", "PATCH", url, {
+      version: enabled.json().version,
+      rules: { autoAck: false, mcpOwnerRepliesWithoutApproval: false },
+    });
+    expect(disabled.statusCode).toBe(200);
+    expect(disabled.json().rules.mcpOwnerRepliesWithoutApproval).toBe(false);
+  });
+
   it("updates with the current version and refuses a stale one", async () => {
     await switchOn();
     const { inbox: created } = (

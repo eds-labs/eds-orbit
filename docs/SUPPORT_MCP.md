@@ -136,11 +136,16 @@ already consumed approvals are preserved.
 
 By default, only an explicit owner's Orbit decision runs the native
 `replyToTicket` service. Owners can instead enable **Settings → Support →
-Replies through connected apps → Send my MCP replies without individual
-approval** (`mcpOwnerRepliesWithoutApproval`, default `false`). This is a
-project setting for new, exact customer replies personally submitted by an
-owner through MCP. It records the owner's standing decision as
-`channel: mcp_setting` with the settings version; the same ActionRequest,
+Inboxes → Edit the inbox → Replies through connected apps → Send my MCP
+replies without individual approval** (`SupportInbox.rules.mcpOwnerRepliesWithoutApproval`).
+Each inbox defaults to requiring approval: only an explicit `true` on the
+current ticket inbox permits new, exact customer replies personally submitted
+by an owner through MCP. For example, Support may opt in while Admin stays off.
+The former project-wide flag is retained only for stored JSON compatibility
+and is ignored; it never enables any inbox. Moving a ticket uses its current
+inbox's policy. Archived inboxes never use standing authorization.
+It records the owner's standing decision as `channel: mcp_setting` with
+`inboxId` and `inboxVersion`; the same ActionRequest,
 active grant/scope checks and destination revalidation still apply. It does
 not change token scopes. Editors, delegated work orders, in-app agents,
 notes, status changes and paid AI keep individual approval. Enabling it

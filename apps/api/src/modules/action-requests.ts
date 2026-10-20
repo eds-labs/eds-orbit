@@ -363,7 +363,8 @@ export async function decideActionRequest(
   id: string,
   raw: unknown,
   source:
-    { channel: "web" } | { channel: "mcp_setting"; settingsVersion: number } = {
+    | { channel: "web" }
+    | { channel: "mcp_setting"; inboxId: string; inboxVersion: number } = {
     channel: "web",
   },
 ) {
@@ -417,7 +418,7 @@ export async function decideActionRequest(
       decidedAt: new Date().toISOString(),
       channel: source.channel,
       ...(source.channel === "mcp_setting"
-        ? { settingsVersion: source.settingsVersion }
+        ? { inboxId: source.inboxId, inboxVersion: source.inboxVersion }
         : {}),
       ...(input.imageRightsConsent === undefined
         ? {}
@@ -435,7 +436,8 @@ export async function decideActionRequest(
       ...(source.channel === "mcp_setting"
         ? {
             decisionSource: source.channel,
-            settingsVersion: source.settingsVersion,
+            inboxId: source.inboxId,
+            inboxVersion: source.inboxVersion,
           }
         : {}),
     },

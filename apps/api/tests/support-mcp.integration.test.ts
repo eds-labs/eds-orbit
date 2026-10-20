@@ -14,7 +14,12 @@ import {
   listTickets,
   ticketDetail,
 } from "../src/modules/support/workspace.ts";
-import { createInbox } from "../src/modules/support/inboxes.ts";
+import {
+  createInbox,
+  archiveInbox,
+  loadInbox,
+  updateInbox,
+} from "../src/modules/support/inboxes.ts";
 import {
   authorizeMcpCall,
   visibleMcpTools,
@@ -114,10 +119,11 @@ describe.skipIf(!enabled)(
     async function ticket(
       subject = "Synthetic support question",
       bodyText = "Where is the report?",
+      targetInboxId = inboxId,
     ) {
       return run((tx) =>
         createTicket(tx, project.owner, {
-          inboxId,
+          inboxId: targetInboxId,
           channel: "email",
           inbound: {
             externalId: `<${randomUUID()}@example.invalid>`,
@@ -230,23 +236,16 @@ describe.skipIf(!enabled)(
       await closeDatabase();
     });
 
-    async function directReplies(enabled: boolean) {
+    async function directReplies(enabled: boolean, targetInboxId = inboxId) {
       return run(async (tx) => {
-        const current = await readModuleSettings(
-          tx,
-          project.owner,
-          "support",
-          supportSettingsSchema,
-          supportSettingsDefaults,
-        );
-        return writeModuleSettings(
-          tx,
-          project.owner,
-          "support",
-          supportSettingsSchema,
-          { ...current.settings, mcpOwnerRepliesWithoutApproval: enabled },
-          current.version,
-        );
+        const current = await loadInbox(tx, project.owner, targetInboxId);
+        return updateInbox(tx, project.owner, targetInboxId, {
+          version: current.version,
+          rules: {
+            ...(current.rules as Record<string, unknown>),
+            mcpOwnerRepliesWithoutApproval: enabled,
+          },
+        });
       });
     }
     it("defaults to individual approval, then queues an owner's opted-in MCP reply exactly once across aliases", async () => {
@@ -311,7 +310,8 @@ describe.skipIf(!enabled)(
         expect(data(row).decision).toMatchObject({
           channel: "mcp_setting",
           userId: project.owner.userId,
-          settingsVersion: setting.version,
+          inboxId,
+          inboxVersion: setting.version,
         });
         expect(
           data(
@@ -333,6 +333,137 @@ describe.skipIf(!enabled)(
       }
       const again = await proposeReply(t.ticketId, "Synthetic after opt-out");
       expect(again.requiresApproval).toBe(true);
+    });
+    it("uses only the current inbox opt-in: Support direct, Admin off, even with a legacy project opt-in", async () => {
+      const admin = await run(
+        async (tx) =>
+          (
+            await createMailInbox(tx, project.owner, {
+              name: "Synthetic Admin",
+              channels: ["email"],
+              emailAddress: `admin-${randomUUID()}@example.invalid`,
+              rules: { autoAck: false },
+            })
+          ).inbox,
+      );
+      const supportTicket = await ticket();
+      const adminTicket = await ticket(
+        "Synthetic Admin question",
+        "Keep individual approval",
+        admin.id,
+      );
+      await run(async (tx) => {
+        const current = await readModuleSettings(
+          tx,
+          project.owner,
+          "support",
+          supportSettingsSchema,
+          supportSettingsDefaults,
+        );
+        await writeModuleSettings(
+          tx,
+          project.owner,
+          "support",
+          supportSettingsSchema,
+          { ...current.settings, mcpOwnerRepliesWithoutApproval: true },
+          current.version,
+        );
+      });
+      try {
+        // The deprecated global opt-in never leaks to a missing inbox rule.
+        expect(
+          (
+            await proposeReply(
+              supportTicket.ticketId,
+              "Legacy flag must not send",
+            )
+          ).requiresApproval,
+        ).toBe(true);
+        expect(
+          (
+            await proposeReply(
+              adminTicket.ticketId,
+              "Admin missing rule must not send",
+            )
+          ).requiresApproval,
+        ).toBe(true);
+        await directReplies(true);
+        expect(
+          (
+            await proposeReply(
+              supportTicket.ticketId,
+              "Support is explicitly allowed",
+            )
+          ).requiresApproval,
+        ).toBe(false);
+        await directReplies(false, admin.id);
+        expect(
+          (
+            await proposeReply(
+              adminTicket.ticketId,
+              "Admin is explicitly denied",
+            )
+          ).requiresApproval,
+        ).toBe(true);
+        // Moving an allowed ticket to Admin cannot carry its former permission.
+        await run((tx) =>
+          tx.supportTicket.update({
+            where: { id: supportTicket.ticketId },
+            data: { inboxId: admin.id },
+          }),
+        );
+        expect(
+          (
+            await proposeReply(
+              supportTicket.ticketId,
+              "Moved to Admin must not send",
+            )
+          ).requiresApproval,
+        ).toBe(true);
+        await directReplies(true, admin.id);
+        await run((tx) => archiveInbox(tx, project.owner, admin.id));
+        expect(
+          (
+            await proposeReply(
+              adminTicket.ticketId,
+              "An archived inbox cannot authorize direct delivery",
+            )
+          ).requiresApproval,
+        ).toBe(true);
+        expect(
+          await run((tx) =>
+            tx.supportMessage.count({
+              where: { ticketId: adminTicket.ticketId, kind: "agent_reply" },
+            }),
+          ),
+        ).toBe(0);
+        expect(
+          await run((tx) =>
+            tx.supportMessage.count({
+              where: { ticketId: supportTicket.ticketId, kind: "agent_reply" },
+            }),
+          ),
+        ).toBe(1);
+      } finally {
+        await directReplies(false);
+        await run(async (tx) => {
+          const current = await readModuleSettings(
+            tx,
+            project.owner,
+            "support",
+            supportSettingsSchema,
+            supportSettingsDefaults,
+          );
+          await writeModuleSettings(
+            tx,
+            project.owner,
+            "support",
+            supportSettingsSchema,
+            { ...current.settings, mcpOwnerRepliesWithoutApproval: false },
+            current.version,
+          );
+        });
+      }
     });
     it("keeps editor, in-app and non-reply operations pending even when owner direct replies are enabled", async () => {
       const t = await ticket();
