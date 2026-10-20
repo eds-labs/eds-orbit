@@ -37,6 +37,11 @@ import {
 } from "./permissions.ts";
 import { DomainError } from "../../shared.ts";
 
+import {
+  supportTaxonomyTools,
+  supportTaxonomyActions,
+} from "./mcp-taxonomy.ts";
+
 const ticket = z.object({ ticketId: z.uuid() }).strict();
 const shared = { module: "support", sensitive: true };
 const reads = [
@@ -413,10 +418,12 @@ function aliasTool(
 export const supportMcpTools = [
   ...reads,
   ...supportReadTools,
+  ...supportTaxonomyTools,
   aliasTool(replyOperations[0]!, "support_reply_ticket", "message"),
   aliasTool(noteOperations[0]!, "support_add_internal_note", "content"),
   ...writes.map((w) => w.tool),
 ];
-export const supportMcpActions = Object.fromEntries(
-  writes.map((w) => [w.actionType, w.action]),
-);
+export const supportMcpActions = {
+  ...supportTaxonomyActions,
+  ...Object.fromEntries(writes.map((w) => [w.actionType, w.action])),
+};

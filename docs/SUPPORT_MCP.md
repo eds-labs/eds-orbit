@@ -117,6 +117,42 @@ bytes, HTML, raw MIME, storage paths, secrets, signed URLs or automatic
 external downloads. Open the native ticket for authorized file access. A file
 marked unavailable must not be guessed or fetched through another project.
 
+## Category and tag definitions
+
+Definitions are project-wide, matching Settings → Support; they are not scoped
+to an inbox. Every tool requires an explicit `projectId` and existing Support
+activation/grant/scope checks. Members with ticket-read access can list them;
+mutations require the existing sensitive owner settings permission and a separate
+exact decision in Project → App approvals. The direct-reply inbox option never
+authorizes definition changes. No extra OAuth scope or feature flag is introduced.
+
+| Tool | Definition parameters after `projectId` |
+| --- | --- |
+| `support_list_categories` | None; returns stable keys, labels and settings version |
+| `support_list_tags` | None; returns stable keys, labels, colours and settings version |
+| `support_create_category` | `key`, `label`, `idempotencyKey` |
+| `support_update_category` | Existing `key`, new `label`, `idempotencyKey` |
+| `support_delete_category` | Existing `key`, `idempotencyKey` |
+| `support_create_tag` | `key`, `label`, optional `color` (default `gray`), `idempotencyKey` |
+| `support_update_tag` | Existing `key`, at least one of `label` / `color`, `idempotencyKey` |
+| `support_delete_tag` | Existing `key`, `idempotencyKey` |
+
+Keys are stable lowercase identifiers; renaming changes only the display label.
+Ticket assignments remain intact. Labels are plain untrusted data. Native limits
+apply (at most 50 of each kind); colours are gray, blue, green, yellow, orange,
+red, purple or pink. Use `support_update_ticket` to assign configured keys.
+
+Deletion refuses keys used by any ticket, including closed tickets, and categories
+used as an active inbox default (`TAG_IN_USE`, `CATEGORY_IN_USE`,
+`CATEGORY_IN_USE_BY_INBOX`). Reassign those references before proposing deletion.
+A key changed since the proposal cannot be approved (`SUPPORT_DEFINITION_CHANGED`);
+read the list again and submit a fresh proposal with a new idempotency key.
+Unrelated Support configuration and other definitions are merged from current
+settings at approval, allowing independent batch proposals without lost updates.
+Rejecting or replaying requests never repeats a settings mutation. Native settings
+versioning, project transactions, RLS and content-free audit remain in effect.
+The existing action-status/result tools return the durable decision/receipt.
+
 ## Exact owner approval and durable delivery
 
 A reply call validates the current project/module permission and ticket, then

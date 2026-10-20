@@ -13,6 +13,18 @@
 | Desktop/mobile full setup → queued analysis → review → confirmed knowledge | Synthetic real-stack Playwright tests; navigation confirmation pending final pass | PASS_LOCAL_BROWSER |
 | Production App installation, deployment, enabled flag and real FamilyPlan import | Separate introduction per docs/KNOWLEDGE_WORKSPACE.md | BLOCKED_EXTERNAL |
 
+## Support category/tag administration through MCP (2026-10-20)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Native list and six owner-approved CRUD operations | `support-taxonomy-mcp.integration.test.ts`; same settings schemas/store | PASS_TEST |
+| Rename without changing ticket assignments | Stable category/tag keys and retained real synthetic ticket references | PASS_TEST |
+| Ticket/inbox usage guards and approval-time revalidation | Existing/new references block deletion; label/colour snapshot conflicts | PASS_TEST |
+| Preserve unrelated settings, batch proposals and idempotency | Independent decisions merge; repeat returns consumed request without another version | PASS_TEST |
+| Scope/project/role/grant/module/flag isolation | Synthetic SQL permission and activation negatives plus real HTTP catalog | PASS_TEST |
+| Complete readable approval and escaped labels | Support taxonomy renderer tests with before/after, disabled state, settings link | PASS_TEST |
+| Native settings persist both approved definitions with Marketing disabled | Synthetic browser category/tag approvals and database probe; zero public replies | PASS_LOCAL_BROWSER |
+
 ## Inbox-specific MCP reply authorization (2026-10-20)
 
 | Requirement | Evidence | State |
