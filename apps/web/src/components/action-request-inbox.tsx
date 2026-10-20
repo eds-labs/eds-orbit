@@ -108,7 +108,9 @@ export function decisionErrorText(cause: unknown, de: boolean) {
 }
 
 /** Owners decide open action requests here, for example an editor's package image. */
-export function ActionRequestInbox() {
+export function ActionRequestInbox({
+  showEmpty = false,
+}: { showEmpty?: boolean } = {}) {
   const { locale, project, isOwner } = useWorkspace();
   const de = locale === "de";
   const requests = useResource<{ items: ActionRequestItem[] }>(
@@ -136,7 +138,37 @@ export function ActionRequestInbox() {
     }
   }
   const items = requests.data?.items ?? [];
-  if (!isOwner || !items.length) return null;
+  if (!isOwner)
+    return showEmpty ? (
+      <Alert kind="info">
+        {de
+          ? "Freigaben können nur Inhaber bearbeiten."
+          : "Only owners can manage approvals."}
+      </Alert>
+    ) : null;
+  if (showEmpty && requests.error)
+    return (
+      <Alert kind="error">
+        {requests.error.message}
+        <Button onClick={requests.refresh}>
+          {de ? "Erneut laden" : "Reload"}
+        </Button>
+      </Alert>
+    );
+  if (showEmpty && requests.loading && !requests.data)
+    return (
+      <p role="status">
+        {de ? "Freigaben werden geladen…" : "Loading approvals…"}
+      </p>
+    );
+  if (!items.length)
+    return showEmpty ? (
+      <p className="panel-note">
+        {de
+          ? "Keine offenen App- oder Ticketfreigaben."
+          : "No pending app or ticket approvals."}
+      </p>
+    ) : null;
   return (
     <section
       className="panel action-request-inbox"

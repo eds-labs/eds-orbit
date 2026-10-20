@@ -186,6 +186,11 @@ const en = {
     secretOnce:
       "Copy the widget secret now. It is shown only once; store it in the app's backend.",
     rules: "Categories, SLA and retention",
+    mcpTitle: "Replies through connected apps",
+    mcpDirectReplies:
+      "Send my MCP replies as owner without another Orbit approval",
+    mcpDirectRepliesHint:
+      "Off by default. When enabled, owners' own replies submitted directly through connected MCP apps are queued for delivery immediately. Other roles and other actions still require approval. Existing pending replies remain pending.",
     categories: "Categories (key: label, one per line)",
     tags: "Tags",
     tagsHint:
@@ -407,6 +412,11 @@ const de: SupportText = {
     secretOnce:
       "Kopiere das Widget-Secret jetzt. Es wird nur einmal angezeigt; hinterlege es im Backend der App.",
     rules: "Kategorien, SLA und Aufbewahrung",
+    mcpTitle: "Antworten über verbundene Apps",
+    mcpDirectReplies:
+      "Meine MCP-Antworten als Inhaber ohne weitere Orbit-Freigabe senden",
+    mcpDirectRepliesHint:
+      "Standardmäßig aus. Wenn aktiviert, werden eigene, direkt über verbundene MCP-Apps beauftragte Antworten von Inhabern zum Versand eingeplant. Andere Rollen und andere Aktionen benötigen weiterhin eine Freigabe. Bereits wartende Antworten bleiben offen.",
     categories: "Kategorien (Schlüssel: Name, eine pro Zeile)",
     tags: "Tags",
     tagsHint:

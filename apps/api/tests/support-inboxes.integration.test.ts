@@ -307,9 +307,11 @@ describe.skipIf(!enabled)("support settings and inboxes", () => {
     expect(read.statusCode).toBe(200);
     const { settings, version } = read.json();
     expect(settings.retention.closedTicketMonths).toBe(24);
+    expect(settings.mcpOwnerRepliesWithoutApproval).toBe(false);
     const next = {
       ...settings,
       categories: [{ key: "billing", label: "Billing" }],
+      mcpOwnerRepliesWithoutApproval: true,
     };
     const saved = await call("owner", "PUT", "/support/settings", {
       settings: next,

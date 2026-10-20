@@ -1,5 +1,22 @@
 # Implementation status
 
+## Owner MCP replies and independent app approvals (2026-10-20)
+
+Default-off Support setting `mcpOwnerRepliesWithoutApproval` lets owners authorize
+their own new exact MCP customer replies without another individual Orbit decision.
+The existing ActionRequest, destination/grant revalidation, native outbox and
+idempotency remain; audit records decision source and settings version. Other
+callers/operations and old pending requests retain individual decisions.
+
+Generic app/ticket requests now live at `/p/:projectId/decisions`, independently
+of Marketing. The Support renderer shows the exact reply, recipient and ticket.
+Marketing's content approvals keep their original route. No production setting
+is enabled and no customer message is sent by this implementation.
+
+Validation: 2,810 full-suite tests passed; the sole failure is the already reproduced baseline agent-resume I7b regression. The final MCP/authorization regression passed 79 tests in five files, including owner demotion between authorization and execution. Local browser opt-in/reload/opt-out and Support approval with Marketing off passed against a synthetic project with no worker. Build, lint, typecheck, API generation, Compose, secrets and framework checks passed.
+
+Design, verification and rollback: `docs/plans/MCP_SUPPORT_DIRECT_SEND.md`.
+
 ## Persisted MCP resource scope upgrade (2026-10-20)
 
 A real failing ChatGPT ticket authorization requests `orbit:support` correctly. The remaining upgrade defect is reproduced against a pre-existing synthetic OAuthResource: Better Auth defaults to `resourceSeedMode: insertOnly`, retaining the original `allowedScopes` ceiling across deployments and stripping newly consented Support scope during token issuance. Fresh-resource tests missed this upgrade state. The explicit `merge` configuration now reconciles only the configured resource's code-owned scope list while preserving unspecified disabled/TTL/DPoP/signing/custom-claim policy. Stored consent and token/grant intersection remain separate. The regression fails before the configuration fix and passes after it; real HTTP/OAuth ticket exchange and refresh now start from a legacy resource fixture. Focused validation: 242 tests in five files pass. Plan, persistent-policy rollback and live acceptance: `docs/plans/MCP_RESOURCE_SCOPE_UPGRADE.md`; runtime evidence in ignored `.runtime/mcp-resource-scope-validation.json`. Real ChatGPT acceptance remains pending until the existing ticket request succeeds.

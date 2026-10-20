@@ -69,6 +69,7 @@ export const supportSettingsSchema = z
       )
       .strict(),
     autoAck: z.boolean(),
+    mcpOwnerRepliesWithoutApproval: z.boolean().default(false),
     // Support AI per day, in micros, on top of the project's spend mandate.
     aiDailyBudgetMicros: z.number().int().min(0).max(100_000_000),
     autoCloseDays: z.number().int().min(1).max(90),
@@ -109,6 +110,7 @@ export function supportSettingsDefaults(): SupportSettings {
       ]),
     ) as SupportSettings["sla"],
     autoAck: true,
+    mcpOwnerRepliesWithoutApproval: false,
     aiDailyBudgetMicros: 2_000_000,
     autoCloseDays: 7,
     reopenOnReply: true,

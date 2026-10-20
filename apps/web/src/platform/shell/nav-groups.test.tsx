@@ -27,6 +27,16 @@ describe("buildNavGroups", () => {
     expect(groups.at(-1)!.label).toEqual({ en: "Project", de: "Projekt" });
   });
 
+  it("keeps the shared decisions inbox reachable when Marketing is disabled", () => {
+    const groups = buildNavGroups(table.routes, modulesWith(["marketing"]));
+    expect(
+      groups.find((g) => g.id === "project")!.entries.map((r) => r.key),
+    ).toContain("decisions");
+    const route = table.routes.find((r) => r.key === "decisions")!;
+    expect(routeEnabled(route, enabledIn(["marketing"]))).toBe(true);
+    expect(route.segments).toEqual(["decisions"]);
+  });
+
   it("drops a disabled module and its approvals entry", () => {
     const groups = buildNavGroups(table.routes, modulesWith(["marketing"]));
     expect(groups.map((g) => g.id)).not.toContain("marketing");

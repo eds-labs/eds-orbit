@@ -155,8 +155,8 @@ export async function platformAttention(
         : {}),
       since: requests.at(-1)!.createdAt.toISOString(),
       params: {},
-      navKey: "approvals",
-      link: "/approvals",
+      navKey: "decisions",
+      link: "/decisions",
     });
   }
   return items;

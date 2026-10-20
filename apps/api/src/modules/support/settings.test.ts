@@ -15,6 +15,12 @@ describe("support settings (WP5.1)", () => {
       resolutionMinutes: 4320,
     });
     expect(parsed.autoCloseDays).toBe(7);
+    expect(parsed.mcpOwnerRepliesWithoutApproval).toBe(false);
+    const { mcpOwnerRepliesWithoutApproval: _new, ...legacy } =
+      supportSettingsDefaults();
+    expect(
+      supportSettingsSchema.parse(legacy).mcpOwnerRepliesWithoutApproval,
+    ).toBe(false);
   });
 
   it("rejects duplicate category keys", () => {

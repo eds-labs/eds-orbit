@@ -354,6 +354,13 @@ describe.skipIf(!enabled)(
         expect(def.inputSchema.additionalProperties).toBe(false);
         expect(def.outputSchema.additionalProperties).toBe(false);
         expect(def._meta.securitySchemes[0].scopes).toContain("orbit:support");
+        if (name === "support_reply_ticket") {
+          expect(def.annotations.destructiveHint).toBe(true);
+          expect(def.annotations.openWorldHint).toBe(true);
+          expect(def.description).toContain(
+            "owner has enabled direct MCP replies",
+          );
+        }
         expect(def.annotations.readOnlyHint).toBe(
           ![
             "support_reply_ticket",

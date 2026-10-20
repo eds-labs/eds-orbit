@@ -20,7 +20,7 @@ are cumulative:
    `orbit:support` consent**. Old grants gain no new scope; reconnect and choose
    it on Orbit's consent screen. `orbit:read` permits reads;
    `orbit:propose` additionally permits exact approval proposals.
-   `orbit:write` is not required for these approval-based tools.
+   `orbit:write` is not required: owner decisions (individual or the explicitly enabled standing reply setting below) remain server-side.
 4. User: current project/module role. Viewers can read public ticket
    correspondence; owners/editors can reply, assign and write notes. The new
    `support.notes.read` permission is owner/editor-only, and protects private
@@ -134,10 +134,25 @@ request with a new key. An old pending reply approval from before destination
 binding was implemented also requires a new proposal. Existing messages and
 already consumed approvals are preserved.
 
-Only an explicit owner's Orbit decision runs the native `replyToTicket` service.
-This records one public message and queues native channel delivery in the same
-transaction that consumes the approval. Client-side confirmation, ticket
-instructions, AI text and MCP calls cannot approve it. Notes use the same
+By default, only an explicit owner's Orbit decision runs the native
+`replyToTicket` service. Owners can instead enable **Settings → Support →
+Replies through connected apps → Send my MCP replies without individual
+approval** (`mcpOwnerRepliesWithoutApproval`, default `false`). This is a
+project setting for new, exact customer replies personally submitted by an
+owner through MCP. It records the owner's standing decision as
+`channel: mcp_setting` with the settings version; the same ActionRequest,
+active grant/scope checks and destination revalidation still apply. It does
+not change token scopes. Editors, delegated work orders, in-app agents,
+notes, status changes and paid AI keep individual approval. Enabling it
+never sends existing pending proposals; retries keep their original state.
+Disabling it governs future calls and does not undo already queued messages.
+
+Both decision paths record one public message and queue native channel
+delivery in the same transaction that consumes the approval. Client-side
+confirmation, ticket instructions and AI text cannot authorize either path.
+Open **Project → App approvals** (`/p/:projectId/decisions`) for pending
+requests. This platform inbox works when Marketing is disabled; Marketing's
+own content approvals stay on its existing page. Notes use the same
 approval path but create `internal_note`, `channel=internal`,
 `visibleToCustomer=false`; no delivery job is created by the note.
 
@@ -147,9 +162,15 @@ The proposal response is:
 {
   "actionRequestId": "<uuid>",
   "deduplicated": false,
-  "approveUrl": "<native Orbit approval inbox URL>"
+  "approveUrl": "<APP_ORIGIN>/p/<projectId>/decisions",
+  "status": "pending",
+  "requiresApproval": true
 }
 ```
+
+A direct owner reply returns `status: "consumed"`, `requiresApproval: false`
+and its current native message receipt in `result`. Queued does not mean delivered.
+Potential direct-send reply tools advertise an external effect in MCP annotations.
 
 Poll existing `orbit_action_status` for the decision; poll
 `orbit_get_action_result` for the durable execution receipt and current native

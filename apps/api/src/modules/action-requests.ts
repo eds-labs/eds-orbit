@@ -362,6 +362,10 @@ export async function decideActionRequest(
   member: Scope,
   id: string,
   raw: unknown,
+  source:
+    { channel: "web" } | { channel: "mcp_setting"; settingsVersion: number } = {
+    channel: "web",
+  },
 ) {
   const input = actionDecision.parse(raw);
   if (member.userId === "worker")
@@ -411,7 +415,10 @@ export async function decideActionRequest(
       userId: scope.userId,
       decision: input.decision,
       decidedAt: new Date().toISOString(),
-      channel: "web",
+      channel: source.channel,
+      ...(source.channel === "mcp_setting"
+        ? { settingsVersion: source.settingsVersion }
+        : {}),
       ...(input.imageRightsConsent === undefined
         ? {}
         : { imageRightsConsent: input.imageRightsConsent }),
@@ -422,7 +429,16 @@ export async function decideActionRequest(
     scope,
     approve ? "action_request.approved" : "action_request.rejected",
     row.id,
-    { actionType: d.actionType, packageHash: d.packageHash },
+    {
+      actionType: d.actionType,
+      packageHash: d.packageHash,
+      ...(source.channel === "mcp_setting"
+        ? {
+            decisionSource: source.channel,
+            settingsVersion: source.settingsVersion,
+          }
+        : {}),
+    },
   );
   if (approve) await type.onApproved(tx, scope, decided);
   return decided;

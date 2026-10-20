@@ -377,7 +377,7 @@ describe.skipIf(!enabled)(
         actionRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         assignmentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
         expiresAt: expect.any(String),
-        approveUrl: `${new URL(config.APP_ORIGIN).origin}/p/${projectId()}/approvals`,
+        approveUrl: `${new URL(config.APP_ORIGIN).origin}/p/${projectId()}/decisions`,
         deduplicated: false,
       });
       expect(JSON.parse(result.content[0].text)).toEqual(out);

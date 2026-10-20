@@ -31,6 +31,7 @@ type Settings = {
     { firstResponseMinutes: number; resolutionMinutes: number }
   >;
   autoAck: boolean;
+  mcpOwnerRepliesWithoutApproval?: boolean;
   autoCloseDays: number;
   reopenOnReply: boolean;
   retention: {
@@ -483,6 +484,37 @@ function InboxForm({
   );
 }
 
+/** Owner's explicit, default-off standing permission for direct MCP replies. */
+export function McpReplySetting({
+  enabled,
+  disabled,
+  onChange,
+  t,
+}: {
+  enabled: boolean;
+  disabled: boolean;
+  onChange: (enabled: boolean) => void;
+  t: SupportText;
+}) {
+  return (
+    <fieldset disabled={disabled}>
+      <legend>{t.settings.mcpTitle}</legend>
+      <label className="support-check">
+        <input
+          type="checkbox"
+          checked={enabled}
+          aria-describedby="support-mcp-replies-hint"
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span>{t.settings.mcpDirectReplies}</span>
+      </label>
+      <p id="support-mcp-replies-hint" className="panel-note">
+        {t.settings.mcpDirectRepliesHint}
+      </p>
+    </fieldset>
+  );
+}
+
 function Rules({ t }: { t: SupportText }) {
   const { project, isOwner } = useWorkspace();
   const current = useResource<{ settings: Settings; version: number }>(
@@ -518,6 +550,14 @@ function Rules({ t }: { t: SupportText }) {
           );
         }}
       >
+        <McpReplySetting
+          enabled={s.mcpOwnerRepliesWithoutApproval === true}
+          disabled={!isOwner}
+          onChange={(enabled) =>
+            update({ mcpOwnerRepliesWithoutApproval: enabled })
+          }
+          t={t}
+        />
         <label>
           <span>{t.settings.categories}</span>
           <Textarea

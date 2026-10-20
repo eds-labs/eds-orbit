@@ -509,14 +509,14 @@ describe.skipIf(!enabled)("knowledge and platform attention", () => {
           dueAt: firstExpiry,
           since: first.createdAt.toISOString(),
           params: {},
-          navKey: "approvals",
-          link: "/approvals",
+          navKey: "decisions",
+          link: "/decisions",
         },
       ]),
     );
     expect(ownerItems).toHaveLength(2);
     expect(await itemsOf("platform", "viewer")).toEqual([]);
-    expect((await attention("viewer")).counts.approvals).toBeUndefined();
+    expect((await attention("viewer")).counts.decisions).toBeUndefined();
   });
 
   it("worker down without heartbeat", async () => {

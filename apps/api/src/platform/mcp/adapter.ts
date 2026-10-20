@@ -199,6 +199,7 @@ export function assertMcpToolContracts(tools: readonly OrbitTool[]): void {
 export function toolAnnotations(
   risk: ToolRisk,
   openWorld: boolean,
+  directEffect = false,
 ): ToolAnnotations {
   const byRisk: Record<ToolRisk, ToolAnnotations> = {
     R0_read: { readOnlyHint: true },
@@ -209,7 +210,11 @@ export function toolAnnotations(
     },
     W0_internal: { readOnlyHint: false, destructiveHint: false },
   };
-  return { ...byRisk[risk], openWorldHint: openWorld };
+  return {
+    ...byRisk[risk],
+    ...(directEffect ? { destructiveHint: true } : {}),
+    openWorldHint: openWorld,
+  };
 }
 
 /** The tool's parameters plus `projectId`, strict; optional with a single project. */
@@ -690,6 +695,7 @@ type ToolDefinition = {
   description: string;
   risk: ToolRisk;
   openWorld: boolean;
+  directEffect?: boolean;
   scopes?: readonly string[];
   inputSchema: z.ZodObject;
   outputSchema: z.ZodObject;
@@ -786,6 +792,7 @@ export async function mcpServerFor(
       description: tool.description,
       risk: tool.risk,
       openWorld: tool.openWorld === true,
+      directEffect: tool.mcpDirectEffect === true,
       scopes: tool.mcpScopes,
       inputSchema: inputSchemaFor(tool, single),
       outputSchema,
@@ -830,7 +837,11 @@ export async function mcpServerFor(
         description: definition.description,
         inputSchema: definition.inputSchema,
         outputSchema: definition.outputSchema,
-        annotations: toolAnnotations(definition.risk, definition.openWorld),
+        annotations: toolAnnotations(
+          definition.risk,
+          definition.openWorld,
+          definition.directEffect,
+        ),
         _meta: {
           ...definition.meta,
           securitySchemes: securitySchemes(definition),
@@ -863,7 +874,11 @@ export async function mcpServerFor(
           outputSchema: z.toJSONSchema(definition.outputSchema, {
             io: "output",
           }) as Tool["outputSchema"],
-          annotations: toolAnnotations(definition.risk, definition.openWorld),
+          annotations: toolAnnotations(
+            definition.risk,
+            definition.openWorld,
+            definition.directEffect,
+          ),
           securitySchemes: schemes,
           _meta: { ...definition.meta, securitySchemes: schemes },
         };

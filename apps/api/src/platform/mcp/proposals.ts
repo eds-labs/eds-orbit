@@ -33,7 +33,7 @@ export function mcpProposalArgsHash(
 
 /** Where the owner decides (D-M4-5): the project's approval inbox; no per-request link exists. */
 export function mcpApproveUrl(projectId: string): string {
-  return `${new URL(loadConfig().APP_ORIGIN).origin}/p/${encodeURIComponent(projectId)}/approvals`;
+  return `${new URL(loadConfig().APP_ORIGIN).origin}/p/${encodeURIComponent(projectId)}/decisions`;
 }
 
 /**

@@ -83,6 +83,7 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["knowledge", "Conflicts", "/knowledge/conflicts"],
   ["knowledge", "Import", "/knowledge/import"],
   ["knowledge", "Library", "/knowledge/library"],
+  ["project", "App approvals", "/decisions"],
   ["project", "Connectors", "/connectors"],
   ["project", "Operations", "/operations"],
   ["project", "Settings", "/settings"],

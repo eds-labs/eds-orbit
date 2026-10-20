@@ -9,15 +9,16 @@ import {
 } from "../../modules/agents/tools/registry.ts";
 import {
   createActionRequest,
+  decideActionRequest,
   type ActionDefinition,
   type RequestedBy,
 } from "../../modules/action-requests.ts";
 import { userScoped } from "../tenancy/scope.ts";
 import { actorScope } from "../tenancy/member-scope.ts";
 import { moduleScope } from "../tenancy/module-roles.ts";
-import { authorize } from "../tenancy/permissions.ts";
+import { authorize, can, PROJECT_OWN } from "../tenancy/permissions.ts";
 import { enabledModules } from "../modules/enforcement.ts";
-import { audit, data, DomainError, hash, update } from "../shared.ts";
+import { audit, data, DomainError, entity, hash, update } from "../shared.ts";
 import {
   mcpRequester,
   mcpProposalOrigin,
@@ -33,6 +34,11 @@ type Operation = {
   input: z.ZodObject;
   permission: PermissionDef;
   sensitive?: boolean;
+  /** Code-owned, default-off standing authorization for this owner's MCP calls only. */
+  ownerMcpAutoApproval?(
+    tx: DbTx,
+    scope: Scope,
+  ): Promise<{ settingsVersion: number } | null>;
   mcpProjectRequired?: boolean;
   output?: z.ZodType;
   validate?(tx: DbTx, scope: Scope, args: any): Promise<void>;
@@ -125,6 +131,9 @@ const proposalOutput = z
     actionRequestId: z.string(),
     deduplicated: z.boolean(),
     approveUrl: z.string(),
+    status: z.string(),
+    requiresApproval: z.boolean(),
+    result: z.unknown().optional(),
   })
   .strict();
 async function check(tx: DbTx, scope: Scope, op: Operation) {
@@ -262,7 +271,9 @@ export function approvedOperation(op: Operation) {
     mcpProjectRequired: op.mcpProjectRequired,
     description:
       op.description +
-      " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey.",
+      (op.ownerMcpAutoApproval
+        ? " Sends without another Orbit approval only when the owner has enabled direct MCP replies and makes the call personally through MCP; otherwise saves an owner approval request. Read requiresApproval/status and the delivery receipt; queued does not mean delivered. Retry with the same idempotencyKey."
+        : " Saves an exact owner approval request; executes only after approval in Orbit. Retry with the same idempotencyKey."),
     parameters: modelParameters(input),
     risk: "P_proposal",
     permission: op.permission,
@@ -270,6 +281,9 @@ export function approvedOperation(op: Operation) {
     deferLoading: true,
     exposure: { assistant: true, mcp: true },
     outputSchema: proposalOutput,
+    ...(op.ownerMcpAutoApproval
+      ? { openWorld: true as const, mcpDirectEffect: true as const }
+      : {}),
     ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
     async execute(ctx: ToolContext, raw: unknown) {
       const { idempotencyKey, ...args } = serviceArgs(input, raw);
@@ -319,7 +333,7 @@ export function approvedOperation(op: Operation) {
           !old && op.approvalContext
             ? await op.approvalContext(tx, ctx.scope, args)
             : undefined;
-        const row =
+        let row =
           old ??
           (await createActionRequest(tx, ctx.scope, {
             actionType,
@@ -334,17 +348,74 @@ export function approvedOperation(op: Operation) {
             },
             requestedBy: requester,
           }));
+        // Only new exact proposals by the deciding owner can use the setting.
+        // A retry never auto-sends an older pending proposal or executes twice.
+        // Delegated/in-app tools have no gateway channel and retain approval.
+        const currentActor =
+          !old && ctx.channel?.kind === "mcp" && op.ownerMcpAutoApproval
+            ? await actorScope(
+                ctx.scope.workspaceId,
+                ctx.scope.projectId,
+                ctx.scope.userId,
+              )
+            : null;
+        const currentOwner = currentActor
+          ? moduleScope(currentActor, op.module)
+          : null;
+        const standingApproval =
+          currentOwner && can(currentOwner, PROJECT_OWN)
+            ? await op.ownerMcpAutoApproval?.(tx, currentOwner)
+            : null;
+        if (standingApproval) {
+          await decideActionRequest(
+            tx,
+            currentOwner!,
+            row.id,
+            {
+              version: row.version,
+              packageHash: data(row).packageHash,
+              decision: "approve",
+            },
+            {
+              channel: "mcp_setting",
+              settingsVersion: standingApproval.settingsVersion,
+            },
+          );
+          row = await entity(tx, ctx.scope, "action_requests", row.id);
+        }
+        const state = data(row);
+        const result =
+          state.status === "consumed" && op.executionResult
+            ? await op.executionResult(tx, ctx.scope, state.executionResult)
+            : undefined;
         return {
           output: {
             actionRequestId: row.id,
             deduplicated: Boolean(old),
             approveUrl: mcpApproveUrl(ctx.scope.projectId),
+            status: state.status,
+            requiresApproval: state.status === "pending",
+            ...(result === undefined ? {} : { result }),
           },
           cards: [
             {
               kind: "status" as const,
-              label: "Owner approval required",
-              status: "confirmation_required",
+              label:
+                state.status === "consumed"
+                  ? op.ownerMcpAutoApproval
+                    ? "Reply queued"
+                    : "Action completed"
+                  : state.status === "pending"
+                    ? "Owner approval required"
+                    : "Request closed",
+              status:
+                state.status === "consumed"
+                  ? op.ownerMcpAutoApproval
+                    ? "queued"
+                    : "completed"
+                  : state.status === "pending"
+                    ? "confirmation_required"
+                    : state.status,
             },
           ],
         };

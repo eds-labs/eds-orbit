@@ -24,7 +24,7 @@ test("native work-order history, exact approval and mobile cancellation", async 
   await expect(
     tasks.getByText(/Review the beta launch campaign/),
   ).toBeVisible();
-  await page.goto(`/p/${user.projectId}/approvals`);
+  await page.goto(`/p/${user.projectId}/decisions`);
   await expect(
     page.getByText(
       "Review the beta launch campaign and prepare copy for owner approval.",

@@ -66,7 +66,6 @@ import {
   useCollection,
 } from "@/platform/ui/collection";
 import { EvidenceItems } from "@/platform/ui/evidence";
-import { ActionRequestInbox } from "@/components/action-request-inbox";
 import { UpcomingAssignmentPosts } from "./assignments";
 export function Missions() {
   const { t, locale, project, canEdit, isOwner, refresh } = useWorkspace();
@@ -1560,7 +1559,6 @@ export function ApprovalInbox() {
       />
       <PausedPublications />
       <UpcomingAssignmentPosts />
-      <ActionRequestInbox />
       {resolve.error && <Alert kind="error">{resolve.error}</Alert>}
       {openExceptions(exceptions.data?.items ?? []).map((e) => (
         <Alert key={e.id} kind="warning">

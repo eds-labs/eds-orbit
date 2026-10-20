@@ -1,5 +1,18 @@
 # Requirements traceability
 
+## Owner MCP Support setting and independent decisions (2026-10-20)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Default-off owner setting; opt-out and versioned persistence | Support settings/inbox tests; settings control test | PASS_TEST |
+| New own direct MCP reply exactly once; alias and pending retry behavior | `support-mcp.integration.test.ts`; decision source/settings version assertions | PASS_TEST |
+| Editors, in-app/delegated tools and other operations keep approval | Support integration negative cases and existing scope/role matrix | PASS_TEST |
+| Revoked grant or stale owner role cannot use standing decision | Support integration revocation and post-authorization owner-demotion cases | PASS_TEST |
+| Ticket approvals remain reachable with Marketing off | Native list/decision integration, central UI states and nav tests | PASS_TEST |
+| Complete escaped reply/recipient/ticket and paid action cost shown | Support decision renderer tests | PASS_TEST |
+| Settings persist and Marketing-off Support approvals work in browser | Isolated synthetic project; opt-in/reload/opt-out, manual approval plus deduplicated direct reply; no worker | PASS_LOCAL_BROWSER |
+| Real customer delivery under opt-in | Not performed; no production opt-in | NOT_RUN |
+
 ## Persisted resource scope upgrades (2026-10-20, local)
 
 | Requirement | Evidence | State |

@@ -28,6 +28,14 @@ import {
 import { data, entity, update } from "../src/shared.ts";
 import { actionResult } from "../src/platform/mcp/native/action-result.ts";
 import { supportMcpTools } from "../src/modules/support/mcp-tools.ts";
+import {
+  readModuleSettings,
+  writeModuleSettings,
+} from "../src/platform/modules/settings.ts";
+import {
+  supportSettingsDefaults,
+  supportSettingsSchema,
+} from "../src/modules/support/settings.ts";
 import { eraseContact } from "../src/modules/support/privacy.ts";
 
 // Every address/credential is synthetic; even an accidentally started SMTP
@@ -222,6 +230,320 @@ describe.skipIf(!enabled)(
       await closeDatabase();
     });
 
+    async function directReplies(enabled: boolean) {
+      return run(async (tx) => {
+        const current = await readModuleSettings(
+          tx,
+          project.owner,
+          "support",
+          supportSettingsSchema,
+          supportSettingsDefaults,
+        );
+        return writeModuleSettings(
+          tx,
+          project.owner,
+          "support",
+          supportSettingsSchema,
+          { ...current.settings, mcpOwnerRepliesWithoutApproval: enabled },
+          current.version,
+        );
+      });
+    }
+    it("defaults to individual approval, then queues an owner's opted-in MCP reply exactly once across aliases", async () => {
+      const t = await ticket();
+      const pendingKey = randomUUID();
+      const pending = await proposeReply(
+        t.ticketId,
+        "Synthetic pending reply",
+        pendingKey,
+      );
+      expect(pending).toMatchObject({
+        status: "pending",
+        requiresApproval: true,
+      });
+      const setting = await directReplies(true);
+      try {
+        expect(
+          (
+            await proposeReply(
+              t.ticketId,
+              "Synthetic pending reply",
+              pendingKey,
+            )
+          ).requiresApproval,
+        ).toBe(true);
+        const key = randomUUID();
+        const sent = await proposeReply(
+          t.ticketId,
+          "Synthetic direct reply",
+          key,
+        );
+        expect(sent).toMatchObject({
+          status: "consumed",
+          requiresApproval: false,
+          deduplicated: false,
+          result: {
+            ticketId: t.ticketId,
+            visibleToCustomer: true,
+            deliveryState: "pending",
+          },
+        });
+        const duplicate = await op("support_send_reply", {
+          ticketId: t.ticketId,
+          bodyText: "Synthetic direct reply",
+          idempotencyKey: key,
+        });
+        expect(duplicate).toMatchObject({
+          actionRequestId: sent.actionRequestId,
+          deduplicated: true,
+          requiresApproval: false,
+        });
+        expect(
+          await run((tx) =>
+            tx.supportMessage.count({
+              where: { ticketId: t.ticketId, kind: "agent_reply" },
+            }),
+          ),
+        ).toBe(1);
+        const row = await run((tx) =>
+          entity(tx, project.owner, "action_requests", sent.actionRequestId),
+        );
+        expect(data(row).decision).toMatchObject({
+          channel: "mcp_setting",
+          userId: project.owner.userId,
+          settingsVersion: setting.version,
+        });
+        expect(
+          data(
+            await run((tx) =>
+              entity(
+                tx,
+                project.owner,
+                "action_requests",
+                pending.actionRequestId,
+              ),
+            ),
+          ).status,
+        ).toBe("pending");
+        await expect(
+          proposeReply(t.ticketId, "Changed reply", key),
+        ).rejects.toMatchObject({ code: "IDEMPOTENCY_KEY_CONFLICT" });
+      } finally {
+        await directReplies(false);
+      }
+      const again = await proposeReply(t.ticketId, "Synthetic after opt-out");
+      expect(again.requiresApproval).toBe(true);
+    });
+    it("keeps editor, in-app and non-reply operations pending even when owner direct replies are enabled", async () => {
+      const t = await ticket();
+      await directReplies(true);
+      try {
+        const editor = await principalFor(project.editor);
+        expect(
+          (
+            await op(
+              "support_reply_ticket",
+              {
+                ticketId: t.ticketId,
+                message: "Editor needs approval",
+                idempotencyKey: randomUUID(),
+              },
+              editor,
+            )
+          ).requiresApproval,
+        ).toBe(true);
+        const tool = supportMcpTools.find(
+          (tool) => tool.name === "support_reply_ticket",
+        )!;
+        const inside = await tool.execute(
+          {
+            scope: moduleScope(project.owner, "support"),
+            runId: "in-app",
+            conversationId: "in-app",
+            callIndex: 0,
+          },
+          {
+            ticketId: t.ticketId,
+            message: "In-app needs approval",
+            idempotencyKey: randomUUID(),
+          },
+        );
+        expect(inside.output).toMatchObject({ requiresApproval: true });
+        const note = await op("support_add_internal_note", {
+          ticketId: t.ticketId,
+          content: "Private note",
+          idempotencyKey: randomUUID(),
+        });
+        expect(note.requiresApproval).toBe(true);
+        const pending = await proposeReply(
+          t.ticketId,
+          "Old pending",
+          randomUUID(),
+        );
+        expect(pending.requiresApproval).toBe(false);
+        expect(
+          await run((tx) =>
+            tx.supportMessage.count({
+              where: { ticketId: t.ticketId, kind: "agent_reply" },
+            }),
+          ),
+        ).toBe(1);
+      } finally {
+        await directReplies(false);
+      }
+    });
+    it("refuses an opted-in owner reply after its grant is revoked", async () => {
+      const t = await ticket();
+      const revoked = await principalFor(project.owner);
+      await authDb.mcpGrant.update({
+        where: { id: revoked.grantId },
+        data: { status: "revoked", revokedBy: "user", revokedAt: new Date() },
+      });
+      await directReplies(true);
+      try {
+        await expect(
+          op(
+            "support_reply_ticket",
+            {
+              ticketId: t.ticketId,
+              message: "Must not send",
+              idempotencyKey: randomUUID(),
+            },
+            revoked,
+          ),
+        ).rejects.toMatchObject({ code: "MCP_GRANT_ENDED" });
+        expect(
+          await run((tx) =>
+            tx.supportMessage.count({
+              where: { ticketId: t.ticketId, kind: "agent_reply" },
+            }),
+          ),
+        ).toBe(0);
+      } finally {
+        await directReplies(false);
+      }
+    });
+    it("rechecks owner status after gateway authorization before using standing approval", async () => {
+      const t = await ticket();
+      await directReplies(true);
+      const authorized = await authorizeMcpCall(
+        p,
+        "support_reply_ticket",
+        project.owner.projectId,
+      );
+      await authDb.projectMember.create({
+        data: {
+          workspaceId: project.owner.workspaceId,
+          projectId: project.owner.projectId,
+          userId: project.owner.userId,
+          role: "editor",
+        },
+      });
+      try {
+        await authDb.workspaceMember.update({
+          where: {
+            workspaceId_userId: {
+              workspaceId: project.owner.workspaceId,
+              userId: project.owner.userId,
+            },
+          },
+          data: { role: "viewer" },
+        });
+        const result = await authorized.tool.execute(
+          {
+            scope: moduleScope(authorized.scope, "support"),
+            runId: "stale-owner",
+            conversationId: "stale-owner",
+            callIndex: 0,
+            channel: {
+              kind: "mcp",
+              clientId: p.clientId,
+              grantId: p.grantId,
+              requestId: "stale-owner",
+            },
+          },
+          {
+            ticketId: t.ticketId,
+            message: "Synthetic reply after owner demotion",
+            idempotencyKey: randomUUID(),
+          },
+        );
+        expect(result.output).toMatchObject({
+          status: "pending",
+          requiresApproval: true,
+        });
+        expect(
+          await run((tx) =>
+            tx.supportMessage.count({
+              where: { ticketId: t.ticketId, kind: "agent_reply" },
+            }),
+          ),
+        ).toBe(0);
+      } finally {
+        await authDb.workspaceMember.update({
+          where: {
+            workspaceId_userId: {
+              workspaceId: project.owner.workspaceId,
+              userId: project.owner.userId,
+            },
+          },
+          data: { role: "owner" },
+        });
+        await authDb.projectMember.deleteMany({
+          where: {
+            projectId: project.owner.projectId,
+            userId: project.owner.userId,
+          },
+        });
+        await directReplies(false);
+      }
+    });
+    it("lists and decides Support requests when Marketing is disabled", async () => {
+      const t = await ticket();
+      await run(async (tx) => {
+        await tx.projectModule.upsert({
+          where: {
+            workspaceId_projectId_moduleId: {
+              workspaceId: project.owner.workspaceId,
+              projectId: project.owner.projectId,
+              moduleId: "marketing",
+            },
+          },
+          create: {
+            workspaceId: project.owner.workspaceId,
+            projectId: project.owner.projectId,
+            moduleId: "marketing",
+            moduleVersion: "1.0.0",
+            enabled: false,
+          },
+          update: { enabled: false },
+        });
+      });
+      try {
+        const pending = await proposeReply(
+          t.ticketId,
+          "Synthetic Support-only approval",
+        );
+        expect(pending.approveUrl).toMatch(/\/decisions$/);
+        const list = await run((tx) => listActionRequests(tx, project.owner));
+        expect(list.map((item) => item.id)).toContain(pending.actionRequestId);
+        await decide(pending.actionRequestId);
+        expect((await receipt(pending.actionRequestId)).result).toMatchObject({
+          ticketId: t.ticketId,
+          visibleToCustomer: true,
+        });
+      } finally {
+        await run((tx) =>
+          tx.projectModule.updateMany({
+            where: {
+              projectId: project.owner.projectId,
+              moduleId: "marketing",
+            },
+            data: { enabled: true },
+          }),
+        );
+      }
+    });
     it("registers every requested tool for both MCP and the main assistant; keeps legacy names", async () => {
       const names = (await visibleMcpTools(p, project.owner.projectId)).map(
         (t) => t.name,

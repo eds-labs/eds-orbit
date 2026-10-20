@@ -13,6 +13,7 @@ import type {
   Label,
   WebRegistry,
 } from "@/platform/shell/types";
+import { Decisions } from "@/platform/shell/decisions";
 import { ProjectHome } from "@/platform/shell/home";
 import { OrbitChat } from "@/components/chat";
 import {
@@ -155,6 +156,18 @@ export const webRegistry: WebRegistry = {
         mobileRank: 30,
       },
       legacyPaths: ["/approvals"],
+    },
+    {
+      key: "decisions",
+      path: "decisions",
+      component: Decisions,
+      navGroup: "project",
+      nav: {
+        label: { en: "App approvals", de: "App-Freigaben" },
+        icon: CircleCheck,
+        order: 95,
+      },
+      legacyPaths: ["/decisions"],
     },
     {
       key: "connectors",

@@ -78,6 +78,8 @@ export type OrbitTool = {
   mcpScopes?: readonly string[];
   /** Require an explicit MCP project argument even for a single-project grant. */
   mcpProjectRequired?: boolean;
+  /** May execute under an explicitly enabled owner standing authorization. */
+  mcpDirectEffect?: true;
   execute(context: ToolContext, args: unknown): Promise<ToolResult>;
 };
 
