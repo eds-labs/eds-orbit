@@ -15,3 +15,6 @@ overrides:
   'mysql2@<3.23.1': 3.23.1
   'source-map-js@<1.2.2': 1.2.2
   'sharp@<0.35.5': 0.35.5
+patchedDependencies:
+  '@better-auth/cimd@1.7.10': patches/@better-auth__cimd@1.7.10.patch
+  '@better-auth/oauth-provider@1.7.10': patches/@better-auth__oauth-provider@1.7.10.patch

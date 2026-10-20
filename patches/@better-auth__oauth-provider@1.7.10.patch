@@ -1,0 +1,51 @@
+diff --git a/dist/authorize-dkOG8GqZ.mjs b/dist/authorize-dkOG8GqZ.mjs
+index 3aff46628412fb5fd68ce5dbf694b8e46af2f65c..129cf3301ec067f28cedea5da23a33ebfdc8bab4 100644
+--- a/dist/authorize-dkOG8GqZ.mjs
++++ b/dist/authorize-dkOG8GqZ.mjs
+@@ -2279,6 +2279,11 @@ function oauthToSchema(input) {
+ 	const createdAt = _createdAt ? /* @__PURE__ */ new Date(_createdAt * 1e3) : void 0;
+ 	const scopes = _scope?.split(" ");
+ 	const metadataObj = stripReservedOAuthClientMetadataExtensions(inputMetadata ?? {});
++	// Orbit backport: only the validated top-level CIMD declaration may set
++	// this capability. An opaque/nested metadata extension cannot forge it.
++	delete metadataObj.token_endpoint_auth_methods_supported;
++	if (Array.isArray(input.token_endpoint_auth_methods_supported))
++		metadataObj.token_endpoint_auth_methods_supported = input.token_endpoint_auth_methods_supported;
+ 	const metadata = metadataObj && Object.keys(metadataObj).length ? JSON.stringify(metadataObj) : void 0;
+ 	return {
+ 		clientId,
+diff --git a/dist/introspect-BVm_zFQC.mjs b/dist/introspect-BVm_zFQC.mjs
+index c988c7fc7a0b8fc1685743f0fe71a79d9b2c9646..d3dabcbcb432544e6a8f10233b35531d9427b110 100644
+--- a/dist/introspect-BVm_zFQC.mjs
++++ b/dist/introspect-BVm_zFQC.mjs
+@@ -440,6 +440,7 @@ const clientRegistrationRequestSchema = z.object({
+ * unknown extension without unsafe casts or ad-hoc allowlists.
+ */
+ const oauthClientMetadataSchema = clientRegistrationRequestSchema.omit({ skip_consent: true }).extend({
++	token_endpoint_auth_methods_supported: z.array(z.string().min(1).max(64)).min(1).max(16).optional(),
+ 	client_id: z.string().refine((value) => value.trim().length > 0, "client_id cannot be empty"),
+ 	client_secret: z.string().optional(),
+ 	client_secret_expires_at: z.number().int().nonnegative().optional(),
+diff --git a/dist/utils-DfMNRh3J.mjs b/dist/utils-DfMNRh3J.mjs
+index c6dbd4cec0f4b09a04ed579e0dadbc20f52a0ecf..7fb83e19d829200ee4eb345bf559604b5422757b 100644
+--- a/dist/utils-DfMNRh3J.mjs
++++ b/dist/utils-DfMNRh3J.mjs
+@@ -428,6 +428,18 @@ async function getClient(ctx, options, clientId) {
+ 			break;
+ 		}
+ 	}
++	// Orbit backport of CIMD method-list negotiation. The stored preference is
++	// unchanged: return a request-local copy only for a discovery-owned client
++	// and an explicitly declared method. All credential/PKCE checks still run.
++	if (dbClient?.clientDiscoveryId === "cimd" && ["/oauth2/token", "/oauth2/revoke", "/oauth2/introspect"].includes(ctx.path)) {
++		const methods = parseClientMetadata(dbClient.metadata)?.token_endpoint_auth_methods_supported;
++		const body = ctx.body ?? {};
++		const attempted = body.client_assertion || body.client_assertion_type
++			? "private_key_jwt"
++			: !ctx.headers?.has("authorization") && body.client_secret === void 0 ? "none" : null;
++		if (attempted && Array.isArray(methods) && methods.includes(attempted))
++			return { ...dbClient, tokenEndpointAuthMethod: attempted };
++	}
+ 	return dbClient;
+ }
+ /**

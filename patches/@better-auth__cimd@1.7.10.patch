@@ -1,0 +1,23 @@
+diff --git a/dist/index.mjs b/dist/index.mjs
+index bf0e58ddf148e84bd3fad511baf18024740d0c75..ee61b63a8be0630a385a05a39d565a9f05fa0fa9 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -97,6 +97,18 @@ function validateCimdMetadata(clientIdUrl, raw, options = {}) {
+ 		};
+ 	}
+ 	const doc = parsedMetadata.data;
++	// Orbit backport: preserve the client capability list; the singular field
++	// remains its persisted preference, not a restriction on that list.
++	const methods = doc.token_endpoint_auth_methods_supported;
++	if (methods !== void 0) {
++		const supported = methods.filter((method) => method === "none" || method === "private_key_jwt");
++		if (!supported.length || (doc.token_endpoint_auth_method && !supported.includes(doc.token_endpoint_auth_method)))
++			return { valid: false, error: "no consistent supported CIMD authentication method" };
++		if (supported.includes("private_key_jwt") && !doc.jwks && !doc.jwks_uri)
++			return { valid: false, error: "private_key_jwt requires jwks or jwks_uri" };
++		doc.token_endpoint_auth_methods_supported = [...new Set(supported)];
++		doc.token_endpoint_auth_method ??= supported.includes("private_key_jwt") ? "private_key_jwt" : "none";
++	}
+ 	const warnings = [];
+ 	if (doc.client_id !== clientIdUrl) return {
+ 		valid: false,

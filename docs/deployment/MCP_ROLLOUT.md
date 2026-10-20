@@ -151,3 +151,10 @@ default, in addition to the existing gateway/OAuth/proposal switches. See
 not authorize enabling it or sending paid/customer/public work. New optional
 `orbit:write` and `orbit:support` scopes require explicit consent/reconnection;
 existing grants keep their existing scopes. No additional migration is needed.
+
+
+## ChatGPT CIMD method-list compatibility (2026-10-20)
+
+The pinned dependency patches under `patches/` are required during the frozen-lockfile install and are copied by `infra/Dockerfile`. Both public PKCE (`none`) and signed (`private_key_jwt`) requests are accepted only when the validated CIMD document explicitly offers them; legacy single-method clients stay pinned. Signing and PKCE are never bypassed. Changes to the declared method set revoke existing grants. Reconnect once after deploying this compatibility change if the old link is refused.
+
+A diagnostic POST with an intentionally nonexistent code and public client ID must reach `invalid_grant` instead of `invalid_client` for a client whose declaration offers `none`. Never probe using a real authorization code or print token responses. This only verifies method negotiation, not the user's end-to-end ChatGPT connection. For acceptance, separately read `orbit_profile`, projects, ticket list and a ticket timeline through the intended client. Do not send replies or create paid work as a connection test. Production logs remain subject to the operator tool's existing permissions.

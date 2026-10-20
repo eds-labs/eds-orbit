@@ -33,6 +33,7 @@ import {
   queryOf,
   REDIRECT_URI,
   SCOPES,
+  FORM,
   withFlags as baseWithFlags,
   type Json,
 } from "./mcp-oauth-flow-helpers.ts";
@@ -52,6 +53,9 @@ const TWO_SESSIONS_CLIENT_ID = "https://client.test/two-sessions.json";
 const FAILED_CONSENT_CLIENT_ID = "https://client.test/failed-consent.json";
 const REFUSAL_CLIENT_ID = "https://client.test/refusal.json";
 const CLAIMS_CLIENT_ID = "https://client.test/claims.json";
+const MULTI_CLIENT_ID = "https://client.test/multi-method.json";
+const PLURAL_CLIENT_ID = "https://client.test/plural-method.json";
+const PUBLIC_CLIENT_ID = "https://client.test/public-method.json";
 const PKJWT_CLIENT_ID = "https://client.test/pkjwt.json";
 const SELECTION_CLIENT_ID = "https://client.test/selection.json";
 
@@ -72,6 +76,20 @@ const clientKey = es256Key("client-key");
 const wrongKey = es256Key("client-key");
 
 const documents: Record<string, Json> = {
+  [MULTI_CLIENT_ID]: metadata(MULTI_CLIENT_ID, {
+    token_endpoint_auth_method: "private_key_jwt",
+    token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+    jwks: { keys: [clientKey.jwk] },
+  }),
+  [PLURAL_CLIENT_ID]: metadata(PLURAL_CLIENT_ID, {
+    token_endpoint_auth_method: undefined,
+    token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+    jwks: { keys: [clientKey.jwk] },
+  }),
+  [PUBLIC_CLIENT_ID]: metadata(PUBLIC_CLIENT_ID, {
+    token_endpoint_auth_methods_supported: ["none"],
+    jwks: { keys: [clientKey.jwk] },
+  }),
   [CLIENT_ID]: metadata(CLIENT_ID),
   [OTHER_CLIENT_ID]: metadata(OTHER_CLIENT_ID),
   [DENY_CLIENT_ID]: metadata(DENY_CLIENT_ID),
@@ -162,6 +180,9 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
     REFUSAL_CLIENT_ID,
     CLAIMS_CLIENT_ID,
     PKJWT_CLIENT_ID,
+    MULTI_CLIENT_ID,
+    PLURAL_CLIENT_ID,
+    PUBLIC_CLIENT_ID,
     SELECTION_CLIENT_ID,
   ];
 
@@ -460,11 +481,102 @@ describe.skipIf(!enabled)("MCP grants and consent, flag on", () => {
         "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
       client_assertion: clientAssertion(PKJWT_CLIENT_ID, key),
     });
+    const publicAttempt = await exchange(flow, { client_id: PKJWT_CLIENT_ID });
+    expect(publicAttempt.json().error).toBe("invalid_client");
     const wrong = await exchange(flow, form(wrongKey.privateKey));
     expect(wrong.json().error).toBe("invalid_client");
     const right = await exchange(flow, form(clientKey.privateKey));
     expect(right.statusCode).toBe(200);
     expect(jwtPayload(right.json().access_token).azp).toBe(PKJWT_CLIENT_ID);
+  });
+
+  it.each([MULTI_CLIENT_ID, PLURAL_CLIENT_ID])(
+    "CIMD method list accepts public PKCE and verified assertions: %s",
+    async (clientId) => {
+      for (const signed of [false, true, false]) {
+        let flow = await connect({ clientId });
+        const assertion = (key: KeyObject = clientKey.privateKey) => ({
+          client_assertion_type:
+            "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+          client_assertion: clientAssertion(clientId, key),
+        });
+        if (signed) {
+          const refused = await exchange(flow, {
+            client_id: clientId,
+            ...assertion(wrongKey.privateKey),
+          });
+          expect(refused.json().error).toBe("invalid_client");
+        } else {
+          const refused = await exchange(flow, {
+            client_id: clientId,
+            code_verifier: pkce().verifier,
+          });
+          expect(refused.json().error).toBe("invalid_grant");
+          // A bad verifier consumes the code; obtain a new authorization.
+          flow = await connect({ clientId });
+        }
+        const secretAttempt = await exchange(flow, {
+          client_id: clientId,
+          client_secret: "unsupported-secret",
+        });
+        expect(secretAttempt.json().error).toBe("invalid_client");
+        const selectedAssertion = signed ? assertion() : {};
+        const exchanged = await exchange(flow, {
+          client_id: clientId,
+          ...selectedAssertion,
+        });
+        expect(exchanged.statusCode, exchanged.body).toBe(200);
+        expect(jwtPayload(exchanged.json().access_token).azp).toBe(clientId);
+        const persisted = await authDb.oauthClient.findUniqueOrThrow({
+          where: { clientId },
+        });
+        expect(persisted.tokenEndpointAuthMethod).toBe("private_key_jwt");
+        if (signed) {
+          const replay = await inject({
+            method: "POST",
+            url: "/api/auth/oauth2/token",
+            session: false,
+            noOrigin: true,
+            headers: FORM,
+            payload: new URLSearchParams({
+              grant_type: "refresh_token",
+              refresh_token: exchanged.json().refresh_token,
+              client_id: clientId,
+              ...selectedAssertion,
+            }).toString(),
+          });
+          expect(replay.json().error).toBe("invalid_client");
+        }
+        const refreshed = await inject({
+          method: "POST",
+          url: "/api/auth/oauth2/token",
+          session: false,
+          noOrigin: true,
+          headers: FORM,
+          payload: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: exchanged.json().refresh_token,
+            client_id: clientId,
+            ...(signed ? assertion() : {}),
+          }).toString(),
+        });
+        expect(refreshed.statusCode, refreshed.body).toBe(200);
+      }
+    },
+  );
+
+  it("a public-only CIMD list cannot opt into assertion authentication", async () => {
+    const flow = await connect({ clientId: PUBLIC_CLIENT_ID });
+    const refused = await exchange(flow, {
+      client_id: PUBLIC_CLIENT_ID,
+      client_assertion_type:
+        "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+      client_assertion: clientAssertion(PUBLIC_CLIENT_ID, clientKey.privateKey),
+    });
+    expect(refused.json().error).toBe("invalid_client");
+    expect(
+      (await exchange(flow, { client_id: PUBLIC_CLIENT_ID })).statusCode,
+    ).toBe(200);
   });
 
   it("wrong code_verifier is invalid_grant", async () => {

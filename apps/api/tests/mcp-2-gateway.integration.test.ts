@@ -1,4 +1,9 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  randomBytes,
+  randomUUID,
+  generateKeyPairSync,
+  createSign,
+} from "node:crypto";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import {
   authDb,
@@ -33,8 +38,31 @@ describe.skipIf(!enabled)(
       token = "";
     const client = `https://client.test/mcp2-${randomUUID()}.json`;
     const supportScopes = `${SCOPES} orbit:support`;
+    const clientKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const clientJwk = {
+      ...clientKeys.publicKey.export({ format: "jwk" }),
+      kid: "synthetic-cimd-rsa",
+      alg: "RS256",
+      use: "sig",
+    };
+    const clientAssertion = () => {
+      const now = Math.floor(Date.now() / 1000);
+      const encode = (value: unknown) =>
+        Buffer.from(JSON.stringify(value)).toString("base64url");
+      const input = `${encode({ alg: "RS256", kid: clientJwk.kid })}.${encode({ iss: client, sub: client, aud: `${loadConfig().APP_ORIGIN}/api/auth`, iat: now, exp: now + 60, jti: randomUUID() })}`;
+      return {
+        client_assertion_type:
+          "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+        client_assertion: `${input}.${createSign("RSA-SHA256").update(input).sign(clientKeys.privateKey).toString("base64url")}`,
+      };
+    };
     const cimdFetch = cimdFetchFor({
-      [client]: metadata(client, { scope: supportScopes }),
+      [client]: metadata(client, {
+        scope: supportScopes,
+        token_endpoint_auth_method: "private_key_jwt",
+        token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+        jwks: { keys: [clientJwk] },
+      }),
     });
     const saved: Record<string, string | undefined> = {};
     const flags = {
@@ -413,6 +441,89 @@ describe.skipIf(!enabled)(
         ).toContain("support_get_ticket");
       } finally {
         token = originalToken;
+      }
+    });
+    it("reads Support through a signed RS256 client exchange and refresh", async () => {
+      const flow = await driver.connect({
+        scope: supportScopes,
+        consent: { scopes: supportScopes.split(" ") },
+      });
+      const issued = await driver.exchange(flow, clientAssertion());
+      expect(issued.statusCode, issued.body).toBe(200);
+      const refreshed = await driver.inject({
+        method: "POST",
+        url: "/api/auth/oauth2/token",
+        session: false,
+        noOrigin: true,
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        payload: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: issued.json().refresh_token,
+          client_id: client,
+          ...clientAssertion(),
+        }).toString(),
+      });
+      expect(refreshed.statusCode, refreshed.body).toBe(200);
+      token = refreshed.json().access_token;
+      const tickets = await rpc("tools/call", {
+        name: "support_list_tickets",
+        arguments: { projectId: project.owner.projectId },
+      });
+      expect(tickets.statusCode, tickets.body).toBe(200);
+      expect(tickets.json().result.isError, tickets.body).not.toBe(true);
+    });
+    it("can read Support after revoking and granting the exact ChatGPT scopes again", async () => {
+      const chatgptScopes =
+        "openid email offline_access orbit:propose orbit:read orbit:support";
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const active = await authDb.mcpGrant.findFirstOrThrow({
+          where: {
+            userId,
+            clientId: client,
+            workspaceId: project.owner.workspaceId,
+            status: "active",
+          },
+        });
+        const revoked = await driver.inject({
+          method: "DELETE",
+          url: `/api/mcp-grants/${active.id}`,
+        });
+        expect(revoked.statusCode, revoked.body).toBe(204);
+        const unauthenticated = await rpc("tools/list");
+        expect(unauthenticated.statusCode, unauthenticated.body).toBe(401);
+        // Distinguish the intentionally conservative same-second replay boundary.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        const flow = await driver.connect({
+          scope: chatgptScopes,
+          consent: { scopes: chatgptScopes.split(" ") },
+        });
+        expect(flow.steps).toContain("consent");
+        const exchange = await driver.exchange(flow);
+        expect(exchange.statusCode, exchange.body).toBe(200);
+        const issued = exchange.json();
+        token = issued.access_token;
+        const refresh = await driver.refresh(issued.refresh_token);
+        expect(refresh.statusCode, refresh.body).toBe(200);
+        for (const candidate of [
+          issued.access_token,
+          refresh.json().access_token,
+        ]) {
+          token = candidate;
+          const result = await rpc("tools/call", {
+            name: "orbit_profile",
+            arguments: {},
+          });
+          expect(result.statusCode, result.body).toBe(200);
+          expect(
+            result.json().result.structuredContent.effectiveScopes,
+          ).toContain("orbit:support");
+          const tickets = await rpc("tools/call", {
+            name: "support_list_tickets",
+            arguments: { projectId: project.owner.projectId },
+          });
+          expect(tickets.statusCode, tickets.body).toBe(200);
+          expect(tickets.json().result.isError, tickets.body).not.toBe(true);
+        }
       }
     });
     it("discovers Support schemas with an older token and challenges content calls without granting access", async () => {

@@ -1112,6 +1112,7 @@ const REVOKING_CLIENT_FIELDS = [
   "jwks_uri",
   "jwks",
   "token_endpoint_auth_method",
+  "token_endpoint_auth_methods_supported",
 ];
 
 /** Names the failure only: errors of the database can carry query text. */

@@ -169,6 +169,7 @@ type ClientRecord = {
   tokenEndpointAuthMethod?: string | null;
   grantTypes?: string[] | null;
   scopes?: string[] | null;
+  metadata?: string | null;
 };
 
 /** Stable text of a JSON value, so key order never counts as a change. */
@@ -207,6 +208,22 @@ export function changedClientFields(
     ["jwks_uri", (c) => c.jwksUri ?? ""],
     ["jwks", (c) => canonicalDocument(c.jwks)],
     ["token_endpoint_auth_method", (c) => c.tokenEndpointAuthMethod ?? ""],
+    [
+      "token_endpoint_auth_methods_supported",
+      (c) => {
+        try {
+          const methods: unknown = JSON.parse(
+            c.metadata ?? "{}",
+          ).token_endpoint_auth_methods_supported;
+          return Array.isArray(methods) &&
+            methods.every((method) => typeof method === "string")
+            ? sortedSet(methods)
+            : "";
+        } catch {
+          return "";
+        }
+      },
+    ],
     ["grant_types", (c) => sortedSet(c.grantTypes)],
     ["scope", (c) => sortedSet(c.scopes)],
   ];
