@@ -1,8 +1,18 @@
 diff --git a/dist/authorize-dkOG8GqZ.mjs b/dist/authorize-dkOG8GqZ.mjs
-index 3aff46628412fb5fd68ce5dbf694b8e46af2f65c..129cf3301ec067f28cedea5da23a33ebfdc8bab4 100644
+index 3aff46628412fb5fd68ce5dbf694b8e46af2f65c..98cc998a03f726ca67d2b9735c6f4b655cd4674c 100644
 --- a/dist/authorize-dkOG8GqZ.mjs
 +++ b/dist/authorize-dkOG8GqZ.mjs
-@@ -2279,6 +2279,11 @@ function oauthToSchema(input) {
+@@ -2035,6 +2035,9 @@ async function persistOAuthClientRegistration(ctx, opts, input) {
+ 	});
+ 	schema.clientCredentialsScopes = input.registrationSource === "clientMetadataDocument" ? input.existingClient?.clientCredentialsScopes ?? [] : input.registrationSource === "managed" ? input.clientCredentialsScopes ?? [] : [];
+ 	schema.clientDiscoveryId = input.registrationSource === "clientMetadataDocument" ? input.clientDiscoveryId : null;
++	// CIMD is a complete replacement document. Clear a removed capability
++	// instead of letting an undefined update preserve the prior declaration.
++	if (input.registrationSource === "clientMetadataDocument" && schema.metadata === void 0) schema.metadata = null;
+ 	if (input.registrationSource === "clientMetadataDocument" && body.application_type === void 0) schema.applicationType = null;
+ 	const requestedResources = input.registrationSource === "clientMetadataDocument" ? [] : input.requestedResources ?? [];
+ 	if (input.registrationSource === "dynamic") assertDynamicRegistrationResourcesAllowed(opts, requestedResources);
+@@ -2279,6 +2282,11 @@ function oauthToSchema(input) {
  	const createdAt = _createdAt ? /* @__PURE__ */ new Date(_createdAt * 1e3) : void 0;
  	const scopes = _scope?.split(" ");
  	const metadataObj = stripReservedOAuthClientMetadataExtensions(inputMetadata ?? {});

@@ -149,6 +149,20 @@ describe("changedClientFields", () => {
         capabilities(["private_key_jwt", "none"]),
       ),
     ).toEqual(["token_endpoint_auth_methods_supported"]);
+    expect(
+      changedClientFields(
+        {
+          ...base,
+          metadata: {
+            token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+          },
+        },
+        {
+          ...base,
+          metadata: { token_endpoint_auth_methods_supported: ["none"] },
+        },
+      ),
+    ).toEqual(["token_endpoint_auth_methods_supported"]);
   });
   it("compares inline jwks by content, not by key order", () => {
     const a = JSON.stringify({
@@ -580,6 +594,55 @@ describe.skipIf(!enabled)("CIMD client policy and audit", () => {
         await authDb.mcpGrant.findUniqueOrThrow({ where: { id: grant.id } }),
       ).toMatchObject({ status: "revoked", revokedBy: "client_changed" });
     });
+
+    it.each([undefined, ["none"]])(
+      "removing an auth alternative clears the stored capability and revokes grants: %j",
+      async (methods) => {
+        const id = client("method-removal-");
+        const jwks = {
+          keys: [
+            {
+              kty: "OKP",
+              crv: "Ed25519",
+              x: "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+              alg: "EdDSA",
+              use: "sig",
+            },
+          ],
+        };
+        documents[id] = doc(id, {
+          token_endpoint_auth_method: "none",
+          token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+          jwks,
+        });
+        await tokensFor(id);
+        const granted = await grantOf(id);
+        documents[id] = doc(id, {
+          token_endpoint_auth_method: "none",
+          token_endpoint_auth_methods_supported: methods,
+          jwks,
+        });
+        await authorize({ client_id: id });
+        const stored = await authDb.oauthClient.findUniqueOrThrow({
+          where: { clientId: id },
+        });
+        const metadata: unknown =
+          typeof stored.metadata === "string"
+            ? JSON.parse(stored.metadata)
+            : stored.metadata;
+        expect(
+          metadata && typeof metadata === "object" && !Array.isArray(metadata)
+            ? (metadata as Record<string, unknown>)
+                .token_endpoint_auth_methods_supported
+            : undefined,
+        ).toEqual(methods);
+        expect(
+          await authDb.mcpGrant.findUniqueOrThrow({
+            where: { id: granted.id },
+          }),
+        ).toMatchObject({ status: "revoked", revokedBy: "client_changed" });
+      },
+    );
 
     it.each([
       "token_endpoint_auth_method",

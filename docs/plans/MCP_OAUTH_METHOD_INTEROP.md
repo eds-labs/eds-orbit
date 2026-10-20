@@ -20,4 +20,8 @@ A same-second revoke/regrant refresh refusal was reproduced separately. It is th
 
 ## Local verification
 
-All 2,797 tests in 261 files passed; the 68-test focused regression, lint, typecheck, build, Compose, secret/framework checks and fresh pinned-pnpm frozen offline installs passed. See `docs/evidence/mcp-oauth-interop-validation.md`.
+All 2,799 tests in 261 files passed; the 68-test focused regression, lint, typecheck, build, Compose, secret/framework checks and fresh pinned-pnpm frozen offline installs passed. See `docs/evidence/mcp-oauth-interop-validation.md`.
+
+## Final review follow-up
+
+Before rollout completed, the metadata-removal regression exposed two additional policy edges: omitted CIMD metadata was retained by an undefined update, and Better Auth callbacks can return parsed JSON objects rather than JSON text. The initial deployment was cancelled. The compatibility patch now explicitly clears withdrawn CIMD capabilities, and Orbit compares either representation. Real refresh/removal regressions cover both complete removal and reduction to the public-only set, including grant revocation. The final complete suite passed 2,799 tests after these changes.

@@ -169,7 +169,7 @@ type ClientRecord = {
   tokenEndpointAuthMethod?: string | null;
   grantTypes?: string[] | null;
   scopes?: string[] | null;
-  metadata?: string | null;
+  metadata?: string | Record<string, unknown> | null;
 };
 
 /** Stable text of a JSON value, so key order never counts as a change. */
@@ -212,9 +212,12 @@ export function changedClientFields(
       "token_endpoint_auth_methods_supported",
       (c) => {
         try {
-          const methods: unknown = JSON.parse(
-            c.metadata ?? "{}",
-          ).token_endpoint_auth_methods_supported;
+          const metadata =
+            typeof c.metadata === "string"
+              ? JSON.parse(c.metadata)
+              : c.metadata;
+          const methods: unknown =
+            metadata?.token_endpoint_auth_methods_supported;
           return Array.isArray(methods) &&
             methods.every((method) => typeof method === "string")
             ? sortedSet(methods)
