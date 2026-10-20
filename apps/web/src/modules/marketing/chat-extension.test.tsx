@@ -83,6 +83,20 @@ describe("marketing chat parts", () => {
       date: "2026-10-20",
       status: "running",
       costMicros: 1200,
+      operation: {
+        state: "outcome_unknown",
+        lifecycle: "running",
+        degraded: false,
+        complete: true,
+        costs: {
+          settledMicros: 1200,
+          heldMicros: 50000,
+          unknownMicros: 70000,
+          releasedMicros: 0,
+          complete: true,
+        },
+        recovery: [{ action: "reconcile_outcome", href: "/operations" }],
+      },
       blockers: ["REVIEW_PENDING"],
       deliverables: [
         {
@@ -109,6 +123,9 @@ describe("marketing chat parts", () => {
     expect(html).toContain("run-actual");
     expect(html).toContain("content-actual");
     expect(html).toContain("REVIEW_PENDING");
+    expect(html).toContain("Outcome unknown: reconcile before continuing");
+    expect(html).toContain("Unknown cost (reserved exposure)");
+    expect(html).toContain("Check outcome; do not resend");
     expect(html).toContain("Awaiting your approval");
     expect(html).toContain("$0.0012");
     expect(html).toContain("/p/p1/approvals");

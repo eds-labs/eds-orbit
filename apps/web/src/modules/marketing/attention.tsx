@@ -11,6 +11,14 @@ const SHOW: Label = { en: "Show", de: "Anzeigen" };
 type Counted = (n: number) => Label;
 
 const runProblems: Record<string, Counted> = {
+  RUN_DEGRADED: (n) => ({
+    en: `${n} marketing run(s) have missing optional inputs or deliverables`,
+    de: `${n} Marketing-Läufe mit fehlenden optionalen Eingaben oder Ergebnissen`,
+  }),
+  RUN_OUTCOME_UNKNOWN: (n) => ({
+    en: `${n} marketing run outcome(s) need reconciliation`,
+    de: `${n} Marketing-Laufergebnisse müssen abgeglichen werden`,
+  }),
   RUN_FAILED: (n) => ({
     en: `${n} agent run${n === 1 ? "" : "s"} failed`,
     de: `${n} ${n === 1 ? "Agentenlauf" : "Agentenläufe"} fehlgeschlagen`,

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 test.skip(
   process.env.MARKETING_PLAN_E2E !== "true",
   "Requires isolated synthetic scripts/marketing-plans-browser.ts",
@@ -177,6 +178,24 @@ test("strategy survives chat closure; exact owner activation and pause remain se
   await expect(
     page.getByText("Owned by this plan", { exact: false }),
   ).toBeVisible();
+  // MA-06: saved operational evidence only; no scheduler, worker or provider.
+  execFileSync(
+    process.execPath,
+    ["--import", "tsx", "scripts/marketing-run-browser.ts"],
+    { stdio: "pipe" },
+  );
+  await page.reload();
+  await expect(
+    page.getByText("Outcome unknown: reconcile before continuing", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", {
+      name: "Check outcome; do not resend",
+      exact: true,
+    }),
+  ).toBeVisible();
   await page.reload();
   await expect(
     page.getByRole("button", { name: "Pause plan", exact: true }),
@@ -196,6 +215,16 @@ test("strategy survives chat closure; exact owner activation and pause remain se
     await expect(
       page.getByText("0 waiting · 0 reserved · limit 4", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByText("Outcome unknown: reconcile before continuing", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Unknown cost (reserved exposure): $0.07", {
+        exact: false,
+      }),
+    ).toBeVisible();
     await page.reload();
     await expect(
       page.getByText("0 waiting · 0 reserved · limit 4", { exact: true }),
@@ -206,7 +235,7 @@ test("strategy survives chat closure; exact owner activation and pause remain se
       ),
     ).toBe(false);
     await page.screenshot({
-      path: `.runtime/ma05-review-limit-${viewport.width}.png`,
+      path: `.runtime/ma06-run-status-${viewport.width}.png`,
       fullPage: true,
     });
   }

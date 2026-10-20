@@ -1,4 +1,5 @@
 "use client";
+import { RunOperationView, type RunOperation } from "./run-operation";
 import { ChatPlanCard } from "./plan-card";
 import { action, collectionPath, post } from "@/lib/api";
 import { useWorkspace } from "@/components/workspace-context";
@@ -56,6 +57,7 @@ const resultLabel = (value: string, de: boolean) =>
 type LiveAssignment = AssignmentContent & {
   status: string;
   latestRun?: {
+    operation?: RunOperation;
     id: string;
     date: string;
     status: string;
@@ -133,6 +135,7 @@ function ChatAssignmentCard({
             )}{" "}
             {host.de ? "erfasste KI-Kosten" : "recorded AI cost"}
           </p>
+          <RunOperationView operation={live.latestRun.operation} de={host.de} />
           <p className="chat-package-note">Run: {live.latestRun.id}</p>
           {live.latestRun.blockers.length > 0 && (
             <p>

@@ -71,6 +71,8 @@ writeFileSync(
     email,
     password,
     projectId: owner.projectId,
+    workspaceId: owner.workspaceId,
+    userId: owner.userId,
     planId: plan.id,
     conversationId: thread.id,
   }),

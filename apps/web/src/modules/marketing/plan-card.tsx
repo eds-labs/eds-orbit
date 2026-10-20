@@ -1,4 +1,5 @@
 "use client";
+import { RunOperationView, type RunOperation } from "./run-operation";
 import { useState } from "react";
 import type { MarketingPlanSpec } from "../../../../../packages/schemas/src/marketing-plan";
 import type {
@@ -34,6 +35,7 @@ export type PlanSnapshot = {
     currentVersion: number | null;
     href: string;
     latestRun: {
+      operation?: RunOperation;
       id: string;
       status: string;
       costMicros: number;
@@ -266,7 +268,11 @@ export function PlanCard({
                 · {item.status ?? (de ? "Nicht verfügbar" : "Unavailable")} ·{" "}
                 {item.id} v{item.currentVersion ?? "?"}
                 {item.latestRun && (
-                  <p>
+                  <div>
+                    <RunOperationView
+                      operation={item.latestRun.operation}
+                      de={de}
+                    />
                     Run: {item.latestRun.id} · {item.latestRun.status}
                     {item.latestRun.deliveries?.map((delivery) => (
                       <span style={{ display: "block" }} key={delivery.id}>
@@ -274,7 +280,7 @@ export function PlanCard({
                         {delivery.remoteId ? ` · ${delivery.remoteId}` : ""}
                       </span>
                     ))}
-                  </p>
+                  </div>
                 )}
               </li>
             ))}

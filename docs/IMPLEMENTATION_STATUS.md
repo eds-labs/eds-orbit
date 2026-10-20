@@ -1,5 +1,26 @@
 # Implementation status
 
+
+## Marketing Agent v2 — MA-06 (2026-10-20, local)
+
+A shared operational projection now separates saved execution lifecycle from
+current degraded/failed/unknown/approval/capacity state across plans, assignments,
+chat, `run_status` and recent attention. Detailed views show separate scoped ledger
+settled, held, unknown-exposure and released totals. Existing event-keyed run notices
+carry one targeted project action link. Interrupted visual work can finish local
+attachment from its exact committed/settled image, without another provider call;
+revoked, missing or uncertain evidence stops recovery. Other paid work is not replayed.
+
+No migration, paid API, live Postiz write, production flag, push or deployment.
+Verification, bounds, exact changed files and MA-07 preparation only:
+`docs/plans/marketing-agent-v2-ma06.md`.
+
+Final MA-06 verification: **3,006 tests in 276 files passed** (474.22 seconds),
+plus the extended desktop/mobile Playwright scenario and isolated required-review
+scheduling smoke. Lint, root/web typecheck, production build, regenerated contracts,
+framework/secret checks and zero import-boundary violations pass. Local implementation
+and testing are complete; no production/pilot acceptance is inferred.
+
 ## Marketing Agent v2 — MA-05 (2026-10-20, local)
 
 Common bounded source-aware history now feeds assistant/strategy/all generation

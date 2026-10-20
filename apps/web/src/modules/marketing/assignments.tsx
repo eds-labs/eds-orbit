@@ -1,4 +1,5 @@
 "use client";
+import { RunOperationView, type RunOperation } from "./run-operation";
 import { AppLink } from "@/platform/ui/app-link";
 import { useEffect, useState } from "react";
 import {
@@ -42,6 +43,7 @@ export type AssignmentItem = Pick<
   | "format"
   | "banner"
 > & {
+  latestRun?: { operation?: RunOperation } | null;
   version: number;
   status: string;
   schedule: AssignmentContent["schedule"];
@@ -299,6 +301,10 @@ export function AssignmentTable({
                       ])[de ? 1 : 0]
                     }
                   </Badge>
+                  <RunOperationView
+                    operation={item.latestRun?.operation}
+                    de={de}
+                  />
                   {item.status === "draft" && item.actionRequestId && (
                     <small>
                       {de ? "Bestätigung offen" : "Confirmation open"} ·{" "}

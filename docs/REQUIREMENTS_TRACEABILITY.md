@@ -1,5 +1,19 @@
 # Requirements traceability
 
+
+## Marketing Agent v2 — MA-06 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Shared lifecycle versus degraded/failed/unknown/owner/capacity state | `marketing-run-operation.integration.test.ts`, linked-plan, chat and assignment regressions | PASS_TEST |
+| Settled/held/unknown/released ledger partitions, incomplete-evidence signal and tenant scoping | MA-06 ledger and 100-task sentinel cases | PASS_TEST |
+| Persisted image reuse after crash, concurrent workers, no paid replay with revoked/missing evidence | MA-06 cases in copywriter/visual suite | PASS_TEST |
+| No duplicate ambiguous publish; required review/dispatch rights remain binding | Existing full v2/review/publisher/draft regressions | PASS_TEST |
+| One event-keyed actionable run notice under repeated completion | Existing notification job plus MA-06 concurrent terminal updates | PASS_TEST |
+| Bounded batch attention and desktop/mobile saved recovery evidence | Attention query-count regression and extended synthetic Playwright | PASS_LOCAL_BROWSER_AND_TEST |
+| Periodic reports, attribution and proposed report-driven revisions | MA-07 preparation only in MA-06 report | NOT_IMPLEMENTED |
+| Paid/live pilot, production rollout and acceptance | No such operation authorized or performed | NOT_RUN |
+
 ## Marketing Agent v2 — MA-05 (2026-10-20, local)
 
 | Requirement | Evidence | State |

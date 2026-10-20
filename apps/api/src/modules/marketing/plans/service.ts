@@ -362,6 +362,7 @@ export async function planView(tx: DbTx, scope: Scope, id: string) {
         href: `/p/${scope.projectId}/marketing/${ref.kind}`,
         latestRun: latest
           ? {
+              operation: latest.operation,
               id: latest.id,
               status: latest.status,
               costMicros: latest.costMicros,

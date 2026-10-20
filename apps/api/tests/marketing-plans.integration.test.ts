@@ -419,7 +419,27 @@ describe.skipIf(!enabled)(
         expect.objectContaining({
           id: assignment.id,
           status: "active",
-          latestRun: { id: runRow.id, status: "done", costMicros: 1234, deliveries: [] },
+          latestRun: {
+            id: runRow.id,
+            status: "done",
+            costMicros: 1234,
+            deliveries: [],
+            operation: {
+              state: "done",
+              lifecycle: "done",
+              degraded: false,
+              complete: true,
+              costs: {
+                settledMicros: 0,
+                heldMicros: 0,
+                unknownMicros: 0,
+                releasedMicros: 0,
+                complete: true,
+              },
+              issues: [],
+              recovery: [],
+            },
+          },
         }),
       ]);
       await approve(plan);

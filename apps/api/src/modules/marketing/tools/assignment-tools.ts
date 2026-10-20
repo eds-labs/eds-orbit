@@ -1,3 +1,4 @@
+import { runOperation } from "../agents/run-operation.ts";
 import { z } from "zod";
 import { runReadTool } from "../assistant/chat-tools.ts";
 import { currentMarketingProfile } from "../brand/marketing-profile.ts";
@@ -745,7 +746,18 @@ export const assignmentTools: readonly OrbitTool[] = [
         >();
         for (const run of rows.slice(0, 20))
           results.set(run.id, await runDeliverables(tx, context.scope, run));
-        return { date, rows, names, results };
+        const operations = new Map();
+        for (const run of rows.slice(0, 20))
+          operations.set(
+            run.id,
+            await runOperation(
+              tx,
+              context.scope,
+              run,
+              results.get(run.id)!.deliverables,
+            ),
+          );
+        return { date, rows, names, results, operations };
       });
       const { date, names } = found;
       // Run data is written by assignment-runs.ts (slots, unavailable, steps,
@@ -753,6 +765,7 @@ export const assignmentTools: readonly OrbitTool[] = [
       const runs = found.rows.slice(0, 20).map((run) => {
         const d = data(run);
         return {
+          operation: found.operations.get(run.id),
           id: run.id,
           assignmentId: d.assignmentId,
           assignmentName: names.get(d.assignmentId) ?? null,

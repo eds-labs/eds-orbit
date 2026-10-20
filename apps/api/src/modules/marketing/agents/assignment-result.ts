@@ -1,6 +1,7 @@
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data } from "../../../shared.ts";
+import { runOperation } from "./run-operation.ts";
 import { runDeliverables } from "./veto.ts";
 
 /** Bounded saved evidence for the assistant card, independent of chat lifetime. */
@@ -40,6 +41,7 @@ export async function latestAssignmentResult(
     take: 100,
   });
   return {
+    operation: await runOperation(tx, scope, run, result.deliverables),
     id: run.id,
     date: String(d.date),
     status: String(d.status),
@@ -76,6 +78,9 @@ export async function latestAssignmentResult(
           : null,
       channel: String(item.channel),
       outcome: String(item.outcome),
+      publicationStatus: item.publicationStatus
+        ? String(item.publicationStatus)
+        : null,
       reason: item.reason ? String(item.reason) : null,
       publicationId: item.publicationId ? String(item.publicationId) : null,
       postizDraftId: item.postizDraftId ? String(item.postizDraftId) : null,

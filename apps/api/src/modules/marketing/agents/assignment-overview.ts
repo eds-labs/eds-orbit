@@ -132,6 +132,7 @@ export async function listAssignments(
       ...(d.pendingReviewLimit !== undefined
         ? { pendingReviewLimit: d.pendingReviewLimit }
         : {}),
+      latestRun: await latestAssignmentResult(tx, scope, row.id),
       backlog: await reviewBacklog(tx, scope, row.id),
       actionRequestId:
         d.status === "draft" && data(request).status === "pending"

@@ -884,6 +884,89 @@ describe.skipIf(!enabled)("Copywriter and visual in an assignment run", () => {
     expect(drafts.every((d) => d.assetId === assets[0]!.id)).toBe(true);
   });
 
+  it("MA-06 resumes only local attachment after a crash following committed image persistence", async () => {
+    await makeAssignment();
+    const { runId } = await planWithBriefs((slots) =>
+      slots.map((slot) => brief(slot)),
+    );
+    await runAgentTask(worker(), (await task(`copywriter:${X}`)).id);
+    const visualId = (await task("visual")).id;
+    await runAgentTask(worker(), visualId);
+    const assets = (await rows("assets")).filter(
+      (a) => a.assignmentRunId === runId,
+    );
+    expect(assets).toHaveLength(1);
+    expect(provider.generateImage).toHaveBeenCalledTimes(1);
+    // Crash snapshot: asset and settled reservation committed, task completion did not.
+    await run(async (tx) => {
+      const t = await entity(tx, project.owner, "agent_tasks", visualId);
+      await update(tx, project.owner, t, {
+        ...data(t),
+        status: "running",
+        output: null,
+      });
+      for (const c of await list(tx, project.owner, "content")) {
+        if (data(c).assignmentRunId !== runId) continue;
+        const { assetId: _assetId, ...rest } = data(c);
+        await update(tx, project.owner, c, rest);
+      }
+    });
+    await Promise.all([
+      runAgentTask(worker(), visualId),
+      runAgentTask(worker(), visualId),
+    ]);
+    expect(provider.generateImage).toHaveBeenCalledTimes(1);
+    expect(await task("visual")).toMatchObject({
+      status: "done",
+      output: { assetId: assets[0]!.id },
+    });
+    expect(
+      (await rows("assets")).filter((a) => a.assignmentRunId === runId),
+    ).toHaveLength(1);
+    expect(
+      (await rows("content"))
+        .filter((c) => c.assignmentRunId === runId)
+        .every((c) => c.assetId === assets[0]!.id),
+    ).toBe(true);
+  });
+
+  it.each(["revoked", "missing"])(
+    "MA-06 never regenerates a persisted image after %s evidence",
+    async (change) => {
+      await makeAssignment();
+      const { runId } = await planWithBriefs((slots) =>
+        slots.map((slot) => brief(slot)),
+      );
+      const visualId = (await task("visual")).id;
+      await runAgentTask(worker(), visualId);
+      await run(async (tx) => {
+        const t = await entity(tx, project.owner, "agent_tasks", visualId);
+        await update(tx, project.owner, t, {
+          ...data(t),
+          status: "running",
+          output: null,
+        });
+        const asset = (await list(tx, project.owner, "assets")).find(
+          (a) => data(a).assignmentRunId === runId,
+        )!;
+        if (change === "missing")
+          await tx.entity.delete({ where: { id: asset.id } });
+        else
+          await update(tx, project.owner, asset, {
+            ...data(asset),
+            usageApproved: false,
+          });
+      });
+      await runAgentTask(worker(), visualId);
+      expect(provider.generateImage).toHaveBeenCalledTimes(1);
+      expect(await task("visual")).toMatchObject({
+        status: "failed",
+        errorCode:
+          change === "missing" ? "AGENT_INTERRUPTED" : "ASSET_RIGHTS_REQUIRED",
+      });
+    },
+  );
+
   it("approves the image's rights only through the assignment consent", async () => {
     const assignment = await makeAssignment();
     await planWithBriefs((slots) => slots.map((slot) => brief(slot)));

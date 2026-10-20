@@ -138,7 +138,7 @@ export function registerSpecialist(specialist: Specialist) {
 // Model calls reserve under `agent:<taskId>:<n>`, the task's knowledge searches under
 // `query:agent:<taskId>:...`; executor steps (R37) draft under `agent:<taskId>:copy:...`
 // with retrieval `query:mission:agent:<taskId>:...` and generate images under `image:agent:<taskId>:...`.
-const reservationPrefixes = (scope: Scope, taskId: string) => [
+export const reservationPrefixes = (scope: Scope, taskId: string) => [
   `${scope.projectId}:agent:${taskId}:`,
   `${scope.projectId}:query:agent:${taskId}:`,
   `${scope.projectId}:query:mission:agent:${taskId}:`,
@@ -882,13 +882,48 @@ export async function runAgentTask(scope: Scope, taskId: string) {
     scoped(scope.workspaceId, scope.projectId, work);
   let recovered: Array<{ agentRunId: string | null; reservationId: string }> =
     [];
+  let persistedImageId: string | null = null;
   const claimed = await inScope(async (tx) => {
     const row = await entity(tx, scope, TASKS, taskId);
     const d = data(row) as AgentTaskData;
     if (FINAL.includes(d.status)) return null;
     if (d.status === "running") {
       const rows = await taskReservations(tx, scope, taskId);
-      if (rows.length) {
+      // Only complete local attachment from a committed, settled visual artifact.
+      // This path cannot invoke a provider, including if the asset disappears.
+      if (
+        d.role === "visual" &&
+        rows.length &&
+        rows.every((r) => ["settled", "released"].includes(r.state))
+      ) {
+        const asset = await tx.entity.findFirst({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: "assets",
+            AND: [
+              {
+                data: {
+                  path: ["generationId"],
+                  equals: `agent:${taskId}:image`,
+                },
+              },
+              { data: { path: ["agentTaskId"], equals: taskId } },
+              { data: { path: ["assignmentRunId"], equals: d.runId } },
+              { data: { path: ["assignmentId"], equals: d.assignmentId } },
+            ],
+          },
+        });
+        if (
+          asset &&
+          rows.some(
+            (r) =>
+              r.id === data(asset).budgetReservationId && r.state === "settled",
+          )
+        )
+          persistedImageId = asset.id;
+      }
+      if (rows.length && !persistedImageId) {
         const open = await settleOpen(tx, scope, rows);
         recovered = open.recovered;
         await update(tx, scope, row, {
@@ -988,7 +1023,11 @@ export async function runAgentTask(scope: Scope, taskId: string) {
   if (!handler) failure = { code: "AGENT_ROLE_UNAVAILABLE", error: null };
   else
     try {
-      output = await handler(scope, claimed);
+      output = persistedImageId
+        ? await (
+            await import("./visual.ts")
+          ).recoverPersistedVisual(scope, claimed, persistedImageId)
+        : await handler(scope, claimed);
     } catch (error) {
       const code = telemetryErrorCode(error);
       failure = { code: code === "UNEXPECTED" ? "AGENT_FAILED" : code, error };

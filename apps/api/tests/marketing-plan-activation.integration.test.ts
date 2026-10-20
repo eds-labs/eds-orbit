@@ -798,6 +798,10 @@ describe.skipIf(!enabled)("MA-04 exact atomic plan activation", () => {
         pausePlan(tx, project.owner, p.id, active.version),
       );
     expect(paused.status).toBe("paused");
+    expect(paused.linkedWork[0]!.latestRun!.operation).toMatchObject({
+      state: "outcome_unknown",
+      lifecycle: "done",
+    });
     expect(paused.linkedWork[0]!.latestRun!.deliveries).toEqual([
       {
         id: publication.id,
