@@ -1,5 +1,7 @@
 import { mcp2Enabled } from "../../platform/tasks/operation-tools.ts";
 import { z } from "zod";
+import { marketingPlanReview } from "../../../../../packages/schemas/src/index.ts";
+import { revalidatePlanReview, recordPlanReview } from "./plans/service.ts";
 import type { ActionDefinition } from "../action-requests.ts";
 import { DomainError, data, update } from "../../shared.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
@@ -103,7 +105,19 @@ const assignmentConfirm: ActionDefinition<Record<string, unknown>> = {
     await assignments.executeAssignmentConfirm(tx, scope, request);
   },
 };
+const planReview: ActionDefinition<z.infer<typeof marketingPlanReview>> = {
+  riskClass: "W0_internal",
+  approvalMode: "approval_required",
+  deciderRole: "owner",
+  ttlMs: 7 * 24 * 3600000,
+  payload: marketingPlanReview,
+  costCeilingMicros: () => 0,
+  summary: (payload) => ({ marketingPlan: payload }),
+  revalidate: revalidatePlanReview,
+  onApproved: recordPlanReview,
+};
 export const marketingActionTypes = {
+  "marketing_plan.review": planReview,
   "image.generate": imageGenerate,
   "content_package.start": contentPackageStart,
   "content.schedule": contentSchedule,

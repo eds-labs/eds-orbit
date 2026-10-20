@@ -1,4 +1,5 @@
 "use client";
+import { ChatPlanCard } from "./plan-card";
 import { action, collectionPath, post } from "@/lib/api";
 import { useWorkspace } from "@/components/workspace-context";
 import { useDecideActionRequest } from "@/platform/assistant/decide";
@@ -284,7 +285,10 @@ function ChatPackages({ host }: { host: ChatHost }) {
 }
 
 export const marketingChat: ChatExtension = {
-  messageCards: { assignment: ChatAssignmentCard },
+  messageCards: {
+    assignment: ChatAssignmentCard,
+    marketing_plan: ChatPlanCard,
+  },
   afterMessages: ChatPackages,
   busy: (conversation) =>
     Boolean(

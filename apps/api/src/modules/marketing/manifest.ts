@@ -14,6 +14,11 @@ export const marketingModule: ServerModule = {
   dependsOn: ["knowledge"],
   defaultEnabled: true,
   entityKinds: [
+    {
+      kind: "marketing_plans",
+      description: "Versioned strategic proposals; no execution authority",
+      collection: true,
+    },
     { kind: "missions", description: "Campaign missions" },
     { kind: "content", description: "Drafts and reviewed content" },
     { kind: "publications", description: "Scheduled and published posts" },

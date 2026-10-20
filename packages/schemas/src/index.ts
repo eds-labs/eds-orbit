@@ -295,3 +295,12 @@ export type EntityView = {
   createdAt: string;
   updatedAt: string;
 };
+
+export {
+  marketingPlanSpec,
+  marketingPlanChange,
+  marketingPlanReview,
+  marketingPlanView,
+  type MarketingPlanSpec,
+  type MarketingPlanView,
+} from "./marketing-plan.js";

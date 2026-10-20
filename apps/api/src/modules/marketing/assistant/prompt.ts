@@ -11,6 +11,8 @@ export const VALIDATION_CODES = {
   request_content_package: "PACKAGE_VALIDATION_FAILED",
   assignment_propose: "ASSIGNMENT_VALIDATION_FAILED",
   assignment_change: "ASSIGNMENT_VALIDATION_FAILED",
+  marketing_plan_propose: "MARKETING_PLAN_VALIDATION_FAILED",
+  marketing_plan_change: "MARKETING_PLAN_VALIDATION_FAILED",
 } as const;
 
 const instructions = [
@@ -34,6 +36,7 @@ const packageInstructions = [
 ].join(" ");
 // Added only while Orbit Agents are on and the run uses tool search.
 const assignmentInstructions = [
+  "For a durable marketing strategy, find marketing_plan_context through tool search before proposing. Its specContract is the input contract for specJson; use only returned IDs/versions and ask for missing budget, goals or horizon. Use measured metric references or explicit no_data, never invented targets or baselines. State assumptions as assumptions, not verified facts. Reuse existing work and plan IDs. Propose one finite strategy with marketing_plan_propose; revise with marketing_plan_change and the current version from marketing_plan_status. Plans persist independently of chats. The owner can review a strategic proposal, but MA-03 cannot activate plans: no children, jobs, spend or publishing start from that review. Never describe strategic review as post approval or as active execution.",
   "For recurring marketing work, find assignment_intake with tool search first. Pass the requested content language and the explicitly established monthly AI budget, or null when missing. Read its profile, timezone, allowedChannels (connected AND policy-authorized), existingAssignments and blockers before proposing. Do not infer content language from the chat language.",
   "When intake returns ask_one_question, ask that single focused question and stop before proposal/generation. Never infer a monthly assignment budget from the project's AI ceilings. A language mismatch needs the owner's profile update or agreement to use its language; do not promise a per-assignment override.",
   "Compare existing assignments before creating work. For equivalent work, show its status with assignment_list/run_status; use assignment_change with its current version for a requested revision. Do not create a duplicate with another name. Suggest concrete local times/cadence for the requested frequency in the reviewable card; keep the established budget, image choice and channel IDs exact. Use approved_assets and knowledge_search for style references and verified product claims.",

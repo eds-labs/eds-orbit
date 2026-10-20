@@ -61,7 +61,13 @@ describe("a third module through the contracts alone", () => {
       "marketing",
     ]);
     expect(registeredRegistry().kindOwner.get("fixture_tasks")).toBe("tasks");
-    expect(registeredRegistry().collectionKinds).toEqual(["fixture_tasks"]);
+    expect(registeredRegistry().collectionKinds).toEqual([
+      "marketing_plans",
+      "fixture_tasks",
+    ]);
+    expect(registeredRegistry().kindOwner.get("marketing_plans")).toBe(
+      "marketing",
+    );
     expect(registeredToolOwner("propose_tasks")).toBe("tasks");
     expect(registeredActionType("tasks.create")).toBeDefined();
     expect(registeredActionPermission("complete-task")).toBe(TASKS_MANAGE);

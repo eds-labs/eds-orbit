@@ -351,6 +351,10 @@ describe("proposal tool", () => {
       "assignment_change",
       "run_status",
       "channel_history",
+      "marketing_plan_context",
+      "marketing_plan_propose",
+      "marketing_plan_status",
+      "marketing_plan_change",
     ]);
   });
   it("offers assignment tools only with the agents feature", () => {

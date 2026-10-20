@@ -273,7 +273,11 @@ const withoutTimes = (source: Record<string, any>) => {
 };
 
 /** Monthly budget the confirmed assignments hold, without `selfId`; drafts claim theirs when confirmed. */
-async function committedBudget(tx: DbTx, scope: Scope, selfId: string | null) {
+export async function committedBudget(
+  tx: DbTx,
+  scope: Scope,
+  selfId: string | null,
+) {
   return (await list(tx, scope, KIND))
     .filter(
       (row) =>

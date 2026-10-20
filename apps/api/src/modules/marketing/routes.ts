@@ -1,3 +1,4 @@
+import { marketingPlanRoutes } from "./plans/routes.ts";
 import { z } from "zod";
 import { jsonSafe, scoped } from "../../../../../packages/db/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
@@ -65,7 +66,9 @@ import { confirmProposal } from "./assistant/proposals.ts";
  * content package controls. The Orbit Agents gate stays in the platform's
  * onRequest hook, keyed by these route patterns.
  */
-export const marketingRoutes: RoutesContribution = ({ app, auth }) => {
+export const marketingRoutes: RoutesContribution = (context) => {
+  const { app, auth } = context;
+  marketingPlanRoutes(context);
   app.post(
     "/api/slack/:workspaceId/:projectId/interactions",
     async (req, reply) => {

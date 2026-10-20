@@ -87,6 +87,8 @@ export type ActionDefinition<P> = {
   ttlMs: number;
   payload: z.ZodType<P>;
   costCeilingMicros: (payload: P) => number;
+  /** Module-owned exact proposal summary for native approval renderers. */
+  summary?: (payload: P) => Record<string, unknown>;
   /** Rechecked at decision time; throws when the request no longer matches. */
   revalidate: (tx: DbTx, scope: Scope, payload: P) => Promise<void>;
   onApproved: (tx: DbTx, scope: Scope, request: Row) => Promise<void>;
@@ -705,6 +707,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
       createdAt: row.createdAt,
       requestedBy: listedRequester(d.requestedBy),
       summary: {
+        ...registeredActionType(String(d.actionType))?.summary?.(d.payload),
         ...(d.actionType === "platform.task.start"
           ? {
               task: await tx.entity

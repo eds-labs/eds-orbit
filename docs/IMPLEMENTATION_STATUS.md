@@ -1,5 +1,26 @@
 # Implementation status
 
+## Marketing Agent v2 — MA-03 (2026-10-20, local)
+
+Versioned `marketing_plans` persist reviewed strategic proposals independently of
+chat. Deferred context/propose/status/change tools, native read/revise/export routes
+and Marketing → Plans share scoped services, existing Entity/EntityVersion, budgets
+and exact owner ActionRequests. Current fact/source/profile/policy/work versions,
+source rights/audience, channel assignment, horizon and budget bounds are checked.
+Revisions invalidate prior strategic review; current drift is visible on read.
+
+Strategic approval never activates a plan or creates assignments, jobs, reservations,
+content or external writes. MA-04 activation remains unavailable. Native decisions
+and chat cards show the exact scope and source snapshot; persistent status includes
+actual independent linked work. The new route matrix preserves authentication before
+validation and adds only the five reviewed route rows. No schema migration, paid
+provider call, production flag, push or deployment. Implementation, limits, API,
+rollback, checks and MA-04 prerequisites: `docs/plans/marketing-agent-v2-ma03.md`.
+Final local checks: 2,946 tests in 273 files pass; desktop/mobile Playwright,
+production build, lint, root/web typecheck, generated API contracts, framework and
+secret scans pass. The five-route access-matrix delta was reviewed; no pre-existing
+route rule changed. MA-04 is prepared only.
+
 ## Marketing Agent v2 — MA-02 (2026-10-20, local)
 
 The shared assistant now discovers a read-only assignment intake through existing

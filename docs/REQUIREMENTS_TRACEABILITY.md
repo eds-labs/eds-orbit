@@ -1,5 +1,20 @@
 # Requirements traceability
 
+## Marketing Agent v2 — MA-03 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Finite durable strategic contract, exact source/profile/policy and measured/no-data refs | `marketing-plans.integration.test.ts`, shared schema and scoped plan services | PASS_TEST |
+| Proposal survives chat deletion, exports with immutable history and content-free audit | Same real DB persistence/export case | PASS_TEST |
+| Owner strategic review creates no children, jobs, reservations, content or handoff | Same service case plus native HTTP/browser checks | PASS_TEST |
+| Source/rights/audience/profile/fact expiry/policy/channel/budget drift blocks stale review | Same negative matrix and source-snapshot case | PASS_TEST |
+| Current roles, hidden/disabled modules, cross-project reads/writes and native JSON bypass fail closed | Service/HTTP negatives plus reviewed five-route access-matrix delta | PASS_TEST |
+| Exact retry and concurrent revision behavior | Service SQL replay/conflict cases | PASS_TEST |
+| Shared assistant context → proposal → live read, no paid transport | `marketing-plan-chat.integration.test.ts` offline replay | PASS_TEST |
+| Desktop/mobile strategic review and persistent native access without execution | `marketing-plans.spec.ts`, synthetic real stack; PlanCard component tests | PASS_LOCAL_BROWSER |
+| Automatic multi-work activation and reverse plan links on children | MA-04 prerequisites only | NOT_IMPLEMENTED |
+| Free-form model selection and live provider pilot | Not exercised by offline replay/browser fixtures | NOT_RUN |
+
 ## Marketing Agent v2 — MA-02 (2026-10-20, local)
 
 | Requirement | Evidence | State |
