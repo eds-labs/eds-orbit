@@ -1,5 +1,19 @@
 # Requirements traceability
 
+## Marketing Agent v2 — MA-02 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Context-first intake, connected/policy channel intersection and one missing-budget question | `assignment-tools.integration.test.ts`; read-only deferred `assignment_intake` | PASS_TEST |
+| Requested language must match the marketing profile | Same intake/proposal negative case; no silent assignment language override | PASS_TEST |
+| Equivalent chat proposals share one assignment and ActionRequest, including concurrent calls and confirmed work | Same SQL concurrency/replay cases; native chat origin only, MCP flow stays separate | PASS_TEST |
+| Saved run/output/image IDs, actual recorded cost and blockers survive chat reload | `marketing-agent-v2.integration.test.ts`; `assignment-result.ts`; web chat component tests | PASS_TEST |
+| Context → confirmed recurring DAG → human approval → single handoff | Extended Marketing v2 SQL E2E, all providers fake; existing MA-01 negative matrix retained | PASS_TEST |
+| Desktop/mobile result and approval cards after reload, without overflow | Extended `marketing-agent-v2.spec.ts` with isolated synthetic stored evidence | PASS_LOCAL_BROWSER |
+| Real-model natural-language tool selection and live pilot | Offline replay does not establish these; no paid call or live write authorized | NOT_RUN |
+| Deterministic project resume before slot expiry and cancellation after expiry | `agent-runner.integration.test.ts`, positive fixture uses future slots; all 20 cases pass, no production recovery change | PASS_TEST |
+| General plan persistence and activation | MA-03/04 prerequisites only | NOT_IMPLEMENTED |
+
 ## Marketing Agent v2 — MA-00 / MA-01 (2026-10-20, local)
 
 | Requirement | Evidence | State |
@@ -13,7 +27,7 @@
 | Media failure cannot strip a human-approved image; mutation during upload stops the post | Same fake-media/SQL race cases | PASS_TEST |
 | Human-gated article export cannot rely only on model review | Same direct Drive-helper guard regression; no Drive transport called | PASS_TEST |
 | Mode is visible in management and native owner confirmation after reload | Marketing component tests and synthetic desktop/mobile Playwright case | PASS_LOCAL_BROWSER |
-| Pause/resume requeues held research work (I7b) | Reproduced separately on unchanged `e67cb71` | FAIL_EXISTING |
+| Pause/resume requeues held research work (I7b) | Reproduced separately on unchanged `e67cb71`; MA-02 subsequently traced the positive fixture to expired fixed slots and corrected test data | FAIL_EXISTING_AT_MA00; FIXTURE_CORRECTED_MA02 |
 | MA-02 intake expansion and genuine model/Postiz acceptance | Prepared prerequisites only; no authorized live run | NOT_RUN |
 
 Implementation/evidence/rollback: `docs/plans/marketing-agent-v2-ma00-ma01.md`.

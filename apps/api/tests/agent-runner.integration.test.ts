@@ -802,6 +802,20 @@ describe.skipIf(!enabled)("Specialist runner", () => {
   });
 
   it("requeues the agent tasks the pause held back when the project resumes (I7b)", async () => {
+    // This positive case resumes before its slots expire, regardless of the
+    // wall clock. The separate expired-slot case below verifies cancellation.
+    await run(async (tx) => {
+      const row = (await list(tx, project.owner, "assignment_runs"))[0]!;
+      await update(tx, project.owner, row, {
+        ...data(row),
+        slots: (data(row).slots as Array<Record<string, unknown>>).map(
+          (slot) => ({
+            ...slot,
+            at: new Date(Date.now() + 24 * 60 * 60_000).toISOString(),
+          }),
+        ),
+      });
+    });
     const research = await task("research");
     const analytics = await task("analytics");
     await run((tx) => pauseProject(tx, project.owner, true));

@@ -1,5 +1,25 @@
 # Implementation status
 
+## Marketing Agent v2 — MA-02 (2026-10-20, local)
+
+The shared assistant now discovers a read-only assignment intake through existing
+tool search. It reads profile language, timezone, policy/connected channel intersection
+and existing work, and asks one budget or language question when unresolved. Equivalent
+native-chat proposals reuse the same non-ended assignment and exact ActionRequest
+under the project lock; MCP client/grant origins retain their separate proposal path.
+Changed mandates still use the existing versioned change/confirmation service.
+
+Assignment chat cards project saved latest runs, text/image/publication/draft IDs,
+recorded costs and blockers on reload, with links to owner review and assignment
+management. Publishing and Postiz handoff remain behind MA-01 human approval.
+No new main agent, schema, dependency, paid provider call, production flag or deployment.
+Implementation/validation/rollback and MA-03 prerequisites:
+`docs/plans/marketing-agent-v2-ma02.md`. Free-form model selection and live pilot
+acceptance remain untested. I7b was traced to its positive fixture's expired fixed
+slots; a test-only future-slot correction passes all 20 specialist-runner cases,
+including the unchanged expired-slot cancellation case. Production recovery rules
+are unchanged.
+
 ## Claude-only configuration bootstrap fix (2026-10-20)
 
 The Claude settings dialog saves credentials, its reviewed model catalog and prices in one owner-only `ai-provider-configure` transaction. It no longer calls `openai-configure` first, which rejected new Claude-only projects with `OPENAI_API_KEY_REQUIRED`. The optional `applyAnthropicCatalog` input defaults to false; existing prices, registered model overrides and task routes remain intact. Failed validation persists neither credentials nor partial catalog changes. No schema migration, provider call, budget mandate or production key modification is required.
