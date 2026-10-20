@@ -628,7 +628,14 @@ export async function buildServer(
         moduleRegistry(),
       ),
     );
-    return reply.code(201).send(project);
+    return reply
+      .code(201)
+      .send({
+        ...project,
+        ...(config.ORBIT_KNOWLEDGE_WORKSPACE === "true"
+          ? { setupPath: `/p/${project.id}/knowledge/import` }
+          : {}),
+      });
   });
   // Module activation per project (WP1.4): readable by every member,
   // switchable by owners while ORBIT_MODULES is on. Not yet enforced.
@@ -639,6 +646,9 @@ export async function buildServer(
       listModuleStates(tx, scope, moduleRegistry()),
     );
     return {
+      features: {
+        knowledgeWorkspace: config.ORBIT_KNOWLEDGE_WORKSPACE === "true",
+      },
       switchable: moduleSwitchingEnabled(),
       // The requesting member's role per module (WP4.5): "none" hides it.
       modules: states.map((state) => ({

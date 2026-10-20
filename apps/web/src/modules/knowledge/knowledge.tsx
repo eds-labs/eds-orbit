@@ -1,6 +1,8 @@
 "use client";
+import { KnowledgeWorkspaceGate } from "./workspace";
 import { FactWithdrawal } from "./fact-withdrawal";
 import { IndexManagement } from "./index-management";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useShell } from "@/platform/shell/shell-context";
 import { cn } from "@/lib/utils";
@@ -65,6 +67,7 @@ import { KnowledgeOverview } from "./overview";
 type Health = Record<string, unknown>;
 /** The knowledge tabs in their order; each has its own URL (WP3.3). */
 export const KNOWLEDGE_TABS = [
+  "review",
   "overview",
   "sources",
   "facts",
@@ -81,6 +84,14 @@ export type KnowledgeTab = (typeof KNOWLEDGE_TABS)[number];
  * page of its own, reached from the sidebar, with a link back to the overview.
  */
 export function Knowledge({ tab }: { tab: KnowledgeTab }) {
+  return (
+    <KnowledgeWorkspaceGate
+      tab={tab}
+      fallback={<LegacyKnowledge tab={tab === "review" ? "conflicts" : tab} />}
+    />
+  );
+}
+function LegacyKnowledge({ tab }: { tab: KnowledgeTab }) {
   const { t, locale, isOwner } = useWorkspace();
   const shell = useShell();
   const [add, setAdd] = useState(false);
@@ -1375,37 +1386,40 @@ function FactEditor({
   );
 }
 function Library() {
+  const sourceFilter = useSearchParams()?.get("source");
   const { project, revision, t, locale, isOwner, refresh } = useWorkspace();
   const resource = useResource<{ items: Array<Record<string, unknown>> }>(
     collectionPath(project.id, `documents?revision=${revision}`),
   );
   const sources = useCollection("sources");
-  const documents = (resource.data?.items || []).map((raw) => {
-    const versions = Array.isArray(raw.versions)
-      ? (raw.versions as Array<Record<string, unknown>>)
-      : [];
-    const active =
-      versions.find((v) => v.id === raw.activeVersionId) || versions[0] || {};
-    const source = sources.data?.items.find((s) => s.id === raw.sourceId);
-    return {
-      id: String(raw.id),
-      projectId: project.id,
-      workspaceId: project.workspaceId,
-      kind: "document",
-      version: Number(active.version || 1),
-      createdAt: String(raw.createdAt || ""),
-      updatedAt: String(raw.updatedAt || ""),
-      data: {
-        ...active,
-        status: active.state || "unknown",
-        canonicalUrl: raw.canonicalUrl,
-        sourceId: raw.sourceId,
-        publicUse: source?.data.publicUse,
-        versions,
-        chunks: active.chunks,
-      },
-    } as Entity;
-  });
+  const documents = (resource.data?.items || [])
+    .filter((raw) => !sourceFilter || raw.sourceId === sourceFilter)
+    .map((raw) => {
+      const versions = Array.isArray(raw.versions)
+        ? (raw.versions as Array<Record<string, unknown>>)
+        : [];
+      const active =
+        versions.find((v) => v.id === raw.activeVersionId) || versions[0] || {};
+      const source = sources.data?.items.find((s) => s.id === raw.sourceId);
+      return {
+        id: String(raw.id),
+        projectId: project.id,
+        workspaceId: project.workspaceId,
+        kind: "document",
+        version: Number(active.version || 1),
+        createdAt: String(raw.createdAt || ""),
+        updatedAt: String(raw.updatedAt || ""),
+        data: {
+          ...active,
+          status: active.state || "unknown",
+          canonicalUrl: raw.canonicalUrl,
+          sourceId: raw.sourceId,
+          publicUse: source?.data.publicUse,
+          versions,
+          chunks: active.chunks,
+        },
+      } as Entity;
+    });
   const [selected, setSelected] = useState<Entity | null>(null);
   const [confirmEmbedding, setConfirmEmbedding] = useState(false);
   const mutation = useMutation(() => {

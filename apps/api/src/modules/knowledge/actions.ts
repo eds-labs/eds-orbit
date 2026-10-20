@@ -1,3 +1,14 @@
+import {
+  saveProfile,
+  saveDraft,
+  previewDraft,
+  startAnalysis,
+  cancelAnalysis,
+  decideProposal,
+  readKnowledgeFile,
+  owner,
+} from "./workspace.ts";
+import { configureGithub, beginGithub } from "./github.ts";
 import { z } from "zod";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
@@ -61,6 +72,35 @@ const retrievalRequest = (input: ActionContext["input"]) => ({
  * live today; WP3.3 moves them into this module.
  */
 export const knowledgeActions: Record<string, ActionHandler> = {
+  "knowledge-file-read": ownTransaction(({ scope, input }) =>
+    readKnowledgeFile(scope, input),
+  ),
+  "knowledge-profile-save": ownTransaction(({ scope, input }) =>
+    saveProfile(scope, input),
+  ),
+  "knowledge-draft-save": ownTransaction(({ scope, input }) =>
+    saveDraft(scope, input),
+  ),
+  "knowledge-draft-preview": ownTransaction(({ scope, input }) =>
+    previewDraft(scope, input),
+  ),
+  "knowledge-analysis-start": ownTransaction(({ scope, input }) =>
+    startAnalysis(scope, input),
+  ),
+  "knowledge-analysis-cancel": ownTransaction(({ scope, input }) =>
+    cancelAnalysis(scope, input),
+  ),
+  "knowledge-proposal-decide": ownTransaction(({ scope, input }) =>
+    decideProposal(scope, input),
+  ),
+  "knowledge-github-configure": ownTransaction(async ({ scope, input }) => {
+    await owner(scope);
+    return configureGithub(scope, input);
+  }),
+  "knowledge-github-connect": ownTransaction(async ({ scope, input }) => {
+    await owner(scope);
+    return beginGithub(scope, input);
+  }),
   // Hybrid retrieval embeds the query outside the project transaction.
   retrieve: ownTransaction(({ scope, input }) =>
     input.useEmbeddings === true

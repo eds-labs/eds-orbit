@@ -50,6 +50,8 @@ import {
   routeEnabled,
   rewriteLegacyHref,
   routeTable,
+  navigationForFeatures,
+  routesForFeatures,
   type Route,
 } from "@/platform/shell/routes";
 import {
@@ -92,6 +94,7 @@ import {
 
 const LAST_PROJECT = "orbit.project";
 type ModuleStates = {
+  features?: Record<string, boolean>;
   modules: Array<{ id: string; enabled: boolean; access?: string }>;
 };
 
@@ -294,10 +297,16 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         id,
         registry.modules.find((m) => m.id === id)?.optIn === true,
       );
-    const nav = navOrder(table.routes.filter((r) => r.nav));
+    const nav = navOrder(
+      navigationForFeatures(table.routes, knownStates?.features),
+    );
     const active = registry.modules.filter((m) => enabled(m.id));
     return {
-      table,
+      features: knownStates?.features,
+      table: {
+        ...table,
+        routes: routesForFeatures(table.routes, knownStates?.features),
+      },
       platformNav: nav.filter((r) => !r.moduleId && routeEnabled(r, enabled)),
       modules: registry.modules.map((m) => ({
         id: m.id,
@@ -355,7 +364,13 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
           : projectId && !project
             ? t("projectNotFound")
             : place.kind === "view"
-              ? pageTitle(place.route, table, locale, groupLabel)
+              ? pageTitle(
+                  base?.table.routes.find((r) => r.key === place.route.key) ??
+                    place.route,
+                  base?.table ?? table,
+                  locale,
+                  groupLabel,
+                )
               : place.kind === "standalone"
                 ? place.view.title[locale]
                 : place.kind === "notFound"
@@ -365,7 +380,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       .filter(Boolean)
       .join(" · ");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname, project?.name, locale]);
+  }, [pathname, project?.name, locale, knownStates]);
   async function createProject(v: FormValues, workspaceId?: string) {
     const result = await mutation.run(() =>
       post<Project>("/projects", {
@@ -377,7 +392,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     );
     if (result) {
       setCreatedProject(result.id);
-      router.push(`/p/${encodeURIComponent(result.id)}`);
+      router.push(result.setupPath ?? `/p/${encodeURIComponent(result.id)}`);
     }
   }
   const languageControl = (
@@ -523,7 +538,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     );
   if (!project || !shell)
     return frame(<NotFound t={t} project={Boolean(projectId)} />);
-  const route: Route | null = place.kind === "view" ? place.route : null;
+  const route: Route | null =
+    place.kind === "view"
+      ? (shell.table.routes.find((r) => r.key === place.route.key) ??
+        place.route)
+      : null;
   const role =
     project.role ||
     me.workspaces.find((w) => w.id === project.workspaceId)?.role ||
@@ -536,11 +555,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     Boolean(shell.modules.find((m) => m.id === id)?.enabled);
   const moduleOff = Boolean(route && !routeEnabled(route, isOn));
   const navGroups = withSettingsLinks(
-    buildNavGroups(table.routes, shell.modules),
+    buildNavGroups(shell.table.routes, shell.modules),
     shell.modules,
     (key) => settingsSectionHref(shell.hrefOf("settings"), key),
   );
-  const mobileBar = mobileEntries(table.routes, isOn);
+  const mobileBar = mobileEntries(shell.table.routes, isOn);
   const mobileCurrent = mobileCurrentKey(mobileBar, route);
   // No badges while loading or after a failed load; navigation still works.
   const badges = navBadges(attention);
@@ -696,15 +715,16 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               <span>{project.name}</span>
               <span>/</span>
               {route ? (
-                crumbs(route, table, locale, groupLabel).map((part, i, all) =>
-                  i < all.length - 1 ? (
-                    <span key={i}>
-                      {part}
-                      <span aria-hidden="true"> / </span>
-                    </span>
-                  ) : (
-                    <strong key={i}>{part}</strong>
-                  ),
+                crumbs(route, shell.table, locale, groupLabel).map(
+                  (part, i, all) =>
+                    i < all.length - 1 ? (
+                      <span key={i}>
+                        {part}
+                        <span aria-hidden="true"> / </span>
+                      </span>
+                    ) : (
+                      <strong key={i}>{part}</strong>
+                    ),
                 )
               ) : (
                 <strong>{t("notFound")}</strong>

@@ -5353,3 +5353,220 @@ a.support-row {
 .assistant-tasks > .form-actions {
   margin: 0 16px 12px;
 }
+
+/* Reviewed project knowledge: clear reading surfaces, progressive disclosure. */
+.knowledge-workspace {
+  max-width: 1120px;
+  margin-inline: auto;
+}
+.knowledge-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding-bottom: 12px;
+}
+.knowledge-heading h1 {
+  margin-bottom: 8px;
+}
+.knowledge-heading p {
+  max-width: 68ch;
+  color: var(--muted-foreground, #60738a);
+}
+.knowledge-profile {
+  padding-block: 16px 24px;
+  border-bottom: 1px solid #dceaf4;
+}
+.knowledge-profile p {
+  max-width: 72ch;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.knowledge-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 20px;
+}
+.knowledge-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  font-weight: 600;
+}
+.knowledge-field > span {
+  font-size: 14px;
+}
+.knowledge-field textarea,
+.knowledge-field input,
+.knowledge-field select {
+  font-weight: 400;
+}
+.knowledge-statements {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  background: #ffffffc2;
+  border: 1px solid #dceaf4;
+  border-radius: 12px;
+}
+.knowledge-statement {
+  padding: 24px;
+  min-width: 0;
+  border-bottom: 1px solid #dceaf4;
+}
+.knowledge-statement:last-child {
+  border-bottom: 0;
+}
+.knowledge-statement h2 {
+  font-size: 18px;
+  line-height: 1.5;
+  margin-block: 12px;
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+}
+.knowledge-statement p {
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+}
+.knowledge-statement details {
+  margin-block: 16px;
+}
+.knowledge-statement summary,
+.knowledge-advanced summary {
+  cursor: pointer;
+  padding-block: 12px;
+  font-weight: 600;
+}
+.knowledge-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.knowledge-quote {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-width: 75ch;
+  margin: 16px 0;
+  padding: 16px;
+  background: #eef8ff;
+  border-radius: 8px;
+}
+.knowledge-path {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font-size: 13px;
+}
+.knowledge-source {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+  padding: 24px;
+  background: #ffffffc2;
+  border: 1px solid #dceaf4;
+  border-radius: 12px;
+}
+.knowledge-source h2 {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.knowledge-source > div {
+  min-width: 0;
+}
+.knowledge-source p {
+  overflow-wrap: anywhere;
+}
+.knowledge-advanced {
+  border-top: 1px solid #dceaf4;
+  margin-top: 28px;
+}
+.knowledge-advanced nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 16px 0;
+}
+.knowledge-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  list-style: none;
+  padding: 0;
+  gap: 16px;
+}
+.knowledge-steps li {
+  color: #60738a;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 14px;
+}
+.knowledge-steps li > span {
+  font-variant-numeric: tabular-nums;
+}
+.knowledge-steps li[aria-current="step"] {
+  font-weight: 700;
+  color: #071522;
+}
+.knowledge-form {
+  max-width: 760px;
+  padding-block: 24px;
+}
+.knowledge-check,
+.knowledge-usage label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  line-height: 1.6;
+}
+.knowledge-check input,
+.knowledge-usage input {
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.knowledge-usage {
+  border: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.knowledge-usage legend {
+  padding-bottom: 12px;
+  font-weight: 600;
+}
+.knowledge-app-settings {
+  padding-block: 16px;
+}
+@media (max-width: 760px) {
+  .knowledge-heading,
+  .knowledge-source {
+    flex-direction: column;
+    gap: 16px;
+  }
+  .knowledge-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .knowledge-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .knowledge-statement,
+  .knowledge-source {
+    padding: 18px;
+  }
+  .knowledge-workspace .form-actions {
+    flex-wrap: wrap;
+  }
+}
+
+.knowledge-workspace.stack-gap,
+.knowledge-workspace .stack-gap {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.knowledge-workspace .knowledge-form {
+  width: 100%;
+}

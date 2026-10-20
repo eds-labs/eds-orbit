@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { EntityView } from "../../../../packages/schemas/src/index";
 export type Entity = EntityView;
 export type Project = {
+  setupPath?: string;
   id: string;
   workspaceId: string;
   name: string;

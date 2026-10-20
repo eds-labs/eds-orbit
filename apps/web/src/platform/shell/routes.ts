@@ -394,3 +394,27 @@ export function pickerHref(identity: Membership): string {
     ? `/o/${encodeURIComponent(identity.workspaces[0]!.id)}`
     : "/o";
 }
+
+/** Apply server-advertised variants without losing legacy or expert routes. */
+export function routesForFeatures(
+  routes: readonly Route[],
+  features: Record<string, boolean> = {},
+) {
+  return routes.map((r) =>
+    r.alternateNav && features[r.alternateNav.feature]
+      ? {
+          ...r,
+          nav: r.alternateNav.nav ?? undefined,
+          ...(!r.alternateNav.nav
+            ? { navKey: r.navKey ?? r.moduleId ?? undefined }
+            : {}),
+        }
+      : r,
+  );
+}
+export function navigationForFeatures(
+  routes: readonly Route[],
+  features: Record<string, boolean> = {},
+) {
+  return navOrder(routesForFeatures(routes, features).filter((r) => r.nav));
+}

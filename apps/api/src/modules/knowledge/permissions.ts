@@ -6,6 +6,15 @@ import {
 /** Knowledge actions (plans/orbit-modularization 04 §2.4). */
 export const knowledgeActionPermissions = actionPermissions("knowledge", {
   owner: [
+    "knowledge-file-read",
+    "knowledge-profile-save",
+    "knowledge-draft-save",
+    "knowledge-draft-preview",
+    "knowledge-analysis-start",
+    "knowledge-analysis-cancel",
+    "knowledge-proposal-decide",
+    "knowledge-github-configure",
+    "knowledge-github-connect",
     "activate-index",
     "begin-index",
     "build-index",

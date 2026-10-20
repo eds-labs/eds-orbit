@@ -36,6 +36,7 @@ export type AttentionState = {
 };
 
 export type ShellContextValue = {
+  features?: Record<string, boolean>;
   table: RouteTable;
   /** Platform pages with a navigation entry, in sidebar order. */
   platformNav: readonly Route[];

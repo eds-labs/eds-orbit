@@ -84,6 +84,7 @@ const baseConfigSchema = z.object({
   // Client-executed tool search for Orbit Chat on models from gpt-5.4 (ADR 0007).
   ORBIT_TOOL_SEARCH: z.enum(["false", "true"]).default("false"),
   // Orbit Agents: assignments, runs and specialists; everything stays off when false.
+  ORBIT_KNOWLEDGE_WORKSPACE: z.enum(["false", "true"]).default("false"),
   ORBIT_AGENTS: z.enum(["false", "true"]).default("false"),
   // Assignment images: "true" sends style references through images.edit (verified from types only);
   // off by default, images then follow the stored style description.

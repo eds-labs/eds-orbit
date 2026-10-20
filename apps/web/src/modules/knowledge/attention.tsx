@@ -39,6 +39,13 @@ export const knowledgeAttention: Readonly<Record<string, AttentionRenderer>> = {
       de: `${n} ${n === 1 ? "weitere Quelle läuft" : "weitere Quellen laufen"} bald ab`,
     }),
   ),
+  knowledge_review_pending: (item, locale) => ({
+    title:
+      locale === "de"
+        ? `${item.count ?? 1} Erkenntnisse zu prüfen`
+        : `${item.count ?? 1} findings to review`,
+    action: { en: "Review", de: "Prüfen" },
+  }),
   knowledge_conflicts: (item, locale) => {
     const n = item.count ?? 1;
     return {

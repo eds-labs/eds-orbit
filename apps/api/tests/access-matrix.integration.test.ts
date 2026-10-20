@@ -17,6 +17,7 @@ const MATRIX_FILE = new URL("./fixtures/access-matrix.json", import.meta.url);
 // Every route the feature flags can hide is offered, so the matrix covers all
 // of them; nothing reaches a provider (test mode, no external writes).
 Object.assign(process.env, {
+  ORBIT_KNOWLEDGE_WORKSPACE: "true",
   ORBIT_AGENTS: "true",
   ORBIT_CONTENT_PACKAGES: "true",
   ORBIT_TOOL_SEARCH: "true",

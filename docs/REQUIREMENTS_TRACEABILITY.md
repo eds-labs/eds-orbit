@@ -1,5 +1,18 @@
 # Requirements traceability
 
+## Reviewed knowledge workspace (2026-10-20)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Three primary knowledge views, clear empty states and bilingual guided setup | Knowledge workspace component and browser tests | PASS_TEST |
+| Raw imports and model proposals excluded from retrieval until owner confirmation | Knowledge workspace SQL tests, real ingestion/retrieval and module audience negatives | PASS_TEST |
+| Versioned editing, rejection, stale decisions and concurrent confirmation | Knowledge workspace SQL tests | PASS_TEST |
+| Private GitHub App proof, scoped tokens, commit-pinned limits and secret exclusions | GitHub provider tests with synthetic OAuth/installations/keys and mocked transport | PASS_TEST |
+| Consent, mandate, settlement and unknown-cost retry prevention | Knowledge workspace SQL and model-mock tests | PASS_TEST |
+| Legacy deep links, feature rollback, owner loss and project boundaries | Knowledge component, access matrix and SQL tests | PASS_TEST |
+| Desktop/mobile full setup → queued analysis → review → confirmed knowledge | Synthetic real-stack Playwright tests; navigation confirmation pending final pass | PASS_LOCAL_BROWSER |
+| Production App installation, deployment, enabled flag and real FamilyPlan import | Separate introduction per docs/KNOWLEDGE_WORKSPACE.md | BLOCKED_EXTERNAL |
+
 ## Inbox-specific MCP reply authorization (2026-10-20)
 
 | Requirement | Evidence | State |

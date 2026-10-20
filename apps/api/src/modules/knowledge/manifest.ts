@@ -13,6 +13,20 @@ export const knowledgeModule: ServerModule = {
   dependsOn: [],
   defaultEnabled: true,
   entityKinds: [
+    ...[
+      "knowledge_profiles",
+      "knowledge_drafts",
+      "knowledge_runs",
+      "knowledge_previews",
+      "knowledge_proposals",
+      "knowledge_github_config",
+      "knowledge_github_connections",
+      "knowledge_github_oauth",
+    ].map((kind) => ({
+      kind,
+      description: "Reviewed knowledge workspace storage",
+      exported: false as const,
+    })),
     {
       kind: "sources",
       description: "Knowledge sources with rights and sync settings",

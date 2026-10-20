@@ -1,3 +1,4 @@
+import { runAnalysis } from "./workspace.ts";
 import { knowledgeMcpTools, knowledgeMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { knowledgeActions } from "./actions.ts";
@@ -12,6 +13,14 @@ import { knowledgeAttention } from "./attention.ts";
  * modules keep them while this module is off.
  */
 export const knowledgeContributions: ModuleContributions = {
+  jobs: [
+    {
+      queueClass: "knowledge_analysis",
+      concurrency: 1,
+      leaseMs: 300000,
+      handler: ({ scope, job }) => runAnalysis(scope, job.resourceId),
+    },
+  ],
   actions: knowledgeActions,
   tools: knowledgeMcpTools,
   actionTypes: knowledgeMcpActions,

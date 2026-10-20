@@ -13,7 +13,7 @@ export default defineConfig({
     ["html", { outputFolder: ".runtime/playwright-report", open: "never" }],
   ],
   use: {
-    baseURL: "http://localhost:4310",
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:4310",
     actionTimeout: 15_000,
     ...(process.env.PLAYWRIGHT_CHANNEL
       ? { channel: process.env.PLAYWRIGHT_CHANNEL }

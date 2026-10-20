@@ -1,5 +1,9 @@
 # Implementation status
 
+## Reviewed knowledge workspace (2026-10-20, local)
+
+Default-off `ORBIT_KNOWLEDGE_WORKSPACE` adds Project knowledge, Sources and To review; guided resumable project setup and non-JSON imports; versioned proposals and review decisions; and private GitHub App sources with user-authorized installations, repository-scoped tokens and commit-pinned bounded reads. Only reviewed evidence is promoted through the shared knowledge engine. Changed evidence withdraws dependent knowledge; paid analysis retains model routing, spend reservations and uncertainty handling. No schema migration, production credential, live repository import, paid call or feature activation is included. Design/risk/rollback: `docs/plans/KNOWLEDGE_WORKSPACE.md`; setup and API: `docs/KNOWLEDGE_WORKSPACE.md`. Validation evidence is recorded at completion below.
+
 ## Inbox-specific MCP reply authorization (2026-10-20)
 
 The standing owner authorization now belongs exclusively to `SupportInbox.rules`.

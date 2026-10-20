@@ -150,6 +150,34 @@ export const knowledgeAttention: AttentionContribution = async (
   scope,
   now,
 ) => [
+  ...(process.env.ORBIT_KNOWLEDGE_WORKSPACE === "true"
+    ? [
+        ...(await aggregated(
+          tx,
+          scope,
+          "knowledge_proposals",
+          { status: "pending" },
+          {
+            id: "knowledge:review",
+            kind: "knowledge_review_pending",
+            navKey: "knowledge-review",
+            link: "/knowledge/review",
+          },
+        )),
+        ...(await aggregated(
+          tx,
+          scope,
+          "knowledge_proposals",
+          { status: "needs_review" },
+          {
+            id: "knowledge:review-changed",
+            kind: "knowledge_review_pending",
+            navKey: "knowledge-review",
+            link: "/knowledge/review",
+          },
+        )),
+      ]
+    : []),
   ...(await sourceItems(tx, scope, now)),
   ...(await aggregated(
     tx,

@@ -22,6 +22,7 @@ import { KnowledgeHomeCard } from "./home";
 // Each tab but the overview is a page of its own (WP3.3), reachable by URL.
 // Names of the pages in the sidebar and the breadcrumb.
 const TAB_TITLES: Record<Exclude<KnowledgeTab, "overview">, Label> = {
+  review: { en: "To review", de: "Zu prüfen" },
   sources: { en: labels.en.sources, de: labels.de.sources },
   facts: { en: labels.en.factTab, de: labels.de.factTab },
   import: { en: labels.en.import, de: labels.de.import },
@@ -52,6 +53,23 @@ const tabView = (tab: Exclude<KnowledgeTab, "overview">): ViewDef => {
     component: function KnowledgeTabView() {
       return <Knowledge tab={tab} />;
     },
+    alternateNav: {
+      feature: "knowledgeWorkspace",
+      nav:
+        tab === "sources"
+          ? {
+              label: { en: "Sources", de: "Quellen" },
+              icon: Database,
+              order: 10,
+            }
+          : tab === "review"
+            ? {
+                label: { en: "To review", de: "Zu prüfen" },
+                icon: ListChecks,
+                order: 20,
+              }
+            : null,
+    },
     ...(nav
       ? { nav: { label: TAB_TITLES[tab], ...nav } }
       : { title: TAB_TITLES[tab], navKey: "knowledge" }),
@@ -74,7 +92,19 @@ export const knowledgeWeb: WebModule = {
     {
       key: "knowledge",
       path: "",
-      component: KnowledgeOverview,
+      component: function KnowledgeEntry() {
+        return <Knowledge tab="overview" />;
+      },
+      alternateNav: {
+        feature: "knowledgeWorkspace",
+        nav: {
+          label: { en: "Project knowledge", de: "Projektwissen" },
+          icon: BookOpen,
+          order: 0,
+          mobile: { en: "Knowledge", de: "Wissen" },
+          mobileRank: 50,
+        },
+      },
       nav: {
         label: { en: labels.en.overview, de: labels.de.overview },
         icon: BookOpen,

@@ -46,6 +46,8 @@ export type ViewDef = {
   path: string;
   component: ComponentType;
   nav?: NavEntry;
+  /** Server-advertised feature may replace or hide navigation without losing the route. */
+  alternateNav?: { feature: string; nav: NavEntry | null };
   /**
    * The sidebar group of the page (UI restructure): "top" or "project" for
    * platform pages, else the owning module's id, which is the default for a

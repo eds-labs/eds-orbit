@@ -15,6 +15,7 @@ x-api-environment: &api-environment
   REDIS_URL: redis://redis:6379
   AUTH_SECRET: ${AUTH_SECRET:?required}
   CREDENTIAL_KEY: ${CREDENTIAL_KEY:?required}
+  ORBIT_KNOWLEDGE_WORKSPACE: ${ORBIT_KNOWLEDGE_WORKSPACE:-false}
   ORBIT_SETUP_TOKEN: ${ORBIT_SETUP_TOKEN:?required}
   APP_ORIGIN: ${APP_ORIGIN:?required}
   BIND_HOST: 0.0.0.0
