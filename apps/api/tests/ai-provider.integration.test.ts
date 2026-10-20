@@ -159,6 +159,85 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
   const configureProvider = (input: Record<string, unknown>) =>
     run((tx) => saveAiProviderConfiguration(tx, scope, input));
 
+  it("bootstraps Claude with its catalog in one atomic owner-only request without an OpenAI key", async () => {
+    const project = await authDb.project.create({
+      data: { workspaceId: scope.workspaceId, name: "Claude-only bootstrap" },
+    });
+    const freshScope = { ...scope, projectId: project.id };
+    const input = {
+      anthropicApiKey: KEY,
+      applyAnthropicCatalog: true,
+      defaultProvider: "anthropic",
+      anthropicTierRoutes: {
+        fast: "claude-haiku-5-5",
+        standard: CLAUDE,
+        quality: "claude-opus-5-5",
+      },
+    };
+    try {
+      await expect(
+        scoped(scope.workspaceId, project.id, (tx) =>
+          saveAiProviderConfiguration(
+            tx,
+            { ...freshScope, role: "editor" },
+            input,
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "OWNER_REQUIRED" });
+      await expect(
+        scoped(scope.workspaceId, project.id, (tx) =>
+          saveAiProviderConfiguration(tx, freshScope, {
+            ...input,
+            anthropicTierRoutes: {
+              ...input.anthropicTierRoutes,
+              fast: "claude-unknown",
+            },
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "ROUTED_MODEL_NOT_VERIFIED" });
+      expect(
+        await scoped(scope.workspaceId, project.id, (tx) =>
+          tx.entity.count({
+            where: { projectId: project.id, kind: "openai_configuration" },
+          }),
+        ),
+      ).toBe(0);
+      await expect(
+        scoped(scope.workspaceId, project.id, (tx) =>
+          saveAiProviderConfiguration(tx, freshScope, {
+            ...input,
+            models: Object.fromEntries(
+              Array.from({ length: 40 }, (_, n) => [
+                `synthetic-model-${n}`,
+                { provider: "openai" },
+              ]),
+            ),
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "MODEL_REGISTRY_LIMIT" });
+      const saved = await app.inject({
+        method: "POST",
+        url: `/api/projects/${project.id}/actions/ai-provider-configure`,
+        headers: { cookie: ownerCookie, origin },
+        payload: input,
+      });
+      expect(saved.statusCode).toBe(200);
+      expect(saved.body).not.toContain(KEY);
+      const runtime = await scoped(scope.workspaceId, project.id, (tx) =>
+        runtimeOpenAiConfiguration(tx, freshScope),
+      );
+      expect(runtime.apiKey).toBeUndefined();
+      expect(runtime.anthropicApiKey).toBe(KEY);
+      expect(runtime.routeVersion).toBe(1);
+      expect(runtime.verifiedModels).toContain(CLAUDE);
+      expect(runtime.rateCard[CLAUDE]).toBeDefined();
+      expect(runtime.models?.[CLAUDE]?.provider).toBe("anthropic");
+      expect(runtime.defaultProvider).toBe("anthropic");
+    } finally {
+      await authDb.project.delete({ where: { id: project.id } });
+    }
+  });
+
   it("saves the provider fields owner-only, keeps the key secret and bumps the route version", async () => {
     const before = await run((tx) => runtimeOpenAiConfiguration(tx, scope));
     await expect(
@@ -170,6 +249,7 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     ).rejects.toMatchObject({ code: "OWNER_REQUIRED" });
     const saved = await configureProvider({
       anthropicApiKey: KEY,
+      applyAnthropicCatalog: true,
       defaultProvider: "anthropic",
       anthropicTierRoutes: {
         fast: "claude-haiku-5-5",
@@ -201,6 +281,9 @@ describe.skipIf(!enabled)("AI provider configuration and budget", () => {
     const runtime = await run((tx) => runtimeOpenAiConfiguration(tx, scope));
     expect(runtime.anthropicApiKey).toBe(KEY);
     expect(runtime.apiKey).toMatch(/^synthetic-openai-/);
+    expect(runtime.rateCard[CLAUDE]).toEqual(before.rateCard[CLAUDE]);
+    expect(runtime.taskRoutes).toEqual(before.taskRoutes);
+    expect(runtime.models?.[CLAUDE]?.displayName).toBe("Sonnet");
     expect(runtime.providerBudgets?.anthropic?.stopMicros).toBe(95_000_000);
     // The GET route answers the owner, never the key.
     const get = await app.inject({

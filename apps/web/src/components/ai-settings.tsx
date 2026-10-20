@@ -291,27 +291,10 @@ function AnthropicConfiguration({
         onCancel={onClose}
         onSubmit={(values) =>
           mutation.run(async () => {
-            const applyCatalog = values.applyCatalog === true;
-            let models = view.models;
-            if (applyCatalog) {
-              // The suggestion joins the OpenAI dialog's fields: a full replace with the current values kept.
-              await action(project.id, "openai-configure", {
-                verifiedModels: [
-                  ...new Set([
-                    ...view.verifiedModels,
-                    ...Object.keys(suggestion.models),
-                  ]),
-                ],
-                rateCard: { ...suggestion.rateCard, ...view.rateCard },
-                modelRoutes: view.modelRoutes,
-                taskRoutes: view.taskRoutes ?? {},
-                imageGeneration: view.imageGeneration,
-              });
-              models = { ...suggestion.models, ...view.models };
-            }
             const apiKey = str(values, "anthropicApiKey");
             return action(project.id, "ai-provider-configure", {
               ...providerPayload(view),
+              applyAnthropicCatalog: values.applyCatalog === true,
               ...(apiKey ? { anthropicApiKey: apiKey } : {}),
               ...(values.clearAnthropicApiKey === true
                 ? { clearAnthropicApiKey: true }
@@ -322,7 +305,7 @@ function AnthropicConfiguration({
                 standard: str(values, "tier-standard"),
                 quality: str(values, "tier-quality"),
               },
-              models,
+              models: view.models,
               fallback: { onProviderBudgetStop: str(values, "fallback") },
             });
           })

@@ -1,5 +1,11 @@
 # Implementation status
 
+## Claude-only configuration bootstrap fix (2026-10-20)
+
+The Claude settings dialog saves credentials, its reviewed model catalog and prices in one owner-only `ai-provider-configure` transaction. It no longer calls `openai-configure` first, which rejected new Claude-only projects with `OPENAI_API_KEY_REQUIRED`. The optional `applyAnthropicCatalog` input defaults to false; existing prices, registered model overrides and task routes remain intact. Failed validation persists neither credentials nor partial catalog changes. No schema migration, provider call, budget mandate or production key modification is required.
+
+Risk: high (provider credential configuration); local verification uses synthetic keys and the isolated worktree database. Rollback: revert this code patch; existing stored configuration remains compatible. Checks: provider and OpenAI configuration integration tests, lint, typecheck and production build. The separate baseline I7b failure remains recorded below.
+
 ## Reviewed knowledge workspace (2026-10-20, local)
 
 Default-off `ORBIT_KNOWLEDGE_WORKSPACE` adds Project knowledge, Sources and To review; guided resumable project setup and non-JSON imports; versioned proposals and review decisions; and private GitHub App sources with user-authorized installations, repository-scoped tokens and commit-pinned bounded reads. Only reviewed evidence is promoted through the shared knowledge engine. Changed evidence withdraws dependent knowledge; paid analysis retains model routing, spend reservations and uncertainty handling. No schema migration, production credential, live repository import, paid call or feature activation is included. Design/risk/rollback: `docs/plans/KNOWLEDGE_WORKSPACE.md`; setup and API: `docs/KNOWLEDGE_WORKSPACE.md`. Final local validation: 124 targeted tests in 11 files and two real-stack desktop/mobile Playwright cases passed; build, typecheck, lint/import boundaries, Compose, secret and framework checks passed. The broad suite recorded 2,864 passes, the independently reproduced baseline I7b failure and two transient upstream Support renderer imports; those Support tests pass in the fresh integrated run. No whole-suite-green claim. Full evidence: `docs/KNOWLEDGE_WORKSPACE.md`.

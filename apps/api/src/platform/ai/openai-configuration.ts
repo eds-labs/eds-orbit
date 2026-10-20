@@ -108,6 +108,8 @@ export const openAiConfigurationInput = z
 export const aiProviderConfigurationInput = z
   .object({
     anthropicApiKey: key.optional(),
+    /** Merge the reviewed Claude catalog atomically with the provider credentials. */
+    applyAnthropicCatalog: z.boolean().default(false),
     /** Forgets the saved Anthropic key (the environment fallback applies again). */
     clearAnthropicApiKey: z.boolean().default(false),
     defaultProvider: providerIdSchema.default("openai"),
@@ -132,7 +134,7 @@ type StoredConfiguration = Omit<
 > &
   Omit<
     z.infer<typeof aiProviderConfigurationInput>,
-    "anthropicApiKey" | "clearAnthropicApiKey"
+    "anthropicApiKey" | "clearAnthropicApiKey" | "applyAnthropicCatalog"
   > & {
     encryptedApiKey?: string;
     encryptedImageApiKey?: string;
@@ -487,7 +489,20 @@ export async function saveAiProviderConfiguration(
   const input = aiProviderConfigurationInput.parse(raw);
   const current = await configurationRow(tx, scope);
   const currentValue = current ? stored(current) : null;
-  const verifiedModels = currentValue?.verifiedModels ?? [];
+  const catalog = input.applyAnthropicCatalog ? anthropicSuggestions() : null;
+  const verifiedModels = catalog
+    ? [
+        ...new Set([
+          ...(currentValue?.verifiedModels ?? []),
+          ...Object.keys(catalog.models),
+        ]),
+      ]
+    : (currentValue?.verifiedModels ?? []);
+  const models = catalog
+    ? { ...catalog.models, ...input.models }
+    : input.models;
+  if (verifiedModels.length > 40 || Object.keys(models).length > 40)
+    throw new DomainError("MODEL_REGISTRY_LIMIT");
   if (
     input.anthropicTierRoutes &&
     Object.values(input.anthropicTierRoutes).some(
@@ -498,7 +513,7 @@ export async function saveAiProviderConfiguration(
   for (const route of Object.values(currentValue?.taskRoutes ?? {}))
     if (
       route.reasoningEffort === "none" &&
-      providerOfModel(route.model, input.models) === "anthropic"
+      providerOfModel(route.model, models) === "anthropic"
     )
       throw new DomainError("ROUTE_EFFORT_UNSUPPORTED");
   const encryptedAnthropicApiKey = input.anthropicApiKey
@@ -520,12 +535,19 @@ export async function saveAiProviderConfiguration(
     taskRoutes: {},
     imageGeneration: imageGenerationConfigurationSchema.parse({}),
   };
+  const rateCard = catalog
+    ? { ...catalog.rateCard, ...base.rateCard }
+    : base.rateCard;
+  if (Object.keys(rateCard).length > 40)
+    throw new DomainError("RATE_CARD_LIMIT");
   const next = {
     ...base,
+    verifiedModels,
+    rateCard,
     encryptedAnthropicApiKey,
     defaultProvider: input.defaultProvider,
     anthropicTierRoutes: input.anthropicTierRoutes,
-    models: input.models,
+    models,
     providerBudgets: input.providerBudgets,
     fallback: input.fallback,
     updatedBy: scope.userId,
