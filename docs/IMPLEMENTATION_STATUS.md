@@ -6,6 +6,29 @@ The Claude settings dialog saves credentials, its reviewed model catalog and pri
 
 Risk: high (provider credential configuration); local verification uses synthetic keys and the isolated worktree database. Rollback: revert this code patch; existing stored configuration remains compatible. Checks: provider and OpenAI configuration integration tests, lint, typecheck and production build. The separate baseline I7b failure remains recorded below.
 
+## Marketing Agent v2 — MA-00 / MA-01 (2026-10-20, local)
+
+New chat/native/MCP assignment proposals default to explicit `human_each`.
+Existing rows without the field and explicitly confirmed `delegated_review`
+assignments retain their review/veto semantics and legacy confirmation hashes.
+Exact human package approval is enforced for publishing and Postiz drafts,
+independently of agent-review flags or Telegram. Text/media, schedule, profile,
+assignment, connector/policy and owner-right changes are rechecked; a human-gated
+image failure cannot silently deliver a text-only post. Existing Owner Release,
+ActionRequests, policy, budgets, scheduler and worker services are reused.
+
+Synthetic service E2E covers chat through recurring worker execution and delivery;
+real-stack browser coverage checks desktop/mobile management and approval cards.
+244 focused tests, 2 characterization tests, desktop/mobile browser acceptance,
+source boundaries, typecheck and build pass. The final full suite records 2,897
+passes and only the known I7b pause/resume failure is independently reproduced on unchanged `e67cb71`;
+no all-green or live-provider acceptance is claimed. Exact results, imported-plan
+provenance, changed files, rollback and MA-02 prerequisites are recorded in
+`docs/plans/marketing-agent-v2-ma00-ma01.md`.
+
+No schema migration, real paid model/image request, genuine Postiz post,
+production flag change or deployment. MA-02 is prepared only.
+
 ## Reviewed knowledge workspace (2026-10-20, local)
 
 Default-off `ORBIT_KNOWLEDGE_WORKSPACE` adds Project knowledge, Sources and To review; guided resumable project setup and non-JSON imports; versioned proposals and review decisions; and private GitHub App sources with user-authorized installations, repository-scoped tokens and commit-pinned bounded reads. Only reviewed evidence is promoted through the shared knowledge engine. Changed evidence withdraws dependent knowledge; paid analysis retains model routing, spend reservations and uncertainty handling. No schema migration, production credential, live repository import, paid call or feature activation is included. Design/risk/rollback: `docs/plans/KNOWLEDGE_WORKSPACE.md`; setup and API: `docs/KNOWLEDGE_WORKSPACE.md`. Final local validation: 124 targeted tests in 11 files and two real-stack desktop/mobile Playwright cases passed; build, typecheck, lint/import boundaries, Compose, secret and framework checks passed. The broad suite recorded 2,864 passes, the independently reproduced baseline I7b failure and two transient upstream Support renderer imports; those Support tests pass in the fresh integrated run. No whole-suite-green claim. Full evidence: `docs/KNOWLEDGE_WORKSPACE.md`.

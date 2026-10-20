@@ -1,5 +1,23 @@
 # Requirements traceability
 
+## Marketing Agent v2 — MA-00 / MA-01 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| New proposals default to human review; legacy and explicit delegation preserve hashes/automation | Assignment SQL/tool/MCP tests; Marketing v2 legacy/delegation cases | PASS_TEST |
+| Review authority on and Telegram linked cannot release human-gated content | `marketing-agent-v2.integration.test.ts`, real specialist DAG, style-only copy case | PASS_TEST |
+| No Postiz draft write before exact human approval; single handoff after approval | Same SQL E2E with fake connector and concurrent/replayed owner release | PASS_TEST |
+| Body/image/asset version/schedule/policy/assignment changes and owner loss block stale release | Same SQL negative matrix | PASS_TEST |
+| Module disable, foreign-project content, editor release and over-budget proposals fail closed | Same SQL negatives plus existing access/RLS/budget suites | PASS_TEST |
+| A consumed approval only continues its own unchanged claimed publication | Same SQL claim/final-preflight case | PASS_TEST |
+| Media failure cannot strip a human-approved image; mutation during upload stops the post | Same fake-media/SQL race cases | PASS_TEST |
+| Human-gated article export cannot rely only on model review | Same direct Drive-helper guard regression; no Drive transport called | PASS_TEST |
+| Mode is visible in management and native owner confirmation after reload | Marketing component tests and synthetic desktop/mobile Playwright case | PASS_LOCAL_BROWSER |
+| Pause/resume requeues held research work (I7b) | Reproduced separately on unchanged `e67cb71` | FAIL_EXISTING |
+| MA-02 intake expansion and genuine model/Postiz acceptance | Prepared prerequisites only; no authorized live run | NOT_RUN |
+
+Implementation/evidence/rollback: `docs/plans/marketing-agent-v2-ma00-ma01.md`.
+
 ## Reviewed knowledge workspace (2026-10-20)
 
 | Requirement | Evidence | State |
