@@ -374,8 +374,8 @@ with the reserved subject `orbit-connection-check`: 404 with the token, 401
 without. Mario then set `CC_DESK_TOKEN` in Coolify and restarted n8n.
 Verified read-only: the variable exists; one clean n8n start (18:08 server
 time) with both runners; all containers healthy; the gateway still answers
-401 (`CC_GATEWAY_INTEGRATIONS=[]`). Open: the variable is not locked yet in
-Coolify. The token is not yet proven through n8n; the Orbit connection check
+401 (`CC_GATEWAY_INTEGRATIONS=[]`). Mario then locked the variable (verified
+read-only: locked like `N8N_ENCRYPTION_KEY`). The token is not yet proven through n8n; the Orbit connection check
 in step 5 does that (expected: Desk answers 404 for the reserved subject).
 Deviation from the Desk runbook: the token lives in the n8n environment, not
 in an n8n credential (section 3), and the Desk files were edited directly
