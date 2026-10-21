@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "1.0",
+  "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10",
+  "requestedAt": "2026-10-21T09:15:00Z",
+  "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01",
+  "acceptVersions": ["1.0"],
+  "subject": {
+    "type": "external_user_id",
+    "id": "usr_48213",
+    "verification": { "method": "widget_hmac", "verifiedAt": "2026-10-20T18:02:11Z" }
+  },
+  "purpose": "support",
+  "include": ["subscription", "entitlements", "usage"]
+}

@@ -1,0 +1,7 @@
+{
+  "type": "https://orbit.invalid/problems/customer-context/unauthenticated",
+  "title": "Unauthenticated",
+  "status": 401,
+  "code": "unauthenticated",
+  "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10"
+}

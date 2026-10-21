@@ -1,0 +1,25 @@
+{
+  "schemaVersion": "1.0",
+  "source": { "system": "familyplan", "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01" },
+  "customer": { "externalRef": { "type": "external_user_id", "id": "usr_48213" }, "accountStatus": "active" },
+  "subscription": {
+    "status": "active",
+    "plan": { "key": "basic", "name": "Basic" },
+    "startedAt": "2025-12-01T00:00:00Z",
+    "currentPeriodStart": "2026-10-01T00:00:00Z",
+    "currentPeriodEnd": "2026-11-01T00:00:00Z",
+    "trialEndsAt": null,
+    "cancellation": { "state": "none", "requestedAt": null, "effectiveAt": null }
+  },
+  "entitlements": [
+    { "key": "calendar.sync", "label": "Calendar sync", "state": "granted", "source": "plan", "reason": null, "expiresAt": null },
+    { "key": "shared.documents", "label": "Shared documents", "state": "denied", "source": "plan", "reason": "not_in_plan", "expiresAt": null }
+  ],
+  "usage": null,
+  "freshness": {
+    "generatedAt": "2026-10-21T09:15:00Z",
+    "dataAsOf": null,
+    "maxAgeSeconds": 60,
+    "availability": { "subscription": "available", "entitlements": "available", "usage": "not_applicable" }
+  }
+}

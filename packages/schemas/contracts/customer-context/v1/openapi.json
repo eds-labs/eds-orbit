@@ -1,0 +1,1378 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Orbit Customer Context Provider",
+    "version": "1.0.0",
+    "summary": "Read-only, product-neutral customer context for Orbit Support.",
+    "description": "Implemented by a product (or by n8n in front of it) and called by Orbit for `customer_context.read`.\n\nSee ADR 0011 and docs/CUSTOMER_CONTEXT.md. Orbit sends only verified identities.\n\nBodies are at most 65536 bytes; Orbit waits at most 8000 ms.\n\nSignature: `X-Orbit-Signature: v1=<hex HMAC-SHA256(signingSecret, X-Orbit-Timestamp + \".\" + rawBody)>`.\n\nReject timestamps more than 300 s off and compare in constant time."
+  },
+  "servers": [
+    {
+      "url": "{baseUrl}",
+      "description": "The integration's HTTPS base URL configured in Orbit.",
+      "variables": {
+        "baseUrl": {
+          "default": "https://provider.example.com/orbit"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "integrationToken": []
+    }
+  ],
+  "paths": {
+    "/v1/customer-context/lookup": {
+      "post": {
+        "operationId": "lookupCustomerContext",
+        "summary": "Read the context of one verified customer (customer_context.read).",
+        "parameters": [
+          {
+            "name": "X-Orbit-Timestamp",
+            "in": "header",
+            "required": true,
+            "description": "Unix time in seconds when Orbit signed the request.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]{10}$"
+            }
+          },
+          {
+            "name": "X-Orbit-Signature",
+            "in": "header",
+            "required": true,
+            "description": "HMAC-SHA256 over timestamp, a dot and the raw body.",
+            "schema": {
+              "type": "string",
+              "pattern": "^v1=[0-9a-f]{64}$"
+            }
+          },
+          {
+            "name": "X-Orbit-Request-Id",
+            "in": "header",
+            "required": true,
+            "description": "Equals `requestId` in the body.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CustomerContextRequest"
+              },
+              "examples": {
+                "request": {
+                  "value": {
+                    "schemaVersion": "1.0",
+                    "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10",
+                    "requestedAt": "2026-10-21T09:15:00Z",
+                    "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01",
+                    "acceptVersions": [
+                      "1.0"
+                    ],
+                    "subject": {
+                      "type": "external_user_id",
+                      "id": "usr_48213",
+                      "verification": {
+                        "method": "widget_hmac",
+                        "verifiedAt": "2026-10-20T18:02:11Z"
+                      }
+                    },
+                    "purpose": "support",
+                    "include": [
+                      "subscription",
+                      "entitlements",
+                      "usage"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The customer's context. Unknown values are null; a null amount is never 0.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContext"
+                },
+                "examples": {
+                  "found-active": {
+                    "value": {
+                      "schemaVersion": "1.0",
+                      "source": {
+                        "system": "example-saas",
+                        "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01"
+                      },
+                      "customer": {
+                        "externalRef": {
+                          "type": "external_user_id",
+                          "id": "usr_48213"
+                        },
+                        "accountStatus": "active"
+                      },
+                      "subscription": {
+                        "status": "active",
+                        "plan": {
+                          "key": "pro_monthly",
+                          "name": "Pro"
+                        },
+                        "startedAt": "2026-03-02T10:00:00Z",
+                        "currentPeriodStart": "2026-10-02T10:00:00Z",
+                        "currentPeriodEnd": "2026-11-02T10:00:00Z",
+                        "trialEndsAt": null,
+                        "cancellation": {
+                          "state": "none",
+                          "requestedAt": null,
+                          "effectiveAt": null
+                        }
+                      },
+                      "entitlements": [
+                        {
+                          "key": "exports.pdf",
+                          "label": "PDF export",
+                          "state": "granted",
+                          "source": "plan",
+                          "reason": null,
+                          "expiresAt": null
+                        },
+                        {
+                          "key": "team.members",
+                          "label": "Team members",
+                          "state": "granted",
+                          "source": "addon",
+                          "reason": null,
+                          "expiresAt": "2026-11-02T10:00:00Z"
+                        }
+                      ],
+                      "usage": [
+                        {
+                          "key": "ai.credits",
+                          "label": "AI credits",
+                          "unit": "credits",
+                          "period": "billing_period",
+                          "limit": 500,
+                          "used": 120,
+                          "remaining": 380,
+                          "unlimited": false,
+                          "resetsAt": "2026-11-02T10:00:00Z"
+                        }
+                      ],
+                      "freshness": {
+                        "generatedAt": "2026-10-21T09:15:00.412Z",
+                        "dataAsOf": "2026-10-21T09:14:58Z",
+                        "maxAgeSeconds": 60,
+                        "availability": {
+                          "subscription": "available",
+                          "entitlements": "available",
+                          "usage": "available"
+                        }
+                      }
+                    }
+                  },
+                  "found-credits-exhausted": {
+                    "value": {
+                      "schemaVersion": "1.0",
+                      "source": {
+                        "system": "uliquid-desk",
+                        "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01"
+                      },
+                      "customer": {
+                        "externalRef": {
+                          "type": "external_user_id",
+                          "id": "usr_48213"
+                        },
+                        "accountStatus": "active"
+                      },
+                      "subscription": {
+                        "status": "active",
+                        "plan": {
+                          "key": "starter",
+                          "name": "Starter"
+                        },
+                        "startedAt": "2026-08-14T08:00:00Z",
+                        "currentPeriodStart": "2026-10-14T08:00:00Z",
+                        "currentPeriodEnd": "2026-11-14T08:00:00Z",
+                        "trialEndsAt": null,
+                        "cancellation": {
+                          "state": "none",
+                          "requestedAt": null,
+                          "effectiveAt": null
+                        }
+                      },
+                      "entitlements": [
+                        {
+                          "key": "assistant.analysis",
+                          "label": "Assistant analysis",
+                          "state": "denied",
+                          "source": "plan",
+                          "reason": "limit_reached",
+                          "expiresAt": null
+                        }
+                      ],
+                      "usage": [
+                        {
+                          "key": "assistant.credits",
+                          "label": "Assistant credits",
+                          "unit": "credits",
+                          "period": "month",
+                          "limit": 100,
+                          "used": 100,
+                          "remaining": 0,
+                          "unlimited": false,
+                          "resetsAt": "2026-11-01T00:00:00Z"
+                        }
+                      ],
+                      "freshness": {
+                        "generatedAt": "2026-10-21T09:15:00Z",
+                        "dataAsOf": "2026-10-21T09:15:00Z",
+                        "maxAgeSeconds": 30,
+                        "availability": {
+                          "subscription": "available",
+                          "entitlements": "available",
+                          "usage": "available"
+                        }
+                      }
+                    }
+                  },
+                  "found-feature-denied": {
+                    "value": {
+                      "schemaVersion": "1.0",
+                      "source": {
+                        "system": "familyplan",
+                        "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01"
+                      },
+                      "customer": {
+                        "externalRef": {
+                          "type": "external_user_id",
+                          "id": "usr_48213"
+                        },
+                        "accountStatus": "active"
+                      },
+                      "subscription": {
+                        "status": "active",
+                        "plan": {
+                          "key": "basic",
+                          "name": "Basic"
+                        },
+                        "startedAt": "2025-12-01T00:00:00Z",
+                        "currentPeriodStart": "2026-10-01T00:00:00Z",
+                        "currentPeriodEnd": "2026-11-01T00:00:00Z",
+                        "trialEndsAt": null,
+                        "cancellation": {
+                          "state": "none",
+                          "requestedAt": null,
+                          "effectiveAt": null
+                        }
+                      },
+                      "entitlements": [
+                        {
+                          "key": "calendar.sync",
+                          "label": "Calendar sync",
+                          "state": "granted",
+                          "source": "plan",
+                          "reason": null,
+                          "expiresAt": null
+                        },
+                        {
+                          "key": "shared.documents",
+                          "label": "Shared documents",
+                          "state": "denied",
+                          "source": "plan",
+                          "reason": "not_in_plan",
+                          "expiresAt": null
+                        }
+                      ],
+                      "usage": null,
+                      "freshness": {
+                        "generatedAt": "2026-10-21T09:15:00Z",
+                        "dataAsOf": null,
+                        "maxAgeSeconds": 60,
+                        "availability": {
+                          "subscription": "available",
+                          "entitlements": "available",
+                          "usage": "not_applicable"
+                        }
+                      }
+                    }
+                  },
+                  "found-unlimited-and-unknown": {
+                    "value": {
+                      "schemaVersion": "1.0",
+                      "source": {
+                        "system": "example-saas",
+                        "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01"
+                      },
+                      "customer": {
+                        "externalRef": {
+                          "type": "external_user_id",
+                          "id": "usr_48213"
+                        },
+                        "accountStatus": "unknown"
+                      },
+                      "subscription": null,
+                      "entitlements": [
+                        {
+                          "key": "exports.pdf",
+                          "label": "PDF export",
+                          "state": "unknown",
+                          "source": "unknown",
+                          "reason": "unknown",
+                          "expiresAt": null
+                        }
+                      ],
+                      "usage": [
+                        {
+                          "key": "storage",
+                          "label": "Storage",
+                          "unit": "bytes",
+                          "period": "lifetime",
+                          "limit": null,
+                          "used": 1048576,
+                          "remaining": null,
+                          "unlimited": true,
+                          "resetsAt": null
+                        },
+                        {
+                          "key": "ai.credits",
+                          "label": "AI credits",
+                          "unit": "credits",
+                          "period": "unknown",
+                          "limit": null,
+                          "used": null,
+                          "remaining": null,
+                          "unlimited": null,
+                          "resetsAt": null
+                        }
+                      ],
+                      "freshness": {
+                        "generatedAt": "2026-10-21T09:15:00Z",
+                        "dataAsOf": null,
+                        "maxAgeSeconds": 0,
+                        "availability": {
+                          "subscription": "unavailable",
+                          "entitlements": "available",
+                          "usage": "available"
+                        }
+                      }
+                    }
+                  },
+                  "found-canceled-at-period-end": {
+                    "value": {
+                      "schemaVersion": "1.0",
+                      "source": {
+                        "system": "example-saas",
+                        "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01"
+                      },
+                      "customer": {
+                        "externalRef": {
+                          "type": "external_user_id",
+                          "id": "usr_48213"
+                        },
+                        "accountStatus": "active"
+                      },
+                      "subscription": {
+                        "status": "active",
+                        "plan": {
+                          "key": "pro_yearly",
+                          "name": "Pro (yearly)"
+                        },
+                        "startedAt": "2025-11-20T12:00:00Z",
+                        "currentPeriodStart": "2025-11-20T12:00:00Z",
+                        "currentPeriodEnd": "2026-11-20T12:00:00Z",
+                        "trialEndsAt": null,
+                        "cancellation": {
+                          "state": "scheduled",
+                          "requestedAt": "2026-10-03T16:40:00Z",
+                          "effectiveAt": "2026-11-20T12:00:00Z"
+                        }
+                      },
+                      "entitlements": null,
+                      "usage": null,
+                      "freshness": {
+                        "generatedAt": "2026-10-21T09:15:00Z",
+                        "dataAsOf": "2026-10-21T09:10:00Z",
+                        "maxAgeSeconds": 300,
+                        "availability": {
+                          "subscription": "available",
+                          "entitlements": "not_requested",
+                          "usage": "not_requested"
+                        }
+                      }
+                    }
+                  },
+                  "found-no-subscription": {
+                    "value": {
+                      "schemaVersion": "1.0",
+                      "source": {
+                        "system": "example-saas",
+                        "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01"
+                      },
+                      "customer": {
+                        "externalRef": {
+                          "type": "external_user_id",
+                          "id": "usr_48213"
+                        },
+                        "accountStatus": "active"
+                      },
+                      "subscription": {
+                        "status": "none",
+                        "plan": null,
+                        "startedAt": null,
+                        "currentPeriodStart": null,
+                        "currentPeriodEnd": null,
+                        "trialEndsAt": null,
+                        "cancellation": {
+                          "state": "none",
+                          "requestedAt": null,
+                          "effectiveAt": null
+                        }
+                      },
+                      "entitlements": [],
+                      "usage": [],
+                      "freshness": {
+                        "generatedAt": "2026-10-21T09:15:00Z",
+                        "dataAsOf": "2026-10-21T09:15:00Z",
+                        "maxAgeSeconds": 60,
+                        "availability": {
+                          "subscription": "available",
+                          "entitlements": "available",
+                          "usage": "available"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request or unsupported schema version (`invalid_request`, `unsupported_version`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-unsupported-version": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/unsupported_version",
+                      "title": "Unsupported schema version",
+                      "status": 400,
+                      "code": "unsupported_version",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10",
+                      "detail": "Accepted versions: 2.0"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong bearer token or signature (`unauthenticated`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-unauthenticated": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/unauthenticated",
+                      "title": "Unauthenticated",
+                      "status": 401,
+                      "code": "unauthenticated",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The integration may not read this customer (`access_denied`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-access-denied": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/access_denied",
+                      "title": "Access denied",
+                      "status": 403,
+                      "code": "access_denied",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No customer with this external user id (`customer_not_found`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-not-found": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/customer_not_found",
+                      "title": "Customer not found",
+                      "status": 404,
+                      "code": "customer_not_found",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The product does not accept this identity as verified (`identity_not_verified`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-identity-not-verified": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/identity_not_verified",
+                      "title": "Identity not verified",
+                      "status": 422,
+                      "code": "identity_not_verified",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limit of the provider (`rate_limited`).",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-rate-limited": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/rate_limited",
+                      "title": "Too many requests",
+                      "status": 429,
+                      "code": "rate_limited",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10",
+                      "retryAfterSeconds": 30
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The product or its data is temporarily unavailable (`service_unavailable`).",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-service-unavailable": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/service_unavailable",
+                      "title": "Service unavailable",
+                      "status": 503,
+                      "code": "service_unavailable",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10",
+                      "retryAfterSeconds": 60
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The gateway's call to the product timed out (`upstream_timeout`).",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerContextProblem"
+                },
+                "examples": {
+                  "problem-upstream-timeout": {
+                    "value": {
+                      "type": "https://orbit.invalid/problems/customer-context/upstream_timeout",
+                      "title": "Upstream timeout",
+                      "status": 504,
+                      "code": "upstream_timeout",
+                      "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "integrationToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Per-integration token issued for Orbit. Required together with the signature."
+      }
+    },
+    "schemas": {
+      "CustomerContextRequest": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "description": "Unique per lookup; echoed in X-Orbit-Request-Id."
+          },
+          "requestedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "description": "RFC 3339 timestamp with offset."
+          },
+          "integrationId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "description": "Opaque id of the Orbit integration; selects the provider's routing."
+          },
+          "acceptVersions": {
+            "minItems": 1,
+            "maxItems": 5,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "1.0"
+              ]
+            }
+          },
+          "subject": {
+            "type": "object",
+            "properties": {
+              "type": {
+                "type": "string",
+                "const": "external_user_id"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[^\\u0000-\\u001f\\u007f]{1,200}$",
+                "description": "The product's own user id, exactly as it signs it for the Orbit widget."
+              },
+              "verification": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "const": "widget_hmac",
+                    "description": "The product's backend signed this user id for the Orbit widget."
+                  },
+                  "verifiedAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "When Orbit verified the link to this user id."
+                  }
+                },
+                "required": [
+                  "method",
+                  "verifiedAt"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "type",
+              "id",
+              "verification"
+            ],
+            "additionalProperties": false
+          },
+          "purpose": {
+            "type": "string",
+            "const": "support"
+          },
+          "include": {
+            "description": "Sections to return; all when absent.",
+            "minItems": 1,
+            "maxItems": 3,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "subscription",
+                "entitlements",
+                "usage"
+              ]
+            }
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "requestId",
+          "requestedAt",
+          "integrationId",
+          "acceptVersions",
+          "subject",
+          "purpose"
+        ],
+        "additionalProperties": false,
+        "title": "CustomerContextRequest",
+        "description": "Orbit's lookup of one verified customer. Carries no e-mail, name or Orbit tenant id."
+      },
+      "CustomerContext": {
+        "type": "object",
+        "properties": {
+          "schemaVersion": {
+            "type": "string",
+            "enum": [
+              "1.0"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "system": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9-]{1,62}$",
+                "description": "Lower-case system identifier, e.g. `example-saas`."
+              },
+              "integrationId": {
+                "type": "string",
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+              }
+            },
+            "required": [
+              "system",
+              "integrationId"
+            ],
+            "additionalProperties": false
+          },
+          "customer": {
+            "type": "object",
+            "properties": {
+              "externalRef": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "const": "external_user_id"
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]{1,200}$",
+                    "description": "The product's own user id, exactly as it signs it for the Orbit widget."
+                  }
+                },
+                "required": [
+                  "type",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "accountStatus": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "suspended",
+                  "closed",
+                  "unknown"
+                ]
+              }
+            },
+            "required": [
+              "externalRef",
+              "accountStatus"
+            ],
+            "additionalProperties": false
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "trialing",
+                      "active",
+                      "past_due",
+                      "paused",
+                      "canceled",
+                      "expired",
+                      "none",
+                      "unknown"
+                    ]
+                  },
+                  "plan": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string",
+                            "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+                            "description": "Opaque, stable key chosen by the provider. Orbit never interprets it."
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 120,
+                            "description": "Human-readable display text."
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "startedAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                        "description": "RFC 3339 timestamp with offset."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "currentPeriodStart": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                        "description": "RFC 3339 timestamp with offset."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "currentPeriodEnd": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                        "description": "RFC 3339 timestamp with offset."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "End of the paid or trial validity."
+                  },
+                  "trialEndsAt": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                        "description": "RFC 3339 timestamp with offset."
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cancellation": {
+                    "type": "object",
+                    "properties": {
+                      "state": {
+                        "type": "string",
+                        "enum": [
+                          "none",
+                          "scheduled",
+                          "effective",
+                          "unknown"
+                        ],
+                        "description": "scheduled: ends at effectiveAt (e.g. at period end). effective: already ended."
+                      },
+                      "requestedAt": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                            "description": "RFC 3339 timestamp with offset."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "effectiveAt": {
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                            "description": "RFC 3339 timestamp with offset."
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      }
+                    },
+                    "required": [
+                      "state",
+                      "requestedAt",
+                      "effectiveAt"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "status",
+                  "plan",
+                  "startedAt",
+                  "currentPeriodStart",
+                  "currentPeriodEnd",
+                  "trialEndsAt",
+                  "cancellation"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null exactly when freshness.availability.subscription is not `available`."
+          },
+          "entitlements": {
+            "anyOf": [
+              {
+                "maxItems": 100,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+                      "description": "Opaque, stable key chosen by the provider. Orbit never interprets it."
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120,
+                      "description": "Human-readable display text."
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "granted",
+                        "denied",
+                        "unknown"
+                      ],
+                      "description": "The effective state for this customer now."
+                    },
+                    "source": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "plan",
+                            "addon",
+                            "trial",
+                            "override",
+                            "promotion",
+                            "unknown"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "reason": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "not_in_plan",
+                            "plan_inactive",
+                            "limit_reached",
+                            "disabled_by_admin",
+                            "region_restricted",
+                            "other",
+                            "unknown"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Why a feature is denied; null when granted."
+                    },
+                    "expiresAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                          "description": "RFC 3339 timestamp with offset."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "state",
+                    "source",
+                    "reason",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null exactly when freshness.availability.entitlements is not `available`."
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9_.:-]{0,127}$",
+                      "description": "Opaque, stable key chosen by the provider. Orbit never interprets it."
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 120,
+                      "description": "Human-readable display text."
+                    },
+                    "unit": {
+                      "type": "string",
+                      "pattern": "^[a-z][a-z0-9_]{0,31}$",
+                      "description": "e.g. credits, requests, seats."
+                    },
+                    "period": {
+                      "type": "string",
+                      "enum": [
+                        "day",
+                        "week",
+                        "month",
+                        "year",
+                        "billing_period",
+                        "lifetime",
+                        "unknown"
+                      ]
+                    },
+                    "limit": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Non-negative quantity, or null when unknown. null never means 0."
+                    },
+                    "used": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Non-negative quantity, or null when unknown. null never means 0."
+                    },
+                    "remaining": {
+                      "anyOf": [
+                        {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Non-negative quantity, or null when unknown. null never means 0."
+                    },
+                    "unlimited": {
+                      "description": "true: no limit applies. null: unknown.",
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "resetsAt": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                          "description": "RFC 3339 timestamp with offset."
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Next reset, or null when unknown or never."
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "unit",
+                    "period",
+                    "limit",
+                    "used",
+                    "remaining",
+                    "unlimited",
+                    "resetsAt"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null exactly when freshness.availability.usage is not `available`."
+          },
+          "freshness": {
+            "type": "object",
+            "properties": {
+              "generatedAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "description": "RFC 3339 timestamp with offset."
+              },
+              "dataAsOf": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "description": "RFC 3339 timestamp with offset."
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Age of the underlying product data, when known."
+              },
+              "maxAgeSeconds": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3600,
+                "description": "How long Orbit may show this snapshot."
+              },
+              "availability": {
+                "type": "object",
+                "properties": {
+                  "subscription": {
+                    "type": "string",
+                    "enum": [
+                      "available",
+                      "unavailable",
+                      "not_applicable",
+                      "not_requested"
+                    ],
+                    "description": "available: the section holds data. unavailable: the provider could not read it now. not_applicable: the product has no such concept. not_requested: excluded by `include`."
+                  },
+                  "entitlements": {
+                    "type": "string",
+                    "enum": [
+                      "available",
+                      "unavailable",
+                      "not_applicable",
+                      "not_requested"
+                    ],
+                    "description": "available: the section holds data. unavailable: the provider could not read it now. not_applicable: the product has no such concept. not_requested: excluded by `include`."
+                  },
+                  "usage": {
+                    "type": "string",
+                    "enum": [
+                      "available",
+                      "unavailable",
+                      "not_applicable",
+                      "not_requested"
+                    ],
+                    "description": "available: the section holds data. unavailable: the provider could not read it now. not_applicable: the product has no such concept. not_requested: excluded by `include`."
+                  }
+                },
+                "required": [
+                  "subscription",
+                  "entitlements",
+                  "usage"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "generatedAt",
+              "dataAsOf",
+              "maxAgeSeconds",
+              "availability"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "schemaVersion",
+          "source",
+          "customer",
+          "subscription",
+          "entitlements",
+          "usage",
+          "freshness"
+        ],
+        "additionalProperties": false,
+        "title": "CustomerContext",
+        "description": "Product-neutral snapshot of one verified customer. Unknown values are null; a null amount is never 0."
+      },
+      "CustomerContextProblem": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300,
+            "description": "RFC 9457 problem type URI."
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "unsupported_version",
+              "unauthenticated",
+              "access_denied",
+              "customer_not_found",
+              "identity_not_verified",
+              "rate_limited",
+              "service_unavailable",
+              "upstream_timeout"
+            ]
+          },
+          "detail": {
+            "description": "Short diagnostic text. Never customer data.",
+            "type": "string",
+            "maxLength": 500
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ],
+        "additionalProperties": false,
+        "title": "CustomerContextProblem",
+        "description": "RFC 9457 problem details (application/problem+json)."
+      }
+    }
+  },
+  "x-orbit-problem-codes": {
+    "invalid_request": 400,
+    "unsupported_version": 400,
+    "unauthenticated": 401,
+    "access_denied": 403,
+    "customer_not_found": 404,
+    "identity_not_verified": 422,
+    "rate_limited": 429,
+    "service_unavailable": 503,
+    "upstream_timeout": 504
+  }
+}

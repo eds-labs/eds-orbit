@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0",
+  "source": { "system": "uliquid-desk", "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01" },
+  "customer": { "externalRef": { "type": "external_user_id", "id": "usr_48213" }, "accountStatus": "active" },
+  "subscription": {
+    "status": "active",
+    "plan": { "key": "starter", "name": "Starter" },
+    "startedAt": "2026-08-14T08:00:00Z",
+    "currentPeriodStart": "2026-10-14T08:00:00Z",
+    "currentPeriodEnd": "2026-11-14T08:00:00Z",
+    "trialEndsAt": null,
+    "cancellation": { "state": "none", "requestedAt": null, "effectiveAt": null }
+  },
+  "entitlements": [
+    { "key": "assistant.analysis", "label": "Assistant analysis", "state": "denied", "source": "plan", "reason": "limit_reached", "expiresAt": null }
+  ],
+  "usage": [
+    { "key": "assistant.credits", "label": "Assistant credits", "unit": "credits", "period": "month", "limit": 100, "used": 100, "remaining": 0, "unlimited": false, "resetsAt": "2026-11-01T00:00:00Z" }
+  ],
+  "freshness": {
+    "generatedAt": "2026-10-21T09:15:00Z",
+    "dataAsOf": "2026-10-21T09:15:00Z",
+    "maxAgeSeconds": 30,
+    "availability": { "subscription": "available", "entitlements": "available", "usage": "available" }
+  }
+}

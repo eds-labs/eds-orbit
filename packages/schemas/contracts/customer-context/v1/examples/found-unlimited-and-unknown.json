@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1.0",
+  "source": { "system": "example-saas", "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01" },
+  "customer": { "externalRef": { "type": "external_user_id", "id": "usr_48213" }, "accountStatus": "unknown" },
+  "subscription": null,
+  "entitlements": [
+    { "key": "exports.pdf", "label": "PDF export", "state": "unknown", "source": "unknown", "reason": "unknown", "expiresAt": null }
+  ],
+  "usage": [
+    { "key": "storage", "label": "Storage", "unit": "bytes", "period": "lifetime", "limit": null, "used": 1048576, "remaining": null, "unlimited": true, "resetsAt": null },
+    { "key": "ai.credits", "label": "AI credits", "unit": "credits", "period": "unknown", "limit": null, "used": null, "remaining": null, "unlimited": null, "resetsAt": null }
+  ],
+  "freshness": {
+    "generatedAt": "2026-10-21T09:15:00Z",
+    "dataAsOf": null,
+    "maxAgeSeconds": 0,
+    "availability": { "subscription": "unavailable", "entitlements": "available", "usage": "available" }
+  }
+}

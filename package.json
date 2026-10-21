@@ -31,6 +31,7 @@
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
     "framework:check": "PYTHONDONTWRITEBYTECODE=1 python3 scripts/check_framework.py --require-full-validation",
     "api:generate": "tsx scripts/openapi.ts && openapi-typescript packages/schemas/openapi.json -o packages/api-client/src/generated.ts",
+    "contract:customer-context": "tsx scripts/customer-context-contract.ts",
     "local:setup": "tsx scripts/local-setup.ts",
     "db:deploy": "tsx scripts/db-deploy.ts",
     "secrets:check": "python3 scripts/check-secrets.py",
