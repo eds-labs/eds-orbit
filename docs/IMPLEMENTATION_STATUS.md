@@ -1,5 +1,11 @@
 # Implementation status
 
+## Universal customer context contract v1 (2026-10-21, contract only)
+
+ADR 0011 answers Q-09: one product-neutral, read-only capability `customer_context.read` that external products provide (n8n as optional gateway, products emit v1 natively). Published as zod source (`packages/schemas/src/customer-context.ts`), generated JSON Schemas and provider OpenAPI 3.1 (`packages/schemas/contracts/customer-context/v1/`, `pnpm contract:customer-context`), reviewed examples and invalid fixtures, the integration guide `docs/CUSTOMER_CONTEXT.md` and the work plan `docs/plans/CUSTOMER_CONTEXT_INTEGRATION.md`. No runtime route, table, migration, flag, n8n workflow or product change; no new dependency.
+
+Risk: medium (security-relevant contract without runtime effect). Rollback: revert the commit. Validation: contract tests (drift, examples, invalid fixtures, problem mapping, echo checks, forbidden-field canary) passed; lint, typecheck and secrets checks are reported in the delivery summary.
+
 ## Claude-only configuration bootstrap fix (2026-10-20)
 
 The Claude settings dialog saves credentials, its reviewed model catalog and prices in one owner-only `ai-provider-configure` transaction. It no longer calls `openai-configure` first, which rejected new Claude-only projects with `OPENAI_API_KEY_REQUIRED`. The optional `applyAnthropicCatalog` input defaults to false; existing prices, registered model overrides and task routes remain intact. Failed validation persists neither credentials nor partial catalog changes. No schema migration, provider call, budget mandate or production key modification is required.

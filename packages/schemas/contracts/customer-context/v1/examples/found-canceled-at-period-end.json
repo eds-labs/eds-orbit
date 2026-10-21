@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0",
+  "source": { "system": "example-saas", "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01" },
+  "customer": { "externalRef": { "type": "external_user_id", "id": "usr_48213" }, "accountStatus": "active" },
+  "subscription": {
+    "status": "active",
+    "plan": { "key": "pro_yearly", "name": "Pro (yearly)" },
+    "startedAt": "2025-11-20T12:00:00Z",
+    "currentPeriodStart": "2025-11-20T12:00:00Z",
+    "currentPeriodEnd": "2026-11-20T12:00:00Z",
+    "trialEndsAt": null,
+    "cancellation": { "state": "scheduled", "requestedAt": "2026-10-03T16:40:00Z", "effectiveAt": "2026-11-20T12:00:00Z" }
+  },
+  "entitlements": null,
+  "usage": null,
+  "freshness": {
+    "generatedAt": "2026-10-21T09:15:00Z",
+    "dataAsOf": "2026-10-21T09:10:00Z",
+    "maxAgeSeconds": 300,
+    "availability": { "subscription": "available", "entitlements": "not_requested", "usage": "not_requested" }
+  }
+}

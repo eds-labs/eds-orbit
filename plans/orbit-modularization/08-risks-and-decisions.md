@@ -94,7 +94,7 @@ These are prioritized. Blocking questions must be answered before the named WP s
 | Q-06 | Ownership of the brand assets? | — | **Decided 2026-10-13:** they stay marketing-owned with their current storage. Platform files (WP4.6) serve Support. Migration is optional later. |
 | Q-07 | ~~Should Chatwoot stay the agent inbox?~~ **Resolved by Mario, 2026-10-13: no.** Support is an own system (AD-15). | — | — |
 | Q-08 | Should bulk-imported facts keep being auto-verified (`knowledge-import.ts:84`)? | WP3.2 (not blocking) | Separate decision. Candidate status would be safer. |
-| Q-09 | How is Desk and FamilyPlan product data provided to Support? | Support program | A read-only support API per product, with an allowlist of fields. |
+| Q-09 | ~~How is Desk and FamilyPlan product data provided to Support?~~ **Answered by Mario, 2026-10-21:** one product-neutral contract `customer_context.read` (ADR 0011); products implement v1 natively, n8n authenticates and routes. | Support program | — |
 | Q-10 | Module-specific roles? | — | **Decided 2026-10-13:** yes, `ProjectMemberModuleRole` including `none`, in WP4.5. |
 | Q-11 | Should cross-module assistant plans be confirmed per ActionRequest or as one bundle? | WP4.1 | Per request first. A bundle is a UX convenience over the same records. |
 | Q-12 | Which legal basis, retention and OpenAI data-processing terms apply to customer messages? | Support program | Decide before any Support code. Revisit decision D2 in `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md` (line 31). |

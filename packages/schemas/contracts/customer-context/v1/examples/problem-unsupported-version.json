@@ -1,0 +1,8 @@
+{
+  "type": "https://orbit.invalid/problems/customer-context/unsupported_version",
+  "title": "Unsupported schema version",
+  "status": 400,
+  "code": "unsupported_version",
+  "requestId": "0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10",
+  "detail": "Accepted versions: 2.0"
+}

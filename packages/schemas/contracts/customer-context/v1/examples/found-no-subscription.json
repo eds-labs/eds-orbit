@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "1.0",
+  "source": { "system": "example-saas", "integrationId": "7d1f6a0e-3c4b-4f8a-9b2e-5a6c7d8e9f01" },
+  "customer": { "externalRef": { "type": "external_user_id", "id": "usr_48213" }, "accountStatus": "active" },
+  "subscription": {
+    "status": "none",
+    "plan": null,
+    "startedAt": null,
+    "currentPeriodStart": null,
+    "currentPeriodEnd": null,
+    "trialEndsAt": null,
+    "cancellation": { "state": "none", "requestedAt": null, "effectiveAt": null }
+  },
+  "entitlements": [],
+  "usage": [],
+  "freshness": {
+    "generatedAt": "2026-10-21T09:15:00Z",
+    "dataAsOf": "2026-10-21T09:15:00Z",
+    "maxAgeSeconds": 60,
+    "availability": { "subscription": "available", "entitlements": "available", "usage": "available" }
+  }
+}

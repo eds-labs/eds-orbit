@@ -100,7 +100,7 @@ What is missing is channel and ingress infrastructure: e-mail, a public widget A
 | E2 | **SLA policies** with business hours, holidays and escalation chains | Scheduler |
 | E3 | **Macros and canned responses** with variables, plus AI "rewrite in tone" | Composer |
 | E4 | **CSAT survey** after resolution and quality review (sample-based scoring, AI-assisted QA rubric) | Stats |
-| E5 | **Product data providers** (read-only facades for Desk and FamilyPlan, `06` §6): account status and plan in the contact panel, plus AI tools | Connections, Q-09 |
+| E5 | **Product data providers** (read-only facades for Desk and FamilyPlan, `06` §6): account status and plan in the contact panel, plus AI tools. **Superseded 2026-10-21 by the product-neutral customer context contract ([ADR 0011](../../docs/adr/0011-universal-customer-context.md)).** | Connections, Q-09 (answered) |
 | E6 | **API tokens, outbound webhooks** (`ticket.created`, `ticket.resolved`, …), **external REST API** | Platform API tokens (WP6.x) |
 | E7 | **Support in MCP**: ticket, contact and stats tools and resources through the central Orbit MCP gateway (`09`, Track M). Mostly automatic through the registry (`exposure.mcp`). Customer PII only after Q-12 and only for grants that include the support module. | Track M |
 | E8 | **Knowledge gap loop**: unanswered or handed-off questions become proposed knowledge articles or facts in the Knowledge module, with owner approval | Knowledge module, ActionRequests |
@@ -299,6 +299,8 @@ Further rules:
 
 ## 6. Product data access (extension E5)
 
+> **Superseded 2026-10-21.** Q-09 is answered by [ADR 0011](../../docs/adr/0011-universal-customer-context.md): one product-neutral, versioned `customer_context.read` contract that every product implements (n8n as an optional gateway), instead of the product-specific provider sketched below. The constraints below still hold and are part of the ADR. Kept for history.
+
 The product data provider is a read-only facade:
 
 ```ts
@@ -337,7 +339,7 @@ The MVP needs none of this: the verified widget identity already links tickets t
 
 | ID | Question |
 |---|---|
-| Q-09 | How is Desk and FamilyPlan product data provided? Only needed for E5. |
+| Q-09 | ~~How is Desk and FamilyPlan product data provided? Only needed for E5.~~ **Answered 2026-10-21:** ADR 0011, universal customer context. |
 | Q-12 | What legal basis, retention and OpenAI data-processing terms apply to customer PII? This revisits decision D2 in `docs/OPENAI_AGENT_PLATFORM_ALIGNMENT_PLAN.md` (line 31), which assumed a single-user Orbit. **Blocks the MVP AI features.** |
 | Q-13 | Should support live in the app's project with module roles (recommended), or in a separate support project? |
 | Q-16 | Which e-mail provider (new external provider, approval needed), and which sending domain? |

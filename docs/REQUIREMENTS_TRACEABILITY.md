@@ -1,5 +1,18 @@
 # Requirements traceability
 
+## Universal customer context contract v1 (2026-10-21)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Versioned provider OpenAPI for `customer_context.read` | `contracts/customer-context/v1/openapi.json`, drift and `$ref` tests | PASS_TEST |
+| Shared schema: version, source, external reference, subscription, entitlements, usage, freshness | `customer-context.schema.json`, example tests | PASS_TEST |
+| Null/unknown allowed; missing credits never read as 0 | Required nullable amounts, `missing-remaining` fixture, unknown-credits test | PASS_TEST |
+| No payment, trading, household or contact fields | Strict objects, invalid fixtures, forbidden-field canary | PASS_TEST |
+| Error states not found, not verified, no permission, unavailable | Problem code map and `interpretCustomerContextResponse` tests | PASS_TEST |
+| Tenant ↔ integration ↔ verified identity mapping and echo check | ADR 0011 §6, echo-mismatch tests | PASS_TEST |
+| Synchronous lookup with safe timeouts through n8n | ADR 0011 §8, guide limits; runtime in CC-1 | NOT_RUN |
+| Product providers (FamilyPlan, uLiquid Desk) | Work packages CC-4/CC-5 | NOT_RUN |
+
 ## Reviewed knowledge workspace (2026-10-20)
 
 | Requirement | Evidence | State |
