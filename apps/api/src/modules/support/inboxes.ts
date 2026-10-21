@@ -20,6 +20,7 @@ import {
   verifiedEmailConnection,
 } from "../../platform/email/connection.ts";
 import { connectionVerified } from "../../platform/connections/connections.ts";
+import { customerContextConnections } from "../../platform/customer-context/connection.ts";
 import type { MailboxUse } from "../../platform/modules/contributions.ts";
 import { inboxRulesSchema } from "./settings.ts";
 
@@ -167,6 +168,28 @@ async function mailboxFields(
 }
 
 /**
+ * A customer context binding must name an integration of this project
+ * (ADR 0011). Whether it is verified is checked on every read, so an
+ * unchanged binding stays saveable while its check is pending.
+ */
+async function assertCustomerContextBinding(
+  tx: DbTx,
+  scope: Scope,
+  rules: { customerContext?: { connectionId: string } | null } | undefined,
+  current?: unknown,
+) {
+  const id = rules?.customerContext?.connectionId;
+  if (!id) return;
+  const before = inboxRulesSchema.safeParse(current ?? {});
+  if (before.success && before.data.customerContext?.connectionId === id)
+    return;
+  const known = (await customerContextConnections(tx, scope)).some(
+    (row) => row.id === id,
+  );
+  if (!known) throw new DomainError("INBOX_CUSTOMER_CONTEXT_INVALID", 400);
+}
+
+/**
  * The project's mailboxes as the inbox form offers them: address, sender
  * name, whether verified and the default, and the live inbox bound to it.
  * Never a credential or server setting.
@@ -237,6 +260,7 @@ export async function createInbox(tx: DbTx, scope: Scope, raw: unknown) {
     allowedOrigins: input.allowedOrigins ?? [],
   };
   assertChannels(base);
+  await assertCustomerContextBinding(tx, scope, input.rules);
   const row = { ...base, ...(await mailboxFields(tx, scope, base)) };
   const widgetSecret = row.channels.includes("widget")
     ? newSecret()
@@ -277,6 +301,7 @@ export async function updateInbox(
     throw new DomainError("INBOX_VERSION_CONFLICT", 409);
   const next = { ...current, ...changes };
   assertChannels(next);
+  await assertCustomerContextBinding(tx, scope, changes.rules, current.rules);
   const mailbox = await mailboxFields(
     tx,
     scope,

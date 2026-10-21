@@ -14,6 +14,10 @@ import { ingressCleanup, ingressRetention } from "../http/ingress-retention.ts";
 import { fileCleanup } from "../files/files.ts";
 import { emailConnectionProvider } from "../email/connection.ts";
 import {
+  CUSTOMER_CONTEXT_PROVIDER,
+  customerContextConnectionProvider,
+} from "../customer-context/connection.ts";
+import {
   EMAIL_QUEUE,
   sendQueuedEmail,
   skipEmailForPause,
@@ -41,8 +45,14 @@ export const platformContributions: ModuleContributions = {
   // Files whose removal failed are retried hourly (WP4.6).
   // Inbound e-mail every two minutes per project with a mailbox (WP4.7).
   periodic: [ingressCleanup, fileCleanup, emailInbound],
-  // The project's mailbox over SMTP and IMAP (WP4.7).
-  connections: { providers: { email: emailConnectionProvider } },
+  // The project's mailbox over SMTP and IMAP (WP4.7), and customer context
+  // provider endpoints (ADR 0011).
+  connections: {
+    providers: {
+      email: emailConnectionProvider,
+      [CUSTOMER_CONTEXT_PROVIDER]: customerContextConnectionProvider,
+    },
+  },
   jobs: [
     {
       queueClass: "chat",

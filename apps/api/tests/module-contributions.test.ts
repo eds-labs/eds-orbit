@@ -374,15 +374,19 @@ describe("module contributions", () => {
   });
 
   it("offers marketing's connection providers in their former order (WP2.5c)", () => {
-    // The platform's mailbox (WP4.7) comes first.
+    // The platform's mailbox (WP4.7) and customer context (ADR 0011) come first.
     expect(registeredConnectionProviderIds()).toEqual([
       "email",
+      "customer_context",
       "postiz",
       "matomo",
       "slack",
     ]);
     expect(registeredConnectionProvider("email")?.owner).toBe("platform");
-    for (const id of registeredConnectionProviderIds().slice(1))
+    expect(registeredConnectionProvider("customer_context")?.owner).toBe(
+      "platform",
+    );
+    for (const id of registeredConnectionProviderIds().slice(2))
       expect(registeredConnectionProvider(id)?.owner).toBe("marketing");
     expect(registeredConnectionProvider("slack")?.check).toBeUndefined();
     expect(registeredConnectionProvider("github")).toBeUndefined();

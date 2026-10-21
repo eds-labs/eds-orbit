@@ -136,6 +136,9 @@ export const inboxRulesSchema = z
     sla: z.boolean(),
     // No project fallback: only an explicit inbox opt-in authorizes direct MCP replies.
     mcpOwnerRepliesWithoutApproval: z.boolean(),
+    // The customer context integration this inbox reads from (ADR 0011);
+    // owner-bound, no project fallback. Null or absent: none.
+    customerContext: z.object({ connectionId: z.uuid() }).strict().nullable(),
   })
   .partial()
   .strict();

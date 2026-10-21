@@ -1,8 +1,18 @@
 import { z } from "zod";
 import { scoped } from "../../../../../packages/db/src/index.ts";
 import { defineTool } from "../agents/tools/registry.ts";
+import { userScoped } from "../../platform/tenancy/scope.ts";
+import { authorize } from "../../platform/tenancy/permissions.ts";
+import { DomainError } from "../../shared.ts";
+import {
+  customerContextView,
+  readTicketCustomerContext,
+} from "./customer-context.ts";
 import { supportActive } from "./gate.ts";
-import { SUPPORT_STATS_READ } from "./permissions.ts";
+import {
+  SUPPORT_CUSTOMER_CONTEXT_READ,
+  SUPPORT_STATS_READ,
+} from "./permissions.ts";
 import { ticketSummary } from "./workspace.ts";
 
 // Support tools for the Orbit Assistant (WP5.6) and, since Track M WP-M3, MCP
@@ -140,4 +150,46 @@ export const supportInsights = defineTool({
   },
 });
 
-export const supportTools = [supportInsights];
+/**
+ * The live account of a ticket's verified customer (ADR 0011), for the
+ * Orbit Assistant and MCP clients with the support scope. The same read as
+ * the ticket view: verified widget identities only, no product user id in
+ * the output. Not a transaction-bound operation: the provider call must not
+ * hold the project lock.
+ */
+export const supportCustomerContext = defineTool({
+  name: "support_customer_context",
+  namespace: "support",
+  description:
+    "Live subscription, feature and usage-limit status of a support ticket's verified customer, read from the customer's product. Use it for questions about the plan, a feature being enabled or not, and credits or limits and their reset date. A null value means unknown, never zero. If the status is not ok, say the account cannot be checked right now and never guess a cause.",
+  parameters: z.object({ ticketId: z.string() }).strict(),
+  exposure: { assistant: true, mcp: true },
+  outputSchema: z
+    .object({ schemaVersion: z.literal(1), result: z.unknown() })
+    .strict(),
+  risk: "R0_read",
+  permission: SUPPORT_CUSTOMER_CONTEXT_READ,
+  deferLoading: true,
+  feature: "mcp_tasks",
+  openWorld: true,
+  mcpScopes: ["orbit:support"],
+  async execute(context, raw) {
+    const { ticketId } = z.object({ ticketId: z.uuid() }).parse(raw);
+    await userScoped(context.scope, async (tx) => {
+      if (!(await supportActive(tx, context.scope)))
+        throw new DomainError("MODULE_DISABLED", 404);
+      authorize(context.scope, SUPPORT_CUSTOMER_CONTEXT_READ);
+    });
+    const read = await readTicketCustomerContext(
+      context.scope,
+      ticketId,
+      "tool",
+    );
+    return {
+      output: { schemaVersion: 1, result: customerContextView(read) },
+      cards: [],
+    };
+  },
+});
+
+export const supportTools = [supportInsights, supportCustomerContext];

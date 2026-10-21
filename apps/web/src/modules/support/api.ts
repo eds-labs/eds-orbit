@@ -54,6 +54,8 @@ export type TicketDetail = {
     name: string;
     channels: string[];
     aiMode?: string;
+    /** The inbox reads live customer context (ADR 0011). */
+    customerContext?: boolean;
   } | null;
   timeline: Array<Record<string, any>>;
   aiCostMicros?: number;
@@ -77,6 +79,8 @@ export type Inbox = {
     reopenOnReply?: boolean;
     sla?: boolean;
     mcpOwnerRepliesWithoutApproval?: boolean;
+    /** The customer context integration this inbox reads (ADR 0011). */
+    customerContext?: { connectionId: string } | null;
   };
   version: number;
   archivedAt: string | null;
@@ -93,6 +97,60 @@ export type Mailbox = {
   inboxId: string | null;
 };
 export type Agent = { userId: string; name: string };
+/** A ticket's live customer account as the API shows it (ADR 0011). */
+export type CustomerAccount = {
+  sourceSystem: string | null;
+  checkedAt: string;
+  result:
+    | { status: "ok"; context: CustomerAccountContext }
+    | { status: "not_found" }
+    | { status: "identity_unverified"; reason: string }
+    | { status: "forbidden"; reason: string }
+    | {
+        status: "unavailable";
+        reason: string;
+        retryAfterSeconds: number | null;
+      };
+};
+type Availability =
+  "available" | "unavailable" | "not_applicable" | "not_requested";
+export type CustomerAccountContext = {
+  source: { system: string };
+  customer: { accountStatus: string };
+  subscription: {
+    status: string;
+    plan: { key: string; name: string } | null;
+    currentPeriodEnd: string | null;
+    trialEndsAt: string | null;
+    cancellation: { state: string; effectiveAt: string | null };
+  } | null;
+  entitlements: Array<{
+    key: string;
+    label: string;
+    state: "granted" | "denied" | "unknown";
+    reason: string | null;
+    expiresAt: string | null;
+  }> | null;
+  usage: Array<{
+    key: string;
+    label: string;
+    unit: string;
+    period: string;
+    limit: number | null;
+    used: number | null;
+    remaining: number | null;
+    unlimited: boolean | null;
+    resetsAt: string | null;
+  }> | null;
+  freshness: {
+    generatedAt: string;
+    dataAsOf: string | null;
+    availability: Record<
+      "subscription" | "entitlements" | "usage",
+      Availability
+    >;
+  };
+};
 export type Summary = {
   open: number;
   unassigned: number;

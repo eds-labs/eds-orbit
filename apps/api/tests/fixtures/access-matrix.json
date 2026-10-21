@@ -678,6 +678,13 @@
     "editor": "not_found:MODULE_DISABLED",
     "owner": "not_found:MODULE_DISABLED"
   },
+  "GET /api/projects/{projectId}/support/tickets/{ticketId}/customer-context": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /api/projects/{projectId}/telegram": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -957,6 +964,20 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
+  },
+  "POST /api/projects/{projectId}/actions/customer-context-connect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "not_found"
+  },
+  "POST /api/projects/{projectId}/actions/customer-context-disconnect": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/actions/editorial-propose-brief": {
     "anonymous": "unauthenticated",

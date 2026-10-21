@@ -22,6 +22,8 @@ import {
 } from "./api";
 import { supportText, type SupportText } from "./labels";
 import { TagEditor, finalizeTags, type TagDef } from "./tags";
+import { CustomerContextBinding } from "./customer-context";
+import { useShell } from "@/platform/shell/shell-context";
 
 type Settings = {
   categories: Array<{ key: string; label: string }>;
@@ -321,6 +323,7 @@ function InboxForm({
   onSaved: (widgetSecret?: string) => void;
 }) {
   const { project, isOwner } = useWorkspace();
+  const shell = useShell();
   const mailboxes = useResource<{ items: Mailbox[] }>(
     supportPath(project.id, "/mailboxes"),
   );
@@ -482,6 +485,21 @@ function InboxForm({
             />
           ))}
         </fieldset>
+        {shell.features?.customerContext && (
+          <CustomerContextBinding
+            value={form.rules.customerContext?.connectionId ?? ""}
+            disabled={!isOwner || save.pending}
+            onChange={(connectionId) =>
+              set({
+                rules: {
+                  ...form.rules,
+                  customerContext: connectionId ? { connectionId } : null,
+                },
+              })
+            }
+            t={t}
+          />
+        )}
         <McpReplySetting
           enabled={form.rules.mcpOwnerRepliesWithoutApproval}
           disabled={!isOwner || save.pending}

@@ -8,22 +8,33 @@ change: Orbit, the n8n gateway and each product (first FamilyPlan and uLiquid
 Desk). No DDL: integrations are `connectors` entities, the binding is an inbox
 rule. No new dependency, no paid provider.
 
+## Status (2026-10-21)
+
+| Work package | State |
+|---|---|
+| Contract v1 (ADR 0011) | Done; contract tests pass |
+| CC-1 Orbit platform | Implemented locally, flag off; unit and integration tests pass |
+| CC-2 Orbit Support | Implemented locally, flag off; integration, security and AI draft tests pass |
+| CC-3 n8n, CC-4 FamilyPlan, CC-5 uLiquid Desk | Not started (other applications) |
+| Production activation | Not authorized; requires a passed end-to-end integration test (Rollout step 2) |
+
 ## Plan
 
 ### CC-1 Orbit platform (no product knowledge)
 
 1. Flag `ORBIT_CUSTOMER_CONTEXT` (default `false`) in `packages/config`, Compose and `.env.example`.
-2. Connection provider `customer_context`: fields `baseUrl` (HTTPS via `endpoint()`), `sourceSystem` (slug), `timeoutMs` (1,000–8,000, default 4,000); credential JSON `{ token, signingSecret }` encrypted in the vault, never returned.
-3. Client `readCustomerContext(connection, subject)`: builds the v1 request, signs it, sends it through `boundedFetch` with an `AbortSignal` deadline, caps the body at 64 KB, interprets it with `interpretCustomerContextResponse`. Per-connection circuit breaker (5 consecutive failures → 60 s open) and concurrency cap (4). No retry.
-4. Content-free audit `customer_context.read` `{ connectionId, ticketId, outcome, reason, durationMs }`.
+2. Connection provider `customer_context`, created and rotated with the owner action `customer-context-connect` (removed with `customer-context-disconnect`): fields `label`, `baseUrl` (HTTPS via `endpoint()`), `sourceSystem` (slug), `timeoutMs` (1,000–8,000, default 4,000); credential JSON `{ token, signingSecret }` encrypted in the vault, never returned. Check: signed lookup of the reserved subject `orbit-connection-check`.
+3. Client `lookupCustomerContext(target, subject)` (`platform/customer-context/client.ts`): builds the v1 request, signs it, sends it through `boundedFetch` with an `AbortSignal` deadline, caps the body at 64 KB, interprets it with `interpretCustomerContextResponse`. Per-connection circuit breaker (5 consecutive failures → 60 s open) and concurrency cap (4). No retry.
+4. Content-free audit `support.customer_context.read` `{ ticketId, connectionId, origin, outcome, reason, durationMs, schemaVersion }` (written by Support for bound inboxes); `customer_context.connected|updated|disconnected` for integration changes.
 
 ### CC-2 Orbit Support
 
 1. Inbox rule `customerContext: { connectionId } | null`, owner-only, validated against a `customer_context` connection of the same project.
 2. Subject resolution: ticket channel `widget`, contact identity of the ticket's inbox; otherwise `identity_unverified` without a call.
-3. Route `GET /api/projects/:projectId/support/tickets/:ticketId/customer-context` (permission `support.customer_context.read`, sensitive, owner and editor) and a ticket-panel card loaded asynchronously.
+3. Route `GET /api/projects/:projectId/support/tickets/:ticketId/customer-context` (permission `support.customer_context.read`, sensitive, owner and editor; 30 per minute) and a ticket-panel card loaded on demand.
 4. Read tool for the Orbit Assistant and MCP (`support_customer_context`, R0, `openWorld`, scope `orbit:support`).
 5. Support AI drafts: a deterministic detector finds plan, feature and credit questions; only then the draft reads the context and adds it as citable evidence (`account:*`). A non-`ok` result becomes the instruction to say the status cannot be checked now and hands off. Drafts without such a question are unchanged.
+   A draft that ignores the `account:status` notice is withheld (`account_status_uncited`).
 6. Tests: success, credits exhausted, feature denied, unverified customer, other tenant, provider unreachable, timeouts, echo mismatch, disabled flag and module, permissions; OpenAPI regeneration.
 
 ### CC-3 n8n

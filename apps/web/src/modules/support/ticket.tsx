@@ -27,6 +27,8 @@ import {
 } from "./api";
 import { supportText, type SupportText } from "./labels";
 import { TagPicker, useSupportLists } from "./tags";
+import { CustomerAccountCard } from "./customer-context";
+import { useShell } from "@/platform/shell/shell-context";
 
 export const SLA_TONE = {
   ok: "success",
@@ -47,6 +49,7 @@ export function TicketView({
   onChanged: () => void;
 }) {
   const { project, locale, canEdit } = useWorkspace();
+  const shell = useShell();
   const t = supportText(locale);
   const detail = useResource<TicketDetail>(
     supportPath(project.id, `/tickets/${ticketId}`),
@@ -163,6 +166,11 @@ export function TicketView({
                 </>
               )}
             </dl>
+            {canEdit &&
+              shell.features?.customerContext &&
+              detail.data.inbox?.customerContext && (
+                <CustomerAccountCard ticketId={ticketId} t={t} />
+              )}
           </aside>
         )}
       </div>

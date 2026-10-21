@@ -87,6 +87,8 @@ export const platformActionPermissions = actionPermissions("platform", {
     "ai-provider-configure",
     "connector",
     "connector-health",
+    "customer-context-connect",
+    "customer-context-disconnect",
     "email-connect",
     "email-disconnect",
     "openai-configure",

@@ -58,3 +58,13 @@ Reusable mechanisms already in Orbit: project-scoped RLS (`scoped`), the connect
 - E-mail-only customers get no live context until a verified identity exists for them; that is intended.
 - Customer context reaching a model is account data without direct identifiers (Q-12a option B: no name, no e-mail, no external id); it is only fetched when the ticket asks about plan, features or limits.
 - A new product needs no Orbit code: it implements v1 and an owner configures an integration.
+
+## Addendum 2026-10-21: Orbit implementation (CC-1, CC-2)
+
+Implemented locally behind `ORBIT_CUSTOMER_CONTEXT` (default off), from the request "Implement Universal Customer Context in Orbit". Decisions taken while implementing:
+
+- **The Support AI keeps its single strict-output call** (no tool loop, no second agent architecture). A deterministic detector (`customerContextTopics`) recognizes plan, feature and credit questions; only then the draft reads the account and passes it as citable evidence `account:*`. A non-`ok` result becomes the single notice `account:status`, which the draft must cite; the ticket is then handed off (`customer_context_unavailable`).
+- **The same read serves three entry points:** the ticket card (on demand, owners and editors), the Support AI draft and the read tool `support_customer_context` (Assistant and MCP, `orbit:support`). The provider call never runs inside a project transaction.
+- **The integration is a platform connection** with its own owner action (`customer-context-connect`), because it needs a source system, a timeout and two secrets; the generic `connector` action refuses the provider. The connection check sends the reserved subject `orbit-connection-check`; only `read_verified` integrations are read.
+- **Verified means:** a widget ticket of the bound inbox whose contact has exactly one `SupportContactIdentity` of that inbox.
+- Configuration and behaviour: `docs/CUSTOMER_CONTEXT.md` ("Configuration in Orbit") and `docs/SUPPORT.md` ("Customer context").

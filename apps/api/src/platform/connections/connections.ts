@@ -52,6 +52,7 @@ export type ConnectionProvider = {
   check?: (
     connection: Record<string, any>,
     credential: string,
+    context?: { connectionId: string },
   ) => Promise<Record<string, unknown>>;
   /** Error code of a health check this provider cannot run. */
   checkUnsupported?: string;

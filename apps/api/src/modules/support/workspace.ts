@@ -4,6 +4,7 @@ import { Prisma, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { can } from "../../platform/tenancy/permissions.ts";
 import { SUPPORT_NOTES_READ } from "./permissions.ts";
+import { inboxRulesSchema } from "./settings.ts";
 import { audit, DomainError } from "../../shared.ts";
 import { supportAgents } from "./agents.ts";
 import { deliverMessage } from "./channels/deliver.ts";
@@ -361,7 +362,13 @@ export async function ticketDetail(
     }),
     tx.supportInbox.findFirst({
       where: { projectId: scope.projectId, id: ticket.inboxId },
-      select: { id: true, name: true, channels: true, aiMode: true },
+      select: {
+        id: true,
+        name: true,
+        channels: true,
+        aiMode: true,
+        rules: true,
+      },
     }),
     tx.supportMessage.findMany({
       where: {
@@ -419,7 +426,16 @@ export async function ticketDetail(
   return {
     ticket,
     contact,
-    inbox,
+    inbox: inbox && {
+      id: inbox.id,
+      name: inbox.name,
+      channels: inbox.channels,
+      aiMode: inbox.aiMode,
+      // Whether the inbox reads customer context (ADR 0011); no rule values.
+      customerContext: Boolean(
+        inboxRulesSchema.safeParse(inbox.rules ?? {}).data?.customerContext,
+      ),
+    },
     timeline,
     aiCostMicros: await ticketAiCost(tx, id),
   };

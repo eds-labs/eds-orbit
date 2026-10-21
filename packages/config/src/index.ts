@@ -137,6 +137,10 @@ const baseConfigSchema = z.object({
   // Support module (WP5.1): off until the pilot is approved. Even when "true",
   // support works only in projects whose owner enabled the module.
   ORBIT_SUPPORT: z.enum(["false", "true"]).default("false"),
+  // Universal customer context (ADR 0011): live, read-only account facts
+  // from external products for Support. Off until a provider passed its
+  // integration test; each inbox must still be bound by its owner.
+  ORBIT_CUSTOMER_CONTEXT: z.enum(["false", "true"]).default("false"),
   // Platform files (WP4.6): an own S3-compatible bucket (R2), never the
   // backup bucket or its credentials. Off until the security review.
   ORBIT_FILES: z.enum(["false", "true"]).default("false"),

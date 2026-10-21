@@ -29,6 +29,7 @@ import { Fragment, useContext, useEffect, useState } from "react";
 import { WorkspacePause } from "./operator-tools";
 import { TelegramConnection } from "./telegram-connection";
 import { EmailConnection } from "./email-connection";
+import { CustomerContextConnection } from "./customer-context-connection";
 import {
   Activity,
   Brain,
@@ -168,6 +169,7 @@ export function Connectors() {
           })}
           <TelegramConnection />
           <EmailConnection />
+          <CustomerContextConnection />
           {extras.map((Extra, index) => (
             <Extra key={index} />
           ))}

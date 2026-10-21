@@ -456,8 +456,14 @@ export const supportReadTools = [
         description: description?.slice(0, 4000) ?? null,
         descriptionMessageId: first?.id ?? null,
         descriptionComplete: description === null || description.length <= 4000,
+        // The MCP view keeps its fields; the web-only binding flag stays out.
         inbox: found.inbox
-          ? { ...found.inbox, name: safe(found.inbox.name).text }
+          ? {
+              id: found.inbox.id,
+              name: safe(found.inbox.name).text,
+              channels: found.inbox.channels,
+              aiMode: found.inbox.aiMode,
+            }
           : null,
         internalContentAllowed: can(scope, SUPPORT_NOTES_READ),
       };

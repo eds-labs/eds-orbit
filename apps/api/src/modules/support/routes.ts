@@ -19,7 +19,12 @@ import {
   updateInbox,
 } from "./inboxes.ts";
 import {
+  customerContextView,
+  readTicketCustomerContext,
+} from "./customer-context.ts";
+import {
   SUPPORT_CONTACTS_MANAGE,
+  SUPPORT_CUSTOMER_CONTEXT_READ,
   SUPPORT_NOTES_WRITE,
   SUPPORT_SETTINGS_MANAGE,
   SUPPORT_STATS_READ,
@@ -92,6 +97,27 @@ export const supportRoutes: RoutesContribution = ({ app, auth }) => {
     inSupport(auth, req, SUPPORT_TICKETS_READ, (tx, scope, p) =>
       ticketDetail(tx, scope, ticket(p)),
     ),
+  );
+  // Live account facts of the ticket's verified customer (ADR 0011). The
+  // provider call runs outside the project transaction; nothing is stored.
+  app.get(
+    `${BASE}/tickets/:ticketId/customer-context`,
+    { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } },
+    async (req) => {
+      const params = req.params as Params;
+      const scope = await scopeFor(
+        auth,
+        req,
+        params.projectId,
+        SUPPORT_CUSTOMER_CONTEXT_READ,
+      );
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        requireSupport(tx, scope),
+      );
+      return customerContextView(
+        await readTicketCustomerContext(scope, ticket(params), "agent"),
+      );
+    },
   );
   app.post(`${BASE}/tickets/:ticketId/replies`, (req) =>
     inSupport(auth, req, SUPPORT_TICKETS_REPLY, (tx, scope, p) =>

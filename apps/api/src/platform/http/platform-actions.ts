@@ -30,6 +30,10 @@ import { retention } from "../governance/retention.ts";
 import { addProjectMember } from "../tenancy/project-members.ts";
 import { connectEmail, disconnectEmail } from "../email/connection.ts";
 import {
+  connectCustomerContext,
+  disconnectCustomerContext,
+} from "../customer-context/connection.ts";
+import {
   ownTransaction,
   sharedTransaction,
   type ActionHandler,
@@ -135,6 +139,14 @@ export const platformActions: Record<string, ActionHandler> = {
   "email-disconnect": sharedTransaction((tx, { scope, input }) =>
     disconnectEmail(tx, scope, input),
   ),
+  // A customer context provider endpoint (ADR 0011); checked separately.
+  "customer-context-connect": sharedTransaction((tx, { scope, input }) =>
+    connectCustomerContext(tx, scope, input),
+  ),
+  // Removes one; inboxes bound to it then fail closed.
+  "customer-context-disconnect": sharedTransaction((tx, { scope, input }) =>
+    disconnectCustomerContext(tx, scope, input),
+  ),
   // Checks a connection with its provider and records what it can do; the
   // provider call runs outside any transaction (WP2.5c).
   "connector-health": ownTransaction(async ({ scope, input }) => {
@@ -158,7 +170,9 @@ export const platformActions: Record<string, ActionHandler> = {
       throw new DomainError(
         provider?.checkUnsupported ?? "CONNECTOR_CHECK_UNSUPPORTED",
       );
-    const result = await provider.check(d, credential);
+    const result = await provider.check(d, credential, {
+      connectionId: c.id,
+    });
     return scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const current = await entity(tx, scope, CONNECTION_KIND, c.id);
       if (current.version !== c.version)

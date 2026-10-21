@@ -54,7 +54,7 @@ Every request carries, per integration:
 
 ```
 Authorization: Bearer <token>
-X-Orbit-Timestamp: 1792919700
+X-Orbit-Timestamp: 1792574100
 X-Orbit-Request-Id: 0b9c2f4e-8a1d-4c3b-9e7f-6a5b4c3d2e10
 X-Orbit-Signature: v1=<hex HMAC-SHA256(signingSecret, X-Orbit-Timestamp + "." + rawBody)>
 ```
@@ -82,11 +82,22 @@ A provider must check the token, recompute the HMAC over the **raw** request bod
 
 The workflow must not log request or response bodies (disable execution data saving for successful and failed runs, or prune it immediately). Keep one workflow per integration so a token can only reach its own product.
 
+## Configuration in Orbit
+
+1. Set `ORBIT_CUSTOMER_CONTEXT=true` for the API and worker (default `false`; Compose passes it through).
+2. Connectors → **Customer context** → *Add integration* (owner): name, HTTPS base URL (for n8n the webhook URL without `/v1/customer-context/lookup`), source system slug, timeout (1,000–8,000 ms, default 4,000), bearer token (≥ 16 characters) and signing secret (≥ 32 characters). The action is `customer-context-connect`; both secrets are stored encrypted together and never returned. Updating an integration needs both secrets again and a new check.
+3. *Check connection* (`connector-health`): Orbit sends one signed lookup of the reserved subject `orbit-connection-check`. A provider that answers per contract (normally `404 customer_not_found`) becomes `read_verified`; anything else is refused with `CUSTOMER_CONTEXT_CHECK_<REASON>`. Only verified integrations are read.
+4. Support → Settings → Inbox → *Customer account from*: bind the inbox (owner).
+5. Agents see the "Customer account" card on widget tickets of that inbox; AI drafts use it for account questions (`docs/SUPPORT.md`).
+
+Removing an integration (`customer-context-disconnect`) makes bound inboxes fail closed (`forbidden`, `no_integration`). The circuit breaker opens per integration and process after five consecutive failures, for 60 s; at most four lookups run at once per integration.
+
 ## Provider conformance checklist
 
 - [ ] Implements `POST /v1/customer-context/lookup` exactly as `openapi.json`.
 - [ ] Verifies token, signature, timestamp window and request id; `401` otherwise.
 - [ ] Resolves `subject.id` as the user id it signs for the Orbit widget; nothing else (no e-mail lookup).
+- [ ] Answers `404 customer_not_found` for the reserved subject `orbit-connection-check` (Orbit's connection check).
 - [ ] Answers only `customer_not_found`, `identity_not_verified`, `access_denied`, `rate_limited`, `service_unavailable`, `upstream_timeout`, `invalid_request`, `unsupported_version` as problems, with the listed statuses.
 - [ ] Echoes `integrationId` in `source.integrationId` and `subject.id` in `customer.externalRef.id`.
 - [ ] Sends every field of v1; unknown values as `null`, never `0` or omitted; `unlimited` explicit.
@@ -124,6 +135,6 @@ The workflow must not log request or response bodies (disable execution data sav
 
 ## Privacy
 
-- Orbit stores no payload. Only the audit `customer_context.read` with connection id, ticket id, outcome, duration and schema version.
+- Orbit stores no payload. Only the audit `support.customer_context.read` with ticket id, connection id, origin, outcome, reason, duration and schema version.
 - The model receives plan, status, entitlement and usage values with neutral ids, never the external user id, a name or an e-mail (Q-12a option B).
 - Contact export and erasure (`privacy.ts`) are unaffected because nothing is stored.

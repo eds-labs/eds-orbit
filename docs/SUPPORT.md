@@ -60,6 +60,7 @@ Foreign key checks bypass RLS. Every reference between support rows is therefore
 | `support.notes.write` | owner, editor |
 | `support.contacts.manage` | owner, editor |
 | `support.stats.read` | owner, editor, viewer |
+| `support.customer_context.read` | owner, editor (sensitive; ADR 0011) |
 | `support.settings.manage` | owner (sensitive) |
 
 Module roles (WP4.5, `ORBIT_MODULE_ROLES`) apply:
@@ -95,6 +96,7 @@ Every route sits below `/api/projects/:projectId/support`.
 | `PATCH /inboxes/:inboxId` | settings | `{ version, …changes }`; 409 `INBOX_VERSION_CONFLICT`, 409 `INBOX_ARCHIVED` |
 | `POST /inboxes/:inboxId/rotate-widget-secret` | settings | The new secret, once; the old one stops working |
 | `POST /inboxes/:inboxId/archive` | settings | No new tickets; existing ones stay |
+| `GET /tickets/:ticketId/customer-context` | customer context | Live account of the ticket's verified customer (below); 30 per minute; nothing stored |
 
 Further rules:
 - An e-mail inbox needs `emailConnectionId`: a verified mailbox of the project (else 400 `INBOX_MAILBOX_INVALID`; its own unchanged mailbox may be awaiting a login check). Its address is that mailbox's own address; an `emailAddress` given must be that address (else 400 `INBOX_ADDRESS_NOT_MAILBOX`). No two live inboxes answer from one mailbox or address (409 `INBOX_MAILBOX_TAKEN`; also a partial unique index). Without the e-mail channel the inbox has no mailbox.
@@ -258,6 +260,20 @@ The first run on 2026-10-17 cost $0.0227 and FAILED on one handoff case; see `do
 The second run on 2026-10-17, after the handoff instruction was sharpened, cost $0.0221 (`docs/evidence/support-ai-eval-2026-10-17-run2.json`). It handed off 2/2 but still FAILED: triage category and language reached only 10/12. The two misses, T09 and T11, are sensitive questions that the hard rules now hand off before any model call (review fix 4), so they get no model category or language by design. The eval still scores them as model triage.
 
 **Not in the MVP:** the widget's AI first answer (`widget_answer`, Q-17).
+
+## Customer context (ADR 0011)
+
+Live, read-only plan, feature and usage-limit facts from the customer's product, through a product-neutral provider contract (`docs/CUSTOMER_CONTEXT.md`). Off unless `ORBIT_CUSTOMER_CONTEXT=true`, an owner added and checked an integration under Connectors, and an owner bound the inbox (`rules.customerContext.connectionId`, an integration of the same project; else 400 `INBOX_CUSTOMER_CONTEXT_INVALID`).
+
+**Who is looked up.** Only a widget ticket of the bound inbox whose contact has exactly one HMAC-verified identity of that inbox. E-mail tickets, anonymous visitors, identities of other inboxes and merged contacts with two identities are `identity_unverified` without any call. The provider receives the product's user id, the verification time and an opaque integration id, nothing else.
+
+**Agents.** The ticket's contact panel shows a "Customer account" card to owners and editors when the inbox is bound; it reads on demand ("Check account"). Unknown values show as unknown, never as 0. Any failure shows "cannot be checked right now".
+
+**Support AI drafts.** When a customer message asks about the plan, a feature or credits and limits (`customerContextTopics`, English and German), the draft reads the account before the model call and adds it as evidence `account:*`. The product's user id never reaches the model. A draft may then answer from the account alone. When the account cannot be read (not found, unverified, provider error or timeout), the model gets only the notice `account:status`: the draft must cite it, says the status cannot be verified right now, and the ticket is handed off (`customer_context_unavailable`); a draft that ignores the notice is withheld (`account_status_uncited`). Messages without such a question, and inboxes without a binding, draft exactly as before.
+
+**Assistant and MCP.** `support_customer_context` (R0, `openWorld`, scope `orbit:support`, behind `ORBIT_MCP_TASKS` like the other sensitive Support reads) returns the same view as the card.
+
+**Audit and privacy.** `support.customer_context.read` with ticket id, integration id, origin (`agent`, `ai`, `tool`), outcome, reason, duration and schema version; no account values. No table, no cache: export and erasure are unaffected.
 
 ## Statistics (WP5.7)
 

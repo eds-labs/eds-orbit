@@ -36,6 +36,15 @@ export const SUPPORT_STATS_READ = permission(
   "Read support statistics",
   ["owner", "editor", "viewer"],
 );
+// Sensitive: live account facts from the customer's product (ADR 0011).
+export const SUPPORT_CUSTOMER_CONTEXT_READ = {
+  ...permission(
+    "support.customer_context.read",
+    "Read a verified customer's live subscription, features and limits",
+    ["owner", "editor"],
+  ),
+  sensitive: true,
+};
 // Owner-only: inboxes set CORS origins and hold widget signing secrets, so
 // no module role can grant it.
 export const SUPPORT_SETTINGS_MANAGE = {
@@ -55,5 +64,6 @@ export const supportPermissions = [
   SUPPORT_NOTES_READ,
   SUPPORT_CONTACTS_MANAGE,
   SUPPORT_STATS_READ,
+  SUPPORT_CUSTOMER_CONTEXT_READ,
   SUPPORT_SETTINGS_MANAGE,
 ];
