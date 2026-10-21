@@ -223,7 +223,9 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
    n8n refuses to start when the variable differs from the key in its
    settings file. **Done 2026-10-21** (see below).
 3. Daily backup of the n8n database as in section 8, then a restore drill
-   into an isolated database.
+   into an isolated database. **Open** (2026-10-21): an R2 storage is
+   connected in Coolify, but the n8n service has no backup schedule or
+   execution yet.
 4. Domain: DNS A record for `n8n.eds-labs.io`, change the n8n service domain
    in Coolify, redeploy, check the certificate and `/healthz`.
 5. Run the local end-to-end test with external task runners (section 5)
