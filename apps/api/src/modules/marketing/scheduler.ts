@@ -1,3 +1,8 @@
+import {
+  scheduleReports,
+  reportPlans,
+  reportWeek,
+} from "./analytics/report-schedule.ts";
 import { resumeReviewBacklog } from "./agents/assignment-runs.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
@@ -33,6 +38,7 @@ async function marketingSweep(tx: DbTx, scope: Scope, at: Date) {
     await requeuePostizDrafts(tx, scope);
     // The bot's daily report, once per local day (a paused project sends none).
     await planDailyReport(tx, scope, at);
+    await scheduleReports(tx, scope, at);
   }
   let queued = 0;
   const metrics = await list(tx, scope, "metrics");
@@ -109,6 +115,8 @@ async function marketingNextDueAt(tx: DbTx, scope: Scope, at: Date) {
   if (agentsEnabled()) {
     consider((await nextAssignmentPlanAt(tx, scope, at))?.valueOf());
     consider((await nextDailyReportAt(tx, scope, at))?.valueOf());
+    for (const plan of await reportPlans(tx, scope))
+      consider(reportWeek(at, data(plan).spec.timezone).nextAt.valueOf());
   }
   return Number.isFinite(next) ? new Date(next) : null;
 }

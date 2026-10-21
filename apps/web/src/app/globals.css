@@ -5575,3 +5575,69 @@ a.support-row {
 .assignments-table {
   min-width: 720px;
 }
+
+/* Periodic report evidence stays readable inside the existing analytics page. */
+.marketing-analytics .page-head .page-actions {
+  flex: 0 1 60%;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.marketing-analytics .page-actions > .button {
+  white-space: normal;
+}
+.marketing-reports {
+  padding: 20px;
+  margin-bottom: 24px;
+  display: grid;
+  gap: 16px;
+}
+.marketing-reports article {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.marketing-reports h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+.marketing-reports h3 {
+  font-size: 16px;
+  font-weight: 650;
+}
+.marketing-report-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.marketing-report-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.marketing-report-form .input {
+  min-width: 0;
+  width: 100%;
+}
+.marketing-report-form > .button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+@media (max-width: 760px) {
+  .marketing-analytics .page-head .page-actions {
+    width: 100%;
+    flex-basis: auto;
+  }
+  .marketing-analytics .page-actions > .button {
+    flex: 1 1 calc(50% - 9px);
+  }
+  .marketing-reports {
+    padding: 16px;
+  }
+  .marketing-report-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

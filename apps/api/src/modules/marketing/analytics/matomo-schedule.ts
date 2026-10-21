@@ -105,6 +105,15 @@ function siteDay(at: Date, timezone: string) {
   }).format(at);
 }
 
+/** Calendar subtraction, not 24 elapsed hours: DST can otherwise skip yesterday. */
+export function matomoImportDays(now: Date, zone: string) {
+  const today = siteDay(now, zone);
+  const yesterday = new Date(Date.parse(today + "T00:00:00Z") - 86400000)
+    .toISOString()
+    .slice(0, 10);
+  return [yesterday, today];
+}
+
 /** Worker entry: runs due imports for one project; failures are recorded, never thrown. */
 export async function runScheduledMatomo(scope: Scope, now = new Date()) {
   const due = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
@@ -121,10 +130,7 @@ export async function runScheduledMatomo(scope: Scope, now = new Date()) {
     return data(row) as z.infer<typeof matomoScheduleInput>;
   });
   if (!due) return { ran: false };
-  const days = [
-    siteDay(new Date(now.valueOf() - 86_400_000), due.siteTimezone),
-    siteDay(now, due.siteTimezone),
-  ];
+  const days = matomoImportDays(now, due.siteTimezone);
   let failed = 0;
   for (const date of days)
     for (const method of due.methods) {

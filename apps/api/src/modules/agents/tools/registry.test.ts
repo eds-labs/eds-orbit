@@ -358,6 +358,8 @@ describe("proposal tool", () => {
       "marketing_plan_change",
       "marketing_plan_activation_propose",
       "marketing_plan_pause",
+      "marketing_report_status",
+      "marketing_report_propose_revision",
     ]);
   });
   it("offers assignment tools only with the agents feature", () => {

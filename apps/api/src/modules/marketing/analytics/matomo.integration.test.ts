@@ -1,3 +1,4 @@
+import { matomoImportDays } from "./matomo-schedule.ts";
 import {
   afterAll,
   beforeAll,
@@ -47,6 +48,13 @@ const snapshot = (
   complete: false,
   limit: 1000,
   goalsConfigured: null,
+});
+describe("Matomo schedule calendar days", () => {
+  it("does not skip yesterday after a short daylight-saving day", () => {
+    expect(
+      matomoImportDays(new Date("2026-03-29T22:30:00Z"), "Europe/Berlin"),
+    ).toEqual(["2026-03-29", "2026-03-30"]);
+  });
 });
 describe("Matomo report normalization", () => {
   const input: MatomoImportInput = {
@@ -191,6 +199,15 @@ describe.skipIf(!enabled)(
       await auth?.$disconnect();
       await closeDatabase();
       vi.unstubAllEnvs();
+    });
+    it("serializes competing repeated imports without duplicate metric identities", async () => {
+      const results = await Promise.all([
+        importMatomoReport(scope, input),
+        importMatomoReport(scope, input),
+      ]);
+      expect(results.reduce((sum, r) => sum + r.created, 0)).toBe(1);
+      expect(results.reduce((sum, r) => sum + r.unchanged, 0)).toBe(1);
+      expect(new Set(results.flatMap((r) => r.metricIds)).size).toBe(1);
     });
     it("imports, deduplicates a repeat, preserves correction versions and invalidates old insights", async () => {
       const first = await importMatomoReport(scope, input);

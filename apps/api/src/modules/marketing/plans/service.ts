@@ -1,3 +1,4 @@
+import { reportEvidenceCurrent } from "../analytics/report-evidence.ts";
 import {
   marketingPlanSpec,
   marketingPlanReview,
@@ -237,6 +238,17 @@ export async function validateSaved(
   execution = false,
 ) {
   const d = data(row);
+  if (d.reportOrigin) {
+    const report = data(
+      await entity(tx, scope, "marketing_reports", d.reportOrigin.id),
+    );
+    if (
+      report.status !== "ready" ||
+      report.snapshot !== d.reportOrigin.snapshot ||
+      !(await reportEvidenceCurrent(tx, scope, report))
+    )
+      throw new DomainError("PLAN_REPORT_STALE", 409);
+  }
   const sources = await validateSpec(
     tx,
     scope,

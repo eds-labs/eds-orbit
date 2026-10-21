@@ -1,6 +1,25 @@
 # Implementation status
 
 
+## Marketing Agent v2 — MA-07 (2026-10-21, local)
+
+Versioned closed-period reports now persist source/plan/coverage provenance and
+native owner receipt, with one optional notification key per period. Corrections
+invalidate reports and report-derived proposals; historical strategy snapshots stay
+fixed. Exact source grouping preserves missing counters, overlap and sampling limits.
+The existing assistant and Analytics UI expose evidence and prepare a separate native
+strategy proposal without changing active work. Report assignments remain disabled.
+
+No paid/live provider write, production flag/migration, push or deployment. Detailed
+bounds, acceptance evidence, changed files and MA-08 preparation only:
+`docs/plans/marketing-agent-v2-ma07.md`.
+
+Final MA-07 verification: **3,026 tests in 278 files passed** (514.93 seconds),
+plus the isolated desktop/mobile Playwright scenario. Lint, root/web typecheck,
+production build, regenerated API contracts, framework/secret/diff checks and zero
+import-boundary violations pass. MA-08 is prepared only; no live acceptance is claimed.
+
+
 ## Marketing Agent v2 — MA-06 (2026-10-20, local)
 
 A shared operational projection now separates saved execution lifecycle from

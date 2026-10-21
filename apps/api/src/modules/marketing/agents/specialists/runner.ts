@@ -384,6 +384,19 @@ async function taskInput(
   }
   return {
     step: { key: task.stepKey, role: task.role },
+    ...(task.role === "analytics"
+      ? {
+          analyticsCoverage: {
+            requestedChannels: assignment.channels ?? [],
+            selectedChannels: (assignment.channels ?? []).slice(0, 3),
+            omittedChannels: (assignment.channels ?? []).slice(3),
+            maxChannels: 3,
+            maxPosts: 5,
+            recentDays: 7,
+            complete: false,
+          },
+        }
+      : {}),
     ...(assignment.marketingPlan
       ? {
           marketingPlan: {

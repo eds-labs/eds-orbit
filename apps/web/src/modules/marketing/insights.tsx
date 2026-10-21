@@ -1,4 +1,5 @@
 "use client";
+import { PeriodicReports } from "./reports";
 // Marketing analytics and memory views (WP2.3b), moved unchanged from components/management.tsx.
 import { RecordDetail } from "@/platform/ui/record-detail";
 import { marketingRecordActions } from "./record-actions";
@@ -54,7 +55,7 @@ export function Analytics() {
     [selected, setSelected] = useState<Entity | null>(null);
   const mutation = useMutation(refresh);
   return (
-    <>
+    <div className="marketing-analytics">
       <PageHead
         title={t("analytics")}
         description={
@@ -87,6 +88,7 @@ export function Analytics() {
           </>
         )}
       </PageHead>
+      <PeriodicReports />
       <Tabs
         tabs={[
           {
@@ -243,7 +245,7 @@ export function Analytics() {
           onClose={() => setSelected(null)}
         />
       )}
-    </>
+    </div>
   );
 }
 function nullable(v: FormValues, key: string) {

@@ -303,7 +303,36 @@ export const marketingAttention: AttentionContribution = async (
     agentsEnabled() && can(scope, PROJECT_OWN)
       ? await draftsAwaitingOwner(tx, scope)
       : [];
+  const reports =
+    agentsEnabled() && can(scope, PROJECT_OWN)
+      ? await tx.entity.findMany({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: "marketing_reports",
+            data: { path: ["status"], equals: "ready" },
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 100,
+        })
+      : [];
   return [
+    ...reports
+      .filter((r) => data(r).acknowledgedRevision !== data(r).revision)
+      .map((r) => ({
+        id: `marketing:report:${r.id}`,
+        moduleId: "marketing",
+        kind: "marketing_report_ready",
+        severity: "info" as const,
+        params: {
+          from: String(data(r).period.from),
+          to: String(data(r).period.to),
+          revision: Number(data(r).revision),
+          noData: Boolean(data(r).noData),
+        },
+        navKey: "analytics",
+        link: `/marketing/analytics?report=${r.id}`,
+      })),
     ...draftItems(drafts),
     ...(await contentReviewItems(tx, scope, drafts.length)),
     ...(await exceptionItems(tx, scope)),

@@ -920,6 +920,22 @@ async function render(
       return deliveryChanged(tx, scope, ref);
     case "drafts_disabled":
       return draftsDisabled(tx, scope, ref);
+    case "marketing_report": {
+      const report = await maybe(() =>
+        entity(tx, scope, "marketing_reports", ref),
+      );
+      if (!report || data(report).status !== "ready") return { skip: "STALE" };
+      const d = data(report);
+      return plain(
+        `Marketing-Bericht ${d.period.from} – ${d.period.to} (Revision ${d.revision})\n${d.noData ? "Keine dem Plan zugeordneten Messdaten." : "Quellengetrennte, beobachtete Messdaten."}\n${d.complete ? "" : "Abdeckung unvollständig.\n"}Keine automatische Änderung des Auftrags.`,
+        [
+          {
+            text: "Bericht prüfen",
+            url: `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/p/${scope.projectId}/marketing/analytics?report=${report.id}`,
+          },
+        ],
+      );
+    }
     case "daily_report":
       return dailyReport(tx, scope, ref, timezone);
   }

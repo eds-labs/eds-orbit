@@ -1,3 +1,4 @@
+import { marketingReportRoutes } from "./analytics/report-routes.ts";
 import { prepareContentNovelty, commitTopic } from "./agents/novelty.ts";
 import { marketingPlanRoutes } from "./plans/routes.ts";
 import { z } from "zod";
@@ -70,6 +71,7 @@ import { confirmProposal } from "./assistant/proposals.ts";
 export const marketingRoutes: RoutesContribution = (context) => {
   const { app, auth } = context;
   marketingPlanRoutes(context);
+  marketingReportRoutes(context);
   app.post(
     "/api/slack/:workspaceId/:projectId/interactions",
     async (req, reply) => {

@@ -357,6 +357,10 @@ describe.skipIf(!enabled)(
           spec.channels = [X, TELEGRAM];
           spec.monthlyBudgetMicros = 30_000_000;
           spec.horizon.startAt = new Date(Date.now() - 1000).toISOString();
+          // Cover the second actual weekly slot independently of today and DST.
+          spec.horizon.endAt = new Date(
+            morning.valueOf() + 8 * 86400000,
+          ).toISOString();
           spec.cadence = {
             rhythm: "weekly",
             weekdays: assignment!.schedule.weekdays,

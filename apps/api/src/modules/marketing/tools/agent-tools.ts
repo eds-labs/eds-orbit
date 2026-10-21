@@ -1,3 +1,4 @@
+import { summarizeMetrics } from "../analytics/metric-report.ts";
 import { z } from "zod";
 import { PROJECT_READ } from "../../../platform/tenancy/permissions.ts";
 import { createPostizClient } from "../../../../../../packages/connectors/src/index.ts";
@@ -85,61 +86,16 @@ export async function metricsSummary(
       end <= window.toExclusive
     );
   });
-  type Group = {
-    source: string;
-    report: string;
-    label: string | null;
-    days: Set<string>;
-    totals: Record<(typeof COUNTERS)[number], number | null>;
-    fetchedAt: string;
-    complete: boolean;
-  };
-  const groups = new Map<string, Group>();
-  for (const row of rows) {
-    const m = data(row);
-    const key = String(m.accountId ?? `${m.source}:${m.reportFamily ?? ""}`);
-    const group: Group = groups.get(key) ?? {
-      source: String(m.source ?? "unknown"),
-      report: String(m.reportFamily ?? m.reportMethod ?? ""),
-      label: typeof m.campaign === "string" ? m.campaign.slice(0, 200) : null,
-      days: new Set<string>(),
-      totals: Object.fromEntries(
-        COUNTERS.map((name) => [name, null]),
-      ) as Group["totals"],
-      fetchedAt: "",
-      complete: true,
-    };
-    group.days.add(String(m.periodStart).slice(0, 10));
-    for (const name of COUNTERS)
-      if (typeof m[name] === "number")
-        group.totals[name] = (group.totals[name] ?? 0) + m[name];
-    const fetchedAt = String(
-      m.providerFetchedAt ?? row.updatedAt.toISOString(),
-    );
-    if (fetchedAt > group.fetchedAt) group.fetchedAt = fetchedAt;
-    if (m.complete === false) group.complete = false;
-    groups.set(key, group);
-  }
-  const ranked = [...groups.values()].sort(
-    (a, b) =>
-      (b.totals.sessions ?? b.totals.clicks ?? 0) -
-      (a.totals.sessions ?? a.totals.clicks ?? 0),
-  );
+  const ranked = summarizeMetrics(rows);
   return {
     period: { from: day(window.from), to: day(window.to) },
     measured: rows.length,
     // Honest empty answer: nothing was measured in the period.
-    noData: rows.length === 0,
+    noData: ranked.length === 0 || ranked.every((group) => group.noData),
     truncated: ranked.length > METRIC_GROUPS,
-    reports: ranked.slice(0, METRIC_GROUPS).map((group) => ({
-      source: group.source,
-      report: group.report,
-      label: group.label,
-      days: group.days.size,
-      ...group.totals,
-      freshness: group.fetchedAt,
-      complete: group.complete,
-    })),
+    reports: ranked
+      .slice(0, METRIC_GROUPS)
+      .map(({ metricRefs: _refs, labels: _labels, ...group }) => group),
   };
 }
 

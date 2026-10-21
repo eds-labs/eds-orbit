@@ -1,6 +1,22 @@
 # Requirements traceability
 
 
+## Marketing Agent v2 — MA-07 (2026-10-21, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Idempotent replay/concurrent imports and correction versions | Matomo real-SQL mocked import cases, shared import lock | PASS_TEST |
+| Period/source/plan-aware persisted reports with no-data/partial coverage | MA-07 integration and report component cases | PASS_TEST |
+| Corrected and newly imported evidence invalidates proposals; historical snapshots remain fixed | MA-07 lifecycle/native-review cases | PASS_TEST |
+| Four-channel sampling bounds and separate source denominators | MA-07 cases plus specialist regressions | PASS_TEST |
+| Native owner receipt without Telegram, one optional event per period | MA-07 concurrent report/receipt/notification cases | PASS_TEST |
+| Budget/channel/cadence increases remain pending; active work unchanged | MA-07 native proposal/owned-child accounting case | PASS_TEST |
+| Current role, tenant, feature and API boundaries | MA-07 role/tool negatives, five-route access matrix extension | PASS_TEST |
+| Source-aware UI, exact deep link, receipt and proposed strategy on desktop/mobile | Synthetic reports Playwright scenario | PASS_LOCAL_BROWSER_AND_TEST |
+| Complete paid report-assignment lifecycle, automatic causal optimization and live attribution pilot | Explicit MA-07 limits | NOT_ENABLED_OR_RUN |
+| Assistant-led navigation simplification | MA-08 preparation only | NOT_IMPLEMENTED |
+
+
 ## Marketing Agent v2 — MA-06 (2026-10-20, local)
 
 | Requirement | Evidence | State |

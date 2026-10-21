@@ -34,6 +34,10 @@ const counted =
   (item, locale) => ({ title: text(item.count ?? 1)[locale], action });
 
 export const marketingAttention: Readonly<Record<string, AttentionRenderer>> = {
+  marketing_report_ready: (item, locale) => ({
+    title: `${locale === "de" ? "Marketing-Bericht prüfen" : "Review marketing report"} · ${item.params.from} – ${item.params.to}`,
+    action: REVIEW,
+  }),
   marketing_draft_release: (item, locale) => ({
     title: `${locale === "de" ? "Entwurf freigeben" : "Release draft"} · ${String(item.params.assignmentName || "—")}`,
     detail: String(item.params.channelName ?? "") || undefined,
