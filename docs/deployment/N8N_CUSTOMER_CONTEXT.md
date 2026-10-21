@@ -362,3 +362,21 @@ gateway's own `unauthenticated` problem details, so the Code nodes run in
 the external runner with `crypto` and `$env` on Coolify, and with
 `CC_GATEWAY_INTEGRATIONS=[]` every request is refused. The gateway logged
 nothing for these calls. Next: section 11 step 3 (Desk token).
+
+### Desk token (section 11 step 3, 2026-10-21)
+
+Mario generated a new `dctx_` token on the Desk server shell (Coolify
+terminal), wrote its SHA-256 as `CUSTOMER_CONTEXT_API_CLIENTS=n8n:<sha256>`
+(no `:grant`, the adapter sends no customer grants) into
+`/opt/uliquid-desk/.env.prod` and `.runtime-env/api.env` (backups
+`*.bak-20261021`), and restarted only the Desk `api` container. Desk check
+with the reserved subject `orbit-connection-check`: 404 with the token, 401
+without. Mario then set `CC_DESK_TOKEN` in Coolify and restarted n8n.
+Verified read-only: the variable exists; one clean n8n start (18:08 server
+time) with both runners; all containers healthy; the gateway still answers
+401 (`CC_GATEWAY_INTEGRATIONS=[]`). Open: the variable is not locked yet in
+Coolify. The token is not yet proven through n8n; the Orbit connection check
+in step 5 does that (expected: Desk answers 404 for the reserved subject).
+Deviation from the Desk runbook: the token lives in the n8n environment, not
+in an n8n credential (section 3), and the Desk files were edited directly
+instead of re-rendered, with the same result for this single key.
