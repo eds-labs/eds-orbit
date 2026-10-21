@@ -84,6 +84,7 @@ describe("static module registry", () => {
     expect(support.defaultEnabled).toBe(false);
     expect(support.permissions.map((p) => p.key).sort()).toEqual([
       "support.contacts.manage",
+      "support.customer_context.read",
       "support.notes.read",
       "support.notes.write",
       "support.settings.manage",

@@ -230,6 +230,8 @@ describe("module contributions", () => {
       "connector",
       "connector-health",
       "correct-metric",
+      "customer-context-connect",
+      "customer-context-disconnect",
       "editorial-propose-brief",
       "email-connect",
       "email-disconnect",
