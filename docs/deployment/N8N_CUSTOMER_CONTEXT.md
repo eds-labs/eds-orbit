@@ -394,3 +394,16 @@ no Supabase gateway 401, so JWT verification is off), `POST` with an
 `Origin` header 403, `GET` 405, `Cache-Control: no-store, private`. Next: the
 token hash as function secret `SUPPORT_CUSTOMER_CONTEXT_TOKEN_SHA256`, then
 `CC_FAMILYPLAN_TOKEN` and `CC_FAMILYPLAN_FUNCTION_URL` in n8n.
+
+FamilyPlan token (same day): Mario generated a `fpctx_` token in a server
+shell, set its SHA-256 as the function secret
+`SUPPORT_CUSTOMER_CONTEXT_TOKEN_SHA256` in the Supabase dashboard and checked
+the function directly: 401 without the token, 400 with the token for the
+reserved subject `orbit-connection-check` (authenticated, then refused as
+not a FamilyPlan id, as Orbit's connection check expects). Mario then set
+`CC_FAMILYPLAN_TOKEN` (locked) and `CC_FAMILYPLAN_FUNCTION_URL` in Coolify
+and restarted n8n. Verified read-only: both variables exist, the token is
+locked; one clean start (18:38 server time) with both runners; all
+containers healthy; the gateway still answers 401; the function answers
+401 without a token. Section 11 steps 3 and 4 are done; the end-to-end path
+through n8n is proven by the Orbit connection checks in step 5.
