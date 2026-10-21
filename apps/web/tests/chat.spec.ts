@@ -20,7 +20,8 @@ const VIEW = {
   analytics: "marketing/analytics",
   operations: "operations",
   chat: "assistant",
-  approvals: "approvals",
+  // Action requests live on the shared decisions page, not marketing approvals.
+  decisions: "decisions",
   connectors: "connectors",
 } as const;
 const open = (page: Page, projectId: string, view: keyof typeof VIEW) =>
@@ -873,7 +874,7 @@ test("owner approves an editor's package image from the approvals inbox", async 
       });
     },
   );
-  await open(page, user.projectId, "approvals");
+  await open(page, user.projectId, "decisions");
   const inbox = page.getByRole("region", { name: "Open decisions" });
   await expect(inbox.getByText("Generate image")).toBeVisible();
   await expect(
@@ -937,7 +938,7 @@ test("owner schedules an exact package post from the approvals inbox", async ({
       });
     },
   );
-  await open(page, user.projectId, "approvals");
+  await open(page, user.projectId, "decisions");
   const inbox = page.getByRole("region", { name: "Open decisions" });
   await expect(inbox.getByText("Schedule post")).toBeVisible();
   await expect(inbox.getByText("Test mode")).toBeVisible();
