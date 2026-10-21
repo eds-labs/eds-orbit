@@ -652,6 +652,7 @@ export async function buildServer(
     return {
       features: {
         knowledgeWorkspace: config.ORBIT_KNOWLEDGE_WORKSPACE === "true",
+        agents: agentsEnabled(),
       },
       switchable: moduleSwitchingEnabled(),
       // The requesting member's role per module (WP4.5): "none" hides it.

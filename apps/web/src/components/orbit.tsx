@@ -314,6 +314,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         description: m.description,
         groupOrder: m.groupOrder,
         enabled: enabled(m.id),
+        access: states?.find((state) => state.id === m.id)?.access,
         nav: nav.filter((r) => r.moduleId === m.id),
         settingsSection: moduleSettingsSection(m.id, m.settings ?? []),
       })),
@@ -323,7 +324,16 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         return route ? projectHref(project.id, route) : "/";
       },
       // Contributions of enabled modules only (WP2.4).
-      chat: active.flatMap((m) => (m.chat ? [m.chat] : [])),
+      chat: active.flatMap((m) =>
+        m.chat
+          ? [
+              {
+                ...m.chat,
+                access: states?.find((state) => state.id === m.id)?.access,
+              },
+            ]
+          : [],
+      ),
       actionRequests: Object.assign(
         {},
         ...active.map((m) => m.actionRequests ?? {}),
@@ -543,12 +553,16 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       ? (shell.table.routes.find((r) => r.key === place.route.key) ??
         place.route)
       : null;
-  const role =
+  const projectRole =
     project.role ||
     me.workspaces.find((w) => w.id === project.workspaceId)?.role ||
     "viewer";
+  const moduleRole = shell.modules.find(
+    (module) => module.id === (route?.moduleId ?? route?.requiresModule),
+  )?.access;
+  const role = moduleRole ?? projectRole;
   const isOwner = role === "owner",
-    canEdit = role !== "viewer";
+    canEdit = role === "editor" || role === "owner";
   const organization = me.workspaces.find((w) => w.id === project.workspaceId);
   // A page of a module, or a platform page that needs one (WP2.4).
   const isOn = (id: string) =>

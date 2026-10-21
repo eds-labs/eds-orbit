@@ -1,5 +1,18 @@
 # Requirements traceability
 
+## Marketing Agent v2 — MA-08 (2026-10-21, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Project selection → Assistant → saved plan → pending review | Synthetic desktop/mobile browser flows with keyboard navigation, reload and exact proposal | PASS_LOCAL_BROWSER |
+| Templates/navigation start no paid work or external handoff | Zero browser POSTs after sign-in; zero assignments/publications/drafts | PASS_LOCAL_BROWSER |
+| Manual Creator/Studio, missions and assignments remain direct | Browser/manual navigation and legacy route regressions | PASS_LOCAL_BROWSER_AND_TEST |
+| Marketing-disabled/none/viewer and feature-off states | Browser negatives; feature-off unavailable-state/component tests; authenticated agents metadata integration test | PASS_LOCAL_BROWSER_AND_TEST |
+| Other modules' pending approvals stay visible | Marketing-off native pending Support request in App approvals; shared decision regressions | PASS_LOCAL_BROWSER_AND_TEST |
+| Native review/activation/source/role/budget/publishing semantics | Unchanged server services; full existing regression | PASS_TEST |
+| Paid/live uLiquid Desk pilot | MA-09 prerequisites only | NOT_RUN |
+
+
 
 ## Marketing Agent v2 — MA-07 (2026-10-21, local)
 

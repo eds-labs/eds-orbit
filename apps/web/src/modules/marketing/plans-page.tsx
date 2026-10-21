@@ -9,20 +9,50 @@ import { AppLink } from "@/platform/ui/app-link";
 import { PageHead } from "@/platform/ui/collection";
 import { Alert, Button } from "@/components/ui/primitives";
 import { PlanCard, PlanActivationCard } from "./plan-card";
+import {
+  PlanInAssistantButton,
+  MarketingManualLinks,
+  useMarketingAccess,
+} from "./marketing-entry";
+import { SavedPlanList, planNextStep } from "./plan-navigation";
+import { ResourceError } from "@/platform/ui/collection";
 export function MarketingPlansPage() {
   const { project, locale } = useWorkspace();
+  const { enabled } = useMarketingAccess();
+  if (!enabled)
+    return (
+      <>
+        <PageHead
+          title={locale === "de" ? "Marketingpläne" : "Marketing plans"}
+          description={
+            locale === "de"
+              ? "Gespeicherte Strategien und getrennte Freigaben."
+              : "Saved strategies and separate approvals."
+          }
+        />
+        <Alert>
+          {locale === "de"
+            ? "Marketingpläne sind aktuell nicht verfügbar. Die manuellen Werkzeuge bleiben erreichbar."
+            : "Marketing plans are currently unavailable. Manual tools remain accessible."}
+        </Alert>
+        <MarketingManualLinks />
+      </>
+    );
   return (
-    <Suspense
-      fallback={
-        <p role="status">{locale === "de" ? "Wird geladen…" : "Loading…"}</p>
-      }
-    >
-      <ProjectPlans key={project.id} />
-    </Suspense>
+    <div className="marketing-plans-page">
+      <Suspense
+        fallback={
+          <p role="status">{locale === "de" ? "Wird geladen…" : "Loading…"}</p>
+        }
+      >
+        <ProjectPlans key={project.id} />
+      </Suspense>
+    </div>
   );
 }
 function ProjectPlans() {
-  const { project, locale, isOwner } = useWorkspace();
+  const { project, locale } = useWorkspace();
+  const { isOwner, canEdit } = useMarketingAccess();
   const de = locale === "de";
   const search = useSearchParams();
   const id = search.get("plan");
@@ -56,18 +86,16 @@ function ProjectPlans() {
             </AppLink>
           </Button>
         )}
-        <Button asChild variant="outline">
-          <AppLink href="/chat">
-            {de
-              ? "Im Chat vorschlagen oder ändern"
-              : "Propose or change in chat"}
-          </AppLink>
-        </Button>
+        {canEdit && <PlanInAssistantButton planId={selected || undefined} />}
       </PageHead>
-      {(plans.error || detail.error || mutation.error) && (
-        <Alert kind="error">
-          {plans.error?.message ?? detail.error?.message ?? mutation.error}
-        </Alert>
+      <MarketingManualLinks />
+      <ResourceError
+        error={selected ? detail.error : plans.error}
+        retry={selected ? detail.refresh : plans.refresh}
+      />
+      {mutation.error && <Alert kind="error">{mutation.error}</Alert>}
+      {selected && detail.loading && (
+        <p role="status">{de ? "Plan wird geladen…" : "Loading plan…"}</p>
       )}
       {plans.loading && (
         <p role="status">{de ? "Wird geladen…" : "Loading…"}</p>
@@ -79,19 +107,14 @@ function ProjectPlans() {
             : "No marketing plan yet. Describe the goal, horizon and budget in chat."}
         </p>
       )}
-      {!selected && (
-        <ul>
-          {plans.data?.items.map((p) => (
-            <li key={p.id}>
-              <a href={`/p/${project.id}/marketing/plans?plan=${p.id}`}>
-                {p.spec.title}
-              </a>{" "}
-              · {p.status} · Revision {p.revision}
-            </li>
-          ))}
-        </ul>
+      {!selected && plans.data && (
+        <SavedPlanList
+          plans={plans.data.items}
+          projectId={project.id}
+          de={de}
+        />
       )}
-      {plans.data?.truncated && (
+      {!selected && plans.data?.truncated && (
         <p>
           {de
             ? "Die neuesten 20 Pläne werden angezeigt."
@@ -100,6 +123,30 @@ function ProjectPlans() {
       )}
       {detail.data && (
         <>
+          <section
+            className="marketing-plan-guidance"
+            aria-label={de ? "Nächster Schritt" : "Next step"}
+          >
+            <h2>{planNextStep(detail.data, de)}</h2>
+            <p>
+              {de
+                ? "Strategie, konkrete Aufträge und einzelne Beiträge werden getrennt freigegeben."
+                : "Strategy, exact assignments and individual posts have separate approvals."}
+            </p>
+            <nav aria-label={de ? "Zum Plan" : "Plan navigation"}>
+              <AppLink href={`/p/${project.id}/approvals`}>
+                {de ? "Beiträge prüfen" : "Review posts"}
+              </AppLink>
+              <AppLink
+                href={`/p/${project.id}/marketing/analytics#marketing-reports`}
+              >
+                {de ? "Berichte prüfen" : "Review reports"}
+              </AppLink>
+              <AppLink href={`/p/${project.id}/decisions`}>
+                {de ? "Alle App-Freigaben" : "All app approvals"}
+              </AppLink>
+            </nav>
+          </section>
           <PlanCard
             plan={detail.data}
             request={detail.data.actionRequest}

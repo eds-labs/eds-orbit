@@ -25,6 +25,8 @@ export type AttentionRenderer = (
 
 /** A navigation entry; views without one are reachable by URL only. */
 export type NavEntry = {
+  /** Navigation needs this advertised feature; direct URLs retain server guards. */
+  feature?: string;
   label: Label;
   icon: LucideIcon;
   /** Position in the sidebar, shared by the platform and all modules. */

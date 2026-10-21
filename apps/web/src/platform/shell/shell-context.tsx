@@ -22,6 +22,8 @@ export type ShellModule = {
   groupOrder?: number;
   /** From GET /api/projects/:id/modules; true while unknown (fallback). */
   enabled: boolean;
+  /** Current server-advertised module role, distinct from the project role. */
+  access?: string;
   /** The module's pages with a navigation entry, in sidebar order. */
   nav: readonly Route[];
   /** Key of the module's first settings section; its sidebar group links there. */
@@ -46,7 +48,7 @@ export type ShellContextValue = {
   /** The URL of a page in the open project. */
   hrefOf: (key: string) => string;
   /** Chat parts of the modules, in registry order (WP2.3). */
-  chat: readonly ChatExtension[];
+  chat: ReadonlyArray<ChatExtension & { access?: string }>;
   /** Inbox views of action request types, by type (WP2.3). */
   actionRequests: Readonly<Record<string, ActionRequestRenderer>>;
   /** The attention items, shared by the sidebar and the home (useAttention). */

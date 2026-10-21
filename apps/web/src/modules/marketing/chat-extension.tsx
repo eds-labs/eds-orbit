@@ -1,4 +1,6 @@
 "use client";
+import { MarketingAssistantNavigation } from "./marketing-entry";
+import { marketingTemplates } from "./chat-templates";
 import { RunOperationView, type RunOperation } from "./run-operation";
 import { ChatPlanCard } from "./plan-card";
 import { action, collectionPath, post } from "@/lib/api";
@@ -288,6 +290,8 @@ function ChatPackages({ host }: { host: ChatHost }) {
 }
 
 export const marketingChat: ChatExtension = {
+  navigation: MarketingAssistantNavigation,
+  templates: marketingTemplates,
   messageCards: {
     assignment: ChatAssignmentCard,
     marketing_plan: ChatPlanCard,

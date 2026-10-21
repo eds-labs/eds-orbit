@@ -77,7 +77,14 @@ export const marketingWeb: WebModule = {
       key: "marketing-plans",
       path: "plans",
       component: MarketingPlansPage,
-      nav: { label: { en: "Plans", de: "Pläne" }, icon: Brain, order: 5 },
+      nav: {
+        feature: "agents",
+        label: { en: "Plans", de: "Pläne" },
+        icon: Brain,
+        order: 5,
+        mobile: true,
+        mobileRank: 35,
+      },
     },
     {
       key: "missions",
@@ -92,7 +99,12 @@ export const marketingWeb: WebModule = {
       key: "assignments",
       path: "assignments",
       component: AssignmentsPage,
-      nav: { label: label("assignments"), icon: ClipboardList, order: 20 },
+      nav: {
+        feature: "agents",
+        label: label("assignments"),
+        icon: ClipboardList,
+        order: 20,
+      },
     },
     {
       key: "content",

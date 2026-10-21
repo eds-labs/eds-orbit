@@ -1,4 +1,5 @@
 "use client";
+import { MarketingStart } from "./marketing-entry";
 import { useEffect, useMemo, useState } from "react";
 import { Bot, CalendarClock } from "lucide-react";
 import {
@@ -108,6 +109,7 @@ export function MarketingHomeCard() {
       href={shell.hrefOf("marketing-overview")}
       className="marketing-home"
     >
+      <MarketingStart compact />
       {/* A 404 means Orbit Agents is off: no run to show. */}
       {activity.error?.status !== 404 &&
         (shown ? (

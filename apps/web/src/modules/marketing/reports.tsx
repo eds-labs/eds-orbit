@@ -193,6 +193,7 @@ export function PeriodicReports() {
   if (resource.error?.code === "AGENTS_DISABLED") return null;
   return (
     <section
+      id="marketing-reports"
       className="panel marketing-reports"
       aria-label={de ? "Marketing-Berichte" : "Marketing reports"}
     >

@@ -1,5 +1,24 @@
 # Implementation status
 
+## Marketing Agent v2 — MA-08 (2026-10-21, local)
+
+Project home and Marketing now lead into the existing Orbit Assistant, saved plans
+and deliberate content release. Module-owned templates/navigation retain the single
+assistant; prompts are editable drafts and start no work. Saved plans explain their
+next review step. Direct manual tools/legacy URLs and shared Support/App approvals
+remain available. Navigation and controls use advertised feature/module roles.
+
+One additive read-only module-status field advertises the existing agents guard;
+no flag/default/authority change. Details, limits, changed files, verification and
+MA-09 preparation only: `docs/plans/marketing-agent-v2-ma08.md`.
+
+Final MA-08 verification: **3,037 tests in 279 files passed** (595.49 seconds),
+plus five isolated desktop/mobile Playwright scenarios. Lint, root/web typecheck,
+production build, regenerated contracts, framework/secret/diff checks and zero
+import-boundary violations pass. No paid call, provider write, migration, push,
+deployment or live pilot was performed.
+
+
 
 ## Marketing Agent v2 — MA-07 (2026-10-21, local)
 

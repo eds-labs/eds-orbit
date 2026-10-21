@@ -15,6 +15,15 @@ export type ChatHost = {
 
 /** A module's parts of the platform chat (WP2.3, plans 03 §10). */
 export type ChatExtension = {
+  /** Module-owned navigation above the existing assistant; no separate chat. */
+  navigation?: ComponentType;
+  /** Suggested text only. Selecting a template never submits it. */
+  templates?(context: {
+    projectName: string;
+    de: boolean;
+    canEdit: boolean;
+    features: Record<string, boolean>;
+  }): Array<{ label: string; prompt: string }>;
   /** Renderers of message cards by kind, shown above the generic cards. */
   messageCards?: Readonly<
     Record<string, ComponentType<{ card: any; host: ChatHost }>>
