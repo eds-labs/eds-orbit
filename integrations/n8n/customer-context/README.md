@@ -105,5 +105,7 @@ secrets are locked Coolify variables; see `deploy/n8n.env.example`.
   ```
 
   `e2e/start-n8n.sh` starts a fresh n8n (SQLite, loopback) per run; it never
-  touches another instance. Without `FAMILYPLAN_HANDLER` the FamilyPlan stand-in
+  touches another instance. With `N8N_E2E_RUNNERS=external` the Code nodes run
+  in a Docker container of `n8nio/runners` with n8n's version, as on Coolify
+  (stop it with `docker rm -f orbit-cc-n8n-e2e-runner-5678`). Without `FAMILYPLAN_HANDLER` the FamilyPlan stand-in
   answers from the fixtures.

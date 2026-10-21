@@ -67,12 +67,20 @@ same env).
 ## 5. Task runners
 
 n8n 2.x deprecates the internal task runner. With external runners
-(`N8N_RUNNERS_MODE=external`, `n8nio/runners` of the **same** version), the
-JavaScript runner must also allow `crypto`. The local evidence used the
-internal runner; after switching to external runners, run the Orbit
-connection check for both integrations: if the Code nodes cannot read `$env`
-or load `crypto`, the check fails (`CUSTOMER_CONTEXT_CHECK_MISCONFIGURED` or
-`…_PROVIDER_ERROR`) instead of answering wrongly.
+(`N8N_RUNNERS_MODE=external`, `n8nio/runners` of the **same** version) the
+Code nodes run in the runner container. The image's launcher configuration
+(`/etc/n8n-task-runners.json`, checked in 2.44.5) already allows `crypto`
+for the JavaScript runner and does not pass `NODE_FUNCTION_ALLOW_BUILTIN`
+from the container environment, so the runner needs no extra variable; a
+different allowlist would need a mounted launcher configuration. `$env` and
+`this.helpers.httpRequest` are served by the main n8n process, so
+`N8N_BLOCK_ENV_ACCESS_IN_NODE` and the product variables belong on the n8n
+container. The local end-to-end test covers this mode
+(`N8N_E2E_RUNNERS=external`, see "Evidence"). After any runner change, run
+the Orbit connection check for both integrations: if the Code nodes cannot
+read `$env` or load `crypto`, the check fails
+(`CUSTOMER_CONTEXT_CHECK_MISCONFIGURED` or `…_PROVIDER_ERROR`) instead of
+answering wrongly; without a connected runner the gateway answers 500.
 
 ## 6. Network
 
@@ -208,7 +216,7 @@ temporary Coolify domain.
 | Separation from Orbit | ✅ | own Coolify project and Postgres, stack network only, no published ports, no Orbit variables |
 | Other workflows | ✅ | none; no credentials, no executions |
 | Execution data and hardening | ❌ | none of `EXECUTIONS_*`, `N8N_DIAGNOSTICS_ENABLED`, `N8N_PERSONALIZATION_ENABLED`, `N8N_VERSION_NOTIFICATIONS_ENABLED`, `N8N_TEMPLATES_ENABLED`, `N8N_PUBLIC_API_DISABLED`, `N8N_COMMUNITY_PACKAGES_ENABLED`, `N8N_SECURE_COOKIE`, `NODE_FUNCTION_ALLOW_BUILTIN`, `N8N_RUNNERS_TASK_TIMEOUT` is set; the public API answers (401 instead of 404) and community nodes are enabled; `N8N_BLOCK_ENV_ACCESS_IN_NODE` is set with template default `true` (the gateway needs `false`) |
-| Task runners | ⚠️ | `N8N_RUNNERS_MODE=external` with a separate runner container; the local evidence used the internal runner (section 5); the Python runner is enabled (`N8N_NATIVE_PYTHON_RUNNER`, template default `true`) |
+| Task runners | ⚠️ | `N8N_RUNNERS_MODE=external` with a separate runner container; the local evidence then used the internal runner (section 5; external runners passed locally later the same day, see below); the Python runner is enabled (`N8N_NATIVE_PYTHON_RUNNER`, template default `true`) |
 | Backups | ❌ | no Coolify backup schedule and no scheduled task |
 
 Final domain (Mario, 2026-10-21): `n8n.eds-labs.io`, so the Orbit
@@ -229,9 +237,10 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
 4. Domain: DNS A record for `n8n.eds-labs.io`, change the n8n service domain
    in Coolify, redeploy, check the certificate and `/healthz`.
 5. Run the local end-to-end test with external task runners (section 5)
-   before changing the env access setting.
+   before changing the env access setting. **Done 2026-10-21** (see below).
 6. Instance env from `deploy/n8n.env.example` (execution data, hardening,
-   `NODE_FUNCTION_ALLOW_BUILTIN=crypto` on n8n and the runner, and
+   `NODE_FUNCTION_ALLOW_BUILTIN=crypto` on n8n (the runner image allows
+   `crypto` already, section 5), and
    `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` last); optionally disable the
    Python runner.
 7. Optional (section 6): restrict the editor UI in Traefik.
@@ -246,3 +255,19 @@ runner are `running:healthy`, `/healthz` and `/healthz/readiness` answer 200,
 and the n8n log shows no encryption key mismatch. Observation: right after the
 restart n8n logged one `EAI_AGAIN` DNS failure for `api.n8n.io`; check
 outbound DNS from the container before the adapters call Desk and FamilyPlan.
+
+### External task runners (local, 2026-10-21)
+
+`apps/api/tests/customer-context-n8n.integration.test.ts` with
+`N8N_E2E_RUNNERS=external`: n8n 2.44.5 on the host (SQLite, loopback) and the
+`n8nio/runners:2.44.5` image in Docker, connected to the task broker with a
+per-run token and without any product or Code node variable in the runner
+container. 7/7 with the FamilyPlan fixtures and 7/7 with FamilyPlan's real
+handler (familyplan `2f9765b`); the internal-runner run stayed 7/7 and the
+integration unit tests 55/55. This shows that the runner image allows
+`crypto`, and that `$env` and the product calls are served by the main
+process (the runner container had neither the variables nor a route to the
+loopback stubs). Negative check: with the runner container stopped, the
+gateway answered 500 after 10 s instead of its 401, so the Code nodes ran
+only in the external runner. Not covered: the Coolify network between the
+two containers and the production values.

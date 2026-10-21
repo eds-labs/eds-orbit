@@ -32,12 +32,25 @@ ENV=(PATH="$PATH" HOME="${HOME:-/tmp}"
   CC_DESK_BASE_URL="http://127.0.0.1:${DESK_STUB_PORT:-5801}" CC_DESK_TOKEN="$(token deskToken)"
   CC_FAMILYPLAN_FUNCTION_URL="http://127.0.0.1:${FAMILYPLAN_STUB_PORT:-5802}/functions/v1/support-customer-context"
   CC_FAMILYPLAN_TOKEN="$(token familyPlanToken)")
+
+# N8N_E2E_RUNNERS=external runs the Code nodes in a Docker container of the
+# n8nio/runners image with n8n's version, as on Coolify (runbook section 5);
+# the default is n8n's internal runner.
+RUNNERS=${N8N_E2E_RUNNERS:-internal}
+RUNNER_NAME=orbit-cc-n8n-e2e-runner-$PORT
+BROKER_PORT=${N8N_E2E_BROKER_PORT:-5679}
+if [ "$RUNNERS" = external ]; then
+  RUNNER_TOKEN=$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')
+  ENV+=(N8N_RUNNERS_ENABLED=true N8N_RUNNERS_MODE=external N8N_RUNNERS_AUTH_TOKEN="$RUNNER_TOKEN"
+    N8N_RUNNERS_BROKER_LISTEN_ADDRESS=127.0.0.1 N8N_RUNNERS_BROKER_PORT="$BROKER_PORT")
+fi
 n8n() { env -i "${ENV[@]}" "$N8N_BIN" "$@"; }
 
 if [ -f "$PID_FILE" ]; then
   kill "$(cat "$PID_FILE")" 2>/dev/null || true
   for _ in $(seq 1 30); do kill -0 "$(cat "$PID_FILE")" 2>/dev/null || break; sleep 1; done
 fi
+if command -v docker >/dev/null; then docker rm -f "$RUNNER_NAME" >/dev/null 2>&1 || true; fi
 for file in adapter-uliquid-desk adapter-familyplan gateway; do
   n8n import:workflow --input="$HERE/workflows/$file.json" >/dev/null
 done
@@ -46,6 +59,14 @@ for id in CcAdapterUliquidDesk01 CcAdapterFamilyPlan001 CcGatewayOrbit0001; do
 done
 nohup env -i "${ENV[@]}" "$N8N_BIN" start >"$HOME_DIR/n8n.log" 2>&1 &
 echo $! >"$PID_FILE"
+if [ "$RUNNERS" = external ]; then
+  # The image's launcher config allows crypto for the JavaScript runner;
+  # NODE_FUNCTION_ALLOW_BUILTIN in the container env is not passed through.
+  docker run -d --rm --name "$RUNNER_NAME" \
+    -e N8N_RUNNERS_TASK_BROKER_URI="http://host.docker.internal:$BROKER_PORT" \
+    -e N8N_RUNNERS_AUTH_TOKEN="$RUNNER_TOKEN" -e N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=15 \
+    "n8nio/runners:$(n8n --version | tail -1)" >/dev/null
+fi
 
 # Ready when the gateway webhook answers: an unsigned call is refused with 401.
 URL="http://127.0.0.1:$PORT/webhook/orbit-cc/v1/customer-context/lookup"
@@ -56,4 +77,5 @@ for _ in $(seq 1 120); do
 done
 echo "n8n did not become ready" >&2
 tail -20 "$HOME_DIR/n8n.log" >&2
+[ "$RUNNERS" = external ] && docker logs --tail 20 "$RUNNER_NAME" >&2
 exit 1
