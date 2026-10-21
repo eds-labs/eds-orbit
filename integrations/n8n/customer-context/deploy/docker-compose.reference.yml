@@ -67,9 +67,10 @@ services:
     environment:
       - N8N_RUNNERS_TASK_BROKER_URI=http://n8n:5679
       - N8N_RUNNERS_AUTH_TOKEN=${SERVICE_PASSWORD_64_N8NRUNNERS}
-      # Must reach the JavaScript runner; verify with the Orbit connection
-      # check after every change (runbook, "Task runners").
-      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      # No NODE_FUNCTION_ALLOW_BUILTIN here: the image's launcher config
+      # (/etc/n8n-task-runners.json) already allows crypto for the JavaScript
+      # runner and does not pass that variable through. Verify with the Orbit
+      # connection check after every runner change (runbook, "Task runners").
     depends_on:
       - n8n
 
