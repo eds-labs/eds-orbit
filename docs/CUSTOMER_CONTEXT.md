@@ -18,22 +18,22 @@ After changing the zod source run `pnpm contract:customer-context`; `packages/sc
 ## Architecture
 
 ```
- Orbit (consumer)                    n8n (gateway, optional)            Product (provider)
- ───────────────                     ───────────────────────            ──────────────────
+ Orbit (consumer)                    n8n gateway + adapters             Product API
+ ───────────────                     ──────────────────────             ───────────
  Support ticket (widget, verified)
    → contact identity of the inbox
    → inbox binding → integration
    → signed POST /v1/customer-context/lookup ──► verify token + HMAC
-                                                 route by integration ──► POST /v1/customer-context/lookup
-                                                                          resolve user id, allowlist
-                                     ◄── pass through unchanged ◄──────── 200 CustomerContext | problem
+                                                 integration → adapter ──► product's own read API
+                                                 map to v1 (allowlist)◄── (Desk Customer Context API,
+                                     ◄── strict v1 check ◄──────────────   FamilyPlan support-customer-context)
    ← check schema, echo, availability
    → agent card / AI draft evidence (never stored)
 ```
 
 - **Orbit** decides *whether* to ask (flag, module, permission, binding, verified identity) and *what it means* (`ok`, `not_found`, `identity_unverified`, `forbidden`, `unavailable`).
-- **n8n** holds the product credentials and forwards. It changes no field.
-- **The product** owns its domain: it maps its plans, features and quotas to the neutral v1 shape and leaves out everything else.
+- **n8n** (`integrations/n8n/customer-context/`, versioned in this repository) authenticates Orbit, routes each integration to its bound product adapter and translates the product's own read API into v1 with a field allowlist; it validates every answer against v1 before returning it. It holds the product credentials.
+- **The product** owns its data and exposes a read-only API for the user id it signs for the widget.
 
 A product can be configured as the provider directly; the contract is the same.
 
@@ -61,26 +61,9 @@ X-Orbit-Signature: v1=<hex HMAC-SHA256(signingSecret, X-Orbit-Timestamp + "." + 
 
 A provider must check the token, recompute the HMAC over the **raw** request body, compare in constant time, reject timestamps more than 300 s off, and require `X-Orbit-Request-Id` to equal `requestId`. Failures answer `401 unauthenticated` with no detail. Rotate by creating a new integration and switching the inbox binding.
 
-## n8n gateway workflow (per integration)
+## n8n gateway
 
-1. **Webhook** node: `POST`, path ending in `/v1/customer-context/lookup`, authentication *Header Auth* with the integration token, option *Raw Body* on, response mode *Using "Respond to Webhook" node*.
-2. **Code** node: verify the signature and timestamp (needs `crypto`, e.g. `NODE_FUNCTION_ALLOW_BUILTIN=crypto`):
-
-   ```js
-   const crypto = require("crypto");
-   const raw = Buffer.from($input.first().binary.data.data, "base64");
-   const ts = $input.first().json.headers["x-orbit-timestamp"];
-   const sig = $input.first().json.headers["x-orbit-signature"] ?? "";
-   const expected = "v1=" + crypto.createHmac("sha256", $env.ORBIT_CC_SIGNING_SECRET).update(`${ts}.${raw}`).digest("hex");
-   const fresh = Math.abs(Date.now() / 1000 - Number(ts)) <= 300;
-   const ok = fresh && sig.length === expected.length && crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected));
-   return [{ json: { ok, body: ok ? JSON.parse(raw.toString("utf8")) : null } }];
-   ```
-3. **IF** `ok` is false → **Respond to Webhook** `401` with `problem-unauthenticated` (no detail).
-4. **HTTP Request** node: `POST` the unchanged body to the product's v1 endpoint with the product credential, timeout 2,500 ms, "Never error" on HTTP status, full response.
-5. **Respond to Webhook**: the product's status code, `content-type` and body unchanged. On a product timeout answer `504 upstream_timeout`; on a network error `503 service_unavailable`.
-
-The workflow must not log request or response bodies (disable execution data saving for successful and failed runs, or prune it immediately). Keep one workflow per integration so a token can only reach its own product.
+Implemented in [`integrations/n8n/customer-context/`](../integrations/n8n/customer-context/README.md): one gateway workflow (webhook `POST /webhook/orbit-cc/v1/customer-context/lookup`, so the Orbit base URL is `https://<n8n>/webhook/orbit-cc`) and one adapter sub-workflow per product (uLiquid Desk, FamilyPlan). The gateway checks token, signature, timestamp and request id as described above, maps each integration id to exactly one adapter (`CC_GATEWAY_INTEGRATIONS`) and answers only strictly valid v1 contexts or problems. Execution data is not stored. Operations: [`deployment/N8N_CUSTOMER_CONTEXT.md`](deployment/N8N_CUSTOMER_CONTEXT.md).
 
 ## Configuration in Orbit
 

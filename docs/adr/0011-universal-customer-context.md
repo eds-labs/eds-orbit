@@ -68,3 +68,12 @@ Implemented locally behind `ORBIT_CUSTOMER_CONTEXT` (default off), from the requ
 - **The integration is a platform connection** with its own owner action (`customer-context-connect`), because it needs a source system, a timeout and two secrets; the generic `connector` action refuses the provider. The connection check sends the reserved subject `orbit-connection-check`; only `read_verified` integrations are read.
 - **Verified means:** a widget ticket of the bound inbox whose contact has exactly one `SupportContactIdentity` of that inbox.
 - Configuration and behaviour: `docs/CUSTOMER_CONTEXT.md` ("Configuration in Orbit") and `docs/SUPPORT.md` ("Customer context").
+
+## Addendum 2026-10-21: n8n integration layer, phase 1 (CC-3 to CC-5)
+
+From the request "n8n Integration Layer – Customer Context Phase 1". This amends decision 7 and the corresponding consequence:
+
+- **n8n translates; products expose their own read API.** uLiquid Desk already had its own Customer Context API (`GET /integrations/v1/customers/:id/context`, deployed, token not yet activated); changing it to emit v1 would have been a second Desk change with its own approval (H11). FamilyPlan gets a read-only Edge Function `support-customer-context` with its own small contract (familyplan PR, not deployed). The adapters in n8n map both to v1. This is the "field mapping in n8n" alternative, now accepted with the safeguards that were missing when it was rejected: the mapping is code in this repository (`integrations/n8n/customer-context/src/`), generated into the workflows by `build.mjs`, covered by unit and contract tests against the zod schema, and the gateway validates every answer strictly against v1 before it reaches Orbit.
+- **One gateway, one adapter per product** instead of one workflow per integration: `CC_GATEWAY_INTEGRATIONS` binds each Orbit integration id to exactly one adapter with its own token hash and signing secret, so a credential reaches only its own product.
+- **FamilyPlan bills per family:** the account gets the most favourable access of its families (Mario, 2026-10-21); only family counts leave FamilyPlan.
+- Orbit itself is unchanged; the contract stays v1. Operations: `docs/deployment/N8N_CUSTOMER_CONTEXT.md`.

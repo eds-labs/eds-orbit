@@ -1,0 +1,93 @@
+# Reference only, not deployed by this repository: what the n8n instance for
+# the customer context gateway should look like on Coolify. n8n already runs
+# in Coolify (Mario, 2026-10-21); compare it with this file instead of
+# installing a second instance. Pin both images to the same tested version.
+# Runbook: docs/deployment/N8N_CUSTOMER_CONTEXT.md
+
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:2.44.5
+    restart: unless-stopped
+    environment:
+      - SERVICE_URL_N8N_5678
+      - N8N_HOST=${SERVICE_FQDN_N8N}
+      - N8N_PROTOCOL=https
+      - WEBHOOK_URL=${SERVICE_URL_N8N}/
+      - N8N_PROXY_HOPS=1
+      - GENERIC_TIMEZONE=UTC
+      - N8N_ENCRYPTION_KEY=${SERVICE_PASSWORD_64_N8NENCRYPTION}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${SERVICE_USER_POSTGRES}
+      - DB_POSTGRESDB_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=none
+      - EXECUTIONS_DATA_SAVE_ON_ERROR=none
+      - EXECUTIONS_DATA_SAVE_ON_PROGRESS=false
+      - EXECUTIONS_DATA_SAVE_MANUAL_EXECUTIONS=false
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=24
+      - EXECUTIONS_TIMEOUT=30
+      - EXECUTIONS_TIMEOUT_MAX=60
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_VERSION_NOTIFICATIONS_ENABLED=false
+      - N8N_TEMPLATES_ENABLED=false
+      - N8N_PUBLIC_API_DISABLED=true
+      - N8N_COMMUNITY_PACKAGES_ENABLED=false
+      - N8N_SECURE_COOKIE=true
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # External task runner (internal mode is deprecated in n8n 2.x).
+      - N8N_RUNNERS_MODE=external
+      - N8N_RUNNERS_AUTH_TOKEN=${SERVICE_PASSWORD_64_N8NRUNNERS}
+      - N8N_RUNNERS_BROKER_LISTEN_ADDRESS=0.0.0.0
+      - N8N_RUNNERS_TASK_TIMEOUT=60
+      # Customer context gateway and adapters (locked Coolify secrets).
+      - CC_GATEWAY_INTEGRATIONS=${CC_GATEWAY_INTEGRATIONS:-[]}
+      - CC_DESK_BASE_URL=${CC_DESK_BASE_URL:-https://api.desk.uliquid.vip}
+      - CC_DESK_TOKEN=${CC_DESK_TOKEN:-}
+      - CC_FAMILYPLAN_FUNCTION_URL=${CC_FAMILYPLAN_FUNCTION_URL:-}
+      - CC_FAMILYPLAN_TOKEN=${CC_FAMILYPLAN_TOKEN:-}
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/healthz/readiness || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  task-runners:
+    image: docker.n8n.io/n8nio/runners:2.44.5
+    restart: unless-stopped
+    environment:
+      - N8N_RUNNERS_TASK_BROKER_URI=http://n8n:5679
+      - N8N_RUNNERS_AUTH_TOKEN=${SERVICE_PASSWORD_64_N8NRUNNERS}
+      # Must reach the JavaScript runner; verify with the Orbit connection
+      # check after every change (runbook, "Task runners").
+      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+    depends_on:
+      - n8n
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${SERVICE_USER_POSTGRES}
+      - POSTGRES_PASSWORD=${SERVICE_PASSWORD_POSTGRES}
+      - POSTGRES_DB=n8n
+    volumes:
+      - n8n-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  n8n-data:
+  n8n-postgres:

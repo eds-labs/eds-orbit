@@ -15,8 +15,10 @@ rule. No new dependency, no paid provider.
 | Contract v1 (ADR 0011) | Done; contract tests pass |
 | CC-1 Orbit platform | Implemented locally, flag off; unit and integration tests pass |
 | CC-2 Orbit Support | Implemented locally, flag off; integration, security and AI draft tests pass |
-| CC-3 n8n, CC-4 FamilyPlan, CC-5 uLiquid Desk | Not started (other applications) |
-| Production activation | Not authorized; requires a passed end-to-end integration test (Rollout step 2) |
+| CC-3 n8n gateway and adapters | Implemented in `integrations/n8n/customer-context/`; unit tests and local end-to-end test (n8n 2.44.5, 7/7) pass; not imported into the Coolify n8n |
+| CC-4 FamilyPlan | Read-only Edge Function `support-customer-context` on familyplan branch `claude/support-customer-context` (PR #1, draft); 165/165 Deno tests; not deployed |
+| CC-5 uLiquid Desk | No change: the existing Desk Customer Context API is used through the adapter; Desk token not yet activated |
+| Production activation | Not authorized. Local end-to-end test passed (Rollout step 2, local); production steps in `docs/deployment/N8N_CUSTOMER_CONTEXT.md` §11, each separately approved |
 
 ## Plan
 
@@ -39,11 +41,11 @@ rule. No new dependency, no paid provider.
 
 ### CC-3 n8n
 
-One workflow per integration (public HTTPS), Header Auth with the integration token, signature check, forward to the product, response passed through unchanged, no stored execution data. Details: `docs/CUSTOMER_CONTEXT.md`.
+One gateway workflow and one adapter sub-workflow per product (ADR 0011, addendum "n8n integration layer"): `integrations/n8n/customer-context/`, operations in `docs/deployment/N8N_CUSTOMER_CONTEXT.md`.
 
 ### CC-4 FamilyPlan and CC-5 uLiquid Desk
 
-Each product adds a read-only `POST /v1/customer-context/lookup` that resolves the user id it already signs for the widget, maps its own plans, features and quotas to v1, and passes the conformance checklist with the shared examples. Product deploys need their own approval (master spec H11); Desk keeps working when Orbit or n8n is down.
+Each product exposes a read-only API for the user id it signs for the widget; the n8n adapter maps it to v1. FamilyPlan: new Edge Function `support-customer-context` (own contract, service token). Desk: its existing Customer Context API. Product deploys need their own approval (master spec H11); Desk keeps working when Orbit or n8n is down.
 
 ### Rollout
 

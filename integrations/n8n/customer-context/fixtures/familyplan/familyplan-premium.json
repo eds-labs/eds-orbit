@@ -1,0 +1,79 @@
+{
+  "contractVersion": "1.0",
+  "generatedAt": "2026-10-21T09:15:00.000Z",
+  "customer": {
+    "externalUserId": "familyplan:5b2f0c1e-7d4a-4c8e-9a61-0f3b2d7c1a01",
+    "accountStatus": "active",
+    "familyCount": 1,
+    "premiumFamilyCount": 1
+  },
+  "access": {
+    "status": "active",
+    "source": "apple",
+    "planKey": "family_premium",
+    "planTitle": "FamilyPlan Premium",
+    "expiresAt": "2026-11-21T09:00:00.000Z"
+  },
+  "features": [
+    {
+      "key": "dashboard",
+      "title": "Dashboard",
+      "allowed": true
+    },
+    {
+      "key": "today",
+      "title": "Heute",
+      "allowed": true
+    },
+    {
+      "key": "calendar",
+      "title": "Kalender",
+      "allowed": true
+    },
+    {
+      "key": "tasks",
+      "title": "Aufgaben",
+      "allowed": true
+    },
+    {
+      "key": "lists",
+      "title": "Listen",
+      "allowed": true
+    },
+    {
+      "key": "chat",
+      "title": "Chat",
+      "allowed": true
+    },
+    {
+      "key": "meals",
+      "title": "Essen",
+      "allowed": true
+    },
+    {
+      "key": "recipes",
+      "title": "Rezepte",
+      "allowed": true
+    },
+    {
+      "key": "school",
+      "title": "Schule",
+      "allowed": true
+    },
+    {
+      "key": "rewards",
+      "title": "Punkte",
+      "allowed": true
+    },
+    {
+      "key": "budget",
+      "title": "Budget",
+      "allowed": true
+    },
+    {
+      "key": "locations",
+      "title": "Standorte",
+      "allowed": true
+    }
+  ]
+}

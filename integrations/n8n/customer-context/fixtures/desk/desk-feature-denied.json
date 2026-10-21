@@ -1,0 +1,177 @@
+{
+  "contractVersion": "1.0",
+  "generatedAt": "2026-10-21T09:15:00.000Z",
+  "customer": {
+    "externalUserId": "ckdesk0003denied",
+    "accountStatus": "active"
+  },
+  "subscription": {
+    "status": "active",
+    "source": "subscription",
+    "plan": {
+      "code": "pro",
+      "name": "Pro"
+    },
+    "currentPeriod": {
+      "startsAt": "2026-10-14T08:00:00.000Z",
+      "endsAt": "2026-11-14T08:00:00.000Z",
+      "graceEndsAt": "2026-11-17T08:00:00.000Z"
+    },
+    "accessEndsAt": "2026-11-17T08:00:00.000Z",
+    "lastPeriod": null,
+    "renewal": {
+      "autoRenew": false,
+      "cancelAtPeriodEnd": true,
+      "nextPeriod": null
+    }
+  },
+  "features": {
+    "capabilityPlan": "pro",
+    "items": [
+      {
+        "key": "ai_predictions",
+        "title": "AI predictions",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "ai_prediction_builder",
+        "title": "AI prediction builder",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "market_intelligence",
+        "title": "Market Intelligence",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "market_intelligence_advanced",
+        "title": "Advanced Market Intelligence",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "ai_agent_chat",
+        "title": "AI Agent Chat",
+        "available": false,
+        "reason": "not_in_plan",
+        "requiredPlan": "premium"
+      },
+      {
+        "key": "ai_agent_account_reads",
+        "title": "AI agent account reads",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "ai_agent_custom_profiles",
+        "title": "Custom AI agent profiles",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "ai_position_copilot",
+        "title": "Position Copilot",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "ai_position_monitoring",
+        "title": "AI position monitoring",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "ai_multi_exchange_analysis",
+        "title": "Multi-exchange AI analysis",
+        "available": false,
+        "reason": "not_in_plan",
+        "requiredPlan": "premium"
+      },
+      {
+        "key": "local_strategies",
+        "title": "Local strategies",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "composite_strategies",
+        "title": "Composite strategies",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "grid_bots",
+        "title": "Grid bots",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "vaults",
+        "title": "Vaults",
+        "available": false,
+        "reason": "not_in_plan",
+        "requiredPlan": "premium"
+      },
+      {
+        "key": "paper_trading",
+        "title": "Paper trading",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      },
+      {
+        "key": "trading_journal",
+        "title": "Trading journal",
+        "available": true,
+        "reason": null,
+        "requiredPlan": null
+      }
+    ]
+  },
+  "limits": {
+    "maxRunningBots": 5,
+    "maxExchangeAccounts": 3,
+    "maxRunningAiPredictions": 3,
+    "maxRunningCompositePredictions": 1,
+    "allowedExchanges": [
+      "*"
+    ]
+  },
+  "aiCredits": {
+    "enforced": true,
+    "state": "available",
+    "balance": "380",
+    "reserved": "0",
+    "available": "380",
+    "monthlyIncluded": "500",
+    "usage": {
+      "today": "15",
+      "thisMonth": "120",
+      "lifetime": "1220"
+    },
+    "limits": {
+      "daily": null,
+      "monthly": null,
+      "perRun": null
+    },
+    "resets": {
+      "dailyUsageResetsAt": "2026-10-22T00:00:00.000Z",
+      "monthlyUsageResetsAt": "2026-11-01T00:00:00.000Z",
+      "nextMonthlyGrantAt": "2026-11-14T08:00:00.000Z"
+    }
+  }
+}

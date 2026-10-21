@@ -15,6 +15,8 @@ export default defineConfig({
       "evals/**/*.test.ts",
       // Repository checks (scripts/*.mjs) are plain ES modules.
       "scripts/**/*.test.mjs",
+      // n8n integration code (plain JavaScript for n8n Code nodes).
+      "integrations/**/*.test.mjs",
     ],
     testTimeout: 30000,
     hookTimeout: 30000,
