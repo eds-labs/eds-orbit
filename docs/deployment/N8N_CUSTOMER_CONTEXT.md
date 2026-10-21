@@ -163,3 +163,48 @@ Local, 2026-10-21: `apps/api/tests/customer-context-n8n.integration.test.ts`
 Desk's own context builder (uliquid-desk `f92364b`) and FamilyPlan's real
 handler (familyplan `2f9765b`). Not production evidence: no Coolify instance,
 no real product credentials and no real customer were involved.
+
+### Section 1 check of the Coolify instance (read-only, 2026-10-21)
+
+Read through the Coolify MCP (environment variable names only), the Coolify
+compose view (secret values filtered out), the n8n UI and external HTTPS
+requests. Nothing was changed, saved, deployed or restarted. The instance is
+a Coolify "n8n with PostgreSQL" service created on 2026-10-21, on its
+temporary Coolify domain.
+
+| Check | Result | Finding |
+|---|---|---|
+| n8n version | ✅ | `n8nio/n8n:2.44.5`, runners `n8nio/runners:2.44.5` |
+| Database | ✅ | `DB_TYPE=postgresdb`, `postgres:17-alpine` in the same stack |
+| Persistence | ✅ | named volumes for `/home/node/.n8n` and `/var/lib/postgresql/data` |
+| `N8N_ENCRYPTION_KEY` | ⚠️ | not set explicitly; n8n generated a key in the data volume, not in the password manager |
+| HTTPS | ⚠️ | valid Let's Encrypt certificate, HTTP redirects to HTTPS, `/healthz` and `/healthz/readiness` 200; `WEBHOOK_URL`, `N8N_HOST`, `N8N_EDITOR_BASE_URL` follow `SERVICE_URL_N8N`, `N8N_PROXY_HOPS` set (template default 1); still the temporary domain |
+| Accounts | ⚠️ | one user (Mario, owner), no pending invitations; 2FA disabled |
+| Separation from Orbit | ✅ | own Coolify project and Postgres, stack network only, no published ports, no Orbit variables |
+| Other workflows | ✅ | none; no credentials, no executions |
+| Execution data and hardening | ❌ | none of `EXECUTIONS_*`, `N8N_DIAGNOSTICS_ENABLED`, `N8N_PERSONALIZATION_ENABLED`, `N8N_VERSION_NOTIFICATIONS_ENABLED`, `N8N_TEMPLATES_ENABLED`, `N8N_PUBLIC_API_DISABLED`, `N8N_COMMUNITY_PACKAGES_ENABLED`, `N8N_SECURE_COOKIE`, `NODE_FUNCTION_ALLOW_BUILTIN`, `N8N_RUNNERS_TASK_TIMEOUT` is set; the public API answers (401 instead of 404) and community nodes are enabled; `N8N_BLOCK_ENV_ACCESS_IN_NODE` is set with template default `true` (the gateway needs `false`) |
+| Task runners | ⚠️ | `N8N_RUNNERS_MODE=external` with a separate runner container; the local evidence used the internal runner (section 5); the Python runner is enabled (`N8N_NATIVE_PYTHON_RUNNER`, template default `true`) |
+| Backups | ❌ | no Coolify backup schedule and no scheduled task |
+
+Final domain (Mario, 2026-10-21): `n8n.eds-labs.io`, so the Orbit
+integrations will use `https://n8n.eds-labs.io/webhook/orbit-cc`. No DNS
+record exists for it yet.
+
+Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
+
+1. Turn on 2FA for the owner account (Mario).
+2. Store the generated encryption key in the password manager and set it as
+   a locked Coolify variable `N8N_ENCRYPTION_KEY` with the **same** value;
+   n8n refuses to start when the variable differs from the key in its
+   settings file.
+3. Daily backup of the n8n database as in section 8, then a restore drill
+   into an isolated database.
+4. Domain: DNS A record for `n8n.eds-labs.io`, change the n8n service domain
+   in Coolify, redeploy, check the certificate and `/healthz`.
+5. Run the local end-to-end test with external task runners (section 5)
+   before changing the env access setting.
+6. Instance env from `deploy/n8n.env.example` (execution data, hardening,
+   `NODE_FUNCTION_ALLOW_BUILTIN=crypto` on n8n and the runner, and
+   `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` last); optionally disable the
+   Python runner.
+7. Optional (section 6): restrict the editor UI in Traefik.
