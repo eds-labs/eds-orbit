@@ -1,5 +1,29 @@
 # Implementation status
 
+## Marketing Agent v2 — MA-09 (2026-10-21, local preparation)
+
+Current main `b9288c85` was integrated into the MA-08 chain with merge `221cdc5`.
+Read-only Orbit/Coolify inspection found that the recorded live deployment does not
+contain MA-00–08. Native uLiquid readiness remains `test_ready`, blocked by live RAG
+and channel-write evidence. Existing policy limits are not a new pilot spend grant.
+
+The concrete release/pilot runbook, sanitized snapshot, rollback and pending real
+weekly-cycle worksheet are in `docs/plans/marketing-agent-v2-ma09.md` and
+`docs/evidence/marketing-agent-v2-ma09-preflight.json`. No runtime feature was added. Upstream main acceptance failed its dependency audit;
+local commit `8af5d09` pins Vite 8 to patched 8.3.3 and regenerates its related lock
+entries. The high-severity audit passes locally; remote candidate CI is not run.
+Final local verification: **3,052 tests in 280 files passed** (594.84 seconds),
+five isolated desktop/mobile browser scenarios, lint, root/web typecheck, build,
+contract regeneration, high-threshold audit, framework/secrets/import/diff checks.
+All 1,009 tracked manifest source files match pre-run commit `8af5d09`; the raw
+manifest also includes an ignored TypeScript build cache, documented in the runbook.
+
+**MA-09 is prepared but NOT accepted.** No pilot assignment, paid call, external write,
+production flag change, push or deployment was performed. Release approval, exact
+runtime/readiness/source/cost evidence, two real weekly cycles, exact post releases,
+reconciled publication and a delivered report remain prerequisites.
+
+
 ## Marketing Agent v2 — MA-08 (2026-10-21, local)
 
 Project home and Marketing now lead into the existing Orbit Assistant, saved plans

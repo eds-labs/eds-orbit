@@ -1,0 +1,188 @@
+{
+  "phase": "MA-09",
+  "status": "NO_GO_LIVE_PILOT_NOT_STARTED",
+  "observed_at": "2026-10-21T11:27:06Z",
+  "timezone": "Europe/Berlin",
+  "collection": "Read-only Orbit and Coolify connector projections; no paid calls, provider writes, deployment or flag change.",
+  "source": {
+    "tested_candidate": "8af5d09",
+    "marketing_parent": "e9c5d9d",
+    "main_parent": "b9288c85a6959dde0d9d3b5249d0c9a0cb5a2de3",
+    "branch": "codex/marketing-agent-v2-ma09",
+    "pushed": false,
+    "integration_commit": "221cdc5"
+  },
+  "project": {
+    "id": "21356dfc-ceaf-4a2e-92b4-11f54f0182f5",
+    "name": "uLiquid",
+    "profile_version": 4,
+    "language": "en",
+    "timezone": "Europe/Berlin",
+    "mode": "assisted",
+    "paused": false,
+    "modules": [
+      "knowledge",
+      "support",
+      "marketing"
+    ],
+    "member_roles": "UNKNOWN",
+    "owner_pilot_confirmation": "NOT_GRANTED"
+  },
+  "deployment": {
+    "application_id": "vfnfmbkbyb8hkjb5h7eamv18",
+    "deployment_id": "iysjzaecrhwsznf3rlzzfyhn",
+    "recorded_commit": "b9288c85a6959dde0d9d3b5249d0c9a0cb5a2de3",
+    "finished_at": "2026-10-21T11:21:19Z",
+    "status": "finished",
+    "application_status": "running:healthy",
+    "health_check_enabled": false,
+    "custom_healthcheck_found": false,
+    "marketing_phase_chain_present_in_recorded_commit": false,
+    "api_worker_build_identity": "UNKNOWN",
+    "container_digests": "UNKNOWN",
+    "queue_progress": "UNKNOWN",
+    "runtime_flag_values": "UNKNOWN",
+    "note": "Deployment database status is not per-container source attestation."
+  },
+  "readiness": {
+    "status": "test_ready",
+    "blockers": [
+      "LIVE_RAG_EVAL_REQUIRED",
+      "CHANNEL_WRITE_VERIFICATION_REQUIRED"
+    ],
+    "postiz_draft": "ready",
+    "postiz_schedule": "blocked",
+    "postiz_live": "blocked",
+    "note": "Draft readiness never overrides human_each exact content/media approval."
+  },
+  "policy": {
+    "id": "47a8ff26-7ec5-4d55-bfd9-f483f48e2560",
+    "version": 1,
+    "allowed_channels": [
+      "cmufswv260001pg89nlreglzx",
+      "cmuzo48lv000ap680k62s1s39"
+    ],
+    "observed_ai_budget_usd": {
+      "daily": 10,
+      "monthly": 20,
+      "per_run": 10
+    },
+    "valid_from": "2026-10-12T15:30:00Z",
+    "valid_until": "2026-12-31T23:00:00Z",
+    "remaining_held_unknown_cost": "UNKNOWN",
+    "new_pilot_spend_authorization": "NOT_GRANTED",
+    "note": "AI spend mandate, not an advertising budget; original no-paid restriction remains binding."
+  },
+  "channels": [
+    {
+      "id": "cmufswv260001pg89nlreglzx",
+      "name": "uLiquid",
+      "provider": "x",
+      "allowed_by_policy": true,
+      "live_write_verification": "MISSING"
+    },
+    {
+      "id": "cmuzo48lv000ap680k62s1s39",
+      "name": "uLiquid Desk — Official Community",
+      "provider": "telegram",
+      "allowed_by_policy": true,
+      "live_write_verification": "MISSING"
+    },
+    {
+      "id": "cmu9g999m0001o18n6dfzymud",
+      "name": "uLiquid Desk",
+      "provider": "telegram",
+      "allowed_by_policy": false,
+      "selected": false
+    }
+  ],
+  "knowledge": {
+    "source_count": 9,
+    "source_listing_complete": true,
+    "active_source_ids": [
+      "318afaa8-878c-45e6-86a8-defa4cf5f0a6",
+      "3270a62a-e552-490d-9f61-d9ad0fbb7cd3",
+      "7cbc5d54-22ca-4427-b571-d24f6fb817db",
+      "7f3fe6f5-a52c-43f6-b227-1003586df2e9"
+    ],
+    "revoked_source_count": 5,
+    "manual_source_stale_flag": true,
+    "manual_source_last_sync": null,
+    "sample_facts_verified_at": "2026-10-19",
+    "fact_listing_complete": false,
+    "facts_inspected": 40,
+    "next_fact_cursor": "4ef12c09-47d7-426e-9329-88d97330f2d0",
+    "official_cta_profile_url": "https://desk.uliquid.vip/en/register",
+    "profile_cta_fact_id": "2c4845f9-7f50-4dc1-b818-9ff861144416",
+    "current_fact_and_profile_binding": "VALUE_MATCHES_BUT_DIFFERENT_FACT_ID_REQUIRES_NATIVE_VALIDATION",
+    "asset_rights_and_bytes": "UNKNOWN",
+    "note": "Stale source projection with null sync and recently verified facts requires native expiry/rights checks; not proof all facts are invalid. Exclude financial/presale claims and revoked sources.",
+    "current_cta_fact": {
+      "id": "44547700-36dc-4486-8c20-aa6e4c5200a0",
+      "version": 1,
+      "key": "url.beta_registration",
+      "url": "https://desk.uliquid.vip/en/register"
+    },
+    "additional_page_observed_at": "2026-10-21T11:32:50Z"
+  },
+  "measurement": {
+    "projection_items": 4,
+    "next_cursor": null,
+    "metric_fields_available": false,
+    "source_period_counter_attribution": "UNKNOWN",
+    "note": "Items without counters are not zero metrics or a valid no-data report."
+  },
+  "live_evidence": {
+    "plan_id": null,
+    "assignment_id": null,
+    "runs": [],
+    "content_ids": [],
+    "owner_releases": [],
+    "remote_publication_receipts": [],
+    "weekly_cycles_observed": 0,
+    "delivered_report_id": null,
+    "proposed_revision_id": null
+  },
+  "limits": [
+    "Snapshot may change after collection; rerun read-only gates immediately before an authorized operation.",
+    "Empty bounded approvals/drafts projections do not prove there are no active assignments, jobs or uncertain provider outcomes.",
+    "No image asset, provider route/price, live recovery or two-week recurrence evidence collected.",
+    "Additional fact page inspected after the initial deployment/project snapshot; 40 facts total, still incomplete. Browser read attempt reached sign-in only; no authenticated operations inventory obtained."
+  ],
+  "ci": {
+    "main_acceptance_run": 39590721569,
+    "main_sha": "b9288c85a6959dde0d9d3b5249d0c9a0cb5a2de3",
+    "conclusion": "failure",
+    "failed_step": "Run pnpm audit --audit-level high",
+    "url": "https://github.com/eds-labs/eds-orbit/actions/runs/39590721569",
+    "local_reproduction": "Vite 8.3.0 / GHSA-587h-7wmj-h5pm",
+    "local_remediation": "Vite 8 override to 8.3.3, lock regenerated; final validation tracked in runbook",
+    "candidate_remote_ci": "NOT_RUN",
+    "local_remediation_commit": "8af5d09"
+  },
+  "local_validation": {
+    "candidate": "8af5d09",
+    "vitest": {
+      "files": 280,
+      "tests": 3052,
+      "seconds": 594.84,
+      "exit_code": 0
+    },
+    "browser": {
+      "scenarios": 5,
+      "seconds": 15.0,
+      "synthetic_cleanup_verified": true
+    },
+    "lint_typecheck_build_contract_framework_secrets_boundaries_diff": "PASS",
+    "high_threshold_audit": "PASS_WITH_3_MODERATE_AND_1_LOW_REMAINING",
+    "source_integrity": {
+      "tracked_files": 1009,
+      "tracked_aggregate_sha256": "23d0c2d944c1133fe38c93ad7b068d3e740e8ca3e83919de8c8e9ba0ac253b02",
+      "matches_pre_run_commit": "8af5d09",
+      "unfiltered_before": "cd03dcacabea00ee4cab9e827b3ce703a4d6b9e643243f3fdee3c5ab362e5182",
+      "unfiltered_after": "5b2cfce497cc320d6d829d4f5a6d08f6809d130cc4ed11a09bd0e1e9ea0cf702",
+      "untracked_build_cache_in_unfiltered_manifest": "apps/web/tsconfig.tsbuildinfo",
+      "note": "Existing manifest includes an ignored TypeScript incremental cache. The unfiltered hashes differ; all tracked manifest file bytes were individually compared with the pre-run commit via git cat-file and match."
+    }
+  }
+}

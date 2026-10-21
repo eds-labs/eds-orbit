@@ -1,5 +1,21 @@
 # Requirements traceability
 
+## Marketing Agent v2 — MA-09 (2026-10-21, local preparation)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Current main integrated without losing MA-00–08 | Merge `221cdc5`; both status histories retained; 35 focused integration/contract tests | PASS_LOCAL |
+| Upstream CI high-severity dependency audit | Main run `39590721569` failed; local Vite 8.3.3 pin `8af5d09` passes the high threshold | PASS_LOCAL_REMOTE_NOT_RUN |
+| Final current-main + patched graph regression | 3,052 tests / 280 files, five browser scenarios; lint/typecheck/build/audit/framework/secrets/import/diff pass; 1,009 tracked source files match pre-run Git objects | PASS_LOCAL |
+| Current source/runtime attestation | Coolify recorded `b9288c85`, lacking MA phase chain; API/worker identity and queues unverified | BLOCKED |
+| uLiquid project/policy/source/channel preflight | Sanitized read-only snapshot and §9 gate table | OBSERVED_PARTIAL |
+| Live RAG and channel-write readiness | Native blockers in project readiness | BLOCKED |
+| Reviewed release, budget and exact post/media grants | Concrete scoped runbook; no blanket grant inferred from existing AI policy | AWAITING_APPROVAL |
+| One live approved publication / two real weekly cycles | No pilot assignment/run/release/remote receipt | NOT_RUN |
+| Measured/no-data report and reviewable improvement | Counter scope unknown; no pilot report/receipt | NOT_RUN |
+| Complete MA-09 acceptance | `docs/plans/marketing-agent-v2-ma09.md` | NOT_ACCEPTED |
+
+
 ## Marketing Agent v2 — MA-08 (2026-10-21, local)
 
 | Requirement | Evidence | State |
