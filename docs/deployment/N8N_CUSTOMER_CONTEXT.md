@@ -380,3 +380,17 @@ in step 5 does that (expected: Desk answers 404 for the reserved subject).
 Deviation from the Desk runbook: the token lives in the n8n environment, not
 in an n8n credential (section 3), and the Desk files were edited directly
 instead of re-rendered, with the same result for this single key.
+
+### FamilyPlan function deployed (section 11 step 4, 2026-10-21)
+
+Mario merged familyplan PR #1 (`06e47a2`; function, contract and
+`config.toml` identical to the tested `2f9765b`, whose 12 function tests
+passed locally), and Codex deployed only `support-customer-context` to the
+FamilyPlan Supabase project (version 1, `verify_jwt=false`). The local
+Supabase CLI had an invalid code signature after an update and was killed by
+macOS; `brew reinstall supabase` fixed it. Verified read-only without a
+token: `POST` 503 `NOT_CONFIGURED` (no token hash set yet, fail closed, and
+no Supabase gateway 401, so JWT verification is off), `POST` with an
+`Origin` header 403, `GET` 405, `Cache-Control: no-store, private`. Next: the
+token hash as function secret `SUPPORT_CUSTOMER_CONTEXT_TOKEN_SHA256`, then
+`CC_FAMILYPLAN_TOKEN` and `CC_FAMILYPLAN_FUNCTION_URL` in n8n.
