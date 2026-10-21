@@ -42,8 +42,8 @@ remaining execution record is pruned after 24 h. The gateway logs nothing.
 | Secret | Created by | Lives in | Rotation |
 |---|---|---|---|
 | Orbit integration token and signing secret (per integration) | owner, when creating the integration in Orbit | Orbit vault (encrypted); n8n `CC_GATEWAY_INTEGRATIONS` holds the token's SHA-256 and the signing secret | new Orbit integration, add it to `CC_GATEWAY_INTEGRATIONS`, check, rebind the inbox, remove the old entry |
-| Desk client token `dctx_…` | Mario (Desk runbook `docs/runbooks/customer-context-api-n8n.md`) | n8n `CC_DESK_TOKEN`; Desk stores its hash | Desk accepts two hashes during a rotation |
-| FamilyPlan service token `fpctx_…` | Mario (familyplan `docs/SUPPORT_ORBIT_ROLLOUT.md`) | n8n `CC_FAMILYPLAN_TOKEN`; FamilyPlan stores its hash | FamilyPlan accepts two hashes during a rotation |
+| Desk client token `dctx_…` | Mario (uliquid-desk runbook `uliquid-desk/docs/runbooks/customer-context-api-n8n.md`) | n8n `CC_DESK_TOKEN`; Desk stores its hash | Desk accepts two hashes during a rotation |
+| FamilyPlan service token `fpctx_…` | Mario (`familyplan/docs/SUPPORT_ORBIT_ROLLOUT.md`) | n8n `CC_FAMILYPLAN_TOKEN`; FamilyPlan stores its hash | FamilyPlan accepts two hashes during a rotation |
 | `N8N_ENCRYPTION_KEY`, DB password, runner token | Coolify generators | Coolify, password manager | with a planned maintenance |
 
 Generate random values on a trusted workstation, for example
