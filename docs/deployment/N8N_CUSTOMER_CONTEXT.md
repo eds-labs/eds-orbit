@@ -101,13 +101,38 @@ versions) and `N8N_ENCRYPTION_KEY`. The workflow definitions live in Git and
 the gateway secrets in Coolify, so a lost instance can be rebuilt by
 importing. Customer data is not stored (execution data off).
 
-Follow the Orbit backup pattern (`docs/BACKUP_RESTORE.md`): a daily
-`pg_dump --format=custom` of the n8n database with the same Postgres major
-version, `pg_restore --list` check, `age` encryption to the owner's public
-key, upload to the R2 bucket under a separate prefix `n8n/` with its own
-API token (write only for that prefix) and its own lifecycle rule (for
-example 30 days), and a Coolify scheduled task with failure notification.
-Restore drills run only into an isolated database.
+Decision (Mario, 2026-10-21): use Coolify's built-in backup of the stack's
+Postgres component to Cloudflare R2, **without** the `age` encryption of the
+Orbit pattern (`docs/BACKUP_RESTORE.md`). Reason: the n8n stack is a Coolify
+service template that can only pull published images, and the Orbit backup
+image is built from the Orbit repository and not published. The deviation is
+acceptable because the dump holds little that is readable: no execution data
+(customer data) once the section 2 settings apply, n8n credentials are
+encrypted with `N8N_ENCRYPTION_KEY` (not in the dump), the gateway secrets
+live in the Coolify environment, and the workflow definitions are in Git.
+Readable after a bucket leak: workflow definitions and the owner's password
+hash. Revisit the decision if the instance starts to store other data.
+
+Setup (owner, in this order):
+
+1. R2: a private EU bucket used only for n8n (an R2 API token can be limited
+   to a bucket, not to a prefix), a lifecycle rule that deletes objects
+   after 30 days, and an API token with Object Read & Write for that bucket
+   only.
+2. Coolify, S3 Storages: a new storage with the R2 endpoint, bucket and
+   token, validated.
+3. n8n service, Backups: a schedule for the Postgres component (for example
+   `30 3 * * *` in the server time zone, apart from the Orbit backup), S3
+   upload to that storage, local retention 2 dumps, S3 retention 30 days.
+4. Coolify notifications: failed backups alert the owner (Telegram).
+5. Run the backup once by hand and check the execution and the object in
+   the bucket.
+
+Restore drill: download one dump and restore it only into a fresh, isolated
+PostgreSQL 17 database (never over production); `pg_restore --list` must
+succeed and the restored database must contain the n8n tables. A real
+restore also needs `N8N_ENCRYPTION_KEY` from the password manager, otherwise
+no stored n8n credential decrypts.
 
 ## 9. Updates
 
