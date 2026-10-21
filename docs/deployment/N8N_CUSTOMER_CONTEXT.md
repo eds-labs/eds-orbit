@@ -235,7 +235,8 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
    connected in Coolify, but the n8n service has no backup schedule or
    execution yet.
 4. Domain: DNS A record for `n8n.eds-labs.io`, change the n8n service domain
-   in Coolify, redeploy, check the certificate and `/healthz`.
+   in Coolify, redeploy, check the certificate and `/healthz`. **Done
+   2026-10-21** (see below).
 5. Run the local end-to-end test with external task runners (section 5)
    before changing the env access setting. **Done 2026-10-21** (see below).
 6. Instance env from `deploy/n8n.env.example` (execution data, hardening,
@@ -271,3 +272,18 @@ loopback stubs). Negative check: with the runner container stopped, the
 gateway answered 500 after 10 s instead of its 401, so the Code nodes ran
 only in the external runner. Not covered: the Coolify network between the
 two containers and the production values.
+
+### Final domain (2026-10-21)
+
+Mario created the DNS record and set the n8n service domain in Coolify to
+`https://n8n.eds-labs.io:5678` (the port names the container port for the
+proxy; the public URL has none), then redeployed. Verified read-only: Let's
+Encrypt certificate for `n8n.eds-labs.io` (valid until 2027-01-19), HTTP
+redirects to HTTPS, `/healthz` and `/healthz/readiness` 200, port 5678 is
+not reachable from outside, the temporary domain no longer routes (503),
+and Coolify reports the n8n URL as `https://n8n.eds-labs.io` with all
+containers `running:healthy`. `WEBHOOK_URL`, `N8N_HOST` and
+`N8N_EDITOR_BASE_URL` reference `SERVICE_URL_N8N`, which Coolify derives
+from that domain; their runtime values were not read. The webhook base is
+confirmed directly once the gateway is imported (the lookup path answers 404
+until then).
