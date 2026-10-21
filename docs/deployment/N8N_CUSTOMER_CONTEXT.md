@@ -229,10 +229,8 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
 2. Store the generated encryption key in the password manager and set it as
    a locked Coolify variable `N8N_ENCRYPTION_KEY` with the **same** value;
    n8n refuses to start when the variable differs from the key in its
-   settings file. **Partly done** (2026-10-21): the key is in the password
-   manager and in Coolify, but the compose file references it in the
-   `task-runners` service instead of `n8n`, so n8n still reads the key from
-   its settings file (see below).
+   settings file. **Done 2026-10-21** (see below; the first reference sat in
+   the wrong service and was moved).
 3. Daily backup of the n8n database as in section 8, then a restore drill
    into an isolated database. **Open** (2026-10-21): an R2 storage is
    connected in Coolify, but the n8n service has no backup schedule or
@@ -258,7 +256,13 @@ Coolify variable with the same value and redeployed. Correction (found while
 applying section 2): the reference sits in the `task-runners` service, not in
 `n8n`, so the main process does not receive the variable and keeps using the
 key from its settings file; the runner launcher does not pass it on either.
-Moving the reference to `n8n` is a separate approved step. Verified
+On Mario's approval Claude then moved the reference from `task-runners` to
+`n8n`, saved the compose file and restarted the service (17:01 server time).
+Verified read-only: the saved and the generated compose file reference
+`N8N_ENCRYPTION_KEY` only in `n8n`; one fresh start with version 2.44.5, both
+runners registered, all containers `running:healthy`, readiness 200, and no
+encryption key mismatch or other error in the n8n log, so the Coolify value
+matches the key in the settings file. Verified
 read-only afterwards: the variable exists (name only, locked), n8n and the
 runner are `running:healthy`, `/healthz` and `/healthz/readiness` answer 200,
 and the n8n log shows no encryption key mismatch. Observation: right after the
