@@ -73,7 +73,7 @@ describe("mobileEntries", () => {
     ).toEqual(["home", "chat", "support-tickets", "approvals"]);
     expect(
       mobileEntries(table.routes, enabledIn(["support"])).map((r) => r.key),
-    ).toEqual(["home", "chat", "approvals", "content"]);
+    ).toEqual(["home", "chat", "approvals", "marketing-plans"]);
   });
 
   it("only offers routes the enabled check allows", () => {
@@ -126,11 +126,13 @@ describe("mobileCurrentKey", () => {
     expect(mobileCurrentKey(bar, null)).toBeUndefined();
   });
 
-  it("lets Content stand for Marketing when support is off", () => {
+  it("lets Plans stand for Marketing when support is off (MA-08)", () => {
     // With support off the bar carries Approvals (a platform page) and
-    // Content, Marketing's only own entry on the bar (R12b).
+    // Plans is Marketing's first own bar entry while the agent feature is on.
     const noSupport = mobileEntries(table.routes, enabledIn(["support"]));
-    expect(mobileCurrentKey(noSupport, route("missions"))).toBe("content");
+    expect(mobileCurrentKey(noSupport, route("missions"))).toBe(
+      "marketing-plans",
+    );
     expect(mobileCurrentKey(noSupport, route("approvals"))).toBe("approvals");
     expect(mobileCurrentKey(noSupport, route("settings"))).toBeUndefined();
   });

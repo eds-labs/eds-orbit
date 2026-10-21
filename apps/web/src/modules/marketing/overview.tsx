@@ -1,4 +1,5 @@
 "use client";
+import { MarketingStart, useMarketingAccess } from "./marketing-entry";
 import { useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -220,6 +221,7 @@ function NextPosts({
 /** The marketing overview, the root of the Marketing module. */
 export function MarketingOverview() {
   const { project, t, locale, revision, canEdit } = useWorkspace();
+  const marketing = useMarketingAccess();
   const dashboard = useResource<Dashboard>(
     collectionPath(project.id, `dashboard?revision=${revision}`),
   );
@@ -258,13 +260,14 @@ export function MarketingOverview() {
             {t("createContent")}
           </AppLink>
         </Button>
-        {canEdit && (
+        {canEdit && !marketing.enabled && (
           <Button onClick={() => setCreate(true)}>
             <Plus data-icon="inline-start" />
             {t("newMission")}
           </Button>
         )}
       </PageHead>
+      <MarketingStart />
       <ResourceError error={dashboard.error} retry={dashboard.refresh} />
       {dashboard.loading ? (
         <Loading />

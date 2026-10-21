@@ -1,3 +1,4 @@
+import { lockMetrics } from "./analytics/metric-report.ts";
 import { z } from "zod";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
 import { importAdsCsv } from "../../../../../packages/connectors/src/index.ts";
@@ -217,6 +218,7 @@ export const marketingActions: Record<string, ActionHandler> = {
       })
       .strict()
       .parse(input);
+    await lockMetrics(tx, scope);
     const previous = await list(tx, scope, "metrics");
     const result = importAdsCsv(i.csv, {
       ...i,

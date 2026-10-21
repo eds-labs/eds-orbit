@@ -143,6 +143,26 @@ describe.skipIf(!enabled)("Module activation API", () => {
     });
   });
 
+  it("advertises the current agents feature without granting module access", async () => {
+    const previous = process.env.ORBIT_AGENTS;
+    try {
+      for (const enabled of [false, true]) {
+        process.env.ORBIT_AGENTS = String(enabled);
+        const response = await call(
+          "viewer",
+          "GET",
+          `/api/projects/${projectId}/modules`,
+        );
+        expect(response.statusCode).toBe(200);
+        expect(response.json().features.agents).toBe(enabled);
+        expect(modules(response).marketing?.enabled).toBe(true);
+      }
+    } finally {
+      if (previous === undefined) delete process.env.ORBIT_AGENTS;
+      else process.env.ORBIT_AGENTS = previous;
+    }
+  });
+
   it("hides the project's modules from non-members and callers without a session", async () => {
     expect(
       (await call("outsider", "GET", `/api/projects/${projectId}/modules`))

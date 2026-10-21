@@ -135,6 +135,7 @@ export async function syncChannelPosts(
         ...(marker ? data(marker) : {}),
         attemptedAt: now.toISOString(),
         status: "running",
+        channels: channelIds,
       };
       if (marker) await update(tx, scope, marker, value);
       else await create(tx, scope, "channel_post_sync", value);
@@ -154,6 +155,7 @@ export async function syncChannelPosts(
           ...data(marker),
           status,
           storedCount: stored,
+          ...(status === "ok" ? { succeededAt: now.toISOString() } : {}),
         });
     });
   const since = now.valueOf() - CHANNEL_HISTORY_DAYS * DAY;

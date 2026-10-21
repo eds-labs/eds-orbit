@@ -1,3 +1,5 @@
+import { MarketingPlansPage } from "./plans-page";
+import { planReviewRenderer, planActivationRenderer } from "./plan-card";
 import {
   Brain,
   CalendarDays,
@@ -48,7 +50,11 @@ export const marketingWeb: WebModule = {
   homeOrder: 10,
   groupOrder: 10,
   chat: marketingChat,
-  actionRequests: { "assignment.confirm": assignmentConfirmRenderer },
+  actionRequests: {
+    "assignment.confirm": assignmentConfirmRenderer,
+    "marketing_plan.review": planReviewRenderer,
+    "marketing_plan.activate": planActivationRenderer,
+  },
   attention: marketingAttention,
   settings: marketingSettings,
   setupLinks: [PolicySetupLink],
@@ -68,6 +74,19 @@ export const marketingWeb: WebModule = {
       },
     },
     {
+      key: "marketing-plans",
+      path: "plans",
+      component: MarketingPlansPage,
+      nav: {
+        feature: "agents",
+        label: { en: "Plans", de: "Pläne" },
+        icon: Brain,
+        order: 5,
+        mobile: true,
+        mobileRank: 35,
+      },
+    },
+    {
       key: "missions",
       path: "missions",
       component: Missions,
@@ -80,7 +99,12 @@ export const marketingWeb: WebModule = {
       key: "assignments",
       path: "assignments",
       component: AssignmentsPage,
-      nav: { label: label("assignments"), icon: ClipboardList, order: 20 },
+      nav: {
+        feature: "agents",
+        label: label("assignments"),
+        icon: ClipboardList,
+        order: 20,
+      },
     },
     {
       key: "content",

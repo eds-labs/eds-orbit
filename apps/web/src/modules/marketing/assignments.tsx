@@ -1,4 +1,5 @@
 "use client";
+import { RunOperationView, type RunOperation } from "./run-operation";
 import { AppLink } from "@/platform/ui/app-link";
 import { useEffect, useState } from "react";
 import {
@@ -16,6 +17,7 @@ import {
   channelText,
   contentTypeLabels,
   deliveryText,
+  approvalModeText,
   formatText,
   sharedText,
   scheduleText,
@@ -36,10 +38,12 @@ export type AssignmentItem = Pick<
   | "channelNames"
   | "image"
   | "delivery"
+  | "approvalMode"
   | "sharedAcrossChannels"
   | "format"
   | "banner"
 > & {
+  latestRun?: { operation?: RunOperation } | null;
   version: number;
   status: string;
   schedule: AssignmentContent["schedule"];
@@ -47,6 +51,14 @@ export type AssignmentItem = Pick<
   nextRunAt: string | null;
   monthCostMicros: number;
   monthlyBudgetMicros: number;
+  pendingReviewLimit?: number;
+  backlog?: {
+    limit: number | null;
+    pending: number;
+    held: number;
+    available: number | null;
+    blocked: boolean;
+  };
   actionRequestId: string | null;
 };
 type AssignmentList = {
@@ -229,16 +241,14 @@ export function AssignmentTable({
   const editor = role !== "viewer";
   return (
     <div className="table-wrap">
-      <table>
+      <table className="assignments-table">
         <thead>
           <tr>
             <th>{de ? "Auftrag" : "Assignment"}</th>
             <th>Status</th>
             <th>{de ? "Nächste Vorbereitung" : "Next preparation"}</th>
             <th>{de ? "Kosten diesen Monat" : "Cost this month"}</th>
-            <th>
-              <span className="sr-only">{de ? "Aktionen" : "Actions"}</span>
-            </th>
+            <th scope="col" aria-label={de ? "Aktionen" : "Actions"} />
           </tr>
         </thead>
         <tbody>
@@ -266,7 +276,9 @@ export function AssignmentTable({
                   </small>
                   <small>
                     {de ? "Zustellung" : "Delivery"}:{" "}
-                    {deliveryText(item.delivery, de)}
+                    {deliveryText(item.delivery, de, item.approvalMode)}
+                    <br />
+                    {approvalModeText(item.approvalMode, de)}
                   </small>
                   {item.sharedAcrossChannels && (
                     <small>{sharedText(true, de, item.image)}</small>
@@ -289,6 +301,10 @@ export function AssignmentTable({
                       ])[de ? 1 : 0]
                     }
                   </Badge>
+                  <RunOperationView
+                    operation={item.latestRun?.operation}
+                    de={de}
+                  />
                   {item.status === "draft" && item.actionRequestId && (
                     <small>
                       {de ? "Bestätigung offen" : "Confirmation open"} ·{" "}
@@ -307,6 +323,22 @@ export function AssignmentTable({
                   {usd(item.monthCostMicros)} {de ? "von" : "of"}{" "}
                   {usd(item.monthlyBudgetMicros)}
                   {used !== null && <small>{used} %</small>}
+                  <small>
+                    {item.backlog?.limit != null
+                      ? de
+                        ? `${item.backlog.pending} warten · ${item.backlog.held} reserviert · Limit ${item.backlog.limit}`
+                        : `${item.backlog.pending} waiting · ${item.backlog.held} reserved · limit ${item.backlog.limit}`
+                      : de
+                        ? "Review-Limit nicht festgelegt"
+                        : "No review limit configured"}
+                  </small>
+                  {item.backlog?.blocked && (
+                    <small role="status">
+                      {de
+                        ? "Erstellung wartet auf freie Review-Kapazität"
+                        : "Generation waits for review capacity"}
+                    </small>
+                  )}
                 </td>
                 <td>
                   {editor && item.status !== "ended" && (

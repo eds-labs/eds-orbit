@@ -1,3 +1,6 @@
+import { marketingReportRoutes } from "./analytics/report-routes.ts";
+import { prepareContentNovelty, commitTopic } from "./agents/novelty.ts";
+import { marketingPlanRoutes } from "./plans/routes.ts";
 import { z } from "zod";
 import { jsonSafe, scoped } from "../../../../../packages/db/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
@@ -65,7 +68,10 @@ import { confirmProposal } from "./assistant/proposals.ts";
  * content package controls. The Orbit Agents gate stays in the platform's
  * onRequest hook, keyed by these route patterns.
  */
-export const marketingRoutes: RoutesContribution = ({ app, auth }) => {
+export const marketingRoutes: RoutesContribution = (context) => {
+  const { app, auth } = context;
+  marketingPlanRoutes(context);
+  marketingReportRoutes(context);
   app.post(
     "/api/slack/:workspaceId/:projectId/interactions",
     async (req, reply) => {
@@ -337,6 +343,8 @@ export const marketingRoutes: RoutesContribution = ({ app, auth }) => {
         throw new DomainError("VERSION_CONFLICT", 409);
       await entity(tx, scope, "evidence", input.data.evidenceId);
       await assertContentCampaignContext(tx, scope, input.data);
+      const hold = await prepareContentNovelty(tx, scope, input.data, id);
+      if (hold) await commitTopic(tx, scope, hold, id);
       await invalidateContent(tx, scope, id);
       return update(tx, scope, row, {
         ...withGenerationProvenance(data(row), input.data),

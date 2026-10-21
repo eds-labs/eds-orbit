@@ -1,3 +1,4 @@
+import { lockMetrics } from "./metric-report.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
@@ -18,6 +19,7 @@ export async function correctMetric(
   values: Record<string, unknown>,
   reason: string,
 ) {
+  await lockMetrics(tx, scope);
   const row = await entity(tx, scope, "metrics", id);
   if (row.version !== version) throw new DomainError("VERSION_CONFLICT", 409);
   const corrected = await update(tx, scope, row, {
@@ -33,6 +35,21 @@ export async function correctMetric(
         status: "invalidated",
         reason: "METRICS_CORRECTED",
         requiresReanalysis: true,
+      });
+  const reports = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: "marketing_reports",
+    },
+  });
+  for (const report of reports)
+    if ((data(report).metricRefs ?? []).some((ref: any) => ref.id === id))
+      await update(tx, scope, report, {
+        ...data(report),
+        status: "invalidated",
+        invalidationReason: "METRICS_CORRECTED",
+        revisionProposal: null,
       });
   await audit(tx, scope, "metric.correct", id, { version, reason });
   return corrected;

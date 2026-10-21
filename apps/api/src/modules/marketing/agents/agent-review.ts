@@ -4,7 +4,11 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, hash } from "../../../shared.ts";
 import { activePolicy } from "../policy/policy.ts";
 import { linkedTelegramConnection } from "../../../platform/connections/telegram.ts";
-import { agentsEnabled, assignmentHash } from "./assignments.ts";
+import {
+  agentsEnabled,
+  assignmentHash,
+  approvalModeOf,
+} from "./assignments.ts";
 
 /**
  * Agent review authority (Orbit Agents, spec §6). The review agent's
@@ -181,6 +185,11 @@ export async function agentReviewAccepted(
     return false;
   const assignment = await find("assignments", content.assignmentId);
   if (!assignment) return false;
+  if (
+    approvalModeOf(content) === "human_each" ||
+    approvalModeOf(data(assignment)) === "human_each"
+  )
+    return false;
   const confirmed = confirmedHash(data(assignment));
   if (!confirmed || review.assignmentHash !== confirmed) return false;
   if (!withinConfirmation(data(assignment), content)) return false;

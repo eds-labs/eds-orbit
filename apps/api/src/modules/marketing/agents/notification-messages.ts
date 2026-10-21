@@ -1,3 +1,5 @@
+import { runOperation } from "./run-operation.ts";
+import { runDeliverables } from "./veto.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { loadConfig } from "../../../../../../packages/config/src/index.ts";
@@ -451,7 +453,18 @@ async function runProblem(
   if (!problems.failed.length && !problems.dropped.length)
     return { skip: "STALE" };
   const r = data(runRow);
+  const operation = await runOperation(
+    tx,
+    scope,
+    runRow,
+    (await runDeliverables(tx, scope, runRow)).deliverables,
+  );
   const lines = [
+    `Status: ${operation.state} · Ausführung: ${operation.lifecycle}`,
+    `KI-Kosten (USD-Mikro): abgerechnet ${operation.costs.settledMicros}, reserviert ${operation.costs.heldMicros}, ungeklärt ${operation.costs.unknownMicros}`,
+    ...(operation.state === "outcome_unknown"
+      ? ["Ergebnis abgleichen; nicht erneut senden."]
+      : []),
     "Lauf mit Problemen",
     `Auftrag „${await assignmentName(tx, scope, r.assignmentId)}“, Lauf für den ${String(
       r.date ?? "",
@@ -474,7 +487,13 @@ async function runProblem(
   }
   if (problems.skipped.length)
     lines.push(`Übersprungen: ${problems.skipped.join(", ")}`);
-  return plain(clip(lines.join("\n"), TEXT_MAX), [openButton()]);
+  const target = operation.recovery[0]?.href ?? "/operations";
+  return plain(clip(lines.join("\n"), TEXT_MAX), [
+    {
+      text: "In Orbit prüfen",
+      url: `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/p/${scope.projectId}${target}`,
+    },
+  ]);
 }
 
 /** A post the owner expected that was blocked at claim or handoff (`ref` is the publication id). */
@@ -901,6 +920,22 @@ async function render(
       return deliveryChanged(tx, scope, ref);
     case "drafts_disabled":
       return draftsDisabled(tx, scope, ref);
+    case "marketing_report": {
+      const report = await maybe(() =>
+        entity(tx, scope, "marketing_reports", ref),
+      );
+      if (!report || data(report).status !== "ready") return { skip: "STALE" };
+      const d = data(report);
+      return plain(
+        `Marketing-Bericht ${d.period.from} – ${d.period.to} (Revision ${d.revision})\n${d.noData ? "Keine dem Plan zugeordneten Messdaten." : "Quellengetrennte, beobachtete Messdaten."}\n${d.complete ? "" : "Abdeckung unvollständig.\n"}Keine automatische Änderung des Auftrags.`,
+        [
+          {
+            text: "Bericht prüfen",
+            url: `${loadConfig().APP_ORIGIN.replace(/\/+$/, "")}/p/${scope.projectId}/marketing/analytics?report=${report.id}`,
+          },
+        ],
+      );
+    }
     case "daily_report":
       return dailyReport(tx, scope, ref, timezone);
   }

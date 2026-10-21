@@ -1,3 +1,5 @@
+import { planView } from "../plans/service.ts";
+import { agentsEnabled } from "../agents/assignments.ts";
 import type { ConversationSections } from "../../../platform/assistant/types.ts";
 import { conversationPackages } from "../agents/content-packages.ts";
 import { conversationAssignments } from "../agents/assignment-overview.ts";
@@ -22,5 +24,22 @@ export const marketingConversationSections: ConversationSections = async (
   const assignments = assignmentIds.length
     ? await conversationAssignments(tx, scope, assignmentIds)
     : [];
-  return { packages, assignments };
+  const planIds = [
+    ...new Set(
+      messages.flatMap((message) =>
+        message.cards
+          .filter((card: any) => card.kind === "marketing_plan")
+          .map((card: any) => card.marketingPlan?.id),
+      ),
+    ),
+  ]
+    .filter(
+      (id): id is string =>
+        typeof id === "string" && /^[0-9a-f-]{36}$/i.test(id),
+    )
+    .slice(0, 20);
+  const plans = agentsEnabled()
+    ? await Promise.all(planIds.map((planId) => planView(tx, scope, planId)))
+    : [];
+  return { packages, assignments, marketingPlans: plans };
 };

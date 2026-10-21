@@ -549,6 +549,30 @@ function imageIdea(task: AgentTask) {
   return String(withIdea?.imageIdea ?? briefs[0].topic);
 }
 
+/** Resume only local work after an image save committed before the worker stopped. */
+export async function recoverPersistedVisual(
+  scope: Scope,
+  task: AgentTask,
+  assetId: string,
+) {
+  await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    imageRightsSource(
+      await entity(tx, scope, "assignments", task.assignmentId),
+    );
+    const asset = await entity(tx, scope, "assets", assetId);
+    const a = data(asset);
+    if (
+      a.generationId !== runImageRequestId(task.id) ||
+      a.agentTaskId !== task.id ||
+      a.assignmentRunId !== task.runId ||
+      a.assignmentId !== task.assignmentId ||
+      !approvedRow(asset)
+    )
+      throw new DomainError(ASSET_RIGHTS_REQUIRED, 409);
+  });
+  return { assetId, ...(await attach(scope, task)) };
+}
+
 export const visualStep: StepHandler = async (scope, task) => {
   const idea = imageIdea(task);
   const requestId = runImageRequestId(task.id);

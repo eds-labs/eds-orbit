@@ -400,17 +400,28 @@ export function routesForFeatures(
   routes: readonly Route[],
   features: Record<string, boolean> = {},
 ) {
-  return routes.map((r) =>
-    r.alternateNav && features[r.alternateNav.feature]
-      ? {
-          ...r,
-          nav: r.alternateNav.nav ?? undefined,
-          ...(!r.alternateNav.nav
-            ? { navKey: r.navKey ?? r.moduleId ?? undefined }
-            : {}),
-        }
-      : r,
-  );
+  return routes.map((r) => {
+    const variant =
+      r.alternateNav && features[r.alternateNav.feature]
+        ? { ...r, nav: r.alternateNav.nav ?? undefined }
+        : r;
+    if (
+      !variant.nav ||
+      (variant.nav.feature && !features[variant.nav.feature])
+    ) {
+      return {
+        ...variant,
+        nav: undefined,
+        navKey:
+          variant.navKey ??
+          routes.find(
+            (parent) =>
+              parent.moduleId === variant.moduleId && parent.path === "",
+          )?.key,
+      };
+    }
+    return variant;
+  });
 }
 export function navigationForFeatures(
   routes: readonly Route[],

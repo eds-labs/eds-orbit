@@ -1,3 +1,4 @@
+import type { MarketingPlanView } from "../../../../../packages/schemas/src/index.ts";
 import { z } from "zod";
 
 // Cards the assistant returns with a reply (WP2.2). Moved unchanged from
@@ -30,8 +31,10 @@ export type AssignmentCard = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
+  pendingReviewLimit?: number;
   // How approved posts leave Orbit (R73): published, or only drafts in Postiz.
   delivery: "publish" | "postiz_draft";
+  approvalMode?: "human_each" | "delegated_review";
   // One text and one image per slot for all channels (R76).
   sharedAcrossChannels: boolean;
   // The shape of every post (R77); absent for none.
@@ -49,13 +52,15 @@ export type AssignmentCard = {
 };
 
 export type ChatCard = {
-  kind: "source" | "asset" | "link" | "status" | "assignment";
+  kind:
+    "source" | "asset" | "link" | "status" | "assignment" | "marketing_plan";
   label: string;
   href?: string;
   status?: string;
   resourceId?: string;
   version?: number;
   assignment?: AssignmentCard;
+  marketingPlan?: MarketingPlanView;
 };
 
 const cardSchema = z

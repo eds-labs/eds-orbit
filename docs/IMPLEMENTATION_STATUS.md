@@ -6,6 +6,176 @@ Default-off `ORBIT_CUSTOMER_CONTEXT` implements `customer_context.read` on contr
 
 Risk: high (customer data, external calls, tenant mapping); flag off, per-inbox owner binding, verified-only lookups. Rollback: unbind inboxes, remove integrations or set the flag off; revert the commits; nothing is stored. Validation (local stack, Node 24.18.0): 14 integration/security tests, 21 unit tests, 15 contract tests; access matrix (additive, reviewed) and OpenAPI/client regenerated; full suite 2,929 passed / 4 failed in 272 files, of which two were registry catalog expectations now updated and passing, the chat real-time p95 latency test passes in isolation (load during the full run), and I7b is the known baseline failure reproduced on `333231f`. Lint, import boundaries, root/web typecheck, production build, Compose and secrets checks passed. No production activation without a passed end-to-end integration test (plan, rollout step 2).
 
+## Marketing Agent v2 — MA-09 (2026-10-21, local preparation)
+
+Current main `b9288c85` was integrated into the MA-08 chain with merge `221cdc5`.
+Read-only Orbit/Coolify inspection found that the recorded live deployment does not
+contain MA-00–08. Native uLiquid readiness remains `test_ready`, blocked by live RAG
+and channel-write evidence. Existing policy limits are not a new pilot spend grant.
+
+The concrete release/pilot runbook, sanitized snapshot, rollback and pending real
+weekly-cycle worksheet are in `docs/plans/marketing-agent-v2-ma09.md` and
+`docs/evidence/marketing-agent-v2-ma09-preflight.json`. No runtime feature was added. Upstream main acceptance failed its dependency audit;
+local commit `8af5d09` pins Vite 8 to patched 8.3.3 and regenerates its related lock
+entries. The high-severity audit passes locally; remote candidate CI is not run.
+Final local verification: **3,052 tests in 280 files passed** (594.84 seconds),
+five isolated desktop/mobile browser scenarios, lint, root/web typecheck, build,
+contract regeneration, high-threshold audit, framework/secrets/import/diff checks.
+All 1,009 tracked manifest source files match pre-run commit `8af5d09`; the raw
+manifest also includes an ignored TypeScript build cache, documented in the runbook.
+
+**MA-09 is prepared but NOT accepted.** No pilot assignment, paid call, external write,
+production flag change, push or deployment was performed. Release approval, exact
+runtime/readiness/source/cost evidence, two real weekly cycles, exact post releases,
+reconciled publication and a delivered report remain prerequisites.
+
+
+## Marketing Agent v2 — MA-08 (2026-10-21, local)
+
+Project home and Marketing now lead into the existing Orbit Assistant, saved plans
+and deliberate content release. Module-owned templates/navigation retain the single
+assistant; prompts are editable drafts and start no work. Saved plans explain their
+next review step. Direct manual tools/legacy URLs and shared Support/App approvals
+remain available. Navigation and controls use advertised feature/module roles.
+
+One additive read-only module-status field advertises the existing agents guard;
+no flag/default/authority change. Details, limits, changed files, verification and
+MA-09 preparation only: `docs/plans/marketing-agent-v2-ma08.md`.
+
+Final MA-08 verification: **3,037 tests in 279 files passed** (595.49 seconds),
+plus five isolated desktop/mobile Playwright scenarios. Lint, root/web typecheck,
+production build, regenerated contracts, framework/secret/diff checks and zero
+import-boundary violations pass. No paid call, provider write, migration, push,
+deployment or live pilot was performed.
+
+
+
+## Marketing Agent v2 — MA-07 (2026-10-21, local)
+
+Versioned closed-period reports now persist source/plan/coverage provenance and
+native owner receipt, with one optional notification key per period. Corrections
+invalidate reports and report-derived proposals; historical strategy snapshots stay
+fixed. Exact source grouping preserves missing counters, overlap and sampling limits.
+The existing assistant and Analytics UI expose evidence and prepare a separate native
+strategy proposal without changing active work. Report assignments remain disabled.
+
+No paid/live provider write, production flag/migration, push or deployment. Detailed
+bounds, acceptance evidence, changed files and MA-08 preparation only:
+`docs/plans/marketing-agent-v2-ma07.md`.
+
+Final MA-07 verification: **3,026 tests in 278 files passed** (514.93 seconds),
+plus the isolated desktop/mobile Playwright scenario. Lint, root/web typecheck,
+production build, regenerated API contracts, framework/secret/diff checks and zero
+import-boundary violations pass. MA-08 is prepared only; no live acceptance is claimed.
+
+
+## Marketing Agent v2 — MA-06 (2026-10-20, local)
+
+A shared operational projection now separates saved execution lifecycle from
+current degraded/failed/unknown/approval/capacity state across plans, assignments,
+chat, `run_status` and recent attention. Detailed views show separate scoped ledger
+settled, held, unknown-exposure and released totals. Existing event-keyed run notices
+carry one targeted project action link. Interrupted visual work can finish local
+attachment from its exact committed/settled image, without another provider call;
+revoked, missing or uncertain evidence stops recovery. Other paid work is not replayed.
+
+No migration, paid API, live Postiz write, production flag, push or deployment.
+Verification, bounds, exact changed files and MA-07 preparation only:
+`docs/plans/marketing-agent-v2-ma06.md`.
+
+Final MA-06 verification: **3,006 tests in 276 files passed** (474.22 seconds),
+plus the extended desktop/mobile Playwright scenario and isolated required-review
+scheduling smoke. Lint, root/web typecheck, production build, regenerated contracts,
+framework/secret checks and zero import-boundary violations pass. Local implementation
+and testing are complete; no production/pilot acceptance is inferred.
+
+## Marketing Agent v2 — MA-05 (2026-10-20, local)
+
+Common bounded source-aware history now feeds assistant/strategy/all generation
+entry points. Scoped exact topic/angle/channel holds serialize competing assignments;
+manual and generated outputs participate. Shared facts alone no longer establish a
+duplicate angle. Explicit optional owner-confirmed review limits bind plan children,
+reserve admitted capacity, and stop new paid work while full. Native cards/management
+show the configuration and counts; unsent work resumes safely after capacity returns,
+while expired slots stop. Legacy absent fields preserve their hashes and behavior.
+
+No migration, paid provider call, live Postiz write, production flag, push or deployment.
+Verification, exact bounds, changed files and MA-06 preparation (not implementation):
+`docs/plans/marketing-agent-v2-ma05.md`.
+
+
+
+Final MA-05 local verification: **2,995 tests in 275 files pass**, including 17
+MA-05 integration cases. The unchanged final application/test source manifest was
+verified after the complete run. Affected desktop/mobile Playwright, lint, root/web
+typecheck, production build, generated contracts, framework/secret checks and zero
+import-boundary violations pass. No production/pilot acceptance is inferred.
+
+## Marketing Agent v2 — MA-04 (2026-10-20, local)
+
+A separate exact owner activation now applies at most six bounded standing-assignment
+create/adopt deltas atomically under the existing project lock. Strategy review starts
+nothing. Current authority, immutable strategy/source/asset snapshots, expected child
+versions, full child envelopes, replacement budgets and generated-image consent are
+rechecked. Exact retries/concurrent decisions create one child set without synthetic
+child approvals. Legacy assignment hashes and independent assignment/mission links stay
+intact; reverse plan/revision/ActionRequest origin follows owned assignments, runs,
+generated missions and content.
+
+Pause/revision stops owned runs and withdraws unsent work through existing services.
+Resumption requires a fresh exact child mandate. Scheduler and paid/delivery boundaries
+revalidate active plan authority and finite horizon. Current delivery projection keeps
+provider-owned or unknown outcomes visible. Native plans, chat and generic decisions
+share the exact activation review and existing EDS Labs UI. No migration, new runtime,
+production flag, paid provider call, real publication or deployment. Checks, limits,
+changed files, rollback and MA-05 preparation: `docs/plans/marketing-agent-v2-ma04.md`.
+MA-05 remains prepared only; implementation and tests are local evidence.
+Local regression: 2,976 tests in 274 files pass; 121 targeted publishing/activation
+tests pass after the final delivery-time guard. Desktop/mobile browser, final
+production build, lint, root/web typecheck, generated contracts, framework/secret
+checks and import boundaries pass. No previous access-matrix row changed.
+
+## Marketing Agent v2 — MA-03 (2026-10-20, local)
+
+Versioned `marketing_plans` persist reviewed strategic proposals independently of
+chat. Deferred context/propose/status/change tools, native read/revise/export routes
+and Marketing → Plans share scoped services, existing Entity/EntityVersion, budgets
+and exact owner ActionRequests. Current fact/source/profile/policy/work versions,
+source rights/audience, channel assignment, horizon and budget bounds are checked.
+Revisions invalidate prior strategic review; current drift is visible on read.
+
+Strategic approval never activates a plan or creates assignments, jobs, reservations,
+content or external writes. MA-04 activation remains unavailable. Native decisions
+and chat cards show the exact scope and source snapshot; persistent status includes
+actual independent linked work. The new route matrix preserves authentication before
+validation and adds only the five reviewed route rows. No schema migration, paid
+provider call, production flag, push or deployment. Implementation, limits, API,
+rollback, checks and MA-04 prerequisites: `docs/plans/marketing-agent-v2-ma03.md`.
+Final local checks: 2,946 tests in 273 files pass; desktop/mobile Playwright,
+production build, lint, root/web typecheck, generated API contracts, framework and
+secret scans pass. The five-route access-matrix delta was reviewed; no pre-existing
+route rule changed. MA-04 is prepared only.
+
+## Marketing Agent v2 — MA-02 (2026-10-20, local)
+
+The shared assistant now discovers a read-only assignment intake through existing
+tool search. It reads profile language, timezone, policy/connected channel intersection
+and existing work, and asks one budget or language question when unresolved. Equivalent
+native-chat proposals reuse the same non-ended assignment and exact ActionRequest
+under the project lock; MCP client/grant origins retain their separate proposal path.
+Changed mandates still use the existing versioned change/confirmation service.
+
+Assignment chat cards project saved latest runs, text/image/publication/draft IDs,
+recorded costs and blockers on reload, with links to owner review and assignment
+management. Publishing and Postiz handoff remain behind MA-01 human approval.
+No new main agent, schema, dependency, paid provider call, production flag or deployment.
+Implementation/validation/rollback and MA-03 prerequisites:
+`docs/plans/marketing-agent-v2-ma02.md`. Free-form model selection and live pilot
+acceptance remain untested. I7b was traced to its positive fixture's expired fixed
+slots; a test-only future-slot correction passes all 20 specialist-runner cases,
+including the unchanged expired-slot cancellation case. Production recovery rules
+are unchanged.
+
 ## Universal customer context contract v1 (2026-10-21, contract only)
 
 ADR 0011 answers Q-09: one product-neutral, read-only capability `customer_context.read` that external products provide (n8n as optional gateway, products emit v1 natively). Published as zod source (`packages/schemas/src/customer-context.ts`), generated JSON Schemas and provider OpenAPI 3.1 (`packages/schemas/contracts/customer-context/v1/`, `pnpm contract:customer-context`), reviewed examples and invalid fixtures, the integration guide `docs/CUSTOMER_CONTEXT.md` and the work plan `docs/plans/CUSTOMER_CONTEXT_INTEGRATION.md`. No runtime route, table, migration, flag, n8n workflow or product change; no new dependency.
@@ -17,6 +187,29 @@ Risk: medium (security-relevant contract without runtime effect). Rollback: reve
 The Claude settings dialog saves credentials, its reviewed model catalog and prices in one owner-only `ai-provider-configure` transaction. It no longer calls `openai-configure` first, which rejected new Claude-only projects with `OPENAI_API_KEY_REQUIRED`. The optional `applyAnthropicCatalog` input defaults to false; existing prices, registered model overrides and task routes remain intact. Failed validation persists neither credentials nor partial catalog changes. No schema migration, provider call, budget mandate or production key modification is required.
 
 Risk: high (provider credential configuration); local verification uses synthetic keys and the isolated worktree database. Rollback: revert this code patch; existing stored configuration remains compatible. Checks: provider and OpenAI configuration integration tests, lint, typecheck and production build. The separate baseline I7b failure remains recorded below.
+
+## Marketing Agent v2 — MA-00 / MA-01 (2026-10-20, local)
+
+New chat/native/MCP assignment proposals default to explicit `human_each`.
+Existing rows without the field and explicitly confirmed `delegated_review`
+assignments retain their review/veto semantics and legacy confirmation hashes.
+Exact human package approval is enforced for publishing and Postiz drafts,
+independently of agent-review flags or Telegram. Text/media, schedule, profile,
+assignment, connector/policy and owner-right changes are rechecked; a human-gated
+image failure cannot silently deliver a text-only post. Existing Owner Release,
+ActionRequests, policy, budgets, scheduler and worker services are reused.
+
+Synthetic service E2E covers chat through recurring worker execution and delivery;
+real-stack browser coverage checks desktop/mobile management and approval cards.
+244 focused tests, 2 characterization tests, desktop/mobile browser acceptance,
+source boundaries, typecheck and build pass. The final full suite records 2,897
+passes and only the known I7b pause/resume failure is independently reproduced on unchanged `e67cb71`;
+no all-green or live-provider acceptance is claimed. Exact results, imported-plan
+provenance, changed files, rollback and MA-02 prerequisites are recorded in
+`docs/plans/marketing-agent-v2-ma00-ma01.md`.
+
+No schema migration, real paid model/image request, genuine Postiz post,
+production flag change or deployment. MA-02 is prepared only.
 
 ## Reviewed knowledge workspace (2026-10-20, local)
 

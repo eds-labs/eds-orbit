@@ -1,3 +1,4 @@
+import { summarizeMetrics } from "../analytics/metric-report.ts";
 import { finishMissionRun } from "./planning.ts";
 import {
   authorize,
@@ -625,10 +626,12 @@ export async function analyze(tx: DbTx, scope: Scope, campaign?: string) {
   const sources = [...new Set(rows.map((x) => data(x).source))];
   if (sources.length > 1 && !campaign)
     throw new DomainError("SELECT_SINGLE_SOURCE_CAMPAIGN");
-  const sum = (k: string) =>
-    rows.some((x) => data(x)[k] === null)
-      ? null
-      : rows.reduce((n, x) => n + Number(data(x)[k] ?? 0), 0);
+  const groups = summarizeMetrics(rows);
+  if (groups.length !== 1)
+    throw new DomainError("METRIC_DIMENSIONS_MUST_MATCH");
+  if (groups[0]!.overlap) throw new DomainError("METRIC_PERIODS_OVERLAP");
+  const sum = (k: "clicks" | "sessions" | "conversions" | "costMicros") =>
+    groups[0]![k];
   const sample = rows.reduce((n, x) => n + data(x).sampleSize, 0),
     snapshot = hash(rows.map((x) => ({ id: x.id, version: x.version })));
   const previous = (await list(tx, scope, "insights")).find(

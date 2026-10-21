@@ -1,3 +1,10 @@
+import {
+  REVIEW_BACKLOG_FULL,
+  reviewBacklog,
+  assertReviewCapacity,
+  recordBacklogBlocker,
+} from "./review-backlog.ts";
+import { ownedPlanRefusal } from "../plans/execution.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, create, data, entity, list, update } from "../../../shared.ts";
@@ -332,6 +339,7 @@ async function freeSlot(
   requested: Date,
   date: string,
   held: HeldSlot[],
+  endAt?: Date,
 ) {
   if (requested <= ctx.now) return null;
   for (
@@ -339,6 +347,7 @@ async function freeSlot(
     localDate(candidate, ctx.timezone) === date;
     candidate = new Date(candidate.valueOf() + SLOT_STEP_MS)
   ) {
+    if (endAt && candidate >= endAt) return null;
     const status = await slotStatus(ctx, channel, candidate, held);
     // Preflight has its own lead; here only the veto window of the run matters, and the run is created ahead of it.
     if (status.reasons.every((reason) => reason === "TOO_SOON"))
@@ -354,6 +363,7 @@ async function allocateSlots(
   channels: string[],
   now: Date,
   shared = false,
+  endAt?: Date,
 ) {
   const ctx = await slotContext(tx, scope, now);
   // A shared run (R76) records the requested time each channel's slot belongs to.
@@ -365,7 +375,14 @@ async function allocateSlots(
   }> = [];
   for (const requested of due.slots)
     for (const channel of channels) {
-      const found = await freeSlot(ctx, channel, requested, due.date, slots);
+      const found = await freeSlot(
+        ctx,
+        channel,
+        requested,
+        due.date,
+        slots,
+        endAt,
+      );
       if (found)
         slots.push({
           channel,
@@ -441,9 +458,16 @@ export async function planAssignmentRuns(
   let created = 0;
   for (const row of assignments) {
     const d = data(row);
+    if (await ownedPlanRefusal(tx, scope, d, now)) continue;
     // Nothing delivers a report yet (R71): a report confirmed before reports
     // were refused plans no paid run and sends no notice.
     if (d.contentType === "report") continue;
+    const backlog = await reviewBacklog(tx, scope, row.id);
+    if (backlog.blocked) {
+      await recordBacklogBlocker(tx, scope, row.id, true);
+      continue;
+    }
+    await recordBacklogBlocker(tx, scope, row.id, false);
     // Posts need a policy for their rules; without one nothing can be planned.
     if (!policy) continue;
     const known = await plannedDates(tx, scope, row.id, today);
@@ -468,6 +492,19 @@ export async function planAssignmentRuns(
         due.slots[due.slots.length - 1]! <= now
       )
         continue;
+      let horizonEnd: Date | undefined;
+      if (d.marketingPlan) {
+        const plan = data(
+          await entity(tx, scope, "marketing_plans", d.marketingPlan.planId),
+        );
+        horizonEnd = new Date(plan.spec.horizon.endAt);
+        due.slots = due.slots.filter(
+          (slot) =>
+            slot >= new Date(plan.spec.horizon.startAt) &&
+            slot < new Date(plan.spec.horizon.endAt),
+        );
+        if (!due.slots.length) continue;
+      }
       const shared = sharedAcrossChannels(d);
       const allocation = await allocateSlots(
         tx,
@@ -476,6 +513,7 @@ export async function planAssignmentRuns(
         d.channels,
         now,
         shared,
+        horizonEnd,
       );
       // No slot of the day can be reached any more: no run (nothing could be
       // delivered), only the drop notice (R75).
@@ -483,11 +521,20 @@ export async function planAssignmentRuns(
         await skipDay(tx, scope, row.id, due.date, allocation.unavailable);
         continue;
       }
+      const capacity = await reviewBacklog(tx, scope, row.id);
+      if (
+        capacity.limit !== null &&
+        (capacity.available ?? 0) < allocation.slots.length
+      ) {
+        await recordBacklogBlocker(tx, scope, row.id, true);
+        continue;
+      }
       const key = `assignment:${row.id}:${due.date}`;
       const saved = await create(tx, scope, RUNS, {
         assignmentId: row.id,
         // The run works with the assignment as it was confirmed when it started.
         assignmentVersion: row.version,
+        ...(d.marketingPlan ? { marketingPlan: d.marketingPlan } : {}),
         assignmentHash: d.confirmation?.assignmentHash ?? null,
         idempotencyKey: key,
         date: due.date,
@@ -531,15 +578,32 @@ export async function nextAssignmentRunAt(
   // A report plans no run (R71).
   if (data(row).status !== "active" || data(row).contentType === "report")
     return null;
+  const d = data(row);
+  if ((await reviewBacklog(tx, scope, row.id)).blocked) return null;
+  const horizon = d.marketingPlan
+    ? data(await entity(tx, scope, "marketing_plans", d.marketingPlan.planId))
+        .spec.horizon
+    : null;
+  const start = horizon ? new Date(horizon.startAt) : now;
+  const refusal = await ownedPlanRefusal(
+    tx,
+    scope,
+    d,
+    start > now ? start : now,
+  );
+  if (refusal) return null;
   const known = await plannedDates(tx, scope, row.id, localDate(now, timezone));
   let next: Date | null = null;
-  for (const due of dueDays(data(row).schedule, timezone, now))
+  for (const due of dueDays(d.schedule, timezone, now)) {
     if (
-      !known.has(due.date) &&
-      due.createAt > now &&
-      (!next || due.createAt < next)
+      horizon &&
+      !due.slots.some((slot) => slot >= start && slot < new Date(horizon.endAt))
     )
-      next = due.createAt;
+      continue;
+    const createAt = horizon && due.createAt < start ? start : due.createAt;
+    if (!known.has(due.date) && createAt > now && (!next || createAt < next))
+      next = createAt;
+  }
   return next;
 }
 
@@ -615,6 +679,28 @@ export async function startReadySteps(tx: DbTx, scope: Scope, runId: string) {
     return costMicros === d.costMicros
       ? row
       : update(tx, scope, row, { ...d, costMicros });
+  if (d.marketingPlan) {
+    const assignment = data(
+      await entity(tx, scope, "assignments", d.assignmentId),
+    );
+    if (await ownedPlanRefusal(tx, scope, assignment)) {
+      await cancelAssignmentRuns(tx, scope, d.assignmentId);
+      return entity(tx, scope, RUNS, runId);
+    }
+  }
+  try {
+    await assertReviewCapacity(tx, scope, d.assignmentId, runId);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "ASSIGNMENT_REVIEW_BACKLOG_FULL"
+    ) {
+      await recordBacklogBlocker(tx, scope, d.assignmentId, true);
+      return row;
+    }
+    throw error;
+  }
   const steps: WorkStep[] = (d.steps as WorkStep[]).map((step) => {
     const task = step.taskId ? tasks.get(step.taskId) : undefined;
     const mapped = task ? TASK_TO_STEP[String(data(task).status)] : undefined;
@@ -962,7 +1048,7 @@ export async function requeueAgentTask(
   scope: Scope,
   taskId: string,
   generation: number,
-  options: { fromCurrentJob?: boolean } = {},
+  options: { fromCurrentJob?: boolean; resumeKey?: string } = {},
 ) {
   const jobs = await filtered(tx, scope, "jobs", [
     { path: ["topic"], equals: "agent" },
@@ -1001,7 +1087,7 @@ export async function requeueAgentTask(
     scope,
     "agent",
     taskId,
-    `agent:${taskId}:resume:${generation}`,
+    `agent:${taskId}:${options.resumeKey ?? `resume:${generation}`}`,
   );
   return true;
 }
@@ -1070,4 +1156,92 @@ export async function resumeAgentTasks(
     }
   }
   return { requeued, canceled };
+}
+
+/** Resume only unsent work after review capacity returns. Existing queued/running
+ * jobs and paid/unknown outcomes are never replayed. Project lock serializes sweeps. */
+export async function resumeReviewBacklog(
+  tx: DbTx,
+  scope: Scope,
+  now = new Date(),
+) {
+  if (!agentsEnabled()) return;
+  const project = await tx.project.findUniqueOrThrow({
+    where: { id: scope.projectId },
+  });
+  if (project.paused) return;
+  const runs = await tx.entity.findMany({
+    where: {
+      workspaceId: scope.workspaceId,
+      projectId: scope.projectId,
+      kind: RUNS,
+      OR: ["planned", "running"].map((status) => ({
+        data: { path: ["status"], equals: status },
+      })),
+    },
+    take: 1000,
+  });
+  for (const run of runs) {
+    const d = data(run);
+    const assignment = data(
+      await entity(tx, scope, "assignments", d.assignmentId),
+    );
+    if (
+      assignment.status !== "active" ||
+      assignment.pendingReviewLimit === undefined
+    )
+      continue;
+    if (
+      d.slots?.length &&
+      d.slots.every((slot: any) => Date.parse(slot.at) <= now.valueOf())
+    ) {
+      if (await cancelRun(tx, scope, run.id, SLOT_UNAVAILABLE))
+        await completeOneOff(tx, scope, d.assignmentId, run.id);
+      continue;
+    }
+    try {
+      await assertReviewCapacity(tx, scope, d.assignmentId, run.id);
+    } catch (e) {
+      if (
+        (e as any).code === REVIEW_BACKLOG_FULL ||
+        (e as Error).message === REVIEW_BACKLOG_FULL
+      )
+        continue;
+      throw e;
+    }
+    await recordBacklogBlocker(tx, scope, d.assignmentId, false);
+    await startReadySteps(tx, scope, run.id);
+    const tasks = await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: TASKS,
+        data: { path: ["runId"], equals: run.id },
+      },
+    });
+    for (const task of tasks) {
+      const t = data(task);
+      if (t.status !== "queued" || t.errorCode !== REVIEW_BACKLOG_FULL)
+        continue;
+      const paid = await tx.budgetReservation.findFirst({
+        where: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          OR: [
+            "agent",
+            "query:agent",
+            "query:mission:agent",
+            "image:agent",
+          ].map((prefix) => ({
+            key: { startsWith: `${scope.projectId}:${prefix}:${task.id}:` },
+          })),
+        },
+      });
+      if (paid) continue;
+      await requeueAgentTask(tx, scope, task.id, task.version, {
+        fromCurrentJob: false,
+        resumeKey: `backlog:${task.version}`,
+      });
+    }
+  }
 }

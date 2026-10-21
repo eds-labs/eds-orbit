@@ -16,6 +16,157 @@
 | n8n workflow, FamilyPlan and uLiquid Desk providers, end-to-end integration test | Plan CC-3 to CC-5, rollout step 2 | NOT_RUN |
 | Production activation | Needs a passed end-to-end integration test and approval | BLOCKED_EXTERNAL |
 
+## Marketing Agent v2 — MA-09 (2026-10-21, local preparation)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Current main integrated without losing MA-00–08 | Merge `221cdc5`; both status histories retained; 35 focused integration/contract tests | PASS_LOCAL |
+| Upstream CI high-severity dependency audit | Main run `39590721569` failed; local Vite 8.3.3 pin `8af5d09` passes the high threshold | PASS_LOCAL_REMOTE_NOT_RUN |
+| Final current-main + patched graph regression | 3,052 tests / 280 files, five browser scenarios; lint/typecheck/build/audit/framework/secrets/import/diff pass; 1,009 tracked source files match pre-run Git objects | PASS_LOCAL |
+| Current source/runtime attestation | Coolify recorded `b9288c85`, lacking MA phase chain; API/worker identity and queues unverified | BLOCKED |
+| uLiquid project/policy/source/channel preflight | Sanitized read-only snapshot and §9 gate table | OBSERVED_PARTIAL |
+| Live RAG and channel-write readiness | Native blockers in project readiness | BLOCKED |
+| Reviewed release, budget and exact post/media grants | Concrete scoped runbook; no blanket grant inferred from existing AI policy | AWAITING_APPROVAL |
+| One live approved publication / two real weekly cycles | No pilot assignment/run/release/remote receipt | NOT_RUN |
+| Measured/no-data report and reviewable improvement | Counter scope unknown; no pilot report/receipt | NOT_RUN |
+| Complete MA-09 acceptance | `docs/plans/marketing-agent-v2-ma09.md` | NOT_ACCEPTED |
+
+
+## Marketing Agent v2 — MA-08 (2026-10-21, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Project selection → Assistant → saved plan → pending review | Synthetic desktop/mobile browser flows with keyboard navigation, reload and exact proposal | PASS_LOCAL_BROWSER |
+| Templates/navigation start no paid work or external handoff | Zero browser POSTs after sign-in; zero assignments/publications/drafts | PASS_LOCAL_BROWSER |
+| Manual Creator/Studio, missions and assignments remain direct | Browser/manual navigation and legacy route regressions | PASS_LOCAL_BROWSER_AND_TEST |
+| Marketing-disabled/none/viewer and feature-off states | Browser negatives; feature-off unavailable-state/component tests; authenticated agents metadata integration test | PASS_LOCAL_BROWSER_AND_TEST |
+| Other modules' pending approvals stay visible | Marketing-off native pending Support request in App approvals; shared decision regressions | PASS_LOCAL_BROWSER_AND_TEST |
+| Native review/activation/source/role/budget/publishing semantics | Unchanged server services; full existing regression | PASS_TEST |
+| Paid/live uLiquid Desk pilot | MA-09 prerequisites only | NOT_RUN |
+
+
+
+## Marketing Agent v2 — MA-07 (2026-10-21, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Idempotent replay/concurrent imports and correction versions | Matomo real-SQL mocked import cases, shared import lock | PASS_TEST |
+| Period/source/plan-aware persisted reports with no-data/partial coverage | MA-07 integration and report component cases | PASS_TEST |
+| Corrected and newly imported evidence invalidates proposals; historical snapshots remain fixed | MA-07 lifecycle/native-review cases | PASS_TEST |
+| Four-channel sampling bounds and separate source denominators | MA-07 cases plus specialist regressions | PASS_TEST |
+| Native owner receipt without Telegram, one optional event per period | MA-07 concurrent report/receipt/notification cases | PASS_TEST |
+| Budget/channel/cadence increases remain pending; active work unchanged | MA-07 native proposal/owned-child accounting case | PASS_TEST |
+| Current role, tenant, feature and API boundaries | MA-07 role/tool negatives, five-route access matrix extension | PASS_TEST |
+| Source-aware UI, exact deep link, receipt and proposed strategy on desktop/mobile | Synthetic reports Playwright scenario | PASS_LOCAL_BROWSER_AND_TEST |
+| Complete paid report-assignment lifecycle, automatic causal optimization and live attribution pilot | Explicit MA-07 limits | NOT_ENABLED_OR_RUN |
+| Assistant-led navigation simplification | MA-08 preparation only | NOT_IMPLEMENTED |
+
+
+## Marketing Agent v2 — MA-06 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Shared lifecycle versus degraded/failed/unknown/owner/capacity state | `marketing-run-operation.integration.test.ts`, linked-plan, chat and assignment regressions | PASS_TEST |
+| Settled/held/unknown/released ledger partitions, incomplete-evidence signal and tenant scoping | MA-06 ledger and 100-task sentinel cases | PASS_TEST |
+| Persisted image reuse after crash, concurrent workers, no paid replay with revoked/missing evidence | MA-06 cases in copywriter/visual suite | PASS_TEST |
+| No duplicate ambiguous publish; required review/dispatch rights remain binding | Existing full v2/review/publisher/draft regressions | PASS_TEST |
+| One event-keyed actionable run notice under repeated completion | Existing notification job plus MA-06 concurrent terminal updates | PASS_TEST |
+| Bounded batch attention and desktop/mobile saved recovery evidence | Attention query-count regression and extended synthetic Playwright | PASS_LOCAL_BROWSER_AND_TEST |
+| Periodic reports, attribution and proposed report-driven revisions | MA-07 preparation only in MA-06 report | NOT_IMPLEMENTED |
+| Paid/live pilot, production rollout and acceptance | No such operation authorized or performed | NOT_RUN |
+
+## Marketing Agent v2 — MA-05 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Common bounded current/history projection with explicit remote uncertainty | `marketing-novelty-backlog.integration.test.ts`, content-history/channel-posts/strategy regressions | PASS_TEST |
+| Revoked model-use/evidence omits prior text while retaining visible history state | MA-05 rights-change case | PASS_TEST |
+| Concurrent exact topic/angle/channel reservation, retry and atomic shared-channel rollback | MA-05 real scoped SQL cases | PASS_TEST |
+| Distinct angles may reuse verified facts; all entry points contribute | MA-05 body/preflight checks, editorial adaptation and generation/package/batch regressions | PASS_TEST |
+| Explicit owner-confirmed review bound, exact plan-child setting, unchanged legacy hashes | MA-05 and plan activation cases | PASS_TEST |
+| Full queue stops admission/worker/paid query at zero cost, safe exact recovery and expired-slot stop | MA-05 real DB/model mock cases | PASS_TEST |
+| Revision/handoff/cancellation capacity accounting | Same MA-05 cases | PASS_TEST |
+| Human release, permission/module/project/policy/budget and publishing guards remain intact | Full regression plus targeted Marketing/activation tests; unchanged access matrix | PASS_TEST |
+| Review limit and live management counts, reload, desktop/mobile | `marketing-plans.spec.ts`, synthetic local API/web; assignment component case | PASS_LOCAL_BROWSER |
+| Semantic topic equivalence, global backlog limit, live/paid pilot and production rollout | Explicit limits in MA-05 report | NOT_IMPLEMENTED_OR_RUN |
+| Unified status/recovery/notification presentation | MA-06 preparation in MA-05 report only | NOT_IMPLEMENTED |
+
+
+
+Final MA-05 local verification: **2,995 tests in 275 files pass**, including 17
+MA-05 integration cases. The unchanged final application/test source manifest was
+verified after the complete run. Affected desktop/mobile Playwright, lint, root/web
+typecheck, production build, generated contracts, framework/secret checks and zero
+import-boundary violations pass. No production/pilot acceptance is inferred.
+
+## Marketing Agent v2 — MA-04 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Separate exact strategic/child activation authority, native image consent | `marketing-plan-activation.integration.test.ts`, native route and PlanCard tests | PASS_TEST |
+| Concurrent proposal/decision replay yields one child set; storage failure rolls back every staged child and decision | Same real scoped SQL activation cases | PASS_TEST |
+| Explicit expected-version adoption and read-only independent assignment/mission links | Same activation cases; original MA-03 linked-work test | PASS_TEST |
+| Envelope/budget/source/profile/policy/asset/role/module/foreign-project refusal | Same negative matrix, native routes and two-route access-matrix delta | PASS_TEST |
+| Pause, exact resumption, revised lower budget, horizon expiry and zero expired paid reservation | Same scheduler/worker/budget-boundary cases | PASS_TEST |
+| Reverse approved origin on assignment/run/mission/content, unchanged human_each post gates | Extended `marketing-agent-v2.integration.test.ts`, all providers fake | PASS_TEST |
+| Actual unknown external handoff remains unchanged after pause and visible in status | Same activation SQL handoff projection case | PASS_TEST |
+| Shared assistant tool contracts stay bounded and valid | Activation context size check and offline assistant replay | PASS_TEST |
+| Desktop/mobile owner activation consent, reload and pause | `marketing-plans.spec.ts`, isolated real stack without worker/provider | PASS_LOCAL_BROWSER |
+| Mission-edit activation, automatic archival/supersession, remote recall, paid/live pilot | Deliberately not added; boundaries documented in MA-04 report | NOT_IMPLEMENTED_OR_RUN |
+| Shared novelty reservations and bounded review backlog | MA-05 prerequisites only | NOT_IMPLEMENTED |
+
+Final local evidence: 2,976 tests / 274 files pass; the final delivery-time delta
+is additionally covered by 121 passing targeted tests. Build, lint, typecheck,
+OpenAPI/client generation, framework/secret/boundary checks and the desktop/mobile
+browser flow pass. No production or paid/live-provider acceptance is inferred.
+
+## Marketing Agent v2 — MA-03 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Finite durable strategic contract, exact source/profile/policy and measured/no-data refs | `marketing-plans.integration.test.ts`, shared schema and scoped plan services | PASS_TEST |
+| Proposal survives chat deletion, exports with immutable history and content-free audit | Same real DB persistence/export case | PASS_TEST |
+| Owner strategic review creates no children, jobs, reservations, content or handoff | Same service case plus native HTTP/browser checks | PASS_TEST |
+| Source/rights/audience/profile/fact expiry/policy/channel/budget drift blocks stale review | Same negative matrix and source-snapshot case | PASS_TEST |
+| Current roles, hidden/disabled modules, cross-project reads/writes and native JSON bypass fail closed | Service/HTTP negatives plus reviewed five-route access-matrix delta | PASS_TEST |
+| Exact retry and concurrent revision behavior | Service SQL replay/conflict cases | PASS_TEST |
+| Shared assistant context → proposal → live read, no paid transport | `marketing-plan-chat.integration.test.ts` offline replay | PASS_TEST |
+| Desktop/mobile strategic review and persistent native access without execution | `marketing-plans.spec.ts`, synthetic real stack; PlanCard component tests | PASS_LOCAL_BROWSER |
+| Automatic multi-work activation and reverse plan links on children | MA-04 prerequisites only | NOT_IMPLEMENTED |
+| Free-form model selection and live provider pilot | Not exercised by offline replay/browser fixtures | NOT_RUN |
+
+## Marketing Agent v2 — MA-02 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Context-first intake, connected/policy channel intersection and one missing-budget question | `assignment-tools.integration.test.ts`; read-only deferred `assignment_intake` | PASS_TEST |
+| Requested language must match the marketing profile | Same intake/proposal negative case; no silent assignment language override | PASS_TEST |
+| Equivalent chat proposals share one assignment and ActionRequest, including concurrent calls and confirmed work | Same SQL concurrency/replay cases; native chat origin only, MCP flow stays separate | PASS_TEST |
+| Saved run/output/image IDs, actual recorded cost and blockers survive chat reload | `marketing-agent-v2.integration.test.ts`; `assignment-result.ts`; web chat component tests | PASS_TEST |
+| Context → confirmed recurring DAG → human approval → single handoff | Extended Marketing v2 SQL E2E, all providers fake; existing MA-01 negative matrix retained | PASS_TEST |
+| Desktop/mobile result and approval cards after reload, without overflow | Extended `marketing-agent-v2.spec.ts` with isolated synthetic stored evidence | PASS_LOCAL_BROWSER |
+| Real-model natural-language tool selection and live pilot | Offline replay does not establish these; no paid call or live write authorized | NOT_RUN |
+| Deterministic project resume before slot expiry and cancellation after expiry | `agent-runner.integration.test.ts`, positive fixture uses future slots; all 20 cases pass, no production recovery change | PASS_TEST |
+| General plan persistence and activation | MA-03/04 prerequisites only | NOT_IMPLEMENTED |
+
+## Marketing Agent v2 — MA-00 / MA-01 (2026-10-20, local)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| New proposals default to human review; legacy and explicit delegation preserve hashes/automation | Assignment SQL/tool/MCP tests; Marketing v2 legacy/delegation cases | PASS_TEST |
+| Review authority on and Telegram linked cannot release human-gated content | `marketing-agent-v2.integration.test.ts`, real specialist DAG, style-only copy case | PASS_TEST |
+| No Postiz draft write before exact human approval; single handoff after approval | Same SQL E2E with fake connector and concurrent/replayed owner release | PASS_TEST |
+| Body/image/asset version/schedule/policy/assignment changes and owner loss block stale release | Same SQL negative matrix | PASS_TEST |
+| Module disable, foreign-project content, editor release and over-budget proposals fail closed | Same SQL negatives plus existing access/RLS/budget suites | PASS_TEST |
+| A consumed approval only continues its own unchanged claimed publication | Same SQL claim/final-preflight case | PASS_TEST |
+| Media failure cannot strip a human-approved image; mutation during upload stops the post | Same fake-media/SQL race cases | PASS_TEST |
+| Human-gated article export cannot rely only on model review | Same direct Drive-helper guard regression; no Drive transport called | PASS_TEST |
+| Mode is visible in management and native owner confirmation after reload | Marketing component tests and synthetic desktop/mobile Playwright case | PASS_LOCAL_BROWSER |
+| Pause/resume requeues held research work (I7b) | Reproduced separately on unchanged `e67cb71`; MA-02 subsequently traced the positive fixture to expired fixed slots and corrected test data | FAIL_EXISTING_AT_MA00; FIXTURE_CORRECTED_MA02 |
+| MA-02 intake expansion and genuine model/Postiz acceptance | Prepared prerequisites only; no authorized live run | NOT_RUN |
+
+Implementation/evidence/rollback: `docs/plans/marketing-agent-v2-ma00-ma01.md`.
+
 ## Universal customer context contract v1 (2026-10-21)
 
 | Requirement | Evidence | State |

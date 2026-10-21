@@ -27,8 +27,10 @@ export type AssignmentContent = {
   styleAssetIds: string[];
   vetoMinutes: number;
   monthlyBudgetMicros: number;
+  pendingReviewLimit?: number;
   // How approved posts leave Orbit (R73); absent means "publish".
   delivery?: "publish" | "postiz_draft";
+  approvalMode?: "human_each" | "delegated_review";
   // One text and one image per slot for all channels (R76); absent means one text per channel.
   sharedAcrossChannels?: boolean;
   // The shape of every post (R77); absent means none.
@@ -85,10 +87,30 @@ export const deliveryLabels: Record<
     "Als Entwurf in Postiz (du veröffentlichst selbst)",
   ],
 };
+export const approvalModeText = (
+  mode: AssignmentContent["approvalMode"],
+  de: boolean,
+) =>
+  mode === "human_each"
+    ? de
+      ? "Jeden Beitrag vor externer Übergabe selbst freigeben"
+      : "Approve each post before any external handoff"
+    : de
+      ? "Delegierte Prüfung mit bestehenden Freigabe- und Veto-Regeln"
+      : "Delegated review under existing approval and veto rules";
+
 export const deliveryText = (
   delivery: AssignmentContent["delivery"],
   de: boolean,
-) => deliveryLabels[delivery ?? "publish"][de ? 1 : 0];
+  approvalMode?: AssignmentContent["approvalMode"],
+) =>
+  delivery === "postiz_draft"
+    ? deliveryLabels.postiz_draft[de ? 1 : 0]
+    : approvalMode === "human_each"
+      ? de
+        ? "Veröffentlichen nach deiner Freigabe"
+        : "Publish after your approval"
+      : deliveryLabels.publish[de ? 1 : 0];
 
 /** Whether a slot's channels share one text (and the image, when there is one) (R76). */
 export const sharedText = (
@@ -314,19 +336,41 @@ export function AssignmentCard({
           </>
         )}
         <div>
+          <dt>{de ? "Freigabe" : "Approval"}</dt>
+          <dd>{approvalModeText(assignment.approvalMode, de)}</dd>
+        </div>
+        <div>
           <dt>{de ? "Zustellung" : "Delivery"}</dt>
-          <dd>{deliveryText(assignment.delivery, de)}</dd>
+          <dd>
+            {deliveryText(assignment.delivery, de, assignment.approvalMode)}
+          </dd>
         </div>
         <div>
           <dt>{de ? "Veto-Fenster" : "Veto window"}</dt>
           <dd>
-            {drafts
+            {assignment.approvalMode === "human_each"
               ? de
-                ? "Entfällt – Orbit veröffentlicht nichts"
-                : "None – Orbit publishes nothing"
+                ? "Jeder Beitrag wartet auf deine ausdrückliche Freigabe"
+                : "Each post waits for your explicit approval"
+              : drafts
+                ? de
+                  ? "Entfällt – Orbit veröffentlicht nichts"
+                  : "None – Orbit publishes nothing"
+                : de
+                  ? `${assignment.vetoMinutes} Minuten vor dem Termin`
+                  : `${assignment.vetoMinutes} minutes before the slot`}
+          </dd>
+        </div>
+        <div>
+          <dt>{de ? "Offene Reviews" : "Pending reviews"}</dt>
+          <dd>
+            {assignment.pendingReviewLimit === undefined
+              ? de
+                ? "Kein Limit festgelegt"
+                : "No limit configured"
               : de
-                ? `${assignment.vetoMinutes} Minuten vor dem Termin`
-                : `${assignment.vetoMinutes} minutes before the slot`}
+                ? `Höchstens ${assignment.pendingReviewLimit}; neue Erstellung wartet bei vollem Limit`
+                : `At most ${assignment.pendingReviewLimit}; new generation waits when full`}
           </dd>
         </div>
         <div>
@@ -366,13 +410,17 @@ export function AssignmentCard({
             </p>
           )}
           <p className="chat-package-note">
-            {drafts
+            {assignment.approvalMode === "human_each"
               ? de
-                ? "Mit der Bestätigung arbeitet Orbit diesen Auftrag im Budget selbstständig ab. Freigegebene Posts legt Orbit nur als Entwürfe in Postiz an, zu ihrem Termin. Veröffentlichen machst du selbst in Postiz."
-                : "Once confirmed, Orbit runs this assignment on its own within the budget. Approved posts are only created as drafts in Postiz, dated at their slot. You publish them yourself in Postiz."
-              : de
-                ? "Mit der Bestätigung arbeitet Orbit diesen Auftrag im Budget selbstständig ab. Posts gehen nach dem Veto-Fenster raus, wenn du sie nicht stoppst."
-                : "Once confirmed, Orbit runs this assignment on its own within the budget. Posts go out after the veto window unless you stop them."}
+                ? "Mit der Bestätigung erstellt Orbit Inhalte innerhalb des Budgets. Jeden Beitrag inklusive Bild und Termin gibst du vor der Veröffentlichung oder Übergabe als Postiz-Entwurf ausdrücklich frei."
+                : "Confirming starts preparation within the budget. You must explicitly approve each post, including its image and time, before publication or handoff as a Postiz draft."
+              : drafts
+                ? de
+                  ? "Mit der Bestätigung arbeitet Orbit diesen Auftrag im Budget selbstständig ab. Freigegebene Posts legt Orbit nur als Entwürfe in Postiz an, zu ihrem Termin. Veröffentlichen machst du selbst in Postiz."
+                  : "Once confirmed, Orbit runs this assignment on its own within the budget. Approved posts are only created as drafts in Postiz, dated at their slot. You publish them yourself in Postiz."
+                : de
+                  ? "Mit der Bestätigung arbeitet Orbit diesen Auftrag im Budget selbstständig ab. Posts gehen nach dem Veto-Fenster raus, wenn du sie nicht stoppst."
+                  : "Once confirmed, Orbit runs this assignment on its own within the budget. Posts go out after the veto window unless you stop them."}
           </p>
           <div className="chat-links">
             <Button

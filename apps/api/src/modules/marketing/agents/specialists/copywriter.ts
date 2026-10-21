@@ -19,6 +19,7 @@ import { validateDraftMission } from "../../assistant/proposals.ts";
 import { resolveChannelRules } from "../../publishing/channel-rules.ts";
 import { exportContentBundle } from "../../pipeline/content-export.ts";
 import { generateMissionLive } from "../../pipeline/generation.ts";
+import { assignmentHumanApprovalBlocker } from "../../policy/policy.ts";
 import { saveDraftDocument } from "../../brand/drive-assets.ts";
 import {
   currentMarketingProfile,
@@ -61,6 +62,7 @@ import { attachRunImage, composeRunBanners } from "./visual.ts";
 const SLOT_WINDOW_MS = 2 * 3600000;
 
 export type Brief = {
+  novelty?: { topic: string; angle: string; pillar?: string };
   channel: string;
   slotAt: string;
   topic: string;
@@ -162,6 +164,22 @@ async function briefMission(
         brief.factKeys,
       );
   if (!link) throw new DomainError("LINK_NOT_ALLOWED", 409);
+  const plan = assignment.marketingPlan
+    ? data(
+        await entity(
+          tx,
+          scope,
+          "marketing_plans",
+          assignment.marketingPlan.planId,
+        ),
+      ).spec
+    : null;
+  if (
+    plan &&
+    (link.url !== plan.cta.url ||
+      facts.some((f) => !plan.facts.some((r: any) => r.id === f.id)))
+  )
+    throw new DomainError("PLAN_BRIEF_OUTSIDE_ENVELOPE", 409);
   const slot = Date.parse(brief.slotAt);
   if (!Number.isFinite(slot) || slot <= now.valueOf())
     throw new DomainError("SLOT_PASSED", 409);
@@ -182,18 +200,18 @@ async function briefMission(
           160,
         ),
       goal: `${brief.topic}. ${brief.angle}`.slice(0, 2000),
-      audience: profile.audience.slice(0, 300),
-      product: profile.productName,
+      audience: plan?.audience ?? profile.audience.slice(0, 300),
+      product: plan?.productScope ?? profile.productName,
       language: profile.contentLanguage,
       channels: [brief.channel],
       maxContents: 1,
       // The CTA stays the profile's approved one; the brief's cta only steers the text.
-      targetAction: profile.primaryCtas[0],
+      targetAction: plan?.cta.label ?? profile.primaryCtas[0],
       targetUrl: link.url,
       sourceIds: [...new Set(facts.map((fact) => data(fact).sourceId))],
       assetIds: [],
       contentType: assignment.contentType,
-      campaignType: "product",
+      campaignType: plan?.campaignType ?? "product",
       profileVersion: profileRow.version,
       startAt: now.toISOString(),
       endAt: new Date(
@@ -216,8 +234,17 @@ async function briefMission(
     status: "ready",
     plannedSlotAt: new Date(slot).toISOString(),
     factKeys: facts.map((fact) => data(fact).key),
+    ...(brief.novelty
+      ? {
+          novelty: brief.novelty,
+          noveltyOwnerKey: `run:${task.runId}:${brief.channel}:${brief.slotAt}`,
+        }
+      : {}),
     assignmentId: task.assignmentId,
     assignmentRunId: task.runId,
+    ...(assignment.marketingPlan
+      ? { marketingPlan: assignment.marketingPlan }
+      : {}),
     briefKey: briefKey(brief),
     brief: {
       topic: brief.topic,
@@ -236,6 +263,9 @@ async function briefMission(
     // The confirmed delivery travels with the draft (R73, I1): the publish
     // guard reads it, never the live assignment row.
     delivery: confirmedDelivery(assignment) ?? deliveryOf(assignment),
+    ...(assignment.approvalMode
+      ? { approvalMode: assignment.approvalMode }
+      : {}),
     // The confirmed format and the channels of a shared text reach the generation contract (R76, R77).
     ...(format ? { format } : {}),
     ...(sharedChannels.length > 1 ? { sharedChannels } : {}),
@@ -451,6 +481,10 @@ export async function saveDraftToDrive(scope: Scope, contentId: string) {
   const v = data(content);
   if (v.type !== "blog" && v.type !== "newsletter")
     throw new DomainError("DRAFT_NOT_EXPORTABLE", 409);
+  const humanBlocker = await inScope((tx) =>
+    assignmentHumanApprovalBlocker(tx, scope, contentId),
+  );
+  if (humanBlocker) throw new DomainError(humanBlocker, 409);
   const bodyHash = hash(v.body);
   // An agent review counts here without the publishing conditions: a draft on Drive is never published.
   const agentApproved =

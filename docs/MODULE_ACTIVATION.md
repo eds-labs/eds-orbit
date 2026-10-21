@@ -33,6 +33,20 @@ With marketing off, knowledge can be turned off too (WP3.3). Its routes (`knowle
 
 Owners switch modules in **Settings → Modules**. Disabling asks for confirmation; every change is audited (`module.enabled`, `module.disabled`).
 
+## Client feature and role presentation (MA-08)
+
+`GET /api/projects/:projectId/modules` includes `features.agents`, the current
+boolean value of the existing `ORBIT_AGENTS` guard. This read-only advertisement
+changes neither the flag nor module activation/member authority. It complements
+`features.knowledgeWorkspace` and each module's `enabled`/`access` fields.
+
+The web shell uses advertised module access for module-page controls and contributed
+Assistant templates. Marketing's plan/assignment navigation requires `agents=true`;
+missing or false feature data hides those entries. Existing URLs remain registered,
+with an understandable unavailable state for saved plan bookmarks. Creator/Studio
+and manual missions stay reachable, and platform App approvals remain independent
+of Marketing. The API remains authoritative after every navigation or role change.
+
 ## Risk analysis
 
 | Risk | Effect | Mitigation |

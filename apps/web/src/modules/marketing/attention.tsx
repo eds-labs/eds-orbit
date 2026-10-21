@@ -11,6 +11,14 @@ const SHOW: Label = { en: "Show", de: "Anzeigen" };
 type Counted = (n: number) => Label;
 
 const runProblems: Record<string, Counted> = {
+  RUN_DEGRADED: (n) => ({
+    en: `${n} marketing run(s) have missing optional inputs or deliverables`,
+    de: `${n} Marketing-Läufe mit fehlenden optionalen Eingaben oder Ergebnissen`,
+  }),
+  RUN_OUTCOME_UNKNOWN: (n) => ({
+    en: `${n} marketing run outcome(s) need reconciliation`,
+    de: `${n} Marketing-Laufergebnisse müssen abgeglichen werden`,
+  }),
   RUN_FAILED: (n) => ({
     en: `${n} agent run${n === 1 ? "" : "s"} failed`,
     de: `${n} ${n === 1 ? "Agentenlauf" : "Agentenläufe"} fehlgeschlagen`,
@@ -26,6 +34,10 @@ const counted =
   (item, locale) => ({ title: text(item.count ?? 1)[locale], action });
 
 export const marketingAttention: Readonly<Record<string, AttentionRenderer>> = {
+  marketing_report_ready: (item, locale) => ({
+    title: `${locale === "de" ? "Marketing-Bericht prüfen" : "Review marketing report"} · ${item.params.from} – ${item.params.to}`,
+    action: REVIEW,
+  }),
   marketing_draft_release: (item, locale) => ({
     title: `${locale === "de" ? "Entwurf freigeben" : "Release draft"} · ${String(item.params.assignmentName || "—")}`,
     detail: String(item.params.channelName ?? "") || undefined,

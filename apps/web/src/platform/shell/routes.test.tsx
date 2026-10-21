@@ -104,6 +104,7 @@ describe("Web route registry", () => {
       "chat",
       "support-tickets",
       "approvals",
+      "marketing-plans",
       "content",
       "knowledge",
     ]);

@@ -1,3 +1,4 @@
+import { lockMetrics } from "./metric-report.ts";
 import { z } from "zod";
 import {
   authorize,
@@ -267,6 +268,7 @@ export async function importMatomoSnapshot(
   snapshot: MatomoSnapshot,
   goalsConfigured: boolean | null = null,
 ) {
+  await lockMetrics(tx, scope);
   const normalized = normalizeMatomoReport(input, snapshot, goalsConfigured),
     existing = await list(tx, scope, "metrics");
   let created = 0,

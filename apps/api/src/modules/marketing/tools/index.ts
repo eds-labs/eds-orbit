@@ -1,3 +1,5 @@
+import { reportTools } from "./report-tools.ts";
+import { planTools } from "./plan-tools.ts";
 import { assignmentTools } from "./assignment-tools.ts";
 import { channelTools } from "./channel-tools.ts";
 import { packageTools } from "./package-tools.ts";
@@ -11,4 +13,6 @@ export const chatTools = [
   ...packageTools,
   ...assignmentTools,
   ...channelTools,
+  ...planTools,
+  ...reportTools,
 ] as const;

@@ -624,8 +624,8 @@ describe.skipIf(!enabled)("marketing attention items", () => {
       await budgeted({ status: "active", budget: 1_000_000, spent: 1_000_000 });
     const four = await counted((tx) => marketingAttention(tx, owner, now));
     // 22 with one assignment (and 4 more per assignment) through the whole
-    // agent activity before R21; 11 now.
-    expect(one.queries).toBeLessThanOrEqual(11);
+    // agent activity before R21; at most 13 with MA-06 batch evidence and the MA-07 owner report read.
+    expect(one.queries).toBeLessThanOrEqual(13);
     expect(
       four.result.find((i) => i.params.code === "BUDGET_EXHAUSTED")?.count,
     ).toBe(4);

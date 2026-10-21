@@ -59,6 +59,8 @@ import {
   getRun,
   sendMessage,
 } from "../src/modules/chat.ts";
+import { proposeAssignment } from "../src/modules/marketing/agents/assignments.ts";
+import { dropNullFields } from "../src/modules/agents/tools/registry.ts";
 import { runChat } from "../src/modules/chat-runner.ts";
 import { decideActionRequest } from "../src/modules/action-requests.ts";
 import { saveOpenAiConfiguration } from "../src/modules/openai-configuration.ts";
@@ -209,6 +211,110 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
       .filter(Boolean);
     return { results, cards, conversationId: thread.id };
   }
+  it("reads intake context and asks one budget question without creating work", async () => {
+    const result = await turn(project.owner, [
+      [
+        call("assignment_intake", {
+          requestedLanguage: "en",
+          monthlyBudgetMicros: null,
+        }),
+      ],
+      [answer("What monthly AI budget in USD may this assignment use?")],
+    ]);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        blocker: "ASSIGNMENT_MONTHLY_BUDGET_REQUIRED",
+        next: "ask_one_question",
+        allowedChannels: expect.arrayContaining([
+          expect.objectContaining({ id: X }),
+        ]),
+        existingAssignments: [],
+      }),
+    );
+    const intake = result.results.find((r) => r.blocker);
+    expect(
+      intake.allowedChannels.every((channel: any) =>
+        intake.policy.channels.includes(channel.id),
+      ),
+    ).toBe(true);
+    expect(await run((tx) => list(tx, project.owner, "assignments"))).toEqual(
+      [],
+    );
+    expect(
+      await run((tx) => list(tx, project.owner, "assignment_runs")),
+    ).toEqual([]);
+  });
+
+  it("surfaces profile-language mismatch and refuses an incompatible proposal", async () => {
+    const result = await turn(project.owner, [
+      [
+        call("assignment_intake", {
+          requestedLanguage: "de",
+          monthlyBudgetMicros: 30_000_000,
+        }),
+      ],
+      [call("assignment_propose", proposeArgs({ requestedLanguage: "de" }))],
+      [answer("The profile uses English; please resolve the language first.")],
+    ]);
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        blocker: "ASSIGNMENT_LANGUAGE_PROFILE_MISMATCH",
+      }),
+    );
+    expect(result.results).toContainEqual(
+      expect.objectContaining({
+        error: "ASSIGNMENT_LANGUAGE_PROFILE_MISMATCH",
+      }),
+    );
+    expect(await run((tx) => list(tx, project.owner, "assignments"))).toEqual(
+      [],
+    );
+  });
+
+  it("reuses equivalent work across conversations without another confirmation or budget", async () => {
+    const first = await turn(project.owner, [
+      [call("assignment_propose", proposeArgs())],
+      [answer("Confirm this assignment.")],
+    ]);
+    const id = first.cards[0].assignment.id;
+    const second = await turn(project.owner, [
+      [
+        call(
+          "assignment_propose",
+          proposeArgs({ name: "Same job, another name" }),
+        ),
+      ],
+      [answer("Existing assignment.")],
+    ]);
+    expect(second.results).toContainEqual(
+      expect.objectContaining({ assignmentId: id, reused: true }),
+    );
+    expect(
+      await run((tx) => list(tx, project.owner, "assignments")),
+    ).toHaveLength(1);
+    expect(
+      await run((tx) => list(tx, project.owner, "action_requests")),
+    ).toHaveLength(1);
+  });
+
+  it("serializes simultaneous equivalent proposals and reuses confirmed work", async () => {
+    const a = await createConversation(project.owner);
+    const b = await createConversation(project.owner);
+    const raw = dropNullFields(proposeArgs()) as Record<string, unknown>;
+    const [first, second] = await Promise.all([
+      proposeAssignment(project.owner, a.id, raw),
+      proposeAssignment(project.owner, b.id, { ...raw, name: "Equivalent" }),
+    ]);
+    expect(first.assignment.id).toBe(second.assignment.id);
+    await decide(project.owner, first.actionRequest.id);
+    const again = await proposeAssignment(project.owner, b.id, raw);
+    expect(again.reused).toBe(true);
+    expect(data(again.assignment).status).toBe("active");
+    expect(
+      await run((tx) => list(tx, project.owner, "assignments")),
+    ).toHaveLength(1);
+  });
+
   const decide = (scope: Scope, requestId: string) =>
     run(async (tx) => {
       const row = await entity(tx, scope, "action_requests", requestId);
@@ -297,6 +403,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
           vetoMinutes: 180,
           monthlyBudgetMicros: 30_000_000,
           delivery: "publish",
+          approvalMode: "human_each",
           sharedAcrossChannels: false,
           actionRequestId: results[0].actionRequestId,
         },
@@ -869,6 +976,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
         monthCostMicros: 0,
         monthlyBudgetMicros: 30_000_000,
         delivery: "publish",
+        approvalMode: "human_each",
         sharedAcrossChannels: false,
         format: null,
         banner: null,
@@ -1109,7 +1217,7 @@ describe.skipIf(!enabled)("Orbit Core assignment tools", () => {
     );
     // One sentence, and the budget is asked for, never filled in by the model.
     expect(replay.instructions[0]).toContain(
-      "ask for anything missing, including the monthly budget",
+      "explicitly established monthly AI budget, or null when missing",
     );
     const found = foundTools();
     expect(found).toEqual(expect.arrayContaining(["assignment_propose"]));

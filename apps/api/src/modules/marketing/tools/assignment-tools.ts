@@ -1,4 +1,7 @@
+import { runOperation } from "../agents/run-operation.ts";
 import { z } from "zod";
+import { runReadTool } from "../assistant/chat-tools.ts";
+import { currentMarketingProfile } from "../brand/marketing-profile.ts";
 import {
   PROJECT_READ,
   PROJECT_WRITE,
@@ -12,6 +15,7 @@ import { runDeliverables } from "../agents/veto.ts";
 import { assignmentMonthSpend } from "../agents/specialists/runner.ts";
 import {
   CLEARABLE,
+  approvalModeOf,
   deliveryOf,
   sharedAcrossChannels as sharedAcrossChannelsOf,
   proposeAssignment,
@@ -61,10 +65,17 @@ const delivery = z
   .enum(["publish", "postiz_draft"])
   .nullable()
   .describe(
-    "publish (default when null): posts go out after the veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off)",
+    "publish (default when null): posts go through the publisher after required human approval or the delegated veto window. postiz_draft: social posts only; each approved post is only created as a draft in Postiz at its slot and the owner publishes it there; Orbit never publishes it (POSTIZ_DRAFTS_DISABLED while drafts are off)",
   );
 
 // R76: one text and one image per slot for all channels.
+const approvalMode = z
+  .enum(["human_each", "delegated_review"])
+  .nullable()
+  .optional()
+  .describe(
+    "human_each (new assignment default): each post needs the owner's exact approval before publishing or creating a Postiz draft. delegated_review: existing bounded agent-review/veto rules; only when the owner explicitly requests delegation. null in a change leaves the mode unchanged",
+  );
 const sharedAcrossChannels = z
   .boolean()
   .nullable()
@@ -145,9 +156,25 @@ const proposeParameters = z
       .int()
       .describe("USD millionths per month, within the project's model budget"),
     delivery,
+    pendingReviewLimit: z
+      .number()
+      .int()
+      .nullable()
+      .optional()
+      .describe(
+        "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
+      ),
+    approvalMode,
     sharedAcrossChannels,
     format,
     banner,
+    requestedLanguage: z
+      .enum(["en", "de"])
+      .nullable()
+      .optional()
+      .describe(
+        "Requested content language; must match the current marketing profile. null uses that profile.",
+      ),
   })
   .strict();
 
@@ -195,6 +222,15 @@ const changeParameters = z
         vetoMinutes: z.number().int().nullable(),
         monthlyBudgetMicros: z.number().int().nullable(),
         delivery,
+        pendingReviewLimit: z
+          .number()
+          .int()
+          .nullable()
+          .optional()
+          .describe(
+            "Owner-chosen maximum waiting posts, 1 to 100 and at least one full run. Never invent a default. null preserves the existing limit",
+          ),
+        approvalMode,
         sharedAcrossChannels,
         format,
         banner,
@@ -245,7 +281,11 @@ export function assignmentCardOf(row: {
     styleAssetIds: d.styleAssetIds,
     vetoMinutes: d.vetoMinutes,
     monthlyBudgetMicros: d.monthlyBudgetMicros,
+    ...(d.pendingReviewLimit !== undefined
+      ? { pendingReviewLimit: d.pendingReviewLimit }
+      : {}),
     delivery: deliveryOf(d),
+    approvalMode: approvalModeOf(d),
     sharedAcrossChannels: sharedAcrossChannelsOf(d),
     ...(d.format ? { format: d.format } : {}),
     ...(d.banner ? { banner: d.banner } : {}),
@@ -336,10 +376,72 @@ const localSlot = (at: Date, timezone: string) =>
 
 export const assignmentTools: readonly OrbitTool[] = [
   defineTool({
+    name: "assignment_intake",
+    namespace: "assignments",
+    description:
+      "Start recurring marketing requests here: read profile language, timezone, current policy/connected channel intersection, AI limits and existing assignments before proposing. Never generates content or establishes a budget. Return one focused question when budget or language is unresolved.",
+    parameters: z
+      .object({
+        requestedLanguage: z.enum(["en", "de"]).nullable(),
+        monthlyBudgetMicros: z.number().int().nonnegative().nullable(),
+      })
+      .strict(),
+    risk: "R0_read",
+    permission: PROJECT_READ,
+    feature: "agents",
+    deferLoading: true,
+    async execute(context, args) {
+      const input = z
+        .object({
+          requestedLanguage: z.enum(["en", "de"]).nullable(),
+          monthlyBudgetMicros: z.number().int().nonnegative().nullable(),
+        })
+        .parse(args);
+      const { result } = await runReadTool(context.scope, "project_status", {});
+      const state = result as Record<string, any>;
+      const existing = await chatScoped(context.scope, async (tx) =>
+        (await list(tx, context.scope, "assignments"))
+          .filter((row) => data(row).status !== "ended")
+          .slice(0, 20)
+          .map(assignmentCardOf),
+      );
+      const language = state.marketingProfile?.language ?? null;
+      const blocker = !language
+        ? "MARKETING_PROFILE_REQUIRED"
+        : input.requestedLanguage && input.requestedLanguage !== language
+          ? "ASSIGNMENT_LANGUAGE_PROFILE_MISMATCH"
+          : input.monthlyBudgetMicros === null
+            ? "ASSIGNMENT_MONTHLY_BUDGET_REQUIRED"
+            : null;
+      return {
+        output: {
+          ...state,
+          existingAssignments: existing,
+          allowedChannels: state.availableChannels.filter(
+            (channel: { id: string }) =>
+              state.policy?.channels.includes(channel.id),
+          ),
+          requestedMonthlyBudgetMicros: input.monthlyBudgetMicros,
+          blocker,
+          question:
+            blocker === "ASSIGNMENT_MONTHLY_BUDGET_REQUIRED"
+              ? "What monthly AI budget in USD may this assignment use?"
+              : blocker === "ASSIGNMENT_LANGUAGE_PROFILE_MISMATCH"
+                ? `The marketing profile uses ${language}. Should this assignment use that language, or should the owner update the profile first?`
+                : blocker
+                  ? "Please complete the marketing profile first."
+                  : null,
+          next: blocker ? "ask_one_question" : "reuse_or_propose",
+        },
+        cards: [],
+      };
+    },
+  }),
+  defineTool({
     name: "assignment_propose",
     namespace: "assignments",
     description:
-      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
+      "Propose a standing or one-off assignment for social posts, blog or newsletter drafts (e.g. two posts a day); the owner confirms its card. Nothing runs or is published before that. New assignments default to human_each: each post waits for the owner before either delivery; propose delegated_review only when explicitly requested. Set delivery postiz_draft when the owner wants approved posts only as Postiz drafts he publishes himself, sharedAcrossChannels true when every channel of a slot gets the same text and image, format for the length, hashtags, paragraphs and link of the posts, and banner for a branded 16:9 banner per slot. Report assignments are not available yet.",
     parameters: proposeParameters,
     risk: "P_proposal",
     permission: PROJECT_WRITE,
@@ -349,6 +451,15 @@ export const assignmentTools: readonly OrbitTool[] = [
     exposure: { assistant: true, mcp: true },
     outputSchema: mcpProposeOutput,
     async execute(context, args) {
+      const { requestedLanguage, ...proposalArgs } = args as z.infer<
+        typeof proposeParameters
+      >;
+      if (requestedLanguage)
+        await chatScoped(context.scope, async (tx) => {
+          const profile = await currentMarketingProfile(tx, context.scope);
+          if (data(profile).contentLanguage !== requestedLanguage)
+            throw new DomainError("ASSIGNMENT_LANGUAGE_PROFILE_MISMATCH", 409);
+        });
       // Double parse, intended: over MCP the SDK and then the adapter parse
       // `args` with `parameters`, which has no defaults or transforms, so the
       // second parse changes nothing; the service then parses them with the
@@ -359,7 +470,7 @@ export const assignmentTools: readonly OrbitTool[] = [
         const proposal = await proposeAssignmentFromMcp(
           context.scope,
           mcpProposalOrigin(context, MCP_PROPOSE_NAME),
-          dropNullFields(args),
+          dropNullFields(proposalArgs),
         );
         // Cards are chat-only; the client gets the pending request instead.
         return {
@@ -374,19 +485,33 @@ export const assignmentTools: readonly OrbitTool[] = [
           cards: [],
         };
       }
-      const { assignment, actionRequest } = await proposeAssignment(
+      const { assignment, actionRequest, reused } = await proposeAssignment(
         context.scope,
         context.conversationId,
-        dropNullFields(args),
+        dropNullFields(proposalArgs),
       );
       return {
         output: {
           assignmentId: assignment.id,
           version: assignment.version,
-          status: "awaiting_confirmation",
-          actionRequestId: actionRequest.id,
+          status:
+            data(assignment).status === "draft"
+              ? "awaiting_confirmation"
+              : data(assignment).status,
+          ...(reused ? { reused: true } : {}),
+          actionRequestId:
+            data(assignment).status === "draft" ? actionRequest.id : null,
         },
-        cards: [confirmationCard(assignment)],
+        cards: [
+          data(assignment).status === "draft"
+            ? confirmationCard(assignment)
+            : {
+                kind: "assignment",
+                label: label("Existing assignment", data(assignment).name),
+                status: data(assignment).status,
+                assignment: assignmentCardOf(assignment),
+              },
+        ],
       };
     },
   }),
@@ -455,7 +580,11 @@ export const assignmentTools: readonly OrbitTool[] = [
                   : null,
               monthCostMicros: listed.monthCost.get(row.id) ?? 0,
               monthlyBudgetMicros: d.monthlyBudgetMicros,
+              ...(d.pendingReviewLimit !== undefined
+                ? { pendingReviewLimit: d.pendingReviewLimit }
+                : {}),
               delivery: deliveryOf(d),
+              approvalMode: approvalModeOf(d),
               sharedAcrossChannels: sharedAcrossChannelsOf(d),
               format: d.format ?? null,
               banner: d.banner ?? null,
@@ -464,7 +593,12 @@ export const assignmentTools: readonly OrbitTool[] = [
             };
           }),
         },
-        cards: [],
+        cards: listed.assignments.slice(0, 3).map((row) => ({
+          kind: "assignment" as const,
+          label: label("Assignment", data(row).name),
+          status: data(row).status,
+          assignment: assignmentCardOf(row),
+        })),
       };
     },
   }),
@@ -564,7 +698,7 @@ export const assignmentTools: readonly OrbitTool[] = [
     name: "run_status",
     namespace: "assignments",
     description:
-      "Today's assignment runs: state, steps, cost, deliverables (outcome scheduled, handed_over, published, stopped, withdrawn, blocked, failed, dropped, awaiting_owner, or for Postiz draft delivery postiz_draft_pending, postiz_draft, postiz_draft_unknown; with reason) and vetoes. Report runs only from this tool.",
+      "Today's assignment runs, or saved runs for a specific assignment: state, steps, cost, deliverables (outcome scheduled, handed_over, published, stopped, withdrawn, blocked, failed, dropped, awaiting_owner, or for Postiz draft delivery postiz_draft_pending, postiz_draft, postiz_draft_unknown; with reason) and vetoes. Report runs only from this tool.",
     parameters: z
       .object({
         assignmentId: z
@@ -587,10 +721,19 @@ export const assignmentTools: readonly OrbitTool[] = [
           where: { id: context.scope.projectId },
         });
         const date = localKey(new Date(), project.timezone);
-        const rows = await runsMatching(tx, context.scope, {
-          date,
-          ...(assignmentId === null ? {} : { assignmentId }),
-        });
+        const rows =
+          assignmentId === null
+            ? await runsMatching(tx, context.scope, { date })
+            : await tx.entity.findMany({
+                where: {
+                  workspaceId: context.scope.workspaceId,
+                  projectId: context.scope.projectId,
+                  kind: "assignment_runs",
+                  data: { path: ["assignmentId"], equals: assignmentId },
+                },
+                orderBy: { createdAt: "desc" },
+                take: 20,
+              });
         const names = new Map<string, unknown>();
         for (const id of new Set(rows.map((run) => data(run).assignmentId)))
           names.set(
@@ -603,7 +746,18 @@ export const assignmentTools: readonly OrbitTool[] = [
         >();
         for (const run of rows.slice(0, 20))
           results.set(run.id, await runDeliverables(tx, context.scope, run));
-        return { date, rows, names, results };
+        const operations = new Map();
+        for (const run of rows.slice(0, 20))
+          operations.set(
+            run.id,
+            await runOperation(
+              tx,
+              context.scope,
+              run,
+              results.get(run.id)!.deliverables,
+            ),
+          );
+        return { date, rows, names, results, operations };
       });
       const { date, names } = found;
       // Run data is written by assignment-runs.ts (slots, unavailable, steps,
@@ -611,6 +765,7 @@ export const assignmentTools: readonly OrbitTool[] = [
       const runs = found.rows.slice(0, 20).map((run) => {
         const d = data(run);
         return {
+          operation: found.operations.get(run.id),
           id: run.id,
           assignmentId: d.assignmentId,
           assignmentName: names.get(d.assignmentId) ?? null,
@@ -630,7 +785,21 @@ export const assignmentTools: readonly OrbitTool[] = [
           ...found.results.get(run.id)!,
         };
       });
-      return { output: { date, runs }, cards: [] };
+      const assignmentRows = await chatScoped(context.scope, async (tx) => {
+        const ids = [...new Set(runs.map((run) => run.assignmentId))];
+        return Promise.all(
+          ids.map((id) => entity(tx, context.scope, "assignments", id)),
+        );
+      });
+      return {
+        output: { date, runs },
+        cards: assignmentRows.slice(0, 3).map((row) => ({
+          kind: "assignment" as const,
+          label: label("Assignment results", data(row).name),
+          status: data(row).status,
+          assignment: assignmentCardOf(row),
+        })),
+      };
     },
   }),
 ];

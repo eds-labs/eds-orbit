@@ -115,6 +115,7 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
         const checked = await preflight(tx, scope, p.contentId, {
           test: false,
           ignoreApproval: true,
+          approvalPublicationId: pubId,
           // An assignment post keeps its veto window up to the send (R53).
           ...(v.vetoDeadline && v.assignmentRunId
             ? {

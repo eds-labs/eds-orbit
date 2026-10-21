@@ -49,6 +49,7 @@ export const NOTIFY_KINDS = [
   // A draft-delivery assignment planned no run today: Postiz drafts are switched off (M3).
   "drafts_disabled",
   "daily_report",
+  "marketing_report",
 ] as const;
 export type NotifyKind = (typeof NOTIFY_KINDS)[number];
 

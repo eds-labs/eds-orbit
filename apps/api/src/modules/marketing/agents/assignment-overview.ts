@@ -1,11 +1,18 @@
+import { reviewBacklog } from "./review-backlog.ts";
 import { z } from "zod";
+import { latestAssignmentResult } from "./assignment-result.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { data, list } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { confirmedHash, withinConfirmation } from "./agent-review.ts";
 import { nextAssignmentRunAt } from "./assignment-runs.ts";
-import { agentsEnabled, confirmedDelivery, deliveryOf } from "./assignments.ts";
+import {
+  agentsEnabled,
+  confirmedDelivery,
+  deliveryOf,
+  approvalModeOf,
+} from "./assignments.ts";
 import { localDate } from "./scheduling.ts";
 import { assignmentMonthSpend } from "./specialists/runner.ts";
 import { assignmentCardOf } from "../tools/assignment-tools.ts";
@@ -113,6 +120,7 @@ export async function listAssignments(
       image: d.image === true,
       vetoMinutes: d.vetoMinutes,
       delivery: deliveryOf(d),
+      approvalMode: approvalModeOf(d),
       // A paused project runs nothing, so no run is due.
       nextRunAt: project.paused
         ? null
@@ -121,6 +129,11 @@ export async function listAssignments(
           )?.toISOString() ?? null),
       monthCostMicros: await assignmentMonthSpend(tx, scope, row.id, now),
       monthlyBudgetMicros: Number(d.monthlyBudgetMicros ?? 0),
+      ...(d.pendingReviewLimit !== undefined
+        ? { pendingReviewLimit: d.pendingReviewLimit }
+        : {}),
+      latestRun: await latestAssignmentResult(tx, scope, row.id),
+      backlog: await reviewBacklog(tx, scope, row.id),
       actionRequestId:
         d.status === "draft" && data(request).status === "pending"
           ? request!.id
@@ -149,23 +162,26 @@ export async function conversationAssignments(
     "action_requests",
     [...rows.values()].map((row) => data(row).actionRequestId),
   );
-  return [...rows.values()].map((row) => {
-    const request = requests.get(String(data(row).actionRequestId));
-    const r = data(request);
-    return {
-      ...assignmentCardOf(row),
-      channelNames: namesOf(data(row).channels, names),
-      actionRequest: request
-        ? {
-            id: request.id,
-            version: request.version,
-            packageHash: r.packageHash,
-            status: r.status,
-            expiresAt: r.expiresAt,
-          }
-        : null,
-    };
-  });
+  return Promise.all(
+    [...rows.values()].map(async (row) => {
+      const request = requests.get(String(data(row).actionRequestId));
+      const r = data(request);
+      return {
+        ...assignmentCardOf(row),
+        latestRun: await latestAssignmentResult(tx, scope, row.id),
+        channelNames: namesOf(data(row).channels, names),
+        actionRequest: request
+          ? {
+              id: request.id,
+              version: request.version,
+              packageHash: r.packageHash,
+              status: r.status,
+              expiresAt: r.expiresAt,
+            }
+          : null,
+      };
+    }),
+  );
 }
 
 /**

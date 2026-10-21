@@ -584,6 +584,16 @@ async function runOnce(
       } catch (error) {
         failure = errorCode(error);
       }
+    // Candidates are independent experiments, not a publishing series. Keep
+    // their measured output, but remove it from the next candidate's current
+    // content corpus so novelty does not confound the policy-quality score.
+    if (contentId) {
+      const content = await entity(tx, scope, "content", contentId);
+      await update(tx, scope, content, {
+        ...data(content),
+        status: "archived",
+      });
+    }
     const run = await tx.agentRun.findFirst({
       where: {
         projectId: scope.projectId,

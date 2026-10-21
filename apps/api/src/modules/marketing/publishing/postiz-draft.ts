@@ -21,7 +21,12 @@ import {
   list,
   update,
 } from "../../../shared.ts";
-import { activePolicy, checkClaims } from "../policy/policy.ts";
+import {
+  activePolicy,
+  checkClaims,
+  assignmentHumanApprovalBlocker,
+  assignmentNeedsHumanApproval,
+} from "../policy/policy.ts";
 import { isAssignedPostizChannel } from "./postiz-assignment.ts";
 import { finalPostText } from "./channel-rules.ts";
 import { exportAssetContent } from "../pipeline/content-export.ts";
@@ -124,6 +129,12 @@ export async function draftTarget(
   await tx.$queryRaw`SELECT id FROM "Entity" WHERE id=${contentId}::uuid AND "projectId"=${scope.projectId}::uuid FOR UPDATE`;
   const content = await entity(tx, scope, "content", contentId);
   const c = data(content);
+  const humanBlocker = await assignmentHumanApprovalBlocker(
+    tx,
+    scope,
+    contentId,
+  );
+  if (humanBlocker) throw new DomainError(humanBlocker, 409);
   if (content.version !== version)
     throw new DomainError("VERSION_CONFLICT", 409);
   if (c.synthetic || !c.missionId || c.type !== "social")
@@ -260,6 +271,26 @@ const defaultDeps: DraftDeps = {
  * posted) and records `imageError`. `after` runs in the transaction that
  * records the outcome, with the saved handoff.
  */
+/** Human-gated drafts retain the exact approval through media reads/uploads, like the publisher preflight. */
+async function assertHumanHandoffCurrent(scope: Scope, handoffId: string) {
+  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const handoff = await entity(tx, scope, "postiz_drafts", handoffId);
+    const h = data(handoff);
+    const content = await entity(tx, scope, "content", h.contentId);
+    if (!(await assignmentNeedsHumanApproval(tx, scope, data(content))))
+      return false;
+    if (h.status !== "sending" || content.version !== h.contentVersion)
+      throw new DomainError("STALE_APPROVAL", 409);
+    const blocker = await assignmentHumanApprovalBlocker(
+      tx,
+      scope,
+      h.contentId,
+    );
+    if (blocker) throw new DomainError(blocker, 409);
+    return true;
+  });
+}
+
 export async function sendDraftHandoff(
   scope: Scope,
   handoffId: string,
@@ -284,10 +315,16 @@ export async function sendDraftHandoff(
       token: send.token,
     });
     const images: { id: string; path: string }[] = [];
+    const humanEach = await assertHumanHandoffCurrent(scope, handoffId);
+    if (humanEach && withoutImage && send.asset)
+      throw new DomainError("STALE_APPROVAL", 409);
     try {
       const asset = withoutImage
         ? null
         : await deps.readAsset(scope, send.asset);
+      await assertHumanHandoffCurrent(scope, handoffId);
+      if (humanEach && send.asset && !asset)
+        throw new DomainError("ASSET_NOT_SUPPORTED", 409);
       if (asset)
         images.push(
           await client.uploadMedia({
@@ -297,6 +334,18 @@ export async function sendDraftHandoff(
           }),
         );
     } catch (error) {
+      // Human approval covers the image too: a failure cannot silently strip it.
+      if (humanEach) throw error;
+      // A stale/revoked approval is absolute, never an image fallback.
+      if (
+        error instanceof DomainError &&
+        [
+          "STALE_APPROVAL",
+          "ASSIGNMENT_HUMAN_APPROVAL_REQUIRED",
+          "MODULE_DISABLED",
+        ].includes(error.code)
+      )
+        throw error;
       if (!options.imageFallback) throw error;
       // No post request was sent yet: the draft goes without its image.
       imageError =
@@ -306,6 +355,7 @@ export async function sendDraftHandoff(
       withoutImage = true;
       images.length = 0;
     }
+    await assertHumanHandoffCurrent(scope, handoffId);
     step = "create_post";
     const result = await client.createPost(
       postizDraftPayload({

@@ -1,3 +1,4 @@
+import { operationFromEvidence } from "./agents/run-operation.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type {
@@ -176,15 +177,72 @@ async function runProblemItems(
   if (!agentsEnabled()) return [];
   // Runs that failed within the last day (the overview reads its 50 newest
   // runs; a day holds far fewer).
-  const failed = await tx.entity.count({
+  const recent = await tx.entity.findMany({
     where: {
       workspaceId: scope.workspaceId,
       projectId: scope.projectId,
       kind: "assignment_runs",
-      data: { path: ["status"], equals: "failed" },
       updatedAt: { gte: new Date(now.getTime() - RECENT_MS) },
     },
+    orderBy: { updatedAt: "desc" },
+    take: 50,
   });
+  // One bounded batch for all recent runs; no per-run task/delivery queries.
+  const evidence = recent.length
+    ? await tx.entity.findMany({
+        where: {
+          workspaceId: scope.workspaceId,
+          projectId: scope.projectId,
+          kind: { in: ["agent_tasks", "publications", "postiz_drafts"] },
+          OR: recent.flatMap((r) => [
+            { data: { path: ["runId"], equals: r.id } },
+            { data: { path: ["assignmentRunId"], equals: r.id } },
+          ]),
+        },
+        orderBy: { createdAt: "asc" },
+        take: 10001,
+      })
+    : [];
+  const counts = { failed: 0, outcome_unknown: 0, degraded: 0 };
+  for (const run of recent) {
+    const tasks = evidence
+      .filter((r) => r.kind === "agent_tasks" && data(r).runId === run.id)
+      .map((r) => ({
+        id: r.id,
+        status: String(data(r).status),
+        stepKey: String(data(r).stepKey),
+        errorCode: data(r).errorCode,
+      }));
+    const deliveries = evidence
+      .filter(
+        (r) => r.kind !== "agent_tasks" && data(r).assignmentRunId === run.id,
+      )
+      .map((r) => ({
+        publicationStatus: data(r).status,
+        outcome:
+          r.kind === "postiz_drafts" && data(r).status === "outcome_unknown"
+            ? "postiz_draft_unknown"
+            : data(r).status === "failed"
+              ? "failed"
+              : data(r).status === "blocked_dependency"
+                ? "blocked"
+                : "handed_over",
+      }));
+    const operation = operationFromEvidence(
+      data(run),
+      tasks.slice(0, 100),
+      deliveries,
+      {
+        settledMicros: 0,
+        heldMicros: 0,
+        unknownMicros: 0,
+        releasedMicros: 0,
+        complete: tasks.length <= 100 && evidence.length <= 10000,
+      },
+    );
+    if (operation.state in counts)
+      counts[operation.state as keyof typeof counts]++;
+  }
   const budgeted = (
     await tx.entity.findMany({
       where: {
@@ -215,7 +273,9 @@ async function runProblemItems(
   ).length;
   return (
     [
-      ["RUN_FAILED", failed],
+      ["RUN_FAILED", counts.failed],
+      ["RUN_OUTCOME_UNKNOWN", counts.outcome_unknown],
+      ["RUN_DEGRADED", counts.degraded],
       ["BUDGET_EXHAUSTED", exhausted],
     ] as const
   )
@@ -224,7 +284,7 @@ async function runProblemItems(
       id: `marketing:run-problem:${code}`,
       moduleId: "marketing",
       kind: "marketing_run_problem",
-      severity: "critical",
+      severity: code === "RUN_DEGRADED" ? "warning" : "critical",
       count,
       params: { code },
       navKey: "marketing-overview",
@@ -243,7 +303,36 @@ export const marketingAttention: AttentionContribution = async (
     agentsEnabled() && can(scope, PROJECT_OWN)
       ? await draftsAwaitingOwner(tx, scope)
       : [];
+  const reports =
+    agentsEnabled() && can(scope, PROJECT_OWN)
+      ? await tx.entity.findMany({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: "marketing_reports",
+            data: { path: ["status"], equals: "ready" },
+          },
+          orderBy: { updatedAt: "desc" },
+          take: 100,
+        })
+      : [];
   return [
+    ...reports
+      .filter((r) => data(r).acknowledgedRevision !== data(r).revision)
+      .map((r) => ({
+        id: `marketing:report:${r.id}`,
+        moduleId: "marketing",
+        kind: "marketing_report_ready",
+        severity: "info" as const,
+        params: {
+          from: String(data(r).period.from),
+          to: String(data(r).period.to),
+          revision: Number(data(r).revision),
+          noData: Boolean(data(r).noData),
+        },
+        navKey: "analytics",
+        link: `/marketing/analytics?report=${r.id}`,
+      })),
     ...draftItems(drafts),
     ...(await contentReviewItems(tx, scope, drafts.length)),
     ...(await exceptionItems(tx, scope)),

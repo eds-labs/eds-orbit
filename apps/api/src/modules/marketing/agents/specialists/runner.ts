@@ -1,3 +1,9 @@
+import {
+  assertReviewCapacity,
+  REVIEW_BACKLOG_FULL,
+} from "../review-backlog.ts";
+import { reserveStrategyBriefs } from "../topic-briefs.ts";
+import { ownedPlanRefusal } from "../../plans/execution.ts";
 import { zodTextFormat } from "openai/helpers/zod";
 import {
   scoped,
@@ -132,7 +138,7 @@ export function registerSpecialist(specialist: Specialist) {
 // Model calls reserve under `agent:<taskId>:<n>`, the task's knowledge searches under
 // `query:agent:<taskId>:...`; executor steps (R37) draft under `agent:<taskId>:copy:...`
 // with retrieval `query:mission:agent:<taskId>:...` and generate images under `image:agent:<taskId>:...`.
-const reservationPrefixes = (scope: Scope, taskId: string) => [
+export const reservationPrefixes = (scope: Scope, taskId: string) => [
   `${scope.projectId}:agent:${taskId}:`,
   `${scope.projectId}:query:agent:${taskId}:`,
   `${scope.projectId}:query:mission:agent:${taskId}:`,
@@ -318,6 +324,9 @@ export async function taskBudgetLeft(
   const assignment = data(
     await entity(tx, scope, "assignments", task.assignmentId),
   );
+  await assertReviewCapacity(tx, scope, task.assignmentId, task.runId);
+  const planRefusal = await ownedPlanRefusal(tx, scope, assignment);
+  if (planRefusal) throw new DomainError(planRefusal, 409);
   const run = data(await entity(tx, scope, RUNS, task.runId));
   return {
     taskMicros: stepPoolMicros(
@@ -375,6 +384,34 @@ async function taskInput(
   }
   return {
     step: { key: task.stepKey, role: task.role },
+    ...(task.role === "analytics"
+      ? {
+          analyticsCoverage: {
+            requestedChannels: assignment.channels ?? [],
+            selectedChannels: (assignment.channels ?? []).slice(0, 3),
+            omittedChannels: (assignment.channels ?? []).slice(3),
+            maxChannels: 3,
+            maxPosts: 5,
+            recentDays: 7,
+            complete: false,
+          },
+        }
+      : {}),
+    ...(assignment.marketingPlan
+      ? {
+          marketingPlan: {
+            ...assignment.marketingPlan,
+            spec: data(
+              await entity(
+                tx,
+                scope,
+                "marketing_plans",
+                assignment.marketingPlan.planId,
+              ),
+            ).spec,
+          },
+        }
+      : {}),
     assignment: {
       id: task.assignmentId,
       name: assignment.name,
@@ -544,6 +581,13 @@ export async function runSpecialist(
             where: { id: scope.projectId },
           });
           if (project.paused) throw new DomainError("PROJECT_PAUSED", 409);
+          const ownedRefusal = await ownedPlanRefusal(
+            tx,
+            scope,
+            data(await entity(tx, scope, "assignments", task.assignmentId)),
+          );
+          if (ownedRefusal) throw new DomainError(ownedRefusal, 409);
+          await assertReviewCapacity(tx, scope, task.assignmentId, task.runId);
           const active = await requireSpendMandate(tx, scope);
           const approved = active.limits;
           const runtime = await runtimeOpenAiConfiguration(tx, scope);
@@ -851,13 +895,48 @@ export async function runAgentTask(scope: Scope, taskId: string) {
     scoped(scope.workspaceId, scope.projectId, work);
   let recovered: Array<{ agentRunId: string | null; reservationId: string }> =
     [];
+  let persistedImageId: string | null = null;
   const claimed = await inScope(async (tx) => {
     const row = await entity(tx, scope, TASKS, taskId);
     const d = data(row) as AgentTaskData;
     if (FINAL.includes(d.status)) return null;
     if (d.status === "running") {
       const rows = await taskReservations(tx, scope, taskId);
-      if (rows.length) {
+      // Only complete local attachment from a committed, settled visual artifact.
+      // This path cannot invoke a provider, including if the asset disappears.
+      if (
+        d.role === "visual" &&
+        rows.length &&
+        rows.every((r) => ["settled", "released"].includes(r.state))
+      ) {
+        const asset = await tx.entity.findFirst({
+          where: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            kind: "assets",
+            AND: [
+              {
+                data: {
+                  path: ["generationId"],
+                  equals: `agent:${taskId}:image`,
+                },
+              },
+              { data: { path: ["agentTaskId"], equals: taskId } },
+              { data: { path: ["assignmentRunId"], equals: d.runId } },
+              { data: { path: ["assignmentId"], equals: d.assignmentId } },
+            ],
+          },
+        });
+        if (
+          asset &&
+          rows.some(
+            (r) =>
+              r.id === data(asset).budgetReservationId && r.state === "settled",
+          )
+        )
+          persistedImageId = asset.id;
+      }
+      if (rows.length && !persistedImageId) {
         const open = await settleOpen(tx, scope, rows);
         recovered = open.recovered;
         await update(tx, scope, row, {
@@ -891,9 +970,12 @@ export async function runAgentTask(scope: Scope, taskId: string) {
     // Only an active assignment whose confirmation covers its current content
     // runs (R70): a changed, paused or ended one is refused at no cost, and
     // its open runs stop with it. The input below is therefore the confirmed content.
-    const refusal = assignmentRefusal(
-      data(await entity(tx, scope, "assignments", d.assignmentId)),
+    const assignment = data(
+      await entity(tx, scope, "assignments", d.assignmentId),
     );
+    const refusal =
+      assignmentRefusal(assignment) ??
+      (await ownedPlanRefusal(tx, scope, assignment));
     if (refusal) {
       await update(tx, scope, row, {
         ...d,
@@ -902,6 +984,23 @@ export async function runAgentTask(scope: Scope, taskId: string) {
       });
       await cancelAssignmentRuns(tx, scope, d.assignmentId);
       return null;
+    }
+    try {
+      await assertReviewCapacity(tx, scope, d.assignmentId, d.runId);
+    } catch (error) {
+      if (
+        error instanceof DomainError &&
+        error.code === "ASSIGNMENT_REVIEW_BACKLOG_FULL"
+      ) {
+        await update(tx, scope, row, {
+          ...d,
+          status: "queued",
+          output: null,
+          errorCode: error.code,
+        });
+        return null;
+      }
+      throw error;
     }
     const input = await taskInput(tx, scope, d, run);
     const saved = await update(tx, scope, row, {
@@ -937,7 +1036,11 @@ export async function runAgentTask(scope: Scope, taskId: string) {
   if (!handler) failure = { code: "AGENT_ROLE_UNAVAILABLE", error: null };
   else
     try {
-      output = await handler(scope, claimed);
+      output = persistedImageId
+        ? await (
+            await import("./visual.ts")
+          ).recoverPersistedVisual(scope, claimed, persistedImageId)
+        : await handler(scope, claimed);
     } catch (error) {
       const code = telemetryErrorCode(error);
       failure = { code: code === "UNEXPECTED" ? "AGENT_FAILED" : code, error };
@@ -975,7 +1078,22 @@ export async function runAgentTask(scope: Scope, taskId: string) {
         await requeueAgentTask(tx, scope, taskId, project.generation, {
           fromCurrentJob: true,
         });
-    } else if (!failure)
+    } else if (failure?.code === REVIEW_BACKLOG_FULL && !reservations.length) {
+      await update(tx, scope, row, {
+        ...d,
+        status: "queued",
+        output: null,
+        errorCode: REVIEW_BACKLOG_FULL,
+        costMicros,
+      });
+    } else if (!failure) {
+      if (d.role === "strategy")
+        output = await reserveStrategyBriefs(
+          tx,
+          scope,
+          { ...d, id: taskId },
+          output,
+        );
       await update(tx, scope, row, {
         ...d,
         status: "done",
@@ -983,7 +1101,7 @@ export async function runAgentTask(scope: Scope, taskId: string) {
         errorCode: null,
         costMicros,
       });
-    else
+    } else
       await update(tx, scope, row, {
         ...d,
         status: unknown ? "outcome_unknown" : "failed",

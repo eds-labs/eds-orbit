@@ -1,3 +1,9 @@
+import {
+  assertDistinctDraft,
+  topicKey,
+  commitTopic,
+  missionTopicOwner,
+} from "./novelty.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { create, data, entity, hash } from "../../../shared.ts";
@@ -217,10 +223,12 @@ export async function cloneForChannel(
       ? await imageRefusal({ ...v, channel: slot.channel })
       : null;
   if (skipped) delete rest.assetId;
-  return create(tx, scope, "content", {
+  await assertDistinctDraft(tx, scope, slot.channel, v.body, v.novelty);
+  const copy = await create(tx, scope, "content", {
     ...rest,
     ...(skipped ? { imageSkipped: skipped } : {}),
     channel: slot.channel,
+    ...(v.novelty ? { noveltyKey: topicKey(slot.channel, v.novelty) } : {}),
     missionId: mission.id,
     briefKey: slotKey(slot.channel, at),
     scheduledAt: at,
@@ -232,4 +240,21 @@ export async function cloneForChannel(
     },
     status: "draft",
   });
+  if (v.novelty) {
+    const holds = await tx.entity.findMany({
+      where: {
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+        kind: "marketing_topic_reservations",
+        data: {
+          path: ["ownerKey"],
+          equals: missionTopicOwner(m, missionRow.id),
+        },
+      },
+    });
+    for (const h of holds)
+      if (data(h).channel === slot.channel)
+        await commitTopic(tx, scope, h.id, copy.id);
+  }
+  return copy;
 }

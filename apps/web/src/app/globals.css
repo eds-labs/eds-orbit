@@ -5570,3 +5570,279 @@ a.support-row {
 .knowledge-workspace .knowledge-form {
   width: 100%;
 }
+
+/* Assignment counts remain readable inside the existing horizontal scroller. */
+.assignments-table {
+  min-width: 720px;
+}
+
+/* Periodic report evidence stays readable inside the existing analytics page. */
+.marketing-analytics .page-head .page-actions {
+  flex: 0 1 60%;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+}
+.marketing-analytics .page-actions > .button {
+  white-space: normal;
+}
+.marketing-reports {
+  padding: 20px;
+  margin-bottom: 24px;
+  display: grid;
+  gap: 16px;
+}
+.marketing-reports article {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+}
+.marketing-reports h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+.marketing-reports h3 {
+  font-size: 16px;
+  font-weight: 650;
+}
+.marketing-report-form {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+.marketing-report-form label {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.marketing-report-form .input {
+  min-width: 0;
+  width: 100%;
+}
+.marketing-report-form > .button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+@media (max-width: 760px) {
+  .marketing-analytics .page-head .page-actions {
+    width: 100%;
+    flex-basis: auto;
+  }
+  .marketing-analytics .page-actions > .button {
+    flex: 1 1 calc(50% - 9px);
+  }
+  .marketing-reports {
+    padding: 16px;
+  }
+  .marketing-report-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* MA-08: the existing assistant, saved plans and deliberate content release. */
+.marketing-start {
+  padding: 22px;
+  margin-bottom: 24px;
+  background: linear-gradient(130deg, #eef8ff, #fff);
+  border: 1px solid var(--border, #dceaf4);
+  border-radius: 12px;
+}
+.marketing-start-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+.marketing-start h2,
+.marketing-plan-guidance h2 {
+  font-size: 20px;
+  margin: 0 0 8px;
+}
+.marketing-start p,
+.marketing-plan-guidance p {
+  color: #60738a;
+}
+.marketing-start-head > div {
+  min-width: 0;
+}
+.marketing-start-head > .button {
+  flex-shrink: 0;
+}
+.marketing-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.marketing-steps a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid #dceaf4;
+  background: #fff;
+  border-radius: 8px;
+  color: #071522;
+}
+.marketing-steps a > span:not(.marketing-step-number) {
+  flex: 1;
+  min-width: 0;
+}
+.marketing-steps small {
+  display: block;
+  color: #60738a;
+  margin-top: 5px;
+}
+.marketing-steps svg {
+  width: 16px;
+  flex-shrink: 0;
+}
+.marketing-step-number {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  background: #eef8ff;
+  color: #0969ff;
+  border-radius: 50%;
+}
+.marketing-entry-note {
+  font-size: 13px;
+  margin: 16px 0;
+}
+.marketing-manual-links,
+.marketing-assistant-nav,
+.marketing-plan-guidance nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin: 16px 0;
+}
+.marketing-manual-links {
+  font-size: 13px;
+}
+.marketing-manual-links span {
+  color: #60738a;
+}
+.marketing-manual-links a,
+.marketing-assistant-nav a,
+.marketing-plan-guidance a {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  color: #0969ff;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.marketing-assistant-nav {
+  margin: 0 0 20px;
+}
+.marketing-plan-list {
+  padding: 0;
+  margin: 16px 0;
+  list-style: none;
+}
+.marketing-plan-list li {
+  border-bottom: 1px solid #dceaf4;
+}
+.marketing-plan-list a {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 16px 0;
+  min-height: 52px;
+  color: #071522;
+}
+.marketing-plan-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.marketing-plan-next {
+  width: 100%;
+  color: #60738a;
+  font-size: 13px;
+}
+.marketing-plan-guidance {
+  margin: 20px 0;
+  padding: 20px;
+  border-left: 3px solid #0969ff;
+  background: #eef8ff;
+}
+.marketing-start-compact {
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.marketing-start-compact .marketing-start-head {
+  display: block;
+}
+.marketing-start-compact h2 {
+  font-size: 16px;
+}
+.marketing-start-compact .marketing-steps {
+  grid-template-columns: 1fr;
+  gap: 6px;
+}
+.marketing-start-compact .marketing-steps a {
+  min-height: 44px;
+  padding: 8px;
+  font-size: 13px;
+}
+.marketing-start-compact .marketing-steps small {
+  display: none;
+}
+@media (max-width: 900px) {
+  .marketing-start-head {
+    flex-direction: column;
+  }
+}
+@media (max-width: 760px) {
+  .marketing-start {
+    padding: 16px;
+  }
+  .marketing-start-compact {
+    padding: 0;
+  }
+  .marketing-start-head {
+    gap: 12px;
+  }
+  .marketing-steps {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .marketing-steps a {
+    min-height: 60px;
+  }
+  .marketing-start h2,
+  .marketing-plan-guidance h2 {
+    font-size: 18px;
+  }
+  .marketing-start-compact h2 {
+    font-size: 16px;
+  }
+}
+@media (forced-colors: active) {
+  .marketing-start,
+  .marketing-steps a,
+  .marketing-plan-guidance {
+    border: 1px solid CanvasText;
+  }
+}
+
+.marketing-plans-page .page-actions { flex-wrap: wrap; }
+@media (max-width: 760px) {
+  .marketing-plans-page .page-actions > .button { flex: 1 0 100%; width: 100%; white-space: normal; }
+}

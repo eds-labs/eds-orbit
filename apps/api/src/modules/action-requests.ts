@@ -69,7 +69,7 @@ export const actionDecision = z
     version: z.number().int().positive(),
     packageHash: z.string().regex(/^[a-f0-9]{64}$/),
     decision: z.enum(["approve", "reject"]),
-    // Only read by `assignment.confirm`: consent that the assignment may use generated images.
+    // Assignment confirmation and plan activation require this exact human image-use consent.
     imageRightsConsent: z.boolean().optional(),
   })
   .strict();
@@ -87,6 +87,8 @@ export type ActionDefinition<P> = {
   ttlMs: number;
   payload: z.ZodType<P>;
   costCeilingMicros: (payload: P) => number;
+  /** Module-owned exact proposal summary for native approval renderers. */
+  summary?: (payload: P) => Record<string, unknown>;
   /** Rechecked at decision time; throws when the request no longer matches. */
   revalidate: (tx: DbTx, scope: Scope, payload: P) => Promise<void>;
   onApproved: (tx: DbTx, scope: Scope, request: Row) => Promise<void>;
@@ -705,6 +707,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
       createdAt: row.createdAt,
       requestedBy: listedRequester(d.requestedBy),
       summary: {
+        ...registeredActionType(String(d.actionType))?.summary?.(d.payload),
         ...(d.actionType === "platform.task.start"
           ? {
               task: await tx.entity
@@ -770,6 +773,7 @@ export async function listActionRequests(tx: DbTx, scope: Scope) {
                 image: d.payload.image,
                 styleAssetIds: d.payload.styleAssetIds,
                 vetoMinutes: d.payload.vetoMinutes,
+                approvalMode: d.payload.approvalMode ?? "delegated_review",
                 monthlyBudgetMicros: d.payload.monthlyBudgetMicros,
                 // Absent in the payload means "publish" (R73).
                 delivery:

@@ -125,10 +125,13 @@ const assignmentFields = z
     styleAssetIds: z.array(z.uuid()).max(10),
     vetoMinutes: z.number().int().min(30).max(1440).default(180),
     monthlyBudgetMicros: z.number().int().min(0).max(10_000_000_000),
+    pendingReviewLimit: z.number().int().min(1).max(100).optional(),
     // How approved posts leave Orbit (R73): published after the veto window,
     // or only created as drafts in Postiz at their slot, which the owner
     // publishes himself. Absent means "publish" (rows from before R73).
     delivery: z.enum(["publish", "postiz_draft"]).optional(),
+    // Absent on legacy rows: retain their delegated review/veto mandate.
+    approvalMode: z.enum(["human_each", "delegated_review"]).optional(),
     // One text and one image per slot for all channels (R76). Absent means
     // false: one text per channel, as before R76.
     sharedAcrossChannels: z.boolean().optional(),
@@ -181,6 +184,12 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
     issue(["banner"], "Only social posts have a banner");
   if (value.banner && !value.image)
     issue(["banner"], "A banner needs the image consent (image: true)");
+  if (
+    value.pendingReviewLimit !== undefined &&
+    value.pendingReviewLimit <
+      value.channels.length * value.schedule.times.length
+  )
+    issue(["pendingReviewLimit"], "Review limit must cover one complete run");
   if (value.format) {
     if (value.contentType !== "social")
       issue(["format"], "Only social posts have a format");
@@ -191,6 +200,14 @@ export const assignmentInput = assignmentFields.superRefine((value, ctx) => {
   }
 });
 export type AssignmentInput = z.output<typeof assignmentInput>;
+
+export type ApprovalMode = "human_each" | "delegated_review";
+/** Missing fields preserve legacy authority; unknown values fail closed. */
+export const approvalModeOf = (source: Record<string, any>) =>
+  source.approvalMode === undefined ||
+  source.approvalMode === "delegated_review"
+    ? ("delegated_review" as const)
+    : ("human_each" as const);
 
 export type Delivery = "publish" | "postiz_draft";
 /** Preflight blocker for any publication of a draft-delivery assignment's content (R73). */
@@ -232,6 +249,7 @@ export const sharedAcrossChannels = (
 // Field values that equal the behaviour before the field existed; the hash leaves them out.
 const LEGACY_DEFAULTS: Partial<Record<keyof Content, unknown>> = {
   delivery: "publish",
+  approvalMode: "delegated_review",
   sharedAcrossChannels: false,
 };
 
@@ -262,7 +280,11 @@ const withoutTimes = (source: Record<string, any>) => {
 };
 
 /** Monthly budget the confirmed assignments hold, without `selfId`; drafts claim theirs when confirmed. */
-async function committedBudget(tx: DbTx, scope: Scope, selfId: string | null) {
+export async function committedBudget(
+  tx: DbTx,
+  scope: Scope,
+  selfId: string | null,
+) {
   return (await list(tx, scope, KIND))
     .filter(
       (row) =>
@@ -375,11 +397,12 @@ async function assertFormatFits(
   }
 }
 
-async function assertWithinMandate(
+export async function assertWithinMandate(
   tx: DbTx,
   scope: Scope,
   content: Content,
   selfId: string | null,
+  excludedIds: string[] = [],
 ) {
   if (content.contentType === "report")
     throw new DomainError(REPORT_NOT_AVAILABLE, 409);
@@ -411,7 +434,14 @@ async function assertWithinMandate(
       content.format?.cta,
       mandate.allowedOrigins ?? [],
     );
-  const committed = await committedBudget(tx, scope, selfId);
+  const committed = (await list(tx, scope, KIND))
+    .filter(
+      (r) =>
+        r.id !== selfId &&
+        !excludedIds.includes(r.id) &&
+        ["active", "paused", "budget_exhausted"].includes(data(r).status),
+    )
+    .reduce((sum, r) => sum + Number(data(r).monthlyBudgetMicros ?? 0), 0);
   if (
     committed + content.monthlyBudgetMicros >
     Number(mandate.monthlyBudgetMicros)
@@ -473,7 +503,61 @@ export async function proposeAssignmentInTx(
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const content = assignmentInput.parse(raw);
   await conversation(tx, scope, conversationId);
-  return saveProposal(tx, scope, content, conversationId);
+  // scoped() serializes project mutations. Replays across chats must not book
+  // another budget or create another recurring job for the same mandate.
+  const normalized = {
+    ...content,
+    approvalMode: content.approvalMode ?? "human_each",
+  };
+  const key = proposalMatchKey(normalized);
+  for (const row of await list(tx, scope, KIND)) {
+    const d = data(row);
+    if (
+      d.status === "ended" ||
+      typeof d.conversationId !== "string" ||
+      proposalMatchKey(d) !== key ||
+      !d.actionRequestId
+    )
+      continue;
+    const request = await entity(
+      tx,
+      scope,
+      "action_requests",
+      d.actionRequestId,
+    );
+    const r = data(request);
+    if (r.requestedBy?.kind !== "agent") continue;
+    if (
+      d.status === "draft" &&
+      (r.status !== "pending" || Date.parse(r.expiresAt) <= Date.now())
+    )
+      continue;
+    await assertWithinMandate(tx, scope, normalized, row.id);
+    return { assignment: row, actionRequest: request, reused: true };
+  }
+  return {
+    ...(await saveProposal(tx, scope, content, conversationId)),
+    reused: false,
+  };
+}
+
+/** Identity for equivalent chat requests; no fuzzy topic or authority merging. */
+function proposalMatchKey(source: Record<string, any>) {
+  const value = contentOf(source);
+  delete value.name;
+  value.topicFrame = String(value.topicFrame ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+  for (const key of ["channels", "styleAssetIds"])
+    if (Array.isArray(value[key])) value[key] = [...value[key]].sort();
+  if (value.schedule)
+    value.schedule = {
+      ...value.schedule,
+      times: [...(value.schedule.times ?? [])].sort(),
+      weekdays: [...(value.schedule.weekdays ?? [])].sort(),
+    };
+  return hash(value);
 }
 
 /** The draft and its confirmation request; the caller checked role, flag and origin. */
@@ -484,6 +568,7 @@ async function saveProposal(
   conversationId: string | null,
   requester?: RequestedBy,
 ) {
+  content = { ...content, approvalMode: content.approvalMode ?? "human_each" };
   await assertWithinMandate(tx, scope, content, null);
   const row = await create(tx, scope, KIND, {
     ...content,
@@ -534,6 +619,7 @@ export async function proposeAssignmentFromMcp(
     throw new DomainError("MCP_CHANNEL_INCOMPLETE", 500);
   if (!agentsEnabled()) throw new DomainError("AGENTS_DISABLED", 409);
   const content = assignmentInput.parse(raw);
+  content.approvalMode ??= "human_each";
   const requester = mcpRequester(origin, scope.projectId, content);
   const { argsHash } = requester;
   // The project transaction serializes proposals, so a concurrent retry sees the first one.
@@ -644,6 +730,7 @@ export async function confirmAssignment(
       imageRightsConsent: d.image === true,
       // The confirmed delivery (R73); the content guard and the runs read it from here.
       delivery: deliveryOf(d),
+      approvalMode: approvalModeOf(d),
     },
   });
   await audit(tx, scope, "assignment.confirmed", row.id, {
@@ -838,4 +925,66 @@ export async function setAssignmentStatus(
     to: status,
   });
   return saved;
+}
+
+/** Shared plan executor: stages exact children, never impersonates child approvals.
+ * Caller validates the entire set under the project lock before staging any row. */
+export async function stagePlanAssignment(
+  tx: DbTx,
+  scope: Scope,
+  raw: unknown,
+  existing: { id: string; version: number } | undefined,
+  origin: {
+    planId: string;
+    childKey: string;
+    revision: number;
+    specHash: string;
+    requestId: string;
+  },
+) {
+  authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
+  const content = assignmentInput.parse(raw);
+  let row;
+  if (existing) {
+    row = await entity(tx, scope, KIND, existing.id);
+    if (row.version !== existing.version)
+      throw new DomainError("PLAN_WORK_STALE", 409);
+    if (data(row).status === "ended")
+      throw new DomainError("ASSIGNMENT_ENDED", 409);
+    await cancelAssignmentRuns(tx, scope, row.id);
+    await withdrawAssignmentPublications(
+      tx,
+      scope,
+      row.id,
+      "ASSIGNMENT_CHANGED",
+    );
+    if (data(row).actionRequestId)
+      await cancelActionRequest(
+        tx,
+        scope,
+        data(row).actionRequestId,
+        "PLAN_ACTIVATION",
+      );
+    row = await update(tx, scope, row, {
+      ...Object.fromEntries(
+        Object.entries(data(row)).filter(
+          ([key]) => !CONTENT_KEYS.includes(key as keyof Content),
+        ),
+      ),
+      ...content,
+      status: "draft",
+      confirmation: null,
+      actionRequestId: null,
+      marketingPlan: origin,
+    });
+  } else
+    row = await create(tx, scope, KIND, {
+      ...content,
+      conversationId: null,
+      status: "draft",
+      confirmation: null,
+      actionRequestId: null,
+      marketingPlan: origin,
+    });
+  return row;
 }

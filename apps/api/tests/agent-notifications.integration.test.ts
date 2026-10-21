@@ -1273,7 +1273,11 @@ describe.skipIf(!enabled)("Orbit Agents Telegram notifications", () => {
         }),
       ]);
       // The run is over: going through it again adds nothing.
-      await h.run((tx) => startReadySteps(tx, project.owner, planned.runId));
+      await Promise.all(
+        [1, 2].map(() =>
+          h.run((tx) => startReadySteps(tx, project.owner, planned.runId)),
+        ),
+      );
       expect(await jobsOf("run_problem")).toHaveLength(1);
 
       await send(jobs[0]!.id);
