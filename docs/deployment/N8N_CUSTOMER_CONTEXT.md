@@ -244,8 +244,9 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
    `NODE_FUNCTION_ALLOW_BUILTIN=crypto` on n8n (the runner image allows
    `crypto` already, section 5), and
    `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` last); optionally disable the
-   Python runner. Execution data and hardening **done 2026-10-21** (see
-   below); the gateway settings follow with the workflow import.
+   Python runner. Execution data and hardening **done 2026-10-21**; gateway
+   settings and workflow import done the same day except
+   `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, which waits for 2FA (see below).
 7. Optional (section 6): restrict the editor UI in Traefik.
 
 ### Encryption key made explicit (2026-10-21)
@@ -323,3 +324,27 @@ DNS error. In 2.44.5 the `/api/v1` routes stay mounted and answer 401;
 listing and using keys), so a 401 does not mean the API is enabled. n8n
 warns that `WEBHOOK_URL` (set by the Coolify template) is deprecated in
 favour of `N8N_WEBHOOK_URL`; it still works, revisit with the next update.
+
+### Gateway settings and workflow import (2026-10-21)
+
+Mario added `NODE_FUNCTION_ALLOW_BUILTIN=crypto` and the `CC_*` references
+to the `n8n` service of the compose file (`CC_GATEWAY_INTEGRATIONS` defaults
+to `[]`, `CC_DESK_BASE_URL` to `https://api.desk.uliquid.vip`; tokens and the
+FamilyPlan URL still empty), saved and restarted. Verified read-only: the
+references sit in `n8n`, the five `CC_*` variables exist in Coolify, all
+containers are healthy. `N8N_BLOCK_ENV_ACCESS_IN_NODE` is still `true` (to be
+changed only after 2FA, section 4).
+
+Import without a shell in the container: n8n 2.44.5 accepts the workflow id
+when a workflow is created through its REST API, so Claude imported the
+generated files (commit `f1a8286`, SHA-256 checked in the browser) through
+Mario's signed-in editor session, adapters first, and published each version
+(`POST /rest/workflows/:id/activate` with its `versionId`). The same
+procedure was rehearsed first against a throwaway local n8n 2.44.5.
+Verified: exactly the three workflows `CcAdapterUliquidDesk01`,
+`CcAdapterFamilyPlan001` and `CcGatewayOrbit0001` exist and are active;
+their stored nodes, connections and settings equal the files. An unsigned
+call to `https://n8n.eds-labs.io/webhook/orbit-cc/v1/customer-context/lookup`
+answers 500 "Error in workflow", as expected while the Code nodes cannot read
+`$env`; failed executions are not stored. After the env access change the
+same call must answer 401.
