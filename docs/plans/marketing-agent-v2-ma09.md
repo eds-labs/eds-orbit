@@ -349,3 +349,25 @@ are **not** claimed equal. After restoring deterministic-eval output, every one 
 its 1,009 tracked source files was individually compared with the pre-run `8af5d09`
 Git blob and matched exactly. Only the ignored build cache falls outside that
 comparison. No manifest-script refactor was added to this pilot-preparation phase.
+
+
+## Authorized direct-main delivery — 2026-10-21
+
+Mario explicitly approved direct-main delivery in this chat after the reviewed release
+preview. This authorizes the push and associated webhook rollout; paid work, pilot
+activation, production flag changes and exact post releases remain separate.
+
+Refreshed main is `ccd7689`, containing an independently committed identical Vite
+8.3.3 patch. Retain its narrower `vite@>=8.3.0 <8.3.3` override, remove the duplicate
+broader local rule, and preserve both histories with a merge. The complete lockfile
+importers/packages/snapshots are byte-identical to tested `8af5d09`; only override
+selection/order differs. Frozen offline install and the high-threshold audit pass.
+No application/test, migration, Compose, production flag or provider configuration
+changes accompany this integration. Existing 3,052-test/five-browser verification
+remains evidence for the same application and resolved dependencies; exact merge CI
+and webhook/runtime results must be tracked separately.
+
+Pre-push Coolify reports the existing application `running:healthy` and the enabled
+03:00 UTC off-host backup task. Task presence alone is not a verified recent restore
+or per-service runtime attestation. No backup/config/credential operation was performed.
+The application-level health-check flag is unchanged. No pilot is started by delivery.
