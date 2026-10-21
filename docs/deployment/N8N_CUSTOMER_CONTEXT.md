@@ -225,7 +225,7 @@ record exists for it yet.
 
 Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
 
-1. Turn on 2FA for the owner account (Mario).
+1. Turn on 2FA for the owner account (Mario). **Done 2026-10-21.**
 2. Store the generated encryption key in the password manager and set it as
    a locked Coolify variable `N8N_ENCRYPTION_KEY` with the **same** value;
    n8n refuses to start when the variable differs from the key in its
@@ -245,8 +245,9 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
    `crypto` already, section 5), and
    `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` last); optionally disable the
    Python runner. Execution data and hardening **done 2026-10-21**; gateway
-   settings and workflow import done the same day except
-   `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`, which waits for 2FA (see below).
+   settings, workflow import and `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` done
+   the same day (see below). Section 11 steps 1 and 2 are complete apart from
+   the backup.
 7. Optional (section 6): restrict the editor UI in Traefik.
 
 ### Encryption key made explicit (2026-10-21)
@@ -348,3 +349,16 @@ call to `https://n8n.eds-labs.io/webhook/orbit-cc/v1/customer-context/lookup`
 answers 500 "Error in workflow", as expected while the Code nodes cannot read
 `$env`; failed executions are not stored. After the env access change the
 same call must answer 401.
+
+### Env access on, gateway refusing (2026-10-21)
+
+After turning on 2FA, Mario set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` and
+restarted the service. Verified read-only: one owner account, no pending
+invitations, 2FA enabled; one fresh start (17:22 server time) with version
+2.44.5, both runners registered, no error; all containers healthy,
+readiness 200; the three workflows active. An unsigned call and a call with
+a wrong bearer token to the lookup webhook both answer 401 with the
+gateway's own `unauthenticated` problem details, so the Code nodes run in
+the external runner with `crypto` and `$env` on Coolify, and with
+`CC_GATEWAY_INTEGRATIONS=[]` every request is refused. The gateway logged
+nothing for these calls. Next: section 11 step 3 (Desk token).
