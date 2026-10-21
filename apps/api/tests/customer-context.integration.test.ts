@@ -766,6 +766,69 @@ describe.skipIf(!enabled)("customer context", () => {
     );
   });
 
+  it("drafts e-mail tickets of a bound inbox as before, even with account words", async () => {
+    mocked.provider = answering("found-active");
+    // The bound inbox also receives e-mail; an e-mail sender is a claim.
+    await run((tx) =>
+      tx.supportInbox.update({
+        where: { id: inboxId },
+        data: { channels: ["widget", "email"] },
+      }),
+    );
+    try {
+      const { ticketId } = await run((tx) =>
+        createTicket(tx, owner, {
+          inboxId,
+          channel: "email",
+          inbound: {
+            externalId: `<${randomUUID()}@example.invalid>`,
+            contact: { email: "anna@example.invalid", name: "Anna Example" },
+            subject: "Password",
+            bodyText: "How do I reset my password? My plan is the Pro plan.",
+            attachments: [],
+          },
+        }),
+      );
+      await runSupportTask(
+        { ...owner, userId: "worker" },
+        { task: "draft", ticketId },
+      );
+      // No lookup and no account notice: the existing gap note and its
+      // handoff, not the customer-context one.
+      expect(mocked.calls).toHaveLength(0);
+      expect(mocked.requests).toHaveLength(0);
+      const note = await run((tx) =>
+        tx.supportMessage.findFirst({ where: { ticketId, kind: "ai_draft" } }),
+      );
+      expect(note?.bodyText).toContain(
+        "No approved knowledge covers this question yet",
+      );
+      const handoff = await run((tx) =>
+        tx.supportTicketEvent.findFirst({
+          where: { ticketId, type: "handoff" },
+        }),
+      );
+      expect(handoff?.after).toMatchObject({ reason: "insufficient_evidence" });
+      expect(
+        await run((tx) =>
+          tx.auditEvent.count({
+            where: {
+              resourceId: ticketId,
+              action: "support.customer_context.read",
+            },
+          }),
+        ),
+      ).toBe(0);
+    } finally {
+      await run((tx) =>
+        tx.supportInbox.update({
+          where: { id: inboxId },
+          data: { channels: ["widget"] },
+        }),
+      );
+    }
+  });
+
   it("fails closed when the bound integration is removed", async () => {
     mocked.provider = answering("found-active");
     const removed = await call(

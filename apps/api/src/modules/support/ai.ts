@@ -629,7 +629,7 @@ async function draft(scope: Scope, ticketId: string, run: RunOptions) {
     ...(evidence.facts ?? []).map((f) => `fact:${f.id}`),
     ...(evidence.passages ?? []).map((p) => `chunk:${p.chunkId}`),
   ];
-  const account = await draftAccountEvidence(scope, ticketId, query);
+  const account = await draftAccountEvidence(scope, ctx.ticket, query);
   const ids = [...knowledgeIds, ...(account?.ids ?? [])];
   // Without account facts, a draft still needs approved knowledge.
   if (!account && (evidence.status !== "ready" || !knowledgeIds.length)) {
@@ -715,17 +715,19 @@ async function draft(scope: Scope, ticketId: string, run: RunOptions) {
 }
 
 /**
- * Account facts for a draft whose message asks about plan, features or
- * limits (ADR 0011), or null when it does not or the inbox reads no
- * customer context: the draft then runs exactly as before.
+ * Account facts for a widget ticket whose message asks about plan, features
+ * or limits (ADR 0011), or null when it does not, when it is no widget
+ * ticket (an e-mail sender is a claim, never looked up) or when the inbox
+ * reads no customer context: the draft then runs exactly as before.
  */
 async function draftAccountEvidence(
   scope: Scope,
-  ticketId: string,
+  ticket: { id: string; channel: string },
   message: string,
 ) {
+  if (ticket.channel !== "widget") return null;
   if (!customerContextTopics(message).length) return null;
-  const read = await readTicketCustomerContext(scope, ticketId, "ai");
+  const read = await readTicketCustomerContext(scope, ticket.id, "ai");
   const { result } = read;
   if (
     result.status === "forbidden" &&

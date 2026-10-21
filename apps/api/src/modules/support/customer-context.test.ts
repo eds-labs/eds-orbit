@@ -37,6 +37,10 @@ describe("detecting account questions", () => {
       ["usage"],
     ],
     ["I ran out of credits", ["usage"]],
+    // Words starting with or containing an umlaut.
+    ["Mein Limit wurde überschritten", ["usage"]],
+    ["Was ist bei mir noch übrig?", ["usage"]],
+    ["Die Funktionsfähigkeit ist eingeschränkt", ["entitlements"]],
   ])("%s", (text, topics) => {
     expect(customerContextTopics(text)).toEqual(expect.arrayContaining(topics));
   });
@@ -48,6 +52,8 @@ describe("detecting account questions", () => {
     expect(
       customerContextTopics("The app crashes when I open settings"),
     ).toEqual([]);
+    // A topic word inside a longer word is no match ("übrig" in "übrigens").
+    expect(customerContextTopics("Übrigens: die App stürzt ab")).toEqual([]);
   });
 });
 

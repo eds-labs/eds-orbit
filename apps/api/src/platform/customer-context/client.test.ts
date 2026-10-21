@@ -194,6 +194,17 @@ describe("customer context client", () => {
     expect(down.calls).toHaveLength(5);
   });
 
+  it("keeps the lookup on the base URL's host, also for a path with //", () => {
+    expect(
+      customerContextUrl("https://n8n.example.com/webhook/orbit-cc/").href,
+    ).toBe(
+      "https://n8n.example.com/webhook/orbit-cc/v1/customer-context/lookup",
+    );
+    const odd = customerContextUrl("https://good.example.com//evil.example/x");
+    expect(odd.host).toBe("good.example.com");
+    expect(odd.pathname).toBe("//evil.example/x/v1/customer-context/lookup");
+  });
+
   it("refuses non-HTTPS base URLs and clamps timeouts", async () => {
     expect(() => customerContextUrl("http://hooks.example.com")).toThrow();
     expect(() =>

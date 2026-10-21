@@ -47,11 +47,11 @@ export function signCustomerContextBody(
 
 /** The lookup URL below an integration's base URL (HTTPS, no query). */
 export function customerContextUrl(baseUrl: string) {
-  const base = endpoint(baseUrl);
-  return new URL(
-    `${base.pathname.replace(/\/+$/, "")}${CUSTOMER_CONTEXT_PATH}`,
-    base,
-  );
+  const url = endpoint(baseUrl);
+  // Set the path on the base itself: resolving a path that starts with "//"
+  // would treat it as another host.
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}${CUSTOMER_CONTEXT_PATH}`;
+  return url;
 }
 
 /** Integration timeouts are clamped to the contract's bounds. */

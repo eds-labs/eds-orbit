@@ -178,19 +178,32 @@ export function customerContextView(read: TicketCustomerContext) {
 // Questions about plan, features or credits, in English and German. Broad
 // on purpose: a false positive costs one read-only lookup, a miss leaves a
 // draft without the account facts it needed.
+// `\b` and `\w` are ASCII-only even with the `u` flag, so word edges and
+// word letters are Unicode letters ("überschritten", "Funktionsfähigkeit").
+const words = (alternatives: string) =>
+  new RegExp(
+    `(?<![\\p{L}\\p{N}_])(?:${alternatives.replaceAll("\\w", "[\\p{L}\\p{N}_]")})(?![\\p{L}\\p{N}_])`,
+    "iu",
+  );
 const NEEDS: Array<[topic: "subscription" | "entitlements" | "usage", RegExp]> =
   [
     [
       "subscription",
-      /\b(abo(nnement)?s?|subscri\w*|plan|plans|tarif\w*|paket\w*|premium|pro[- ]version|trial|test(phase|zeitraum|version)|kündig\w*|cancel\w*|renew\w*|verlänger\w*|upgrade\w*|downgrade\w*|membership|mitgliedschaft|lizenz\w*|licen[cs]e\w*|expir\w*|abgelaufen|läuft ab)\b/iu,
+      words(
+        String.raw`abo(nnement)?s?|subscri\w*|plan|plans|tarif\w*|paket\w*|premium|pro[- ]version|trial|test(phase|zeitraum|version)|kündig\w*|cancel\w*|renew\w*|verlänger\w*|upgrade\w*|downgrade\w*|membership|mitgliedschaft|lizenz\w*|licen[cs]e\w*|expir\w*|abgelaufen|läuft ab`,
+      ),
     ],
     [
       "entitlements",
-      /\b(feature\w*|funktion\w*|freigeschaltet|freischalt\w*|unlock\w*|enabled?|disabled|aktiviert|deaktiviert|verfügbar|unavailable|not available|nicht verfügbar|zugriff|access|berechtigung\w*|permission\w*|locked|gesperrt|greyed out|ausgegraut|kann ich nicht nutzen|can'?t use|cannot use)\b/iu,
+      words(
+        String.raw`feature\w*|funktion\w*|freigeschaltet|freischalt\w*|unlock\w*|enabled?|disabled|aktiviert|deaktiviert|verfügbar|unavailable|not available|nicht verfügbar|zugriff|access|berechtigung\w*|permission\w*|locked|gesperrt|greyed out|ausgegraut|kann ich nicht nutzen|can'?t use|cannot use`,
+      ),
     ],
     [
       "usage",
-      /\b(credits?|guthaben|kontingent\w*|limit\w*|quota\w*|verbrauch\w*|usage|nutzung|aufgebraucht|verbraucht|used up|ran out|run out|out of|exceeded|überschritten|reset\w*|zurückgesetzt|remaining|übrig|verbleibend\w*|tokens?|requests? left|anfragen)\b/iu,
+      words(
+        String.raw`credits?|guthaben|kontingent\w*|limit\w*|quota\w*|verbrauch\w*|usage|nutzung|aufgebraucht|verbraucht|used up|ran out|run out|out of|exceeded|überschritten|reset\w*|zurückgesetzt|remaining|übrig|verbleibend\w*|tokens?|requests? left|anfragen`,
+      ),
     ],
   ];
 
