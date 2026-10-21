@@ -10,6 +10,14 @@ import { randomUUID } from "node:crypto";
 // With the support module on (E2E_SUPPORT=1), its Tickets entry takes the
 // bottom bar's third place (rank 20) and Content drops off.
 const SUPPORT = process.env.E2E_SUPPORT === "1";
+// Marketing's Plans and Assignments pages show only while Orbit Agents is on
+// (ORBIT_AGENTS; e9c5d9d). E2E_AGENTS=1 declares an agents-enabled stack.
+const AGENTS = process.env.E2E_AGENTS === "1";
+const agentPage = (name: string, path: string): [string, string, string] => [
+  "marketing",
+  name,
+  path,
+];
 const BAR = SUPPORT
   ? ["Home", "Orbit Chat", "Tickets", "Approvals"]
   : ["Home", "Orbit Chat", "Approvals", "Content"];
@@ -68,8 +76,9 @@ const PAGES: Array<[group: string, name: string, path: string]> = [
   ["top", "Home", ""],
   ["top", "Orbit Chat", "/assistant"],
   ["marketing", "Overview", "/marketing"],
+  ...(AGENTS ? [agentPage("Plans", "/marketing/plans")] : []),
   ["marketing", "Missions", "/marketing/missions"],
-  ["marketing", "Assignments", "/marketing/assignments"],
+  ...(AGENTS ? [agentPage("Assignments", "/marketing/assignments")] : []),
   ["marketing", "Content Studio", "/marketing/content"],
   ["marketing", "Calendar", "/marketing/calendar"],
   ["marketing", "Approvals", "/approvals"],
