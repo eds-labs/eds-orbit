@@ -1,5 +1,21 @@
 # Requirements traceability
 
+## Universal customer context in Orbit (2026-10-21)
+
+| Requirement | Evidence | State |
+| --- | --- | --- |
+| Generic integration, configurable provider endpoint (n8n first) | `platform/customer-context/*`, owner actions, connection check; integration test | PASS_TEST |
+| Server-side `customer_context.read` with timeouts and structured errors | `client.test.ts` (deadline, network, timeout, oversize, echo, circuit) | PASS_TEST |
+| Signed requests, tenant-bound integration and permissions | HMAC assertions, foreign-binding 400, outsider/cross-project 404, viewer 403, editor binding 403 | PASS_TEST |
+| Only verified identities are looked up | Anonymous and other-inbox identities answered locally, zero provider calls | PASS_TEST |
+| Support agent tool and automatic detection | `support_customer_context`, `customerContextTopics`, AI draft integration tests | PASS_TEST |
+| Subscription, feature denied, credits exhausted, reset date | Route and draft tests with contract examples | PASS_TEST |
+| Unknown or failed status is stated, never invented | `account:status` notice, forced handoff, withheld uncited draft; unknown never 0 | PASS_TEST |
+| Data-minimal logging and no product user id in views or prompts | Audit and view assertions | PASS_TEST |
+| UI: integration management, inbox binding, customer account card | Root/web typecheck and production build; no browser run | NOT_RUN |
+| n8n workflow, FamilyPlan and uLiquid Desk providers, end-to-end integration test | Plan CC-3 to CC-5, rollout step 2 | NOT_RUN |
+| Production activation | Needs a passed end-to-end integration test and approval | BLOCKED_EXTERNAL |
+
 ## Universal customer context contract v1 (2026-10-21)
 
 | Requirement | Evidence | State |
