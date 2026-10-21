@@ -215,7 +215,7 @@ temporary Coolify domain.
 | Accounts | ⚠️ | one user (Mario, owner), no pending invitations; 2FA disabled |
 | Separation from Orbit | ✅ | own Coolify project and Postgres, stack network only, no published ports, no Orbit variables |
 | Other workflows | ✅ | none; no credentials, no executions |
-| Execution data and hardening | ❌ | none of `EXECUTIONS_*`, `N8N_DIAGNOSTICS_ENABLED`, `N8N_PERSONALIZATION_ENABLED`, `N8N_VERSION_NOTIFICATIONS_ENABLED`, `N8N_TEMPLATES_ENABLED`, `N8N_PUBLIC_API_DISABLED`, `N8N_COMMUNITY_PACKAGES_ENABLED`, `N8N_SECURE_COOKIE`, `NODE_FUNCTION_ALLOW_BUILTIN`, `N8N_RUNNERS_TASK_TIMEOUT` is set; the public API answers (401 instead of 404) and community nodes are enabled; `N8N_BLOCK_ENV_ACCESS_IN_NODE` is set with template default `true` (the gateway needs `false`) |
+| Execution data and hardening | ❌ | none of `EXECUTIONS_*`, `N8N_DIAGNOSTICS_ENABLED`, `N8N_PERSONALIZATION_ENABLED`, `N8N_VERSION_NOTIFICATIONS_ENABLED`, `N8N_TEMPLATES_ENABLED`, `N8N_PUBLIC_API_DISABLED`, `N8N_COMMUNITY_PACKAGES_ENABLED`, `N8N_SECURE_COOKIE`, `NODE_FUNCTION_ALLOW_BUILTIN`, `N8N_RUNNERS_TASK_TIMEOUT` is set; community nodes are enabled; `N8N_BLOCK_ENV_ACCESS_IN_NODE` is set with template default `true` (the gateway needs `false`) |
 | Task runners | ⚠️ | `N8N_RUNNERS_MODE=external` with a separate runner container; the local evidence then used the internal runner (section 5; external runners passed locally later the same day, see below); the Python runner is enabled (`N8N_NATIVE_PYTHON_RUNNER`, template default `true`) |
 | Backups | ❌ | no Coolify backup schedule and no scheduled task |
 
@@ -229,7 +229,10 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
 2. Store the generated encryption key in the password manager and set it as
    a locked Coolify variable `N8N_ENCRYPTION_KEY` with the **same** value;
    n8n refuses to start when the variable differs from the key in its
-   settings file. **Done 2026-10-21** (see below).
+   settings file. **Partly done** (2026-10-21): the key is in the password
+   manager and in Coolify, but the compose file references it in the
+   `task-runners` service instead of `n8n`, so n8n still reads the key from
+   its settings file (see below).
 3. Daily backup of the n8n database as in section 8, then a restore drill
    into an isolated database. **Open** (2026-10-21): an R2 storage is
    connected in Coolify, but the n8n service has no backup schedule or
@@ -243,14 +246,19 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
    `NODE_FUNCTION_ALLOW_BUILTIN=crypto` on n8n (the runner image allows
    `crypto` already, section 5), and
    `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` last); optionally disable the
-   Python runner.
+   Python runner. Execution data and hardening **done 2026-10-21** (see
+   below); the gateway settings follow with the workflow import.
 7. Optional (section 6): restrict the editor UI in Traefik.
 
 ### Encryption key made explicit (2026-10-21)
 
 Mario read the key that n8n had generated, stored it in the password manager,
-referenced `N8N_ENCRYPTION_KEY` in the n8n service of the compose file, set it
-as a locked Coolify variable with the same value and redeployed. Verified
+referenced `N8N_ENCRYPTION_KEY` in the compose file, set it as a locked
+Coolify variable with the same value and redeployed. Correction (found while
+applying section 2): the reference sits in the `task-runners` service, not in
+`n8n`, so the main process does not receive the variable and keeps using the
+key from its settings file; the runner launcher does not pass it on either.
+Moving the reference to `n8n` is a separate approved step. Verified
 read-only afterwards: the variable exists (name only, locked), n8n and the
 runner are `running:healthy`, `/healthz` and `/healthz/readiness` answer 200,
 and the n8n log shows no encryption key mismatch. Observation: right after the
@@ -287,3 +295,27 @@ containers `running:healthy`. `WEBHOOK_URL`, `N8N_HOST` and
 from that domain; their runtime values were not read. The webhook base is
 confirmed directly once the gateway is imported (the lookup path answers 404
 until then).
+
+### Execution data and hardening applied (2026-10-21)
+
+On Mario's approval Claude added the section 2 settings as literal values to
+the compose file in Coolify: in `n8n` all `EXECUTIONS_*` settings,
+`N8N_RUNNERS_TASK_TIMEOUT`, `N8N_DIAGNOSTICS_ENABLED`,
+`N8N_PERSONALIZATION_ENABLED`, `N8N_VERSION_NOTIFICATIONS_ENABLED`,
+`N8N_TEMPLATES_ENABLED`, `N8N_PUBLIC_API_DISABLED`,
+`N8N_COMMUNITY_PACKAGES_ENABLED` and `N8N_SECURE_COOKIE` with the values of
+`deploy/n8n.env.example`, and `N8N_RUNNERS_TASK_TIMEOUT=60` in
+`task-runners`; then saved and restarted the service. Not changed:
+`N8N_BLOCK_ENV_ACCESS_IN_NODE`, `NODE_FUNCTION_ALLOW_BUILTIN`, the `CC_*`
+variables, the Python runner and the encryption key reference.
+
+Verified read-only afterwards: the saved and the generated compose file
+contain the settings; all containers `running:healthy`; `/healthz` and
+`/healthz/readiness` 200; n8n reports community nodes disabled; the log
+shows version 2.44.5, both runners registered, "Editor is now accessible via
+https://n8n.eds-labs.io" (so the editor base URL follows the domain) and no
+DNS error. In 2.44.5 the `/api/v1` routes stay mounted and answer 401;
+`N8N_PUBLIC_API_DISABLED=true` disables API key authentication (creating,
+listing and using keys), so a 401 does not mean the API is enabled. n8n
+warns that `WEBHOOK_URL` (set by the Coolify template) is deprecated in
+favour of `N8N_WEBHOOK_URL`; it still works, revisit with the next update.
