@@ -804,6 +804,20 @@ describe.skipIf(!enabled)("Specialist runner", () => {
   it("requeues the agent tasks the pause held back when the project resumes (I7b)", async () => {
     const research = await task("research");
     const analytics = await task("analytics");
+    // Resume compares the run's slots with the real clock: keep the slot
+    // ahead of it, so the run is requeued rather than canceled as passed.
+    await run(async (tx) => {
+      const row = (await list(tx, project.owner, "assignment_runs"))[0]!;
+      await update(tx, project.owner, row, {
+        ...data(row),
+        slots: (data(row).slots as Array<Record<string, unknown>>).map(
+          (slot) => ({
+            ...slot,
+            at: new Date(Date.now() + 86_400_000).toISOString(),
+          }),
+        ),
+      });
+    });
     await run((tx) => pauseProject(tx, project.owner, true));
     // The worker blocked research's job; analytics was stopped before its first call.
     await setJob(research.id, {
