@@ -196,7 +196,7 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
 2. Store the generated encryption key in the password manager and set it as
    a locked Coolify variable `N8N_ENCRYPTION_KEY` with the **same** value;
    n8n refuses to start when the variable differs from the key in its
-   settings file.
+   settings file. **Done 2026-10-21** (see below).
 3. Daily backup of the n8n database as in section 8, then a restore drill
    into an isolated database.
 4. Domain: DNS A record for `n8n.eds-labs.io`, change the n8n service domain
@@ -208,3 +208,14 @@ Gaps, in the order of section 11 steps 1 and 2 (each a separate approval):
    `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` last); optionally disable the
    Python runner.
 7. Optional (section 6): restrict the editor UI in Traefik.
+
+### Encryption key made explicit (2026-10-21)
+
+Mario read the key that n8n had generated, stored it in the password manager,
+referenced `N8N_ENCRYPTION_KEY` in the n8n service of the compose file, set it
+as a locked Coolify variable with the same value and redeployed. Verified
+read-only afterwards: the variable exists (name only, locked), n8n and the
+runner are `running:healthy`, `/healthz` and `/healthz/readiness` answer 200,
+and the n8n log shows no encryption key mismatch. Observation: right after the
+restart n8n logged one `EAI_AGAIN` DNS failure for `api.n8n.io`; check
+outbound DNS from the container before the adapters call Desk and FamilyPlan.
