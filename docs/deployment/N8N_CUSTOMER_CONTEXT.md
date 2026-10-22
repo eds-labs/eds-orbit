@@ -471,3 +471,12 @@ Open after step 5:
   session. Treat that Desk token as exposed and rotate it (Desk hash and
   n8n variable). Lesson: never read Coolify's generated compose file, it
   holds resolved secrets; read only the raw compose with key names.
+
+UI fix deployed (2026-10-22): the integration list under Connectors and the
+inbox's "Customer account from" select requested `/api/api/…` and showed
+"not configured" / no option although both integrations were verified.
+Fixed in `1d6f52f` (with a source check against `/api` paths in
+`useResource`), pushed to `main` on Mario's approval and deployed
+automatically (08:46–08:51 UTC). Verified: Connectors shows "read verified"
+for "uLiquid Desk" and "FamilyPlan" in their projects, and the FamilyPlan
+inbox editor offers "FamilyPlan (familyplan)"; no inbox is bound yet.
