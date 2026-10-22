@@ -488,3 +488,11 @@ Fixed in `1d6f52f` (with a source check against `/api` paths in
 automatically (08:46–08:51 UTC). Verified: Connectors shows "read verified"
 for "uLiquid Desk" and "FamilyPlan" in their projects, and the FamilyPlan
 inbox editor offers "FamilyPlan (familyplan)"; no inbox is bound yet.
+
+Workflows v1.1.0 (2026-10-22): Claude updated the three workflows in place
+through the REST API (PATCH with the current `versionId`, then publish the
+new version; rehearsed first against a local n8n 2.44.5), files from
+`85718bf` with SHA-256 checked. Stored nodes, connections and settings equal
+the files, the new versions are active, and both connection checks pass
+(Desk 1.1 s, FamilyPlan 0.7 s). Without `CC_DESK_TIMEOUT_MS` the behaviour is
+unchanged (2.5 s budget).
