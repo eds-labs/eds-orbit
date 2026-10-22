@@ -6,7 +6,13 @@
 // integrations are read. Support inboxes choose one in their settings.
 import { useState } from "react";
 import { Plus, RefreshCw, Trash2, UserRoundSearch } from "lucide-react";
-import { action, useMutation, useResource, type Entity } from "@/lib/api";
+import {
+  action,
+  collectionPath,
+  useMutation,
+  useResource,
+  type Entity,
+} from "@/lib/api";
 import { Alert, Button, Modal, Status } from "./ui/primitives";
 import { DataForm } from "@/platform/ui/form";
 import { useShell } from "@/platform/shell/shell-context";
@@ -35,7 +41,7 @@ export function CustomerContextConnection() {
   const de = locale === "de";
   const enabled = isOwner && shell.features?.customerContext === true;
   const list = useResource<{ items: Entity[] }>(
-    enabled ? `/api/projects/${project.id}/connectors` : null,
+    enabled ? collectionPath(project.id, "connectors") : null,
   );
   const [open, setOpen] = useState<Entity | "new" | null>(null);
   const mutation = useMutation(() => {

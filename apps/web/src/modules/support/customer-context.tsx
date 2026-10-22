@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { useResource, type Entity } from "@/lib/api";
+import { collectionPath, useResource, type Entity } from "@/lib/api";
 import { Alert, Badge, Button, Loading } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { supportPath, type CustomerAccount } from "./api";
@@ -183,7 +183,7 @@ export function CustomerContextBinding({
 }) {
   const { project } = useWorkspace();
   const connectors = useResource<{ items: Entity[] }>(
-    `/api/projects/${project.id}/connectors`,
+    collectionPath(project.id, "connectors"),
   );
   const items = (connectors.data?.items ?? []).filter(
     (row) => row.data.provider === "customer_context",
