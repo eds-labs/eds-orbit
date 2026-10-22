@@ -454,3 +454,20 @@ Open after step 5:
   up to the 4 s Orbit timeout. Set it to `0` on the runner (or raise the
   integration timeout) before step 6.
 - The n8n database backup (section 8).
+
+### Locks, runner warm, Desk token exposure (2026-10-22)
+
+- `CC_GATEWAY_INTEGRATIONS` and `CC_DESK_TOKEN_V2` are locked. The old
+  `CC_DESK_TOKEN` variable cannot be deleted ("managed by compose": the
+  container key is still named `CC_DESK_TOKEN`, now fed from
+  `${CC_DESK_TOKEN_V2}`); its old value is unused and no longer valid at Desk.
+- Mario set `N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=0` and restarted n8n. After
+  about 90 s idle the connection checks took 582 ms (Desk) and 689 ms
+  (FamilyPlan) instead of up to 3.6 s; both 200.
+- Incident: while looking for the remaining `CC_DESK_TOKEN` reference,
+  Claude read the generated compose file in the Coolify UI with a filter that
+  assumed `KEY=value` lines; the generated file uses `KEY: value` with
+  resolved values, so the `CC_DESK_TOKEN_V2` value appeared in the agent
+  session. Treat that Desk token as exposed and rotate it (Desk hash and
+  n8n variable). Lesson: never read Coolify's generated compose file, it
+  holds resolved secrets; read only the raw compose with key names.
