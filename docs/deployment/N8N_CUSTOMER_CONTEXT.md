@@ -420,3 +420,37 @@ answers 401 without a session, and with Mario's session
 `ORBIT_CUSTOMER_CONTEXT` stays off. Next: section 11 step 5 (switch the
 flag on, create the two integrations, add them to `CC_GATEWAY_INTEGRATIONS`,
 connection checks), each with its own approval.
+
+### Section 11 step 5: flag on, integrations verified (2026-10-22)
+
+- Mario set `ORBIT_CUSTOMER_CONTEXT=true` (production row) in Coolify and
+  redeployed Orbit (07:44–07:49 UTC); Orbit reports
+  `features.customerContext: true` in both projects. A first attempt was not
+  saved; check the value before deploying.
+- Mario generated the bearer tokens and signing secrets in a server shell
+  and created one integration per project with base URL
+  `https://n8n.eds-labs.io/webhook/orbit-cc`: "uLiquid Desk"
+  (`uliquid-desk`, project uLiquid) and "FamilyPlan" (`familyplan`, project
+  FamilyPlan). From the same shell he built `CC_GATEWAY_INTEGRATIONS`
+  (integration ids, token SHA-256, signing secrets), set it in Coolify and
+  restarted n8n.
+- Connection checks (Claude, through Mario's session): FamilyPlan
+  `read_verified` at the first attempt. Desk first timed out (cold task
+  runner), then failed with a provider error; the Desk log showed
+  `customer_context_auth_rejected`, so `CC_DESK_TOKEN` did not match Desk's
+  hash (most likely a partial copy: a double click in the terminal stops at
+  `-`). Mario issued a hex-only `dctx_` token on the Desk server (Desk check
+  404), and, because a locked Coolify variable referenced by the compose
+  file cannot be deleted, pointed the compose reference to a new variable
+  (`CC_DESK_TOKEN=${CC_DESK_TOKEN_V2}`) and restarted n8n. Desk check then
+  `read_verified` (3.6 s). Both integrations are verified; the path
+  Orbit -> n8n -> product is proven for Desk and FamilyPlan.
+
+Open after step 5:
+- Lock `CC_GATEWAY_INTEGRATIONS` and `CC_DESK_TOKEN_V2` (both not locked at
+  the time of the check) and delete the unused old `CC_DESK_TOKEN`.
+- Cold start: the JavaScript runner shuts down after 15 s idle
+  (`N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=15`); the first lookup after that took
+  up to the 4 s Orbit timeout. Set it to `0` on the runner (or raise the
+  integration timeout) before step 6.
+- The n8n database backup (section 8).
