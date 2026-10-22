@@ -13,7 +13,7 @@ import { IDS, workflows } from "../build.mjs";
 import { mapDeskResponse, runDeskAdapter } from "../src/desk.js";
 import { mapFamilyPlanResponse, runFamilyPlanAdapter } from "../src/familyplan.js";
 import { authenticate, parseIntegrations } from "../src/gateway.js";
-import { contextIssues, finalizeResponse, productUrl, validateRequest } from "../src/shared.js";
+import { contextIssues, finalizeResponse, productTimeout, productUrl, validateRequest } from "../src/shared.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const readJson = (...parts) => JSON.parse(readFileSync(join(here, ...parts), "utf8"));
@@ -239,6 +239,23 @@ describe("uLiquid Desk adapter", () => {
         timeout: 2500,
       }),
     ]);
+  });
+  it("gives Desk the budget of CC_DESK_TIMEOUT_MS, bounded", async () => {
+    const timeouts = [];
+    const httpRequest = async (options) => {
+      timeouts.push(options.timeout);
+      return ok(deskFixture("active"));
+    };
+    const env = { CC_DESK_BASE_URL: "https://api.desk.uliquid.vip", CC_DESK_TOKEN: "dctx_" + "t".repeat(43) };
+    for (const value of ["6500", "60000", "100", "soon", "", undefined])
+      await runDeskAdapter({
+        request: lookup("ckdesk0001active"),
+        env: { ...env, CC_DESK_TIMEOUT_MS: value },
+        httpRequest,
+        now: () => new Date(generatedAt),
+      });
+    expect(timeouts).toEqual([6500, 7000, 2500, 2500, 2500, 2500]);
+    expect(productTimeout("6500")).toBe(6500);
   });
   it("does not call Desk for foreign ids or without configuration", async () => {
     const httpRequest = async () => {

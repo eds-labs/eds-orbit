@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // Bump with every change to src/ (semver): shown in every workflow and node.
-export const VERSION = "1.0.0";
+export const VERSION = "1.1.0";
 
 export const IDS = {
   gateway: "CcGatewayOrbit0001",

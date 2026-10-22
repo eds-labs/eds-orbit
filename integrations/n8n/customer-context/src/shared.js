@@ -7,6 +7,8 @@ export const SCHEMA_VERSION = "1.0";
 export const MAX_BODY_BYTES = 64 * 1024;
 export const SIGNATURE_TOLERANCE_SECONDS = 300;
 export const PRODUCT_TIMEOUT_MS = 2500;
+// Below Orbit's longest integration timeout (8 s) and the workflows' 10 s.
+export const MAX_PRODUCT_TIMEOUT_MS = 7000;
 
 export const PROBLEMS = {
   invalid_request: [400, "Invalid request"],
@@ -309,6 +311,17 @@ export function productUrl(value) {
   const loopback = match[2] === "127.0.0.1" || match[2].toLowerCase() === "localhost";
   if (match[1] !== "https" && !loopback) return null;
   return `${match[1]}://${match[2]}${match[3] || ""}${(match[4] || "").replace(/\/+$/, "")}`;
+}
+
+/**
+ * A product call's budget in ms from an env value: the default without a
+ * usable value (empty, not a whole number, below 500), at most the maximum.
+ * Keep it below the Orbit integration's timeout minus n8n's own time.
+ */
+export function productTimeout(value) {
+  const ms = Number(value);
+  if (!Number.isInteger(ms) || ms < 500) return PRODUCT_TIMEOUT_MS;
+  return Math.min(ms, MAX_PRODUCT_TIMEOUT_MS);
 }
 
 /** Orbit's answer when a product call itself failed (timeout or network). */

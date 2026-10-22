@@ -11,7 +11,7 @@ import {
   contextHead,
   labelOf,
   problem,
-  PRODUCT_TIMEOUT_MS,
+  productTimeout,
   productUrl,
   retryAfter,
   timeOf,
@@ -161,9 +161,10 @@ export function mapDeskResponse(request, response, generatedAt) {
 }
 
 /**
- * Workflow B: one lookup against Desk. `env` holds `CC_DESK_BASE_URL` and
- * `CC_DESK_TOKEN` (Desk's `dctx_` client token); `httpRequest` is n8n's
- * `this.helpers.httpRequest`. Ids Desk cannot have never leave n8n.
+ * Workflow B: one lookup against Desk. `env` holds `CC_DESK_BASE_URL`,
+ * `CC_DESK_TOKEN` (Desk's `dctx_` client token) and optionally
+ * `CC_DESK_TIMEOUT_MS` (Desk's budget, default 2.5 s); `httpRequest` is
+ * n8n's `this.helpers.httpRequest`. Ids Desk cannot have never leave n8n.
  */
 export async function runDeskAdapter({ request, env, httpRequest, now }) {
   if (!DESK_ID.test(request.subject.id)) return problem("customer_not_found", request.requestId);
@@ -177,7 +178,7 @@ export async function runDeskAdapter({ request, env, httpRequest, now }) {
       method: "GET",
       url,
       headers: { authorization: `Bearer ${token}`, accept: "application/json" },
-      timeout: PRODUCT_TIMEOUT_MS,
+      timeout: productTimeout(env.CC_DESK_TIMEOUT_MS),
       returnFullResponse: true,
       ignoreHttpStatusErrors: true,
       json: true,

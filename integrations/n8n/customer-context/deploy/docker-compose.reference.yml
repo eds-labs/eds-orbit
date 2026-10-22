@@ -47,6 +47,7 @@ services:
       - CC_GATEWAY_INTEGRATIONS=${CC_GATEWAY_INTEGRATIONS:-[]}
       - CC_DESK_BASE_URL=${CC_DESK_BASE_URL:-https://api.desk.uliquid.vip}
       - CC_DESK_TOKEN=${CC_DESK_TOKEN:-}
+      - CC_DESK_TIMEOUT_MS=${CC_DESK_TIMEOUT_MS:-2500}
       - CC_FAMILYPLAN_FUNCTION_URL=${CC_FAMILYPLAN_FUNCTION_URL:-}
       - CC_FAMILYPLAN_TOKEN=${CC_FAMILYPLAN_TOKEN:-}
     volumes:
@@ -67,6 +68,9 @@ services:
     environment:
       - N8N_RUNNERS_TASK_BROKER_URI=http://n8n:5679
       - N8N_RUNNERS_AUTH_TOKEN=${SERVICE_PASSWORD_64_N8NRUNNERS}
+      # Keep the runner up: a cold start after the default idle shutdown took
+      # up to the 4 s Orbit timeout (runbook, "Task runners").
+      - N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=0
       # No NODE_FUNCTION_ALLOW_BUILTIN here: the image's launcher config
       # (/etc/n8n-task-runners.json) already allows crypto for the JavaScript
       # runner and does not pass that variable through. Verify with the Orbit

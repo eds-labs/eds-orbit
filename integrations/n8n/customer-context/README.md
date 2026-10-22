@@ -32,8 +32,10 @@ Authorization, X-Orbit-Signature              integration → adapter (allowlist
   families, the feature entitlements and the family counts to v1.
 
 Both adapters are sub-workflows that only the gateway may call
-(`callerPolicy: workflowsFromAList`). The product budget is 2.5 s; Orbit
-waits at most its integration timeout (default 4 s).
+(`callerPolicy: workflowsFromAList`). The product budget is 2.5 s
+(Desk: `CC_DESK_TIMEOUT_MS`, at most 7 s); Orbit waits at most its
+integration timeout (default 4 s, at most 8 s), so a longer product budget
+needs a longer integration timeout.
 
 ## Rules this layer keeps
 
@@ -71,6 +73,7 @@ waits at most its integration timeout (default 4 s).
 |---|---|
 | `CC_GATEWAY_INTEGRATIONS` | JSON array `[{integrationId, adapter, tokenSha256, signingSecret}]`, one entry per Orbit integration; `adapter` is `uliquid-desk` or `familyplan` |
 | `CC_DESK_BASE_URL`, `CC_DESK_TOKEN` | `https://api.desk.uliquid.vip`, Desk client token |
+| `CC_DESK_TIMEOUT_MS` | optional Desk budget in ms (default 2500, at most 7000); keep it about 1.5 s below the Orbit integration timeout |
 | `CC_FAMILYPLAN_FUNCTION_URL`, `CC_FAMILYPLAN_TOKEN` | FamilyPlan function URL, FamilyPlan service token |
 | `NODE_FUNCTION_ALLOW_BUILTIN=crypto`, `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` | needed by the Code nodes |
 

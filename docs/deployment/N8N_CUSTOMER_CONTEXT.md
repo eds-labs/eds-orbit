@@ -81,6 +81,14 @@ the Orbit connection check for both integrations: if the Code nodes cannot
 read `$env` or load `crypto`, the check fails
 (`CUSTOMER_CONTEXT_CHECK_MISCONFIGURED` or `…_PROVIDER_ERROR`) instead of
 answering wrongly; without a connected runner the gateway answers 500.
+Set `N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=0` on the runner: with the template's
+15 s idle shutdown, the first lookup after a pause paid a cold start of up to
+the 4 s Orbit timeout.
+
+Product budgets: an adapter gives its product 2.5 s. Desk's real contexts
+can take longer, so `CC_DESK_TIMEOUT_MS` (at most 7000) raises Desk's budget;
+keep it about 1.5 s below the Desk integration's timeout in Orbit (at most
+8000; changing it there needs a new token and signing secret).
 
 ## 6. Network
 
