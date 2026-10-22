@@ -496,3 +496,24 @@ new version; rehearsed first against a local n8n 2.44.5), files from
 the files, the new versions are active, and both connection checks pass
 (Desk 1.1 s, FamilyPlan 0.7 s). Without `CC_DESK_TIMEOUT_MS` the behaviour is
 unchanged (2.5 s budget).
+
+### Desk budget and rotation (2026-10-22)
+
+After the integrations were bound, real Desk lookups mostly ended as
+`unavailable`/`timeout`: the adapter gave Desk 2.5 s, and real Desk contexts
+took longer (3 of 4 reads). Mario then rotated in one server-shell run: a new
+hex-only Desk token (Desk hash replaced, Desk check 404; the exposed token is
+invalid since), new token and signing secret for both Orbit integrations
+("Change" in Orbit; Desk timeout 8000 ms, FamilyPlan 4000 ms) and a new
+`CC_GATEWAY_INTEGRATIONS` line. In n8n the compose file now reads
+`CC_DESK_TOKEN=${CC_DESK_TOKEN_V3}`,
+`CC_GATEWAY_INTEGRATIONS=${CC_GATEWAY_INTEGRATIONS_V3}` and
+`CC_DESK_TIMEOUT_MS=6500`; n8n restarted.
+
+Verified: the first checks right after the restart failed after about 4 s
+(cold start while n8n activates the published versions), the next ones
+passed (Desk 0.5 s, FamilyPlan 0.7 s). Ticket card reads for a verified
+widget ticket in the bound uLiquid inbox: 5 of 5 `ok`, 0.5–1.6 s (status
+only was read, no account data). Open: lock `CC_DESK_TOKEN_V3` and
+`CC_GATEWAY_INTEGRATIONS_V3`; delete the unused `CC_DESK_TOKEN_V2` and, if
+Coolify allows it, the old `CC_GATEWAY_INTEGRATIONS`.
