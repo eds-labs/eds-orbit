@@ -407,3 +407,16 @@ locked; one clean start (18:38 server time) with both runners; all
 containers healthy; the gateway still answers 401; the function answers
 401 without a token. Section 11 steps 3 and 4 are done; the end-to-end path
 through n8n is proven by the Orbit connection checks in step 5.
+
+### Orbit side deployed, flag off (2026-10-22)
+
+On Mario's approval Claude pushed PR #182 (`e5d039c`, including the review
+fixes for e-mail drafts, the lookup URL and umlaut topic words; all local
+checks green, 3147 tests) to `main` as a fast-forward; Coolify deployed it
+automatically (05:06–05:11 UTC, status finished). No migration. Verified
+read-only: `https://orbit.eds-labs.io/` 200, `/healthz` 200, the new route
+answers 401 without a session, and with Mario's session
+`GET /api/projects/:id/modules` reports `features.customerContext: false`.
+`ORBIT_CUSTOMER_CONTEXT` stays off. Next: section 11 step 5 (switch the
+flag on, create the two integrations, add them to `CC_GATEWAY_INTEGRATIONS`,
+connection checks), each with its own approval.
