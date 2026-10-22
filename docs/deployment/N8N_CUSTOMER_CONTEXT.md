@@ -514,6 +514,8 @@ Verified: the first checks right after the restart failed after about 4 s
 (cold start while n8n activates the published versions), the next ones
 passed (Desk 0.5 s, FamilyPlan 0.7 s). Ticket card reads for a verified
 widget ticket in the bound uLiquid inbox: 5 of 5 `ok`, 0.5–1.6 s (status
-only was read, no account data). Open: lock `CC_DESK_TOKEN_V3` and
-`CC_GATEWAY_INTEGRATIONS_V3`; delete the unused `CC_DESK_TOKEN_V2` and, if
-Coolify allows it, the old `CC_GATEWAY_INTEGRATIONS`.
+only was read, no account data). Mario then locked `CC_DESK_TOKEN_V3` and
+`CC_GATEWAY_INTEGRATIONS_V3` and deleted `CC_DESK_TOKEN_V2` (verified). The
+old `CC_DESK_TOKEN` and `CC_GATEWAY_INTEGRATIONS` stay ("managed by compose",
+the container keys keep these names); their values are unused and no longer
+valid anywhere.
