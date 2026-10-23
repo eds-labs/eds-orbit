@@ -76,6 +76,8 @@ describe("module contributions", () => {
         "email_archive",
         "email_send",
         "embedding",
+        "finance_extract",
+        "finance_mail_receipt",
         "generation",
         "image",
         "index_evaluation",

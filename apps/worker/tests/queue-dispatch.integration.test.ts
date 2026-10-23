@@ -27,6 +27,8 @@ const QUEUES = [
   "reconciliation",
   "slack_notification",
   "email_archive",
+  "finance_mail_receipt",
+  "finance_extract",
 ] as const;
 
 describe.skipIf(!enabled)(
@@ -37,7 +39,12 @@ describe.skipIf(!enabled)(
     const users: string[] = [];
     const jobs = new Map<string, string>();
 
+    // Finance classes only run in a project that has the module enabled,
+    // and the worker only offers the module while ORBIT_FINANCE is on.
+    const previousFinance = process.env.ORBIT_FINANCE;
+
     beforeAll(async () => {
+      process.env.ORBIT_FINANCE = "true";
       const user = await authDb.user.create({
         data: {
           id: randomUUID(),
@@ -65,6 +72,15 @@ describe.skipIf(!enabled)(
         role: "owner",
       };
       await scoped(scope.workspaceId, scope.projectId, async (tx) => {
+        await tx.projectModule.create({
+          data: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            moduleId: "finance",
+            enabled: true,
+            moduleVersion: "1.0.0",
+          },
+        });
         for (const topic of QUEUES) {
           const job = await enqueue(
             tx,
@@ -80,6 +96,8 @@ describe.skipIf(!enabled)(
     }, 60000);
 
     afterAll(async () => {
+      if (previousFinance === undefined) delete process.env.ORBIT_FINANCE;
+      else process.env.ORBIT_FINANCE = previousFinance;
       await worker.cleanup();
       if (scope)
         await authDb.workspace.deleteMany({ where: { id: scope.workspaceId } });
@@ -142,6 +160,16 @@ describe.skipIf(!enabled)(
         email_archive: {
           status: "blocked_dependency",
           error: "NOT_FOUND",
+          attempts: 1,
+        },
+        finance_mail_receipt: {
+          status: "blocked_dependency",
+          error: "NOT_FOUND",
+          attempts: 1,
+        },
+        finance_extract: {
+          status: "blocked_dependency",
+          error: "FINANCE_EXTRACTION_NOT_IMPLEMENTED",
           attempts: 1,
         },
       });
