@@ -183,7 +183,8 @@ async function toReview(
         { reason: outcome.reason },
       );
       // Intake with AI off is the normal manual path, not an exception.
-      if (outcome.flag !== "ai_off") await notifyReviewNeeded(tx, scope, doc.id);
+      if (outcome.flag !== "ai_off" || doc.source === "email")
+        await notifyReviewNeeded(tx, scope, doc.id);
     }
   });
 }

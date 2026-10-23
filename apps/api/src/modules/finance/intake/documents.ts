@@ -4,6 +4,7 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../../shared.ts";
 import { storeFile } from "../../../platform/files/files.ts";
 import { enqueue } from "../../../platform/jobs/enqueue.ts";
+import { notifyReviewNeeded } from "../notifications.ts";
 import { readFinanceSettings } from "../settings.ts";
 
 // Document intake: every original (upload or mail attachment) is stored as a
@@ -96,6 +97,10 @@ export async function recordDocument(
           duplicateOfId: original?.id ?? null,
         },
       });
+      // Mail that skips AI waits for a person at once; an upload was handed in
+      // by one. The row is created once, so the notice is too.
+      if (!original && !aiOn && input.source === "email")
+        await notifyReviewNeeded(tx, scope, row.id);
       if (status === "received")
         await enqueue(
           tx,

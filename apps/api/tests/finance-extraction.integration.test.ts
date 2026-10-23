@@ -34,7 +34,11 @@ import {
   writeFinanceSettings,
 } from "../src/modules/finance/settings.ts";
 import { applyFinanceTemplate } from "../src/modules/finance/setup.ts";
+import { registerModules } from "../src/modules/registry.ts";
+import { userScoped } from "../src/platform/tenancy/scope.ts";
 import { createPackageProject } from "./support/package-project.ts";
+
+registerModules();
 
 const mocked = vi.hoisted(() => ({
   requests: [] as any[],
@@ -293,6 +297,48 @@ describe.skipIf(!enabled)("finance extraction", () => {
     await extract(id);
     expect(mocked.requests).toHaveLength(1);
     expect(await reservations(id)).toHaveLength(1);
+  });
+
+  it("notifies the reviewers once per extracted document, not for duplicates", async () => {
+    process.env.ORBIT_NOTIFICATIONS = "true";
+    try {
+      const notices = () =>
+        userScoped(project.editor, (tx) =>
+          tx.notification.findMany({ where: { kind: "finance_review_needed" } }),
+        );
+      const base = (await notices()).length;
+      const amounts = {
+        net: "310.00",
+        tax: "0.00",
+        total: "310.00",
+        lines: [
+          {
+            description: "Hosting",
+            quantity: "1",
+            amount: "310.00",
+            tax: "0.00",
+            categoryHint: null,
+            costCenterHint: null,
+          },
+        ],
+      };
+      const first = await upload();
+      mocked.replies.push(answer({ ...amounts, number: "INV-NOTIFY-1" }));
+      await extract(first);
+      expect((await doc(first)).status).toBe("needs_review");
+      expect(await notices()).toHaveLength(base + 1);
+      // A repeated job with a new attempt key does nothing and tells no one.
+      await extract(first, randomUUID());
+      expect(await notices()).toHaveLength(base + 1);
+      // The same invoice again ends as a duplicate: no notice.
+      const second = await upload();
+      mocked.replies.push(answer({ ...amounts, number: "INV-NOTIFY-1" }));
+      await extract(second);
+      expect((await doc(second)).status).toBe("duplicate");
+      expect(await notices()).toHaveLength(base + 1);
+    } finally {
+      delete process.env.ORBIT_NOTIFICATIONS;
+    }
   });
 
   it("flags a re-uploaded invoice with the same number as duplicate", async () => {
