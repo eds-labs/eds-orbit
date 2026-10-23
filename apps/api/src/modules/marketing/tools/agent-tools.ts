@@ -7,11 +7,9 @@ import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
   data,
-  decrypt,
   DomainError,
   list,
   update,
-  credentialKey,
 } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import { runBudgetKey } from "../agents/specialists/runner.ts";
@@ -21,7 +19,10 @@ import {
   dropNullFields,
   type OrbitTool,
 } from "../../agents/tools/registry.ts";
-import { connectionVerified } from "../../../platform/connections/connections.ts";
+import {
+  connectionAccess,
+  connectionVerified,
+} from "../../../platform/connections/connections.ts";
 
 /**
  * Tools only the Analytics and Research specialists receive (spec §5). They
@@ -199,6 +200,10 @@ async function postizState(scope: Scope, taskId: string, now: Date) {
     );
     return {
       connector: data(connector),
+      // The key, from the project or a granted central connection (ADR 0013).
+      access: await connectionAccess(tx, scope, data(connector)).catch(
+        () => null,
+      ),
       posts: (await list(tx, scope, "channel_posts")).map((post) => data(post)),
       fresh,
       taskPosts: (usage ? data(usage).postIds : []) as string[],
@@ -259,12 +264,12 @@ export async function postizAnalytics(
     const cached = state.fresh.get(key);
     if (cached) return cached;
     try {
-      const credential = state.connector.encryptedCredential;
-      if (!state.connector.baseUrl || !credential)
+      const baseUrl = state.access?.baseUrl ?? state.connector.baseUrl;
+      if (!baseUrl || !state.access)
         throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
       client ??= createPostizClient({
-        baseUrl: state.connector.baseUrl as string,
-        token: decrypt(credential as string, credentialKey()),
+        baseUrl: baseUrl as string,
+        token: state.access.credential,
       }) as PostizAnalyticsClient;
       const series = summarize(await request(client));
       const result: Answer = {

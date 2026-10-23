@@ -1,3 +1,4 @@
+import { connectionAccess } from "../../platform/connections/connections.ts";
 import { scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import type {
@@ -92,7 +93,13 @@ async function prepare(scope: Scope, ticketId: string): Promise<Prepared> {
     const identity = identities[0]!;
     let target: CustomerContextTarget;
     try {
-      target = customerContextTarget(connection.id, data(connection));
+      // The project's own secrets, or a granted central integration's.
+      const access = await connectionAccess(tx, scope, data(connection));
+      target = customerContextTarget(
+        connection.id,
+        { ...data(connection), baseUrl: access.baseUrl ?? data(connection).baseUrl },
+        access.credential,
+      );
     } catch {
       return {
         local: {

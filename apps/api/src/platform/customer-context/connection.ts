@@ -193,6 +193,15 @@ export const customerContextConnectionProvider: ConnectionProvider = {
   normalize() {
     throw new DomainError("CUSTOMER_CONTEXT_CONNECT_REQUIRED");
   },
+  // One gateway (such as n8n) can serve several projects (ADR 0013). The
+  // secret is the JSON {token, signingSecret}, checked when it is used.
+  scopes: ["project", "workspace", "system"],
+  label: { en: "Customer context", de: "Kundenkontext" },
+  normalizeCentral: (fields) =>
+    customerContextConnectionInput
+      .pick({ baseUrl: true, sourceSystem: true, timeoutMs: true })
+      .strict()
+      .parse(fields),
   async check(connection, credential, context) {
     assertEnabled();
     if (!context) throw new DomainError("CUSTOMER_CONTEXT_CHECK_MISCONFIGURED");

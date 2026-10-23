@@ -86,7 +86,8 @@ const paid = (def: ConnectionProvider) =>
   (def.purposes ?? []).some((p) => AI_PURPOSES.includes(p));
 
 function normalizeConfig(def: ConnectionProvider, config: Record<string, unknown>) {
-  const out = def.normalize?.(config) ?? config;
+  const normalize = def.normalizeCentral ?? def.normalize;
+  const out = normalize?.(config) ?? config;
   const base = out.baseUrl;
   if (base !== undefined) {
     let url: URL;

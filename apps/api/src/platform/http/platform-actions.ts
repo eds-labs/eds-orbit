@@ -8,6 +8,7 @@ import {
   DomainError,
   encrypt,
   entity,
+  list,
   publicEntity,
   update,
 } from "../shared.ts";
@@ -19,9 +20,11 @@ import {
 import { settleOnGrant } from "../ai/central-ai.ts";
 import {
   CONNECTION_KIND,
-  decryptCredential,
+  connectionAccess,
+  cutoverEnabled,
   providerScopes,
 } from "../connections/connections.ts";
+import { grantedConnections } from "../connections/central.ts";
 import {
   registeredConnectionProvider,
   registeredConnectionProviderIds,
@@ -136,6 +139,49 @@ export const platformActions: Record<string, ActionHandler> = {
       }),
     );
   }),
+  // Binds a granted central connection to the project (ADR 0013, WP3.4):
+  // a project connection without its own key, whose project settings
+  // (channels, site, verification) stay here. Needs the provider's cutover.
+  "connector-attach": sharedTransaction(async (tx, { scope, input }) => {
+    const c = z
+      .object({
+        connectionId: z.uuid(),
+        siteId: z.string().max(100).optional(),
+        channelId: z.string().max(100).optional(),
+      })
+      .strict()
+      .parse(input);
+    const granted = (await grantedConnections(tx, scope)).find(
+      (g) => g.connection.id === c.connectionId,
+    );
+    if (!granted) throw new DomainError("CONNECTION_NOT_GRANTED", 404);
+    const providerId = granted.connection.provider;
+    const provider = registeredConnectionProvider(providerId);
+    if (!provider || !providerScopes(provider).includes("project"))
+      throw new DomainError("PROVIDER_NOT_ATTACHABLE", 409);
+    if (!cutoverEnabled(providerId))
+      throw new DomainError("CUTOVER_NOT_ENABLED", 409);
+    await assertModuleEnabled(tx, scope, provider.owner);
+    const existing = (await list(tx, scope, CONNECTION_KIND)).find(
+      (row) => data(row).centralConnectionId === c.connectionId,
+    );
+    if (existing) return publicEntity(existing);
+    const row = await create(tx, scope, CONNECTION_KIND, {
+      // The central connection's non-secret settings, then the project's.
+      ...granted.connection.config,
+      provider: providerId,
+      ...(c.siteId ? { siteId: c.siteId } : {}),
+      ...(c.channelId ? { channelId: c.channelId } : {}),
+      centralConnectionId: c.connectionId,
+      status: "configured",
+      capabilities: [],
+    });
+    await audit(tx, scope, "connector.attached", row.id, {
+      provider: providerId,
+      connectionId: c.connectionId,
+    });
+    return publicEntity(row);
+  }),
   // A mailbox of the project over SMTP and IMAP (WP4.7); checked
   // separately. A known address updates its mailbox, a new one adds one.
   "email-connect": sharedTransaction((tx, { scope, input }) =>
@@ -167,21 +213,24 @@ export const platformActions: Record<string, ActionHandler> = {
           String(data(row).provider),
         );
         if (provider) await assertModuleEnabled(tx, scope, provider.owner);
-        return row;
+        // A project connection bound to a central one checks with its key.
+        return { row, access: await connectionAccess(tx, scope, data(row)) };
       }),
-      d = data(c);
-    const credential = decryptCredential(d);
+      d = data(c.row);
+    const credential = c.access.credential;
     const provider = registeredConnectionProvider(String(d.provider));
     if (!provider?.check)
       throw new DomainError(
         provider?.checkUnsupported ?? "CONNECTOR_CHECK_UNSUPPORTED",
       );
-    const result = await provider.check(d, credential, {
-      connectionId: c.id,
-    });
+    const result = await provider.check(
+      { ...d, ...(c.access.baseUrl ? { baseUrl: c.access.baseUrl } : {}) },
+      credential,
+      { connectionId: c.row.id },
+    );
     return scoped(scope.workspaceId, scope.projectId, async (tx) => {
-      const current = await entity(tx, scope, CONNECTION_KIND, c.id);
-      if (current.version !== c.version)
+      const current = await entity(tx, scope, CONNECTION_KIND, c.row.id);
+      if (current.version !== c.row.version)
         throw new DomainError("CONNECTOR_CHANGED");
       return publicEntity(
         await update(tx, scope, current, {

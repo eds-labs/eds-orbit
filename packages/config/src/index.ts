@@ -181,6 +181,17 @@ const baseConfigSchema = z.object({
   // Organization knowledge libraries shared with projects (ADR 0013, E1).
   // Off: shares are ignored and their routes answer 404.
   ORBIT_KNOWLEDGE_SHARES: z.enum(["false", "true"]).default("false"),
+  // Providers whose project connections may use a granted central
+  // connection instead of their own key (ADR 0013, WP3.4), comma-separated,
+  // e.g. "postiz,matomo". A project connection keeps its own key until it is
+  // bound; removing a provider here makes bound connections fail closed and
+  // adopted ones fall back to their kept key.
+  ORBIT_CONNECTIONS_CUTOVER: unset(
+    z
+      .string()
+      .regex(/^[a-z_]+(,[a-z_]+)*$/)
+      .optional(),
+  ),
   // Optional master-key ring for connection secrets: "id:hex64,id:hex64",
   // newest first. New secrets use the first key; CREDENTIAL_KEY stays
   // readable as key id "default".

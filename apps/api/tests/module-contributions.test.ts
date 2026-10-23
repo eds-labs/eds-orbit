@@ -228,6 +228,7 @@ describe("module contributions", () => {
       "community-link",
       "configure-matomo-schedule",
       "connector",
+      "connector-attach",
       "connector-health",
       "correct-metric",
       "customer-context-connect",

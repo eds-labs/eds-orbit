@@ -23,7 +23,7 @@ import {
   finishPublication,
   enqueue,
 } from "../pipeline/workflow.ts";
-import { decryptCredential } from "../../../platform/connections/connections.ts";
+import { connectionAccess } from "../../../platform/connections/connections.ts";
 export async function dispatchPublication(scope: Scope, pubId: string) {
   const credentials = await scoped(
     scope.workspaceId,
@@ -47,9 +47,10 @@ export async function dispatchPublication(scope: Scope, pubId: string) {
         c.writeVerifiedInstanceId !== process.env.PUBLISHER_INSTANCE_ID
       )
         throw new DomainError("CHANNEL_NOT_VERIFIED");
+      const access = await connectionAccess(tx, scope, c);
       return {
-        baseUrl: c.baseUrl,
-        token: decryptCredential(c),
+        baseUrl: access.baseUrl ?? c.baseUrl,
+        token: access.credential,
         integration,
         connectorId: connector.id,
         connectorVersion: connector.version,
@@ -223,15 +224,16 @@ export async function reconcilePublication(scope: Scope, pubId: string) {
       if (!p.remoteId || !p.connectorId)
         throw new DomainError("REMOTE_ID_UNKNOWN");
       const connector = await entity(tx, scope, "connectors", p.connectorId);
-      return { pub, connector };
+      const access = await connectionAccess(tx, scope, data(connector));
+      return { pub, connector, access };
     },
   );
   if (!prepared) return { unchanged: true };
   const p = data(prepared.pub),
     c = data(prepared.connector);
   const client = createPostizClient({
-    baseUrl: c.baseUrl,
-    token: decryptCredential(c),
+    baseUrl: prepared.access.baseUrl ?? c.baseUrl,
+    token: prepared.access.credential,
   });
   const result = await client.findPostStatus(p.remoteId, {
     startDate: new Date(

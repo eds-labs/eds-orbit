@@ -16,6 +16,9 @@ import { postizHealthStatus } from "./postiz-assignment.ts";
 export const marketingConnections: ConnectionsContribution = {
   providers: {
     postiz: {
+      // One Postiz organization can serve several projects (ADR 0013).
+      scopes: ["project", "workspace", "system"],
+      label: { en: "Postiz", de: "Postiz" },
       normalize: (fields) =>
         fields.baseUrl
           ? { ...fields, baseUrl: normalizePostizBaseUrl(fields.baseUrl) }
@@ -51,6 +54,8 @@ export const marketingConnections: ConnectionsContribution = {
       },
     },
     matomo: {
+      scopes: ["project", "workspace", "system"],
+      label: { en: "Matomo", de: "Matomo" },
       async check(d, token) {
         const client = createMatomoClient({
           baseUrl: d.baseUrl,

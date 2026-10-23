@@ -5,7 +5,7 @@ import { create, data, exception, list, update } from "../../../shared.ts";
 import { assignedPostizChannels } from "./postiz-assignment.ts";
 import {
   connectionVerified,
-  decryptCredential,
+  connectionAccess,
 } from "../../../platform/connections/connections.ts";
 
 /**
@@ -157,8 +157,7 @@ export async function checkPostizQueue(
       watchId: row.id,
       connectorId: watched.connector.id,
       channelIds: watched.channelIds,
-      baseUrl: c.baseUrl as string,
-      encryptedCredential: c.encryptedCredential as string,
+      ...(await connectionAccess(tx, scope, c)),
     };
   });
   if (!due) return { checked: false };
@@ -166,8 +165,8 @@ export async function checkPostizQueue(
   try {
     const posts = await deps
       .createClient({
-        baseUrl: due.baseUrl,
-        token: decryptCredential(due),
+        baseUrl: due.baseUrl as string,
+        token: due.credential,
       })
       .listPosts({
         startDate: new Date(now.valueOf() - LOOKBACK_MS).toISOString(),

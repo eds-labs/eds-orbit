@@ -1,3 +1,4 @@
+import { connectionAccess } from "../../../platform/connections/connections.ts";
 import { lockMetrics } from "./metric-report.ts";
 import { z } from "zod";
 import {
@@ -15,11 +16,9 @@ import {
   entity,
   list,
   data,
-  decrypt,
   hash,
   audit,
   DomainError,
-  credentialKey,
 } from "../../../shared.ts";
 import { correctMetric } from "./lifecycle.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
@@ -325,8 +324,17 @@ export async function importMatomoReport(
 ) {
   authorize(scope, PROJECT_OWN, "OWNER_REQUIRED");
   const input = matomoImportInput.parse(rawInput);
-  const connector = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-    entity(tx, scope, "connectors", input.connectorId),
+  const { connector, access } = await scoped(
+    scope.workspaceId,
+    scope.projectId,
+    async (tx) => {
+      const row = await entity(tx, scope, "connectors", input.connectorId);
+      // The project's own key, or a granted central connection's (ADR 0013).
+      return {
+        connector: row,
+        access: await connectionAccess(tx, scope, data(row)).catch(() => null),
+      };
+    },
   );
   const c = data(connector);
   if (
@@ -335,11 +343,10 @@ export async function importMatomoReport(
     Number(c.siteId) !== input.siteId
   )
     throw new DomainError("MATOMO_CONNECTOR_SCOPE", 403);
-  const key = credentialKey();
-  if (!key) throw new DomainError("CREDENTIAL_CONFIGURATION_REQUIRED");
+  if (!access) throw new DomainError("CREDENTIAL_CONFIGURATION_REQUIRED");
   const client = createMatomoClient({
-    baseUrl: c.baseUrl,
-    token: decrypt(c.encryptedCredential, key),
+    baseUrl: access.baseUrl ?? c.baseUrl,
+    token: access.credential,
     allowedSiteIds: [input.siteId],
   });
   const request: MatomoReportInput = {

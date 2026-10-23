@@ -147,7 +147,7 @@ describe.skipIf(!enabled)("Central connections (ADR 0013)", () => {
     // Owners create organization connections only, never system ones, and
     // project-only providers are refused centrally.
     const own = await call("POST", `/api/organizations/${wsA}/connections`, people.ownerA, {
-      provider: "postiz",
+      provider: "email",
       label: "x",
       secret: "secret-value",
     });

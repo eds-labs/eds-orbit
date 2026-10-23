@@ -6,7 +6,7 @@ import { create, data, DomainError, list, update } from "../../../shared.ts";
 import { assignedPostizChannels } from "../publishing/postiz-assignment.ts";
 import {
   connectionVerified,
-  decryptCredential,
+  connectionAccess,
 } from "../../../platform/connections/connections.ts";
 
 /**
@@ -128,7 +128,10 @@ export async function syncChannelPosts(
       )
         return null;
       const c = data(connector);
-      if (!client && (!c.baseUrl || !c.encryptedCredential))
+      if (
+        !client &&
+        (!c.baseUrl || (!c.encryptedCredential && !c.centralConnectionId))
+      )
         throw new DomainError("POSTIZ_NOT_CONNECTED", 409);
       // Claim the attempt first so a slow Postiz read cannot start twice.
       const value = {
@@ -142,7 +145,7 @@ export async function syncChannelPosts(
       return {
         channelIds,
         baseUrl: c.baseUrl as string,
-        encryptedCredential: c.encryptedCredential as string,
+        ...(client ? {} : await connectionAccess(tx, scope, c)),
       };
     },
   );
@@ -172,7 +175,7 @@ export async function syncChannelPosts(
       client ??
       createPostizClient({
         baseUrl: claimed.baseUrl,
-        token: decryptCredential(claimed),
+        token: (claimed as { credential?: string }).credential ?? "",
       });
     for (const [from, to] of windows)
       for (const post of await source.listPosts({

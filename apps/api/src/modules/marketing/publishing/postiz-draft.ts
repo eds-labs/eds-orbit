@@ -33,7 +33,7 @@ import { exportAssetContent } from "../pipeline/content-export.ts";
 import { afterDraftResolved } from "../agents/draft-delivery.ts";
 import {
   connectionVerified,
-  decryptCredential,
+  connectionAccess,
 } from "../../../platform/connections/connections.ts";
 
 /**
@@ -237,9 +237,10 @@ export async function draftSend(
 ): Promise<DraftSend> {
   const k = data(target.connector);
   const c = target.c;
+  const access = await connectionAccess(tx, scope, k);
   return {
-    baseUrl: k.baseUrl as string,
-    token: decryptCredential(k),
+    baseUrl: (access.baseUrl ?? k.baseUrl) as string,
+    token: access.credential,
     integrationId: target.integration.id as string,
     identifier: target.integration.identifier as string,
     text: finalPostText(c.body, c.targetUrl),
