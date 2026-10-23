@@ -35,14 +35,20 @@ const TYPES: Record<string, ((bytes: Uint8Array) => boolean) | null> = {
     starts(b, [0x52, 0x49, 0x46, 0x46]) &&
     starts(b.subarray(8), [0x57, 0x45, 0x42, 0x50]),
   "application/pdf": (b) => starts(b, [0x25, 0x50, 0x44, 0x46, 0x2d]),
+  "text/plain": null,
+  "text/csv": null,
+  "message/rfc822": null,
+};
+/**
+ * Types modules may store and members download, but that Support's inbound
+ * e-mail attachments do not accept: `allowedFileTypes()` leaves them out.
+ */
+const STORAGE_ONLY_TYPES: Record<string, (bytes: Uint8Array) => boolean> = {
   "application/xml": (b) =>
     starts(
       b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf ? b.subarray(3) : b,
       [0x3c, 0x3f, 0x78, 0x6d, 0x6c],
     ),
-  "text/plain": null,
-  "text/csv": null,
-  "message/rfc822": null,
 };
 const starts = (bytes: Uint8Array, signature: number[]) =>
   signature.every((value, i) => bytes[i] === value);
@@ -61,6 +67,8 @@ const EXTENSIONS: Record<string, string[]> = {
 };
 
 export const allowedFileTypes = () => Object.keys(TYPES);
+
+const TYPE_CHECKS = { ...TYPES, ...STORAGE_ONLY_TYPES };
 
 type FilesConfig = {
   backend: "database" | "s3";
@@ -209,7 +217,7 @@ export async function storeFile(
   if (input.bytes.byteLength > config.maxBytes)
     throw new DomainError("FILE_TOO_LARGE", 413);
   const mime = input.mime.split(";")[0]!.trim().toLowerCase();
-  const check = TYPES[mime];
+  const check = TYPE_CHECKS[mime];
   if (check === undefined || (check && !check(input.bytes)))
     throw new DomainError("FILE_TYPE_NOT_ALLOWED", 415);
   const size = input.bytes.byteLength;

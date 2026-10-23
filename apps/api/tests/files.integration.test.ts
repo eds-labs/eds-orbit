@@ -10,6 +10,7 @@ import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { buildServer } from "../src/server.ts";
 import {
+  allowedFileTypes,
   fileCleanup,
   setObjectStoreForTests,
   storeFile,
@@ -489,6 +490,18 @@ describe.skipIf(!enabled)("platform files", () => {
       storeFile(owner(), {
         moduleId: "knowledge",
         bytes: bom,
+        mime: "application/xml",
+      }),
+    ).resolves.toMatchObject({ mime: "application/xml" });
+  });
+
+  it("keeps xml out of the types e-mail attachments may use", async () => {
+    expect(allowedFileTypes()).not.toContain("application/xml");
+    expect(allowedFileTypes()).toContain("application/pdf");
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: Buffer.from('<?xml version="1.0"?><a/>'),
         mime: "application/xml",
       }),
     ).resolves.toMatchObject({ mime: "application/xml" });
