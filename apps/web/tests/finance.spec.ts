@@ -89,27 +89,29 @@ async function api<T = unknown>(
 const finance = (path: string) => `/projects/${projectId}/finance${path}`;
 
 // A distinct, still valid PDF per call: identical bytes would be an exact
-// duplicate of the first upload. The web has no upload control yet, so the
-// documents are uploaded through the API with the page's session.
-async function upload(request: APIRequestContext, variant: string) {
+// duplicate of the first upload. The file goes through the review page's
+// upload control.
+async function upload(page: Page, variant: string) {
   const pdf = readFileSync(
     resolve("apps/api/tests/fixtures/finance/invoice.pdf"),
   );
-  const bytes = Buffer.concat([
+  const buffer = Buffer.concat([
     pdf,
     Buffer.from(`\n% e2e ${run} ${variant}\n`),
   ]);
-  const response = await request.post(`/api${finance("/documents")}`, {
-    headers: {
-      origin,
-      "content-type": "application/octet-stream",
-      "x-file-name": encodeURIComponent(`invoice-${variant}.pdf`),
-      "x-file-type": "application/pdf",
-    },
-    data: bytes,
+  await page.goto(`/p/${projectId}/finance/review`);
+  await page.getByLabel("Choose files").setInputFiles({
+    name: `invoice-${variant}.pdf`,
+    mimeType: "application/pdf",
+    buffer,
   });
-  expect(response.status(), "document upload").toBe(201);
-  return (await response.json()) as { id?: string; documentId?: string };
+  const uploads = page.getByRole("list", { name: "Uploads" });
+  await expect(uploads).toContainText(`invoice-${variant}.pdf`);
+  await expect(uploads).toContainText("Received.");
+  // The queue refreshed in place.
+  await expect(
+    page.getByRole("button", { name: new RegExp(`invoice-${variant}.pdf`) }),
+  ).toBeVisible();
 }
 
 async function enableAndSetUp(page: Page) {
@@ -191,7 +193,7 @@ test("upload to booking, payment and export, on desktop and mobile", async ({
   ] as const)
     await api(page.request, "POST", finance("/cost-centers"), { code, name });
 
-  await upload(page.request, "main");
+  await upload(page, "main");
 
   // The review queue shows the document; open it.
   const detail = await openFirstDocument(page, "invoice-main.pdf");
@@ -306,7 +308,7 @@ test("a foreign-currency document asks for the rate after FX_RATE_MISSING", asyn
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
   // EUR is enabled by default next to the USD base; no rate is stored.
-  await upload(page.request, "fx");
+  await upload(page, "fx");
   const detail = await openFirstDocument(page, "invoice-fx.pdf");
   const form = detail.getByRole("form", { name: "Booking" });
   await field(form, "Currency").selectOption("EUR");
@@ -334,7 +336,7 @@ test("a version conflict between two pages is recovered with Reload", async ({
   origin = new URL(baseURL!).origin;
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
-  await upload(page.request, "conflict");
+  await upload(page, "conflict");
 
   // Page B shares the session; it opens the same document.
   const second = await browser.newContext({

@@ -938,6 +938,17 @@ pre {
   font-size: 13px;
   color: var(--danger);
 }
+.finance-upload {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+}
+.finance-upload[data-over="true"] {
+  border-color: var(--primary);
+}
 .finance-inline {
   display: flex;
   flex-wrap: wrap;

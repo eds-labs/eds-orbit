@@ -719,6 +719,25 @@ const en = {
     noData: "Nothing was booked in this year.",
     amountsIn: "Amounts in {base}",
   },
+  upload: {
+    title: "Upload receipts",
+    choose: "Choose files",
+    drop: "Drop files here or choose them.",
+    hint: "PDF, PNG, JPEG, WebP or XML. Large files may be refused by the server.",
+    pending: "Uploading…",
+    done: "Received.",
+    duplicate: "Already received, marked as duplicate.",
+    skipped: "This file type is not accepted.",
+    list: "Uploads",
+    errors: {
+      FILE_TOO_LARGE: "The file is too large.",
+      FILE_TYPE_NOT_ALLOWED: "This file type is not allowed.",
+      FINANCE_DOCUMENT_TYPE_UNSUPPORTED:
+        "Finance cannot read this document type.",
+      FILES_QUOTA_EXCEEDED: "The project's file storage is full.",
+    } as Record<string, string>,
+    failed: "The upload failed.",
+  },
   allocation: {
     legend: "Cost centers",
     none: "No cost center. Add one to split this line.",
@@ -1454,6 +1473,25 @@ const de: typeof en = {
     noDocuments: "In diesem Jahr wurden keine Belege gebucht.",
     noData: "In diesem Jahr wurde nichts gebucht.",
     amountsIn: "Beträge in {base}",
+  },
+  upload: {
+    title: "Belege hochladen",
+    choose: "Dateien wählen",
+    drop: "Dateien hierher ziehen oder auswählen.",
+    hint: "PDF, PNG, JPEG, WebP oder XML. Große Dateien kann der Server ablehnen.",
+    pending: "Wird hochgeladen …",
+    done: "Empfangen.",
+    duplicate: "Bereits empfangen, als Duplikat markiert.",
+    skipped: "Dieser Dateityp wird nicht akzeptiert.",
+    list: "Uploads",
+    errors: {
+      FILE_TOO_LARGE: "Die Datei ist zu groß.",
+      FILE_TYPE_NOT_ALLOWED: "Dieser Dateityp ist nicht erlaubt.",
+      FINANCE_DOCUMENT_TYPE_UNSUPPORTED:
+        "Finanzen kann diesen Dokumenttyp nicht lesen.",
+      FILES_QUOTA_EXCEEDED: "Der Dateispeicher des Projekts ist voll.",
+    } as Record<string, string>,
+    failed: "Der Upload ist fehlgeschlagen.",
   },
   allocation: {
     legend: "Kostenstellen",

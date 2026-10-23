@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { financePath, query, type FinanceDocument } from "./api";
 import { FinanceDocumentDetail, FlagBadges, SEVERE_FLAGS } from "./document";
 import { financeText } from "./labels";
+import { FinanceUpload } from "./upload";
 
 // The review queue (spec §9): every document that waits for a person,
 // most severe first, with the open document beside it. The selection and
@@ -116,6 +117,7 @@ export function FinanceReview() {
             </div>
           </div>
           <div className="finance-body">
+            <FinanceUpload onUploaded={queue.refresh} />
             {queue.loading ? (
               <Skeleton />
             ) : queue.error ? (
