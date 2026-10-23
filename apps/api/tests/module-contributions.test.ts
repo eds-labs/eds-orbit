@@ -294,6 +294,8 @@ describe("module contributions", () => {
       "slack-digest",
       "source-audiences",
       "source-pause",
+      "source-reindex",
+      "source-settings",
       "start-approved-live-draft-batch",
       "start-approved-live-draft-once",
       "stop-experiment",

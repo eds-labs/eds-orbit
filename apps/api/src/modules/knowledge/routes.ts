@@ -7,6 +7,7 @@ import {
   tracksFreshness,
 } from "../../../../../packages/knowledge/src/freshness.ts";
 import { listIndexGenerations } from "../../../../../packages/knowledge/src/index.ts";
+import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
 import type { RoutesContribution } from "../../platform/http/routes.ts";
 import { scopeFor } from "../../platform/tenancy/auth.ts";
 import { PROJECT_OWN } from "../../platform/tenancy/permissions.ts";
@@ -107,6 +108,9 @@ export const knowledgeRoutes: RoutesContribution = ({ app, auth }) => {
           (x) => data(x).status === "needs_review",
         ),
         impacts: contents.filter((x) => data(x).status === "needs_review"),
+        // Per source: can its documents be found now, and why not
+        // (plans/knowledge-indexing-repair.md).
+        indexStatus: await knowledgeIndexStatus(tx, scope),
       };
     });
   });

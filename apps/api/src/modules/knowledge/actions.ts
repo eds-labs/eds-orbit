@@ -25,6 +25,7 @@ import {
   revokeSource,
   setSourceAudiences,
   setSourceRights,
+  restampSource,
   withdrawFact,
 } from "../../platform/knowledge/engine.ts";
 import {
@@ -223,6 +224,33 @@ export const knowledgeActions: Record<string, ActionHandler> = {
     setSourceRights(tx, scope, schemas.id.parse(input.sourceId), {
       paused: z.boolean().parse(input.paused),
     }),
+  ),
+  // Owner settings of a source: authority (how it ranks and whether it may
+  // serve as evidence at all) and freshness window. Rights flags stay where
+  // they are; the change re-attaches stored documents to the new generation.
+  "source-settings": sharedTransaction((tx, { scope, input }) => {
+    const i = z
+      .object({
+        sourceId: schemas.id,
+        authority: z
+          .enum(["official", "website", "research", "generated"])
+          .optional(),
+        maxAgeHours: z.number().int().min(1).max(8760).optional(),
+      })
+      .strict()
+      .refine((v) => v.authority !== undefined || v.maxAgeHours !== undefined, {
+        message: "Nothing to change",
+      })
+      .parse(input);
+    return setSourceRights(tx, scope, i.sourceId, {
+      ...(i.authority ? { authority: i.authority } : {}),
+      ...(i.maxAgeHours ? { maxAgeHours: i.maxAgeHours } : {}),
+    });
+  }),
+  // Re-attaches documents left on an older generation (idempotent; the
+  // project transaction lock serializes parallel runs).
+  "source-reindex": sharedTransaction((tx, { scope, input }) =>
+    restampSource(tx, scope, schemas.id.parse(input.sourceId)),
   ),
   "source-audiences": sharedTransaction((tx, { scope, input }) =>
     setSourceAudiences(

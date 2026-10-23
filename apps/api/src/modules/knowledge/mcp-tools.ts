@@ -16,6 +16,7 @@ import {
   withdrawFact,
 } from "../../platform/knowledge/engine.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
+import { knowledgeIndexStatus } from "../../platform/knowledge/index-status.ts";
 import {
   languageCode,
   source as sourceSchema,
@@ -54,9 +55,14 @@ async function sources(tx: any, scope: any, args: any) {
     orderBy: { id: "asc" },
     take: args.limit + 1,
   });
+  // Whether each source's documents can be found now, and why not.
+  const index = new Map(
+    (await knowledgeIndexStatus(tx, scope)).map((x) => [x.sourceId, x]),
+  );
   return {
     items: found.slice(0, args.limit).map((r: any) => {
       const s = data(r);
+      const status = index.get(r.id);
       return {
         id: r.id,
         name: s.name,
@@ -70,6 +76,17 @@ async function sources(tx: any, scope: any, args: any) {
           !s.lastSuccessfulSyncAt ||
           Date.now() - Date.parse(s.lastSuccessfulSyncAt) >
             s.maxAgeHours * 3600000,
+        authority: s.authority,
+        index: status
+          ? {
+              state: status.state,
+              searchMode: status.searchMode,
+              blockers: status.blockers,
+              documents: status.documents,
+              chunks: status.chunks,
+              embeddedChunks: status.embeddedChunks,
+            }
+          : null,
       };
     }),
     nextCursor: found.length > args.limit ? found[args.limit - 1].id : null,
@@ -80,7 +97,7 @@ const reads = [
     ...shared,
     name: "knowledge_sources",
     description:
-      "List native knowledge sources and their rights, sync and freshness state; does not expose document contents.",
+      "List native knowledge sources and their rights, sync, freshness and search index state (documents, chunks, embedded chunks, search mode, blockers such as generated_authority or stale_documents); does not expose document contents.",
     permission: PROJECT_READ,
     input: page,
     run: sources,
@@ -147,7 +164,7 @@ const writes = [
     ...shared,
     name: "knowledge_add_document",
     description:
-      "Add or update a text/Markdown document through native ingestion. Reuse externalId to version an existing document. No embeddings are purchased by this action.",
+      "Add or update a text/Markdown document through native ingestion. Reuse externalId to version an existing document. No embeddings are purchased by this action: the document is searchable lexically at once unless the result's index.blockers say otherwise.",
     permission: PROJECT_WRITE,
     input: z
       .object({
@@ -161,10 +178,24 @@ const writes = [
       .strict(),
     async run(tx, scope, args) {
       const s = await entity(tx, scope, "sources", args.sourceId);
-      return ingest(tx, scope, {
+      const result = await ingest(tx, scope, {
         ...args,
         expectedGeneration: data(s).generation,
       });
+      // The receipt says whether the document can be found, not only stored.
+      const status = (await knowledgeIndexStatus(tx, scope)).find(
+        (x) => x.sourceId === args.sourceId,
+      );
+      return {
+        ...result,
+        index: status
+          ? {
+              state: status.state,
+              searchMode: status.searchMode,
+              blockers: status.blockers,
+            }
+          : null,
+      };
     },
   }),
   approvedOperation({

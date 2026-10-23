@@ -27,6 +27,8 @@ export const knowledgeActionPermissions = actionPermissions("knowledge", {
     "rollback-index",
     "source-audiences",
     "source-pause",
+    "source-reindex",
+    "source-settings",
     "withdraw-fact",
   ],
   write: ["import", "knowledge-import-preview"],

@@ -20,8 +20,12 @@ import {
 /**
  * The knowledge reads behind the MCP `search` and `fetch` tools (Track M
  * WP-M3, plans/orbit-modularization/09 §5.2). Everything they return is what
- * `retrieve(forModel: true, purpose: "public")` without a consumer module
- * could return (D-M3-4): sources open to all modules only. A fetch of an
+ * `retrieve(forModel: true, purpose: "internal")` without a consumer module
+ * could return (D-M3-4): sources open to all modules only. Since 2026-10-23
+ * (Mario) the MCP read surface needs the model right only, not the public
+ * one: an internal, model-approved source is readable by the member's own
+ * model client but never becomes public evidence (its evidence is internal,
+ * so validateEvidence never reports it public-ready). A fetch of an
  * unknown or ineligible id answers the same NOT_FOUND, never the reason.
  */
 
@@ -136,7 +140,7 @@ export async function searchForModel(
         options.budget,
         undefined,
         options.trace,
-        { shared: false },
+        { shared: false, purpose: "internal" },
       );
     } catch (error) {
       if (!(await isPreSpendFailure(scope, error, options.budget))) throw error;
@@ -148,7 +152,7 @@ export async function searchForModel(
     undefined,
     undefined,
     undefined,
-    { shared: false },
+    { shared: false, purpose: "internal" },
   );
   const result = searchResult.parse(outcome.result);
   const { items, usable } = await scoped(
@@ -188,7 +192,7 @@ export async function searchForModel(
     ...result.passages.flatMap((passage): KnowledgeHit[] => {
       const item = items.get(passage.chunkId);
       // Fail closed: a passage the evidence does not vouch for is dropped.
-      if (!item || item.publicUse !== true || item.modelUse !== true) return [];
+      if (!item || item.modelUse !== true) return [];
       return [
         {
           kind: "chunk",
@@ -265,10 +269,15 @@ async function projectLanguage(tx: DbTx, scope: Scope) {
  * their own), from a source open to all modules, as `retrieve` without a
  * consumer requires (K-1 itself does not look at audiences).
  */
-export async function modelFacts(tx: DbTx, scope: Scope, ids: readonly string[]) {
+export async function modelFacts(
+  tx: DbTx,
+  scope: Scope,
+  ids: readonly string[],
+) {
   const usable = await usableFactsByIds(tx, scope, ids, {
     at: new Date(),
     language: await projectLanguage(tx, scope),
+    purpose: "internal",
   });
   const sourceIds = [
     ...new Set([...usable.values()].map((row) => String(data(row).sourceId))),
@@ -297,7 +306,7 @@ export async function modelFacts(tx: DbTx, scope: Scope, ids: readonly string[])
 /**
  * A chunk's document version text (the active version, at most
  * FETCH_TEXT_MAX_BYTES of JSON text), only when the chunk passes every rule
- * `retrieve(forModel: true, purpose: "public")` applies, through the
+ * `retrieve(forModel: true, purpose: "internal")` applies, through the
  * engine's own eligibility query. `truncated` says whether text was left out.
  */
 export async function fetchChunkForModel(
@@ -320,7 +329,7 @@ export async function fetchChunkForModel(
       {
         at: new Date(),
         language: await projectLanguage(tx, scope),
-        purpose: "public",
+        purpose: "internal",
         forModel: true,
       },
       FETCH_TEXT_MAX_BYTES,

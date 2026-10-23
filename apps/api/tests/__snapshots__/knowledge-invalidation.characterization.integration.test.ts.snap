@@ -3339,6 +3339,7 @@ exports[`Knowledge invalidation cascade (characterization) > source rights chang
       "active": true,
       "versions": [
         "active",
+        "superseded",
       ],
     },
   ],

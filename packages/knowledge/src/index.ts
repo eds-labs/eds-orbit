@@ -753,8 +753,16 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
     sourceIds: input.sourceIds,
   });
   const columns = Prisma.sql`c.id,c."documentVersionId",d."sourceId",v."sourceGeneration",s.data->>'authority' AS authority,v.title,c.text,c.heading,c.anchor,d."canonicalUrl",c."chunkHash",v."fetchedAt",v."validUntil",(s.data->>'publicUse'='true') AS "publicUse",(s.data->>'modelUse'='true') AS "modelUse"`;
+  // Passages with every query term rank first (the strict query, as
+  // before); passages with only some of them follow by cover density (the
+  // loose query: the same terms and phrases joined by OR), so a question in
+  // natural language still finds the passages that answer it. A query with
+  // an excluded term ("-word") stays strict: OR would turn the exclusion
+  // into a match of nearly everything.
+  const strict = Prisma.sql`websearch_to_tsquery(${config}::regconfig,${input.query})`;
+  const loose = Prisma.sql`(CASE WHEN strpos(${strict}::text,'!')>0 THEN ${strict} ELSE replace(${strict}::text,' & ',' | ')::tsquery END)`;
   const lexical = await tx.$queryRaw<Candidate[]>(
-    Prisma.sql`SELECT ${columns},ts_rank_cd(c."searchVector",websearch_to_tsquery(${config}::regconfig,${input.query}))+ts_rank_cd(c."identifierVector",websearch_to_tsquery('simple',${input.query})) AS rank ${eligible} AND (c."searchVector" @@ websearch_to_tsquery(${config}::regconfig,${input.query}) OR c."identifierVector" @@ websearch_to_tsquery('simple',${input.query}) OR position(lower(${input.query}) in lower(c.text))>0) ORDER BY CASE s.data->>'authority' WHEN 'official' THEN 0 WHEN 'website' THEN 1 ELSE 2 END,rank DESC,c.id LIMIT ${LIMITS.candidates}`,
+    Prisma.sql`SELECT ${columns},(CASE WHEN c."searchVector" @@ ${strict} THEN 1 ELSE 0 END)+ts_rank_cd(c."searchVector",${loose})+ts_rank_cd(c."identifierVector",websearch_to_tsquery('simple',${input.query})) AS rank ${eligible} AND (c."searchVector" @@ ${strict} OR c."searchVector" @@ ${loose} OR c."identifierVector" @@ websearch_to_tsquery('simple',${input.query}) OR position(lower(${input.query}) in lower(c.text))>0) ORDER BY CASE s.data->>'authority' WHEN 'official' THEN 0 WHEN 'website' THEN 1 ELSE 2 END,rank DESC,c.id LIMIT ${LIMITS.candidates}`,
   );
   let semantic: Candidate[] = [];
   if (input.queryVector) {
@@ -865,11 +873,15 @@ export async function validateEvidence(
   for (const item of all) {
     try {
       const { data: source } = await getSource(tx, s, item.sourceId);
+      // Internal evidence (never usable publicly: it is never public-ready)
+      // needs only the model right; public evidence needs both.
       if (
-        !source.publicUse ||
+        (d.purpose === "public" && !source.publicUse) ||
         (d.forModel && !source.modelUse) ||
         source.generation !== item.sourceGeneration ||
-        (source.embargoUntil && new Date(source.embargoUntil) > point)
+        (d.purpose === "public" &&
+          source.embargoUntil &&
+          new Date(source.embargoUntil) > point)
       )
         reasons.push("source_rights_changed");
       if (!servesConsumer(source.audiences, d.consumer))
@@ -887,7 +899,7 @@ export async function validateEvidence(
       !f ||
       f.version !== fact.version ||
       data?.status !== "verified" ||
-      !data.publicUse ||
+      (d.purpose === "public" && !data.publicUse) ||
       (d.forModel && !data.modelUse) ||
       !validAt(data.validFrom, data.validUntil, point)
     )
@@ -1015,7 +1027,13 @@ export async function setSourceRights(
   s: Scope,
   handlers: readonly ImpactHandler[],
   id: string,
-  changes: { publicUse?: boolean; modelUse?: boolean; paused?: boolean },
+  changes: {
+    publicUse?: boolean;
+    modelUse?: boolean;
+    paused?: boolean;
+    authority?: SourceData["authority"];
+    maxAgeHours?: number;
+  },
 ) {
   const source = await tx.entity.findFirst({
     where: { ...where(s), id, kind: "sources" },
@@ -1023,12 +1041,29 @@ export async function setSourceRights(
   if (!source) throw new KnowledgeError("SOURCE_UNAVAILABLE");
   const old = source.data as unknown as SourceData;
   if (old.status === "revoked") throw new KnowledgeError("SOURCE_REVOKED");
+  if (
+    (changes.authority !== undefined &&
+      !["official", "website", "research", "generated"].includes(
+        changes.authority,
+      )) ||
+    (changes.maxAgeHours !== undefined &&
+      (!Number.isInteger(changes.maxAgeHours) ||
+        changes.maxAgeHours < 1 ||
+        changes.maxAgeHours > 8760))
+  )
+    throw new KnowledgeError("INVALID_SOURCE_POLICY");
   const next = {
     ...old,
     ...(changes.publicUse === undefined
       ? {}
       : { publicUse: changes.publicUse }),
     ...(changes.modelUse === undefined ? {} : { modelUse: changes.modelUse }),
+    ...(changes.authority === undefined
+      ? {}
+      : { authority: changes.authority }),
+    ...(changes.maxAgeHours === undefined
+      ? {}
+      : { maxAgeHours: changes.maxAgeHours }),
     status:
       changes.paused === undefined
         ? old.status
@@ -1047,6 +1082,10 @@ export async function setSourceRights(
   );
   await audit(tx, s, "knowledge.rights_changed", id, {
     generation: next.generation,
+    // Which settings changed, never their values beyond the rights flags.
+    changed: Object.keys(changes).filter(
+      (key) => changes[key as keyof typeof changes] !== undefined,
+    ),
   });
   return {
     sourceId: id,
@@ -1054,6 +1093,281 @@ export async function setSourceRights(
     impact,
     reindexRequired: true,
   };
+}
+/**
+ * Re-attaches a source's stored documents to its current generation
+ * (plans/knowledge-indexing-repair.md). A rights change, pause or setting
+ * bumps the generation, which fences jobs and evidence of the old one but
+ * also leaves every stored version on the old generation, so nothing of the
+ * source can be retrieved until it is ingested again; a manual or uploaded
+ * source has nothing to sync from. This copies each outdated active version
+ * unchanged (text, title, language, validity and fetch time, so freshness is
+ * not extended) into a new version of the current generation with freshly
+ * cut chunks, carries over embeddings of identical chunks in the active
+ * index, and supersedes the old version. Idempotent: versions already on the
+ * current generation are left alone, so a repeated run changes nothing.
+ * Evidence and dependent content were invalidated by the generation bump;
+ * verified facts keep their status (their source did not change content).
+ */
+export async function restampSource(tx: DbTx, s: Scope, sourceId: string) {
+  const row = await tx.entity.findFirst({
+    where: { ...where(s), id: sourceId, kind: "sources" },
+  });
+  if (!row) throw new KnowledgeError("SOURCE_UNAVAILABLE");
+  const source = row.data as unknown as SourceData;
+  if (source.status === "revoked") throw new KnowledgeError("SOURCE_REVOKED");
+  const documents = await tx.knowledgeDocument.findMany({
+    where: { ...where(s), sourceId, activeVersionId: { not: null } },
+    select: { id: true, activeVersionId: true },
+  });
+  const activeIndex = await tx.knowledgeIndex.findFirst({
+    where: { ...where(s), state: "active" },
+  });
+  let restamped = 0,
+    chunks = 0,
+    carriedEmbeddings = 0;
+  for (const document of documents) {
+    const old = await tx.documentVersion.findFirst({
+      where: { ...where(s), id: document.activeVersionId! },
+      include: { chunks: { orderBy: { position: "asc" } } },
+    });
+    if (!old || old.sourceGeneration === source.generation) continue;
+    const last = await tx.documentVersion.aggregate({
+      where: { ...where(s), documentId: document.id },
+      _max: { version: true },
+    });
+    const version = await tx.documentVersion.create({
+      data: {
+        ...where(s),
+        documentId: document.id,
+        version: (last._max.version ?? 0) + 1,
+        title: old.title,
+        language: old.language,
+        contentHash: old.contentHash,
+        text: old.text,
+        mimeType: old.mimeType,
+        extractorVersion: old.extractorVersion,
+        sourceGeneration: source.generation,
+        sourceUpdatedAt: old.sourceUpdatedAt,
+        fetchedAt: old.fetchedAt,
+        validFrom: old.validFrom,
+        validUntil: old.validUntil,
+        state: "prepared",
+      },
+    });
+    const vectors = new Map<string, string>();
+    if (activeIndex) {
+      const stored = await tx.$queryRaw<
+        Array<{ chunkHash: string; vector: string }>
+      >`SELECT c."chunkHash", e.vector::text AS vector FROM "ChunkEmbedding" e JOIN "KnowledgeChunk" c ON c.id=e."chunkId" WHERE e."workspaceId"=${s.workspaceId}::uuid AND e."projectId"=${s.projectId}::uuid AND c."documentVersionId"=${old.id}::uuid AND e.profile=${activeIndex.profile} AND e."indexGeneration"=${activeIndex.generation}`;
+      for (const item of stored) vectors.set(item.chunkHash, item.vector);
+    }
+    for (const c of chunkText(old.text)) {
+      const chunk = await tx.knowledgeChunk.create({
+        data: {
+          ...where(s),
+          documentVersionId: version.id,
+          ...c,
+          heading: c.heading ? old.title + " — " + c.heading : old.title,
+          language: old.language,
+        },
+      });
+      chunks++;
+      const vector = activeIndex && vectors.get(chunk.chunkHash);
+      if (vector) {
+        await tx.$executeRaw`INSERT INTO "ChunkEmbedding" ("id","workspaceId","projectId","chunkId","profile","model","dimensions","indexGeneration","vector") VALUES (${randomUUID()}::uuid,${s.workspaceId}::uuid,${s.projectId}::uuid,${chunk.id}::uuid,${activeIndex.profile},${activeIndex.model},${activeIndex.dimensions},${activeIndex.generation},${vector}::vector)`;
+        carriedEmbeddings++;
+      }
+    }
+    await tx.documentVersion.update({
+      where: { id: old.id },
+      data: { state: "superseded" },
+    });
+    await tx.documentVersion.update({
+      where: { id: version.id },
+      data: { state: "active" },
+    });
+    await tx.knowledgeDocument.update({
+      where: { id: document.id },
+      data: { activeVersionId: version.id },
+    });
+    restamped++;
+  }
+  if (restamped)
+    await audit(tx, s, "knowledge.restamped", sourceId, {
+      generation: source.generation,
+      documents: restamped,
+      chunks,
+      carriedEmbeddings,
+    });
+  return {
+    sourceId,
+    generation: source.generation,
+    documents: restamped,
+    chunks,
+    carriedEmbeddings,
+  };
+}
+
+/** The states of a source's search index (plans/knowledge-indexing-repair.md). */
+export type SourceIndexState =
+  "pending" | "indexing" | "ready" | "failed" | "stale";
+export type SourceIndexStatus = {
+  sourceId: string;
+  name: string;
+  state: SourceIndexState;
+  /** Why nothing (or not everything) of the source can be found right now. */
+  blockers: string[];
+  documents: number;
+  chunks: number;
+  embeddedChunks: number;
+  /** "hybrid" once every current chunk has an embedding, else "lexical". */
+  searchMode: "hybrid" | "lexical" | "none";
+  /** Active versions left on an older source generation (need a reindex). */
+  outdatedDocuments: number;
+  staleDocuments: number;
+  /** The newest import of a current version (restamps keep the import time). */
+  lastIndexedAt: string | null;
+  jobs: { pending: number; failed: number; lastError: string | null };
+};
+
+/**
+ * Why each source's documents can or cannot be retrieved now, with counts:
+ * the same conditions `eligiblePassages` applies (status, authority,
+ * generation, validity, freshness) plus the embedding coverage of the
+ * active index and the embedding jobs of its documents. Purpose and
+ * consumer rights are reported as blockers only where they exclude every
+ * use (modelUse false still allows the owner's own retrieval inspection).
+ */
+export async function sourceIndexStatus(
+  tx: DbTx,
+  s: Scope,
+  options: {
+    at?: Date;
+    /**
+     * Work records of the caller's job queue ({ topic, resourceId,
+     * sourceId?, status, error? }): the engine names no other module's
+     * entity kinds, so the platform passes them in.
+     */
+    jobs?: ReadonlyArray<Record<string, unknown>>;
+  } = {},
+): Promise<SourceIndexStatus[]> {
+  const at = options.at ?? new Date();
+  const sources = await tx.entity.findMany({
+    where: { ...where(s), kind: "sources" },
+    orderBy: { createdAt: "asc" },
+  });
+  const activeIndex = await tx.knowledgeIndex.findFirst({
+    where: { ...where(s), state: "active" },
+  });
+  const jobs = options.jobs ?? [];
+  const result: SourceIndexStatus[] = [];
+  for (const row of sources) {
+    const d = row.data as unknown as SourceData & { name?: string };
+    if (d.status === "revoked") continue;
+    const versions = await tx.documentVersion.findMany({
+      where: {
+        ...where(s),
+        state: "active",
+        document: { sourceId: row.id },
+      },
+      select: {
+        id: true,
+        documentId: true,
+        sourceGeneration: true,
+        fetchedAt: true,
+        validFrom: true,
+        validUntil: true,
+        _count: { select: { chunks: true } },
+      },
+    });
+    const current = versions.filter((v) => v.sourceGeneration === d.generation);
+    const chunks = current.reduce((n, v) => n + v._count.chunks, 0);
+    const embeddedChunks =
+      activeIndex && current.length
+        ? await tx.chunkEmbedding.count({
+            where: {
+              ...where(s),
+              profile: activeIndex.profile,
+              indexGeneration: activeIndex.generation,
+              chunk: { documentVersionId: { in: current.map((v) => v.id) } },
+            },
+          })
+        : 0;
+    const stale = current.filter(
+      (v) =>
+        v.fetchedAt.getTime() + d.maxAgeHours * 3600000 <= at.getTime() ||
+        !validAt(v.validFrom, v.validUntil, at),
+    ).length;
+    const documentIds = new Set(versions.map((v) => v.documentId));
+    const sourceJobs = jobs.filter(
+      (j) =>
+        (j.topic === "embedding" && documentIds.has(String(j.resourceId))) ||
+        (j.topic === "ingestion" && j.sourceId === row.id),
+    );
+    const pendingJobs = sourceJobs.filter((j) =>
+      ["queued", "running", "retry_scheduled"].includes(String(j.status)),
+    );
+    const failedJobs = sourceJobs.filter((j) =>
+      ["failed", "blocked_dependency"].includes(String(j.status)),
+    );
+    const blockers: string[] = [];
+    if (d.status === "paused") blockers.push("source_paused");
+    if (d.authority === "generated") blockers.push("generated_authority");
+    if (!d.modelUse) blockers.push("model_use_forbidden");
+    if (!versions.length) blockers.push("no_documents");
+    const outdated = versions.length - current.length;
+    if (outdated) blockers.push("outdated_generation");
+    if (stale) blockers.push("stale_documents");
+    const searchable =
+      d.status === "active" &&
+      d.authority !== "generated" &&
+      current.length - stale > 0;
+    const state: SourceIndexState = failedJobs.length
+      ? "failed"
+      : pendingJobs.some((j) => j.status === "running")
+        ? "indexing"
+        : outdated || pendingJobs.length
+          ? "pending"
+          : stale && stale === current.length && current.length
+            ? "stale"
+            : searchable
+              ? "ready"
+              : versions.length
+                ? "pending"
+                : "ready";
+    result.push({
+      sourceId: row.id,
+      name: String(d.name ?? ""),
+      state,
+      blockers,
+      documents: versions.length,
+      chunks,
+      embeddedChunks,
+      searchMode: !searchable
+        ? "none"
+        : chunks && embeddedChunks >= chunks
+          ? "hybrid"
+          : "lexical",
+      outdatedDocuments: outdated,
+      staleDocuments: stale,
+      lastIndexedAt: current.length
+        ? new Date(
+            Math.max(...current.map((v) => v.fetchedAt.getTime())),
+          ).toISOString()
+        : null,
+      jobs: {
+        pending: pendingJobs.length,
+        failed: failedJobs.length,
+        lastError: failedJobs.length
+          ? String(
+              failedJobs[0]!.error ?? failedJobs[0]!.errorCode ?? "failed",
+            ).slice(0, 200)
+          : null,
+      },
+    });
+  }
+  return result;
 }
 const AUDIENCE_ID = /^[a-z][a-z0-9_-]{0,39}$/;
 /**

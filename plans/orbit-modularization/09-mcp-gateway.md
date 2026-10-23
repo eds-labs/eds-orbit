@@ -291,6 +291,8 @@ Only read and proposal tools are exposed at first.
 - **Prompts:** optional, module-contributed templates such as "weekly marketing review" or "summarize open tickets". Low priority.
 - **MCP Apps / UI resources:** not in scope. Orbit links to its own UI instead. This can be revisited for rich cards later.
 
+> **Note 2026-10-23 (knowledge indexing repair, Mario).** MCP `search` and `fetch` read knowledge with `purpose: "internal"`: the model right (`modelUse`) is required, the public right and embargo are not. Internal evidence is never public-ready, so it cannot back marketing or support output, which keep `purpose: "public"`. Generated, paused, revoked, stale and other projects' content stay excluded. Details: `plans/knowledge-indexing-repair.md`.
+
 > **Note 2026-10-18 (WP-M3, D-M3-1).** MCP resources (`orbit://…`) are deferred: ChatGPT's resource support is undocumented, the WP-M3 acceptance needs only `search` and `fetch`, and everything important is reachable through `fetch`. No resource templates are registered.
 
 ### 5.4 Data protection in MCP results

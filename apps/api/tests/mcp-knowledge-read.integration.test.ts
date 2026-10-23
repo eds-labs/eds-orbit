@@ -27,7 +27,11 @@ import {
 } from "../../../packages/db/src/index.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 import type { Prisma } from "../../../packages/db/src/index.ts";
-import { KnowledgeError } from "../../../packages/knowledge/src/index.ts";
+import {
+  KnowledgeError,
+  validateEvidence,
+} from "../../../packages/knowledge/src/index.ts";
+import { knowledgeSearch } from "../src/platform/knowledge/search.ts";
 import { ingest, setFact } from "../src/platform/knowledge/engine.ts";
 import {
   fetchChunkForModel,
@@ -609,8 +613,6 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
   describe("ineligible content is invisible to search and fetch", () => {
     const ineligibleChunks = [
       "modelUse false",
-      "publicUse false",
-      "embargoed",
       "generated authority",
       "inactive source",
       "superseded version",
@@ -636,7 +638,15 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
       });
     });
 
-    const ineligibleFacts = Object.keys(FACT_TERMS);
+    // Internal, model-approved knowledge is readable since 2026-10-23
+    // (Mario): the MCP read surface needs the model right only.
+    const internal = new Set([
+      "fact publicUse false",
+      "fact on embargoed source",
+    ]);
+    const ineligibleFacts = Object.keys(FACT_TERMS).filter(
+      (name) => !internal.has(name),
+    );
     it.each(ineligibleFacts)("fact: %s", async (name) => {
       const factId = facts.get(name)!;
       const term = FACT_TERMS[name]!;
@@ -647,6 +657,50 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
         code: "NOT_FOUND",
         status: 404,
       });
+    });
+
+    it.each(["publicUse false", "embargoed"])(
+      "chunk: %s is internal knowledge and readable",
+      async (name) => {
+        const { chunkId, versionId } = chunks.get(name)!;
+        expect(await chunkHits(chunkTerm(name))).toContain(chunkId);
+        await expect(fetchChunkForModel(scope, chunkId)).resolves.toMatchObject(
+          { documentVersionId: versionId },
+        );
+      },
+    );
+
+    it.each([...internal])(
+      "fact: %s is internal knowledge and readable",
+      async (name) => {
+        const factId = facts.get(name)!;
+        expect(await factHits(FACT_TERMS[name]!)).toContain(factId);
+        await expect(fetchFactForModel(scope, factId)).resolves.toMatchObject({
+          sourceId: expect.any(String),
+        });
+      },
+    );
+
+    it("keeps the evidence of an MCP search internal, never public-ready", async () => {
+      const outcome = await knowledgeSearch(
+        scope,
+        { query: chunkTerm("publicUse false") },
+        undefined,
+        undefined,
+        undefined,
+        { shared: false, purpose: "internal" },
+      );
+      const evidenceId = (
+        outcome.result as { retrieval: { evidenceId: string } }
+      ).retrieval.evidenceId;
+      const validation = await scoped(
+        scope.workspaceId,
+        scope.projectId,
+        (tx) => validateEvidence(tx, scope, evidenceId),
+      );
+      expect(validation.valid).toBe(false);
+      expect(validation.reasons).toContain("evidence_not_public_ready");
+      expect(validation.reasons).not.toContain("source_rights_changed");
     });
 
     it("unknown and malformed ids answer the same NOT_FOUND", async () => {
@@ -787,7 +841,7 @@ describe.skipIf(!enabled)("MCP knowledge read services", () => {
         // The paid attempt carried the run and no consumer (D-M3-4).
         const [, request, , , passedTrace] =
           vi.mocked(retrieveHybrid).mock.calls[0]!;
-        expect(request).toMatchObject({ forModel: true, purpose: "public" });
+        expect(request).toMatchObject({ forModel: true, purpose: "internal" });
         expect("consumer" in request).toBe(false);
         expect(passedTrace).toEqual(trace);
       } finally {

@@ -75,8 +75,10 @@ export async function knowledgeSearch(
   budget?: SearchBudget,
   consumer?: string,
   trace?: SearchTrace,
-  // MCP reads only the project's own knowledge (ADR 0014).
-  options: { shared?: boolean } = {},
+  // MCP reads only the project's own knowledge (ADR 0014), and reads it for
+  // a model, not for publication: `internal` needs the model right only
+  // (Mario 2026-10-23). Every module writing public text keeps `public`.
+  options: { shared?: boolean; purpose?: "public" | "internal" } = {},
 ): Promise<{ result: unknown; cards: ChatCard[] }> {
   const input = knowledgeSearchInput.parse(raw);
   const language = await scoped(
@@ -93,7 +95,7 @@ export async function knowledgeSearch(
     query: input.query,
     ...(input.factKeys?.length ? { factKeys: input.factKeys } : {}),
     language,
-    purpose: "public" as const,
+    purpose: options.purpose ?? ("public" as const),
     forModel: true,
     at: new Date(),
     topK: 6,
@@ -113,7 +115,7 @@ export async function knowledgeSearch(
   const own = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const value = data(evidence);
     if (
-      value.purpose !== "public" ||
+      value.purpose !== request.purpose ||
       value.forModel !== true ||
       !["ready", "insufficient_evidence"].includes(value.status)
     )
@@ -209,7 +211,10 @@ export async function knowledgeSearch(
     passages: unknown[];
   };
   for (const set of shared) {
-    const origin = { library: clipped(set.origin.libraryName, 120), shareId: set.origin.shareId };
+    const origin = {
+      library: clipped(set.origin.libraryName, 120),
+      shareId: set.origin.shareId,
+    };
     for (const f of set.facts)
       if (result.facts.length < 8)
         result.facts.push({

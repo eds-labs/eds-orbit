@@ -6697,3 +6697,22 @@ a.support-row {
     max-width: 100%;
   }
 }
+
+/* Search index state of a knowledge source (plans/knowledge-indexing-repair.md). */
+.index-status {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.index-status h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.index-status code {
+  font-size: 12px;
+  word-break: break-all;
+}

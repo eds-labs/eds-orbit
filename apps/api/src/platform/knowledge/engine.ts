@@ -26,12 +26,31 @@ export const withdrawFact = (
   engine.withdrawFact(tx, s, registeredImpactHandlers(), id, expectedVersion);
 export const revokeSource = (tx: DbTx, s: Scope, sourceId: string) =>
   engine.revokeSource(tx, s, registeredImpactHandlers(), sourceId);
-export const setSourceRights = (
+/**
+ * A source's rights or settings change (new generation, dependents
+ * invalidated), then its stored documents move to that generation, so the
+ * source stays searchable under its new rules without a new import
+ * (plans/knowledge-indexing-repair.md).
+ */
+export const setSourceRights = async (
   tx: DbTx,
   s: Scope,
   id: string,
   changes: Parameters<typeof engine.setSourceRights>[4],
-) => engine.setSourceRights(tx, s, registeredImpactHandlers(), id, changes);
+) => {
+  const changed = await engine.setSourceRights(
+    tx,
+    s,
+    registeredImpactHandlers(),
+    id,
+    changes,
+  );
+  const reindexed = await engine.restampSource(tx, s, id);
+  return { ...changed, reindexRequired: false, reindexed };
+};
+/** Moves a source's stored documents to its current generation (idempotent). */
+export const restampSource = (tx: DbTx, s: Scope, id: string) =>
+  engine.restampSource(tx, s, id);
 export const setSourceAudiences = (
   tx: DbTx,
   s: Scope,

@@ -1,5 +1,10 @@
 "use client";
 import { contentLanguageOptions } from "@/platform/project-settings/project-configuration";
+import {
+  IndexStateBadge,
+  SourceIndexPanel,
+  useIndexStatus,
+} from "./index-status";
 import { KnowledgeWorkspaceGate } from "./workspace";
 import { FactWithdrawal } from "./fact-withdrawal";
 import { IndexManagement } from "./index-management";
@@ -214,8 +219,10 @@ function audienceLabel(audiences: unknown, de: boolean) {
   );
 }
 function Sources() {
-  const { t, locale, project, canEdit, isOwner, refresh } = useWorkspace();
+  const { t, locale, project, canEdit, isOwner, refresh, revision } =
+    useWorkspace();
   const resource = useCollection("sources");
+  const index = useIndexStatus(project.id, revision);
   const [search, setSearch] = useState(""),
     [selected, setSelected] = useState<Entity | null>(null),
     [create, setCreate] = useState(false),
@@ -292,6 +299,10 @@ function Sources() {
                     </small>
                   </div>
                   <Status value={e.data.status} />
+                  <IndexStateBadge
+                    status={index.byId.get(e.id)}
+                    locale={locale}
+                  />
                   <ArrowRight />
                 </button>
               ))}
@@ -369,6 +380,21 @@ function Sources() {
             <dt>{t("contentVerified")}</dt>
             <dd>{when(current?.data.verifiedAt, locale, project.timezone)}</dd>
           </dl>
+          {current && (
+            <SourceIndexPanel
+              projectId={project.id}
+              source={current}
+              status={index.byId.get(current.id)}
+              isOwner={isOwner}
+              locale={locale}
+              timezone={project.timezone}
+              onChanged={() => {
+                refresh();
+                resource.refresh();
+                index.refresh();
+              }}
+            />
+          )}
           {current && (
             <div className="stack-actions">
               {canEdit && current.data.status === "active" && (

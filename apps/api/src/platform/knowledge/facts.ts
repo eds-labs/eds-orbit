@@ -6,7 +6,17 @@ import { data, DomainError, hash, list } from "../shared.ts";
 type FactRow = Awaited<ReturnType<typeof list>>[number];
 
 /** Where usable facts are wanted: the moment, the content language, the market. */
-export type FactQuery = { at: Date; language: string; market?: string };
+export type FactQuery = {
+  at: Date;
+  language: string;
+  market?: string;
+  /**
+   * "public" (K-1, the default): facts that may reach a public text.
+   * "internal": facts a model may read without publishing them (the MCP
+   * read surface); the public right is then not required.
+   */
+  purpose?: "public" | "internal";
+};
 
 /**
  * Whether a fact's source lets it reach a public, model-written text: the
@@ -18,16 +28,19 @@ function sourceAllows(
   fact: Record<string, any>,
   sources: ReadonlyMap<string, unknown>,
   at: Date,
+  internal = false,
 ) {
   if (!sources.has(String(fact.sourceId))) return false;
   try {
     const source = sourceData(sources.get(String(fact.sourceId)));
     return (
       source.authority !== "generated" &&
-      source.publicUse === true &&
-      !(
-        source.embargoUntil && Date.parse(source.embargoUntil) > at.valueOf()
-      ) &&
+      (internal ||
+        (source.publicUse === true &&
+          !(
+            source.embargoUntil &&
+            Date.parse(source.embargoUntil) > at.valueOf()
+          ))) &&
       source.modelUse === true &&
       fact.sourceGeneration === source.generation
     );
@@ -40,20 +53,21 @@ function usableCopies(
   facts: FactRow[],
   sources: ReadonlyMap<string, unknown>,
   key: string,
-  { at, language, market = "global" }: FactQuery,
+  { at, language, market = "global", purpose = "public" }: FactQuery,
 ) {
+  const internal = purpose === "internal";
   return facts.filter((row) => {
     const f = data(row);
     return (
       f.key === key &&
       f.status === "verified" &&
-      f.publicUse === true &&
+      (internal || f.publicUse === true) &&
       f.modelUse === true &&
       Date.parse(f.validFrom) <= at.valueOf() &&
       (!f.validUntil || Date.parse(f.validUntil) > at.valueOf()) &&
       f.language === language &&
       (f.market ?? "global") === market &&
-      sourceAllows(f, sources, at)
+      sourceAllows(f, sources, at, internal)
     );
   });
 }

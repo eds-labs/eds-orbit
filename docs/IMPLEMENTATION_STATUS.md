@@ -1,5 +1,24 @@
 # Implementation status
 
+## Knowledge indexing and RAG search repair (2026-10-23, local; not pushed)
+
+Branch `claude/knowledge-indexing-repair`, root cause and operations in `plans/knowledge-indexing-repair.md`. FamilyPlan's 12 imported documents (84 chunks) could not be found, for two reasons. First, their source is classified `authority: generated`, which every retrieval excludes. Second, MCP `search`/`fetch` required `publicUse`, and the source is internal. `embedded: 0` is expected (`knowledge_add_document` never buys embeddings; full-text retrieval works without them). Latent defects found and fixed: any source settings change (rights, pause/resume) left stored documents on the old generation and permanently unsearchable, and manual sources expired after 7 days unnoticed.
+
+Changes:
+- `restampSource` backfill: idempotent, keeps content and import time, carries embeddings, runs automatically after every settings change.
+- Owner actions `source-settings` (authority, freshness window) and `source-reindex`.
+- Per-source index status (pending/indexing/ready/failed/stale, blockers, counts, jobs, last error) in Knowledge → Sources, `knowledge-health`, MCP `knowledge_sources` and the `knowledge_add_document` receipt.
+- MCP reads with `purpose: "internal"` (model right only; decision Mario 2026-10-23). Internal evidence is never public-ready; marketing, assistant and support stay public.
+- Full-text retrieval ranks passages with all terms first and fills with partial matches, so natural-language questions find answers.
+
+Risk: medium-high (retrieval eligibility of the MCP surface; evidence validation). Evidence:
+- Full suite 3,581 passed / 7 skipped / 0 failed.
+- New `apps/api/tests/knowledge-indexing.integration.test.ts` (9 scenarios: import → searchable, update without duplicates, failed job, retry/backfill idempotency, generated → official, pause/revoke, modelUse false, publicUse false never public, project isolation).
+- Gateway case in `mcp-read-surface` (internal content found with citation, generated not); updated `mcp-knowledge-read` (internal readable, evidence never public-ready); web test for the status panel.
+- Access matrix: two new owner-only rows, no existing cell changed.
+- Root and web typecheck, boundaries, Next build.
+
+Production: after deploy the owner sets the FamilyPlan source to `official` (freshness 8760 h); no migration.
 ## Project configuration over MCP, campaign-type fields (2026-10-23, local; not pushed, flags off)
 
 - **MCP tools:** `project_configuration_get` (`orbit:read`) and `project_configuration_update` (`orbit:propose`, owners, executed only after owner approval). See `docs/MCP_PROJECT_CONFIGURATION.md` and `plans/project-configuration-mcp.md`.

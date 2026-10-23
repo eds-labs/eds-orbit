@@ -421,6 +421,22 @@ describe.skipIf(!enabled)(
           "Alpha internal only",
         ),
       );
+      // Internal, model-approved knowledge (publicUse false) is readable over
+      // MCP since 2026-10-23 (Mario); generated content never is.
+      const internal = await source("Alpha", { publicUse: false });
+      sources.set("alpha internal", internal);
+      chunks.set(
+        "alpha internal knowledge",
+        await document("Alpha", internal, "Alpha internal handbook"),
+      );
+      chunks.set(
+        "alpha generated",
+        await document(
+          "Alpha",
+          await source("Alpha", { authority: "generated" }),
+          "Alpha generated summary",
+        ),
+      );
       facts.set("alpha fact", await fact("Alpha", alpha, "alpha"));
       await run(ownerScope("Alpha"), async (tx) => {
         const scope = ownerScope("Alpha");
@@ -950,6 +966,32 @@ describe.skipIf(!enabled)(
         const fetched = await fetchItem(hidden);
         expect(fetched.isError).toBe(true);
         expect(fetched.structuredContent.code).toBe("NOT_FOUND");
+      });
+
+      it("internal model-approved content is found and fetched with its citation; generated content is not", async () => {
+        const internalId = chunkId("Alpha", "alpha internal knowledge");
+        const result = await search({ query: TOKEN, projectId: project.Alpha });
+        const hit = (result.structuredContent.results as Json[]).find(
+          (r) => r.id === internalId,
+        );
+        expect(hit).toEqual({
+          id: internalId,
+          title: expect.stringContaining("Alpha internal handbook"),
+          url: `${appOrigin()}/p/${project.Alpha}/knowledge/library`,
+        });
+        expect(resultIds(result)).not.toContain(
+          chunkId("Alpha", "alpha generated"),
+        );
+        const fetched = await fetchItem(internalId);
+        expect(fetched.isError).toBeFalsy();
+        expect(fetched.structuredContent.metadata).toMatchObject({
+          projectId: project.Alpha,
+          kind: "chunk",
+          sourceId: sources.get("alpha internal"),
+          documentVersionId: chunks.get("alpha internal knowledge")!.versionId,
+        });
+        const generated = await fetchItem(chunkId("Alpha", "alpha generated"));
+        expect(generated.structuredContent.code).toBe("NOT_FOUND");
       });
 
       it("covers at most five projects by name and skips one without an active index", async () => {
