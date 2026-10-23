@@ -1,2 +1,6 @@
 # Unified-diff context has a required space before upstream tab indentation.
 patches/*.patch whitespace=-space-before-tab
+# Finance test fixtures: raw mail keeps its CRLF line ends (RFC 5322), and
+# a PDF cross-reference table has fixed-width entries ending in a space.
+apps/api/tests/fixtures/finance/*.eml -whitespace
+apps/api/tests/fixtures/finance/*.pdf binary

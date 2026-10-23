@@ -6270,13 +6270,7 @@ a.support-row {
   }
 }
 
-.marketing-plans-page .page-actions {
-  flex-wrap: wrap;
-}
+.marketing-plans-page .page-actions { flex-wrap: wrap; }
 @media (max-width: 760px) {
-  .marketing-plans-page .page-actions > .button {
-    flex: 1 0 100%;
-    width: 100%;
-    white-space: normal;
-  }
+  .marketing-plans-page .page-actions > .button { flex: 1 0 100%; width: 100%; white-space: normal; }
 }
