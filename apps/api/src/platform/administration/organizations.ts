@@ -6,7 +6,7 @@ import { createInvitation } from "./invitations.ts";
 import { lockWorkspace, type Actor } from "./memberships.ts";
 
 // Organizations (workspaces) for system administrators and their owners
-// (ADR 0012). Only administrators create organizations; a SaaS
+// (ADR 0013). Only administrators create organizations; a SaaS
 // registration policy can widen that later (plan phase 4).
 
 const name = z.string().trim().min(1).max(100);

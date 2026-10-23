@@ -1,11 +1,11 @@
 # Requirements traceability
 
-## Global administration (ADR 0012, 2026-10-23)
+## Global administration (ADR 0013, 2026-10-23)
 
 | Requirement | Evidence | State |
 | --- | --- | --- |
 | GA01 Only active system administrators reach `/admin` and `/api/admin/*`; others get 404, also with the flag off | `platform/administration/authz.ts`; `administration.integration.test.ts`; access matrix `sysadmin` column | PASS_TEST |
-| GA02 No automatic administrator on migration; CLI grant and fresh-setup bootstrap, audited | migration `202610230001`; `scripts/system-admin.ts`; `server.ts` setup; integration test (CLI) and local preview (setup) | PASS_TEST |
+| GA02 No automatic administrator on migration; CLI grant and fresh-setup bootstrap, audited | migration `202610240001`; `scripts/system-admin.ts`; `server.ts` setup; integration test (CLI) and local preview (setup) | PASS_TEST |
 | GA03 Administration reads metadata only, never project content | `administration-boundary.test.ts`; access matrix (sysadmin 404 on project routes) | PASS_TEST |
 | GA04 Invitation by link, own password, pre-assigned grants, single use, expiry, revocation, re-validation | `invitations.ts`; `administration.integration.test.ts`; `add-member.integration.test.ts`; `administration.spec.ts` | PASS_TEST |
 | GA05 Role, module-role and access changes effective on the next API, worker and MCP check | `memberships.ts`; `member-scope.ts`; integration test (`actorScope`) | PASS_TEST |
@@ -14,7 +14,7 @@
 | GA08 Profile, language, password change, sessions, reset by mail (1 h, single use, sessions end), e-mail change with confirmation | `platform/account/`; integration test | PASS_TEST |
 | GA09 No plaintext password in mail or UI; reset and invitation tokens stored hashed | `system-mail.ts`; `verification.storeIdentifier`; integration test | PASS_TEST |
 | GA10 Production activation (migration, flags, SMTP, first administrator) | `docs/deployment/ADMINISTRATION_ROLLOUT.md` | NOT_STARTED (needs approval) |
-| CI01 A connection is usable only with an active project grant (API, worker, MCP via row-level security) | migration `202610230002`; `connections.integration.test.ts`; RLS matrix | PASS_TEST |
+| CI01 A connection is usable only with an active project grant (API, worker, MCP via row-level security) | migration `202610240002`; `connections.integration.test.ts`; RLS matrix | PASS_TEST |
 | CI02 System keys reach an organization only by administrator grant with budget; owners hand on within it | `administration/connections.ts`; integration test | PASS_TEST |
 | CI03 Organization and project budgets hold across projects under concurrency; attribution per grant | `ai/central-ai.ts`, `ai/budget.ts`; integration test | PASS_TEST |
 | CI04 Secrets write-only, rotated after a provider check, never audited | `connections/secrets.ts`; integration test | PASS_TEST |

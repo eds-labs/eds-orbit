@@ -3,7 +3,7 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { openSecret } from "./secrets.ts";
 
-// Using a central connection inside a project (ADR 0013). Everything here
+// Using a central connection inside a project (ADR 0014). Everything here
 // runs in the project's own transaction as the business role, so row-level
 // security shows only connections this project holds an active grant for;
 // a revoked grant or a disabled connection is gone on the next transaction.

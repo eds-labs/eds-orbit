@@ -15,7 +15,7 @@ import { ResourceError } from "@/platform/ui/collection";
 import { DataForm, str } from "@/platform/ui/form";
 import { at, errorText } from "./texts";
 
-// Central connections (ADR 0013): the same list, forms and grants for the
+// Central connections (ADR 0014): the same list, forms and grants for the
 // system administration (system connections, granted to organizations
 // with a budget) and the organization settings (own connections and
 // granted system ones, granted to projects). Secrets are write-only.

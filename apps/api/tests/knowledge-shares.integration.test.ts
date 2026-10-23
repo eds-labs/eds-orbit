@@ -16,7 +16,7 @@ import {
   validateSearchResult,
 } from "../src/platform/knowledge/search.ts";
 
-// Organization knowledge libraries and shares (ADR 0013, E1): only an
+// Organization knowledge libraries and shares (ADR 0014, E1): only an
 // explicit share brings library results into a project, with origin, and
 // every change to the share or the library invalidates them.
 
@@ -37,7 +37,7 @@ type Result = {
   retrieval: { evidenceId: string; shared?: unknown[] };
 };
 
-describe.skipIf(!enabled)("Knowledge shares (ADR 0013)", () => {
+describe.skipIf(!enabled)("Knowledge shares (ADR 0014)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   const origin = process.env.APP_ORIGIN!;
   const password = randomBytes(24).toString("base64url");

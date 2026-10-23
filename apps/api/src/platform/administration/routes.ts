@@ -51,7 +51,7 @@ import {
 import { adminPasswordReset } from "../account/service.ts";
 
 // System administration, organization settings, project member management
-// and invitation acceptance (ADR 0012). Every handler authorizes from the
+// and invitation acceptance (ADR 0013). Every handler authorizes from the
 // session and current database state; nothing in the request grants
 // access. 404 while ORBIT_ADMINISTRATION is off (server onRequest hook).
 
@@ -172,7 +172,7 @@ export function registerAdministrationRoutes(
     await admin(req);
     return { items: await openInvitations() };
   });
-  // Orbit's MCP server (ADR 0013, WP3.6).
+  // Orbit's MCP server (ADR 0014, WP3.6).
   app.get("/api/admin/mcp", async (req) => {
     await admin(req);
     return listMcpClients();

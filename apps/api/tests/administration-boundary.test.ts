@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// ADR 0012: system administration manages metadata, never project content.
+// ADR 0013: system administration manages metadata, never project content.
 // Its code reaches the database only through the control-plane client
 // (authDb) and never opens a project-scoped business transaction or imports
 // a product module.

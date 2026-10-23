@@ -1,10 +1,10 @@
 # Rollout: system administration, invitations and account self-service
 
-ADR 0012, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches production needs Mario's explicit approval for that step. A push to `main` deploys production automatically (Coolify webhook) and runs the migration.
+ADR 0013, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches production needs Mario's explicit approval for that step. A push to `main` deploys production automatically (Coolify webhook) and runs the migration.
 
 ## What the release changes
 
-- Migration `202610230001_system_administration` (additive): `user.role` (default `user`), `user.banned` (default `false`), `banReason`, `banExpires`, `user.locale`, `session.impersonatedBy`; new tables `Invitation`, `InvitationProjectGrant`, `SystemAuditEvent` (append-only trigger). Nobody becomes administrator. `scripts/db-deploy.ts` grants the new tables to `orbit_auth` only and verifies that `orbit_auth` cannot update the system audit.
+- Migration `202610240001_system_administration` (additive): `user.role` (default `user`), `user.banned` (default `false`), `banReason`, `banExpires`, `user.locale`, `session.impersonatedBy`; new tables `Invitation`, `InvitationProjectGrant`, `SystemAuditEvent` (append-only trigger). Nobody becomes administrator. `scripts/db-deploy.ts` grants the new tables to `orbit_auth` only and verifies that `orbit_auth` cannot update the system audit.
 - Better Auth now loads its admin plugin. Behaviour change with the flags off: a user with `banned=true` cannot sign in (nobody is banned after the migration).
 - Project members: "Add local member" with an initial password is gone. With `ORBIT_ADMINISTRATION=false`, owners can only add people who are already members of the organization (`INVITATIONS_DISABLED` otherwise). Turn the flag on in the same release window if owners need to add new people.
 - `/api/setup` on a fresh installation makes the first user a system administrator.
@@ -24,9 +24,9 @@ ADR 0012, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches pr
 - Code: revert the release commits. The migration is additive; the old code ignores the new columns and tables. Dropping them is only safe before the first administrative action (see the migration header).
 - Lockout: `scripts/system-admin.ts grant` restores an administrator; `UPDATE "user" SET banned=false …` reactivates a user (both by an operator with database access, audited by hand).
 
-## Phase 3 core: central connections, AI profiles, shared knowledge (ADR 0013)
+## Phase 3 core: central connections, AI profiles, shared knowledge (ADR 0014)
 
-- **Migration** `202610230002_central_connections` is additive: new control-plane tables with row-level security, `Project.kind` (default `project`), and nullable attribution columns on `BudgetReservation` and `AgentRun`. With `ORBIT_CONNECTIONS=false` and `ORBIT_KNOWLEDGE_SHARES=false`, runtime behaviour is unchanged. The only visible difference is that the legacy project "connector" action no longer offers the AI providers, which it never configured anyway.
+- **Migration** `202610240002_central_connections` is additive: new control-plane tables with row-level security, `Project.kind` (default `project`), and nullable attribution columns on `BudgetReservation` and `AgentRun`. With `ORBIT_CONNECTIONS=false` and `ORBIT_KNOWLEDGE_SHARES=false`, runtime behaviour is unchanged. The only visible difference is that the legacy project "connector" action no longer offers the AI providers, which it never configured anyway.
 - **Order (each step needs approval):**
   1. Deploy.
   2. `ORBIT_CONNECTIONS=true` (with administration on).
@@ -39,7 +39,7 @@ ADR 0012, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches pr
 
 ### Phase 3 part 2: cutover, migration, MCP administration, n8n
 
-- Migration `202610230003_workflow_bindings` is additive.
+- Migration `202610240003_workflow_bindings` is additive.
 - **Cutover (each provider separately, approval):**
   1. Set `ORBIT_CONNECTIONS_CUTOVER=postiz`.
   2. Run the inventory: `node_modules/.bin/tsx scripts/connections-migrate.ts inventory --workspace <id>`. It is read-only.

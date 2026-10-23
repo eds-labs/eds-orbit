@@ -3,7 +3,7 @@
 Orbit reaches e-mail through the project's own existing mailboxes: SMTP to send, IMAP to receive (WP4.7). Mario decided this on 2026-10-17 (Q-16); on 2026-10-18 he decided that a project may connect several mailboxes (for example support@, partnerships@ and hello@). No new e-mail provider is added, and Orbit makes no DNS change. SPF, DKIM and DMARC are the mailbox provider's, so Orbit sends only as the mailbox's own address.
 
 
-**System authentication mail (ADR 0012, 2026-10-23).** Mario amended Q-16 for authentication only: invitations, password reset and e-mail-change messages go through an optional system SMTP account configured in the environment (`ORBIT_SYSTEM_SMTP_*`), never through a project mailbox, so recovering an account never depends on a project. It reuses Orbit's SMTP session code; it sends only with `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`. Without it, administrators pass links on by hand and "forgot password" is not offered. Code: `apps/api/src/platform/email/system-mail.ts`.
+**System authentication mail (ADR 0013, 2026-10-23).** Mario amended Q-16 for authentication only: invitations, password reset and e-mail-change messages go through an optional system SMTP account configured in the environment (`ORBIT_SYSTEM_SMTP_*`), never through a project mailbox, so recovering an account never depends on a project. It reuses Orbit's SMTP session code; it sends only with `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`. Without it, administrators pass links on by hand and "forgot password" is not offered. Code: `apps/api/src/platform/email/system-mail.ts`.
 Two flags, both `false` by default:
 
 | Flag                  | Turns on                                                            |

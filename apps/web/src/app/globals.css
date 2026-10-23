@@ -5846,7 +5846,7 @@ a.support-row {
 @media (max-width: 760px) {
   .marketing-plans-page .page-actions > .button { flex: 1 0 100%; width: 100%; white-space: normal; }
 }
-/* System administration, organization settings and account (ADR 0012). */
+/* System administration, organization settings and account (ADR 0013). */
 .admin-main {
   max-width: 1280px;
   margin: 40px auto;

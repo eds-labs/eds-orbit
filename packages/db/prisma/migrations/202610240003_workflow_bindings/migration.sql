@@ -1,4 +1,4 @@
--- Automation workflow bindings (ADR 0013, WP3.7): which workflow of an
+-- Automation workflow bindings (ADR 0014, WP3.7): which workflow of an
 -- automation connection (such as n8n) serves which product-neutral Orbit
 -- contract. Using a binding needs a grant of its connection, so the
 -- business role sees a binding exactly when it sees the connection.

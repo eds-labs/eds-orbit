@@ -7,7 +7,7 @@ import { DataForm, str } from "@/platform/ui/form";
 import { useStandalone } from "@/platform/shell/standalone-context";
 import { errorText, orgRoleLabel, projectRoleLabel } from "@/platform/administration/texts";
 
-// Pages opened from a one-time link (ADR 0012): accept an invitation, set a
+// Pages opened from a one-time link (ADR 0013): accept an invitation, set a
 // new password, confirm a new e-mail address. The token is in the URL's
 // fragment, which never reaches a server log; the page reads it once and
 // removes it from the address bar.

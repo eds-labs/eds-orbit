@@ -450,9 +450,9 @@ Scope: `packages/ai/src/providers/anthropic.ts`, `platform/ai/openai-configurati
 - Tenancy: configuration, reservations and spend are project rows under FORCE RLS; no new table.
 - Open: live behaviour (refusal categories, web search with structured output) until the smoke test; the independent review of this section.
 
-## System administration, invitations and accounts (ADR 0012, prepared 2026-10-23; local only)
+## System administration, invitations and accounts (ADR 0013, prepared 2026-10-23; local only)
 
-Scope: `apps/api/src/platform/administration/`, `apps/api/src/platform/account/`, `apps/api/src/platform/email/system-mail.ts`, `tenancy/{auth,member-scope,project-members,reset-capture}.ts`, migration `202610230001_system_administration`, `scripts/system-admin.ts`, the web pages under `apps/web/src/platform/{administration,account}`. Threat model: a new installation-wide role, cross-organization metadata, one-time tokens on public routes and outbound system mail.
+Scope: `apps/api/src/platform/administration/`, `apps/api/src/platform/account/`, `apps/api/src/platform/email/system-mail.ts`, `tenancy/{auth,member-scope,project-members,reset-capture}.ts`, migration `202610240001_system_administration`, `scripts/system-admin.ts`, the web pages under `apps/web/src/platform/{administration,account}`. Threat model: a new installation-wide role, cross-organization metadata, one-time tokens on public routes and outbound system mail.
 
 - Authority: system administrator = `user.role='admin'` and not banned, re-read per request (`systemAdminFor`); organization routes accept an administrator or an owner of that organization; project routes keep `PROJECT_OWN`. Everyone else gets 404, as with the flag off. A workspace owner is not an administrator; the migration grants nobody the role.
 - No content: administration services use only `authDb` on control tables; `apps/api/tests/administration-boundary.test.ts` fails on a business-data client or a product-module import. The access matrix has a `sysadmin` column: an administrator without membership gets 404 on every project route.
@@ -467,9 +467,9 @@ Scope: `apps/api/src/platform/administration/`, `apps/api/src/platform/account/`
 
 Findings fixed during implementation: none open. Residual: the per-address reset limit is per API instance; the invitation view tells the token holder whether the address has an account (needed to choose the form). Independent review pending.
 
-## Central connections, AI profiles and shared knowledge (ADR 0013, prepared 2026-10-23; local only)
+## Central connections, AI profiles and shared knowledge (ADR 0014, prepared 2026-10-23; local only)
 
-Scope: `platform/connections/{central,secrets}.ts`, `platform/administration/{connections,connection-routes,ai-profiles}.ts`, `platform/ai/{central-ai,connection-providers}.ts`, `platform/ai/budget.ts`, `platform/knowledge/{shares,share-routes,search}.ts`, migration `202610230002_central_connections`. Threat model: one secret used by many projects and organizations, cross-tenant use of a key or of knowledge, and spend across projects.
+Scope: `platform/connections/{central,secrets}.ts`, `platform/administration/{connections,connection-routes,ai-profiles}.ts`, `platform/ai/{central-ai,connection-providers}.ts`, `platform/ai/budget.ts`, `platform/knowledge/{shares,share-routes,search}.ts`, migration `202610240002_central_connections`. Threat model: one secret used by many projects and organizations, cross-tenant use of a key or of knowledge, and spend across projects.
 
 - **Use needs a grant, enforced by the database.** `orbit_app` may SELECT a connection or its active secret only inside a project transaction with an active project grant (`connection_use`, `secret_use`, `grant_use`). Without a project scope it sees nothing (RLS matrix). Tested: another project of the same organization and a project of another organization read zero rows.
 - **Management is split by owner.** System connections belong to system administrators. Organization connections belong to their owners; administrators see metadata and may disable them, but cannot rotate or grant them. Owners cannot grant system connections beyond their organization grant, its purposes or its modules. A forged id answers 404.

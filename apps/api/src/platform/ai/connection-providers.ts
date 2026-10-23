@@ -6,7 +6,7 @@ import {
 import { DomainError } from "../shared.ts";
 import type { ConnectionProvider } from "../connections/connections.ts";
 
-// OpenAI and Anthropic accounts as central connections (ADR 0013). The
+// OpenAI and Anthropic accounts as central connections (ADR 0014). The
 // check lists the account's models: no paid call, no prompt, and only the
 // count of visible models is kept.
 

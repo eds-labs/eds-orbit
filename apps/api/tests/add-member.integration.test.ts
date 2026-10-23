@@ -9,9 +9,9 @@ import {
 } from "../../../packages/db/src/index.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
-// New people are invited (ADR 0012); nothing is mailed in test mode.
+// New people are invited (ADR 0013); nothing is mailed in test mode.
 process.env.ORBIT_ADMINISTRATION = "true";
-describe.skipIf(!enabled)("Adding project members (F-01, ADR 0012)", () => {
+describe.skipIf(!enabled)("Adding project members (F-01, ADR 0013)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   let workspaceId: string, otherWorkspaceId: string, projectId: string;
   const origin = process.env.APP_ORIGIN!;

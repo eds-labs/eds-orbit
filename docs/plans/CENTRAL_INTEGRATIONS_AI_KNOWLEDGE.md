@@ -1,6 +1,6 @@
 # Phase 3: central connections, AI infrastructure and organization knowledge
 
-Status: architecture planned 2026-10-23, not implemented. Decisions: [ADR 0013](../adr/0013-central-connections-ai-knowledge.md), with E1–E4 decided by Mario on 2026-10-23. This plan is phase 3 of the [global administration plan](GLOBAL_ADMINISTRATION.md). The new overall order is:
+Status: architecture planned 2026-10-23, not implemented. Decisions: [ADR 0014](../adr/0014-central-connections-ai-knowledge.md), with E1–E4 decided by Mario on 2026-10-23. This plan is phase 3 of the [global administration plan](GLOBAL_ADMINISTRATION.md). The new overall order is:
 
 1. global admin foundation;
 2. users and permissions;
@@ -316,7 +316,7 @@ A failure marks the evidence invalid, as today.
 
 | WP | Content | Depends on |
 |---|---|---|
-| 3.0 | Phase-1 hooks (§13), ADR 0013 accepted, provider registry contract in `packages/module-contracts` (`ConnectionProviderDef`: scopes, purposes, secret schema, settings schema, check) | phase 2 |
+| 3.0 | Phase-1 hooks (§13), ADR 0014 accepted, provider registry contract in `packages/module-contracts` (`ConnectionProviderDef`: scopes, purposes, secret schema, settings schema, check) | phase 2 |
 | 3.1 | Tables, row-level security, grants, resolver with dual read, audit, secret rotation and key ring; RLS and access matrices | 3.0 |
 | 3.2 | Admin and organization connection APIs and UI (generic list/form/grants/usage) | 3.1 |
 | 3.3 | AI: `AiProfile`, `runtimeAiConfiguration`, spend counters, budgets per grant, attribution, route version key; usage UI | 3.1 |
@@ -383,7 +383,7 @@ A failure marks the evidence invalid, as today.
 
 Built on Mario's go-ahead ("Jetzt, Kern zuerst"): WP3.0, 3.1, 3.2 (generic list, form and grant UI), 3.3 and 3.8. Next: 3.4 provider cutovers, 3.5 migration tooling, 3.6 MCP administration, 3.7 n8n, 3.9 clean-up.
 
-- **3.0/3.1:** migration `202610230002_central_connections` with `Connection`, `ConnectionSecret`, `ConnectionGrant`, `SpendCounter`, `AiProfile`, `KnowledgeShare`, `Project.kind`, reservation attribution columns and `AgentRun.routeVersionKey` (reserved; route versions stay integers, see below). Row-level security and grants as in §2. Resolver `platform/connections/central.ts`, key ring `platform/connections/secrets.ts` (`CREDENTIAL_KEYS`), management service `platform/administration/connections.ts`, provider metadata (`scopes`, `purposes`, `label`) on connection providers. OpenAI and Anthropic are registered as central providers. The legacy project `connector` action offers only project-scoped providers.
+- **3.0/3.1:** migration `202610240002_central_connections` with `Connection`, `ConnectionSecret`, `ConnectionGrant`, `SpendCounter`, `AiProfile`, `KnowledgeShare`, `Project.kind`, reservation attribution columns and `AgentRun.routeVersionKey` (reserved; route versions stay integers, see below). Row-level security and grants as in §2. Resolver `platform/connections/central.ts`, key ring `platform/connections/secrets.ts` (`CREDENTIAL_KEYS`), management service `platform/administration/connections.ts`, provider metadata (`scopes`, `purposes`, `label`) on connection providers. OpenAI and Anthropic are registered as central providers. The legacy project `connector` action offers only project-scoped providers.
 - **3.2:** routes `/api/admin/connections…`, `/api/organizations/:id/connections…`, `/api/projects/:id/connections`. UI: Administration → Integrations, organization settings → Connections, with one shared panel and grant dialog.
 - **3.3:** `platform/ai/central-ai.ts`. Field precedence: project `openai_configuration`, then organization profile, then system profile, then environment. Keys: the project's own key first, then a granted connection, then the existing environment rule. The route version is a hash of the profile versions and granted keys; it stays an integer, so every existing comparison works unchanged. Grant, organization and connection budgets are enforced in `reserve` on locked counters and settled in `settle` and in the "settle unknown" action. UI: Administration → AI & knowledge and the organization AI profile.
 - **3.8:** library projects (`Project.kind = 'library'`) and shares. Routes `/api/organizations/:id/knowledge-libraries|knowledge-shares…` and `/api/projects/:id/knowledge-shares`. `knowledgeSearch` adds shared results; `validateSearchResult` re-checks them, and Support drafts use it. UI: the shared knowledge panel in the organization settings.
@@ -420,7 +420,7 @@ Built on Mario's go-ahead ("continue with 3.4 … 3.7, everything behind flags, 
   - the OAuth clients, with a disable action that sets `disabled` and revokes every grant with its stored tokens;
   - all active grants as metadata, with revocation (`revokeGrantByAdministration`).
 - **3.7 n8n:**
-  - **Connection and bindings:** provider `n8n` (system or organization), with the secret as JSON `{apiKey, signingSecret}`; the check reads one workflow page. `WorkflowBinding` (migration `202610230003_workflow_bindings`, row-level security through the connection's grant) binds a workflow path to `automation.v1` or `customer_context.v1`.
+  - **Connection and bindings:** provider `n8n` (system or organization), with the secret as JSON `{apiKey, signingSecret}`; the check reads one workflow page. `WorkflowBinding` (migration `202610240003_workflow_bindings`, row-level security through the connection's grant) binds a workflow path to `automation.v1` or `customer_context.v1`.
   - **Triggers:** an owner (or later a module) triggers a run with a signed request (HMAC with timestamp, request id, run id, callback URL), only from a project with an `automation` grant, and only in live mode with external writes; otherwise the run is a test receipt.
   - **Callbacks:** `POST /api/automation/callbacks/:projectId/:runId` checks the signature against the connection's current secret; a revoked grant fails closed, and replays change nothing.
   - **Data kept:** runs store status and codes only, never a payload; the execution status is read from n8n's API on demand.

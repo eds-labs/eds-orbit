@@ -11,8 +11,8 @@ import type {
 //   /                                  start: last project, else the pickers
 //   /o                                 organization picker
 //   /o/:orgId                          project picker of one organization
-//   /o/:orgId/settings                 organization settings (ADR 0012)
-//   /admin[/<section>[/<id>]]          system administration (ADR 0012)
+//   /o/:orgId/settings                 organization settings (ADR 0013)
+//   /admin[/<section>[/<id>]]          system administration (ADR 0013)
 //   /p/:projectId                      project home
 //   /p/:projectId/<view>               platform page
 //   /p/:projectId/<moduleId>[/<view>]  module page

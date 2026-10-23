@@ -16,7 +16,7 @@ export const addMemberInput = z
   .strict();
 
 /**
- * Adds someone to the caller's project (ADR 0012). A member of the
+ * Adds someone to the caller's project (ADR 0013). A member of the
  * organization joins at once; anyone else receives an invitation and sets
  * their own password; no owner chooses a password any more. A project owner
  * who does not own the organization may not grant or change "owner". The

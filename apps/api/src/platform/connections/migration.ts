@@ -7,7 +7,7 @@ import { CONNECTION_KIND, decryptCredential } from "./connections.ts";
 import { sealSecret } from "./secrets.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 
-// Moving project connections to central ones (ADR 0013, WP3.5). Nothing
+// Moving project connections to central ones (ADR 0014, WP3.5). Nothing
 // here runs on its own: an operator runs the scripts, which default to a
 // dry run. Keys are never printed; a keyed fingerprint (HMAC with the
 // master key) tells which projects hold the same key. A project's own key

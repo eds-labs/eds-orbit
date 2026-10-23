@@ -16,7 +16,7 @@ import {
 } from "../modules/contributions.ts";
 import { systemAudit } from "./audit.ts";
 
-// Central connections and their grants (ADR 0013), managed on the control
+// Central connections and their grants (ADR 0014), managed on the control
 // plane. A system connection belongs to the system administrators; an
 // organization connection to that organization's owners, and system
 // administrators see its metadata but never manage its secret. No answer

@@ -15,7 +15,7 @@ import { DataForm, str } from "@/platform/ui/form";
 import { useStandalone } from "@/platform/shell/standalone-context";
 import { at, errorText } from "@/platform/administration/texts";
 
-// The signed-in user's own account (/account, ADR 0012): name, language,
+// The signed-in user's own account (/account, ADR 0013): name, language,
 // e-mail address, password and sessions. Every change goes through the API,
 // which checks the session and, where needed, the current password.
 

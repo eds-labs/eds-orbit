@@ -12,7 +12,7 @@ import {
 import { setSystemRoleByEmail } from "../src/platform/administration/users.ts";
 
 // System administration, organization management, invitations, user
-// lifecycle and account self-service (ADR 0012), end to end over HTTP.
+// lifecycle and account self-service (ADR 0013), end to end over HTTP.
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 Object.assign(process.env, {
@@ -27,7 +27,7 @@ Object.assign(process.env, {
 
 type Person = { id: string; email: string; cookie?: string };
 
-describe.skipIf(!enabled)("Administration and accounts (ADR 0012)", () => {
+describe.skipIf(!enabled)("Administration and accounts (ADR 0013)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   const origin = process.env.APP_ORIGIN!;
   const password = randomBytes(24).toString("base64url");

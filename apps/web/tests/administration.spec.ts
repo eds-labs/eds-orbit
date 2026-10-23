@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 
-// System administration (ADR 0012) in the browser: an administrator invites
+// System administration (ADR 0013) in the browser: an administrator invites
 // someone, the invited person sets their own password, and deactivation
 // ends their session. Needs ORBIT_ADMINISTRATION=true on the stack and the
 // seeded installation's first user, who is its system administrator.

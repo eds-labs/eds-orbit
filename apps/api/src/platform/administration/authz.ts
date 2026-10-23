@@ -6,7 +6,7 @@ import { scopeFor, sessionFor, type Auth } from "../tenancy/auth.ts";
 import { PROJECT_OWN } from "../tenancy/permissions.ts";
 import type { Actor } from "./memberships.ts";
 
-// Who may administer what (ADR 0012), read from the database on every
+// Who may administer what (ADR 0013), read from the database on every
 // request. A caller who may not use an administration route gets the same
 // 404 as when the feature is off, so the routes reveal nothing.
 
@@ -67,7 +67,7 @@ export async function projectManagerFor(
 
 /**
  * An active owner of the organization, for what only owners manage (their
- * organization's own connections, ADR 0013 E3); administrators are not
+ * organization's own connections, ADR 0014 E3); administrators are not
  * owners here. 404 otherwise.
  */
 export async function workspaceOwnerFor(

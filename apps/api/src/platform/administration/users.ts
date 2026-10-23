@@ -7,7 +7,7 @@ import { DomainError } from "../shared.ts";
 import { revokeUserGrants } from "../mcp-auth/grants.ts";
 import { systemAudit } from "./audit.ts";
 
-// User lifecycle for system administrators (ADR 0012): deactivation,
+// User lifecycle for system administrators (ADR 0013): deactivation,
 // reactivation, session revocation and the administrator role. The ban
 // fields are the Better Auth admin plugin's, so sign-in and new sessions
 // refuse a deactivated user; the membership check refuses them as well.

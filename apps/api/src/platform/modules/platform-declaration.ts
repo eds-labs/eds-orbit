@@ -22,7 +22,7 @@ export const platformDeclaration: PlatformDeclaration = {
     { kind: "chat_archives", description: "Archived assistant conversations" },
     {
       kind: "workflow_runs",
-      description: "Automation workflow runs: status and codes, no payload (ADR 0013)",
+      description: "Automation workflow runs: status and codes, no payload (ADR 0014)",
       exported: false,
     },
     {
@@ -92,11 +92,11 @@ export const platformDeclaration: PlatformDeclaration = {
     "oauthClientResource",
     "McpGrant",
     "McpGrantEvent",
-    // System administration (ADR 0012): invitations and the system audit.
+    // System administration (ADR 0013): invitations and the system audit.
     "Invitation",
     "InvitationProjectGrant",
     "SystemAuditEvent",
-    // Central connections, AI profiles and knowledge shares (ADR 0013).
+    // Central connections, AI profiles and knowledge shares (ADR 0014).
     "Connection",
     "ConnectionSecret",
     "ConnectionGrant",

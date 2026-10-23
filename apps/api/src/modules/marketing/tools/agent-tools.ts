@@ -200,7 +200,7 @@ async function postizState(scope: Scope, taskId: string, now: Date) {
     );
     return {
       connector: data(connector),
-      // The key, from the project or a granted central connection (ADR 0013).
+      // The key, from the project or a granted central connection (ADR 0014).
       access: await connectionAccess(tx, scope, data(connector)).catch(
         () => null,
       ),

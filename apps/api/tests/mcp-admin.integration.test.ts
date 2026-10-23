@@ -5,14 +5,14 @@ import { makeAuth } from "../src/auth.ts";
 import { CLIENT_IP_HEADER } from "../src/client-ip.ts";
 import { authDb, closeDatabase } from "../../../packages/db/src/index.ts";
 
-// MCP administration (ADR 0013, WP3.6): administrators see clients and all
+// MCP administration (ADR 0014, WP3.6): administrators see clients and all
 // grants as metadata, disable a client (which revokes its grants) and
 // revoke single grants; nobody else reaches it.
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 process.env.ORBIT_ADMINISTRATION = "true";
 
-describe.skipIf(!enabled)("MCP administration (ADR 0013)", () => {
+describe.skipIf(!enabled)("MCP administration (ADR 0014)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   const origin = process.env.APP_ORIGIN!;
   const password = randomBytes(24).toString("base64url");

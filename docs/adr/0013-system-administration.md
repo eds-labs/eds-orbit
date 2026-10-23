@@ -1,4 +1,4 @@
-# ADR 0012: System administration, invitations and account self-service
+# ADR 0013: System administration, invitations and account self-service
 
 ## Status
 
@@ -27,4 +27,4 @@ Orbit administered users only inside a project: a project owner created a local 
 - A separate identity service or admin application would add a second availability and governance dependency; rejected.
 - An Orbit-owned `SystemAdmin` table would reimplement the ban and session handling the admin plugin already provides.
 
-Consequences: the identity tables gain columns, and the access and RLS matrices cover the new routes and tables. MFA can later use the Better Auth `two-factor` plugin. Central connections and AI infrastructure are phase 3 (ADR 0013); project archiving and global settings are phases 4 and 5.
+Consequences: the identity tables gain columns, and the access and RLS matrices cover the new routes and tables. MFA can later use the Better Auth `two-factor` plugin. Central connections and AI infrastructure are phase 3 (ADR 0014); project archiving and global settings are phases 4 and 5.

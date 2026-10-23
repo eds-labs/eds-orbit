@@ -95,7 +95,7 @@ export async function reserve(
   // saved budget may not pass its stop threshold; PROVIDER_BUDGET_STOP.
   if (attribution?.model)
     await assertProviderBudget(tx, scope, attribution.model, amount, now);
-  // A key from a granted central connection (ADR 0013) is also charged to
+  // A key from a granted central connection (ADR 0014) is also charged to
   // the grant's, the organization's and the connection's monthly budgets.
   const granted = attribution?.model
     ? await chargedGrant(

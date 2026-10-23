@@ -19,7 +19,7 @@ import {
   type Actor,
 } from "./memberships.ts";
 
-// Invitations (ADR 0012) replace owner-chosen passwords: the invited person
+// Invitations (ADR 0013) replace owner-chosen passwords: the invited person
 // receives a single-use link valid for seven days and sets their own
 // password. Only the sha256 of the 32-byte token is stored; the token is in
 // the link's fragment, so it reaches neither server logs nor referrers.

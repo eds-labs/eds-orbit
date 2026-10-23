@@ -2,7 +2,7 @@ import { authDb, type Prisma } from "../../../../../packages/db/src/index.ts";
 import { aiProfileInput } from "../ai/central-ai.ts";
 import { systemAudit } from "./audit.ts";
 
-// The system's and an organization's AI profile (ADR 0013): models, rate
+// The system's and an organization's AI profile (ADR 0014): models, rate
 // cards, routes and defaults, never keys (those are connections). A
 // project's own AI settings still override them; every save changes the
 // route version, so in-flight runs stop before their next paid call.

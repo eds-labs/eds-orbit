@@ -25,7 +25,7 @@ Object.assign(process.env, {
   ORBIT_CONNECTIONS_CUTOVER: "postiz",
 });
 
-describe.skipIf(!enabled)("Connection migration (ADR 0013)", () => {
+describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
   const SHARED = `shared-${randomBytes(10).toString("hex")}`;
   const OTHER = `other-${randomBytes(10).toString("hex")}`;
   let ws: string, foreignWs: string;

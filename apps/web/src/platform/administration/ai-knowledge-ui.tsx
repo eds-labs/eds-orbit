@@ -8,7 +8,7 @@ import { ResourceError } from "@/platform/ui/collection";
 import { DataForm, str } from "@/platform/ui/form";
 import { errorText } from "./texts";
 
-// AI profiles and organization knowledge libraries (ADR 0013). A profile
+// AI profiles and organization knowledge libraries (ADR 0014). A profile
 // holds models, routes, rate cards and defaults, never keys; a project's
 // own AI settings still override it. Libraries are ordinary projects whose
 // knowledge is managed in the project's knowledge pages; shares decide

@@ -1,5 +1,5 @@
 /**
- * Grants, revokes or lists system administrators (ADR 0012). The recovery
+ * Grants, revokes or lists system administrators (ADR 0013). The recovery
  * and bootstrap path for an existing installation; run it inside the api
  * container, never from a web request:
  *

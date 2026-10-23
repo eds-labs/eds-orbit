@@ -23,7 +23,7 @@ import { ResourceError } from "@/platform/ui/collection";
 import { at, errorText, orgRoleLabel, projectRoleLabel } from "./texts";
 
 // One organization's members, their project and module roles, and its
-// invitations (ADR 0012). The organization settings (/o/:id/settings) and
+// invitations (ADR 0013). The organization settings (/o/:id/settings) and
 // the system administration show the same view; the API decides what the
 // caller may change.
 

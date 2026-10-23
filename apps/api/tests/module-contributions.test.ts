@@ -136,7 +136,7 @@ describe("module contributions", () => {
       // Widget visitors (WP5.4): bound to sessions, never exported.
       "support_widget_sessions",
       "telegram_connections",
-      // Automation workflow runs (ADR 0013): status and codes only.
+      // Automation workflow runs (ADR 0014): status and codes only.
       "workflow_runs",
     ]);
   });
@@ -380,7 +380,7 @@ describe("module contributions", () => {
 
   it("offers marketing's connection providers in their former order (WP2.5c)", () => {
     // The platform's mailbox (WP4.7), customer context (ADR 0011), the
-    // central AI providers and n8n (ADR 0013) come first.
+    // central AI providers and n8n (ADR 0014) come first.
     expect(registeredConnectionProviderIds()).toEqual([
       "email",
       "customer_context",

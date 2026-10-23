@@ -152,10 +152,10 @@ try {
     "ProjectMemberModuleRole",
     // Public client keys (WP4.2b): resolved without a project scope.
     "PublicClientKey",
-    // Invitations (ADR 0012): control plane, never the business role.
+    // Invitations (ADR 0013): control plane, never the business role.
     "Invitation",
     "InvitationProjectGrant",
-    // Central connections, AI profiles and knowledge shares (ADR 0013).
+    // Central connections, AI profiles and knowledge shares (ADR 0014).
     "Connection",
     "ConnectionSecret",
     "ConnectionGrant",
@@ -210,7 +210,7 @@ try {
     'GRANT SELECT,INSERT,UPDATE ON "ProjectModule" TO orbit_app',
   );
   await migrator.query('GRANT SELECT,INSERT ON "AuditEvent" TO orbit_app');
-  // ADR 0013: the business role reads what a project grant allows (row-level
+  // ADR 0014: the business role reads what a project grant allows (row-level
   // security decides which rows) and keeps the spend counters.
   await migrator.query(
     'GRANT SELECT ON "Connection","ConnectionSecret","ConnectionGrant","AiProfile","KnowledgeShare","WorkflowBinding" TO orbit_app',
@@ -218,7 +218,7 @@ try {
   await migrator.query(
     'GRANT SELECT,INSERT,UPDATE ON "SpendCounter" TO orbit_app',
   );
-  // System audit (ADR 0012): append-only, auth role only.
+  // System audit (ADR 0013): append-only, auth role only.
   await migrator.query('GRANT SELECT,INSERT ON "SystemAuditEvent" TO orbit_auth');
   const owned = await migrator.query(
     "SELECT 1 FROM pg_tables WHERE schemaname='public' AND tableowner=ANY($1::text[])",

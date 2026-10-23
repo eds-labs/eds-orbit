@@ -16,7 +16,7 @@ import type { ConnectionProvider } from "../connections/connections.ts";
 import { connectionSecret, grantedConnections } from "../connections/central.ts";
 import { liveSending } from "../email/connection.ts";
 
-// An automation layer such as n8n as a central connection (ADR 0013,
+// An automation layer such as n8n as a central connection (ADR 0014,
 // WP3.7). Orbit triggers a bound workflow with a signed, product-neutral
 // request (contract automation.v1) and receives its outcome through a
 // signed callback; product mappings (FamilyPlan, uLiquid Desk …) stay in

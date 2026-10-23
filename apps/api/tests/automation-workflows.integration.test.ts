@@ -9,7 +9,7 @@ import {
   signAutomationBody,
 } from "../src/platform/automation/workflows.ts";
 
-// n8n as a central automation connection (ADR 0013, WP3.7): signed,
+// n8n as a central automation connection (ADR 0014, WP3.7): signed,
 // product-neutral triggers only from granted projects, signed callbacks,
 // no payload kept, and a revoked grant ends both directions.
 
@@ -21,7 +21,7 @@ Object.assign(process.env, {
   ENABLE_EXTERNAL_WRITES: "false",
 });
 
-describe.skipIf(!enabled)("Automation workflows (ADR 0013)", () => {
+describe.skipIf(!enabled)("Automation workflows (ADR 0014)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   const origin = process.env.APP_ORIGIN!;
   const password = randomBytes(24).toString("base64url");

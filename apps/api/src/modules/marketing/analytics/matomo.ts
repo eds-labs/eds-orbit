@@ -329,7 +329,7 @@ export async function importMatomoReport(
     scope.projectId,
     async (tx) => {
       const row = await entity(tx, scope, "connectors", input.connectorId);
-      // The project's own key, or a granted central connection's (ADR 0013).
+      // The project's own key, or a granted central connection's (ADR 0014).
       return {
         connector: row,
         access: await connectionAccess(tx, scope, data(row)).catch(() => null),

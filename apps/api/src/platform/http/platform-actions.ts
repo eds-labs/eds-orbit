@@ -139,7 +139,7 @@ export const platformActions: Record<string, ActionHandler> = {
       }),
     );
   }),
-  // Binds a granted central connection to the project (ADR 0013, WP3.4):
+  // Binds a granted central connection to the project (ADR 0014, WP3.4):
   // a project connection without its own key, whose project settings
   // (channels, site, verification) stay here. Needs the provider's cutover.
   "connector-attach": sharedTransaction(async (tx, { scope, input }) => {

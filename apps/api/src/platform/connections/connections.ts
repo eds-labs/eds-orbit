@@ -61,7 +61,7 @@ export function cutoverEnabled(provider: string) {
 }
 
 /**
- * What a provider call needs from a project connection (ADR 0013): its
+ * What a provider call needs from a project connection (ADR 0014): its
  * plain credential and base URL. A connection bound to a central one
  * (`centralConnectionId`) reads the central secret inside this project
  * transaction, so it works only while the project holds an active grant;
@@ -108,7 +108,7 @@ export type ConnectionProvider = {
   /** Normalizes the provider fields of a new connection (e.g. its base URL). */
   normalize?: (fields: Record<string, any>) => Record<string, any>;
   /**
-   * Normalizes the non-secret settings of a central connection (ADR 0013),
+   * Normalizes the non-secret settings of a central connection (ADR 0014),
    * for providers whose project connections are created by their own
    * action; defaults to `normalize`.
    */
@@ -121,7 +121,7 @@ export type ConnectionProvider = {
   /** Error code of a health check this provider cannot run. */
   checkUnsupported?: string;
   /**
-   * Where a connection of this provider may be owned (ADR 0013). Default
+   * Where a connection of this provider may be owned (ADR 0014). Default
    * ["project"]: the project's own connectors only. "system" and
    * "workspace" providers are managed centrally and granted to projects.
    */

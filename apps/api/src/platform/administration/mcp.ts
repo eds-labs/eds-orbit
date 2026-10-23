@@ -8,7 +8,7 @@ import {
 } from "../mcp-auth/grants.ts";
 import { systemAudit } from "./audit.ts";
 
-// Orbit's MCP server in the system administration (ADR 0013, WP3.6): the
+// Orbit's MCP server in the system administration (ADR 0014, WP3.6): the
 // gateway's state, the OAuth clients, every active grant as metadata, a
 // client disable and grant revocation. Every rule of the gateway stays: a
 // grant never widens what its user may do, projects outside it answer 404,

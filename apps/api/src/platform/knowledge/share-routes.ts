@@ -14,7 +14,7 @@ import {
   updateShare,
 } from "./shares.ts";
 
-// Organization knowledge libraries and their shares (ADR 0013, E1):
+// Organization knowledge libraries and their shares (ADR 0014, E1):
 // managed by the organization's owners; a project sees which libraries it
 // may search. 404 while ORBIT_KNOWLEDGE_SHARES is off.
 

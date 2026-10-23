@@ -37,17 +37,17 @@ Object.assign(process.env, {
   // E-mail and member notifications (WP4.7); nothing is sent in test mode.
   ORBIT_EMAIL: "true",
   ORBIT_NOTIFICATIONS: "true",
-  // System administration and account self-service (ADR 0012).
+  // System administration and account self-service (ADR 0013).
   ORBIT_ADMINISTRATION: "true",
   ORBIT_ACCOUNT: "true",
-  // Central connections, AI profiles and knowledge shares (ADR 0013).
+  // Central connections, AI profiles and knowledge shares (ADR 0014).
   ORBIT_CONNECTIONS: "true",
   ORBIT_KNOWLEDGE_SHARES: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
 
-// "sysadmin" is a system administrator with no membership here (ADR 0012):
+// "sysadmin" is a system administrator with no membership here (ADR 0013):
 // administration routes open, project content stays closed.
 const ROLES = [
   "anonymous",
@@ -86,13 +86,13 @@ const PUBLIC_ROUTES = [
   "POST /api/public/support/{publicKey}/identify",
   "POST /api/public/support/{publicKey}/messages",
   "POST /api/public/support/{publicKey}/session",
-  // Invitation links and password reset (ADR 0012): the one-time token in
+  // Invitation links and password reset (ADR 0013): the one-time token in
   // the body authenticates; an empty body is a 400 for everybody.
   "POST /api/invitations/accept",
   "POST /api/invitations/view",
   "POST /api/account/password-reset/confirm",
   "POST /api/account/password-reset/request",
-  // Workflow outcomes (ADR 0013, WP3.7): the connection's signature
+  // Workflow outcomes (ADR 0014, WP3.7): the connection's signature
   // authenticates; an unknown run answers 404 for everybody.
   "POST /api/automation/callbacks/{projectId}/{runId}",
 ];

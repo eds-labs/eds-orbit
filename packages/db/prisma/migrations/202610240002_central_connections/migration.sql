@@ -1,4 +1,4 @@
--- Central connections, AI profiles and organization knowledge (ADR 0013).
+-- Central connections, AI profiles and organization knowledge (ADR 0014).
 -- Additive only. A connection and the permission to use it are separate:
 -- `Connection` (+ versioned `ConnectionSecret`) and `ConnectionGrant`.
 -- The business role reads a connection or secret only inside a project

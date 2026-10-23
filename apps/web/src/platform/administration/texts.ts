@@ -1,7 +1,7 @@
 import type { Locale } from "@/lib/i18n";
 
 // Wording shared by the administration, organization and account pages
-// (ADR 0012). Server errors arrive as codes; these turn the expected ones
+// (ADR 0013). Server errors arrive as codes; these turn the expected ones
 // into sentences and leave the rest to the generic message.
 
 const errors: Record<string, { en: string; de: string }> = {

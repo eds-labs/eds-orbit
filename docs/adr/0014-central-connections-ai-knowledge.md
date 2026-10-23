@@ -1,8 +1,8 @@
-# ADR 0013: Central connections, AI infrastructure and shared organization knowledge
+# ADR 0014: Central connections, AI infrastructure and shared organization knowledge
 
 ## Status
 
-Accepted by Mario, 2026-10-23 (implementation started on his go-ahead). Mario decided the four open questions on 2026-10-23 (decisions E1–E4 below). The work plan is [CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md](../plans/CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md); it is phase 3 of [the global administration plan](../plans/GLOBAL_ADMINISTRATION.md) and builds on [ADR 0012](0012-system-administration.md). Nothing is implemented yet. Production connections and keys are not touched by this ADR.
+Accepted by Mario, 2026-10-23 (implementation started on his go-ahead). Mario decided the four open questions on 2026-10-23 (decisions E1–E4 below). The work plan is [CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md](../plans/CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md); it is phase 3 of [the global administration plan](../plans/GLOBAL_ADMINISTRATION.md) and builds on [ADR 0013](0013-system-administration.md). Nothing is implemented yet. Production connections and keys are not touched by this ADR.
 
 ## Context
 

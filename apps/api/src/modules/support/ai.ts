@@ -678,7 +678,7 @@ async function draft(scope: Scope, ticketId: string, run: RunOptions) {
   // has no evidence pack to check.
   if (!account || result.citations.some((c) => knowledgeIds.includes(c))) {
     if (evidenceId) {
-      // Shared organization knowledge (ADR 0013) is checked in its library.
+      // Shared organization knowledge (ADR 0014) is checked in its library.
       const valid = await validateSearchResult(scope, search.result as never);
       if (!valid) problems.push("evidence_invalid");
     } else problems.push("evidence_missing");

@@ -344,7 +344,7 @@ export async function buildServer(
       !notificationsEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
-    // System administration and account self-service (ADR 0012) do not
+    // System administration and account self-service (ADR 0013) do not
     // exist while their flags are off; the route pattern again.
     if (
       isAdministrationRoute(req.routeOptions.url ?? "") &&
@@ -353,7 +353,7 @@ export async function buildServer(
       throw new DomainError("NOT_FOUND", 404);
     if (isAccountRoute(req.routeOptions.url ?? "") && !accountEnabled())
       throw new DomainError("NOT_FOUND", 404);
-    // Central connections (ADR 0013) exist only while their flag is on.
+    // Central connections (ADR 0014) exist only while their flag is on.
     if (isConnectionRoute(req.routeOptions.url ?? "") && !connectionsEnabled())
       throw new DomainError("NOT_FOUND", 404);
     if (isShareRoute(req.routeOptions.url ?? "") && !sharesEnabled())
@@ -479,7 +479,7 @@ export async function buildServer(
   registerAttentionRoutes(app, auth);
   registerTaskRoutes(app, auth);
   // System administration, organization settings, invitations and the
-  // user's own account (ADR 0012).
+  // user's own account (ADR 0013).
   registerAdministrationRoutes(app, auth, { runtimeHealth });
   registerAccountRoutes(app, auth);
   registerConnectionRoutes(app, auth);
@@ -507,7 +507,7 @@ export async function buildServer(
   });
   app.get("/api/setup", async () => ({
     configured: (await authDb.workspace.count()) > 0,
-    // Whether the sign-in page offers "forgot password" (ADR 0012).
+    // Whether the sign-in page offers "forgot password" (ADR 0013).
     passwordReset: accountEnabled() && passwordResetAvailable(),
   }));
   app.post("/api/setup", async (req, reply) => {
@@ -542,7 +542,7 @@ export async function buildServer(
           },
         });
         // A fresh installation's first user is its first system
-        // administrator (ADR 0012); existing ones use the CLI.
+        // administrator (ADR 0013); existing ones use the CLI.
         await tx.user.update({
           where: { id: result.user.id },
           data: { role: "admin" },

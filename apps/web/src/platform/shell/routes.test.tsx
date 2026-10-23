@@ -279,7 +279,7 @@ describe("Web route registry", () => {
     });
   });
 
-  it("knows the organization settings and the system administration (ADR 0012)", () => {
+  it("knows the organization settings and the system administration (ADR 0013)", () => {
     expect(locate("/o/org%201/settings", table)).toEqual({
       kind: "organizationSettings",
       organizationId: "org 1",

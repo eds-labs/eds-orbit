@@ -3,7 +3,7 @@ import {
   type DbTx,
 } from "../../../../../packages/db/src/index.ts";
 
-// The append-only system audit (ADR 0012): who changed which user,
+// The append-only system audit (ADR 0013): who changed which user,
 // organization, membership or invitation. Identifiers and codes only:
 // never an address, a name, a token, a password or a free-text reason.
 

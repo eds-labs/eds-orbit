@@ -32,7 +32,7 @@ import {
 import { PROJECT_OWN } from "../tenancy/permissions.ts";
 import { aiProfile, saveAiProfile } from "./ai-profiles.ts";
 
-// Central connections (ADR 0013): system connections for administrators,
+// Central connections (ADR 0014): system connections for administrators,
 // organization connections for that organization's owners, and the list a
 // project may choose from. 404 while ORBIT_CONNECTIONS is off.
 

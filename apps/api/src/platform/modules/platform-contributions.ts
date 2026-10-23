@@ -56,7 +56,7 @@ export const platformContributions: ModuleContributions = {
     providers: {
       email: emailConnectionProvider,
       [CUSTOMER_CONTEXT_PROVIDER]: customerContextConnectionProvider,
-      // AI provider accounts, managed centrally (ADR 0013).
+      // AI provider accounts, managed centrally (ADR 0014).
       openai: openAiConnectionProvider,
       anthropic: anthropicConnectionProvider,
       // An automation layer such as n8n (WP3.7).

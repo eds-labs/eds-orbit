@@ -69,10 +69,10 @@ x-api-environment: &api-environment
   ORBIT_NOTIFICATIONS: ${ORBIT_NOTIFICATIONS:-false}
   # Real-time fan-out over Redis for the chat SSE route (WP4.3 Part B).
   ORBIT_REALTIME: ${ORBIT_REALTIME:-false}
-  # System administration, invitations and account self-service (ADR 0012).
+  # System administration, invitations and account self-service (ADR 0013).
   ORBIT_ADMINISTRATION: ${ORBIT_ADMINISTRATION:-false}
   ORBIT_ACCOUNT: ${ORBIT_ACCOUNT:-false}
-  # Central connections, AI profiles and knowledge shares (ADR 0013).
+  # Central connections, AI profiles and knowledge shares (ADR 0014).
   ORBIT_CONNECTIONS: ${ORBIT_CONNECTIONS:-false}
   ORBIT_KNOWLEDGE_SHARES: ${ORBIT_KNOWLEDGE_SHARES:-false}
   # Optional master-key ring for connection secrets ("id:hex64,…").

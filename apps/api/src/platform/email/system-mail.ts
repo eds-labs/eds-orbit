@@ -3,7 +3,7 @@ import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { liveSending } from "./connection.ts";
 import { MailSendError, smtpSession, type OutgoingMail } from "./transport.ts";
 
-// System authentication mail (ADR 0012): invitations, password reset and
+// System authentication mail (ADR 0013): invitations, password reset and
 // e-mail change. It uses the operator's system SMTP account from the
 // environment, never a project mailbox, and the same SMTP session code as
 // project mail. The host is operator configuration, so an internal relay is

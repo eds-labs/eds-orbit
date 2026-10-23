@@ -43,7 +43,7 @@ type Plugin = {
   options?: Record<string, any>;
 };
 const pluginsOf = (auth: ReturnType<typeof makeAuth>) =>
-  // The MCP plugins; the admin plugin (ADR 0012) is always first.
+  // The MCP plugins; the admin plugin (ADR 0013) is always first.
   ((auth.options.plugins ?? []) as unknown as Plugin[]).filter(
     (p) => p.id !== "admin",
   );

@@ -13,7 +13,7 @@ const base: Identity = {
 };
 const t = (k: keyof typeof labels.en) => labels.en[k];
 
-describe("account menu (ADR 0012)", () => {
+describe("account menu (ADR 0013)", () => {
   it("shows administration only to system administrators", () => {
     expect(userMenuEntries(base, "w1").admin).toBe(false);
     expect(userMenuEntries({ ...base, systemAdmin: true }, "w1").admin).toBe(

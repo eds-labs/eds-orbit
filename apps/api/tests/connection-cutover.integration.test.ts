@@ -11,7 +11,7 @@ import {
 import { connectionAccess } from "../src/platform/connections/connections.ts";
 import { encrypt } from "../src/platform/shared.ts";
 
-// Provider cutover (ADR 0013, WP3.4): a project connection bound to a
+// Provider cutover (ADR 0014, WP3.4): a project connection bound to a
 // granted central connection reads the central key, only while the grant
 // holds and the provider's cutover is on; project connections with their
 // own key keep working unchanged.
@@ -25,7 +25,7 @@ Object.assign(process.env, {
   ENABLE_EXTERNAL_WRITES: "false",
 });
 
-describe.skipIf(!enabled)("Postiz cutover to central connections (ADR 0013)", () => {
+describe.skipIf(!enabled)("Postiz cutover to central connections (ADR 0014)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   const origin = process.env.APP_ORIGIN!;
   const password = randomBytes(24).toString("base64url");

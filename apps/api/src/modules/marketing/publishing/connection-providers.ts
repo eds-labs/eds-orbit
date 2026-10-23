@@ -16,7 +16,7 @@ import { postizHealthStatus } from "./postiz-assignment.ts";
 export const marketingConnections: ConnectionsContribution = {
   providers: {
     postiz: {
-      // One Postiz organization can serve several projects (ADR 0013).
+      // One Postiz organization can serve several projects (ADR 0014).
       scopes: ["project", "workspace", "system"],
       label: { en: "Postiz", de: "Postiz" },
       normalize: (fields) =>

@@ -21,7 +21,7 @@ import { reserve, settle } from "../src/platform/ai/budget.ts";
 import { setAiCheckFetchForTests } from "../src/platform/ai/connection-providers.ts";
 import type { Scope } from "../../../packages/schemas/src/index.ts";
 
-// Central connections, grants, AI profiles and grant budgets (ADR 0013).
+// Central connections, grants, AI profiles and grant budgets (ADR 0014).
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
 Object.assign(process.env, {
@@ -41,7 +41,7 @@ const policy = {
   perRunBudgetMicros: 1_000_000,
 };
 
-describe.skipIf(!enabled)("Central connections (ADR 0013)", () => {
+describe.skipIf(!enabled)("Central connections (ADR 0014)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   const origin = process.env.APP_ORIGIN!;
   const password = randomBytes(24).toString("base64url");

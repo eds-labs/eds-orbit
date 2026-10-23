@@ -17,7 +17,7 @@ import {
   updateProfile,
 } from "./service.ts";
 
-// The signed-in user's own account (ADR 0012). 404 while ORBIT_ACCOUNT is
+// The signed-in user's own account (ADR 0013). 404 while ORBIT_ACCOUNT is
 // off (server onRequest hook). The two password-reset routes are public and
 // rate-limited per client address and per address asked for.
 

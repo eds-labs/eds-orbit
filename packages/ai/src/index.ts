@@ -196,7 +196,7 @@ export type OpenAiRuntimeConfig = {
   fallback?: FallbackConfiguration;
   routeVersion?: number;
   imageGeneration?: z.infer<typeof imageGenerationConfigurationSchema>;
-  /** Keys that came from granted central connections (ADR 0013), by use. */
+  /** Keys that came from granted central connections (ADR 0014), by use. */
   keySources?: Partial<
     Record<
       "openai" | "image" | "anthropic",

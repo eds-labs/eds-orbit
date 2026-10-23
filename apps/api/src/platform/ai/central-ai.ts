@@ -25,7 +25,7 @@ import {
   type GrantedConnection,
 } from "../connections/central.ts";
 
-// Central AI infrastructure (ADR 0013): AI profiles for the system and an
+// Central AI infrastructure (ADR 0014): AI profiles for the system and an
 // organization, and provider keys from granted connections. A project's own
 // openai_configuration still overrides everything it sets, so a project
 // that configured itself behaves exactly as before. Off

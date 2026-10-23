@@ -1,4 +1,4 @@
--- System administration, invitations and account self-service (ADR 0012).
+-- System administration, invitations and account self-service (ADR 0013).
 -- Additive only: new columns get defaults, nobody is granted the
 -- administrator role here (the first one comes from the audited CLI or
 -- from /api/setup on a fresh installation).

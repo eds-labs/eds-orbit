@@ -6,7 +6,7 @@ import type { Identity } from "@/lib/api";
 import type { Text } from "@/lib/i18n";
 
 /**
- * The entries of the account menu (ADR 0012): the account for everyone,
+ * The entries of the account menu (ADR 0013): the account for everyone,
  * organization settings for organization owners and the administration for
  * system administrators. Hiding an entry is convenience; the API refuses
  * the pages to anyone else.

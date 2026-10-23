@@ -38,7 +38,7 @@ export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
     // jwt() would otherwise expose a session JWT at GET /api/auth/token.
     disabledPaths: ["/token"],
     // The admin plugin supplies the system administrator role and the ban
-    // state (ADR 0012): banned users cannot sign in or get a session. Its
+    // state (ADR 0013): banned users cannot sign in or get a session. Its
     // HTTP routes stay unreachable (server.ts allowlist); Orbit's own admin
     // routes call it server-side.
     plugins: [

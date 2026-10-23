@@ -107,7 +107,7 @@ export function ProjectAdministration() {
 
 /**
  * The project's members (settings section "members", owners only): the
- * list, inviting someone (ADR 0012: they set their own password), each
+ * list, inviting someone (ADR 0013: they set their own password), each
  * member's project and module roles, removal and open invitations.
  */
 export function ProjectMembers() {

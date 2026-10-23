@@ -200,7 +200,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     setCollapsed(readCollapsed());
     setCollapsedLoaded(true);
   }, []);
-  // A language saved in the account (ADR 0012) wins over this browser's.
+  // A language saved in the account (ADR 0013) wins over this browser's.
   const accountLocale = identity.data?.user.locale;
   useEffect(() => {
     if (localeLoaded && (accountLocale === "de" || accountLocale === "en"))
@@ -558,7 +558,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       </StandaloneContext.Provider>,
       standalone.key === "account",
     );
-  // The system administration (ADR 0012); the API refuses everyone else.
+  // The system administration (ADR 0013); the API refuses everyone else.
   if (place.kind === "admin")
     return me.systemAdmin
       ? frame(
@@ -967,7 +967,7 @@ function Authentication({
   onDone,
 }: {
   setup: boolean;
-  /** Whether "forgot password" is offered (system mail, ADR 0012). */
+  /** Whether "forgot password" is offered (system mail, ADR 0013). */
   passwordReset: boolean;
   /** Signing in continues the OAuth authorization in the page URL. */
   oauthLogin: boolean;

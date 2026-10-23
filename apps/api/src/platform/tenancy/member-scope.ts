@@ -5,7 +5,7 @@ import { moduleRolesEnabled } from "./module-roles.ts";
 /**
  * A user's current access to a project: workspace owners act as project
  * owners, everyone else needs a project membership. Null without access,
- * and always null for a deactivated user (ADR 0012): this one check covers
+ * and always null for a deactivated user (ADR 0013): this one check covers
  * API requests, the worker's actor checks and the MCP principal.
  */
 export async function projectMembership(projectId: string, userId: string) {

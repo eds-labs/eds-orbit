@@ -958,7 +958,7 @@ export async function revokeGrant(
 }
 
 /**
- * Revokes every active grant of a user (ADR 0012): on deactivation, or for
+ * Revokes every active grant of a user (ADR 0013): on deactivation, or for
  * one organization when the user leaves it. Authorization is the caller's
  * (a system administrator or the organization's owner); the membership
  * check per MCP call already refuses the user, this also ends the tokens.
@@ -1010,7 +1010,7 @@ export async function revokeUserGrants(
 }
 
 /**
- * Revokes one active grant for the system administration (ADR 0013), as
+ * Revokes one active grant for the system administration (ADR 0014), as
  * `revokeGrant` does for its user or the organization's owner.
  */
 export async function revokeGrantByAdministration(

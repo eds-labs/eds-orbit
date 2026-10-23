@@ -12,7 +12,7 @@ import {
 } from "../email/system-mail.ts";
 import { systemAudit } from "../administration/audit.ts";
 
-// A signed-in user's own account (ADR 0012): profile, language, password,
+// A signed-in user's own account (ADR 0013): profile, language, password,
 // sessions, password reset and e-mail change. Better Auth does the password
 // work; Orbit owns the routes, their validation, the mail and the audit.
 // No route here returns a session token or a reset token.

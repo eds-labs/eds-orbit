@@ -168,21 +168,21 @@ const baseConfigSchema = z.object({
   // security review. Sending also needs EXECUTION_MODE=live and external writes.
   ORBIT_EMAIL: z.enum(["false", "true"]).default("false"),
   // System administration, organization settings and invitations
-  // (ADR 0012). Off returns 404 for /api/admin, /api/organizations and
+  // (ADR 0013). Off returns 404 for /api/admin, /api/organizations and
   // /api/invitations.
   ORBIT_ADMINISTRATION: z.enum(["false", "true"]).default("false"),
   // Account self-service: profile, password, sessions, password reset and
-  // e-mail change (ADR 0012). Off returns 404 for /api/account.
+  // e-mail change (ADR 0013). Off returns 404 for /api/account.
   ORBIT_ACCOUNT: z.enum(["false", "true"]).default("false"),
   // Central connections, AI profiles and organization knowledge shares
-  // (ADR 0013). Off: the routes answer 404 and the runtime ignores central
+  // (ADR 0014). Off: the routes answer 404 and the runtime ignores central
   // connections, so every project keeps using its own settings.
   ORBIT_CONNECTIONS: z.enum(["false", "true"]).default("false"),
-  // Organization knowledge libraries shared with projects (ADR 0013, E1).
+  // Organization knowledge libraries shared with projects (ADR 0014, E1).
   // Off: shares are ignored and their routes answer 404.
   ORBIT_KNOWLEDGE_SHARES: z.enum(["false", "true"]).default("false"),
   // Providers whose project connections may use a granted central
-  // connection instead of their own key (ADR 0013, WP3.4), comma-separated,
+  // connection instead of their own key (ADR 0014, WP3.4), comma-separated,
   // e.g. "postiz,matomo". A project connection keeps its own key until it is
   // bound; removing a provider here makes bound connections fail closed and
   // adopted ones fall back to their kept key.
@@ -202,7 +202,7 @@ const baseConfigSchema = z.object({
       .optional(),
   ),
   // System authentication mail (invitations, password reset), independent of
-  // any project mailbox (ADR 0012, amends Q-16). Unset host or sender means
+  // any project mailbox (ADR 0013, amends Q-16). Unset host or sender means
   // "not configured": administrators then copy links by hand. Sending also
   // needs EXECUTION_MODE=live and external writes.
   ORBIT_SYSTEM_SMTP_HOST: unset(z.string().min(1).max(253).optional()),

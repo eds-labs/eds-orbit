@@ -226,7 +226,7 @@ export const webRegistry: WebRegistry = {
       title: label("connectErrorTitle"),
       session: "none",
     },
-    // The user's own account and the one-time link pages (ADR 0012).
+    // The user's own account and the one-time link pages (ADR 0013).
     {
       key: "account",
       path: "account",

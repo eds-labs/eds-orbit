@@ -1,5 +1,5 @@
 /**
- * Moves project connections to central connections (ADR 0013, WP3.5). Run
+ * Moves project connections to central connections (ADR 0014, WP3.5). Run
  * inside the api container by an operator; nothing changes without
  * `apply --yes`. Keys are never printed, only keyed fingerprints.
  *

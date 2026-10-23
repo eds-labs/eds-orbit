@@ -91,7 +91,7 @@ const AUTH_ONLY_TABLES = [
 ];
 const SYSTEM_TABLES = ["_prisma_migrations"];
 // Control plane with forced row-level security that the business role may
-// read where a project grant allows it (ADR 0013); written by orbit_auth.
+// read where a project grant allows it (ADR 0014); written by orbit_auth.
 const GRANTED_READ_TABLES = [
   "AiProfile",
   "Connection",
@@ -556,7 +556,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
     ]).toEqual([true, false, true, false]);
   });
 
-  it("lets the business role only read granted connections and keep spend counters (ADR 0013)", () => {
+  it("lets the business role only read granted connections and keep spend counters (ADR 0014)", () => {
     for (const name of GRANTED_READ_TABLES) {
       const t = tables.find((x) => x.relname === name)!;
       expect({ name, grants: [t.select, t.insert, t.update, t.delete] }).toEqual(

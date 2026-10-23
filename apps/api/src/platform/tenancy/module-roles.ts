@@ -109,7 +109,7 @@ export const moduleRolesInput = z
 
 /**
  * Writes module overrides for a non-owner project member inside `tx`
- * (ADR 0012 administration and invitations). Unknown or unavailable modules
+ * (ADR 0013 administration and invitations). Unknown or unavailable modules
  * are refused; null removes an override. The caller authorizes and audits.
  */
 export async function writeModuleRoles(

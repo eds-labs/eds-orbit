@@ -5,7 +5,7 @@ import { Alert, Badge, Button, Empty, Loading } from "@/components/ui/primitives
 import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { at, errorText } from "./texts";
 
-// Orbit's MCP server for the system administration (ADR 0013, WP3.6):
+// Orbit's MCP server for the system administration (ADR 0014, WP3.6):
 // state, clients and every active grant. Organization owners keep their
 // own view under Settings → Connected apps.
 

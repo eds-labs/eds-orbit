@@ -14,7 +14,7 @@ model User {
   image              String?
   createdAt          DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
-  /// Better Auth admin plugin (ADR 0012): 'user' or 'admin' (system administrator).
+  /// Better Auth admin plugin (ADR 0013): 'user' or 'admin' (system administrator).
   role               String            @default("user")
   banned             Boolean           @default(false)
   banReason          String?
@@ -118,7 +118,7 @@ model Project {
   timezone         String              @default("UTC")
   language         String              @default("en")
   mode             String              @default("observe")
-  /// 'project', or 'library' for an organization knowledge library (ADR 0013).
+  /// 'project', or 'library' for an organization knowledge library (ADR 0014).
   kind             String              @default("project")
   paused           Boolean             @default(false)
   generation       Int                 @default(1)
@@ -597,7 +597,7 @@ model BudgetReservation {
   taskClass     String?
   model         String?
   missionId     String?  @db.Uuid
-  /// The central connection and grant whose key paid (ADR 0013); null for project or environment keys.
+  /// The central connection and grant whose key paid (ADR 0014); null for project or environment keys.
   connectionId  String?  @db.Uuid
   grantId       String?  @db.Uuid
   parentGrantId String?  @db.Uuid
@@ -619,7 +619,7 @@ model AgentRun {
   subjectId   String?
   missionId   String?     @db.Uuid
   routeVersion Int?
-  /// The AI profile versions and grant a run's route came from (ADR 0013).
+  /// The AI profile versions and grant a run's route came from (ADR 0014).
   routeVersionKey String?
   status      String      @default("running")
   errorCode   String?
@@ -1024,7 +1024,7 @@ model McpGrantEvent {
   @@index([workspaceId, createdAt])
 }
 
-/// An invitation to an organization (ADR 0012). Only the sha256 hash of the
+/// An invitation to an organization (ADR 0013). Only the sha256 hash of the
 /// token is stored; one open invitation per address and organization.
 model Invitation {
   id             String                   @id @default(uuid()) @db.Uuid
@@ -1079,7 +1079,7 @@ model SystemAuditEvent {
   @@index([actorId, createdAt])
 }
 
-/// An external connection with its owner scope (ADR 0013): system,
+/// An external connection with its owner scope (ADR 0014): system,
 /// workspace (organization) or project. Secrets live in ConnectionSecret;
 /// using it needs an active ConnectionGrant for the consuming project.
 model Connection {
@@ -1204,7 +1204,7 @@ model KnowledgeShare {
 }
 
 /// A workflow of an automation connection (such as n8n) bound to a
-/// product-neutral Orbit contract (ADR 0013, WP3.7).
+/// product-neutral Orbit contract (ADR 0014, WP3.7).
 model WorkflowBinding {
   id           String     @id @default(uuid()) @db.Uuid
   connectionId String     @db.Uuid

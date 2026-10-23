@@ -6,7 +6,7 @@ import {
   registeredRegistry,
 } from "../modules/contributions.ts";
 
-// Read side of the system administration (ADR 0012). Metadata only: users,
+// Read side of the system administration (ADR 0013). Metadata only: users,
 // organizations, projects, memberships and invitations from the control
 // plane. No project content is read here, and this file never opens a
 // project-scoped business transaction (administration-boundary test).

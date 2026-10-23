@@ -32,7 +32,7 @@ export const knowledgeSearchResult = z
         indexProfile: z.string().min(1).max(160),
         indexGeneration: z.number().int().positive(),
         evidenceId: z.uuid(),
-        // Results from shared organization libraries (ADR 0013).
+        // Results from shared organization libraries (ADR 0014).
         shared: z
           .array(
             z
@@ -75,7 +75,7 @@ export async function knowledgeSearch(
   budget?: SearchBudget,
   consumer?: string,
   trace?: SearchTrace,
-  // MCP reads only the project's own knowledge (ADR 0013).
+  // MCP reads only the project's own knowledge (ADR 0014).
   options: { shared?: boolean } = {},
 ): Promise<{ result: unknown; cards: ChatCard[] }> {
   const input = knowledgeSearchInput.parse(raw);

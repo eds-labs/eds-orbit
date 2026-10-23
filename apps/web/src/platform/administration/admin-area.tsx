@@ -37,7 +37,7 @@ import { ConnectionsPanel } from "./connections-ui";
 import { McpAdmin } from "./admin-mcp";
 import { AiProfileEditor } from "./ai-knowledge-ui";
 
-// The system administration (/admin, ADR 0012): installation-wide metadata
+// The system administration (/admin, ADR 0013): installation-wide metadata
 // about users, organizations, projects and invitations, and the actions on
 // them. It never shows project content. The server answers 404 to anyone
 // who is not an active system administrator; hiding it here is convenience.

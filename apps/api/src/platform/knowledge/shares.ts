@@ -14,7 +14,7 @@ import {
 import { data, DomainError } from "../shared.ts";
 import { systemAudit } from "../administration/audit.ts";
 
-// Organization knowledge (ADR 0013, E1): a library project holds the shared
+// Organization knowledge (ADR 0014, E1): a library project holds the shared
 // sources with the usual tables, rights, indexes and evaluation; a
 // KnowledgeShare lets one consumer project search selected sources of it.
 // The library is searched in its own project transaction, so row-level

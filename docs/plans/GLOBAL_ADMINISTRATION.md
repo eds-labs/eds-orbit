@@ -73,7 +73,7 @@ Risk: **high** (authentication, authorization, schema migration, outward mail). 
 - **Flags** (default off): `ORBIT_ADMINISTRATION` covers admin, org settings and invitations. `ORBIT_ACCOUNT` covers account self-service and password reset. The banned check runs regardless of the flags; it is harmless because every user starts with `banned=false`.
 - Nothing is specific to EDS Labs or uLiquid. A SaaS installation can later restrict org creation to system admins (as now) or to a registration policy (phase 4).
 
-## 4. Schema changes: migration `202610230001_system_administration` (additive only)
+## 4. Schema changes: migration `202610240001_system_administration` (additive only)
 
 - `user`:
   - `role TEXT NOT NULL DEFAULT 'user'` with CHECK `IN ('user','admin')`
@@ -173,7 +173,7 @@ Risk: **high** (authentication, authorization, schema migration, outward mail). 
 ## 7. Ordered tasks (dependencies in brackets)
 
 Phase 1
-1. Add the docs: copy this plan to `docs/plans/GLOBAL_ADMINISTRATION.md`, write ADR 0012 (system admin model, Better Auth admin plugin, metadata-only rule, system mail amending Q-16), and update the status/traceability entries (A20–A2x).
+1. Add the docs: copy this plan to `docs/plans/GLOBAL_ADMINISTRATION.md`, write ADR 0013 (system admin model, Better Auth admin plugin, metadata-only rule, system mail amending Q-16), and update the status/traceability entries (A20–A2x).
 2. Migration, Prisma schema, `security.sql`, `db-deploy` grants and their verification, plus the `rls-matrix` classification [1].
 3. Config: the flags `ORBIT_ADMINISTRATION` and `ORBIT_ACCOUNT`, the optional system SMTP settings, and `system-mail.ts` with its test sink [–].
 4. Better Auth config: admin plugin and locale field. Banned checks in `sessionFor` and `projectMembership`. Tests [2].
@@ -242,7 +242,7 @@ Tasks 8–11 are written sequentially in this session, since the shared service 
 
 ## 10. Later phases (prepared, not implemented)
 
-Updated order (Mario, 2026-10-23): 1 admin foundation, 2 users and permissions, **3 central connections and AI infrastructure** ([plan](CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md), [ADR 0013](../adr/0013-central-connections-ai-knowledge.md)), 4 project archiving and deletion, 5 extended global settings. The AI provider, model and budget items below moved from global settings into phase 3; the project lifecycle and settings sections keep their content under the new numbers.
+Updated order (Mario, 2026-10-23): 1 admin foundation, 2 users and permissions, **3 central connections and AI infrastructure** ([plan](CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md), [ADR 0014](../adr/0014-central-connections-ai-knowledge.md)), 4 project archiving and deletion, 5 extended global settings. The AI provider, model and budget items below moved from global settings into phase 3; the project lifecycle and settings sections keep their content under the new numbers.
 
 **Phase 4: project lifecycle** (also revokes the project's connection grants and knowledge shares and stops its workflow bindings).
 - Add `Project.archivedAt`, `archivedBy` and `deletionScheduledAt`.

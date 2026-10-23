@@ -378,7 +378,7 @@ export async function openAiConfigurationVersion(
     },
     select: { version: true },
   });
-  // Central profiles and granted keys take part in the version (ADR 0013).
+  // Central profiles and granted keys take part in the version (ADR 0014).
   return centralRouteVersion(tx, scope, row?.version ?? null);
 }
 

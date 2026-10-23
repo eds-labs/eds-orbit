@@ -1,7 +1,7 @@
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { DomainError, decrypt, encrypt } from "../shared.ts";
 
-// The master-key ring for central connection secrets (ADR 0013). New
+// The master-key ring for central connection secrets (ADR 0014). New
 // secrets use the first CREDENTIAL_KEYS entry, or CREDENTIAL_KEY as key id
 // "default"; every listed key stays readable, so the master key can be
 // rotated by re-encrypting secrets under a newer id.

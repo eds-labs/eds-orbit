@@ -21,16 +21,16 @@ export type Identity = {
     id: string;
     name: string;
     role?: string;
-    /** May open the organization settings (ADR 0012). */
+    /** May open the organization settings (ADR 0013). */
     canManage?: boolean;
   }>;
-  /** A system administrator (ADR 0012); false while the feature is off. */
+  /** A system administrator (ADR 0013); false while the feature is off. */
   systemAdmin?: boolean;
   /** Whether the account pages exist (ORBIT_ACCOUNT). */
   account?: boolean;
   /** Whether administration and invitations exist (ORBIT_ADMINISTRATION). */
   administration?: boolean;
-  /** Central connections and AI profiles (ORBIT_CONNECTIONS, ADR 0013). */
+  /** Central connections and AI profiles (ORBIT_CONNECTIONS, ADR 0014). */
   connections?: boolean;
   /** Organization knowledge libraries (ORBIT_KNOWLEDGE_SHARES). */
   knowledgeShares?: boolean;

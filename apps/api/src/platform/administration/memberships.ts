@@ -8,7 +8,7 @@ import { revokeUserGrants } from "../mcp-auth/grants.ts";
 import { moduleRole, writeModuleRoles } from "../tenancy/module-roles.ts";
 import { systemAudit } from "./audit.ts";
 
-// Organization and project memberships across the installation (ADR 0012).
+// Organization and project memberships across the installation (ADR 0013).
 // One service for the system administration, the organization settings and
 // project owners; the routes authorize the actor first. Every change runs
 // in one control-plane transaction holding the organization's lock, so the
