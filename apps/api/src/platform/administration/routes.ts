@@ -42,6 +42,12 @@ import {
   viewInvitation,
 } from "./invitations.ts";
 import { createOrganization, renameOrganization } from "./organizations.ts";
+import {
+  listAllMcpGrants,
+  listMcpClients,
+  revokeMcpGrant,
+  setMcpClientDisabled,
+} from "./mcp.ts";
 import { adminPasswordReset } from "../account/service.ts";
 
 // System administration, organization settings, project member management
@@ -165,6 +171,25 @@ export function registerAdministrationRoutes(
   app.get("/api/admin/invitations", async (req) => {
     await admin(req);
     return { items: await openInvitations() };
+  });
+  // Orbit's MCP server (ADR 0013, WP3.6).
+  app.get("/api/admin/mcp", async (req) => {
+    await admin(req);
+    return listMcpClients();
+  });
+  app.get("/api/admin/mcp/grants", async (req) => {
+    await admin(req);
+    return listAllMcpGrants(req.query);
+  });
+  app.post("/api/admin/mcp/clients/:clientId/disable", async (req) =>
+    setMcpClientDisabled((await admin(req)).userId, param(req, "clientId"), true),
+  );
+  app.post("/api/admin/mcp/clients/:clientId/enable", async (req) =>
+    setMcpClientDisabled((await admin(req)).userId, param(req, "clientId"), false),
+  );
+  app.delete("/api/admin/mcp/grants/:grantId", async (req, reply) => {
+    await revokeMcpGrant((await admin(req)).userId, uuidParam(req, "grantId"));
+    return reply.code(204).send();
   });
   app.get("/api/admin/audit", async (req) => {
     await admin(req);

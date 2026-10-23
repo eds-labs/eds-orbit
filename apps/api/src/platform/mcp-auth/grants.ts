@@ -1009,6 +1009,48 @@ export async function revokeUserGrants(
   return grants.length;
 }
 
+/**
+ * Revokes one active grant for the system administration (ADR 0013), as
+ * `revokeGrant` does for its user or the organization's owner.
+ */
+export async function revokeGrantByAdministration(
+  grantId: string,
+  actorId: string,
+  log?: Log,
+): Promise<void> {
+  if (!UUID.test(grantId)) throw new DomainError("NOT_FOUND", 404);
+  const grant = await authDb.$transaction(async (tx) => {
+    const grant = await tx.mcpGrant.findFirst({
+      where: { id: grantId, status: "active" },
+    });
+    if (!grant) throw new DomainError("NOT_FOUND", 404);
+    const changed = await tx.mcpGrant.updateMany({
+      where: { id: grant.id, status: "active" },
+      data: {
+        status: "revoked",
+        revokedAt: new Date(),
+        revokedBy: actorId,
+        sessionId: null,
+      },
+    });
+    if (!changed.count) throw new DomainError("NOT_FOUND", 404);
+    await dropStoredAuthorization(tx, grant);
+    await recordGrantEvent(
+      {
+        action: "grant.revoked",
+        userId: grant.userId,
+        clientId: grant.clientId,
+        grantId: grant.id,
+        workspaceId: grant.workspaceId,
+        detail: { by: "administration" },
+      },
+      tx,
+    );
+    return grant;
+  });
+  await cancelGrantProposals(grant, actorId, "mcp_grant_ended", log);
+}
+
 /** The scope that lets a client propose (WP-M4); removed when proposals stop. */
 const PROPOSE_SCOPE = "orbit:propose";
 
@@ -1111,7 +1153,7 @@ const consoleLog: Log = {
  */
 export async function revokeClientGrants(
   clientId: string,
-  reason: "client_changed",
+  reason: "client_changed" | "client_disabled",
   log?: Log,
 ): Promise<number> {
   const now = new Date();

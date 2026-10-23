@@ -34,6 +34,7 @@ import {
 } from "./organization-manager";
 import { at, errorText, orgRoleLabel, projectRoleLabel } from "./texts";
 import { ConnectionsPanel } from "./connections-ui";
+import { McpAdmin } from "./admin-mcp";
 import { AiProfileEditor } from "./ai-knowledge-ui";
 
 // The system administration (/admin, ADR 0012): installation-wide metadata
@@ -57,6 +58,7 @@ const NAV = [
   { section: "", icon: Activity, en: "Overview", de: "Übersicht" },
   { section: "integrations", icon: Plug, en: "Integrations", de: "Integrationen", connections: true },
   { section: "ai", icon: Sparkles, en: "AI & knowledge", de: "KI & Wissen", connections: true },
+  { section: "mcp", icon: Plug, en: "MCP", de: "MCP" },
   { section: "users", icon: Users, en: "Users", de: "Benutzer" },
   { section: "invitations", icon: Mail, en: "Invitations", de: "Einladungen" },
   {
@@ -128,6 +130,7 @@ export function AdminArea({
       <div className="settings-content">
         {section === "" && <Overview locale={locale} />}
         {section === "integrations" && connections && <Integrations locale={locale} />}
+        {section === "mcp" && <McpAdmin locale={locale} />}
         {section === "ai" && connections && (
           <>
             <PageHead
