@@ -5140,6 +5140,7 @@ svg.agent-graph {
   margin: 0;
   padding: 0;
 }
+.list-row,
 .support-row {
   display: grid;
   gap: 4px;
@@ -5152,6 +5153,7 @@ svg.agent-graph {
   color: var(--foreground);
   cursor: pointer;
 }
+.list-row:focus-visible,
 .support-row:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
@@ -5159,13 +5161,16 @@ svg.agent-graph {
 .support-row-active {
   border-color: var(--primary);
 }
+a.list-row,
 a.support-row {
   text-decoration: none;
 }
+.list-row-title,
 .support-row-title {
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+.list-row-meta,
 .support-row-meta {
   font-size: 13px;
   color: var(--muted-foreground);

@@ -8,7 +8,7 @@ import { ResourceError } from "@/platform/ui/collection";
 import { HomeCard } from "@/platform/ui/home-card";
 import { financePath, query, type Summary } from "./api";
 import { financeText } from "./labels";
-import { periodRange } from "./overview";
+import { periodRange } from "./period";
 
 /**
  * The finance card of the project home: how many receipts wait for review
@@ -23,7 +23,9 @@ export function FinanceHome() {
   const summary = useResource<Summary>(
     financePath(project.id, `/summary${query(periodRange("12m", now))}`),
   );
-  if (summary.error?.status === 404) return null;
+  // 403 (no finance.read) and 404 (module off) hide the card; other errors show it.
+  if (summary.error?.status === 404 || summary.error?.status === 403)
+    return null;
   const s = summary.data;
   const count = (n: number | undefined) => (s ? String(n) : "—");
   return (

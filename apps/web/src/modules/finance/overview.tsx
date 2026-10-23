@@ -12,12 +12,7 @@ import {
   Receipt,
 } from "lucide-react";
 import { useMutation, useResource, when } from "@/lib/api";
-import {
-  Alert,
-  Button,
-  Empty,
-  Skeleton,
-} from "@/components/ui/primitives";
+import { Alert, Button, Empty, Skeleton } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 import { useShell } from "@/platform/shell/shell-context";
 import { AppLink } from "@/platform/ui/app-link";
@@ -36,35 +31,9 @@ import { financeText, type FinanceText } from "./labels";
 import { useFinanceAccess } from "./access";
 import { MonthlyBars, RankedBars, Sparkline, micros } from "./charts";
 import { formatMoney } from "./money";
+import { periodOf, periodRange, PERIODS } from "./period";
 
-export type Period = "12m" | "year" | "lastYear";
-const PERIODS: readonly Period[] = ["12m", "year", "lastYear"];
 const RECEIPT_LIMIT = 10;
-
-/** The period named in the URL; anything unknown is the default. */
-export function periodOf(value: string | null): Period {
-  return PERIODS.find((p) => p === value) ?? "12m";
-}
-
-const isoDay = (year: number, month: number, day: number) =>
-  new Date(Date.UTC(year, month, day)).toISOString().slice(0, 10);
-
-/**
- * The date range of a period (UTC). "12m" is the last twelve months
- * including the current one and ends with the current month; "year" runs
- * January to the end of the current month; "lastYear" is the previous
- * calendar year.
- */
-export function periodRange(period: Period, now: Date) {
-  const year = now.getUTCFullYear();
-  const month = now.getUTCMonth();
-  if (period === "lastYear")
-    return { from: isoDay(year - 1, 0, 1), to: isoDay(year - 1, 12, 0) };
-  const monthEnd = isoDay(year, month + 1, 0);
-  return period === "year"
-    ? { from: isoDay(year, 0, 1), to: monthEnd }
-    : { from: isoDay(year, month - 11, 1), to: monthEnd };
-}
 
 /** True when no month has income or expenses and nothing is open. */
 export function hasNoBookings(summary: Summary): boolean {
@@ -152,14 +121,17 @@ function ReceiptList() {
         ) : list.error ? (
           <ResourceError error={list.error} retry={list.refresh} />
         ) : list.data?.items.length ? (
-          <ul className="support-rows">
+          <ul className="settings-rows">
             {list.data.items.slice(0, RECEIPT_LIMIT).map((doc) => (
               <li key={doc.id}>
-                <AppLink className="support-row" href={reviewHref}>
-                  <span className="support-row-title">
+                <AppLink
+                  className="list-row"
+                  href={`${reviewHref}?document=${encodeURIComponent(doc.id)}`}
+                >
+                  <span className="list-row-title">
                     {doc.originalName ?? t.unnamedReceipt}
                   </span>
-                  <span className="support-row-meta">
+                  <span className="list-row-meta">
                     {when(doc.createdAt, locale, project.timezone)}
                   </span>
                 </AppLink>
@@ -255,7 +227,9 @@ function Dashboard({ now }: { now: Date }) {
           label={t.overdue}
           amount={money(s?.overdue.totalMicros)}
           detail={
-            s ? t.overdueDetail.replace("{n}", String(s.overdue.count)) : undefined
+            s
+              ? t.overdueDetail.replace("{n}", String(s.overdue.count))
+              : undefined
           }
           tone={s && s.overdue.count > 0 ? "warning" : undefined}
         />
@@ -263,7 +237,9 @@ function Dashboard({ now }: { now: Date }) {
           icon={Repeat}
           label={t.running}
           amount={money(s?.recurringMonthlyMicros)}
-          detail={s && s.recurringMissingRate > 0 ? t.runningMissing : undefined}
+          detail={
+            s && s.recurringMissingRate > 0 ? t.runningMissing : undefined
+          }
         />
         <Metric
           icon={ClipboardCheck}
@@ -281,7 +257,9 @@ function Dashboard({ now }: { now: Date }) {
               <AppLink href={reviewHref}>{t.reviewAll}</AppLink>
             </Button>
             <Button asChild variant="outline">
-              <AppLink href={shell.hrefOf("settings")}>{t.emptySettings}</AppLink>
+              <AppLink href={shell.hrefOf("settings")}>
+                {t.emptySettings}
+              </AppLink>
             </Button>
           </Empty>
         </section>
@@ -322,7 +300,10 @@ function Dashboard({ now }: { now: Date }) {
                   {s.byCategory.map((c) => {
                     const name = c.name ?? word.financeReportOther;
                     const total = String(
-                      c.months.reduce((sum, m) => sum + micros(m.expenseMicros), 0n),
+                      c.months.reduce(
+                        (sum, m) => sum + micros(m.expenseMicros),
+                        0n,
+                      ),
                     );
                     return (
                       <li key={c.id ?? (c.other ? "other" : "none")}>
@@ -330,7 +311,10 @@ function Dashboard({ now }: { now: Date }) {
                         <Sparkline
                           label={t.categoriesLabel
                             .replace("{name}", name)
-                            .replace("{total}", formatMoney(total, currency, locale))}
+                            .replace(
+                              "{total}",
+                              formatMoney(total, currency, locale),
+                            )}
                           currency={currency}
                           points={c.months.map((m) => ({
                             month: m.month,

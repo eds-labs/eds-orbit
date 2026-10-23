@@ -181,4 +181,54 @@ describe("charts", () => {
     expect(html).toContain("Other");
     expect(html).not.toContain("Center 9");
   });
+
+  it("renders all-zero data without NaN", () => {
+    const monthly = render(
+      <MonthlyBars
+        currency="USD"
+        months={[
+          month("2026-09", "0", "0", "0"),
+          month("2026-10", "0", "0", "0"),
+        ]}
+      />,
+    );
+    expect(monthly).not.toContain("NaN");
+    expect(heights(monthly)).toEqual([0, 0, 0, 0]);
+    const ranked = render(
+      <RankedBars
+        caption="Cost centers"
+        fallback="Unassigned"
+        currency="USD"
+        rows={[{ id: "a", name: "Ops", valueMicros: "0" }]}
+      />,
+    );
+    expect(ranked).not.toContain("NaN");
+    expect(widths(ranked)).toEqual([0]);
+  });
+
+  it("renders a negative ranked value with its magnitude", () => {
+    const html = render(
+      <RankedBars
+        caption="Cost centers"
+        fallback="Unassigned"
+        currency="USD"
+        rows={[
+          { id: "a", name: "Refund", valueMicros: "-4000000" },
+          { id: "b", name: "Ops", valueMicros: "2000000" },
+        ]}
+      />,
+    );
+    expect(widths(html).sort((a, b) => b - a)).toEqual([1000, 500]);
+  });
+
+  it("draws a dot for a single-point sparkline", () => {
+    const html = render(
+      <Sparkline
+        label="Rent"
+        currency="USD"
+        points={[{ month: "2026-10", valueMicros: "1000000" }]}
+      />,
+    );
+    expect(html).toContain("<circle");
+  });
 });

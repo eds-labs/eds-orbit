@@ -23,7 +23,10 @@ vi.mock("@/lib/api", async (importOriginal) => {
         data: failed ? null : found,
         error: failed
           ? Object.assign(new Error("failed"), {
-              status: found instanceof Error ? 500 : 404,
+              status:
+                found instanceof Error
+                  ? ((found as Error & { status?: number }).status ?? 500)
+                  : 404,
             })
           : null,
         loading: false,
@@ -42,7 +45,8 @@ import {
   type ShellContextValue,
 } from "@/platform/shell/shell-context";
 import { FinanceHome } from "./home";
-import { FinanceOverview, periodOf, periodRange } from "./overview";
+import { FinanceOverview } from "./overview";
+import { periodOf, periodRange } from "./period";
 
 const project = {
   id: "p1",
@@ -244,6 +248,11 @@ describe("FinanceHome", () => {
     expect(html).toContain("To review");
     expect(html).toContain("<dd>3</dd>");
     expect(html).toContain("<dd>1</dd>");
+  });
+
+  it("renders nothing for a member without finance.read (403)", () => {
+    answers["/summary"] = Object.assign(new Error("denied"), { status: 403 });
+    expect(render(<FinanceHome />)).toBe("");
   });
 
   it("renders nothing while the module answers 404", () => {

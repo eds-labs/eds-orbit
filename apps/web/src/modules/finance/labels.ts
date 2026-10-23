@@ -1,4 +1,5 @@
 import type { Locale } from "@/lib/i18n";
+import type { Period } from "./period";
 
 // The finance module's words in English and German. Cross-module strings
 // (report rows without a name, the review notification) live in
@@ -13,7 +14,7 @@ const en = {
       "12m": "Last 12 months",
       year: "This year",
       lastYear: "Last year",
-    } as Record<string, string>,
+    } as Record<Period, string>,
     incomeMonth: "Income this month",
     expenseMonth: "Expenses this month",
     resultMonth: "Result this month",
@@ -179,7 +180,7 @@ const de: typeof en = {
       "12m": "Letzte 12 Monate",
       year: "Dieses Jahr",
       lastYear: "Letztes Jahr",
-    } as Record<string, string>,
+    } as Record<Period, string>,
     incomeMonth: "Einnahmen diesen Monat",
     expenseMonth: "Ausgaben diesen Monat",
     resultMonth: "Ergebnis diesen Monat",

@@ -78,16 +78,38 @@ export function MonthlyBars({
   const y = (value: bigint) =>
     range === 0n
       ? PLOT_TOP + PLOT_HEIGHT
-      : PLOT_TOP + (Number(((top - value) * 1000n) / range) * PLOT_HEIGHT) / 1000;
+      : PLOT_TOP +
+        (Number(((top - value) * 1000n) / range) * PLOT_HEIGHT) / 1000;
   const zero = y(0n);
   const width = Math.max(rows.length, 1) * SLOT;
   const sum = (pick: (r: (typeof rows)[number]) => bigint) =>
     String(rows.reduce((total, r) => total + pick(r), 0n));
   const summary = t.monthlyLabel
     .replace("{n}", String(rows.length))
-    .replace("{income}", formatMoney(sum((r) => r.income), currency, locale))
-    .replace("{expense}", formatMoney(sum((r) => r.expense), currency, locale))
-    .replace("{result}", formatMoney(sum((r) => r.result), currency, locale));
+    .replace(
+      "{income}",
+      formatMoney(
+        sum((r) => r.income),
+        currency,
+        locale,
+      ),
+    )
+    .replace(
+      "{expense}",
+      formatMoney(
+        sum((r) => r.expense),
+        currency,
+        locale,
+      ),
+    )
+    .replace(
+      "{result}",
+      formatMoney(
+        sum((r) => r.result),
+        currency,
+        locale,
+      ),
+    );
   const dots = rows.map((r, i) => ({ x: i * SLOT + SLOT / 2, y: y(r.result) }));
   return (
     <div className="finance-chart">
@@ -228,7 +250,10 @@ export function RankedBars({
       label: other,
       value: rest.reduce((total, r) => total + r.value, 0n),
     });
-  const max = shown.reduce((m, r) => (r.value > m ? r.value : m), 0n);
+  // Expenses are non-negative, but a negative value still renders with its
+  // magnitude, so the maximum is taken over absolute values.
+  const abs = (v: bigint) => (v < 0n ? -v : v);
+  const max = shown.reduce((m, r) => (abs(r.value) > m ? abs(r.value) : m), 0n);
   const money = (v: bigint) => formatMoney(String(v), currency, locale);
   const summary = t.costCentersLabel
     .replace("{n}", String(shown.length))
@@ -243,7 +268,14 @@ export function RankedBars({
           <li key={r.key}>
             <span className="finance-ranked-name">{r.label}</span>
             <svg viewBox="0 0 1000 12" preserveAspectRatio="none" aria-hidden>
-              <rect x={0} y={0} width={1000} height={12} rx={4} fill="var(--muted)" />
+              <rect
+                x={0}
+                y={0}
+                width={1000}
+                height={12}
+                rx={4}
+                fill="var(--muted)"
+              />
               <rect
                 data-bar
                 x={0}
@@ -295,7 +327,11 @@ export function Sparkline({
   const { locale } = useWorkspace();
   const t = financeText(locale).dashboard;
   const values = points.map((p) => micros(p.valueMicros));
-  const max = values.reduce((m, v) => (v > m ? v : m), 0n);
+  // Absolute values, as in RankedBars: negatives render with their magnitude.
+  const max = values.reduce(
+    (m, v) => ((v < 0n ? -v : v) > m ? (v < 0n ? -v : v) : m),
+    0n,
+  );
   const step = points.length > 1 ? SPARK_WIDTH / (points.length - 1) : 0;
   const coords = values.map((v, i) => ({
     x: points.length > 1 ? i * step : SPARK_WIDTH / 2,
@@ -309,6 +345,14 @@ export function Sparkline({
         viewBox={`0 0 ${SPARK_WIDTH} ${SPARK_HEIGHT}`}
         preserveAspectRatio="none"
       >
+        {coords.length === 1 && (
+          <circle
+            cx={coords[0]!.x}
+            cy={coords[0]!.y}
+            r={3}
+            fill="var(--primary)"
+          />
+        )}
         {coords.length > 1 && (
           <polyline
             points={coords.map((c) => `${c.x},${c.y}`).join(" ")}
