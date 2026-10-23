@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { validateRegistry } from "../../../packages/module-contracts/src/index.ts";
 import { platformDeclaration } from "../src/platform/modules/platform-declaration.ts";
 import { modules } from "../src/modules/registry.ts";
@@ -8,9 +8,11 @@ import { financeSwitchedOn } from "../src/modules/finance/gate.ts";
 import { financeSettingsSchema } from "../src/modules/finance/settings.ts";
 
 describe("finance module skeleton", () => {
-  afterEach(() => {
+  const clear = () => {
     delete process.env.ORBIT_FINANCE;
-  });
+  };
+  beforeEach(clear);
+  afterEach(clear);
 
   it("registers finance with sensitive permissions", () => {
     expect(modules).toContain(financeModule);

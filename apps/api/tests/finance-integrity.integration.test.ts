@@ -209,6 +209,68 @@ describe.skipIf(!enabled)("finance ledger integrity", () => {
     expect(lines).toBe(2);
   });
 
+  it("refuses lines added to an entry posted in an earlier transaction", async () => {
+    const e = await post();
+    // Even a balanced pair would re-book money under the old number.
+    const message = await failure(
+      run(async (tx) => {
+        await line(tx, owner, e.id, expense, "debit", 1_000_000n);
+        await line(tx, owner, e.id, cash, "credit", 1_000_000n);
+      }),
+    );
+    expect(message).toMatch(/FINANCE_POSTED_IMMUTABLE/);
+    // Nor to a reversed entry.
+    const reversal = await post(owner, {
+      kind: "reversal",
+      reversalOfId: e.id,
+    });
+    await run((tx) =>
+      tx.financeJournalEntry.update({
+        where: { id: e.id },
+        data: { reversedById: reversal.id },
+      }),
+    );
+    expect(
+      await failure(
+        run(async (tx) => {
+          await line(tx, owner, e.id, expense, "debit", 1_000_000n);
+          await line(tx, owner, e.id, cash, "credit", 1_000_000n);
+        }),
+      ),
+    ).toMatch(/FINANCE_POSTED_IMMUTABLE/);
+    expect(
+      await run((tx) =>
+        tx.financeJournalLine.count({ where: { entryId: e.id } }),
+      ),
+    ).toBe(2);
+  });
+
+  it("posts inside a savepoint and forgets a rolled back one", async () => {
+    const kept = randomUUID();
+    const dropped = randomUUID();
+    await run(async (tx) => {
+      await tx.$executeRaw`SAVEPOINT finance_post`;
+      const e = await entry(tx, owner, { id: kept });
+      await line(tx, owner, e.id, expense, "debit", 2_000_000n);
+      await tx.$executeRaw`RELEASE SAVEPOINT finance_post`;
+      // Lines after the released savepoint still belong to the open entry.
+      await line(tx, owner, e.id, cash, "credit", 2_000_000n);
+      await tx.$executeRaw`SAVEPOINT finance_drop`;
+      await entry(tx, owner, { id: dropped });
+      await tx.$executeRaw`ROLLBACK TO SAVEPOINT finance_drop`;
+      // The rolled back savepoint's entry is no longer open for lines.
+      const [open] = await tx.$queryRaw<{ ids: string | null }[]>`
+        SELECT current_setting('finance.open_entries', true) AS ids`;
+      expect(open!.ids?.split(",")).toContain(kept);
+      expect(open!.ids?.split(",")).not.toContain(dropped);
+    });
+    expect(
+      await run((tx) =>
+        tx.financeJournalLine.count({ where: { entryId: kept } }),
+      ),
+    ).toBe(2);
+  });
+
   it("refuses to update a posted line", async () => {
     const e = await post();
     const message = await failure(
@@ -224,6 +286,18 @@ describe.skipIf(!enabled)("finance ledger integrity", () => {
 
   it("refuses to change a posted entry except reversedById once", async () => {
     const original = await post();
+    // reversedById must name the entry that reverses this one.
+    const unrelated = await post();
+    expect(
+      await failure(
+        run((tx) =>
+          tx.financeJournalEntry.update({
+            where: { id: original.id },
+            data: { reversedById: unrelated.id },
+          }),
+        ),
+      ),
+    ).toMatch(/FINANCE_POSTED_IMMUTABLE/);
     expect(
       await failure(
         run((tx) =>
@@ -293,6 +367,18 @@ describe.skipIf(!enabled)("finance ledger integrity", () => {
     expect(
       await run((tx) => tx.financeJournalEntry.count({ where: { id } })),
     ).toBe(0);
+  });
+
+  it("refuses an unbalanced entry when the workspace scope changes before commit", async () => {
+    const message = await failure(
+      run(async (tx) => {
+        const e = await entry(tx, owner);
+        await line(tx, owner, e.id, expense, "debit", 3_000_000n);
+        // Hides the entry and its lines from the check at commit.
+        await tx.$executeRaw`SELECT set_config('app.workspace_id', ${randomUUID()}, true)`;
+      }),
+    );
+    expect(message).toMatch(/FINANCE_ENTRY_UNBALANCED/);
   });
 
   it("refuses a single-line entry", async () => {

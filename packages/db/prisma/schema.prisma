@@ -649,7 +649,8 @@ model FinanceEntryCounter {
 }
 
 /// A posted entry. Database triggers allow only setting reversedById once
-/// and check at commit that its lines balance in the base currency.
+/// (to its reversal), accept lines only in the posting transaction and check
+/// at commit that its lines balance in the base currency.
 model FinanceJournalEntry {
   id           String   @id @db.Uuid
   workspaceId  String   @db.Uuid

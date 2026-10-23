@@ -5,7 +5,8 @@
 -- composite ("projectId", id) key: a row can only point at rows of its own
 -- project. Amounts are BIGINT micros (10^-6 of the currency unit), rates
 -- NUMERIC(24,12). The journal is append-only in the database: lines never
--- change, an entry changes only to record its reversal once, and every entry
+-- change and are added only in their entry's transaction, an entry changes
+-- only to record its reversal once, and every entry
 -- balances in the base currency at commit. orbit_app gets no DELETE on the
 -- journal, documents, invoices, payments and exports (scripts/db-deploy.ts);
 -- project deletion still cascades through the foreign keys. References
@@ -457,12 +458,47 @@ END $$;
 CREATE TRIGGER finance_line_immutable BEFORE UPDATE ON "FinanceJournalLine"
   FOR EACH ROW EXECUTE FUNCTION finance_line_immutable();
 
+-- Lines can be added only to an entry inserted in the same transaction, so
+-- a balanced pair can never be appended to a posted entry later. The entry
+-- insert records its id in a transaction-local setting; a line's entry must
+-- be listed there. Chosen over comparing the entry's xmin with the current
+-- transaction id: xmin is the subtransaction's id inside a savepoint, and
+-- it changes when the entry row is updated (recording a reversal), which
+-- would reopen an old entry. Local settings follow savepoints exactly: a
+-- rolled back savepoint drops its entries, a released one keeps them, and
+-- everything is gone at commit or rollback. The setting is as trusted as
+-- the app.* scope settings the business role sets itself.
+CREATE FUNCTION finance_entry_opened() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM set_config('finance.open_entries',
+    coalesce(nullif(current_setting('finance.open_entries', true), '') || ',', '') || NEW."id"::text,
+    true);
+  RETURN NULL;
+END $$;
+CREATE TRIGGER finance_entry_opened AFTER INSERT ON "FinanceJournalEntry"
+  FOR EACH ROW EXECUTE FUNCTION finance_entry_opened();
+
+CREATE FUNCTION finance_line_open_entry() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF NEW."entryId"::text = ANY (string_to_array(coalesce(current_setting('finance.open_entries', true), ''), ',')) THEN
+    RETURN NEW;
+  END IF;
+  RAISE EXCEPTION 'FINANCE_POSTED_IMMUTABLE: lines can only be added to an entry posted in the same transaction'
+    USING ERRCODE = 'check_violation';
+END $$;
+CREATE TRIGGER finance_line_open_entry BEFORE INSERT ON "FinanceJournalLine"
+  FOR EACH ROW EXECUTE FUNCTION finance_line_open_entry();
+
 -- A posted entry changes only to record its reversal, once: "reversedById"
--- goes from NULL to a value and every other column stays as it was.
+-- goes from NULL to the entry that reverses it (whose "reversalOfId" is
+-- this entry) and every other column stays as it was.
 CREATE FUNCTION finance_entry_guard() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF OLD."reversedById" IS NULL AND NEW."reversedById" IS NOT NULL
-     AND (to_jsonb(NEW) - 'reversedById') = (to_jsonb(OLD) - 'reversedById') THEN
+     AND (to_jsonb(NEW) - 'reversedById') = (to_jsonb(OLD) - 'reversedById')
+     AND EXISTS (SELECT 1 FROM "FinanceJournalEntry"
+                  WHERE "projectId" = OLD."projectId" AND "id" = NEW."reversedById"
+                    AND "reversalOfId" = OLD."id") THEN
     RETURN NEW;
   END IF;
   RAISE EXCEPTION 'FINANCE_POSTED_IMMUTABLE: posted journal entries cannot be changed'
@@ -475,8 +511,8 @@ CREATE TRIGGER finance_entry_guard BEFORE UPDATE ON "FinanceJournalEntry"
 -- has at least two lines whose base-currency debits equal its credits.
 -- Deferred, so the lines may follow the entry in later statements. It runs
 -- as the business role under the project scope; when the entry is not
--- visible it must have been deleted with its project in the same scope,
--- anything else fails closed.
+-- visible it must have been deleted with its project under the same
+-- workspace and project scope, anything else fails closed.
 CREATE FUNCTION finance_entry_balanced() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   entry_id UUID;
@@ -496,6 +532,7 @@ BEGIN
     FROM "FinanceJournalLine"
    WHERE "projectId" = NEW."projectId" AND "entryId" = entry_id;
   IF lines = 0
+     AND nullif(current_setting('app.workspace_id', true), '')::uuid IS NOT DISTINCT FROM NEW."workspaceId"
      AND nullif(current_setting('app.project_id', true), '')::uuid IS NOT DISTINCT FROM NEW."projectId"
      AND NOT EXISTS (SELECT 1 FROM "FinanceJournalEntry" WHERE "projectId" = NEW."projectId" AND "id" = entry_id) THEN
     RETURN NULL;
