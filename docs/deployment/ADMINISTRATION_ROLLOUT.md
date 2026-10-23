@@ -47,6 +47,13 @@ ADR 0013, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches pr
   4. Run `apply --yes`.
   5. Check one draft and one queue check per bound project.
   - Rollback: `connections-migrate.ts rollback --connection <id> --yes`, or remove the provider from `ORBIT_CONNECTIONS_CUTOVER`; adopted projects then use their kept keys again.
+- **Postiz channels (each step needs approval):**
+  1. Push the release.
+  2. Set `ORBIT_CONNECTIONS=true` and `ORBIT_CONNECTIONS_CUTOVER=postiz` and redeploy.
+  3. Run `connections-migrate.ts inventory` and `plan` for the organization; check the `channelConflicts`, then `apply --yes`. The existing uLiquid key and its channels move to the organization connection; `write_verified`, posting times and X long posts stay on the project.
+  4. Organization settings → Connections → Postiz → Channels: check the assignment, and use "Fetch channels" for new accounts.
+  5. Check that the next assignment run creates its Postiz drafts.
+  - Rollback: `connections-migrate.ts rollback --connection <id> --yes`, which restores the projects' own keys and channel lists.
 - **MCP:** Administration → MCP is available to administrators with `ORBIT_ADMINISTRATION=true`. Disabling a client revokes its grants at once.
 - **n8n:**
   1. Create the connection with the JSON secret.

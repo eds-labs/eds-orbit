@@ -438,3 +438,29 @@ Built on Mario's go-ahead ("continue with 3.4 … 3.7, everything behind flags, 
 - `mcp-admin.integration.test.ts` (3);
 - `automation-workflows.integration.test.ts` (5): binding only for granted projects, test mode, signed neutral request without secrets or kept payload, signed single-use callbacks, revocation;
 - access matrix: 17 new routes, no existing cell changed; the callback is public and signature-authenticated.
+
+## Implementation status, part 3 (2026-10-23, Postiz channel assignment, local; flags off)
+
+Mario decided on 2026-10-23:
+- Postiz is connected once per organization (or as a system connection granted to it).
+- Each channel goes to exactly one project.
+- Organization owners and administrators manage the assignment.
+
+What this part adds:
+- **Channel catalog.** Providers with `channelAssignment` (Postiz) keep the channel list of the central check in `Connection.health.channels`: ids, names and identifiers only. A failed check keeps the last list.
+- **Assignment API.** `GET`/`PUT /api/organizations/:id/connections/:connectionId/channels`, and `/api/admin/connections/:id/channels` with `workspaceId`.
+  - The project grant carries `settings.channels`. A project left without channels loses its grant.
+  - Exclusivity holds across organizations of a system connection, under a lock per connection.
+  - A plain grant may not carry channels (`USE_CHANNEL_ASSIGNMENT`).
+  - The cutover for the provider is required.
+- **Order of a change.** The service first narrows the projects' bound connections, then changes the grants, then widens and binds. A failure never leaves a project with more channels than its grant.
+  - A project whose module is off gets the grant, but its binding only follows with a later assignment.
+  - This is a deliberate exception to "administration is metadata only": the service (in `platform/connections`, not `platform/administration`) writes the binding row (`centralConnectionId`, `allowedChannelIds`, channel names) into the project, without reading content.
+- **Project side.**
+  - `assignedPostizChannels` uses exactly `allowedChannelIds` for a bound connection, and none without that list. `assertAssignedSocialChannels` additionally requires the current grant.
+  - The project health check keeps only the assigned channels.
+  - The project UI shows the channels read-only; posting times and X long posts stay project settings.
+- **Migration.** `planConsolidation` gives each channel to the first project using it (the source first) and lists `channelConflicts`. `applyConsolidation` copies the source's channel list onto the connection, puts each project's channels on its grant and `allowedChannelIds`. The rollback removes them again.
+- **Open.**
+  - E2E for the dialog has not run.
+  - Channels of two connections to the same Postiz organization are not checked against each other.
