@@ -13,6 +13,7 @@ import {
   PROJECT_WRITE,
 } from "../tenancy/permissions.ts";
 import { assertModuleEnabled } from "../modules/enforcement.ts";
+import { registeredPrivateFiles } from "../modules/contributions.ts";
 import { DomainError } from "../shared.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import { deleteFile, fileRow, readFile, storeFile } from "./files.ts";
@@ -20,7 +21,9 @@ import { deleteFile, fileRow, readFile, storeFile } from "./files.ts";
 // Platform file routes (WP4.6). A file belongs to one module: uploading
 // and deleting need write access there, downloading read access, and the
 // module must be on. The platform's own files (raw inbound e-mail) are the
-// owner's only, and no member uploads into them. Every route answers 404
+// owner's only, and no member uploads into them. A module may keep its
+// files to its own routes (finance does): these routes answer 404 for them.
+// Every route answers 404
 // while files are off or not configured (the server's onRequest hook says
 // so before parsing).
 
@@ -43,13 +46,17 @@ async function inModule(
   return effective;
 }
 
-/** The module of a live file of the project, or 404. */
+/**
+ * The module of a live file of the project, or 404; also 404 for a file of
+ * a module that keeps its files to its own routes (`files.privateToModule`).
+ */
 const moduleOf = (scope: Scope, id: string) =>
-  scoped(
-    scope.workspaceId,
-    scope.projectId,
-    async (tx) => (await fileRow(tx, scope, id)).moduleId,
-  );
+  scoped(scope.workspaceId, scope.projectId, async (tx) => {
+    const { moduleId } = await fileRow(tx, scope, id);
+    if (registeredPrivateFiles(moduleId))
+      throw new DomainError("NOT_FOUND", 404);
+    return moduleId;
+  });
 
 /** RFC 5987 `attr-char` encoding for `filename*`. */
 const extValue = (value: string) =>
@@ -94,6 +101,9 @@ export async function registerFileRoutes(app: FastifyInstance, auth: Auth) {
           // The platform writes its own files; members never do.
           if (query.module === "platform")
             throw new DomainError("MODULE_UNKNOWN", 409);
+          // Nor into a module that keeps its files to its own routes.
+          if (registeredPrivateFiles(query.module))
+            throw new DomainError("NOT_FOUND", 404);
           const scope = await inModule(member, query.module, PROJECT_WRITE);
           const type = (req.headers["content-type"] ?? "")
             .split(";")[0]!

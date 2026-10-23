@@ -5,7 +5,10 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, entity } from "../../shared.ts";
 import { CONNECTION_KIND } from "../../platform/connections/connections.ts";
 import { mailboxOwner, setMailboxOwner } from "../../platform/email/ownership.ts";
-import type { MailboxUse } from "../../platform/modules/contributions.ts";
+import {
+  registeredEmailInbound,
+  type MailboxUse,
+} from "../../platform/modules/contributions.ts";
 
 // E-mail connections bound to finance. A binding claims the mailbox for the
 // finance module (platform/email/ownership.ts), so its mail reaches finance
@@ -34,8 +37,9 @@ export function listMailboxBindings(tx: DbTx, scope: Scope) {
 /**
  * Claims an e-mail connection of the project for finance. The platform
  * refuses a mailbox another module owns (409 EMAIL_MAILBOX_OWNED) and one
- * that is not an e-mail connection (404). A binding that was switched off
- * by an earlier unbind is reactivated.
+ * that is not an e-mail connection (404); a mailbox another module still
+ * uses is refused with 409 EMAIL_MAILBOX_IN_USE. A binding that was
+ * switched off by an earlier unbind is reactivated.
  */
 export async function bindMailbox(tx: DbTx, scope: Scope, raw: unknown) {
   const input = bindMailboxInput.parse(raw);
@@ -46,6 +50,16 @@ export async function bindMailbox(tx: DbTx, scope: Scope, raw: unknown) {
     },
   });
   if (existing?.active) throw new DomainError("FINANCE_MAILBOX_BOUND", 409);
+  // A mailbox another module still uses, such as a live Support inbox
+  // (bound to it, or unbound on the default mailbox), is never taken over:
+  // Support does not record an owner for its inboxes.
+  for (const { owner, mailboxUse } of registeredEmailInbound())
+    if (
+      owner !== "finance" &&
+      mailboxUse &&
+      (await mailboxUse.inUse(tx, scope, input.emailConnectionId)) > 0
+    )
+      throw new DomainError("EMAIL_MAILBOX_IN_USE", 409);
   await setMailboxOwner(tx, scope, input.emailConnectionId, "finance");
   let row;
   if (existing) {

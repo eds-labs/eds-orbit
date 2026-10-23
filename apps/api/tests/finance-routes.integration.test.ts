@@ -414,6 +414,43 @@ describe.skipIf(!enabled)("finance http api", () => {
     expect(shown.rawPayload.equals(original)).toBe(true);
   });
 
+  it("finance files are private to finance's own routes", async () => {
+    const uploaded = await upload("editor", pdf(), "application/pdf");
+    expect(uploaded.statusCode).toBe(201);
+    const { id } = uploaded.json();
+    const { fileId } = await scoped(workspaceId, projectId, (tx) =>
+      tx.financeDocument.findUniqueOrThrow({ where: { id } }),
+    );
+    const platform = (who: keyof typeof ids, method: "GET" | "DELETE") =>
+      app.inject({
+        method,
+        url: `/api/projects/${projectId}/files/${fileId}`,
+        headers: { origin, cookie: cookies[who], [CLIENT_IP_HEADER]: ip() },
+      });
+    for (const who of ["owner", "editor"] as const)
+      for (const method of ["GET", "DELETE"] as const) {
+        const response = await platform(who, method);
+        expect(response.statusCode, `${who} ${method}`).toBe(404);
+      }
+    // Nor does the platform upload into finance.
+    const into = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/files?module=finance`,
+      headers: {
+        origin,
+        cookie: cookies.owner,
+        [CLIENT_IP_HEADER]: ip(),
+        "content-type": "application/octet-stream",
+        "x-file-type": "application/pdf",
+      },
+      payload: pdf(),
+    });
+    expect(into.statusCode).toBe(404);
+    // The file is still there for finance's own download route.
+    const own = await call("owner", "GET", `/documents/${id}/file`);
+    expect(own.statusCode).toBe(200);
+  });
+
   it("upload over the size limit returns 413", async () => {
     const response = await upload(
       "editor",

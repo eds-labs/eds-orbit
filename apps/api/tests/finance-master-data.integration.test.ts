@@ -317,6 +317,72 @@ describe.skipIf(!enabled)("finance master data", () => {
     ).toBe("EMAIL_MAILBOX_OWNED");
   });
 
+  const supportInbox = (s: Scope, emailConnectionId: string | null) =>
+    run(s, (tx) =>
+      tx.supportInbox.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: s.workspaceId,
+          projectId: s.projectId,
+          name: "Synthetic inbox",
+          channels: ["email"],
+          emailAddress: `${randomUUID()}@example.invalid`,
+          emailConnectionId,
+          createdBy: s.userId,
+        },
+      }),
+    );
+
+  it("binding a mailbox a live Support inbox answers from is refused", async () => {
+    const id = await mailbox(owner);
+    const inbox = await supportInbox(owner, id);
+    expect(
+      await failure(
+        run(owner, (tx) => bindMailbox(tx, owner, { emailConnectionId: id })),
+      ),
+    ).toBe("EMAIL_MAILBOX_IN_USE");
+    // An archived inbox lets go of the mailbox.
+    await run(owner, (tx) =>
+      tx.supportInbox.update({
+        where: { id: inbox.id },
+        data: { archivedAt: new Date() },
+      }),
+    );
+    const bound = await run(owner, (tx) =>
+      bindMailbox(tx, owner, { emailConnectionId: id }),
+    );
+    await run(owner, (tx) => unbindMailbox(tx, owner, bound.id));
+  });
+
+  it("binding the default mailbox is refused while unbound Support inboxes use it", async () => {
+    const project = await newProject(await newWorkspace());
+    const verified = (status: string) =>
+      run(project, async (tx) =>
+        (
+          await create(tx, project, CONNECTION_KIND, {
+            provider: "email",
+            fromAddress: `${randomUUID()}@example.invalid`,
+            status,
+          })
+        ).id,
+      );
+    const fallback = await verified("read_verified");
+    const second = await verified("read_verified");
+    await supportInbox(project, null);
+    expect(
+      await failure(
+        run(project, (tx) =>
+          bindMailbox(tx, project, { emailConnectionId: fallback }),
+        ),
+      ),
+    ).toBe("EMAIL_MAILBOX_IN_USE");
+    // The unbound inbox receives only the default mailbox's mail.
+    const bound = await run(project, (tx) =>
+      bindMailbox(tx, project, { emailConnectionId: second }),
+    );
+    expect(bound.active).toBe(true);
+  });
+
   it("unbinding releases ownership", async () => {
     const id = await mailbox(owner);
     const bound = await run(owner, (tx) =>

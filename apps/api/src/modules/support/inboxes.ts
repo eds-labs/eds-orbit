@@ -215,16 +215,34 @@ export async function listMailboxes(tx: DbTx, scope: Scope) {
   }));
 }
 
-/** Live inboxes answering from a mailbox: they keep it from being removed. */
+/**
+ * Live inboxes answering from a mailbox: they keep it from being removed
+ * and from being claimed by another module. While no inbox is bound to the
+ * default mailbox, the live unbound e-mail inboxes from before the binding
+ * use it too (channels/email.ts routes its mail to them).
+ */
 export const supportMailboxUse: MailboxUse = {
-  inUse: (tx, scope, connectionId) =>
-    tx.supportInbox.count({
+  async inUse(tx, scope, connectionId) {
+    const bound = await tx.supportInbox.count({
       where: {
         projectId: scope.projectId,
         emailConnectionId: connectionId,
         archivedAt: null,
       },
-    }),
+    });
+    if (bound > 0) return bound;
+    const fallback = await defaultEmailConnection(tx, scope);
+    if (fallback?.id !== connectionId) return 0;
+    const unbound = await tx.supportInbox.findMany({
+      where: {
+        projectId: scope.projectId,
+        emailConnectionId: null,
+        archivedAt: null,
+      },
+      select: { channels: true },
+    });
+    return unbound.filter((i) => i.channels.includes("email")).length;
+  },
   // Archived inboxes let go; their tickets' mail falls back to the default
   // mailbox (channels/email.ts).
   async release(tx, scope, connectionId) {

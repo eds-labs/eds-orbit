@@ -1,6 +1,8 @@
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import { connectionsOf } from "../../platform/connections/connections.ts";
 import { INBOUND_KIND } from "../../platform/email/inbound.ts";
+import { mailboxOwner } from "../../platform/email/ownership.ts";
 import { EMAIL_KIND, ORBIT_MESSAGE_ID } from "../../platform/email/send.ts";
 import { deleteFile, filesConfig } from "../../platform/files/files.ts";
 import type { PeriodicTask } from "../../platform/jobs/types.ts";
@@ -225,18 +227,16 @@ export async function eraseContact(scope: Scope, contactId: string) {
       const addresses = [contact.email, contact.claimedEmail].filter(
         (v): v is string => Boolean(v),
       );
-      // Only mail of Support's own inbox mailboxes (or mail that names no
-      // mailbox, which is legacy-only); other mailboxes' mail belongs to
-      // their owners.
-      const supportMailboxes = (
-        await tx.supportInbox.findMany({
-          where: {
-            projectId: scope.projectId,
-            emailConnectionId: { not: null },
-          },
-          select: { emailConnectionId: true },
-        })
-      ).map((i) => i.emailConnectionId as string);
+      // Mail of a mailbox another module owns (platform/email/ownership.ts)
+      // belongs to that module; every other mailbox's mail goes, as before.
+      const foreignMailboxes = new Set(
+        (await connectionsOf(tx, scope, "email"))
+          .filter((row) => {
+            const owner = mailboxOwner(data(row));
+            return owner !== null && owner !== "support";
+          })
+          .map((row) => row.id),
+      );
       const unlinked = addresses.length
         ? (
             await tx.entity.findMany({
@@ -251,7 +251,7 @@ export async function eraseContact(scope: Scope, contactId: string) {
           ).filter((r) => {
             const mailbox = data(r).connectionId;
             return (
-              typeof mailbox !== "string" || supportMailboxes.includes(mailbox)
+              typeof mailbox !== "string" || !foreignMailboxes.has(mailbox)
             );
           })
         : [];

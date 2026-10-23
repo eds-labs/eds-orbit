@@ -18,10 +18,15 @@ export const financeContributions: ModuleContributions = {
   tools: financeTools,
   attention: financeAttention,
   userNotifications: financeUserNotifications,
-  // Mail of a mailbox bound to finance (mailboxes.ts) reaches only finance.
+  // Receipts and exports are sensitive: only finance's own routes, with
+  // their finance permissions, hand them out (never /files/:fileId).
+  files: { privateToModule: true },
+  // Mail of a mailbox bound to finance (mailboxes.ts) reaches only finance;
+  // finance never takes the broadcast of unowned mailboxes.
   emailInbound: {
     queueClass: FINANCE_MAIL_RECEIPT,
     mailboxUse: financeMailboxUse,
+    ownedOnly: true,
   },
   jobs: [
     {

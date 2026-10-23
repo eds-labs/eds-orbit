@@ -35,6 +35,7 @@ registerTestModules([tasksFixture]);
 
 const ENV = {
   ORBIT_SUPPORT: "true",
+  ORBIT_FINANCE: "true",
   ORBIT_EMAIL: "true",
   ORBIT_FILES: "true",
   FILES_S3_ENDPOINT: "https://files.example.invalid",
@@ -158,7 +159,7 @@ describe.skipIf(!enabled)("mailbox owner routing", () => {
       role: "owner",
     };
     await run(async (tx) => {
-      for (const moduleId of ["support", "tasks"])
+      for (const moduleId of ["support", "tasks", "finance"])
         await tx.projectModule.create({
           data: {
             workspaceId: scope.workspaceId,
@@ -207,6 +208,29 @@ describe.skipIf(!enabled)("mailbox owner routing", () => {
     expect(await jobsFor("open@desk.example")).toEqual([
       "fixture_email",
       "support_email_inbound",
+    ]);
+  });
+
+  it("gives an owned-only module nothing of unowned mailboxes", async () => {
+    // Finance takes owned mail only: an unowned mailbox feeds Support (and
+    // the broadcasting fixture), never a finance receipt job.
+    await addMailbox("unclaimed");
+    await fetchInbound(scope);
+    deliver("unclaimed@desk.example", mime("unclaimed@desk.example"));
+    await fetchInbound(scope);
+    const jobs = await jobsFor("unclaimed@desk.example");
+    expect(jobs).toContain("support_email_inbound");
+    expect(jobs).not.toContain("finance_mail_receipt");
+  });
+
+  it("routes a finance-owned mailbox to finance only", async () => {
+    const id = await addMailbox("receipts");
+    await fetchInbound(scope);
+    await run((tx) => setMailboxOwner(tx, scope, id, "finance"));
+    deliver("receipts@desk.example", mime("receipts@desk.example"));
+    await fetchInbound(scope);
+    expect(await jobsFor("receipts@desk.example")).toEqual([
+      "finance_mail_receipt",
     ]);
   });
 
@@ -298,5 +322,82 @@ describe.skipIf(!enabled)("mailbox owner routing", () => {
       tx.entity.findMany({ where: { id: { in: [mine.id, theirs.id] } } }),
     );
     expect(left.map((r) => r.id)).toEqual([theirs.id]);
+  });
+  it("support erasure keeps legacy and unowned mailboxes' mail erasable", async () => {
+    // A fresh project: its default mailbox (the first verified) is unowned
+    // and serves an unbound inbox from before the binding.
+    const outer = scope;
+    const project = await authDb.project.create({
+      data: { workspaceId: outer.workspaceId, name: "Synthetic erasure" },
+    });
+    scope = { ...outer, projectId: project.id };
+    try {
+      await run((tx) =>
+        tx.projectModule.create({
+          data: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            moduleId: "support",
+            enabled: true,
+            moduleVersion: "1.0.0",
+          },
+        }),
+      );
+      const fallback = await addMailbox("legacydesk");
+      const loose = await addMailbox("loose");
+      const ledger = await addMailbox("ledgererase");
+      await run((tx) => setMailboxOwner(tx, scope, ledger, "finance"));
+      await run((tx) =>
+        tx.supportInbox.create({
+          data: {
+            id: randomUUID(),
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            name: "Legacy desk",
+            channels: ["email"],
+            emailAddress: "legacydesk@desk.example",
+            emailConnectionId: null,
+            createdBy: "owner-setup",
+          },
+        }),
+      );
+      const contact = await run((tx) =>
+        tx.supportContact.create({
+          data: {
+            workspaceId: scope.workspaceId,
+            projectId: scope.projectId,
+            id: randomUUID(),
+            email: "legacy-erase@example.org",
+          },
+        }),
+      );
+      const row = (connectionId: string) =>
+        run((tx) =>
+          tx.entity.create({
+            data: {
+              workspaceId: scope.workspaceId,
+              projectId: scope.projectId,
+              kind: INBOUND_KIND,
+              data: {
+                connectionId,
+                from: "legacy-erase@example.org",
+                subject: "x",
+              },
+            },
+          }),
+        );
+      const legacy = await row(fallback);
+      const unowned = await row(loose);
+      const finance = await row(ledger);
+      await eraseContact(scope, contact.id);
+      const left = await run((tx) =>
+        tx.entity.findMany({
+          where: { id: { in: [legacy.id, unowned.id, finance.id] } },
+        }),
+      );
+      expect(left.map((r) => r.id)).toEqual([finance.id]);
+    } finally {
+      scope = outer;
+    }
   });
 });

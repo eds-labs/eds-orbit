@@ -407,11 +407,16 @@ async function fetchMailbox(scope: Scope, connection: Connection) {
         // Bounces and echoes are the platform's; the rest goes to modules.
         if (!bounceOf.length && !echo) {
           const enabled = await enabledModules(tx, scope);
-          // An owned mailbox feeds only its owner module (ownership.ts).
+          // An owned mailbox feeds only its owner module (ownership.ts); an
+          // unowned one every module but those taking owned mail only.
           const mailboxOwned = mailboxOwner(data(connection));
-          for (const { owner, queueClass } of registeredEmailInbound())
+          for (const {
+            owner,
+            queueClass,
+            ownedOnly,
+          } of registeredEmailInbound())
             if (
-              (!mailboxOwned || owner === mailboxOwned) &&
+              (mailboxOwned ? owner === mailboxOwned : !ownedOnly) &&
               ownerEnabled(owner, enabled)
             )
               await enqueue(
