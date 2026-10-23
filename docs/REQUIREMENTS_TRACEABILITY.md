@@ -22,6 +22,8 @@
 | CI06 Organization knowledge only through explicit shares, with origin and invalidation | `knowledge/shares.ts`; `knowledge-shares.integration.test.ts` | PASS_TEST |
 | CI07 Existing project connections cut over to central connections with rollback | `connectionAccess`, `connector-attach`, `connections-migrate.ts`; cutover and migration tests | PASS_TEST (Postiz, Matomo, customer context; mailboxes/Slack/GitHub/Drive not cut over) |
 | CI08 Central MCP administration and n8n bindings | `administration/mcp.ts`, `automation/workflows.ts`; MCP admin and automation tests | PASS_TEST |
+| PC01 Project configuration readable and changeable over MCP only with owner approval, version lock and idempotency | `platform/configuration/configuration.ts`, `marketing/brand/configuration-section.ts`; `project-configuration-mcp.integration.test.ts` | PASS_TEST (local; flags off) |
+| PC02 Presale fields required only where presale campaigns are enabled | `enabledCampaignTypes`, `marketingProfileRequirements` (`packages/schemas`), `assertCampaignContext`; MCP test, `profile-fields.test.tsx` | PASS_TEST (local) |
 
 ## Finance module phase 1 (2026-10-23)
 

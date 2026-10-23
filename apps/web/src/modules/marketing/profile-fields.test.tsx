@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { brandTermsField, officialLinkCandidates } from "./profile-fields";
+import {
+  brandTermsField,
+  officialLinkCandidates,
+  profileCampaignTypes,
+} from "./profile-fields";
 
 describe("brandTerms in the profile editor (WP3.4)", () => {
   it("sends lower-case words, one per line, without duplicates", () => {
@@ -74,5 +78,18 @@ describe("official target links from the project links", () => {
         checked: true,
       },
     ]);
+  });
+});
+
+describe("campaign types of a profile", () => {
+  it("uses the stored list", () => {
+    expect(profileCampaignTypes({ campaignTypes: ["product"], presaleStrategy: "kept" })).toEqual(["product"]);
+  });
+  it("keeps presale for profiles that store its strategy without a list", () => {
+    expect(profileCampaignTypes({ presaleStrategy: "Launch plan" })).toEqual(["product", "presale"]);
+  });
+  it("offers product campaigns only otherwise", () => {
+    expect(profileCampaignTypes({})).toEqual(["product"]);
+    expect(profileCampaignTypes(null)).toEqual(["product"]);
   });
 });

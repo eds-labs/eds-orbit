@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Download, Image as ImageIcon, Sparkles, Upload } from "lucide-react";
 import {
   action,
@@ -21,7 +21,11 @@ import {
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import { useCollection } from "@/platform/ui/collection";
-import { brandTermsField, officialLinkCandidates } from "./profile-fields";
+import {
+  brandTermsField,
+  officialLinkCandidates,
+  profileCampaignTypes,
+} from "./profile-fields";
 import {
   AGENT_CONTENT_LANGUAGES,
   languageName,
@@ -114,6 +118,21 @@ const PROFILE_TEXT = {
   presaleStrategy: {
     en: "Presale marketing strategy",
     de: "Presale-Marketingstrategie",
+  },
+  campaignTypes: { en: "Campaign types", de: "Kampagnentypen" },
+  campaignTypesHint: {
+    en: "Only the strategies of the chosen campaign types are needed. A hidden strategy stays saved.",
+    de: "Nur die Strategien der gewählten Kampagnentypen werden benötigt. Eine ausgeblendete Strategie bleibt gespeichert.",
+  },
+  campaignProduct: { en: "Product campaigns", de: "Produktkampagnen" },
+  campaignPresale: { en: "Presale campaigns", de: "Presale-Kampagnen" },
+  campaignBoth: {
+    en: "Product and presale campaigns",
+    de: "Produkt- und Presale-Kampagnen",
+  },
+  versionConflict: {
+    en: "The profile changed meanwhile, for example through an approved MCP change. Close the editor and open it again to edit the current version.",
+    de: "Das Profil wurde inzwischen geändert, etwa durch eine freigegebene MCP-Änderung. Schließe den Editor und öffne ihn erneut, um die aktuelle Version zu bearbeiten.",
   },
   voice: {
     en: "Brand voice (one rule per line)",
@@ -222,6 +241,9 @@ function profileText(locale: string) {
   };
 }
 
+const optionalText = (key: string, value: unknown) =>
+  typeof value === "string" && value.trim() ? { [key]: value } : {};
+
 export function MarketingProfileConfiguration() {
   const { project, isOwner, refresh, locale } = useWorkspace();
   const p = profileText(locale);
@@ -237,6 +259,12 @@ export function MarketingProfileConfiguration() {
   });
   const [editing, setEditing] = useState(false);
   const [linkError, setLinkError] = useState(false);
+  // Changes approved elsewhere (an MCP proposal) show on returning here.
+  const refreshProfile = profile.refresh;
+  useEffect(() => {
+    window.addEventListener("focus", refreshProfile);
+    return () => window.removeEventListener("focus", refreshProfile);
+  }, [refreshProfile]);
   const current = profile.data?.data;
   const visual = current?.visualIdentity || {};
   const projectLanguages = languagesOf(project);
@@ -275,6 +303,9 @@ export function MarketingProfileConfiguration() {
     value: visual[name] || fallback,
     placeholder: fallback,
   });
+  // Which campaign types the profile runs (profile-fields.ts).
+  const campaignTypes = profileCampaignTypes(current);
+  const campaignChoice = [...campaignTypes].sort().join(",");
   const fonts = ["Inter", "DejaVu Sans", "Arial", "system-ui"].map((font) => ({
     value: font,
     label: font,
@@ -301,11 +332,24 @@ export function MarketingProfileConfiguration() {
       value: current?.positioning,
     },
     {
+      name: "campaignTypes",
+      label: p("campaignTypes"),
+      type: "select",
+      value: campaignChoice,
+      options: [
+        { value: "product", label: p("campaignProduct") },
+        { value: "presale,product", label: p("campaignBoth") },
+        { value: "presale", label: p("campaignPresale") },
+      ],
+      hint: p("campaignTypesHint"),
+    },
+    {
       name: "productStrategy",
       label: p("productStrategy"),
       type: "textarea",
       required: true,
       value: current?.productStrategy,
+      showWhen: { name: "campaignTypes", values: ["product", "presale,product"] },
     },
     {
       name: "presaleStrategy",
@@ -313,6 +357,7 @@ export function MarketingProfileConfiguration() {
       type: "textarea",
       required: true,
       value: current?.presaleStrategy,
+      showWhen: { name: "campaignTypes", values: ["presale", "presale,product"] },
     },
     {
       name: "voice",
@@ -532,7 +577,11 @@ export function MarketingProfileConfiguration() {
           <DataForm
             fields={form}
             pending={mutation.pending}
-            error={mutation.error}
+            error={
+              mutation.error === "MARKETING_PROFILE_VERSION_CONFLICT"
+                ? p("versionConflict")
+                : mutation.error
+            }
             submitLabel={p("submit")}
             onCancel={() => {
               setEditing(false);
@@ -557,8 +606,19 @@ export function MarketingProfileConfiguration() {
                       internalLanguage: str(v, "internalLanguage"),
                       audience: str(v, "audience"),
                       positioning: str(v, "positioning"),
-                      productStrategy: str(v, "productStrategy"),
-                      presaleStrategy: str(v, "presaleStrategy"),
+                      // The version this edit started from: a change made
+                      // meanwhile (also over MCP) is refused, not overwritten.
+                      expectedVersion: profile.data?.version ?? 0,
+                      campaignTypes: str(v, "campaignTypes").split(","),
+                      // A hidden strategy keeps its saved text.
+                      ...optionalText(
+                        "productStrategy",
+                        str(v, "productStrategy") || current?.productStrategy,
+                      ),
+                      ...optionalText(
+                        "presaleStrategy",
+                        str(v, "presaleStrategy") || current?.presaleStrategy,
+                      ),
                       voice: profileCsv(str(v, "voice")),
                       guardrails: profileCsv(str(v, "guardrails")),
                       primaryCtas: profileCsv(str(v, "primaryCtas")),
@@ -586,6 +646,8 @@ export function MarketingProfileConfiguration() {
                 )
                 .then((result) => {
                   if (result) setEditing(false);
+                  // A refused save shows the version that is current now.
+                  else profile.refresh();
                 });
             }}
           />

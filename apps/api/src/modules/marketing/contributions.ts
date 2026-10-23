@@ -1,3 +1,4 @@
+import { marketingConfigurationSection } from "./brand/configuration-section.ts";
 import { marketingMcpTools, marketingMcpActions } from "./mcp-tools.ts";
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
 import { chatTools } from "./tools/index.ts";
@@ -55,6 +56,8 @@ export const marketingContributions: ModuleContributions = {
   notifications: marketingNotifications,
   // Postiz, Matomo and Slack connections and their checks (WP2.5c).
   connections: marketingConnections,
+  // The Marketing profile in the project configuration (MCP and Orbit).
+  configurationSections: { marketing: marketingConfigurationSection },
   // Slack interactions through the platform's hooks route as well (WP4.2).
   webhooks: { slack: slackWebhook },
   // Content, approvals, publications, insights and jobs on revoked or

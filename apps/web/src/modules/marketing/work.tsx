@@ -1,4 +1,5 @@
 "use client";
+import { profileCampaignTypes } from "./profile-fields";
 import { contentLanguageOptions } from "@/platform/project-settings/project-configuration";
 import { AppLink } from "@/platform/ui/app-link";
 import { openExceptions, pausedPosts } from "./approval-lists";
@@ -473,6 +474,8 @@ export function MissionEditor({
     onClose();
   });
   const de = locale === "de";
+  // Only the campaign types the Marketing profile enables.
+  const campaignTypes = profileCampaignTypes(profile.data?.data);
   const fields: FormField[] = [
     { name: "title", label: t("title"), required: true, value: initial?.title },
     {
@@ -543,14 +546,15 @@ export function MissionEditor({
     },
     {
       name: "campaignType",
-      label: de ? "Kampagnenbereich" : "Campaign area",
+      label: t("campaignArea"),
       type: "select",
-      value: "product",
-      options: [
-        { value: "product", label: "Product marketing" },
-        { value: "presale", label: "ULIQ presale" },
-      ],
-      hint: "A campaign belongs to exactly one area. Cross-area content is blocked.",
+      value: campaignTypes[0] ?? "product",
+      // Only the campaign types the Marketing profile enables.
+      options: campaignTypes.map((type) => ({
+        value: type,
+        label: t(type === "presale" ? "campaignPresale" : "campaignProduct"),
+      })),
+      hint: t("campaignAreaHint"),
     },
     {
       name: "channels",

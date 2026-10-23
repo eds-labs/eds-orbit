@@ -54,7 +54,10 @@ describe("module contributions", () => {
   it("offers the chat tools unchanged and in their order", () => {
     expect(
       registeredTools()
-        .filter((t) => t.feature !== "mcp_tasks")
+        // Feature-gated MCP tools are off by default and not chat tools.
+        .filter(
+          (t) => t.feature !== "mcp_tasks" && t.feature !== "project_configuration",
+        )
         .map((t) => t.name),
     ).toEqual(chatTools.map((t) => t.name));
   });

@@ -226,6 +226,29 @@ export const visualIdentity = z
       .default(["Preserve the approved logo unchanged."]),
   })
   .strict();
+/** Campaign types a project can run; presale only where it is enabled. */
+export const CAMPAIGN_TYPES = ["product", "presale"] as const;
+export type CampaignType = (typeof CAMPAIGN_TYPES)[number];
+
+/**
+ * The campaign types a profile enables. Profiles saved before the explicit
+ * list keep what they could do: presale with a stored presale strategy
+ * (that field used to be required for every project), product otherwise.
+ */
+export function enabledCampaignTypes(profile: {
+  campaignTypes?: readonly CampaignType[];
+  presaleStrategy?: string;
+}): CampaignType[] {
+  if (profile.campaignTypes?.length) return [...profile.campaignTypes];
+  return profile.presaleStrategy ? ["product", "presale"] : ["product"];
+}
+
+/** Profile fields only some campaign types need. */
+export const CAMPAIGN_TYPE_FIELDS: Readonly<Record<CampaignType, readonly string[]>> = {
+  product: ["productStrategy"],
+  presale: ["presaleStrategy"],
+};
+
 export const marketingProfile = z
   .object({
     productName: z.string().min(1).max(300),
@@ -235,8 +258,16 @@ export const marketingProfile = z
     internalLanguage: z.enum(["en", "de"]),
     audience: z.string().min(1).max(2000),
     positioning: z.string().min(1).max(2000),
-    productStrategy: z.string().min(1).max(4000),
-    presaleStrategy: z.string().min(1).max(4000),
+    // Which campaign types the project runs (absent: see enabledCampaignTypes).
+    campaignTypes: z
+      .array(z.enum(CAMPAIGN_TYPES))
+      .min(1)
+      .max(CAMPAIGN_TYPES.length)
+      .refine((types) => new Set(types).size === types.length, "duplicate")
+      .optional(),
+    productStrategy: z.string().min(1).max(4000).optional(),
+    // Required only while presale campaigns are enabled; kept when disabled.
+    presaleStrategy: z.string().min(1).max(4000).optional(),
     voice: z.array(z.string().min(1).max(300)).min(1).max(30),
     guardrails: z.array(z.string().min(1).max(500)).min(1).max(50),
     primaryCtas: z.array(z.string().min(1).max(200)).min(1).max(20),
@@ -274,7 +305,41 @@ export const marketingProfile = z
       .max(20)
       .optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((profile, ctx) => {
+    // A field is required exactly when an enabled campaign type uses it.
+    for (const type of enabledCampaignTypes(profile))
+      for (const field of CAMPAIGN_TYPE_FIELDS[type])
+        if (!profile[field as keyof typeof profile])
+          ctx.addIssue({
+            code: "custom",
+            path: [field],
+            message: "REQUIRED_FOR_CAMPAIGN_TYPE",
+          });
+  });
+
+/**
+ * Which profile fields are required, optional or not used for this
+ * profile's campaign types, for forms and the MCP configuration view.
+ */
+export function marketingProfileRequirements(profile: {
+  campaignTypes?: readonly CampaignType[];
+  presaleStrategy?: string;
+}) {
+  const enabled = enabledCampaignTypes(profile);
+  const typeFields = new Set(Object.values(CAMPAIGN_TYPE_FIELDS).flat());
+  const used = new Set(enabled.flatMap((t) => CAMPAIGN_TYPE_FIELDS[t]));
+  const fields: Record<string, "required" | "optional" | "not_used"> = {};
+  for (const [name, schema] of Object.entries(marketingProfile.shape))
+    fields[name] = typeFields.has(name)
+      ? used.has(name)
+        ? "required"
+        : "not_used"
+      : schema.safeParse(undefined).success
+        ? "optional"
+        : "required";
+  return { campaignTypes: enabled, fields };
+}
 export const experiment = z
   .object({
     name: z.string().min(1).max(200),

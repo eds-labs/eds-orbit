@@ -3,7 +3,10 @@ import {
   authorize,
   PROJECT_OWN,
 } from "../../../platform/tenancy/permissions.ts";
-import { marketingProfile } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  enabledCampaignTypes,
+  marketingProfile,
+} from "../../../../../../packages/schemas/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import {
   data,
@@ -68,7 +71,7 @@ export async function currentMarketingProfile(tx: DbTx, scope: Scope) {
   });
 }
 
-async function assertProfileReferences(
+export async function assertProfileReferences(
   tx: DbTx,
   scope: Scope,
   profile: MarketingProfile,
@@ -99,15 +102,26 @@ async function assertProfileReferences(
   }
 }
 
+/**
+ * Saves a new profile version. With `expectedVersion` (the version the
+ * editor started from; 0 for none) a change made meanwhile, in Orbit or
+ * over MCP, is refused instead of overwritten.
+ */
 export async function saveMarketingProfile(
   tx: DbTx,
   scope: Scope,
   raw: unknown,
+  expectedVersion?: number,
 ) {
   owner(scope);
   const profile = marketingProfile.parse(raw);
   await assertProfileReferences(tx, scope, profile);
   const existing = await currentMarketingProfile(tx, scope);
+  if (
+    expectedVersion !== undefined &&
+    (existing?.version ?? 0) !== expectedVersion
+  )
+    throw new DomainError("MARKETING_PROFILE_VERSION_CONFLICT", 409);
   const version = (existing?.version ?? 0) + 1;
   const saved = existing
     ? await tx.projectMarketingProfile.update({
@@ -160,6 +174,9 @@ export async function assertCampaignContext(
   if (input.campaignType !== "product" && input.campaignType !== "presale")
     throw new DomainError("CAMPAIGN_TYPE_REQUIRED", 409);
   const profileData = marketingProfile.parse(profile.data);
+  // Presale campaigns only where the profile enables them.
+  if (!enabledCampaignTypes(profileData).includes(input.campaignType))
+    throw new DomainError("CAMPAIGN_TYPE_NOT_ENABLED", 409);
   if (!profileData.primaryCtas.includes(String(input.targetAction ?? "")))
     throw new DomainError("CAMPAIGN_PRIMARY_CTA_NOT_APPROVED", 409);
   // A campaign is written in one of the project's content languages; the

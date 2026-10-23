@@ -124,8 +124,22 @@ export const marketingRoutes: RoutesContribution = (context) => {
   app.put("/api/projects/:projectId/marketing-profile", async (req) => {
     const { projectId } = req.params as { projectId: string };
     const scope = await scopeFor(auth, req, projectId, PROJECT_OWN);
+    // The editor sends the version it started from; older clients do not.
+    const { expectedVersion, ...body } = (req.body ?? {}) as Record<
+      string,
+      unknown
+    >;
     return scoped(scope.workspaceId, projectId, async (tx) =>
-      jsonSafe(await saveMarketingProfile(tx, scope, req.body)),
+      jsonSafe(
+        await saveMarketingProfile(
+          tx,
+          scope,
+          body,
+          expectedVersion === undefined
+            ? undefined
+            : z.number().int().min(0).parse(expectedVersion),
+        ),
+      ),
     );
   });
 

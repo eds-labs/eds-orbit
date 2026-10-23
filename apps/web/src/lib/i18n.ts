@@ -281,6 +281,11 @@ export const labels = {
     mailbox: "Mailbox",
     noConnections: "No connections set up",
     costUnknownLine: "{amount} USD reserved with an unclear outcome",
+    campaignArea: "Campaign area",
+    campaignAreaHint:
+      "A campaign belongs to exactly one area. Cross-area content is blocked.",
+    campaignProduct: "Product marketing",
+    campaignPresale: "Presale marketing",
   },
   de: {
     overview: "Übersicht",
@@ -565,6 +570,11 @@ export const labels = {
     mailbox: "Postfach",
     noConnections: "Keine Verbindungen eingerichtet",
     costUnknownLine: "{amount} USD mit unklarem Ausgang reserviert",
+    campaignArea: "Kampagnenbereich",
+    campaignAreaHint:
+      "Eine Kampagne gehört zu genau einem Bereich. Bereichsübergreifende Inhalte werden blockiert.",
+    campaignProduct: "Produktmarketing",
+    campaignPresale: "Presale-Marketing",
   },
 } as const;
 export type Text = (key: keyof typeof labels.en) => string;

@@ -453,6 +453,8 @@ export async function runChat(scope: Scope, runId: string, refusal?: string) {
     );
     const features = assistants.flatMap((a) => a.features({ toolSearch }));
     if (loadConfig().ORBIT_MCP_TASKS === "true") features.push("mcp_tasks");
+    if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
+      features.push("project_configuration");
     // Each tool is offered by the member's role in the tool's module.
     // Tools meant for outside clients only (exposure.assistant: false) never appear.
     let offered = registeredTools(enabled).filter((tool) => {

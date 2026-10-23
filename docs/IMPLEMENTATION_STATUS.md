@@ -1,5 +1,18 @@
 # Implementation status
 
+## Project configuration over MCP, campaign-type fields (2026-10-23, local; not pushed, flags off)
+
+- **MCP tools:** `project_configuration_get` (`orbit:read`) and `project_configuration_update` (`orbit:propose`, owners, executed only after owner approval). See `docs/MCP_PROJECT_CONFIGURATION.md` and `plans/project-configuration-mcp.md`.
+- **Required fields depend on the campaign types:** `campaignTypes` in the Marketing profile; `presaleStrategy` is required only with presale enabled, `productStrategy` only with product. Stored profiles keep their behaviour (presale stays on where a presale strategy is stored), so no migration is needed. Presale campaigns are refused where presale is off.
+- **Profile editor:**
+  - a campaign type choice hides strategies that are not needed, and a hidden strategy stays saved;
+  - saving sends the version it started from, so a change made meanwhile (for example over MCP) is refused instead of overwritten;
+  - the profile reloads when the window regains focus.
+- **Mission form:** offers only the enabled campaign types, with labels from `labels` en/de.
+- **Configuration sections:** modules contribute `configurationSections` (platform: project, read-only; marketing: profile). Operation tools take their own feature and proposal switch. Action types may set `policyRequired: false`.
+- **Flag:** `ORBIT_MCP_PROJECT_CONFIGURATION` (default off); the update also needs `ORBIT_MCP_PROPOSALS`.
+- **Tests:** `project-configuration-mcp.integration.test.ts` (10 cases) and the web `profile-fields` tests.
+
 ## Project configuration: content languages, profile links, i18n (2026-10-23, local; not pushed)
 
 Branch `claude/eds-orbit-config-i18n-a781a4`, plan and decisions in `plans/project-configuration-i18n.md` (Mario 2026-10-23: one project-wide link list that Marketing picks fact-backed target links from; any language tag for project, knowledge, missions and content, automatic agents stay English/German; local delivery, ask before pushing).

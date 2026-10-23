@@ -113,6 +113,8 @@ async function allowedTools(
     assistant.features({ toolSearch: true }),
   );
   if (loadConfig().ORBIT_MCP_TASKS === "true") features.push("mcp_tasks");
+  if (loadConfig().ORBIT_MCP_PROJECT_CONFIGURATION === "true")
+    features.push("project_configuration");
   const proposals = loadConfig().ORBIT_MCP_PROPOSALS === "true";
   return registeredTools(enabled)
     .filter((tool) => {

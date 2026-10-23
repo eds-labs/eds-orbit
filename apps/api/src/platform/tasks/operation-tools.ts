@@ -6,6 +6,7 @@ import type { PermissionDef } from "../../../../../packages/module-contracts/src
 import {
   defineTool,
   type ToolContext,
+  type ToolFeature,
 } from "../../modules/agents/tools/registry.ts";
 import {
   createActionRequest,
@@ -41,6 +42,12 @@ type Operation = {
     args: any,
   ): Promise<{ inboxId: string; inboxVersion: number } | null>;
   mcpProjectRequired?: boolean;
+  /** The feature that lists the tool; default the MCP 2.0 tasks feature. */
+  feature?: ToolFeature;
+  /** Whether MCP clients may propose it now; default with MCP 2.0 tasks. */
+  proposable?: () => boolean;
+  /** False when the change spends nothing and needs no active policy. */
+  policyRequired?: boolean;
   output?: z.ZodType;
   validate?(tx: DbTx, scope: Scope, args: any): Promise<void>;
   approvalContext?(tx: DbTx, scope: Scope, args: any): Promise<unknown>;
@@ -138,6 +145,8 @@ const proposalOutput = z
   })
   .strict();
 async function check(tx: DbTx, scope: Scope, op: Operation) {
+  // Platform operations belong to no switchable module.
+  if (op.module === "platform") return authorize(scope, op.permission);
   if (
     !moduleAvailable(op.module) ||
     !((await enabledModules(tx, scope))?.has(op.module) ?? true)
@@ -159,7 +168,7 @@ export function readOperation(op: Operation) {
     exposure: { assistant: true, mcp: true },
     outputSchema: op.output ? envelope.extend({ result: op.output }) : envelope,
     deferLoading: true,
-    feature: "mcp_tasks",
+    feature: op.feature ?? "mcp_tasks",
     ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
     async execute(ctx, raw) {
       const args = serviceArgs(op.input, raw);
@@ -198,8 +207,9 @@ export function approvedOperation(op: Operation) {
     approvalMode: "approval_required",
     deciderRole: "owner",
     get mcpProposable() {
-      return mcp2Enabled();
+      return (op.proposable ?? mcp2Enabled)();
     },
+    ...(op.policyRequired === false ? { policyRequired: false } : {}),
     ...(op.sensitive ? { mcpScopes: ["orbit:support"] } : {}),
     ttlMs: 24 * 3600000,
     payload,
@@ -278,7 +288,7 @@ export function approvedOperation(op: Operation) {
     parameters: modelParameters(input),
     risk: "P_proposal",
     permission: op.permission,
-    feature: "mcp_tasks",
+    feature: op.feature ?? "mcp_tasks",
     deferLoading: true,
     exposure: { assistant: true, mcp: true },
     outputSchema: proposalOutput,

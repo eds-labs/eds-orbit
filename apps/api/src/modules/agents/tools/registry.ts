@@ -29,7 +29,11 @@ export type ToolNamespace =
 // Agents never receive tools with external or irreversible effects.
 export type ToolRisk = "R0_read" | "W0_internal" | "P_proposal";
 // Tools behind a feature flag are offered only while it is on.
-export type ToolFeature = "content_packages" | "agents" | "mcp_tasks";
+export type ToolFeature =
+  | "content_packages"
+  | "agents"
+  | "mcp_tasks"
+  | "project_configuration";
 export type ToolContext = {
   scope: Scope;
   runId: string;

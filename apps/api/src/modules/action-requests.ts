@@ -84,6 +84,11 @@ export type ActionDefinition<P> = {
    */
   mcpProposable?: boolean;
   mcpScopes?: readonly string[];
+  /**
+   * False for types that spend nothing and need no Marketing automation
+   * (such as a configuration change): no active policy is required.
+   */
+  policyRequired?: boolean;
   ttlMs: number;
   payload: z.ZodType<P>;
   costCeilingMicros: (payload: P) => number;
@@ -123,14 +128,17 @@ export async function createActionRequest(
   if (requester.kind === "mcp" && type.mcpProposable !== true)
     throw new DomainError("ACTION_TYPE_NOT_PROPOSABLE", 403);
   const payload = type.payload.parse(input.payload);
-  const policy = await activePolicyRecord(tx, scope);
-  if (!policy) throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
+  // Types that spend nothing and need no automation may run without one.
+  const policy =
+    type.policyRequired === false ? null : await activePolicyRecord(tx, scope);
+  if (!policy && type.policyRequired !== false)
+    throw new DomainError("ACTIVE_POLICY_REQUIRED", 409);
   const packageHash = hash({ actionType: input.actionType, payload });
   const row = await create(tx, scope, KIND, {
     actionType: input.actionType,
     riskClass: type.riskClass,
     approvalMode: type.approvalMode,
-    policy: { id: policy.id, version: policy.version },
+    policy: policy ? { id: policy.id, version: policy.version } : null,
     requestedBy: requester,
     payload,
     packageHash,

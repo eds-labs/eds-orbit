@@ -5,6 +5,11 @@ import {
 } from "../ai/connection-providers.ts";
 import { taskRetention } from "../tasks/retention.ts";
 import { taskStart } from "../tasks/tasks.ts";
+import {
+  configurationActionTypes,
+  configurationTools,
+} from "../configuration/configuration.ts";
+import { projectSection } from "../configuration/project-section.ts";
 import type { ModuleContributions } from "./contributions.ts";
 import { platformActions } from "../http/platform-actions.ts";
 import { sourceSyncScheduler } from "../knowledge/source-sync.ts";
@@ -33,7 +38,10 @@ import { ARCHIVE_QUEUE, archiveInboundEmail } from "../email/archive.ts";
 /** What the platform itself registers beside the modules (WP1.6). */
 export const platformContributions: ModuleContributions = {
   actions: platformActions,
-  actionTypes: { "platform.task.start": taskStart },
+  actionTypes: { "platform.task.start": taskStart, ...configurationActionTypes },
+  // The project configuration over MCP (plans/project-configuration-mcp.md).
+  tools: configurationTools,
+  configurationSections: { project: projectSection },
   scheduler: sourceSyncScheduler,
   // The bot's `/pause` confirmation; modules add their own buttons.
   telegram: { callbacks: { pause: pauseCallback } },

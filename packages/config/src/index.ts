@@ -130,6 +130,11 @@ const baseConfigSchema = z.object({
   // Central switch for MCP proposal tools (Track M, WP-M4): while "false" the
   // gateway neither lists nor runs a P_proposal tool. Status polling stays.
   ORBIT_MCP_PROPOSALS: unset(z.enum(["false", "true"]).default("false")),
+  // Project configuration over MCP (plans/project-configuration-mcp.md): the
+  // read tool, and the owner-approved update (which also needs proposals).
+  ORBIT_MCP_PROJECT_CONFIGURATION: unset(
+    z.enum(["false", "true"]).default("false"),
+  ),
   // Module-level roles (WP4.5): off until the security review and approval.
   ORBIT_MODULE_ROLES: z.enum(["false", "true"]).default("false"),
   // Public ingress (WP4.2): signed provider webhooks; off until the security review.

@@ -87,3 +87,16 @@ export function officialLinkCandidates(
   }
   return { candidates, unverified };
 }
+
+/**
+ * The campaign types a Marketing profile enables, as the server derives
+ * them (packages/schemas enabledCampaignTypes): the stored list, else
+ * presale only when a presale strategy is stored, else product.
+ */
+export function profileCampaignTypes(
+  profile: { campaignTypes?: unknown; presaleStrategy?: unknown } | null | undefined,
+): string[] {
+  if (Array.isArray(profile?.campaignTypes) && profile.campaignTypes.length)
+    return profile.campaignTypes.map(String);
+  return profile?.presaleStrategy ? ["product", "presale"] : ["product"];
+}

@@ -43,6 +43,10 @@ import type {
   AttentionContribution,
   AttentionStatusContribution,
 } from "../attention/types.ts";
+import type {
+  ConfigurationContribution,
+  ConfigurationSection,
+} from "../configuration/types.ts";
 
 /**
  * What a module plugs into the platform's registries (WP1.6). The platform
@@ -86,6 +90,8 @@ export type ModuleContributions = {
   notifications?: NotificationContribution;
   /** Connection providers: form fields, normalization, check (WP2.5c). */
   connections?: ConnectionsContribution;
+  /** Sections of the project configuration the module owns, by id. */
+  configurationSections?: ConfigurationContribution;
   /**
    * Invalidates the module's records that depend on changed knowledge, in the
    * engine's transaction (WP3.1). Runs regardless of module activation.
@@ -573,6 +579,23 @@ export function registeredTools(
   // Always filtered: without an enabled set, unavailable modules (support
   // without ORBIT_SUPPORT) still offer nothing (WP5.6).
   return tools.filter((t) => ownerEnabled(owners.tools.get(t.name), enabled));
+}
+/**
+ * The project configuration sections of enabled owners, platform first:
+ * [id, owner, section]. Section ids are unique across owners.
+ */
+export function registeredConfigurationSections(
+  enabled?: ReadonlySet<string>,
+): Array<{ id: string; owner: string; section: ConfigurationSection }> {
+  const out: Array<{ id: string; owner: string; section: ConfigurationSection }> = [];
+  for (const [owner, c] of current().byModule)
+    if (ownerEnabled(owner, enabled))
+      for (const [id, section] of Object.entries(c.configurationSections ?? {})) {
+        if (out.some((s) => s.id === id))
+          throw new Error(`configuration section ${id} registered twice`);
+        out.push({ id, owner, section });
+      }
+  return out;
 }
 export function registeredActionType(type: string) {
   return current().actionTypes.get(type);
