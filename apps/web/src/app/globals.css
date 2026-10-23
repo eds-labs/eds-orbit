@@ -989,6 +989,108 @@ pre {
     order: 3;
   }
 }
+/* Finance management pages (modules/finance: entries, invoices, recurring,
+   reports). Tables scroll inside their container, never the page. */
+.finance-review > *,
+.finance-body {
+  min-width: 0;
+}
+.finance-body .table-wrap {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.finance-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  padding: 0 var(--settings-inset, 21px) 12px;
+}
+.finance-filters label {
+  display: grid;
+  gap: 4px;
+  min-width: 140px;
+  flex: 1 1 140px;
+  font-size: 13px;
+}
+.finance-table th,
+.finance-table td {
+  padding: 8px 12px;
+  white-space: nowrap;
+  vertical-align: top;
+}
+.finance-table tbody th {
+  font-weight: 500;
+  text-transform: none;
+  background: transparent;
+  color: inherit;
+}
+.finance-table tfoot th,
+.finance-table tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--border);
+}
+.finance-table tr[data-selected] {
+  background: var(--panel-muted, rgba(127, 127, 127, 0.08));
+}
+.finance-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.finance-links {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.finance-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.finance-sums [data-balanced="true"] dd {
+  color: var(--success, inherit);
+}
+.finance-sums [data-balanced="false"] dd {
+  color: var(--danger);
+}
+@media (max-width: 760px) {
+  .finance-filters label {
+    flex-basis: 100%;
+  }
+  .finance-table th,
+  .finance-table td {
+    padding: 8px;
+  }
+}
+@media print {
+  .sidebar,
+  .topbar,
+  .mobile-nav,
+  .finance-noprint {
+    display: none !important;
+  }
+  .finance-body .table-wrap {
+    overflow: visible;
+    border: 0;
+  }
+  .finance-table th,
+  .finance-table td {
+    white-space: normal;
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+  .finance-year-table {
+    page-break-inside: auto;
+  }
+  .finance-table tr {
+    page-break-inside: avoid;
+  }
+}
 .overview-columns {
   display: grid;
   grid-template-columns: 1.6fr 1fr;

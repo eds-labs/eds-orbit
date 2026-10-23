@@ -138,6 +138,7 @@ export type Invoice = {
   kind: string;
   direction: "payable" | "receivable";
   counterpartyId: string | null;
+  creditsInvoiceId: string | null;
   number: string | null;
   issueDate: string;
   dueDate: string | null;
@@ -244,6 +245,18 @@ export type CostReport = {
   matched: string[];
   matchedCostCenters: string[];
 };
+/** An invoice still open at the end of the year (reports/year). */
+export type YearOpenItem = {
+  invoiceId: string;
+  number: string | null;
+  direction: "payable" | "receivable";
+  counterpartyId: string | null;
+  currency: string;
+  issueDate: string;
+  dueDate: string | null;
+  openMicros: Money;
+  openBaseMicros: Money;
+};
 export type YearOverview = {
   baseCurrency: string;
   year: number;
@@ -260,7 +273,7 @@ export type YearOverview = {
     name: string | null;
     expenseMicros: Money;
   }>;
-  open: unknown;
+  open: YearOpenItem[];
   documents: Array<{
     id: string;
     invoiceId: string;

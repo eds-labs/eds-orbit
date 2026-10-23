@@ -19,8 +19,19 @@ import {
   type Allocation,
   type AllocationRow,
 } from "./allocation-editor";
+import {
+  amountMicros,
+  currencyDecimals,
+  isDate,
+  microsToInput,
+  rateValid,
+} from "./amount";
 import type { FinanceText } from "./labels";
 import { CURRENCIES, formatMoney } from "./money";
+
+// The decimal parsing lives in amount.ts (shared with the management forms);
+// re-exported so existing imports keep working.
+export { amountMicros, currencyDecimals, microsToInput, rateValid };
 
 // The booking form of the review detail (spec §9): prefilled from the
 // stored extraction and its suggestions, edited by a person, and sent as
@@ -80,96 +91,6 @@ export type Booking = {
 };
 
 export const NEW_COUNTERPARTY = "__new";
-
-const DECIMALS: Readonly<Record<string, number>> = {
-  EUR: 2,
-  USD: 2,
-  GBP: 2,
-  CHF: 2,
-  USDC: 6,
-};
-const MICRO = 1_000_000n;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const RATE = /^\d{1,12}(?:\.\d{1,12})?$/;
-
-/** The decimals a currency allows, or null for one finance does not know. */
-export const currencyDecimals = (currency: string): number | null =>
-  DECIMALS[currency] ?? null;
-
-const GROUPED = (separator: "." | ",") =>
-  new RegExp(`^\\d{1,3}(?:\\${separator}\\d{3})+$`);
-/** A comma before exactly three final digits: refused for USDC (see below). */
-const AMBIGUOUS_COMMA = /^\d{1,3}(?:\.\d{3})*,\d{3}$/;
-
-/**
- * Typed amount text as micros, or null when it is not a non-negative
- * amount with at most the currency's decimals. Reads separators like the
- * server's parseAmount: with both "." and "," the last one is the decimal
- * separator and the other must group thousands ("1,000.50", "1.000,50"); a
- * separator that repeats groups thousands ("1,234,567"); a single one is
- * the decimal separator ("12,5"). For currencies with more than two
- * decimals a comma before exactly three final digits ("1,000") is
- * ambiguous and refused.
- */
-export function amountMicros(text: string, currency: string): bigint | null {
-  const decimals = currencyDecimals(currency);
-  if (decimals === null) return null;
-  const body = text.trim();
-  if (!/^[\d.,]+$/.test(body)) return null;
-  if (decimals > 2 && AMBIGUOUS_COMMA.test(body)) return null;
-  const lastDot = body.lastIndexOf(".");
-  const lastComma = body.lastIndexOf(",");
-  let whole = body;
-  let fraction = "";
-  if (lastDot >= 0 && lastComma >= 0) {
-    const index = Math.max(lastDot, lastComma);
-    const grouping = body[index] === "." ? "," : ".";
-    const left = body.slice(0, index);
-    fraction = body.slice(index + 1);
-    if (!GROUPED(grouping).test(left) || !fraction) return null;
-    whole = left.replaceAll(grouping, "");
-  } else if (lastDot >= 0 || lastComma >= 0) {
-    const separator = lastDot >= 0 ? "." : ",";
-    const index = Math.max(lastDot, lastComma);
-    if (body.split(separator).length > 2) {
-      if (!GROUPED(separator).test(body)) return null;
-      whole = body.replaceAll(separator, "");
-    } else {
-      whole = body.slice(0, index);
-      fraction = body.slice(index + 1);
-      if (!fraction) return null;
-    }
-  }
-  if (!/^\d{1,12}$/.test(whole) || !/^\d*$/.test(fraction)) return null;
-  if (fraction.length > decimals) return null;
-  return BigInt(whole) * MICRO + BigInt(fraction.padEnd(6, "0"));
-}
-
-/** Micros text ("12500000") as input text in the currency's decimals ("12.50"). */
-export function microsToInput(micros: unknown, currency: string): string {
-  if (typeof micros !== "string" || !/^-?\d+$/.test(micros)) return "";
-  const value = BigInt(micros);
-  const abs = value < 0n ? -value : value;
-  const places = currencyDecimals(currency) ?? 6;
-  let fraction = (abs % MICRO).toString().padStart(6, "0");
-  // Keep what the currency allows; never drop a non-zero digit.
-  while (fraction.length > places && fraction.endsWith("0"))
-    fraction = fraction.slice(0, -1);
-  return `${value < 0n ? "-" : ""}${abs / MICRO}${fraction ? `.${fraction}` : ""}`;
-}
-
-/** A positive decimal rate with up to 12 decimals. */
-export const rateValid = (text: string) =>
-  RATE.test(text.trim()) && /[1-9]/.test(text);
-
-/** A real `YYYY-MM-DD` calendar date. */
-function isDate(value: string) {
-  if (!ISO_DATE.test(value)) return false;
-  const date = new Date(`${value}T00:00:00Z`);
-  return (
-    !Number.isNaN(date.valueOf()) && date.toISOString().slice(0, 10) === value
-  );
-}
 
 /** The stored draft as the form reads it (the extraction JSON, loosely). */
 export type Draft = {

@@ -9,6 +9,10 @@ export const labels = {
     financeReviewNeeded: "A receipt needs review",
     // The finance review page in the navigation.
     financeReviewNav: "Review",
+    financeBookingsNav: "Bookings",
+    financeInvoicesNav: "Invoices",
+    financeRecurringNav: "Recurring",
+    financeReportsNav: "Reports",
     tickets: "Tickets",
     contacts: "Contacts",
     statistics: "Statistics",
@@ -272,6 +276,10 @@ export const labels = {
     financeReviewNeeded: "Ein Beleg muss geprüft werden",
     // The finance review page in the navigation.
     financeReviewNav: "Prüfen",
+    financeBookingsNav: "Buchungen",
+    financeInvoicesNav: "Rechnungen",
+    financeRecurringNav: "Laufende Kosten",
+    financeReportsNav: "Berichte",
     tickets: "Tickets",
     contacts: "Kontakte",
     statistics: "Statistik",

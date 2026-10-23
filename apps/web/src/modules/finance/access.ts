@@ -11,5 +11,6 @@ export function useFinanceAccess() {
   const access = useShell().modules.find((m) => m.id === "finance")?.access;
   const owner = access ? access === "owner" : isOwner;
   const write = access ? ["owner", "editor"].includes(access) : canEdit;
-  return { owner, write };
+  // finance.export is granted to the same roles as finance.write.
+  return { owner, write, canExport: write };
 }
