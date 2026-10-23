@@ -64,3 +64,21 @@ export async function projectManagerFor(
   };
   return { scope, actor };
 }
+
+/**
+ * An active owner of the organization, for what only owners manage (their
+ * organization's own connections, ADR 0013 E3); administrators are not
+ * owners here. 404 otherwise.
+ */
+export async function workspaceOwnerFor(
+  auth: Auth,
+  req: FastifyRequest,
+  workspaceId: string,
+) {
+  const session = await sessionFor(auth, req);
+  const owner = await authDb.workspaceMember.findFirst({
+    where: { workspaceId, userId: session.user.id, role: "owner" },
+  });
+  if (!owner) throw new DomainError("NOT_FOUND", 404);
+  return { userId: session.user.id, workspaceId };
+}

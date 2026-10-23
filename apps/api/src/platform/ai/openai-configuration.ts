@@ -1,3 +1,7 @@
+import {
+  centralRouteVersion,
+  withCentralAi,
+} from "./central-ai.ts";
 import { z } from "zod";
 import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
@@ -374,7 +378,8 @@ export async function openAiConfigurationVersion(
     },
     select: { version: true },
   });
-  return row?.version ?? null;
+  // Central profiles and granted keys take part in the version (ADR 0013).
+  return centralRouteVersion(tx, scope, row?.version ?? null);
 }
 
 export async function runtimeOpenAiConfiguration(
@@ -382,32 +387,47 @@ export async function runtimeOpenAiConfiguration(
   scope: Scope,
 ): Promise<OpenAiRuntimeConfig> {
   const row = await configurationRow(tx, scope);
-  if (!row) return environmentRuntimeConfig();
-  const value = stored(row);
-  const credentialKey = loadConfig().CREDENTIAL_KEY;
   const environment = environmentRuntimeConfig();
+  const credentialKey = loadConfig().CREDENTIAL_KEY;
+  const value = row ? stored(row) : null;
+  // Only what the project saved itself, keys included (no fallback here).
+  const project: OpenAiRuntimeConfig | null = value
+    ? {
+        apiKey: value.encryptedApiKey
+          ? decrypt(value.encryptedApiKey, credentialKey)
+          : undefined,
+        imageApiKey: value.encryptedImageApiKey
+          ? decrypt(value.encryptedImageApiKey, credentialKey)
+          : undefined,
+        anthropicApiKey: value.encryptedAnthropicApiKey
+          ? decrypt(value.encryptedAnthropicApiKey, credentialKey)
+          : undefined,
+        verifiedModels: value.verifiedModels,
+        rateCard: value.rateCard,
+        modelRoutes: value.modelRoutes,
+        anthropicTierRoutes: value.anthropicTierRoutes,
+        taskRoutes: value.taskRoutes,
+        models: value.models,
+        defaultProvider: value.defaultProvider,
+        providerBudgets: value.providerBudgets,
+        fallback: value.fallback,
+        routeVersion: row!.version,
+        imageGeneration: value.imageGeneration,
+      }
+    : null;
+  const central = await withCentralAi(
+    tx,
+    scope,
+    project,
+    environment,
+    row?.version ?? null,
+  );
+  if (central) return central;
+  if (!project) return environment;
+  // The saved key wins; the environment Anthropic key is the bootstrap fallback.
   return {
-    apiKey: value.encryptedApiKey
-      ? decrypt(value.encryptedApiKey, credentialKey)
-      : undefined,
-    imageApiKey: value.encryptedImageApiKey
-      ? decrypt(value.encryptedImageApiKey, credentialKey)
-      : undefined,
-    // The saved key wins; the environment key is the bootstrap fallback.
-    anthropicApiKey: value.encryptedAnthropicApiKey
-      ? decrypt(value.encryptedAnthropicApiKey, credentialKey)
-      : environment.anthropicApiKey,
-    verifiedModels: value.verifiedModels,
-    rateCard: value.rateCard,
-    modelRoutes: value.modelRoutes,
-    anthropicTierRoutes: value.anthropicTierRoutes,
-    taskRoutes: value.taskRoutes,
-    models: value.models,
-    defaultProvider: value.defaultProvider,
-    providerBudgets: value.providerBudgets,
-    fallback: value.fallback,
-    routeVersion: row.version,
-    imageGeneration: value.imageGeneration,
+    ...project,
+    anthropicApiKey: project.anthropicApiKey ?? environment.anthropicApiKey,
   };
 }
 

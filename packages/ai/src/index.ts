@@ -196,6 +196,13 @@ export type OpenAiRuntimeConfig = {
   fallback?: FallbackConfiguration;
   routeVersion?: number;
   imageGeneration?: z.infer<typeof imageGenerationConfigurationSchema>;
+  /** Keys that came from granted central connections (ADR 0013), by use. */
+  keySources?: Partial<
+    Record<
+      "openai" | "image" | "anthropic",
+      { connectionId: string; grantId: string }
+    >
+  >;
 };
 export function environmentRuntimeConfig(): OpenAiRuntimeConfig {
   const raw = process.env.OPENAI_RATE_CARD_JSON;

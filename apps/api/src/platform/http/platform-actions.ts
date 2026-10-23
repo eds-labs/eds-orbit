@@ -16,9 +16,11 @@ import {
   saveAiProviderConfiguration,
   saveOpenAiConfiguration,
 } from "../ai/openai-configuration.ts";
+import { settleOnGrant } from "../ai/central-ai.ts";
 import {
   CONNECTION_KIND,
   decryptCredential,
+  providerScopes,
 } from "../connections/connections.ts";
 import {
   registeredConnectionProvider,
@@ -106,7 +108,11 @@ export const platformActions: Record<string, ActionHandler> = {
     const c = z
       .object({
         provider: z.enum(
-          registeredConnectionProviderIds() as [string, ...string[]],
+          registeredConnectionProviderIds().filter((id) =>
+            providerScopes(registeredConnectionProvider(id)!).includes(
+              "project",
+            ),
+          ) as [string, ...string[]],
         ),
         baseUrl: z.url().optional(),
         credential: z.string().min(10).max(1000),
@@ -201,6 +207,7 @@ export const platformActions: Record<string, ActionHandler> = {
     });
     let micros = 0n;
     for (const row of rows) {
+      await settleOnGrant(tx, row, row.amountMicros);
       await tx.budgetReservation.update({
         where: { id: row.id },
         data: { state: "settled", settledMicros: row.amountMicros },

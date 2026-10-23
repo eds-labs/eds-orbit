@@ -3,6 +3,8 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError, create, update, data } from "../shared.ts";
 import type { SpendLimits } from "./spend-mandate.ts";
 import { assertProviderBudget } from "./provider-budget.ts";
+import { chargedGrant, reserveOnGrant, settleOnGrant } from "./central-ai.ts";
+import { runtimeProviderBudgets } from "./openai-configuration.ts";
 /**
  * Start of the budget month that contains `at`: the first of the month at
  * 00:00 UTC. Project, assignment and reported month totals all count from it.
@@ -93,6 +95,17 @@ export async function reserve(
   // saved budget may not pass its stop threshold; PROVIDER_BUDGET_STOP.
   if (attribution?.model)
     await assertProviderBudget(tx, scope, attribution.model, amount, now);
+  // A key from a granted central connection (ADR 0013) is also charged to
+  // the grant's, the organization's and the connection's monthly budgets.
+  const granted = attribution?.model
+    ? await chargedGrant(
+        tx,
+        scope,
+        attribution.model,
+        (await runtimeProviderBudgets(tx, scope)).models as never,
+      )
+    : null;
+  if (granted) await reserveOnGrant(tx, scope, granted, amount, month);
   const reservation = await tx.budgetReservation.create({
     data: {
       workspaceId: scope.workspaceId,
@@ -105,6 +118,13 @@ export async function reserve(
       taskClass: attribution?.taskClass ?? null,
       model: attribution?.model ?? null,
       missionId: attribution?.missionId ?? null,
+      ...(granted
+        ? {
+            connectionId: granted.connection.id,
+            grantId: granted.grant.id,
+            parentGrantId: granted.parent?.id ?? null,
+          }
+        : {}),
     },
   });
   if (run)
@@ -132,6 +152,7 @@ export async function settle(
   if (row.state === "settled") return row;
   if (actual !== null && (!Number.isSafeInteger(actual) || actual < 0))
     throw new DomainError("INVALID_USAGE");
+  if (actual !== null) await settleOnGrant(tx, row, BigInt(actual));
   return tx.budgetReservation.update({
     where: { id },
     data: {

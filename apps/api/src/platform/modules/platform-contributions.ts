@@ -1,3 +1,7 @@
+import {
+  anthropicConnectionProvider,
+  openAiConnectionProvider,
+} from "../ai/connection-providers.ts";
 import { taskRetention } from "../tasks/retention.ts";
 import { taskStart } from "../tasks/tasks.ts";
 import type { ModuleContributions } from "./contributions.ts";
@@ -51,6 +55,9 @@ export const platformContributions: ModuleContributions = {
     providers: {
       email: emailConnectionProvider,
       [CUSTOMER_CONTEXT_PROVIDER]: customerContextConnectionProvider,
+      // AI provider accounts, managed centrally (ADR 0013).
+      openai: openAiConnectionProvider,
+      anthropic: anthropicConnectionProvider,
     },
   },
   jobs: [

@@ -10,7 +10,16 @@ import {
 export type SystemAuditInput = {
   actorId: string;
   action: string;
-  targetType: "user" | "workspace" | "project" | "invitation" | "session";
+  targetType:
+    | "user"
+    | "workspace"
+    | "project"
+    | "invitation"
+    | "session"
+    | "connection"
+    | "grant"
+    | "ai_profile"
+    | "knowledge_share";
   targetId: string;
   workspaceId?: string | null;
   projectId?: string | null;

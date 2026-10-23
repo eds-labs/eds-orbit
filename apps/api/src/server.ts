@@ -193,6 +193,11 @@ import {
 } from "./platform/administration/authz.ts";
 import { systemAudit } from "./platform/administration/audit.ts";
 import {
+  isConnectionRoute,
+  registerConnectionRoutes,
+} from "./platform/administration/connection-routes.ts";
+import { connectionsEnabled } from "./platform/connections/central.ts";
+import {
   isAccountRoute,
   registerAccountRoutes,
 } from "./platform/account/routes.ts";
@@ -343,6 +348,9 @@ export async function buildServer(
       throw new DomainError("NOT_FOUND", 404);
     if (isAccountRoute(req.routeOptions.url ?? "") && !accountEnabled())
       throw new DomainError("NOT_FOUND", 404);
+    // Central connections (ADR 0013) exist only while their flag is on.
+    if (isConnectionRoute(req.routeOptions.url ?? "") && !connectionsEnabled())
+      throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off. The
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
@@ -462,6 +470,7 @@ export async function buildServer(
   // user's own account (ADR 0012).
   registerAdministrationRoutes(app, auth, { runtimeHealth });
   registerAccountRoutes(app, auth);
+  registerConnectionRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",

@@ -174,6 +174,19 @@ const baseConfigSchema = z.object({
   // Account self-service: profile, password, sessions, password reset and
   // e-mail change (ADR 0012). Off returns 404 for /api/account.
   ORBIT_ACCOUNT: z.enum(["false", "true"]).default("false"),
+  // Central connections, AI profiles and organization knowledge shares
+  // (ADR 0013). Off: the routes answer 404 and the runtime ignores central
+  // connections, so every project keeps using its own settings.
+  ORBIT_CONNECTIONS: z.enum(["false", "true"]).default("false"),
+  // Optional master-key ring for connection secrets: "id:hex64,id:hex64",
+  // newest first. New secrets use the first key; CREDENTIAL_KEY stays
+  // readable as key id "default".
+  CREDENTIAL_KEYS: unset(
+    z
+      .string()
+      .regex(/^[a-z0-9_-]{1,32}:[a-fA-F0-9]{64}(,[a-z0-9_-]{1,32}:[a-fA-F0-9]{64})*$/)
+      .optional(),
+  ),
   // System authentication mail (invitations, password reset), independent of
   // any project mailbox (ADR 0012, amends Q-16). Unset host or sender means
   // "not configured": administrators then copy links by hand. Sending also

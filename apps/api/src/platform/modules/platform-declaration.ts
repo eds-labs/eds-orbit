@@ -91,6 +91,13 @@ export const platformDeclaration: PlatformDeclaration = {
     "Invitation",
     "InvitationProjectGrant",
     "SystemAuditEvent",
+    // Central connections, AI profiles and knowledge shares (ADR 0013).
+    "Connection",
+    "ConnectionSecret",
+    "ConnectionGrant",
+    "SpendCounter",
+    "AiProfile",
+    "KnowledgeShare",
     "Workspace",
     "WorkspaceMember",
     "Project",

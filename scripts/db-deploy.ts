@@ -155,6 +155,13 @@ try {
     // Invitations (ADR 0012): control plane, never the business role.
     "Invitation",
     "InvitationProjectGrant",
+    // Central connections, AI profiles and knowledge shares (ADR 0013).
+    "Connection",
+    "ConnectionSecret",
+    "ConnectionGrant",
+    "SpendCounter",
+    "AiProfile",
+    "KnowledgeShare",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${authTables.map(identifier).join(",")} TO orbit_auth`,
@@ -202,6 +209,14 @@ try {
     'GRANT SELECT,INSERT,UPDATE ON "ProjectModule" TO orbit_app',
   );
   await migrator.query('GRANT SELECT,INSERT ON "AuditEvent" TO orbit_app');
+  // ADR 0013: the business role reads what a project grant allows (row-level
+  // security decides which rows) and keeps the spend counters.
+  await migrator.query(
+    'GRANT SELECT ON "Connection","ConnectionSecret","ConnectionGrant","AiProfile","KnowledgeShare" TO orbit_app',
+  );
+  await migrator.query(
+    'GRANT SELECT,INSERT,UPDATE ON "SpendCounter" TO orbit_app',
+  );
   // System audit (ADR 0012): append-only, auth role only.
   await migrator.query('GRANT SELECT,INSERT ON "SystemAuditEvent" TO orbit_auth');
   const owned = await migrator.query(

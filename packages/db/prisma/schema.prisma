@@ -95,6 +95,9 @@ model Workspace {
   projects  Project[]
   mcpGrants McpGrant[]
   invitations Invitation[]
+  connections Connection[]
+  connectionGrants ConnectionGrant[]
+  aiProfile   AiProfile?
 }
 
 model WorkspaceMember {
@@ -115,6 +118,8 @@ model Project {
   timezone         String              @default("UTC")
   language         String              @default("en")
   mode             String              @default("observe")
+  /// 'project', or 'library' for an organization knowledge library (ADR 0013).
+  kind             String              @default("project")
   paused           Boolean             @default(false)
   generation       Int                 @default(1)
   createdAt        DateTime            @default(now()) @db.Timestamptz(3)
@@ -132,6 +137,10 @@ model Project {
   agentRuns        AgentRun[]
   modules          ProjectModule[]
   invitationGrants InvitationProjectGrant[]
+  connections      Connection[]
+  connectionGrants ConnectionGrant[]
+  librarySharesOut KnowledgeShare[]     @relation("KnowledgeShareLibrary")
+  librarySharesIn  KnowledgeShare[]     @relation("KnowledgeShareConsumer")
 
   @@unique([workspaceId, id])
   @@index([workDueAt])
@@ -588,10 +597,15 @@ model BudgetReservation {
   taskClass     String?
   model         String?
   missionId     String?  @db.Uuid
+  /// The central connection and grant whose key paid (ADR 0013); null for project or environment keys.
+  connectionId  String?  @db.Uuid
+  grantId       String?  @db.Uuid
+  parentGrantId String?  @db.Uuid
   project       Project  @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
 
   @@index([workspaceId, projectId, createdAt])
   @@index([workspaceId, projectId, agentRunId])
+  @@index([grantId])
 }
 
 model AgentRun {
@@ -605,6 +619,8 @@ model AgentRun {
   subjectId   String?
   missionId   String?     @db.Uuid
   routeVersion Int?
+  /// The AI profile versions and grant a run's route came from (ADR 0013).
+  routeVersionKey String?
   status      String      @default("running")
   errorCode   String?
   startedAt   DateTime    @default(now()) @db.Timestamptz(3)
@@ -1061,4 +1077,127 @@ model SystemAuditEvent {
   @@index([createdAt])
   @@index([targetId, createdAt])
   @@index([actorId, createdAt])
+}
+
+/// An external connection with its owner scope (ADR 0013): system,
+/// workspace (organization) or project. Secrets live in ConnectionSecret;
+/// using it needs an active ConnectionGrant for the consuming project.
+model Connection {
+  id                  String             @id @default(uuid()) @db.Uuid
+  provider            String
+  scope               String
+  workspaceId         String?            @db.Uuid
+  projectId           String?            @db.Uuid
+  label               String
+  config              Json               @default("{}")
+  status              String             @default("configured")
+  health              Json               @default("{}")
+  monthlyBudgetMicros BigInt?
+  version             Int                @default(1)
+  createdBy           String
+  legacyRef           Json?
+  disabledAt          DateTime?          @db.Timestamptz(3)
+  revokedAt           DateTime?          @db.Timestamptz(3)
+  createdAt           DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime           @default(now()) @updatedAt @db.Timestamptz(3)
+  workspace           Workspace?         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project             Project?           @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade, map: "Connection_project_fkey")
+  secrets             ConnectionSecret[]
+  grants              ConnectionGrant[]
+  counters            SpendCounter[]
+
+  @@index([workspaceId])
+  @@index([projectId])
+}
+
+/// A versioned, encrypted secret of a connection; one active at a time.
+model ConnectionSecret {
+  id           String     @id @default(uuid()) @db.Uuid
+  connectionId String     @db.Uuid
+  version      Int
+  keyId        String
+  ciphertext   String
+  state        String
+  createdBy    String
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  retiredAt    DateTime?  @db.Timestamptz(3)
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, version])
+}
+
+/// Permission to use a connection: an organization grant (projectId null,
+/// a parent) or a project grant (usable), limited by purposes and modules.
+model ConnectionGrant {
+  id                  String            @id @default(uuid()) @db.Uuid
+  connectionId        String            @db.Uuid
+  workspaceId         String            @db.Uuid
+  projectId           String?           @db.Uuid
+  userId              String?
+  parentGrantId       String?           @db.Uuid
+  purposes            String[]          @default([])
+  modules             String[]          @default([])
+  settings            Json              @default("{}")
+  monthlyBudgetMicros BigInt?
+  createdBy           String
+  createdAt           DateTime          @default(now()) @db.Timestamptz(3)
+  lastUsedAt          DateTime?         @db.Timestamptz(3)
+  revokedAt           DateTime?         @db.Timestamptz(3)
+  revokedBy           String?
+  connection          Connection        @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  project             Project?          @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade, map: "ConnectionGrant_project_fkey")
+  parent              ConnectionGrant?  @relation("GrantParent", fields: [parentGrantId], references: [id], onDelete: Cascade)
+  children            ConnectionGrant[] @relation("GrantParent")
+
+  @@index([connectionId])
+  @@index([workspaceId, projectId])
+  @@index([parentGrantId])
+}
+
+/// Monthly spend per grant or connection, locked while reserving, so
+/// organization and system budgets hold across projects.
+model SpendCounter {
+  scopeKey       String
+  periodStart    DateTime   @db.Timestamptz(3)
+  connectionId   String     @db.Uuid
+  workspaceId    String?    @db.Uuid
+  reservedMicros BigInt     @default(0)
+  settledMicros  BigInt     @default(0)
+  connection     Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@id([scopeKey, periodStart])
+}
+
+/// AI models, routes, rate cards and defaults for the system or one
+/// organization; a project's openai_configuration overrides them.
+model AiProfile {
+  id          String     @id @default(uuid()) @db.Uuid
+  scope       String
+  workspaceId String?    @unique @db.Uuid
+  version     Int        @default(1)
+  data        Json       @default("{}")
+  updatedBy   String
+  updatedAt   DateTime   @default(now()) @db.Timestamptz(3)
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+/// A consumer project's permission to search an organization library.
+model KnowledgeShare {
+  id                String    @id @default(uuid()) @db.Uuid
+  workspaceId       String    @db.Uuid
+  libraryProjectId  String    @db.Uuid
+  consumerProjectId String    @db.Uuid
+  sourceIds         String[]  @default([]) @db.Uuid
+  modules           String[]  @default([])
+  generation        Int       @default(1)
+  createdBy         String
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  revokedAt         DateTime? @db.Timestamptz(3)
+  library           Project   @relation("KnowledgeShareLibrary", fields: [workspaceId, libraryProjectId], references: [workspaceId, id], onDelete: Cascade, map: "KnowledgeShare_library_fkey")
+  consumer          Project   @relation("KnowledgeShareConsumer", fields: [workspaceId, consumerProjectId], references: [workspaceId, id], onDelete: Cascade, map: "KnowledgeShare_consumer_fkey")
+
+  @@index([workspaceId, consumerProjectId], map: "KnowledgeShare_consumer_idx")
+  @@index([workspaceId, libraryProjectId], map: "KnowledgeShare_library_idx")
 }

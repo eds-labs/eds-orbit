@@ -90,6 +90,16 @@ const AUTH_ONLY_TABLES = [
   "verification",
 ];
 const SYSTEM_TABLES = ["_prisma_migrations"];
+// Control plane with forced row-level security that the business role may
+// read where a project grant allows it (ADR 0013); written by orbit_auth.
+const GRANTED_READ_TABLES = [
+  "AiProfile",
+  "Connection",
+  "ConnectionGrant",
+  "ConnectionSecret",
+  "KnowledgeShare",
+];
+const COUNTER_TABLES = ["SpendCounter"];
 // Tenancy tables the business role must not touch at all.
 const NO_APP_ACCESS = [
   "ProjectMember",
@@ -487,12 +497,19 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       ...TENANCY_TABLES,
       ...AUTH_ONLY_TABLES,
       ...SYSTEM_TABLES,
+      ...GRANTED_READ_TABLES,
+      ...COUNTER_TABLES,
     ].sort();
     expect(tables.map((t) => t.relname).sort()).toEqual(known);
   });
 
   it("forces row-level security on every scoped and tenancy table", () => {
-    for (const name of [...SCOPED_TABLES, ...TENANCY_TABLES]) {
+    for (const name of [
+      ...SCOPED_TABLES,
+      ...TENANCY_TABLES,
+      ...GRANTED_READ_TABLES,
+      ...COUNTER_TABLES,
+    ]) {
       const t = tables.find((x) => x.relname === name)!;
       expect({ name, rls: t.rls, force: t.force }).toEqual({
         name,
@@ -536,6 +553,19 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       projectTable.update,
       projectTable.delete,
     ]).toEqual([true, false, true, false]);
+  });
+
+  it("lets the business role only read granted connections and keep spend counters (ADR 0013)", () => {
+    for (const name of GRANTED_READ_TABLES) {
+      const t = tables.find((x) => x.relname === name)!;
+      expect({ name, grants: [t.select, t.insert, t.update, t.delete] }).toEqual(
+        { name, grants: [true, false, false, false] },
+      );
+    }
+    const counter = tables.find((x) => x.relname === "SpendCounter")!;
+    expect([counter.select, counter.insert, counter.update, counter.delete]).toEqual(
+      [true, true, true, false],
+    );
   });
 
   it("keeps the system audit log append-only for the auth role", async () => {

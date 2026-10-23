@@ -56,7 +56,21 @@ export type ConnectionProvider = {
   ) => Promise<Record<string, unknown>>;
   /** Error code of a health check this provider cannot run. */
   checkUnsupported?: string;
+  /**
+   * Where a connection of this provider may be owned (ADR 0013). Default
+   * ["project"]: the project's own connectors only. "system" and
+   * "workspace" providers are managed centrally and granted to projects.
+   */
+  scopes?: ReadonlyArray<"system" | "workspace" | "project">;
+  /** What a grant may allow, such as "text" or "embedding" for AI. */
+  purposes?: readonly string[];
+  /** Display name for the administration. */
+  label?: { en: string; de: string };
 };
+
+/** The owner scopes a provider allows. */
+export const providerScopes = (provider: ConnectionProvider) =>
+  provider.scopes ?? (["project"] as const);
 
 /** Connection providers a module contributes, by provider id. */
 export type ConnectionsContribution = {
