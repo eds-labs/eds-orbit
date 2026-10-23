@@ -324,6 +324,21 @@ test("upload to booking, payment and export, on desktop and mobile", async ({
     await overflow(),
     "review: no horizontal scroll at 375px",
   ).toBeLessThanOrEqual(1);
+  // An open document replaces the list, with a back control, and its
+  // heading takes the focus.
+  await page
+    .locator(".finance-queue")
+    .getByRole("button", { name: /invoice-batch\.pdf/ })
+    .first()
+    .click();
+  const back = page.getByRole("button", { name: "Back to the list" });
+  await expect(back).toBeVisible();
+  await expect(page.locator(".finance-queue")).toBeHidden();
+  await expect(
+    page.getByRole("heading", { level: 2, name: "invoice-batch.pdf" }),
+  ).toBeFocused();
+  await back.click();
+  await expect(page.locator(".finance-queue")).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 960 });
 
   // Record the payment on the invoices page; the invoice shows as paid.
