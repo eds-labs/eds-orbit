@@ -61,6 +61,7 @@ import {
 } from "./ui/primitives";
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
+import { GrantedConnections } from "./granted-connections";
 import {
   EntityRows,
   PageHead,
@@ -167,6 +168,7 @@ export function Connectors() {
               </section>
             );
           })}
+          <GrantedConnections connectors={resource.data?.items ?? []} />
           <TelegramConnection />
           <EmailConnection />
           <CustomerContextConnection />
