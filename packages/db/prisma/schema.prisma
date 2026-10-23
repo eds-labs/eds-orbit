@@ -781,6 +781,8 @@ model FinancePayment {
   reference      String?
   counterpartyId String?  @db.Uuid
   entryId        String?  @db.Uuid
+  /// Set when the payment was voided; its allocations then settle nothing.
+  voidedAt       DateTime? @db.Timestamptz(3)
   version        Int      @default(1)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(3)

@@ -377,6 +377,9 @@ CREATE TABLE "FinancePayment" (
   "reference" TEXT,
   "counterpartyId" UUID,
   "entryId" UUID,
+  -- Set when the payment was voided (its entry reversed); its allocations
+  -- then no longer settle anything.
+  "voidedAt" TIMESTAMPTZ(3),
   "version" INTEGER NOT NULL DEFAULT 1,
   "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

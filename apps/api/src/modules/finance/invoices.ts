@@ -19,8 +19,11 @@ import { postingLines, type DocumentLine, type Rate } from "./ledger/posting.ts"
 import { reverseEntry } from "./ledger/reversal.ts";
 import { CURRENCY_DECIMALS, parseAmount } from "./money.ts";
 import {
+  invoiceBalance,
+  liveAllocations,
   recordPayment,
   recordReceiptPayment,
+  refreshInvoiceStatus,
   settlingDirection,
 } from "./payments.ts";
 import { readFinanceSettings } from "./settings.ts";
@@ -48,7 +51,7 @@ const bookingLine = z
  * decimal strings in `currency`; `rateOverride` is base per unit of
  * `currency`, used when no stored rate exists for `issueDate`. A receipt
  * is already paid and needs `paid`; a credit note may name the invoice it
- * credits.
+ * credits, which then counts it against the invoice's open amount.
  */
 export const bookingInput = z
   .object({
@@ -61,7 +64,16 @@ export const bookingInput = z
     currency: z.string(),
     creditsInvoiceId: z.uuid().optional(),
     lines: z.array(bookingLine).min(1).max(200),
-    paid: z.object({ accountId: z.uuid(), date: isoDate }).strict().optional(),
+    // A receipt is paid on its issue date; an invoice defaults to it.
+    // `rateOverride` is the payment date's rate when that date differs.
+    paid: z
+      .object({
+        accountId: z.uuid(),
+        date: isoDate.optional(),
+        rateOverride: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     rateOverride: z.string().optional(),
   })
   .strict();
@@ -77,12 +89,12 @@ export const voidInvoiceInput = z
 const sum = (values: bigint[]) => values.reduce((acc, v) => acc + v, 0n);
 
 /** An invoice the credit note credits: same counterparty, side and currency. */
-async function assertCreditTarget(
+async function creditTarget(
   tx: DbTx,
   scope: Scope,
   input: BookingInput,
 ) {
-  if (!input.creditsInvoiceId) return;
+  if (!input.creditsInvoiceId) return null;
   if (input.kind !== "credit_note")
     throw new DomainError("FINANCE_CREDIT_INVALID", 422);
   const target = await tx.financeInvoice.findFirst({
@@ -97,6 +109,7 @@ async function assertCreditTarget(
     target.currency !== input.currency
   )
     throw new DomainError("FINANCE_CREDIT_INVALID", 422);
+  return target;
 }
 
 /**
@@ -128,7 +141,10 @@ export async function createInvoice(
     select: { id: true },
   });
   if (!counterparty) throw new DomainError("FINANCE_COUNTERPARTY_INVALID", 422);
-  await assertCreditTarget(tx, scope, input);
+  const credited = await creditTarget(tx, scope, input);
+  const paidDate = input.paid?.date ?? input.issueDate;
+  if (input.kind === "receipt" && paidDate !== input.issueDate)
+    throw new DomainError("FINANCE_DATE_INVALID", 422);
 
   const categories = await liveCategories(
     tx,
@@ -151,6 +167,15 @@ export async function createInvoice(
     amountMicros: parseAmount(line.amount, currency),
     taxMicros: parseAmount(line.tax, currency),
   }));
+  const netMicros = sum(lines.map((line) => line.amountMicros));
+  const taxMicros = sum(lines.map((line) => line.taxMicros));
+  const totalMicros = netMicros + taxMicros;
+  // A credit note can take off at most what is still open.
+  if (
+    credited &&
+    totalMicros > (await invoiceBalance(tx, scope, credited)).openAmountMicros
+  )
+    throw new DomainError("CREDIT_EXCEEDS_OPEN", 422);
   const override: Rate | undefined = input.rateOverride
     ? { rate: input.rateOverride, rateDate: input.issueDate, source: "manual" }
     : undefined;
@@ -194,9 +219,6 @@ export async function createInvoice(
     sourceId: invoiceId,
     lines: draft,
   });
-  const netMicros = sum(lines.map((line) => line.amountMicros));
-  const taxMicros = sum(lines.map((line) => line.taxMicros));
-  const totalMicros = netMicros + taxMicros;
   await tx.financeInvoice.create({
     data: {
       id: invoiceId,
@@ -212,7 +234,8 @@ export async function createInvoice(
       netMicros,
       taxMicros,
       totalMicros,
-      status: input.kind === "receipt" ? "paid" : "open",
+      // A receipt is paid, a credit note crediting an invoice applied.
+      status: input.kind === "receipt" || credited ? "paid" : "open",
       documentId: options.documentId ?? null,
       creditsInvoiceId: input.creditsInvoiceId ?? null,
       entryId: entry.id,
@@ -235,6 +258,8 @@ export async function createInvoice(
     })),
   });
 
+  if (credited)
+    await refreshInvoiceStatus(tx, scope, credited.id, input.issueDate);
   if (!input.paid) return { invoiceId, entryId: entry.id };
   const direction = settlingDirection(input);
   if (input.kind === "receipt") {
@@ -246,7 +271,7 @@ export async function createInvoice(
       entryId: entry.id,
       direction,
       accountId: input.paid.accountId,
-      date: input.paid.date,
+      date: input.issueDate,
       currency,
       amountMicros: totalMicros,
       baseMicros: paymentLine.baseAmountMicros,
@@ -257,21 +282,32 @@ export async function createInvoice(
   const { paymentId } = await recordPayment(tx, scope, {
     direction,
     accountId: input.paid.accountId,
-    date: input.paid.date,
+    date: paidDate,
     currency,
     amountMicros: totalMicros,
     counterpartyId: input.counterpartyId,
     allocations: [{ invoiceId, amountMicros: totalMicros }],
+    // The booking's rate applies when the payment shares the issue date.
+    ...(paidDate === input.issueDate
+      ? input.rateOverride
+        ? { rateOverride: input.rateOverride }
+        : {}
+      : input.paid.rateOverride
+        ? { rateOverride: input.paid.rateOverride }
+        : {}),
   });
   return { invoiceId, entryId: entry.id, paymentId };
 }
 
 /**
- * Voids an invoice without payments by reversing its posting (dated today,
- * or the issue date when that is later). The reason is the reversal's memo
- * and stays out of the audit. 409 FINANCE_INVOICE_HAS_PAYMENTS while any
- * payment is allocated to it, FINANCE_INVOICE_CREDITED while a live credit
- * note credits it.
+ * Voids an invoice without live payments by reversing its posting (dated
+ * today, or the issue date when that is later). A receipt's own payment
+ * shares that entry and is voided with it. The reason is the reversal's
+ * memo and stays out of the audit. The invoice's document goes back to
+ * `needs_review`, so it can be booked again with corrected data; a voided
+ * credit note gives its credited invoice's open amount back. 409
+ * FINANCE_INVOICE_HAS_PAYMENTS while a live payment is allocated to it,
+ * FINANCE_INVOICE_CREDITED while a live credit note credits it.
  */
 export async function voidInvoice(
   tx: DbTx,
@@ -288,10 +324,24 @@ export async function voidInvoice(
     throw new DomainError("FINANCE_INVOICE_VOID", 409);
   if (invoice.version !== version)
     throw new DomainError("VERSION_CONFLICT", 409);
-  const allocations = await tx.financePaymentAllocation.count({
-    where: { projectId: scope.projectId, invoiceId },
-  });
-  if (allocations) throw new DomainError("FINANCE_INVOICE_HAS_PAYMENTS", 409);
+  if (!invoice.entryId) throw new DomainError("FINANCE_INVOICE_POSTING_INVALID", 409);
+  // A receipt's own payment is part of its posting, not a separate payment.
+  const own =
+    invoice.kind === "receipt"
+      ? await tx.financePayment.findMany({
+          where: {
+            projectId: scope.projectId,
+            entryId: invoice.entryId,
+            voidedAt: null,
+          },
+          select: { id: true },
+        })
+      : [];
+  const ownIds = new Set(own.map((p) => p.id));
+  const payments = (await liveAllocations(tx, scope, invoiceId)).filter(
+    (a) => !ownIds.has(a.paymentId),
+  );
+  if (payments.length) throw new DomainError("FINANCE_INVOICE_HAS_PAYMENTS", 409);
   const credits = await tx.financeInvoice.count({
     where: {
       projectId: scope.projectId,
@@ -300,7 +350,6 @@ export async function voidInvoice(
     },
   });
   if (credits) throw new DomainError("FINANCE_INVOICE_CREDITED", 409);
-  if (!invoice.entryId) throw new DomainError("FINANCE_INVOICE_POSTING_INVALID", 409);
 
   const today = new Date().toISOString().slice(0, 10);
   const issued = invoice.issueDate.toISOString().slice(0, 10);
@@ -311,15 +360,36 @@ export async function voidInvoice(
     reason,
     issued > today ? issued : today,
   );
+  if (ownIds.size)
+    await tx.financePayment.updateMany({
+      where: { projectId: scope.projectId, id: { in: [...ownIds] } },
+      data: { voidedAt: new Date(), version: { increment: 1 } },
+    });
   const updated = await tx.financeInvoice.updateMany({
     where: { projectId: scope.projectId, id: invoiceId, version },
     data: { status: "void", version: { increment: 1 } },
   });
   assertUpdated(updated.count);
+  if (invoice.creditsInvoiceId)
+    await refreshInvoiceStatus(tx, scope, invoice.creditsInvoiceId, today);
   await audit(tx, scope, "finance.invoice.voided", invoiceId, {
     invoiceId,
     reversalId: reversal.id,
   });
+  if (invoice.documentId) {
+    const reopened = await tx.financeDocument.updateMany({
+      where: {
+        projectId: scope.projectId,
+        id: invoice.documentId,
+        status: "booked",
+      },
+      data: { status: "needs_review", version: { increment: 1 } },
+    });
+    if (reopened.count)
+      await audit(tx, scope, "finance.document.reopened", invoice.documentId, {
+        invoiceId,
+      });
+  }
   return { reversalId: reversal.id };
 }
 

@@ -3,10 +3,11 @@ import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../shared.ts";
-import { isoDate, livePaymentAccount } from "./common.ts";
+import { isoDate, livePaymentAccount, versionField } from "./common.ts";
 import { rateFor } from "./fx.ts";
 import { systemAccounts } from "./ledger/accounts.ts";
 import { postEntry } from "./ledger/post.ts";
+import { reverseEntry } from "./ledger/reversal.ts";
 import {
   postingLines,
   type PaymentAllocation,
@@ -54,6 +55,7 @@ type InvoiceRow = {
   currency: string;
   totalMicros: bigint;
   entryId: string | null;
+  creditsInvoiceId: string | null;
 };
 
 /**
@@ -66,47 +68,195 @@ export const settlingDirection = (invoice: { kind: string; direction: string }) 
     ? "outgoing"
     : "incoming";
 
-/** What is still open on an invoice, in its currency and in base. */
-async function openItem(
+/**
+ * The open-item line of an invoice's posting: the only line without a
+ * category in the invoice currency carrying its total (payables or
+ * receivables; the payment account for a receipt).
+ */
+async function openItemLine(
+  tx: DbTx,
+  scope: Pick<Scope, "projectId">,
+  invoice: Pick<InvoiceRow, "entryId" | "currency" | "totalMicros">,
+) {
+  const line = invoice.entryId
+    ? (
+        await tx.financeJournalLine.findMany({
+          where: {
+            projectId: scope.projectId,
+            entryId: invoice.entryId,
+            categoryId: null,
+            currency: invoice.currency,
+          },
+        })
+      ).find((l) => l.amountMicros === invoice.totalMicros)
+    : undefined;
+  if (!line) throw new DomainError("FINANCE_INVOICE_POSTING_INVALID", 409);
+  return line;
+}
+
+/** Allocations to an invoice whose payment is not voided. */
+export async function liveAllocations(
+  tx: DbTx,
+  scope: Pick<Scope, "projectId">,
+  invoiceId: string,
+) {
+  const allocations = await tx.financePaymentAllocation.findMany({
+    where: { projectId: scope.projectId, invoiceId },
+  });
+  if (allocations.length === 0) return allocations;
+  const live = new Set(
+    (
+      await tx.financePayment.findMany({
+        where: {
+          projectId: scope.projectId,
+          id: { in: allocations.map((a) => a.paymentId) },
+          voidedAt: null,
+        },
+        select: { id: true },
+      })
+    ).map((p) => p.id),
+  );
+  return allocations.filter((a) => live.has(a.paymentId));
+}
+
+/**
+ * What is still open on an invoice, in its currency and in base: the total
+ * less live payment allocations and less the live credit notes crediting
+ * it (their totals, and their posted open-item base). A credit note that
+ * credits an invoice is applied to it in full, so nothing of it is open.
+ */
+export async function invoiceBalance(
   tx: DbTx,
   scope: Pick<Scope, "projectId">,
   invoice: InvoiceRow,
 ): Promise<Omit<PaymentAllocation, "amountMicros">> {
-  const allocated = await tx.financePaymentAllocation.findMany({
-    where: { projectId: scope.projectId, invoiceId: invoice.id },
-    select: { amountMicros: true, baseMicros: true },
-  });
-  const paid = allocated.reduce((sum, a) => sum + a.amountMicros, 0n);
-  const settledBase = allocated.reduce((sum, a) => sum + a.baseMicros, 0n);
-  const openAmountMicros = invoice.totalMicros - paid;
-  if (openAmountMicros <= 0n || !invoice.entryId)
-    throw new DomainError("PAYMENT_OVER_ALLOCATED", 422);
-  // The open-item line of the invoice's posting: the only line without a
-  // category in the invoice currency carrying its total.
-  const counter = (
-    await tx.financeJournalLine.findMany({
-      where: {
-        projectId: scope.projectId,
-        entryId: invoice.entryId,
-        categoryId: null,
-        currency: invoice.currency,
-      },
-    })
-  ).find((line) => line.amountMicros === invoice.totalMicros);
-  if (!counter) throw new DomainError("FINANCE_INVOICE_POSTING_INVALID", 409);
-  return {
-    openAmountMicros,
-    openBaseMicros: counter.baseAmountMicros - settledBase,
-    invoiceRate: {
-      rate: counter.fxRate.toFixed(),
-      rateDate: counter.rateDate.toISOString().slice(0, 10),
-      source: counter.rateSource as RateSource,
-    },
+  const counter = await openItemLine(tx, scope, invoice);
+  const invoiceRate: Rate = {
+    rate: counter.fxRate.toFixed(),
+    rateDate: counter.rateDate.toISOString().slice(0, 10),
+    source: counter.rateSource as RateSource,
   };
+  if (invoice.kind === "credit_note" && invoice.creditsInvoiceId)
+    return { openAmountMicros: 0n, openBaseMicros: 0n, invoiceRate };
+  const allocated = await liveAllocations(tx, scope, invoice.id);
+  const credits =
+    invoice.kind === "credit_note"
+      ? []
+      : await tx.financeInvoice.findMany({
+          where: {
+            projectId: scope.projectId,
+            creditsInvoiceId: invoice.id,
+            kind: "credit_note",
+            status: { not: "void" },
+          },
+        });
+  let openAmountMicros = invoice.totalMicros;
+  let openBaseMicros = counter.baseAmountMicros;
+  for (const a of allocated) {
+    openAmountMicros -= a.amountMicros;
+    openBaseMicros -= a.baseMicros;
+  }
+  for (const credit of credits) {
+    openAmountMicros -= credit.totalMicros;
+    openBaseMicros -= (await openItemLine(tx, scope, credit)).baseAmountMicros;
+  }
+  return { openAmountMicros, openBaseMicros, invoiceRate };
+}
+
+const CLOSE_SOURCE = "invoice_close";
+const flip = (side: "debit" | "credit") => (side === "debit" ? "credit" : "debit");
+const laterOf = (a: string, b: string) => (a > b ? a : b);
+const day = (date: Date) => date.toISOString().slice(0, 10);
+
+/**
+ * Recomputes an invoice's payment status from its live allocations and
+ * credits (`open → partially_paid → paid`, and back after a void). A closed
+ * invoice whose open base is not zero, because credits were posted at other
+ * rates, gets a base-currency entry between its open-item account and fx
+ * gains and losses that zeroes it, dated `date`; reopening reverses that
+ * entry. Void invoices are left alone.
+ */
+export async function refreshInvoiceStatus(
+  tx: DbTx,
+  scope: Scope,
+  invoiceId: string,
+  date: string,
+) {
+  const invoice = await tx.financeInvoice.findFirst({
+    where: { projectId: scope.projectId, id: invoiceId },
+  });
+  if (!invoice || invoice.status === "void") return;
+  const balance = await invoiceBalance(tx, scope, invoice);
+  const status =
+    balance.openAmountMicros <= 0n
+      ? "paid"
+      : balance.openAmountMicros < invoice.totalMicros
+        ? "partially_paid"
+        : "open";
+  if (status !== invoice.status)
+    await tx.financeInvoice.updateMany({
+      where: { projectId: scope.projectId, id: invoiceId },
+      data: { status, version: { increment: 1 } },
+    });
+  if (invoice.kind === "credit_note" && invoice.creditsInvoiceId) return;
+
+  const closes = await tx.financeJournalEntry.findMany({
+    where: {
+      projectId: scope.projectId,
+      sourceType: CLOSE_SOURCE,
+      sourceId: invoiceId,
+      reversedById: null,
+    },
+  });
+  if (status !== "paid") {
+    for (const close of closes)
+      await reverseEntry(
+        tx,
+        scope,
+        close.id,
+        "Invoice reopened",
+        laterOf(day(new Date()), day(close.entryDate)),
+      );
+    return;
+  }
+  if (closes.length || balance.openBaseMicros === 0n) return;
+  const { settings } = await readFinanceSettings(tx, scope);
+  const roles = await systemAccounts(tx, scope);
+  const openItem =
+    invoice.direction === "payable" ? roles.payables : roles.receivables;
+  // The open base sits on the invoice's natural side: credit for payables,
+  // debit for receivables; the closing line takes it off.
+  const natural = invoice.direction === "payable" ? "credit" : "debit";
+  const amount = balance.openBaseMicros;
+  const side = amount > 0n ? flip(natural) : natural;
+  const micros = amount > 0n ? amount : -amount;
+  const entryDate = laterOf(date, day(invoice.issueDate));
+  const lines = postingLines(
+    {
+      kind: "adjustment",
+      currency: settings.baseCurrency,
+      baseCurrency: settings.baseCurrency,
+      lines: [
+        { accountId: openItem, side, amountMicros: micros },
+        { accountId: roles.fx_gain_loss, side: flip(side), amountMicros: micros },
+      ],
+    },
+    roles,
+    { rate: "1", rateDate: entryDate, source: "identity" },
+    CURRENCY_DECIMALS[settings.baseCurrency],
+  );
+  await postEntry(tx, scope, {
+    kind: "adjustment",
+    entryDate,
+    sourceType: CLOSE_SOURCE,
+    sourceId: invoiceId,
+    lines,
+  });
 }
 
 /**
- * Records a payment allocated to invoices of one counterparty side and posts
+ * Records a payment allocated to invoices of one counterparty (422
+ * PAYMENT_MIXED_COUNTERPARTIES otherwise; the payment records it) and posts
  * it. The allocations must use the whole amount; more than an invoice has
  * open, or than the payment carries, is 422 PAYMENT_OVER_ALLOCATED. All
  * invoices settle the same open-item account (`settles`), in the payment's
@@ -143,6 +293,12 @@ export async function recordPayment(
   if (invoices.length !== ids.length)
     throw new DomainError("FINANCE_INVOICE_NOT_FOUND", 404);
   const byId = new Map(invoices.map((i) => [i.id, i]));
+  const counterparties = new Set(invoices.map((i) => i.counterpartyId));
+  if (counterparties.size !== 1)
+    throw new DomainError("PAYMENT_MIXED_COUNTERPARTIES", 422);
+  const counterpartyId = invoices[0]!.counterpartyId;
+  if (input.counterpartyId && input.counterpartyId !== counterpartyId)
+    throw new DomainError("FINANCE_COUNTERPARTY_INVALID", 422);
   const sides = new Set(invoices.map((i) => i.direction));
   if (sides.size !== 1)
     throw new DomainError("FINANCE_PAYMENT_DIRECTION_INVALID", 422);
@@ -155,11 +311,9 @@ export async function recordPayment(
       throw new DomainError("FINANCE_INVOICE_VOID", 409);
     if (invoice.currency !== input.currency)
       throw new DomainError("FINANCE_CURRENCY_MISMATCH", 422);
-    if (input.counterpartyId && invoice.counterpartyId !== input.counterpartyId)
-      throw new DomainError("FINANCE_COUNTERPARTY_INVALID", 422);
     if (settlingDirection(invoice) !== input.direction)
       throw new DomainError("FINANCE_PAYMENT_DIRECTION_INVALID", 422);
-    const open = await openItem(tx, scope, invoice);
+    const open = await invoiceBalance(tx, scope, invoice);
     if (a.amountMicros > open.openAmountMicros)
       throw new DomainError("PAYMENT_OVER_ALLOCATED", 422);
     allocations.push({ ...open, amountMicros: a.amountMicros });
@@ -213,7 +367,7 @@ export async function recordPayment(
       currency: input.currency,
       amountMicros: input.amountMicros,
       reference: input.reference ?? null,
-      counterpartyId: input.counterpartyId ?? invoices[0]!.counterpartyId,
+      counterpartyId,
       entryId: entry.id,
     },
   });
@@ -228,16 +382,8 @@ export async function recordPayment(
       baseMicros: settled[index]!.baseAmountMicros,
     })),
   });
-  for (const [index, a] of input.allocations.entries()) {
-    const fullyPaid = a.amountMicros === allocations[index]!.openAmountMicros;
-    await tx.financeInvoice.updateMany({
-      where: { projectId: scope.projectId, id: a.invoiceId },
-      data: {
-        status: fullyPaid ? "paid" : "partially_paid",
-        version: { increment: 1 },
-      },
-    });
-  }
+  for (const a of input.allocations)
+    await refreshInvoiceStatus(tx, scope, a.invoiceId, input.date);
   await audit(tx, scope, "finance.payment.recorded", paymentId, {
     paymentId,
     entryId: entry.id,
@@ -300,4 +446,64 @@ export async function recordReceiptPayment(
     allocations: 1,
   });
   return paymentId;
+}
+
+export const voidPaymentInput = z
+  .object({
+    version: versionField.optional(),
+    reason: z.string().trim().min(1).max(1000),
+  })
+  .strict();
+
+/**
+ * Voids a payment (spec §7, corrections): reverses its entry (the reason
+ * is the reversal's memo, never audited), marks it voided, and recomputes
+ * the status of every invoice it was allocated to. A receipt's own payment
+ * shares the receipt's entry and is voided only with the receipt (409
+ * FINANCE_RECEIPT_PAYMENT).
+ */
+export async function voidPayment(
+  tx: DbTx,
+  scope: Scope,
+  paymentId: string,
+  raw: { version?: number; reason: string },
+): Promise<{ reversalId: string }> {
+  const { version, reason } = voidPaymentInput.parse(raw);
+  const payment = await tx.financePayment.findFirst({
+    where: { projectId: scope.projectId, id: paymentId },
+  });
+  if (!payment) throw new DomainError("FINANCE_PAYMENT_NOT_FOUND", 404);
+  if (payment.voidedAt) throw new DomainError("FINANCE_PAYMENT_VOID", 409);
+  if (version !== undefined && payment.version !== version)
+    throw new DomainError("VERSION_CONFLICT", 409);
+  if (!payment.entryId)
+    throw new DomainError("FINANCE_PAYMENT_POSTING_INVALID", 409);
+  const ownReceipt = await tx.financeInvoice.count({
+    where: { projectId: scope.projectId, entryId: payment.entryId },
+  });
+  if (ownReceipt) throw new DomainError("FINANCE_RECEIPT_PAYMENT", 409);
+  const today = day(new Date());
+  const reversal = await reverseEntry(
+    tx,
+    scope,
+    payment.entryId,
+    reason,
+    laterOf(today, day(payment.date)),
+  );
+  const updated = await tx.financePayment.updateMany({
+    where: { projectId: scope.projectId, id: paymentId, version: payment.version },
+    data: { voidedAt: new Date(), version: { increment: 1 } },
+  });
+  if (updated.count !== 1) throw new DomainError("VERSION_CONFLICT", 409);
+  const allocations = await tx.financePaymentAllocation.findMany({
+    where: { projectId: scope.projectId, paymentId },
+  });
+  for (const a of allocations)
+    await refreshInvoiceStatus(tx, scope, a.invoiceId, today);
+  await audit(tx, scope, "finance.payment.voided", paymentId, {
+    paymentId,
+    reversalId: reversal.id,
+    allocations: allocations.length,
+  });
+  return { reversalId: reversal.id };
 }

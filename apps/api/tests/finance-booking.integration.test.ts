@@ -31,7 +31,7 @@ import {
 import { systemAccounts } from "../src/modules/finance/ledger/accounts.ts";
 import { bindMailbox } from "../src/modules/finance/mailboxes.ts";
 import { postManualEntry } from "../src/modules/finance/manual-entries.ts";
-import { recordPayment } from "../src/modules/finance/payments.ts";
+import { recordPayment, voidPayment } from "../src/modules/finance/payments.ts";
 import {
   bookDocument,
   markNotDuplicate,
@@ -213,6 +213,10 @@ describe.skipIf(!enabled)("finance booking", () => {
       accounts.revenue = byCode("4000");
       Object.assign(accounts, await systemAccounts(tx, scope()));
     });
+    // USD per EUR on the September dates the EUR tests use.
+    await rate("2026-09-01", "1.10");
+    await rate("2026-09-10", "1.20");
+    await rate("2026-09-20", "1.05");
   });
   afterAll(async () => {
     for (const [key, value] of Object.entries(previous))
@@ -296,7 +300,7 @@ describe.skipIf(!enabled)("finance booking", () => {
     const result = await book({
       kind: "receipt",
       dueDate: undefined,
-      paid: { accountId: accounts.card, date: "2026-10-02" },
+      paid: { accountId: accounts.card },
     });
     expect(result.paymentId).toBeDefined();
     expect((await invoice(result.invoiceId)).status).toBe("paid");
@@ -322,6 +326,16 @@ describe.skipIf(!enabled)("finance booking", () => {
         tx.financeJournalEntry.count({ where: { documentId: result.documentId } }),
       ),
     ).toBe(1);
+    expect(payment.date.toISOString().slice(0, 10)).toBe("2026-10-01");
+    // A receipt is paid on its issue date.
+    expect(
+      await failure(
+        book({
+          kind: "receipt",
+          paid: { accountId: accounts.card, date: "2026-10-02" },
+        }),
+      ),
+    ).toBe("FINANCE_DATE_INVALID");
     // A receipt without payment details is refused.
     expect(
       await failure(book({ kind: "receipt", number: undefined })),
@@ -481,9 +495,6 @@ describe.skipIf(!enabled)("finance booking", () => {
   });
 
   it("partial then full payment updates status and posts fx difference", async () => {
-    await rate("2026-09-01", "1.10");
-    await rate("2026-09-10", "1.20");
-    await rate("2026-09-20", "1.05");
     const result = await book({
       issueDate: "2026-09-01",
       dueDate: "2026-09-30",
@@ -736,6 +747,339 @@ describe.skipIf(!enabled)("finance booking", () => {
         }),
       ),
     ).toBe("PAYMENT_OVER_ALLOCATED");
+  });
+
+  it("voids a booked receipt and books its document again", async () => {
+    const result = await book({
+      kind: "receipt",
+      paid: { accountId: accounts.card },
+    });
+    // The receipt's own payment is voided only with the receipt.
+    expect(
+      await failure(
+        run((tx) =>
+          voidPayment(tx, scope(), result.paymentId!, { reason: "Wrong" }),
+        ),
+      ),
+    ).toBe("FINANCE_RECEIPT_PAYMENT");
+    const before = await invoice(result.invoiceId);
+    const { reversalId } = await run((tx) =>
+      voidInvoice(tx, scope(), result.invoiceId, {
+        version: before.version,
+        reason: "Wrong amount",
+      }),
+    );
+    expect((await invoice(result.invoiceId)).status).toBe("void");
+    const payment = await run((tx) =>
+      tx.financePayment.findUniqueOrThrow({ where: { id: result.paymentId! } }),
+    );
+    expect(payment.voidedAt).not.toBeNull();
+    expect(
+      await run((tx) =>
+        tx.financeJournalEntry.count({ where: { reversalOfId: result.entryId } }),
+      ),
+    ).toBe(1);
+    expect(await netBase(accounts.card, [result.entryId, reversalId])).toBe(0n);
+    const reopened = await doc(result.documentId);
+    expect(reopened.status).toBe("needs_review");
+    expect(
+      await audits("finance.document.reopened", result.documentId),
+    ).toHaveLength(1);
+    const again = await run((tx) =>
+      bookDocument(tx, scope(), result.documentId, {
+        version: reopened.version,
+        booking: booking({
+          kind: "receipt",
+          paid: { accountId: accounts.card },
+          lines: [
+            {
+              description: "Service",
+              amount: "90.00",
+              tax: "0",
+              categoryId: expenseCategory,
+              allocation: [],
+            },
+          ],
+        }),
+      }),
+    );
+    expect(again.invoiceId).not.toBe(result.invoiceId);
+    expect(await invoice(again.invoiceId)).toMatchObject({
+      status: "paid",
+      totalMicros: 90_000_000n,
+      documentId: result.documentId,
+    });
+    expect((await doc(result.documentId)).status).toBe("booked");
+  });
+
+  it("voids a payment and then the invoice", async () => {
+    const result = await book();
+    const paid = await pay({
+      date: "2026-10-05",
+      amountMicros: 119_000_000n,
+      allocations: [{ invoiceId: result.invoiceId, amountMicros: 119_000_000n }],
+    });
+    expect((await invoice(result.invoiceId)).status).toBe("paid");
+    const { reversalId } = await run((tx) =>
+      voidPayment(tx, scope(), paid.paymentId, { reason: "Bounced" }),
+    );
+    expect((await invoice(result.invoiceId)).status).toBe("open");
+    expect(await netBase(accounts.bank, [paid.entryId, reversalId])).toBe(0n);
+    const [audit] = await audits("finance.payment.voided", paid.paymentId);
+    expect(audit!.metadata).toEqual({
+      paymentId: paid.paymentId,
+      reversalId,
+      allocations: 1,
+    });
+    expect(
+      await failure(
+        run((tx) =>
+          voidPayment(tx, scope(), paid.paymentId, { reason: "Again" }),
+        ),
+      ),
+    ).toBe("FINANCE_PAYMENT_VOID");
+    const row = await invoice(result.invoiceId);
+    await run((tx) =>
+      voidInvoice(tx, scope(), result.invoiceId, {
+        version: row.version,
+        reason: "Cancelled",
+      }),
+    );
+    expect((await invoice(result.invoiceId)).status).toBe("void");
+  });
+
+  it("recomputes the status after a voided partial payment", async () => {
+    const result = await book({
+      issueDate: "2026-09-01",
+      currency: "EUR",
+      lines: [
+        {
+          description: "Hosting",
+          amount: "100.00",
+          tax: "0",
+          categoryId: expenseCategory,
+          allocation: [],
+        },
+      ],
+    });
+    const part = (date: string, amountMicros: bigint) =>
+      pay({
+        date,
+        currency: "EUR",
+        amountMicros,
+        allocations: [{ invoiceId: result.invoiceId, amountMicros }],
+      });
+    const first = await part("2026-09-10", 40_000_000n);
+    const second = await part("2026-09-20", 30_000_000n);
+    const entries = [result.entryId, first.entryId, second.entryId];
+    const cancel = async (paymentId: string) =>
+      entries.push(
+        (
+          await run((tx) =>
+            voidPayment(tx, scope(), paymentId, { reason: "Returned" }),
+          )
+        ).reversalId,
+      );
+    await cancel(second.paymentId);
+    expect((await invoice(result.invoiceId)).status).toBe("partially_paid");
+    await cancel(first.paymentId);
+    expect((await invoice(result.invoiceId)).status).toBe("open");
+    // The whole amount is open again and settles the whole base.
+    const full = await part("2026-09-20", 100_000_000n);
+    entries.push(full.entryId);
+    expect((await invoice(result.invoiceId)).status).toBe("paid");
+    expect(await netBase(accounts.payables, entries)).toBe(0n);
+  });
+
+  it("a fully credited invoice is paid with its base closed", async () => {
+    // Same rate: the credit note's base matches, no closing entry.
+    const plain = await book();
+    const credit = await book({
+      kind: "credit_note",
+      creditsInvoiceId: plain.invoiceId,
+    });
+    expect((await invoice(plain.invoiceId)).status).toBe("paid");
+    expect((await invoice(credit.invoiceId)).status).toBe("paid");
+    expect(await netBase(accounts.payables, [plain.entryId, credit.entryId])).toBe(
+      0n,
+    );
+    const closes = (invoiceId: string) =>
+      run((tx) =>
+        tx.financeJournalEntry.findMany({
+          where: { sourceType: "invoice_close", sourceId: invoiceId },
+        }),
+      );
+    expect(await closes(plain.invoiceId)).toHaveLength(0);
+    expect(
+      await failure(
+        book({ kind: "credit_note", creditsInvoiceId: plain.invoiceId }),
+      ),
+    ).toBe("CREDIT_EXCEEDS_OPEN");
+
+    // Different rates: 110.00 posted, 120.00 credited; a 10.00 closing entry.
+    const foreign = {
+      currency: "EUR",
+      lines: [
+        {
+          description: "Hosting",
+          amount: "100.00",
+          tax: "0",
+          categoryId: expenseCategory,
+          allocation: [],
+        },
+      ],
+    };
+    const eur = await book({ ...foreign, issueDate: "2026-09-01" });
+    const eurCredit = await book({
+      ...foreign,
+      kind: "credit_note",
+      issueDate: "2026-09-10",
+      creditsInvoiceId: eur.invoiceId,
+    });
+    expect((await invoice(eur.invoiceId)).status).toBe("paid");
+    const [close] = await closes(eur.invoiceId);
+    expect(close).toBeDefined();
+    const closeLines = await lines(close!.id);
+    expect(
+      closeLines.find((l) => l.accountId === accounts.fx_gain_loss),
+    ).toMatchObject({ side: "debit", baseAmountMicros: 10_000_000n, currency: "USD" });
+    expect(
+      await netBase(accounts.payables, [eur.entryId, eurCredit.entryId, close!.id]),
+    ).toBe(0n);
+
+    // Voiding the credit note reopens the invoice and reverses the closing.
+    const creditRow = await invoice(eurCredit.invoiceId);
+    const voided = await run((tx) =>
+      voidInvoice(tx, scope(), eurCredit.invoiceId, {
+        version: creditRow.version,
+        reason: "Issued in error",
+      }),
+    );
+    expect((await invoice(eur.invoiceId)).status).toBe("open");
+    const reversed = await run((tx) =>
+      tx.financeJournalEntry.findUniqueOrThrow({ where: { id: close!.id } }),
+    );
+    expect(reversed.reversedById).not.toBeNull();
+    expect(
+      await netBase(accounts.payables, [
+        eur.entryId,
+        eurCredit.entryId,
+        voided.reversalId,
+        close!.id,
+        reversed.reversedById!,
+      ]),
+    ).toBe(110_000_000n * -1n);
+  });
+
+  it("a partial credit leaves the rest payable", async () => {
+    const eur = await book({
+      issueDate: "2026-09-01",
+      currency: "EUR",
+      lines: [
+        {
+          description: "Hosting",
+          amount: "100.00",
+          tax: "0",
+          categoryId: expenseCategory,
+          allocation: [],
+        },
+      ],
+    });
+    const credit = await book({
+      kind: "credit_note",
+      issueDate: "2026-09-10",
+      currency: "EUR",
+      creditsInvoiceId: eur.invoiceId,
+      lines: [
+        {
+          description: "Discount",
+          amount: "30.00",
+          tax: "0",
+          categoryId: expenseCategory,
+          allocation: [],
+        },
+      ],
+    });
+    expect((await invoice(eur.invoiceId)).status).toBe("partially_paid");
+    expect(
+      await failure(
+        pay({
+          date: "2026-09-20",
+          currency: "EUR",
+          amountMicros: 80_000_000n,
+          allocations: [{ invoiceId: eur.invoiceId, amountMicros: 80_000_000n }],
+        }),
+      ),
+    ).toBe("PAYMENT_OVER_ALLOCATED");
+    const paid = await pay({
+      date: "2026-09-20",
+      currency: "EUR",
+      amountMicros: 70_000_000n,
+      allocations: [{ invoiceId: eur.invoiceId, amountMicros: 70_000_000n }],
+    });
+    expect((await invoice(eur.invoiceId)).status).toBe("paid");
+    // 110.00 posted - 36.00 credited = 74.00 settled; the bank pays 73.50.
+    const paidLines = await lines(paid.entryId);
+    expect(paidLines.find((l) => l.accountId === accounts.payables)).toMatchObject(
+      { baseAmountMicros: 74_000_000n },
+    );
+    expect(
+      await netBase(accounts.payables, [eur.entryId, credit.entryId, paid.entryId]),
+    ).toBe(0n);
+  });
+
+  it("refuses a payment across counterparties", async () => {
+    const a = await book();
+    const b = await book({ counterpartyId: otherCounterpartyId });
+    expect(
+      await failure(
+        pay({
+          date: "2026-10-05",
+          amountMicros: 238_000_000n,
+          allocations: [
+            { invoiceId: a.invoiceId, amountMicros: 119_000_000n },
+            { invoiceId: b.invoiceId, amountMicros: 119_000_000n },
+          ],
+        }),
+      ),
+    ).toBe("PAYMENT_MIXED_COUNTERPARTIES");
+  });
+
+  it("a paid invoice uses the booking's manual rate on its issue date", async () => {
+    const result = await book({
+      issueDate: "2025-02-03",
+      currency: "EUR",
+      rateOverride: "1.25",
+      paid: { accountId: accounts.bank },
+    });
+    const payment = await run((tx) =>
+      tx.financePayment.findUniqueOrThrow({ where: { id: result.paymentId! } }),
+    );
+    const paymentLines = await lines(payment.entryId!);
+    expect(paymentLines.every((l) => l.accountId !== accounts.fx_gain_loss)).toBe(
+      true,
+    );
+    expect(
+      paymentLines.find((l) => l.accountId === accounts.bank),
+    ).toMatchObject({ baseAmountMicros: 148_750_000n });
+    // A later payment date needs its own rate.
+    expect(
+      await failure(
+        book({
+          issueDate: "2025-02-03",
+          currency: "EUR",
+          rateOverride: "1.25",
+          paid: { accountId: accounts.bank, date: "2025-02-04" },
+        }),
+      ),
+    ).toBe("FX_RATE_MISSING");
+    const later = await book({
+      issueDate: "2025-02-03",
+      currency: "EUR",
+      rateOverride: "1.25",
+      paid: { accountId: accounts.bank, date: "2025-02-04", rateOverride: "1.30" },
+    });
+    expect((await invoice(later.invoiceId)).status).toBe("paid");
   });
 
   it("overdue is derived from due date", () => {
