@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EntityView } from "../../../../packages/schemas/src/index";
+import type { Locale } from "./i18n";
 export type Entity = EntityView;
 export type Project = {
   setupPath?: string;
@@ -14,9 +15,21 @@ export type Project = {
   role?: "owner" | "editor" | "viewer";
 };
 export type Identity = {
-  user: { id: string; name: string; email: string };
+  user: { id: string; name: string; email: string; locale?: Locale | null };
   projects: Project[];
-  workspaces: Array<{ id: string; name: string; role?: string }>;
+  workspaces: Array<{
+    id: string;
+    name: string;
+    role?: string;
+    /** May open the organization settings (ADR 0012). */
+    canManage?: boolean;
+  }>;
+  /** A system administrator (ADR 0012); false while the feature is off. */
+  systemAdmin?: boolean;
+  /** Whether the account pages exist (ORBIT_ACCOUNT). */
+  account?: boolean;
+  /** Whether administration and invitations exist (ORBIT_ADMINISTRATION). */
+  administration?: boolean;
 };
 export type Dashboard = {
   project: Project;
@@ -96,6 +109,12 @@ export async function api<T>(
 }
 export function post<T>(path: string, data: unknown): Promise<T> {
   return api<T>(path, { method: "POST", body: JSON.stringify(data) });
+}
+export function put<T>(path: string, data: unknown): Promise<T> {
+  return api<T>(path, { method: "PUT", body: JSON.stringify(data) });
+}
+export function patch<T>(path: string, data: unknown): Promise<T> {
+  return api<T>(path, { method: "PATCH", body: JSON.stringify(data) });
 }
 export function useResource<T>(path: string | null) {
   const [data, setData] = useState<T | null>(null),

@@ -279,6 +279,25 @@ describe("Web route registry", () => {
     });
   });
 
+  it("knows the organization settings and the system administration (ADR 0012)", () => {
+    expect(locate("/o/org%201/settings", table)).toEqual({
+      kind: "organizationSettings",
+      organizationId: "org 1",
+    });
+    expect(locate("/admin", table)).toEqual({ kind: "admin", section: "" });
+    expect(locate("/admin/users", table)).toEqual({
+      kind: "admin",
+      section: "users",
+    });
+    expect(locate(`/admin/users/${P}`, table)).toEqual({
+      kind: "admin",
+      section: "users",
+      id: P,
+    });
+    expect(locate("/admin/secrets", table)).toEqual({ kind: "notFound" });
+    expect(locate(`/admin/users/${P}/x`, table)).toEqual({ kind: "notFound" });
+  });
+
   it("rewrites only in-app legacy links and keeps query and hash", () => {
     expect(rewriteLegacyHref(table, P, "/settings?googleDrive=ready")).toBe(
       `${href("settings")}?googleDrive=ready`,

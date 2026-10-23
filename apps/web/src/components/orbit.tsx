@@ -86,6 +86,9 @@ import {
 import { signedQuery, signIn } from "@/platform/connect/oauth-flow";
 import type { WebRegistry } from "@/platform/shell/types";
 import { NotFound } from "@/platform/shell/not-found";
+import { UserMenu } from "@/platform/shell/user-menu";
+import { AdminArea } from "@/platform/administration/admin-area";
+import { OrganizationManager } from "@/platform/administration/organization-manager";
 import {
   OrganizationPicker,
   ProjectPicker,
@@ -124,7 +127,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     [revision, setRevision] = useState(0),
     [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set()),
     [collapsedLoaded, setCollapsedLoaded] = useState(false);
-  const setup = useResource<{ configured: boolean }>("/setup");
+  const setup = useResource<{ configured: boolean; passwordReset?: boolean }>(
+    "/setup",
+  );
   const identity = useResource<Identity>(setup.data?.configured ? "/me" : null);
   const t: Text = (key) => labels[locale][key];
   const mutation = useMutation(() => {
@@ -194,6 +199,12 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     setCollapsed(readCollapsed());
     setCollapsedLoaded(true);
   }, []);
+  // A language saved in the account (ADR 0012) wins over this browser's.
+  const accountLocale = identity.data?.user.locale;
+  useEffect(() => {
+    if (localeLoaded && (accountLocale === "de" || accountLocale === "en"))
+      setLocale(accountLocale);
+  }, [localeLoaded, accountLocale]);
   // Navigating opens the page's sidebar group; not before the stored groups
   // are read, and not on a click, so the open page's group can collapse.
   useEffect(() => {
@@ -428,7 +439,9 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   // page an OAuth client's refused request ends at.
   if (standalone?.session === "none")
     return (
-      <StandaloneContext.Provider value={{ locale, t, identity: null }}>
+      <StandaloneContext.Provider
+        value={{ locale, t, identity: null, setLocale }}
+      >
         <div className="picker-page">
           <header>
             <Brand />
@@ -463,6 +476,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     return (
       <Authentication
         setup={!setup.data?.configured}
+        passwordReset={Boolean(setup.data?.passwordReset)}
         oauthLogin={Boolean(standalone?.oauthLogin)}
         locale={locale}
         setLocale={setLocale}
@@ -497,17 +511,32 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
       {t("signOut")}
     </button>
   );
-  // Pages outside a project: pickers and unknown addresses.
-  const frame = (children: ReactNode) => (
+  const userMenu = (organizationId?: string, role?: string) => (
+    <UserMenu
+      identity={me}
+      organizationId={organizationId}
+      role={role}
+      t={t}
+      signingOut={signout.pending}
+      onSignOut={() =>
+        signout.run(async () => {
+          await post("/auth/sign-out", {});
+          clearAttentionCache();
+        })
+      }
+    />
+  );
+  // Pages outside a project: pickers, administration and unknown addresses.
+  const frame = (children: ReactNode, wide = false) => (
     <div className="picker-page">
       <header>
         <Brand />
         <div className="topbar-actions">
           {languageControl}
-          {signoutButton}
+          {userMenu()}
         </div>
       </header>
-      <main id="main" className="picker-main">
+      <main id="main" className={wide ? "admin-main" : "picker-main"}>
         {signout.error && <Alert kind="error">{signout.error}</Alert>}
         {children}
       </main>
@@ -515,10 +544,52 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
   );
   if (standalone)
     return frame(
-      <StandaloneContext.Provider value={{ locale, t, identity: me }}>
+      <StandaloneContext.Provider
+        value={{
+          locale,
+          t,
+          identity: me,
+          setLocale,
+          refreshIdentity: identity.refresh,
+        }}
+      >
         <standalone.component />
       </StandaloneContext.Provider>,
+      standalone.key === "account",
     );
+  // The system administration (ADR 0012); the API refuses everyone else.
+  if (place.kind === "admin")
+    return me.systemAdmin
+      ? frame(
+          <AdminArea
+            section={place.section}
+            id={place.id}
+            locale={locale}
+            currentUserId={me.user.id}
+          />,
+          true,
+        )
+      : frame(<NotFound t={t} project={false} />);
+  if (place.kind === "organizationSettings")
+    return me.workspaces.some(
+      (w) => w.id === place.organizationId && w.canManage,
+    ) || me.systemAdmin
+      ? frame(
+          <>
+            <Link
+              className="back-link"
+              href={`/o/${encodeURIComponent(place.organizationId)}`}
+            >
+              ← {t("chooseProject")}
+            </Link>
+            <OrganizationManager
+              organizationId={place.organizationId}
+              locale={locale}
+            />
+          </>,
+          true,
+        )
+      : frame(<NotFound t={t} project={false} />);
   if (
     place.kind === "start" ||
     place.kind === "legacy" ||
@@ -747,9 +818,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             <div className="topbar-actions">
               <NotificationBell project={project} locale={locale} />
               {languageControl}
-              <span className="avatar" title={`${me.user.name} · ${role}`}>
-                {me.user.name.slice(0, 1).toUpperCase()}
-              </span>
+              {userMenu(project.workspaceId, role)}
             </div>
           </header>
           <div className="mobile-project">
@@ -884,12 +953,15 @@ export function Brand() {
 }
 function Authentication({
   setup,
+  passwordReset,
   oauthLogin,
   locale,
   setLocale,
   onDone,
 }: {
   setup: boolean;
+  /** Whether "forgot password" is offered (system mail, ADR 0012). */
+  passwordReset: boolean;
   /** Signing in continues the OAuth authorization in the page URL. */
   oauthLogin: boolean;
   locale: Locale;
@@ -1042,6 +1114,11 @@ function Authentication({
                 .then(() => {})
             }
           />
+          {!setup && passwordReset && (
+            <Link className="auth-forgot" href="/reset-password">
+              {t("forgotPassword")}
+            </Link>
+          )}
         </section>
       </div>
       <footer>

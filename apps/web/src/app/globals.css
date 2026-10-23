@@ -5846,3 +5846,200 @@ a.support-row {
 @media (max-width: 760px) {
   .marketing-plans-page .page-actions > .button { flex: 1 0 100%; width: 100%; white-space: normal; }
 }
+/* System administration, organization settings and account (ADR 0012). */
+.admin-main {
+  max-width: 1280px;
+  margin: 40px auto;
+}
+.admin-layout {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.admin-layout .settings-nav {
+  top: 16px;
+}
+.admin-mobile-nav {
+  display: none;
+}
+.admin-stack,
+.account-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.account-page {
+  max-width: 760px;
+}
+.panel-body {
+  padding: 0 21px 21px;
+}
+.panel-actions,
+.row-actions,
+.modal-actions,
+.admin-actions,
+.badge-row,
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.admin-actions,
+.pager {
+  padding: 0 21px 21px;
+}
+.pager {
+  padding-top: 16px;
+}
+.modal-actions {
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.admin-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.input-compact {
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 13px;
+  width: auto;
+}
+.matrix-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.module-role-list,
+.grant-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.grant-list {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin: 0 0 16px;
+}
+.grant-list legend {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+.module-role-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+}
+.one-time-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.one-time-link code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  background: #f3f7fb;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.back-link {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.auth-forgot {
+  display: inline-block;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.user-menu {
+  position: relative;
+}
+.user-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.user-menu > summary::-webkit-details-marker {
+  display: none;
+}
+.user-menu-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 40;
+  min-width: 240px;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px #0f2a4420;
+}
+.user-menu-who {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+.user-menu-who small {
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #2c3e52;
+  font-size: 13.5px;
+  text-align: left;
+}
+.user-menu-item:hover {
+  background: #eef5fd;
+  color: #2c3e52;
+}
+.user-menu-item svg {
+  width: 16px;
+  height: 16px;
+}
+@media (max-width: 760px) {
+  .admin-main {
+    margin: 24px auto;
+  }
+  .admin-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .admin-layout .settings-nav {
+    display: none;
+  }
+  .admin-mobile-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .admin-mobile-nav .input,
+  .admin-filters .input {
+    font-size: 16px;
+  }
+  .admin-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

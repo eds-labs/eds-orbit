@@ -11,6 +11,8 @@ import type {
 //   /                                  start: last project, else the pickers
 //   /o                                 organization picker
 //   /o/:orgId                          project picker of one organization
+//   /o/:orgId/settings                 organization settings (ADR 0012)
+//   /admin[/<section>[/<id>]]          system administration (ADR 0012)
 //   /p/:projectId                      project home
 //   /p/:projectId/<view>               platform page
 //   /p/:projectId/<moduleId>[/<view>]  module page
@@ -38,6 +40,14 @@ const SEGMENT = /^[a-z][a-z0-9-]*$/;
 const RESERVED = new Set(["o", "p", "api", "admin"]);
 // Sidebar groups that no module owns (UI restructure).
 const PLATFORM_GROUPS = ["top", "project"];
+/** The pages of the system administration (/admin/<section>). */
+export const ADMIN_SECTIONS = new Set([
+  "users",
+  "invitations",
+  "organizations",
+  "projects",
+  "audit",
+]);
 const STANDALONE_PATH = /^[a-z][a-z0-9-]*(\/[a-z][a-z0-9-]*)*$/;
 
 /** Builds and checks the route table once; throws on any conflict. */
@@ -169,6 +179,9 @@ export type Place =
   | { kind: "start" }
   | { kind: "organizations" }
   | { kind: "organization"; organizationId: string }
+  | { kind: "organizationSettings"; organizationId: string }
+  /** The system administration; `section` "" is its overview. */
+  | { kind: "admin"; section: string; id?: string }
   | { kind: "view"; projectId: string; route: Route }
   /** A page outside any project, such as /connect. */
   | { kind: "standalone"; view: StandaloneView }
@@ -193,9 +206,20 @@ export function locate(pathname: string, table: RouteTable): Place {
   const [first, second, ...rest] = parts;
   if (first === "o") {
     if (!second) return { kind: "organizations" };
+    if (rest.length === 1 && rest[0] === "settings")
+      return { kind: "organizationSettings", organizationId: second };
     return rest.length
       ? { kind: "notFound" }
       : { kind: "organization", organizationId: second };
+  }
+  if (first === "admin") {
+    if (rest.length > 1 || (second && !ADMIN_SECTIONS.has(second)))
+      return { kind: "notFound" };
+    return {
+      kind: "admin",
+      section: second ?? "",
+      ...(rest[0] ? { id: rest[0] } : {}),
+    };
   }
   if (first === "p" && second) {
     const path = rest.join("/");

@@ -12,6 +12,10 @@ export type StandaloneContextValue = {
   t: Text;
   /** Null on pages that need no session. */
   identity: Identity | null;
+  /** Changes the interface language (the account page's preference). */
+  setLocale?: (locale: Locale) => void;
+  /** Reloads who is signed in, after a sign-in or a profile change. */
+  refreshIdentity?: () => void;
 };
 
 export const StandaloneContext = createContext<StandaloneContextValue | null>(

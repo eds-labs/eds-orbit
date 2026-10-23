@@ -2,20 +2,28 @@
 // Project administration and members (WP2.3b, platform UI); two settings
 // sections since the UI restructure (§5.4).
 import { useState } from "react";
-import { KeyRound, Settings, UserPlus } from "lucide-react";
+import { KeyRound, Settings, Trash2, UserPlus } from "lucide-react";
 import {
   action,
   collectionPath,
+  put,
+  remove,
   useMutation,
   useResource,
-  value,
 } from "@/lib/api";
-import { Badge, Button, Modal, Loading } from "./ui/primitives";
+import { Alert, Badge, Button, Modal, Loading } from "./ui/primitives";
 import { DataForm, str } from "@/platform/ui/form";
 import { useWorkspace } from "./workspace-context";
 import { ResourceError } from "@/platform/ui/collection";
 import { ModuleRoles } from "./module-roles";
 import { PublicKeys } from "./public-keys";
+import {
+  InvitationList,
+  OneTimeLink,
+  type Invitation,
+  type InvitationResult,
+} from "@/platform/administration/organization-manager";
+import { errorText, projectRoleLabel } from "@/platform/administration/texts";
 /**
  * The owner's project actions (settings section "project"): edit the
  * project and manage its public client keys.
@@ -99,64 +107,118 @@ export function ProjectAdministration() {
 
 /**
  * The project's members (settings section "members", owners only): the
- * list, adding a local member and each member's module roles.
+ * list, inviting someone (ADR 0012: they set their own password), each
+ * member's project and module roles, removal and open invitations.
  */
 export function ProjectMembers() {
-  const { project, isOwner, locale, t, refresh } = useWorkspace();
+  const { project, isOwner, locale, identity, refresh } = useWorkspace();
+  const de = locale === "de";
+  const administration = Boolean(identity.administration);
   const members = useResource<{ items: Array<Record<string, unknown>> }>(
     isOwner ? collectionPath(project.id, "members") : null,
   );
+  const invitations = useResource<{ items: Invitation[] }>(
+    isOwner && administration
+      ? collectionPath(project.id, "invitations")
+      : null,
+  );
   const [adding, setAdding] = useState(false);
+  const [link, setLink] = useState<string | null>(null);
   const [rolesFor, setRolesFor] = useState<{
     userId: string;
     name: string;
     projectRole: string;
   } | null>(null);
-  const mutation = useMutation(() => {
+  const reload = () => {
     refresh();
     members.refresh();
-    setAdding(false);
-  });
+    invitations.refresh();
+  };
+  const mutation = useMutation(reload);
+  const change = useMutation(reload);
   if (!isOwner) return null;
+  const memberPath = (userId: string) =>
+    collectionPath(project.id, `members/${encodeURIComponent(userId)}`);
   return (
     <section className="panel administration-panel">
       <div className="panel-head">
-        <h2>{locale === "de" ? "Mitglieder & Rollen" : "Members & roles"}</h2>
+        <h2>{de ? "Mitglieder & Rollen" : "Members & roles"}</h2>
         <div className="page-actions">
           <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
             <UserPlus data-icon="inline-start" />
-            Add member
+            {de ? "Mitglied einladen" : "Invite member"}
           </Button>
         </div>
       </div>
       <ResourceError error={members.error} retry={members.refresh} />
+      {change.error && (
+        <Alert kind="error">{errorText(change.error, locale)}</Alert>
+      )}
       {members.loading ? (
         <Loading />
       ) : members.data?.items.length ? (
         <div className="member-list">
           {members.data.items.map((m, i) => {
             const user = m.user as Record<string, unknown> | undefined;
+            const userId = String(m.userId);
+            const name = String(user?.name || m.name || "Member");
             return (
               <div className="member-row" key={String(m.id || i)}>
                 <div>
-                  <strong>{String(user?.name || m.name || "Member")}</strong>
+                  <strong>{name}</strong>
                   <small>{String(user?.email || m.email || "")}</small>
                 </div>
                 <div className="page-actions">
-                  <Badge>{String(m.role || "member")}</Badge>
+                  {administration ? (
+                    <select
+                      className="input input-compact"
+                      aria-label={`${de ? "Projektrolle von" : "Project role of"} ${name}`}
+                      value={String(m.role)}
+                      disabled={change.pending}
+                      onChange={(e) =>
+                        void change.run(() =>
+                          put(memberPath(userId), { role: e.target.value }),
+                        )
+                      }
+                    >
+                      {(["viewer", "editor", "owner"] as const).map((r) => (
+                        <option key={r} value={r}>
+                          {projectRoleLabel(r, locale)}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <Badge>{String(m.role || "member")}</Badge>
+                  )}
                   {m.role !== "owner" && (
                     <Button
                       variant="ghost"
                       size="sm"
                       onClick={() =>
-                        setRolesFor({
-                          userId: String(m.userId),
-                          name: String(user?.name || "Member"),
-                          projectRole: String(m.role),
-                        })
+                        setRolesFor({ userId, name, projectRole: String(m.role) })
                       }
                     >
-                      Module roles
+                      {de ? "Modulrollen" : "Module roles"}
+                    </Button>
+                  )}
+                  {administration && userId !== identity.user.id && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`${de ? "Aus dem Projekt entfernen:" : "Remove from project:"} ${name}`}
+                      disabled={change.pending}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            de
+                              ? `${name} aus dem Projekt entfernen?`
+                              : `Remove ${name} from the project?`,
+                          )
+                        )
+                          void change.run(() => remove(memberPath(userId)));
+                      }}
+                    >
+                      <Trash2 />
                     </Button>
                   )}
                 </div>
@@ -165,68 +227,98 @@ export function ProjectMembers() {
           })}
         </div>
       ) : (
-        <p className="panel-note">No additional members.</p>
+        <p className="panel-note">
+          {de ? "Keine weiteren Mitglieder." : "No additional members."}
+        </p>
+      )}
+      {administration && invitations.data && invitations.data.items.length > 0 && (
+        <InvitationList
+          invitations={invitations.data.items}
+          base={collectionPath(project.id, "").replace(/\/$/, "")}
+          locale={locale}
+          onChange={reload}
+          onLink={(r) => r?.link && setLink(r.link)}
+        />
       )}
       {rolesFor && (
         <ModuleRoles {...rolesFor} onClose={() => setRolesFor(null)} />
       )}
       {adding && (
         <Modal
-          title="Add local member"
-          description="Creates a local identity and project membership. No email is sent. Share credentials through your own approved secure process."
+          title={de ? "Mitglied einladen" : "Invite member"}
+          description={
+            de
+              ? "Mitglieder der Organisation erhalten den Zugriff sofort. Alle anderen bekommen einen Einladungslink und legen ihr Passwort selbst fest."
+              : "Members of the organization get access at once. Everyone else receives an invitation link and sets their own password."
+          }
           onClose={() => setAdding(false)}
         >
           <DataForm
             fields={[
-              { name: "name", label: t("name"), required: true },
               {
                 name: "email",
-                label: "Email",
+                label: "E-Mail",
                 type: "email",
                 required: true,
               },
               {
-                name: "password",
-                label: "Initial password",
-                type: "password",
-                required: true,
-                hint: "At least 12 characters. Not retained in browser storage.",
-              },
-              {
                 name: "role",
-                label: "Project role",
+                label: de ? "Projektrolle" : "Project role",
                 type: "select",
                 value: "viewer",
                 options: [
-                  { value: "viewer", label: "Viewer · read only" },
+                  {
+                    value: "viewer",
+                    label: de ? "Lesen · nur ansehen" : "Viewer · read only",
+                  },
                   {
                     value: "editor",
-                    label: "Editor · content and review",
+                    label: de
+                      ? "Bearbeiten · Inhalte und Prüfung"
+                      : "Editor · content and review",
                   },
                   {
                     value: "owner",
-                    label: "Owner · full project authority",
+                    label: de
+                      ? "Owner · volle Projektrechte"
+                      : "Owner · full project authority",
                   },
+                ],
+              },
+              {
+                name: "locale",
+                label: de ? "Sprache der Einladung" : "Invitation language",
+                type: "select",
+                value: locale,
+                options: [
+                  { value: "en", label: "English" },
+                  { value: "de", label: "Deutsch" },
                 ],
               },
             ]}
             pending={mutation.pending}
-            error={mutation.error}
-            t={t}
+            error={errorText(mutation.error, locale)}
             onCancel={() => setAdding(false)}
-            submitLabel={t("save")}
-            onSubmit={(v) =>
-              mutation.run(() =>
-                action(project.id, "add-member", {
-                  name: str(v, "name"),
+            submitLabel={de ? "Einladen" : "Invite"}
+            onSubmit={async (v) => {
+              const result = await mutation.run(() =>
+                action<InvitationResult>(project.id, "add-member", {
                   email: str(v, "email"),
-                  password: String(v.password),
                   role: str(v, "role"),
+                  locale: str(v, "locale"),
                 }),
-              )
-            }
+              );
+              if (result) {
+                setAdding(false);
+                if (result.delivery === "link" && result.link)
+                  setLink(result.link);
+              }
+            }}
           />
         </Modal>
+      )}
+      {link && (
+        <OneTimeLink link={link} locale={locale} onClose={() => setLink(null)} />
       )}
     </section>
   );

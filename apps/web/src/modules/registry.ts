@@ -22,6 +22,12 @@ import {
   ProjectSettings,
 } from "@/components/management";
 import { ConnectErrorView, ConnectView } from "@/platform/connect/connect-view";
+import { AccountView } from "@/platform/account/account-view";
+import {
+  ConfirmEmailView,
+  InviteView,
+  ResetPasswordView,
+} from "@/platform/account/token-pages";
 import { ApprovalInbox } from "@/modules/marketing/work";
 import { knowledgeWeb } from "./knowledge/manifest";
 import { marketingWeb } from "./marketing/manifest";
@@ -218,6 +224,35 @@ export const webRegistry: WebRegistry = {
       path: "connect/error",
       component: ConnectErrorView,
       title: label("connectErrorTitle"),
+      session: "none",
+    },
+    // The user's own account and the one-time link pages (ADR 0012).
+    {
+      key: "account",
+      path: "account",
+      component: AccountView,
+      title: label("accountTitle"),
+      session: "required",
+    },
+    {
+      key: "account-confirm-email",
+      path: "account/confirm-email",
+      component: ConfirmEmailView,
+      title: label("confirmEmailTitle"),
+      session: "required",
+    },
+    {
+      key: "invite",
+      path: "invite",
+      component: InviteView,
+      title: label("inviteTitle"),
+      session: "none",
+    },
+    {
+      key: "reset-password",
+      path: "reset-password",
+      component: ResetPasswordView,
+      title: label("resetPasswordTitle"),
       session: "none",
     },
   ],
