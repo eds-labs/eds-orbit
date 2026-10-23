@@ -2,7 +2,7 @@
 
 ## Finance module phase 1 (2026-10-23)
 
-Spec `docs/superpowers/specs/2026-10-23-finance-module-design.md`; behaviour in `docs/FINANCE.md`. States use the file's vocabulary: PASS_TEST here means the focused tests passed at the task's commit; the whole-branch run is Task 24 and not yet done.
+Spec `docs/superpowers/specs/2026-10-23-finance-module-design.md`; behaviour in `docs/FINANCE.md`. States use the file's vocabulary: PASS_TEST here means the focused tests passed at the task's commit and the full suite passed on the finished branch (Task 24).
 
 | Requirement | Evidence | State |
 | --- | --- | --- |
@@ -33,7 +33,7 @@ Spec `docs/superpowers/specs/2026-10-23-finance-module-design.md`; behaviour in 
 | Queue classes and worker dispatch (`finance_mail_receipt`, `finance_extract`, `email_archive`) | `apps/worker/tests/queue-dispatch.integration.test.ts` | PASS_TEST |
 | Web: overview, charts, review and booking form, upload, entries, invoices, reports, settings (the recurring page has no component test) | `apps/web/src/modules/finance/*.test.tsx`, `apps/web/tests/finance.spec.ts` | PASS_TEST (visual check on desktop and phone NOT_RUN) |
 | Documentation: guide, configuration runbook, ADR, platform docs | `docs/FINANCE.md`, `docs/adr/0012-finance-module.md`, `docs/EMAIL_AND_NOTIFICATIONS.md`, `docs/PLATFORM_FILES.md`, `docs/MODEL_ROUTING.md`, `docs/MODULE_ACTIVATION.md` | DOCUMENTED |
-| Full verification of the finished branch (lint, typecheck, test, build, e2e, Compose, source check, whole-branch review) | Task 24 | NOT_RUN |
+| Full verification of the finished branch (lint, typecheck, test, build, e2e, Compose, source check, whole-branch review) | Task 24 | PASS_TEST |
 | Assumptions confirmed (USD base, USDC peg, accrual, 10-year retention) | Mario | BLOCKED_EXTERNAL |
 | Production: deploy, migrations `202610230001`/`202610230002`, flag, mailbox `payment@eds-labs.io`, AI consent | Runbook in `docs/FINANCE.md`; approvals required | BLOCKED_EXTERNAL |
 | DATEV export, bank/card/wallet sync, on-chain USDC, uLiquid Desk income, XRechnung parsing, monthly reports, MCP scope | Extension points only (spec §11) | NOT_RUN (out of Phase 1) |

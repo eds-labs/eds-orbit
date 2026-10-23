@@ -329,4 +329,4 @@ Copied from spec §15 and updated. None blocks the code; all block production us
 - **Retention override policy** for a legal erasure request on finance originals.
 - **DATEV details** (consultant and client number, SKR03/04) once the export is wanted.
 - **Production activation** in this order: deploy approval, flag, enable module, setup, currencies and FX, mailbox connection and "Check login", bind mailbox, cost centers and categories, AI consent, verification.
-- **Not yet done:** the whole-branch review and the full verification run (`IMPLEMENTATION_STATUS.md`, Task 24), a visual browser check of the finance pages on desktop and on a phone (the chart styles were only tested in markup).
+- **Not yet done:** a visual browser check of the finance pages by a person on desktop and on a phone (the chart styles were tested in markup and the e2e only checks layout overflow).
