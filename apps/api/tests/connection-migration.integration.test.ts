@@ -33,7 +33,12 @@ describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
   const connectors: Record<string, string> = {};
   let connectionId: string;
 
-  async function connector(name: string, workspaceId: string, key: string) {
+  async function connector(
+    name: string,
+    workspaceId: string,
+    key: string,
+    channels: string[] = [],
+  ) {
     const projectId = projects[name]!;
     connectors[name] = (
       await scoped(workspaceId, projectId, (tx) =>
@@ -47,6 +52,13 @@ describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
               baseUrl: "https://postiz.example.invalid/api/public/v1",
               status: "write_verified",
               encryptedCredential: encrypt(key, process.env.CREDENTIAL_KEY!),
+              channels: ["x1", "x2"].map((id) => ({
+                id,
+                name: `Channel ${id}`,
+                identifier: "x",
+                disabled: false,
+              })),
+              assignedIntegrationIds: channels,
             },
           },
         }),
@@ -71,8 +83,8 @@ describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
     ws = w.id;
     foreignWs = f.id;
     for (const p of [...w.projects, ...f.projects]) projects[p.name] = p.id;
-    await connector("A", ws, SHARED);
-    await connector("B", ws, SHARED);
+    await connector("A", ws, SHARED, ["x1"]);
+    await connector("B", ws, SHARED, ["x1", "x2"]);
     await connector("C", ws, OTHER);
     await connector("F", foreignWs, SHARED);
   });
@@ -94,6 +106,10 @@ describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
   it("binds only projects of the same organization with the same key", async () => {
     const plan = await planConsolidation({ workspaceId: ws, provider: "postiz", sourceConnectorId: connectors.A! });
     expect(plan.bind.map((b) => b.projectId).sort()).toEqual([projects.A, projects.B].sort());
+    // Each channel stays with one project: the source keeps the shared one.
+    expect(plan.bind.find((b) => b.projectId === projects.A)!.channels).toEqual(["x1"]);
+    expect(plan.bind.find((b) => b.projectId === projects.B)!.channels).toEqual(["x2"]);
+    expect(plan.channelConflicts).toEqual([{ channelId: "x1", projectIds: [projects.A, projects.B] }]);
     expect(plan.skipped).toEqual([{ projectId: projects.C, connectorId: connectors.C, reason: "different_key" }]);
     await expect(
       planConsolidation({ workspaceId: ws, provider: "postiz", sourceConnectorId: connectors.F! }),
@@ -106,6 +122,14 @@ describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
     expect((await access("A")).credential).toBe(SHARED);
     expect((await access("B")).credential).toBe(SHARED);
     expect((await access("C")).credential).toBe(OTHER);
+    // The channels move with the grants, and the connection knows them.
+    const central = await authDb.connection.findUniqueOrThrow({ where: { id: connectionId } });
+    expect((central.health as { channels: Array<{ id: string }> }).channels.map((c) => c.id)).toEqual(["x1", "x2"]);
+    const grants = await authDb.connectionGrant.findMany({ where: { connectionId } });
+    expect(Object.fromEntries(grants.map((g) => [g.projectId, (g.settings as any).channels]))).toEqual({
+      [projects.A!]: ["x1"],
+      [projects.B!]: ["x2"],
+    });
     // The foreign organization's project is untouched.
     expect((await access("F", foreignWs)).credential).toBe(SHARED);
     expect(await authDb.connectionGrant.count({ where: { connectionId, workspaceId: foreignWs } })).toBe(0);
@@ -120,6 +144,7 @@ describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
         tx.entity.findFirstOrThrow({ where: { id: connectors[name] } }),
       );
       expect((row.data as Record<string, unknown>).centralConnectionId).toBeUndefined();
+      expect((row.data as Record<string, unknown>).allowedChannelIds).toBeUndefined();
       expect((await access(name)).credential).toBe(SHARED);
     }
   });

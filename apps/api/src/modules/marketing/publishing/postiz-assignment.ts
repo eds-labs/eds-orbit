@@ -11,6 +11,7 @@ import {
 } from "../../../shared.ts";
 import { POSTING_TIME } from "./posting-slots.ts";
 import { connectionVerified } from "../../../platform/connections/connections.ts";
+import { grantedConnections } from "../../../platform/connections/central.ts";
 
 export const postizAssignmentInput = z
   .object({
@@ -62,10 +63,24 @@ export function hasXLongPosts(
   );
 }
 
-export function assignedPostizChannels(connector: Record<string, any>) {
-  const assigned = Array.isArray(connector.assignedIntegrationIds)
-    ? connector.assignedIntegrationIds
+/**
+ * A connection bound to a central one (ADR 0014) uses exactly the channels
+ * its organization assigned to the project (`allowedChannelIds`); none
+ * without that list. Null for a project's own connection.
+ */
+function centrallyAllowed(connector: Record<string, any>): string[] | null {
+  if (!connector.centralConnectionId) return null;
+  return Array.isArray(connector.allowedChannelIds)
+    ? connector.allowedChannelIds
     : [];
+}
+
+export function assignedPostizChannels(connector: Record<string, any>) {
+  const assigned =
+    centrallyAllowed(connector) ??
+    (Array.isArray(connector.assignedIntegrationIds)
+      ? connector.assignedIntegrationIds
+      : []);
   return (Array.isArray(connector.channels) ? connector.channels : []).filter(
     (channel: any) =>
       typeof channel?.id === "string" &&
@@ -92,10 +107,23 @@ export async function assertAssignedSocialChannels(
     (row) =>
       data(row).provider === "postiz" && connectionVerified(data(row).status),
   );
+  // A bound connection's channels also need the project's current grant.
+  const granted = connectors.some((row) => data(row).centralConnectionId)
+    ? await grantedConnections(tx, scope, { provider: "postiz" })
+    : [];
   const assigned = new Set(
-    connectors.flatMap((row) =>
-      assignedPostizChannels(data(row)).map((channel: any) => channel.id),
-    ),
+    connectors.flatMap((row) => {
+      const central = data(row).centralConnectionId;
+      const grant = central
+        ? granted.find((g) => g.connection.id === central)
+        : undefined;
+      const held = Array.isArray(grant?.grant.settings.channels)
+        ? (grant!.grant.settings.channels as string[])
+        : [];
+      return assignedPostizChannels(data(row))
+        .map((channel: any) => channel.id)
+        .filter((id: string) => !central || held.includes(id));
+    }),
   );
   if (integrationIds.some((id) => !assigned.has(id)))
     throw new DomainError("POSTIZ_CHANNEL_NOT_ASSIGNED", 409);
@@ -132,10 +160,12 @@ export async function assignPostizChannels(
   const connector = data(row);
   if (connector.provider !== "postiz" || !connectionVerified(connector.status))
     throw new DomainError("POSTIZ_READ_VERIFICATION_REQUIRED", 409);
+  const allowed = centrallyAllowed(connector);
   const available = new Set(
     (Array.isArray(connector.channels) ? connector.channels : [])
       .filter((channel: any) => channel && !channel.disabled)
-      .map((channel: any) => channel.id),
+      .map((channel: any) => channel.id)
+      .filter((id: string) => !allowed || allowed.includes(id)),
   );
   if (
     new Set(input.integrationIds).size !== input.integrationIds.length ||

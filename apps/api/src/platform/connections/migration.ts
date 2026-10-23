@@ -3,6 +3,8 @@ import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError, list, update } from "../shared.ts";
 import { systemAudit } from "../administration/audit.ts";
+import { channelCatalog } from "../administration/connections.ts";
+import { registeredConnectionProvider } from "../modules/contributions.ts";
 import { CONNECTION_KIND, decryptCredential } from "./connections.ts";
 import { sealSecret } from "./secrets.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
@@ -34,7 +36,12 @@ export type InventoryRow = {
   ownKey: boolean;
   fingerprint: string | null;
   centralConnectionId: string | null;
+  /** The channels the project uses, for providers with channel assignment. */
+  channelIds: string[];
 };
+
+const hasChannels = (provider: string) =>
+  Boolean(registeredConnectionProvider(provider)?.channelAssignment);
 
 /** Every project connection with its key fingerprint; read-only. */
 export async function connectionInventory(filter: { workspaceId?: string } = {}) {
@@ -72,6 +79,10 @@ export async function connectionInventory(filter: { workspaceId?: string } = {})
         ownKey: Boolean(d.encryptedCredential),
         fingerprint: print,
         centralConnectionId: (d.centralConnectionId as string) ?? null,
+        channelIds:
+          hasChannels(String(d.provider)) && Array.isArray(d.assignedIntegrationIds)
+            ? (d.assignedIntegrationIds as string[]).filter((x) => typeof x === "string")
+            : [],
       });
     }
   }
@@ -102,8 +113,11 @@ export type ConsolidationPlan = {
   workspaceId: string;
   provider: string;
   source: { projectId: string; connectorId: string };
-  bind: Array<{ projectId: string; connectorId: string }>;
+  /** Each project's channels; a channel goes to the first project using it. */
+  bind: Array<{ projectId: string; connectorId: string; channels: string[] }>;
   skipped: Array<{ projectId: string; connectorId: string; reason: string }>;
+  /** Channels several projects used; only the first one keeps them. */
+  channelConflicts: Array<{ channelId: string; projectIds: string[] }>;
 };
 
 /**
@@ -126,12 +140,26 @@ export async function planConsolidation(input: {
     throw new DomainError("SOURCE_CONNECTION_NOT_FOUND", 404);
   const bind: ConsolidationPlan["bind"] = [];
   const skipped: ConsolidationPlan["skipped"] = [];
-  for (const row of ofProvider) {
+  const owners = new Map<string, string[]>();
+  // The source project first, so it keeps its channels.
+  const ordered = [source, ...ofProvider.filter((r) => r !== source)];
+  for (const row of ordered) {
     const named = input.projectIds?.includes(row.projectId);
     if (input.projectIds && !named && row.connectorId !== source.connectorId)
       continue;
-    if (row.fingerprint === source.fingerprint)
-      bind.push({ projectId: row.projectId, connectorId: row.connectorId });
+    if (row.fingerprint === source.fingerprint) {
+      const channels: string[] = [];
+      for (const id of row.channelIds) {
+        const users = owners.get(id) ?? [];
+        if (!users.length) channels.push(id);
+        owners.set(id, [...users, row.projectId]);
+      }
+      bind.push({
+        projectId: row.projectId,
+        connectorId: row.connectorId,
+        channels: channels.sort(),
+      });
+    }
     else
       skipped.push({
         projectId: row.projectId,
@@ -145,6 +173,9 @@ export async function planConsolidation(input: {
     source: { projectId: source.projectId, connectorId: source.connectorId },
     bind,
     skipped,
+    channelConflicts: [...owners]
+      .filter(([, projects]) => projects.length > 1)
+      .map(([channelId, projectIds]) => ({ channelId, projectIds })),
   };
 }
 
@@ -167,6 +198,7 @@ export async function applyConsolidation(plan: ConsolidationPlan, label: string)
   const config: Record<string, unknown> = {};
   for (const key of ["baseUrl", "sourceSystem", "timeoutMs"])
     if (d[key] !== undefined) config[key] = d[key];
+  const channels = hasChannels(plan.provider);
   const connection = await authDb.$transaction(async (tx) => {
     const created = await tx.connection.create({
       data: {
@@ -176,6 +208,16 @@ export async function applyConsolidation(plan: ConsolidationPlan, label: string)
         label,
         config: config as never,
         status: String(d.status ?? "configured"),
+        // The source's known channels, to assign them centrally later.
+        ...(channels && Array.isArray(d.channels)
+          ? {
+              health: {
+                at: String(d.verifiedAt ?? new Date().toISOString()),
+                ok: true,
+                channels: channelCatalog(d.channels),
+              },
+            }
+          : {}),
         createdBy: ACTOR,
         legacyRef: { connectorId: source.id, projectId: plan.source.projectId },
         secrets: {
@@ -189,6 +231,7 @@ export async function applyConsolidation(plan: ConsolidationPlan, label: string)
           connectionId: created.id,
           workspaceId: plan.workspaceId,
           projectId: target.projectId,
+          ...(channels ? { settings: { channels: target.channels } } : {}),
           createdBy: ACTOR,
         },
       });
@@ -220,6 +263,7 @@ export async function applyConsolidation(plan: ConsolidationPlan, label: string)
       await update(tx, scope, row, {
         ...data(row),
         centralConnectionId: connection.id,
+        ...(channels ? { allowedChannelIds: target.channels } : {}),
         adoptedAt: new Date().toISOString(),
       });
       await audit(tx, scope, "connector.adopted", row.id, {
@@ -258,7 +302,12 @@ export async function rollbackConsolidation(connectionId: string) {
           keyless.push(row.id);
           continue;
         }
-        const { centralConnectionId: _c, adoptedAt: _a, ...rest } = d;
+        const {
+          centralConnectionId: _c,
+          adoptedAt: _a,
+          allowedChannelIds: _ch,
+          ...rest
+        } = d;
         await update(tx, scope, row, rest);
         await audit(tx, scope, "connector.unbound", row.id, { connectionId });
         unbound.push(row.id);

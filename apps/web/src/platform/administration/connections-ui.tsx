@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { KeyRound, Plug, ShieldOff, Trash2 } from "lucide-react";
-import { post, remove, useMutation, useResource } from "@/lib/api";
+import { post, put, remove, useMutation, useResource } from "@/lib/api";
 import type { Locale } from "@/lib/i18n";
 import {
   Alert,
@@ -26,6 +26,8 @@ type Provider = {
   scopes: string[];
   purposes: string[];
   checkable: boolean;
+  /** Its channels are assigned to projects, one project each. */
+  channels?: boolean;
 };
 type Connection = {
   id: string;
@@ -83,6 +85,7 @@ export function ConnectionsPanel({
   const [rotating, setRotating] = useState<Connection | null>(null);
   const [granting, setGranting] = useState<Connection | null>(null);
   const [workflows, setWorkflows] = useState<Connection | null>(null);
+  const [channels, setChannels] = useState<Connection | null>(null);
   if (list.loading && !list.data)
     return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
   if (!list.data) return <ResourceError error={list.error} retry={list.refresh} />;
@@ -169,6 +172,12 @@ export function ConnectionsPanel({
                     <Button variant="outline" size="sm" onClick={() => setGranting(c)}>
                       {de ? "Freigaben" : "Grants"}
                     </Button>
+                    {providers.find((p) => p.id === c.provider)?.channels &&
+                      (mode === "owner" || c.scope === "system") && (
+                        <Button variant="outline" size="sm" onClick={() => setChannels(c)}>
+                          {de ? "Kanäle" : "Channels"}
+                        </Button>
+                      )}
                     {own(c) &&
                       providers
                         .find((p) => p.id === c.provider)
@@ -334,6 +343,20 @@ export function ConnectionsPanel({
           connection={workflows}
           locale={locale}
           onClose={() => setWorkflows(null)}
+        />
+      )}
+      {channels && (
+        <ChannelsDialog
+          base={base}
+          connection={channels}
+          mode={mode}
+          organizations={targets}
+          locale={locale}
+          onChecked={() => void action.run(() => post(`${base}/${channels.id}/check`, {}))}
+          onClose={() => {
+            setChannels(null);
+            list.refresh();
+          }}
         />
       )}
       {granting && (
@@ -602,6 +625,206 @@ function WorkflowsDialog({
           )
         }
       />
+    </Modal>
+  );
+}
+
+type ChannelState = {
+  cutover: boolean;
+  checkedAt: string | null;
+  channels: Array<{ id: string; name: string; identifier: string; disabled: boolean }>;
+  projects: Array<{ id: string; name: string }>;
+  assignments: Record<string, string>;
+  unavailable: string[];
+};
+
+/**
+ * Hands the channels of a connection (Postiz accounts) to the
+ * organization's projects, each channel to exactly one project. A project
+ * with channels is bound automatically; without channels it loses access.
+ */
+function ChannelsDialog({
+  base,
+  connection,
+  mode,
+  organizations,
+  locale,
+  onChecked,
+  onClose,
+}: {
+  base: string;
+  connection: Connection;
+  mode: "admin" | "owner";
+  /** Organizations to choose from (administrators only). */
+  organizations: Array<{ id: string; name: string }>;
+  locale: Locale;
+  onChecked: () => void;
+  onClose: () => void;
+}) {
+  const de = locale === "de";
+  const [org, setOrg] = useState(mode === "admin" ? (organizations[0]?.id ?? "") : "");
+  const path = `${base}/${connection.id}/channels${
+    mode === "admin" && org ? `?workspaceId=${encodeURIComponent(org)}` : ""
+  }`;
+  const state = useResource<ChannelState>(mode === "admin" && !org ? null : path);
+  const [draft, setDraft] = useState<Record<string, string> | null>(null);
+  const action = useMutation(() => {
+    setDraft(null);
+    state.refresh();
+  });
+  const data = state.data;
+  const current = draft ?? data?.assignments ?? {};
+  return (
+    <Modal
+      title={`${de ? "Kanäle" : "Channels"} · ${connection.label}`}
+      description={
+        de
+          ? "Jeder Kanal gehört genau einem Projekt. Projekte mit Kanälen werden automatisch angebunden; ohne Kanal verlieren sie den Zugriff."
+          : "Each channel belongs to exactly one project. Projects with channels are connected automatically; without a channel they lose access."
+      }
+      onClose={onClose}
+      wide
+    >
+      {mode === "admin" && (
+        <select
+          className="input"
+          aria-label={de ? "Organisation" : "Organization"}
+          value={org}
+          onChange={(e) => {
+            setDraft(null);
+            setOrg(e.target.value);
+          }}
+        >
+          {organizations.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {action.error && <Alert kind="error">{errorText(action.error, locale)}</Alert>}
+      {state.error && <ResourceError error={state.error} retry={state.refresh} />}
+      {!data ? (
+        !state.error && <Loading label={de ? "Wird geladen…" : "Loading…"} />
+      ) : (
+        <>
+          {!data.cutover && (
+            <Alert kind="warning">
+              {de
+                ? "Die Umstellung für diesen Anbieter ist noch nicht freigeschaltet; Zuweisungen sind erst danach möglich."
+                : "The cutover for this provider is not enabled yet; assignments are possible only after it."}
+            </Alert>
+          )}
+          <p>
+            <small>
+              {data.checkedAt
+                ? `${de ? "Kanäle abgerufen" : "Channels fetched"} ${at(data.checkedAt, locale)}`
+                : de
+                  ? "Noch keine Kanäle abgerufen."
+                  : "No channels fetched yet."}
+            </small>{" "}
+            {(mode === "owner" ? connection.scope === "workspace" : connection.scope === "system") && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  onChecked();
+                  window.setTimeout(state.refresh, 1500);
+                }}
+              >
+                {de ? "Kanäle abrufen" : "Fetch channels"}
+              </Button>
+            )}
+          </p>
+          {data.channels.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{de ? "Kanal" : "Channel"}</th>
+                    <th>{de ? "Projekt" : "Project"}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.channels.map((ch) => {
+                    const elsewhere = data.unavailable.includes(ch.id);
+                    return (
+                      <tr key={ch.id}>
+                        <td>
+                          {ch.name}
+                          <small>
+                            {ch.identifier}
+                            {ch.disabled ? (de ? " · in Postiz deaktiviert" : " · disabled in Postiz") : ""}
+                          </small>
+                        </td>
+                        <td>
+                          {elsewhere ? (
+                            <Badge tone="neutral">
+                              {de ? "andere Organisation" : "another organization"}
+                            </Badge>
+                          ) : (
+                            <select
+                              className="input"
+                              aria-label={`${de ? "Projekt für" : "Project for"} ${ch.name}`}
+                              value={current[ch.id] ?? ""}
+                              disabled={ch.disabled || !data.cutover}
+                              onChange={(e) => {
+                                const next = { ...current };
+                                if (e.target.value) next[ch.id] = e.target.value;
+                                else delete next[ch.id];
+                                setDraft(next);
+                              }}
+                            >
+                              <option value="">{de ? "— nicht zugewiesen —" : "— not assigned —"}</option>
+                              {data.projects.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                  {p.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty
+              title={
+                de
+                  ? "Keine Kanäle bekannt. Rufe sie zuerst über die Verbindung ab."
+                  : "No channels known. Fetch them from the connection first."
+              }
+            />
+          )}
+          <div className="form-actions">
+            <Button variant="ghost" onClick={onClose}>
+              {de ? "Schließen" : "Close"}
+            </Button>
+            <Button
+              disabled={!draft || action.pending || !data.cutover}
+              onClick={() =>
+                void action.run(() =>
+                  put(`${base}/${connection.id}/channels`, {
+                    ...(mode === "admin" ? { workspaceId: org } : {}),
+                    assignments: Object.fromEntries(
+                      Object.entries(current).filter(
+                        ([id]) =>
+                          !data.unavailable.includes(id) &&
+                          data.channels.some((c) => c.id === id && !c.disabled),
+                      ),
+                    ),
+                  }),
+                )
+              }
+            >
+              {de ? "Zuweisung speichern" : "Save assignment"}
+            </Button>
+          </div>
+        </>
+      )}
     </Modal>
   );
 }

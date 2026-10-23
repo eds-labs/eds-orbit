@@ -19,6 +19,8 @@ export const marketingConnections: ConnectionsContribution = {
       // One Postiz organization can serve several projects (ADR 0014).
       scopes: ["project", "workspace", "system"],
       label: { en: "Postiz", de: "Postiz" },
+      // Its channels are assigned to projects centrally, one project each.
+      channelAssignment: true,
       normalize: (fields) =>
         fields.baseUrl
           ? { ...fields, baseUrl: normalizePostizBaseUrl(fields.baseUrl) }

@@ -220,6 +220,11 @@ export const platformActions: Record<string, ActionHandler> = {
       credential,
       { connectionId: c.row.id },
     );
+    // A bound connection keeps only the channels its organization assigned.
+    if (Array.isArray(d.allowedChannelIds) && Array.isArray(result.channels))
+      result.channels = result.channels.filter(
+        (ch: any) => typeof ch?.id === "string" && d.allowedChannelIds.includes(ch.id),
+      );
     return scoped(scope.workspaceId, scope.projectId, async (tx) => {
       const current = await entity(tx, scope, CONNECTION_KIND, c.row.id);
       if (current.version !== c.row.version)

@@ -130,6 +130,12 @@ export type ConnectionProvider = {
   purposes?: readonly string[];
   /** Display name for the administration. */
   label?: { en: string; de: string };
+  /**
+   * The provider's check returns `channels` (accounts such as social
+   * profiles) that a central connection hands out to projects one by one,
+   * each to exactly one project (channel-assignment.ts).
+   */
+  channelAssignment?: boolean;
 };
 
 /** The owner scopes a provider allows. */

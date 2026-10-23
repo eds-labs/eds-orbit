@@ -6,11 +6,16 @@ import { Alert, Button } from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
 export function PostizChannelAssignment({ connector }: { connector: Entity }) {
   const { project, locale, refresh } = useWorkspace();
-  const [selected, setSelected] = useState<string[]>(
-    Array.isArray(connector.data.assignedIntegrationIds)
-      ? connector.data.assignedIntegrationIds.map(String)
-      : [],
-  );
+  // Bound to an organization connection: the organization assigns channels.
+  const central = Boolean(connector.data.centralConnectionId);
+  const own = (key: string) =>
+    Array.isArray(connector.data[key])
+      ? (connector.data[key] as unknown[]).map(String)
+      : [];
+  const assigned = central
+    ? own("allowedChannelIds")
+    : own("assignedIntegrationIds");
+  const [selected, setSelected] = useState<string[]>(assigned);
   const savedLong = Array.isArray(connector.data.xLongPostIntegrationIds)
     ? connector.data.xLongPostIntegrationIds.map(String)
     : [];
@@ -31,9 +36,6 @@ export function PostizChannelAssignment({ connector }: { connector: Entity }) {
   const channels = Array.isArray(connector.data.channels)
     ? (connector.data.channels as Record<string, unknown>[])
     : [];
-  const assigned = Array.isArray(connector.data.assignedIntegrationIds)
-    ? connector.data.assignedIntegrationIds.map(String)
-    : [];
   const effectiveLong = longPosts.filter((id) => selected.includes(id));
   const changed =
     JSON.stringify([...selected].sort()) !==
@@ -53,6 +55,10 @@ export function PostizChannelAssignment({ connector }: { connector: Entity }) {
         {locale === "de"
           ? "Nur ausdrücklich zugeordnete Konten können für dieses Projekt ausgewählt, verifiziert oder veröffentlicht werden."
           : "Only explicitly assigned accounts can be selected, verified, or published for this project."}
+        {central &&
+          (locale === "de"
+            ? " Die Kanäle weist die Organisation in ihren Einstellungen zu."
+            : " The organization assigns the channels in its settings.")}
       </p>
       {channels.map((channel) => {
         const id = String(channel.id);
@@ -62,7 +68,9 @@ export function PostizChannelAssignment({ connector }: { connector: Entity }) {
               <input
                 type="checkbox"
                 checked={selected.includes(id)}
-                disabled={Boolean(channel.disabled) || mutation.pending}
+                disabled={
+                  central || Boolean(channel.disabled) || mutation.pending
+                }
                 onChange={(event) =>
                   setSelected((current) =>
                     event.target.checked

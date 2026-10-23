@@ -30,6 +30,10 @@ import {
   triggerWorkflow,
 } from "../automation/workflows.ts";
 import { PROJECT_OWN } from "../tenancy/permissions.ts";
+import {
+  assignChannels,
+  channelAssignments,
+} from "../connections/channel-assignment.ts";
 import { aiProfile, saveAiProfile } from "./ai-profiles.ts";
 
 // Central connections (ADR 0014): system connections for administrators,
@@ -112,6 +116,18 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
       reply
         .code(201)
         .send(await bindWorkflow(await actor(req), id(req, "connectionId"), req.body)),
+    );
+    // Channels of a connection, one project each (Postiz accounts).
+    app.get(`${base}/:connectionId/channels`, async (req) => {
+      const a = await actor(req);
+      const q = z
+        .object({ workspaceId: z.uuid().optional() })
+        .strict()
+        .parse(a.role === "admin" ? req.query : {});
+      return channelAssignments(a, id(req, "connectionId"), q.workspaceId);
+    });
+    app.put(`${base}/:connectionId/channels`, async (req) =>
+      assignChannels(await actor(req), id(req, "connectionId"), req.body),
     );
     app.post(`${base}/:connectionId/grants`, async (req, reply) =>
       reply

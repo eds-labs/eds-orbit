@@ -78,6 +78,7 @@ export function centralProviders() {
       scopes: providerScopes(def),
       purposes: def.purposes ?? [],
       checkable: Boolean(def.check),
+      channels: Boolean(def.channelAssignment),
     }));
 }
 
@@ -310,8 +311,29 @@ async function runCheck(
         ? { capabilities: result.capabilities }
         : {}),
       ...(typeof result.models === "number" ? { models: result.models } : {}),
+      // The channels it can hand out to projects (names, never secrets).
+      ...(def.channelAssignment && Array.isArray(result.channels)
+        ? { channels: channelCatalog(result.channels) }
+        : {}),
     },
   };
+}
+
+/** Channel metadata kept on a connection for assigning it to projects. */
+export function channelCatalog(raw: unknown[]) {
+  return raw
+    .filter(
+      (c): c is Record<string, unknown> =>
+        !!c && typeof c === "object" && typeof (c as any).id === "string",
+    )
+    .slice(0, 500)
+    .map((c) => ({
+      id: String(c.id),
+      name: String(c.name ?? c.id).slice(0, 200),
+      identifier: String(c.identifier ?? "").slice(0, 100),
+      disabled: c.disabled === true,
+      ...(typeof c.profile === "string" ? { profile: c.profile.slice(0, 200) } : {}),
+    }));
 }
 
 const failureCode = (error: unknown) =>
@@ -398,9 +420,16 @@ export async function checkConnection(actor: ConnectionActor, id: string) {
   try {
     result = (await runCheck(def, current, openSecret(stored)))!;
   } catch (error) {
+    const previous = (current.health ?? {}) as { channels?: unknown };
     result = {
       status: "failed",
-      health: { at: new Date().toISOString(), ok: false, code: failureCode(error) },
+      health: {
+        at: new Date().toISOString(),
+        ok: false,
+        code: failureCode(error),
+        // A failed check keeps the known channels and their assignments.
+        ...(Array.isArray(previous.channels) ? { channels: previous.channels } : {}),
+      },
     };
   }
   return authDb.$transaction(async (tx) => {
@@ -589,6 +618,9 @@ export async function grantConnection(
     const allowed = def.purposes ?? [];
     if (input.purposes.some((p) => allowed.length && !allowed.includes(p)))
       throw new DomainError("PURPOSE_NOT_OFFERED", 400);
+    // Channels go out only through the exclusive channel assignment.
+    if (def.channelAssignment && "channels" in input.settings)
+      throw new DomainError("USE_CHANNEL_ASSIGNMENT", 400);
     const workspaceId =
       actor.role === "owner" ? actor.workspaceId : input.workspaceId;
     if (!workspaceId) throw new DomainError("WORKSPACE_REQUIRED", 400);

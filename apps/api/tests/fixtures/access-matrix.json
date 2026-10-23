@@ -223,6 +223,14 @@
     "sysadmin": "allowed:200",
     "owner": "not_found"
   },
+  "GET /api/admin/connections/{connectionId}/channels": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "not_found"
+  },
   "GET /api/admin/connections/{connectionId}/usage": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -382,6 +390,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "allowed:200"
+  },
+  "GET /api/organizations/{workspaceId}/connections/{connectionId}/channels": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "GET /api/organizations/{workspaceId}/connections/{connectionId}/usage": {
     "anonymous": "unauthenticated",
@@ -3423,6 +3439,14 @@
     "sysadmin": "allowed:200",
     "owner": "not_found"
   },
+  "PUT /api/admin/connections/{connectionId}/channels": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "not_found"
+  },
   "PUT /api/admin/users/{userId}/system-role": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -3438,6 +3462,14 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "allowed:200"
+  },
+  "PUT /api/organizations/{workspaceId}/connections/{connectionId}/channels": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "PUT /api/organizations/{workspaceId}/members/{userId}": {
     "anonymous": "unauthenticated",
