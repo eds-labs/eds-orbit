@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Plus } from "lucide-react";
 import { useResource } from "@/lib/api";
@@ -119,6 +119,20 @@ export function FinanceEntries() {
       : null,
   );
   const entry = inList ?? fetched.data;
+  // The search box is controlled from the URL: an external change (Clear
+  // filters) resets it; typing reaches the URL after a short pause.
+  const [text, setText] = useState(filters.q);
+  const [seenQ, setSeenQ] = useState(filters.q);
+  if (filters.q !== seenQ) {
+    setSeenQ(filters.q);
+    setText(filters.q);
+  }
+  useEffect(() => {
+    if (text.trim() === filters.q) return;
+    const timer = setTimeout(() => navigate({ q: text.trim() }), 300);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const navigate = (change: Record<string, string | null>) =>
@@ -272,10 +286,10 @@ export function FinanceEntries() {
               <Input
                 id="finance-entries-search"
                 type="search"
-                defaultValue={filters.q}
+                value={text}
                 placeholder={e.searchHint}
                 maxLength={100}
-                onChange={(ev) => navigate({ q: ev.target.value.trim() })}
+                onChange={(ev) => setText(ev.target.value)}
               />
             </label>
             {filtered && (
@@ -283,15 +297,16 @@ export function FinanceEntries() {
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() =>
+                onClick={() => {
+                  setText("");
                   navigate({
                     account: null,
                     category: null,
                     costCenter: null,
                     kind: null,
                     q: null,
-                  })
-                }
+                  });
+                }}
               >
                 {e.clear}
               </Button>

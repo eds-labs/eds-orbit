@@ -430,6 +430,7 @@ const en = {
       invoice: "Invoice {number}",
       invoiceUnnumbered: "Invoice",
       paymentSource: "Posted by a payment",
+      paymentInvoice: "Settles invoice {number}",
       reverses: "Reverses {number}",
       reversedBy: "Reversed by {number}",
       reverse: "Reverse",
@@ -542,6 +543,7 @@ const en = {
     payments: "Payments",
     noPayments: "No payments yet.",
     paymentLine: "Payment {n}",
+    voided: "Voided",
     voidPayment: "Void payment",
     voidPaymentTitle: "Void this payment?",
     voidPaymentBody:
@@ -1169,6 +1171,7 @@ const de: typeof en = {
       invoice: "Rechnung {number}",
       invoiceUnnumbered: "Rechnung",
       paymentSource: "Durch eine Zahlung gebucht",
+      paymentInvoice: "Gleicht Rechnung {number} aus",
       reverses: "Storniert {number}",
       reversedBy: "Storniert durch {number}",
       reverse: "Stornieren",
@@ -1279,6 +1282,7 @@ const de: typeof en = {
     payments: "Zahlungen",
     noPayments: "Noch keine Zahlungen.",
     paymentLine: "Zahlung {n}",
+    voided: "Storniert",
     voidPayment: "Zahlung stornieren",
     voidPaymentTitle: "Diese Zahlung stornieren?",
     voidPaymentBody:

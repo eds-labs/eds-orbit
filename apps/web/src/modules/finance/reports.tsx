@@ -599,7 +599,7 @@ export function FinanceReports() {
         </div>
       </PageHead>
       {canExport ? (
-        <ExportSection t={t} year={year} locale={locale} />
+        <ExportSection key={year} t={t} year={year} locale={locale} />
       ) : (
         <p className="panel-note finance-noprint">{t.manage.exportOnly}</p>
       )}

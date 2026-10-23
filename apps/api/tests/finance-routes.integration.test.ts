@@ -517,4 +517,37 @@ describe.skipIf(!enabled)("finance http api", () => {
     expect(listed.items[0]).toMatchObject({ id: exported.json().id });
     expect(typeof listed.items[0].rowCount).toBe("number");
   });
+
+  it("invoice detail marks voided payments and payment entries name their invoices", async () => {
+    const { invoiceId } = await uploadAndBook("editor");
+    const bank = (await call("owner", "GET", "/accounts"))
+      .json()
+      .items.find((a: { code: string }) => a.code === "1000").id;
+    const paid = await call("editor", "POST", "/payments", {
+      direction: "outgoing",
+      accountId: bank,
+      date: "2026-10-05",
+      currency: "USD",
+      amountMicros: "119000000",
+      allocations: [{ invoiceId, amountMicros: "119000000" }],
+    });
+    expect(paid.statusCode).toBe(200);
+    const live = (await call("editor", "GET", `/invoices/${invoiceId}`)).json();
+    expect(live.allocations).toHaveLength(1);
+    expect(live.allocations[0].voidedAt).toBeNull();
+    const payment = (
+      await call("editor", "GET", `/entries/${paid.json().entryId}`)
+    ).json();
+    expect(payment.paymentInvoices).toEqual([
+      { id: invoiceId, number: expect.anything() },
+    ]);
+    await call("editor", "POST", `/payments/${paid.json().paymentId}/void`, {
+      reason: "Wrong account",
+    });
+    const after = (
+      await call("editor", "GET", `/invoices/${invoiceId}`)
+    ).json();
+    expect(after.allocations).toHaveLength(1);
+    expect(typeof after.allocations[0].voidedAt).toBe("string");
+  });
 });

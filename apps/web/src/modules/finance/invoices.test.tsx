@@ -349,6 +349,36 @@ describe("FinanceInvoices", () => {
     expect(invoiceFilters(new URLSearchParams("status=bogus")).status).toBe("");
   });
 
+  it("marks voided payments and offers Void payment only on live ones", () => {
+    search.value = "invoice=inv-1";
+    answers["/invoices/inv-1"] = {
+      ...invoice(),
+      lines: [],
+      allocations: [
+        {
+          id: "a1",
+          paymentId: "pay-1",
+          amountMicros: "10000000",
+          baseMicros: "11000000",
+          voidedAt: "2026-10-10T08:00:00.000Z",
+        },
+        {
+          id: "a2",
+          paymentId: "pay-2",
+          amountMicros: "20000000",
+          baseMicros: "22000000",
+          voidedAt: null,
+        },
+      ],
+    };
+    answers["/invoices"] = { items: [invoice()] };
+    const html = render(<FinanceInvoices />);
+    expect(html).toContain("<s>€10.00</s>");
+    expect(html).toContain("Voided");
+    expect(html).toContain("€20.00");
+    expect(html.match(/>Void payment</g)).toHaveLength(1);
+  });
+
   it("viewers get a read-only list", () => {
     answers["/invoices"] = { items: [invoice()] };
     const html = render(<FinanceInvoices />, false);

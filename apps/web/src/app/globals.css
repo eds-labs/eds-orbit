@@ -1032,7 +1032,7 @@ pre {
   border-top: 1px solid var(--border);
 }
 .finance-table tr[data-selected] {
-  background: var(--panel-muted, rgba(127, 127, 127, 0.08));
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
 }
 .finance-num {
   text-align: right;

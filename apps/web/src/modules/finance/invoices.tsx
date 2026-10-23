@@ -204,19 +204,34 @@ function InvoiceDetailPanel({
               <li key={a.id} className="finance-link-row">
                 <span>
                   {fill(v.paymentLine, { n: String(index + 1) })}:{" "}
-                  {formatMoney(a.amountMicros, invoice.currency, locale)}
+                  {a.voidedAt ? (
+                    <>
+                      <s>
+                        {formatMoney(a.amountMicros, invoice.currency, locale)}
+                      </s>{" "}
+                      <Badge tone="neutral">{v.voided}</Badge>
+                    </>
+                  ) : (
+                    formatMoney(a.amountMicros, invoice.currency, locale)
+                  )}
                 </span>
-                {canWrite && !isReceipt && invoice.status !== "void" && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setDialog({ type: "voidPayment", paymentId: a.paymentId })
-                    }
-                  >
-                    {v.voidPayment}
-                  </Button>
-                )}
+                {canWrite &&
+                  !isReceipt &&
+                  !a.voidedAt &&
+                  invoice.status !== "void" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setDialog({
+                          type: "voidPayment",
+                          paymentId: a.paymentId,
+                        })
+                      }
+                    >
+                      {v.voidPayment}
+                    </Button>
+                  )}
               </li>
             ))}
           </ul>

@@ -318,6 +318,17 @@ describe("entry detail", () => {
     );
     expect(payment).not.toContain(">Reverse<");
     expect(payment).toContain("Void payment");
+    // The payment's entry links to the invoices it settled.
+    const linked = detail(
+      entry({
+        sourceType: "payment",
+        sourceId: "pay-1",
+        kind: "payment",
+        paymentInvoices: [{ id: "inv-1", number: "INV-1" }],
+      }),
+    );
+    expect(linked).toContain("Settles invoice INV-1");
+    expect(linked).toContain('href="/p/p1/finance/invoices?invoice=inv-1"');
   });
 
   it("entryTotal sums the debit lines in base", () => {

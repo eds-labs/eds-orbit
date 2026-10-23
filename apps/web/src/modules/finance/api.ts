@@ -132,6 +132,8 @@ export type JournalEntry = {
   reversalOfId: string | null;
   reversedById: string | null;
   lines: JournalLine[];
+  /** Entry detail of a payment: the invoices it was allocated to. */
+  paymentInvoices?: Array<{ id: string; number: string | null }>;
 };
 export type Invoice = {
   id: string;
@@ -167,6 +169,8 @@ export type InvoiceDetail = Invoice & {
     paymentId: string;
     amountMicros: string;
     baseMicros: string;
+    /** When the payment was voided; null while it is live. */
+    voidedAt: string | null;
   }>;
 };
 

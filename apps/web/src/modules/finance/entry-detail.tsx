@@ -125,8 +125,12 @@ export function EntryDetail({
   const d = t.entries.detail;
   const { project } = useWorkspace();
   const finance = financeApi(project.id);
-  const reviewHref = `${useShell().hrefOf("finance")}/review`;
+  const financeHref = useShell().hrefOf("finance");
+  const reviewHref = `${financeHref}/review`;
+  const invoicesHref = `${financeHref}/invoices`;
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  // Bumped after a void, so the invoice section loads the invoice again.
+  const [revision, setRevision] = useState(0);
   const account = (id: string) => {
     const a = accounts.find((x) => x.id === id);
     return a ? `${a.code} · ${a.name}` : "—";
@@ -134,6 +138,7 @@ export function EntryDetail({
   const kind = t.entries.kinds[entry.kind] ?? entry.kind;
   const done = (notice: string) => {
     setDialog(null);
+    setRevision((n) => n + 1);
     onChanged(notice);
   };
   const reversedBy = entry.reversedById
@@ -225,6 +230,7 @@ export function EntryDetail({
           {entry.sourceType === "invoice" && entry.sourceId && (
             <li className="finance-link-row">
               <InvoiceSection
+                key={revision}
                 t={t}
                 invoiceId={entry.sourceId}
                 canWrite={canWrite}
@@ -237,6 +243,17 @@ export function EntryDetail({
           {entry.sourceType === "payment" && entry.sourceId && (
             <li className="finance-link-row">
               <span>{d.paymentSource}</span>
+              {(entry.paymentInvoices ?? []).map((inv) => (
+                <AppLink
+                  key={inv.id}
+                  className="text-link"
+                  href={`${invoicesHref}?invoice=${encodeURIComponent(inv.id)}`}
+                >
+                  {inv.number
+                    ? fill(d.paymentInvoice, { number: inv.number })
+                    : d.invoiceUnnumbered}
+                </AppLink>
+              ))}
               {canWrite && !entry.reversedById && (
                 <Button
                   variant="outline"

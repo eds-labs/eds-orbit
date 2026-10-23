@@ -178,6 +178,7 @@ export function FinanceRecurring() {
   const [confirming, setConfirming] = useState<string | null>(null);
   const [inUse, setInUse] = useState<string | null>(null);
   const lock = useRef(false);
+  const lastCode = useRef<string | null>(null);
   const baseCurrency = master.settings?.baseCurrency ?? "USD";
   const currencies: readonly string[] =
     master.settings?.currencies ?? CURRENCIES;
@@ -190,12 +191,14 @@ export function FinanceRecurring() {
     setPending(true);
     setError(null);
     setNotice(null);
+    lastCode.current = null;
     try {
       await task();
       setNotice(done);
       list.refresh();
       return true;
     } catch (e) {
+      lastCode.current = errorCode(e);
       setError(
         errorCode(e) === "VERSION_CONFLICT"
           ? t.manage.conflict
@@ -599,7 +602,11 @@ export function FinanceRecurring() {
                                           r.deleted,
                                         );
                                         setConfirming(null);
-                                        if (!ok) setInUse(item.id);
+                                        if (
+                                          !ok &&
+                                          lastCode.current === "FINANCE_IN_USE"
+                                        )
+                                          setInUse(item.id);
                                       }}
                                     >
                                       {r.delete}

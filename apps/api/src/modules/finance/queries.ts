@@ -168,7 +168,24 @@ export async function entryDetail(tx: DbTx, scope: Scope, id: string) {
     where: { projectId: scope.projectId, id },
   });
   if (!entry) throw new DomainError("FINANCE_ENTRY_NOT_FOUND", 404);
-  return { ...entry, lines: await linesOf(tx, scope, [id]) };
+  // A payment's entry names the invoices the payment was allocated to.
+  let paymentInvoices: Array<{ id: string; number: string | null }> = [];
+  if (entry.sourceType === "payment" && entry.sourceId) {
+    const allocations = await tx.financePaymentAllocation.findMany({
+      where: { projectId: scope.projectId, paymentId: entry.sourceId },
+      select: { invoiceId: true },
+    });
+    const invoices = await tx.financeInvoice.findMany({
+      where: {
+        projectId: scope.projectId,
+        id: { in: allocations.map((a) => a.invoiceId) },
+      },
+      select: { id: true, number: true },
+      orderBy: { issueDate: "asc" },
+    });
+    paymentInvoices = invoices;
+  }
+  return { ...entry, lines: await linesOf(tx, scope, [id]), paymentInvoices };
 }
 
 const invoiceQuery = z
@@ -218,7 +235,10 @@ export async function listInvoices(tx: DbTx, scope: Scope, raw: unknown) {
     .filter((invoice) => !wanted || invoice.displayStatus === wanted);
 }
 
-/** One invoice with its lines, live allocations and open amount. */
+/**
+ * One invoice with its lines, every allocation (with `voidedAt` of its
+ * payment, null while the payment is live) and the open amount.
+ */
 export async function invoiceDetail(tx: DbTx, scope: Scope, id: string) {
   const invoice = await tx.financeInvoice.findFirst({
     where: { projectId: scope.projectId, id },
@@ -235,12 +255,25 @@ export async function invoiceDetail(tx: DbTx, scope: Scope, id: string) {
     }),
     invoiceBalances(tx, scope, [invoice]),
   ]);
+  const payments = allocations.length
+    ? await tx.financePayment.findMany({
+        where: {
+          projectId: scope.projectId,
+          id: { in: allocations.map((a) => a.paymentId) },
+        },
+        select: { id: true, voidedAt: true },
+      })
+    : [];
+  const voided = new Map(payments.map((p) => [p.id, p.voidedAt]));
   return {
     ...invoice,
     displayStatus: invoiceStatusView(invoice, today()),
     openAmountMicros: balances.get(id)?.openAmountMicros ?? null,
     lines,
-    allocations,
+    allocations: allocations.map((a) => ({
+      ...a,
+      voidedAt: voided.get(a.paymentId) ?? null,
+    })),
   };
 }
 
