@@ -10,7 +10,12 @@
   - administration, account, connection and share routes answer 404 before authentication, so their flags are off;
   - the migrations are inferred from `migrate` completing before api and worker start, not read from the database.
 - **First system administrator:** granted by Mario on 2026-10-23 with `scripts/system-admin.ts grant` in the api container (user `78f3cf78-9021-432a-b8ea-315cb1eaf5a1`, audited as `system:cli`); `list` shows exactly this administrator.
-- **Next, each separately approved:** `ORBIT_ADMINISTRATION`, `ORBIT_ACCOUNT`, optional system SMTP.
+- **Flags on (2026-10-23):** Mario set `ORBIT_ADMINISTRATION=true` and `ORBIT_ACCOUNT=true` in Coolify. The first redeploy failed while fetching Git (server DNS), and the second ran with the old values. The third, deployment `5uibd39hvay37rkbxkmnc9pd` at 15:29 UTC, made them effective.
+  - Verified anonymously: the account and admin routes answer 401; central connections still answer 404.
+  - Verified with Mario's session: `systemAdmin: true`, `/admin` overview (1 user, 1 admin, 1 organization, 2 projects, system mail missing), the audit shows `system_admin.granted` by `system:cli`, `/account` lists 4 sessions with the current one marked, and the account menu shows Account, Organization settings and Administration.
+  - Not exercised, because each would change a real account: invitations, deactivation and role changes.
+- **Next, each separately approved:** optional system SMTP, then `ORBIT_CONNECTIONS`.
+
 ## Knowledge indexing and RAG search repair (2026-10-23, local; not pushed)
 
 Branch `claude/knowledge-indexing-repair`, root cause and operations in `plans/knowledge-indexing-repair.md`. FamilyPlan's 12 imported documents (84 chunks) could not be found, for two reasons. First, their source is classified `authority: generated`, which every retrieval excludes. Second, MCP `search`/`fetch` required `publicUse`, and the source is internal. `embedded: 0` is expected (`knowledge_add_document` never buys embeddings; full-text retrieval works without them). Latent defects found and fixed: any source settings change (rights, pause/resume) left stored documents on the old generation and permanently unsearchable, and manual sources expired after 7 days unnoticed.
