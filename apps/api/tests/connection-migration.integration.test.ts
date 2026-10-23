@@ -103,6 +103,40 @@ describe.skipIf(!enabled)("Connection migration (ADR 0014)", () => {
     );
   });
 
+  it("binds one connection per project and skips an older duplicate", async () => {
+    // A second, unverified connection of A with the same key and no channels.
+    const duplicate = await scoped(ws, projects.A!, (tx) =>
+      tx.entity.create({
+        data: {
+          workspaceId: ws,
+          projectId: projects.A!,
+          kind: "connectors",
+          data: {
+            provider: "postiz",
+            baseUrl: "https://postiz.example.invalid/",
+            status: "configured",
+            encryptedCredential: encrypt(SHARED, process.env.CREDENTIAL_KEY!),
+          },
+        },
+      }),
+    );
+    try {
+      for (const source of [connectors.B!, duplicate.id]) {
+        const plan = await planConsolidation({ workspaceId: ws, provider: "postiz", sourceConnectorId: source });
+        const forA = plan.bind.filter((b) => b.projectId === projects.A);
+        expect(forA).toHaveLength(1);
+        if (source === connectors.B)
+          expect(plan.skipped).toContainEqual({
+            projectId: projects.A,
+            connectorId: duplicate.id,
+            reason: "project_already_bound",
+          });
+      }
+    } finally {
+      await scoped(ws, projects.A!, (tx) => tx.entity.delete({ where: { id: duplicate.id } }));
+    }
+  });
+
   it("binds only projects of the same organization with the same key", async () => {
     const plan = await planConsolidation({ workspaceId: ws, provider: "postiz", sourceConnectorId: connectors.A! });
     expect(plan.bind.map((b) => b.projectId).sort()).toEqual([projects.A, projects.B].sort());

@@ -142,11 +142,28 @@ export async function planConsolidation(input: {
   const skipped: ConsolidationPlan["skipped"] = [];
   const owners = new Map<string, string[]>();
   // The source project first, so it keeps its channels.
-  const ordered = [source, ...ofProvider.filter((r) => r !== source)];
+  // The source first, then per project its most useful connection: one
+  // that a check verified and that has channels.
+  const rank = (r: InventoryRow) =>
+    (/verified/.test(r.status) ? 2 : 0) + (r.channelIds.length ? 1 : 0);
+  const ordered = [
+    source,
+    ...ofProvider.filter((r) => r !== source).sort((a, b) => rank(b) - rank(a)),
+  ];
   for (const row of ordered) {
     const named = input.projectIds?.includes(row.projectId);
     if (input.projectIds && !named && row.connectorId !== source.connectorId)
       continue;
+    // A project is bound with one connection; a second one of the same
+    // provider (an older duplicate) keeps its own key and stays as it is.
+    if (bind.some((b) => b.projectId === row.projectId)) {
+      skipped.push({
+        projectId: row.projectId,
+        connectorId: row.connectorId,
+        reason: "project_already_bound",
+      });
+      continue;
+    }
     if (row.fingerprint === source.fingerprint) {
       const channels: string[] = [];
       for (const id of row.channelIds) {
