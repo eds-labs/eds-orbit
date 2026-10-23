@@ -271,3 +271,16 @@ Tasks 8–11 are written sequentially in this session, since the shared service 
 3. `pnpm test:e2e`, including the new specs, against the local stack (`pnpm dev`, seed via `scripts/seed-e2e.ts`).
 4. Manual check in the built-in browser on localhost: CLI grant of admin, `/admin`, invite → accept through the test-sink link, deactivate, `/account` flows, mobile width.
 5. Report in the AGENTS.md closing format. Production steps (migration, flags, SMTP env, CLI grant) go into the rollout runbook and wait for Mario's approval.
+
+## Implementation notes (2026-10-23, phases 1 and 2, local)
+
+Implemented as planned, with these deliberate deviations found during the work:
+
+- The invitation and system-audit tables follow the existing control-plane pattern of `McpGrant`: no RLS, granted to `orbit_auth` only (`AUTH_ONLY_TABLES` in the RLS matrix); `SystemAuditEvent` is append-only by grant (no UPDATE/DELETE for `orbit_auth`) plus a trigger.
+- Tokens never appear in URL paths: links carry them in the fragment (`/invite#…`, `/reset-password#…`, `/account/confirm-email#…`) and the API takes them in the body (`POST /api/invitations/view|accept`), because request paths are logged.
+- Inviting an existing account outside the organization creates an invitation it accepts while signed in; only administrators attach existing accounts directly. No one joins an organization without consent and the answer is no account oracle.
+- The admin project list shows members and pause state but not enabled modules: `orbit_auth` has no grant on `ProjectModule`, and adding one was not worth widening the control-plane role.
+- In test mode (or with a failed send) the inviter also gets the link once, so the flow works without live mail.
+- Organization details list the installation's available modules, so the access matrix can set module roles per cell.
+
+Evidence: `apps/api/tests/administration.integration.test.ts` (19 scenarios), `add-member.integration.test.ts` (invitation semantics of F-01), `administration-boundary.test.ts`, access matrix (sysadmin column, 40 new routes, no existing cell changed), RLS matrix, `apps/web/src/platform/shell/user-menu.test.tsx`, route tests, `apps/web/tests/administration.spec.ts` (invite → accept → deactivate in Chromium), and a manual check of the pages at desktop and phone width. Rollout: `docs/deployment/ADMINISTRATION_ROLLOUT.md`.

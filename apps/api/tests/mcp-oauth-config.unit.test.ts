@@ -43,14 +43,19 @@ type Plugin = {
   options?: Record<string, any>;
 };
 const pluginsOf = (auth: ReturnType<typeof makeAuth>) =>
-  (auth.options.plugins ?? []) as unknown as Plugin[];
+  // The MCP plugins; the admin plugin (ADR 0012) is always first.
+  ((auth.options.plugins ?? []) as unknown as Plugin[]).filter(
+    (p) => p.id !== "admin",
+  );
+const pluginIds = (auth: ReturnType<typeof makeAuth>) =>
+  ((auth.options.plugins ?? []) as unknown as Plugin[]).map((p) => p.id);
 
 describe("MCP OAuth configuration", () => {
-  it("flag off: makeAuth registers no plugins", () => {
+  it("flag off: makeAuth registers only the admin plugin", () => {
     setEnv({ ORBIT_MCP_OAUTH: "false" });
-    expect(makeAuth().options.plugins ?? []).toHaveLength(0);
+    expect(pluginIds(makeAuth())).toEqual(["admin"]);
     setEnv({});
-    expect(makeAuth().options.plugins ?? []).toHaveLength(0);
+    expect(pluginIds(makeAuth())).toEqual(["admin"]);
   });
 
   it("the session token endpoint stays disabled in every mode", () => {
@@ -64,7 +69,7 @@ describe("MCP OAuth configuration", () => {
     setEnv({ ORBIT_MCP_OAUTH: "true", MCP_RESOURCE: RESOURCE });
     const auth = makeAuth();
     const plugins = pluginsOf(auth);
-    expect(plugins.map((p) => p.id)).toEqual(["jwt", "oauth-provider", "cimd"]);
+    expect(pluginIds(auth)).toEqual(["admin", "jwt", "oauth-provider", "cimd"]);
 
     expect(plugins[0]!.options).toMatchObject({
       disableSettingJwtHeader: true,

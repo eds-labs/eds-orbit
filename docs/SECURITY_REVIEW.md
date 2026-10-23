@@ -450,6 +450,23 @@ Scope: `packages/ai/src/providers/anthropic.ts`, `platform/ai/openai-configurati
 - Tenancy: configuration, reservations and spend are project rows under FORCE RLS; no new table.
 - Open: live behaviour (refusal categories, web search with structured output) until the smoke test; the independent review of this section.
 
+## System administration, invitations and accounts (ADR 0012, prepared 2026-10-23; local only)
+
+Scope: `apps/api/src/platform/administration/`, `apps/api/src/platform/account/`, `apps/api/src/platform/email/system-mail.ts`, `tenancy/{auth,member-scope,project-members,reset-capture}.ts`, migration `202610230001_system_administration`, `scripts/system-admin.ts`, the web pages under `apps/web/src/platform/{administration,account}`. Threat model: a new installation-wide role, cross-organization metadata, one-time tokens on public routes and outbound system mail.
+
+- Authority: system administrator = `user.role='admin'` and not banned, re-read per request (`systemAdminFor`); organization routes accept an administrator or an owner of that organization; project routes keep `PROJECT_OWN`. Everyone else gets 404, as with the flag off. A workspace owner is not an administrator; the migration grants nobody the role.
+- No content: administration services use only `authDb` on control tables; `apps/api/tests/administration-boundary.test.ts` fails on a business-data client or a product-module import. The access matrix has a `sysadmin` column: an administrator without membership gets 404 on every project route.
+- Privilege fields: `role`, `banned` and `locale` are not Better Auth input (`input:false`, admin plugin HTTP routes stay off the `/api/auth/*` allowlist); `PATCH /api/account` is a strict schema of name and locale.
+- Deactivation: ban (Better Auth refuses sign-in and new sessions), sessions deleted, MCP grants revoked (`revokeUserGrants`), the user's open invitations revoked; `projectMembership()` and `sessionFor()` refuse banned users, which covers API, worker actor checks and the MCP principal. Tested end to end.
+- Lockout guards: last active administrator, last active owner per organization, no self-deactivation or self-demotion, under advisory locks. The administrator role change needs the actor's password.
+- Tokens: invitation tokens are 32 random bytes, stored as sha256, single use, 7 days, revoked on replacement; reset tokens are Better Auth's (24 characters, 1 hour, single use), stored hashed (`verification.storeIdentifier` override for `reset-password:`), and all sessions end on reset. Tokens travel in the link fragment and request bodies, never in a URL path or log; the e-mail change token is hashed in `verification` too. Without system mail the link is shown once to the inviter or administrator.
+- Enumeration: reset requests answer 202 alike and mail after the response, at most three per address and hour per API instance plus the route limit; invalid, used, revoked and expired invitations look the same. An invitation to someone outside the organization never attaches an existing account (no consent, no account oracle); only administrators add existing accounts directly.
+- Re-validation: acceptance re-checks the inviter's current authority and the projects; a refused acceptance deletes the account it just created.
+- Audit: `SystemAuditEvent` append-only (trigger plus grants), identifiers and codes only.
+- Mail: system SMTP from the environment (operator-trusted host, so an internal relay is allowed), TLS 1.2+, only in live mode with external writes; addresses validated, headers built by MailComposer.
+
+Findings fixed during implementation: none open. Residual: the per-address reset limit is per API instance; the invitation view tells the token holder whether the address has an account (needed to choose the form). Independent review pending.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

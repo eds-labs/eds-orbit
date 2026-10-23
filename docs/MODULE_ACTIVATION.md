@@ -96,7 +96,7 @@ Writes to the generic collection route stay per-kind code; a module writes throu
 
 ## Module roles per member (WP4.5)
 
-With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module:
+With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module (also from the organization settings and the system administration, ADR 0012, and as part of an invitation):
 - `editor` or `viewer` replaces the project role in that module;
 - `none` hides the module for that member, like switching it off for them alone.
 

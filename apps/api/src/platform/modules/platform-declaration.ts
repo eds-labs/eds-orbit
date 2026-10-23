@@ -87,6 +87,10 @@ export const platformDeclaration: PlatformDeclaration = {
     "oauthClientResource",
     "McpGrant",
     "McpGrantEvent",
+    // System administration (ADR 0012): invitations and the system audit.
+    "Invitation",
+    "InvitationProjectGrant",
+    "SystemAuditEvent",
     "Workspace",
     "WorkspaceMember",
     "Project",
