@@ -22,6 +22,8 @@ test.skip(
   process.env.E2E_FINANCE !== "1",
   "needs a finance-enabled stack (E2E_FINANCE=1, ORBIT_FINANCE, ORBIT_FILES, ORBIT_MODULES)",
 );
+// The tests share the project that beforeAll sets up and run as one serial
+// group.
 test.describe.configure({ mode: "serial" });
 
 type Account = { email: string; password: string };
@@ -91,14 +93,15 @@ const finance = (path: string) => `/projects/${projectId}/finance${path}`;
 // A distinct, still valid PDF per call: identical bytes would be an exact
 // duplicate of the first upload. The file goes through the review page's
 // upload control.
-async function upload(page: Page, variant: string) {
+function pdfBytes(variant: string) {
   const pdf = readFileSync(
     resolve("apps/api/tests/fixtures/finance/invoice.pdf"),
   );
-  const buffer = Buffer.concat([
-    pdf,
-    Buffer.from(`\n% e2e ${run} ${variant}\n`),
-  ]);
+  return Buffer.concat([pdf, Buffer.from(`\n% e2e ${run} ${variant}\n`)]);
+}
+
+async function upload(page: Page, variant: string) {
+  const buffer = pdfBytes(variant);
   await page.goto(`/p/${projectId}/finance/review`);
   await page.getByLabel("Choose files").setInputFiles({
     name: `invoice-${variant}.pdf`,
@@ -170,6 +173,36 @@ async function fillLine(
   return group;
 }
 
+// One fresh project for the group: finance on, default chart, manual FX,
+// two cost centers and a counterparty for the tests that do not create one.
+test.beforeAll(async ({ browser, baseURL }) => {
+  test.setTimeout(120_000);
+  origin = new URL(baseURL!).origin;
+  const context = await browser.newContext({ baseURL });
+  const page = await context.newPage();
+  try {
+    await signIn(page);
+    const created = await api<{ id: string }>(
+      page.request,
+      "POST",
+      "/projects",
+      { name: `Finance e2e ${run}`, timezone: "Europe/Berlin", language: "en" },
+    );
+    projectId = created.id;
+    await enableAndSetUp(page);
+    for (const [code, name] of [
+      ["PRD", "Product"],
+      ["OPS", "Operations"],
+    ] as const)
+      await api(page.request, "POST", finance("/cost-centers"), { code, name });
+    await api(page.request, "POST", finance("/counterparties"), {
+      name: "E2E Supplier",
+    });
+  } finally {
+    await context.close();
+  }
+});
+
 test("upload to booking, payment and export, on desktop and mobile", async ({
   page,
   baseURL,
@@ -178,22 +211,38 @@ test("upload to booking, payment and export, on desktop and mobile", async ({
   origin = new URL(baseURL!).origin;
   await page.setViewportSize({ width: 1440, height: 960 });
   await signIn(page);
-  const created = await api<{ id: string }>(page.request, "POST", "/projects", {
-    name: `Finance e2e ${run}`,
-    timezone: "Europe/Berlin",
-    language: "en",
-  });
-  projectId = created.id;
-  await enableAndSetUp(page);
-
-  // Two cost centers for a 50/50 split.
-  for (const [code, name] of [
-    ["PRD", "Product"],
-    ["OPS", "Operations"],
-  ] as const)
-    await api(page.request, "POST", finance("/cost-centers"), { code, name });
 
   await upload(page, "main");
+
+  // A mixed batch through the control: a new PDF, a byte-identical copy of
+  // the first upload and a text file. States are per file.
+  await page.getByLabel("Choose files").setInputFiles([
+    {
+      name: "invoice-batch.pdf",
+      mimeType: "application/pdf",
+      buffer: pdfBytes("batch"),
+    },
+    {
+      name: "invoice-copy.pdf",
+      mimeType: "application/pdf",
+      buffer: pdfBytes("main"),
+    },
+    {
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("not a receipt"),
+    },
+  ]);
+  const batch = page.getByRole("list", { name: "Uploads" });
+  const entry = (name: string) =>
+    batch.getByRole("listitem").filter({ hasText: name });
+  await expect(entry("invoice-batch.pdf")).toContainText("Received.");
+  await expect(entry("invoice-copy.pdf")).toContainText(
+    "Already received, marked as duplicate.",
+  );
+  await expect(entry("notes.txt")).toContainText(
+    "This file type is not accepted.",
+  );
 
   // The review queue shows the document; open it.
   const detail = await openFirstDocument(page, "invoice-main.pdf");
@@ -238,35 +287,43 @@ test("upload to booking, payment and export, on desktop and mobile", async ({
 
   // The overview shows the expense and one open invoice.
   await page.goto(`/p/${projectId}/finance`);
-  const expenses = page
-    .locator(".kpi, .metric, .panel, section")
-    .filter({ hasText: "Expenses this month" })
-    .first();
-  await expect(expenses).toContainText("100");
-  const open = page
-    .locator(".kpi, .metric, .panel, section")
-    .filter({ hasText: "Open invoices" })
-    .first();
-  await expect(open).toContainText("100");
+  // Each figure is read from its own tile (.metric), with the exact amount.
+  const tile = (label: string) =>
+    page.locator(".metric").filter({
+      has: page.locator(".metric-label", { hasText: new RegExp(`^${label}$`) }),
+    });
+  await expect(tile("Expenses this month").locator("strong")).toHaveText(
+    /^\$100\.00$/,
+  );
+  await expect(tile("Open invoices").locator("strong")).toHaveText("1");
+  await expect(tile("Open invoices").locator("small")).toContainText(
+    "$100.00 payable",
+  );
 
   // Mobile: the overview and the review list render without horizontal scroll.
   await page.setViewportSize({ width: 375, height: 812 });
+  const overflow = () =>
+    page.evaluate(
+      () =>
+        document.documentElement.scrollWidth -
+        document.documentElement.clientWidth,
+    );
   await page.goto(`/p/${projectId}/finance`);
   await expect(
-    page
-      .getByRole("heading", { name: "Open invoices" })
-      .or(page.getByText("Open invoices").first()),
+    page.getByRole("heading", { name: "Income and expenses" }),
   ).toBeVisible();
+  expect(
+    await overflow(),
+    "overview: no horizontal scroll at 375px",
+  ).toBeLessThanOrEqual(1);
   await page.goto(`/p/${projectId}/finance/review`);
   await expect(
     page.getByRole("heading", { name: "Documents to review" }),
   ).toBeVisible();
-  const overflow = await page.evaluate(
-    () =>
-      document.documentElement.scrollWidth -
-      document.documentElement.clientWidth,
-  );
-  expect(overflow, "no horizontal page scroll at 375px").toBeLessThanOrEqual(1);
+  expect(
+    await overflow(),
+    "review: no horizontal scroll at 375px",
+  ).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 1440, height: 960 });
 
   // Record the payment on the invoices page; the invoice shows as paid.
@@ -314,7 +371,7 @@ test("a foreign-currency document asks for the rate after FX_RATE_MISSING", asyn
   await field(form, "Currency").selectOption("EUR");
   await field(form, "Issue date").fill(today());
   await field(form, "Counterparty").selectOption({
-    label: "E2E Hosting GmbH",
+    label: "E2E Supplier",
   });
   await fillLine(form, 0, { description: "Domain", amount: "10.00" });
   await form.getByRole("button", { name: "Book", exact: true }).click();
@@ -358,7 +415,7 @@ test("a version conflict between two pages is recovered with Reload", async ({
     await field(formB, "Currency").selectOption("USD");
     await field(formB, "Issue date").fill(today());
     await field(formB, "Counterparty").selectOption({
-      label: "E2E Hosting GmbH",
+      label: "E2E Supplier",
     });
     await fillLine(formB, 0, { description: "Support", amount: "20.00" });
     await formB.getByRole("button", { name: "Book", exact: true }).click();
@@ -374,7 +431,7 @@ test("a version conflict between two pages is recovered with Reload", async ({
     await field(reseeded, "Currency").selectOption("USD");
     await field(reseeded, "Issue date").fill(today());
     await field(reseeded, "Counterparty").selectOption({
-      label: "E2E Hosting GmbH",
+      label: "E2E Supplier",
     });
     await fillLine(reseeded, 0, { description: "Support", amount: "20.00" });
     await reseeded.getByRole("button", { name: "Book", exact: true }).click();
