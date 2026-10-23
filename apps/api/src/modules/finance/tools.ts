@@ -6,7 +6,7 @@ import { authorize } from "../../platform/tenancy/permissions.ts";
 import { DomainError } from "../../shared.ts";
 import { defineTool, type ToolContext } from "../agents/tools/registry.ts";
 import { financeActive } from "./gate.ts";
-import { invoiceStatusView } from "./invoices.ts";
+import { invoiceStatusView, isOpenCredit } from "./invoices.ts";
 import { rateFor } from "./fx.ts";
 import {
   CURRENCY_DECIMALS,
@@ -286,6 +286,14 @@ const openOutput = z.union([
           receivable: money,
         })
         .strict(),
+      credits: z
+        .object({
+          count: z.number().int(),
+          total: money,
+          payable: money,
+          receivable: money,
+        })
+        .strict(),
       items: z
         .array(
           z
@@ -309,7 +317,7 @@ export const financeOpenInvoices = defineTool({
   name: "finance_open_invoices",
   namespace: "finance",
   description:
-    "Open invoices (payable and receivable) with what is still unpaid, in the base currency: totals plus the 25 earliest due, with number, counterparty, due date and status (overdue is derived from the due date). Use it for which invoices are open or overdue." + UNTRUSTED,
+    "Open invoices (payable and receivable) with what is still unpaid, in the base currency: totals plus the 25 earliest due, with number, counterparty, due date and status (overdue is derived from the due date). Open credit notes that credit no invoice are credits: counted under credits, never listed or overdue, and they reduce the open, payable and receivable totals (not with overdueOnly). Use it for which invoices are open or overdue." + UNTRUSTED,
   parameters: openParameters,
   exposure: { assistant: true, mcp: false },
   outputSchema: openOutput,
@@ -331,9 +339,18 @@ export const financeOpenInvoices = defineTool({
       });
       const balances = await invoiceBalances(tx, scope, invoices);
       const today = new Date().toISOString().slice(0, 10);
+      const credits = { count: 0, total: 0n, payable: 0n, receivable: 0n };
       const rows = invoices.flatMap((invoice) => {
         const balance = balances.get(invoice.id);
         if (!balance || balance.openAmountMicros <= 0n) return [];
+        if (isOpenCredit(invoice)) {
+          credits.count += 1;
+          credits.total += balance.openBaseMicros;
+          if (invoice.direction === "payable")
+            credits.payable += balance.openBaseMicros;
+          else credits.receivable += balance.openBaseMicros;
+          return [];
+        }
         const status = invoiceStatusView(invoice, today);
         if (args.overdueOnly && status !== "overdue") return [];
         return [{ invoice, balance, status }];
@@ -356,6 +373,12 @@ export const financeOpenInvoices = defineTool({
           totals.payable += balance.openBaseMicros;
         else totals.receivable += balance.openBaseMicros;
       }
+      // Credits reduce what is open; overdue-only totals stay invoices only.
+      if (!args.overdueOnly) {
+        totals.open -= credits.total;
+        totals.payable -= credits.payable;
+        totals.receivable -= credits.receivable;
+      }
       const shown = rows.slice(0, OPEN_LIMIT);
       const ids = [...new Set(shown.flatMap((r) => (r.invoice.counterpartyId ? [r.invoice.counterpartyId] : [])))];
       const names = new Map(
@@ -376,6 +399,12 @@ export const financeOpenInvoices = defineTool({
           overdue: fmt(totals.overdue, base),
           payable: fmt(totals.payable, base),
           receivable: fmt(totals.receivable, base),
+        },
+        credits: {
+          count: credits.count,
+          total: fmt(credits.total, base),
+          payable: fmt(credits.payable, base),
+          receivable: fmt(credits.receivable, base),
         },
         items: shown.map(({ invoice, balance, status }) => ({
           number: invoice.number ? clip(invoice.number, NUMBER_LIMIT) || null : null,

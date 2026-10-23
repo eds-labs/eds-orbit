@@ -3,7 +3,7 @@ import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { DomainError } from "../../shared.ts";
 import { isoDate } from "./common.ts";
 import { rateFor } from "./fx.ts";
-import { invoiceStatusView } from "./invoices.ts";
+import { invoiceStatusView, isOpenCredit } from "./invoices.ts";
 import { invoiceBalances } from "./payments.ts";
 import { CURRENCY_DECIMALS, convert } from "./money.ts";
 import { monthlyEquivalent } from "./recurring.ts";
@@ -177,9 +177,12 @@ async function openItems(tx: DbTx, scope: Scope, asOf?: string) {
   // The batch helper honours credits and voided payments; its base is the
   // invoice's posted open-item base less what earlier payments settled.
   const balances = await invoiceBalances(tx, scope, invoices, asOf);
+  // Standalone credit notes are credits, kept apart from the invoices.
   return invoices.flatMap((invoice) => {
     const balance = balances.get(invoice.id)!;
-    return balance.openAmountMicros > 0n ? [{ invoice, balance }] : [];
+    return balance.openAmountMicros > 0n
+      ? [{ invoice, balance, credit: isOpenCredit(invoice) }]
+      : [];
   });
 }
 
@@ -208,7 +211,8 @@ export async function financeSummary(tx: DbTx, scope: Scope, raw: Range) {
   }
 
   // Open and overdue, split by direction because payables and receivables
-  // are different kinds of money.
+  // are different kinds of money. Open credits (standalone credit notes)
+  // are counted apart and reduce the open totals; they are never overdue.
   const now = today();
   const open = {
     count: 0,
@@ -222,7 +226,27 @@ export async function financeSummary(tx: DbTx, scope: Scope, raw: Range) {
     payableMicros: 0n,
     receivableMicros: 0n,
   };
-  for (const { invoice, balance } of await openItems(tx, scope)) {
+  const creditsOpen = {
+    count: 0,
+    totalMicros: 0n,
+    payableMicros: 0n,
+    receivableMicros: 0n,
+  };
+  for (const { invoice, balance, credit } of await openItems(tx, scope)) {
+    if (credit) {
+      const amount = balance.openBaseMicros;
+      creditsOpen.count += 1;
+      creditsOpen.totalMicros += amount;
+      open.totalMicros -= amount;
+      if (invoice.direction === "payable") {
+        creditsOpen.payableMicros += amount;
+        open.payableMicros -= amount;
+      } else {
+        creditsOpen.receivableMicros += amount;
+        open.receivableMicros -= amount;
+      }
+      continue;
+    }
     const bucket = [open];
     if (invoiceStatusView(invoice, now) === "overdue") bucket.push(overdue);
     for (const b of bucket) {
@@ -317,6 +341,12 @@ export async function financeSummary(tx: DbTx, scope: Scope, raw: Range) {
       totalMicros: str(overdue.totalMicros),
       payableMicros: str(overdue.payableMicros),
       receivableMicros: str(overdue.receivableMicros),
+    },
+    creditsOpen: {
+      ...creditsOpen,
+      totalMicros: str(creditsOpen.totalMicros),
+      payableMicros: str(creditsOpen.payableMicros),
+      receivableMicros: str(creditsOpen.receivableMicros),
     },
     recurringMonthlyMicros: str(recurringMonthlyMicros),
     recurringMissingRate,
@@ -492,20 +522,29 @@ export async function yearOverview(tx: DbTx, scope: Scope, year: number) {
     if (s.type === "expense") add(byCenter, s.costCenterId, s.amount);
   }
 
-  // Open items at 31 Dec of the year (see openItems for the void caveat).
-  const open = (await openItems(tx, scope, range.to)).map(
-    ({ invoice, balance }) => ({
-      invoiceId: invoice.id,
-      number: invoice.number,
-      direction: invoice.direction,
-      counterpartyId: invoice.counterpartyId,
-      currency: invoice.currency,
-      issueDate: invoice.issueDate.toISOString().slice(0, 10),
-      dueDate: invoice.dueDate?.toISOString().slice(0, 10) ?? null,
-      openMicros: str(balance.openAmountMicros),
-      openBaseMicros: str(balance.openBaseMicros),
-    }),
-  );
+  // Open items at 31 Dec of the year (see openItems for the void caveat);
+  // open credits are listed apart from the open invoices.
+  const items = await openItems(tx, scope, range.to);
+  const openRow = ({ invoice, balance }: (typeof items)[number]) => ({
+    invoiceId: invoice.id,
+    number: invoice.number,
+    direction: invoice.direction,
+    counterpartyId: invoice.counterpartyId,
+    currency: invoice.currency,
+    issueDate: invoice.issueDate.toISOString().slice(0, 10),
+    dueDate: invoice.dueDate?.toISOString().slice(0, 10) ?? null,
+    openMicros: str(balance.openAmountMicros),
+    openBaseMicros: str(balance.openBaseMicros),
+  });
+  const open = items.filter((i) => !i.credit).map(openRow);
+  const credits = items.filter((i) => i.credit);
+  const creditsOpen = {
+    count: credits.length,
+    totalMicros: str(
+      credits.reduce((sum, i) => sum + i.balance.openBaseMicros, 0n),
+    ),
+    items: credits.map(openRow),
+  };
 
   const invoices = await tx.financeInvoice.findMany({
     where: {
@@ -604,6 +643,7 @@ export async function yearOverview(tx: DbTx, scope: Scope, year: number) {
       expenseMicros: str(amount),
     })),
     open,
+    creditsOpen,
     documents: rows.map((i) => ({
       id: i.documentId!,
       invoiceId: i.id,

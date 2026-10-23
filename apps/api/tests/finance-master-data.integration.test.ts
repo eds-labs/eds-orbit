@@ -15,6 +15,10 @@ import { postEntry } from "../src/modules/finance/ledger/post.ts";
 import { systemAccounts } from "../src/modules/finance/ledger/accounts.ts";
 import { applyFinanceTemplate } from "../src/modules/finance/setup.ts";
 import {
+  readFinanceSettings,
+  writeFinanceSettings,
+} from "../src/modules/finance/settings.ts";
+import {
   archiveAccount,
   createAccount,
   deleteAccount,
@@ -543,6 +547,78 @@ describe.skipIf(!enabled)("finance master data", () => {
         name: "Rename A",
       });
     });
+  });
+
+  it("base currency and used currencies are locked by what is recorded", async () => {
+    const s = await newProject(await newWorkspace());
+    const write = (patch: Parameters<typeof writeFinanceSettings>[3]) =>
+      run(s, async (tx) => {
+        const { version } = await readFinanceSettings(tx, s);
+        return writeFinanceSettings(tx, s, version, patch);
+      });
+    // Nothing posted yet: the base currency may still change.
+    await write({ baseCurrency: "EUR" });
+    await write({ baseCurrency: "USD" });
+    await run(s, (tx) => applyFinanceTemplate(tx, s));
+    const recurring = await run(s, (tx) =>
+      createRecurring(tx, s, {
+        name: "Euro plan",
+        interval: "monthly",
+        expectedAmountMicros: "10000000",
+        currency: "EUR",
+        nextDueDate: "2999-01-01",
+      }),
+    );
+    expect(await failure(write({ currencies: ["USD", "USDC"] }))).toBe(
+      "FINANCE_CURRENCY_IN_USE",
+    );
+    await run(s, (tx) =>
+      tx.financeRecurring.update({
+        where: { id: recurring.id },
+        data: { active: false },
+      }),
+    );
+    await run(s, (tx) =>
+      createAccount(tx, s, {
+        code: "1010",
+        name: "USDC wallet",
+        type: "asset",
+        paymentAccount: true,
+        currency: "USDC",
+      }),
+    );
+    expect(await failure(write({ currencies: ["USD"] }))).toBe(
+      "FINANCE_CURRENCY_IN_USE",
+    );
+    expect(await failure(write({ currencies: ["USD", "USDC"] }))).toBe(
+      "succeeded",
+    );
+    // Once anything is posted the base currency is fixed.
+    await run(s, async (tx) => {
+      const accounts = await listAccounts(tx, s);
+      const line = (code: string, side: "debit" | "credit") => ({
+        accountId: accounts.find((x) => x.code === code)!.id,
+        side,
+        currency: "USD",
+        amountMicros: 1_000_000n,
+        fxRate: "1",
+        rateDate: "2027-03-01",
+        rateSource: "identity" as const,
+        baseAmountMicros: 1_000_000n,
+      });
+      await postEntry(tx, s, {
+        kind: "income",
+        entryDate: "2027-03-01",
+        lines: [line("1000", "debit"), line("4000", "credit")],
+      });
+    });
+    expect(await failure(write({ baseCurrency: "USDC" }))).toBe(
+      "FINANCE_BASE_CURRENCY_LOCKED",
+    );
+    // Re-saving the same base currency is fine.
+    expect(await failure(write({ baseCurrency: "USD", fxSource: "manual" }))).toBe(
+      "succeeded",
+    );
   });
 
   it("currency and payment flag are frozen once an account has postings", async () => {

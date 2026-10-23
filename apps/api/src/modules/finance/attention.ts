@@ -11,7 +11,8 @@ import { FINANCE_READ, FINANCE_SETTINGS } from "./permissions.ts";
 import { readFinanceSettings } from "./settings.ts";
 
 // The finance module's attention items, computed at read time and never
-// stored. Params stay empty: counts only, no names or amounts.
+// stored. Params stay empty: counts only, no names or amounts. Settings
+// items badge the platform's settings entry and open finance's section.
 
 /** An ECB feed older than this many days counts as stale. */
 export const FX_STALE_DAYS = 4;
@@ -81,6 +82,8 @@ export const financeAttention: AttentionContribution = async (
       projectId: scope.projectId,
       status: { in: ["open", "partially_paid"] },
       dueDate: { lt: today },
+      // An open credit note is a credit, never overdue.
+      kind: { not: "credit_note" },
     },
   });
   if (overdue > 0)
@@ -106,8 +109,8 @@ export const financeAttention: AttentionContribution = async (
         kind: "finance_mail_archive_failed",
         severity: "info",
         count: failed,
-        navKey: "finance.settings",
-        link: "/finance/settings",
+        navKey: "settings",
+        link: "/settings?section=finance-mailboxes",
       });
   }
 
@@ -119,8 +122,8 @@ export const financeAttention: AttentionContribution = async (
       kind: "finance_fx_stale",
       severity: "info",
       ...(stale.since ? { since: stale.since } : {}),
-      navKey: "finance.settings",
-      link: "/finance/settings",
+      navKey: "settings",
+      link: "/settings?section=finance-currencies",
     });
   return items;
 };

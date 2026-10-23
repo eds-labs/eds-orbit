@@ -452,6 +452,49 @@ describe.skipIf(!enabled)("finance reports", () => {
     expect(now.overdue - before.overdue).toBe(80_000_000n);
   });
 
+  it("standalone credit notes are credits, never open invoices or overdue", async () => {
+    const before = await position();
+    await bookInvoice("CN-STANDALONE", {
+      kind: "credit_note",
+      lines: [
+        {
+          description: "credit",
+          amount: "25.00",
+          tax: "0.00",
+          categoryId: software,
+          allocation: [],
+        },
+      ],
+    });
+    const now = await position();
+    expect(now.openCount).toBe(before.openCount);
+    expect(now.overdueCount).toBe(before.overdueCount);
+    expect(now.overdue).toBe(before.overdue);
+    // The credit reduces what is open and payable.
+    expect(now.open - before.open).toBe(-25_000_000n);
+    expect(
+      BigInt(now.summary.open.payableMicros) -
+        BigInt(before.summary.open.payableMicros),
+    ).toBe(-25_000_000n);
+    expect(
+      now.summary.creditsOpen.count - before.summary.creditsOpen.count,
+    ).toBe(1);
+    expect(
+      BigInt(now.summary.creditsOpen.totalMicros) -
+        BigInt(before.summary.creditsOpen.totalMicros),
+    ).toBe(25_000_000n);
+    expect(
+      BigInt(now.summary.creditsOpen.payableMicros) -
+        BigInt(before.summary.creditsOpen.payableMicros),
+    ).toBe(25_000_000n);
+    const year = await run((tx) => yearOverview(tx, scope(), 2025));
+    expect(year.open.some((o) => o.number === "CN-STANDALONE")).toBe(false);
+    expect(
+      year.creditsOpen.items.map((o) => [o.number, o.openBaseMicros]),
+    ).toContainEqual(["CN-STANDALONE", "25000000"]);
+    expect(year.creditsOpen.count).toBe(year.creditsOpen.items.length);
+  });
+
   it("year overview open items are as of 31 December", async () => {
     const partial = await bookInvoice("ASOF-PARTIAL", {
       issueDate: "2030-11-01",

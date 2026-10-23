@@ -376,11 +376,44 @@ describe.skipIf(!enabled)("finance assistant tools", () => {
     expect(disabledFor).toEqual([]);
   });
 
+  it("open credit notes are credits, not open or overdue invoices", async () => {
+    const before = await call(financeOpenInvoices, { direction: null, overdueOnly: null });
+    await run((tx) =>
+      createInvoice(tx, scope(), {
+        kind: "credit_note",
+        direction: "payable",
+        counterpartyId,
+        number: "TOOL-CREDIT",
+        issueDate: "2025-08-01",
+        dueDate: "2025-08-15",
+        currency: "USD",
+        lines: [
+          { description: "x", amount: "40.00", tax: "0.00", categoryId: software, allocation: [] },
+        ],
+      } as BookingRequest as never),
+    );
+    const out = await call(financeOpenInvoices, { direction: null, overdueOnly: null });
+    expect(out.items.some((i: any) => i.number === "TOOL-CREDIT")).toBe(false);
+    expect(out.credits).toEqual({ count: 1, total: "40.00", payable: "40.00", receivable: "0.00" });
+    expect(out.totals.count).toBe(before.totals.count);
+    expect(out.totals.overdueCount).toBe(before.totals.overdueCount);
+    expect(Number(out.totals.open)).toBeCloseTo(Number(before.totals.open) - 40, 2);
+    expect(Number(out.totals.payable)).toBeCloseTo(Number(before.totals.payable) - 40, 2);
+    const overdue = await call(financeOpenInvoices, { direction: null, overdueOnly: true });
+    expect(overdue.items.some((i: any) => i.number === "TOOL-CREDIT")).toBe(false);
+    const items = await run((tx) => financeAttention(tx, scope(), new Date()));
+    expect(items.find((i) => i.kind === "finance_invoices_overdue")).toMatchObject({ count: 1 });
+  });
+
   it("attention reports a stale fx feed", async () => {
     const fresh = new Date();
     const stale = (items: { kind: string }[]) => items.some((i) => i.kind === "finance_fx_stale");
     // Default settings: USD base, EUR configured, ECB source, no rate stored.
     expect(stale(await run((tx) => financeAttention(tx, scope(), fresh)))).toBe(true);
+    // It badges the settings entry and opens finance's currency section.
+    expect(
+      (await run((tx) => financeAttention(tx, scope(), fresh))).find((i) => i.kind === "finance_fx_stale"),
+    ).toMatchObject({ navKey: "settings", link: "/settings?section=finance-currencies" });
     const put = (date: Date) =>
       run((tx) =>
         tx.financeFxRate.create({

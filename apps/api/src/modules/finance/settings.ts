@@ -5,6 +5,7 @@ import {
   readModuleSettings,
   writeModuleSettings,
 } from "../../platform/modules/settings.ts";
+import { DomainError } from "../../shared.ts";
 import { isCurrency, type Currency } from "./money.ts";
 
 const currency = z.string().refine(isCurrency, "Unknown currency");
@@ -67,8 +68,49 @@ export const readFinanceSettings = (tx: DbTx, scope: Scope) =>
   );
 
 /**
+ * Refuses settings changes that would rewrite the meaning of what is
+ * already recorded: the base currency is fixed once anything is posted
+ * (409 FINANCE_BASE_CURRENCY_LOCKED), and a currency stays while an open
+ * invoice, a live payment account or an active recurring item uses it
+ * (409 FINANCE_CURRENCY_IN_USE).
+ */
+async function assertCurrencyChangeAllowed(
+  tx: DbTx,
+  scope: Scope,
+  current: FinanceSettings,
+  patch: Partial<FinanceSettings>,
+) {
+  if (
+    patch.baseCurrency !== undefined &&
+    patch.baseCurrency !== current.baseCurrency &&
+    (await tx.financeJournalEntry.count({
+      where: { projectId: scope.projectId },
+    })) > 0
+  )
+    throw new DomainError("FINANCE_BASE_CURRENCY_LOCKED", 409);
+  if (patch.currencies === undefined) return;
+  const removed = current.currencies.filter(
+    (c) => !patch.currencies!.includes(c),
+  );
+  if (!removed.length) return;
+  const where = { projectId: scope.projectId, currency: { in: removed } };
+  const [invoices, accounts, recurring] = await Promise.all([
+    tx.financeInvoice.count({
+      where: { ...where, status: { in: ["open", "partially_paid"] } },
+    }),
+    tx.financeAccount.count({
+      where: { ...where, paymentAccount: true, archivedAt: null },
+    }),
+    tx.financeRecurring.count({ where: { ...where, active: true } }),
+  ]);
+  if (invoices + accounts + recurring > 0)
+    throw new DomainError("FINANCE_CURRENCY_IN_USE", 409);
+}
+
+/**
  * Applies `patch` over the stored settings when `version` is current
- * (otherwise 409 SETTINGS_VERSION_CONFLICT). Unknown keys are rejected.
+ * (otherwise 409 SETTINGS_VERSION_CONFLICT). Unknown keys are rejected;
+ * currency changes are checked against what is recorded.
  */
 export async function writeFinanceSettings(
   tx: DbTx,
@@ -77,6 +119,7 @@ export async function writeFinanceSettings(
   patch: Partial<FinanceSettings>,
 ) {
   const { settings } = await readFinanceSettings(tx, scope);
+  await assertCurrencyChangeAllowed(tx, scope, settings, patch);
   return writeModuleSettings(
     tx,
     scope,

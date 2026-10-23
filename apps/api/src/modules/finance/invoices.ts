@@ -401,15 +401,30 @@ export type InvoiceStatusView =
   | "overdue";
 
 /**
- * The status to show: an open or partially paid invoice whose due date is
- * before `today` (ISO date or Date, UTC) is overdue. Never stored.
+ * A standalone credit note (one that credits no invoice) stays open until
+ * it is refunded or used: reports show it as a credit, apart from the open
+ * invoices, reducing what is payable or receivable (final review I2).
  */
+export const isOpenCredit = (row: {
+  kind: string;
+  creditsInvoiceId: string | null;
+}) => row.kind === "credit_note" && !row.creditsInvoiceId;
+
+/**
+ * The status to show: an open or partially paid invoice whose due date is
+ * before `today` (ISO date or Date, UTC) is overdue; a credit note never
+ * is. Never stored.
+ */
+
 export function invoiceStatusView(
-  row: { status: string; dueDate: Date | null },
+  row: { status: string; dueDate: Date | null; kind?: string },
   today: string | Date,
 ): InvoiceStatusView {
   const day = typeof today === "string" ? today : today.toISOString().slice(0, 10);
   if (
+    // An open credit note is money owed to the other side's account, a
+    // credit, never an overdue invoice.
+    row.kind !== "credit_note" &&
     (row.status === "open" || row.status === "partially_paid") &&
     row.dueDate &&
     row.dueDate.toISOString().slice(0, 10) < day
