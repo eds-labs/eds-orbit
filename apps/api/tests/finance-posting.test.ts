@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SystemAccounts } from "../src/modules/finance/ledger/accounts.ts";
 import { assertBalanced } from "../src/modules/finance/ledger/invariants.ts";
 import {
+  balanceBase,
   postingLines,
   type DraftLine,
   type PostingInput,
@@ -157,14 +158,15 @@ const cases: {
     input: {
       kind: "payment",
       direction: "outgoing",
+      settles: "payables",
       currency: "USD",
       baseCurrency: "USD",
       paymentAccountId: BANK,
       allocations: [
         {
           amountMicros: 119_000_000n,
-          invoiceTotalMicros: 119_000_000n,
-          invoiceBaseMicros: 119_000_000n,
+          openAmountMicros: 119_000_000n,
+          openBaseMicros: 119_000_000n,
           invoiceRate: identity,
         },
       ],
@@ -180,14 +182,15 @@ const cases: {
     input: {
       kind: "payment",
       direction: "incoming",
+      settles: "receivables",
       currency: "USD",
       baseCurrency: "USD",
       paymentAccountId: BANK,
       allocations: [
         {
           amountMicros: 30_000_000n,
-          invoiceTotalMicros: 30_000_000n,
-          invoiceBaseMicros: 30_000_000n,
+          openAmountMicros: 30_000_000n,
+          openBaseMicros: 30_000_000n,
           invoiceRate: identity,
         },
       ],
@@ -298,14 +301,15 @@ describe("postingLines", () => {
         {
           kind: "payment",
           direction: "outgoing",
+          settles: "payables",
           currency: "EUR",
           baseCurrency: "USD",
           paymentAccountId: BANK,
           allocations: [
             {
               amountMicros,
-              invoiceTotalMicros: 100_000_000n,
-              invoiceBaseMicros: invoiceBase,
+              openAmountMicros: 100_000_000n,
+              openBaseMicros: invoiceBase,
               invoiceRate: eurAt("1.10", "2026-10-01"),
             },
           ],
@@ -443,10 +447,178 @@ describe("postingLines", () => {
     ).toBe("ALLOCATION_INVALID");
   });
 
-  it("requires the identity rate for the base currency", () => {
+  it("requires a rate of exactly 1 for the base currency", () => {
+    for (const one of ["1", "1.0", "1.000000000000"])
+      expect(
+        code(() => postingLines(payableInvoice, roles, { ...identity, rate: one }, 2)),
+        one,
+      ).toBeNull();
+    // 1.0000001 converts to 1 at six digits but is not 1.
+    for (const rate of ["1.1", "1.0000001", "0.999999999999"])
+      expect(
+        code(() => postingLines(payableInvoice, roles, { ...identity, rate }, 2)),
+        rate,
+      ).toBe("FINANCE_RATE_INVALID");
+    // The settled invoice's rate too, when it is in the base currency.
     expect(
-      code(() => postingLines(payableInvoice, roles, eurAt("1.1"), 2)),
+      code(() =>
+        postingLines(
+          {
+            kind: "payment",
+            direction: "outgoing",
+            settles: "payables",
+            currency: "USD",
+            baseCurrency: "USD",
+            paymentAccountId: BANK,
+            allocations: [
+              {
+                amountMicros: 10_000_000n,
+                openAmountMicros: 10_000_000n,
+                openBaseMicros: 10_000_000n,
+                invoiceRate: { ...identity, rate: "1.0000001" },
+              },
+            ],
+          },
+          roles,
+          identity,
+          2,
+        ),
+      ),
     ).toBe("FINANCE_RATE_INVALID");
+  });
+
+  it("rejects an adjustment that does not balance in its own currency", () => {
+    // 0.03 vs 0.02 would otherwise have been "balanced" through rounding.
+    expect(
+      code(() =>
+        postingLines(
+          {
+            kind: "adjustment",
+            currency: "USD",
+            baseCurrency: "USD",
+            lines: [
+              { accountId: BANK, side: "debit", amountMicros: 30_000n },
+              { accountId: SOFTWARE, side: "credit", amountMicros: 20_000n },
+            ],
+          },
+          roles,
+          identity,
+          2,
+        ),
+      ),
+    ).toBe("FINANCE_ENTRY_UNBALANCED");
+    const balanced = postingLines(
+      {
+        kind: "adjustment",
+        currency: "EUR",
+        baseCurrency: "USD",
+        lines: [
+          { accountId: BANK, side: "debit", amountMicros: 10_000n },
+          { accountId: BANK, side: "debit", amountMicros: 10_000n },
+          { accountId: SOFTWARE, side: "credit", amountMicros: 20_000n },
+        ],
+      },
+      roles,
+      eurAt("1.5"),
+      2,
+    );
+    // 0.02 + 0.02 debit vs 0.03 credit in base: the largest line absorbs.
+    expect(shape(balanced)).toEqual([
+      [BANK, "debit", 10_000n, 20_000n, null],
+      [BANK, "debit", 10_000n, 20_000n, null],
+      [SOFTWARE, "credit", 20_000n, 40_000n, null],
+    ]);
+  });
+
+  it("throws when a line is below one base unit", () => {
+    // 0.000001 USDC is 0.00 USD.
+    expect(
+      code(() =>
+        postingLines(
+          {
+            kind: "contribution",
+            currency: "USDC",
+            baseCurrency: "USD",
+            paymentAccountId: WALLET,
+            amountMicros: 1n,
+          },
+          roles,
+          { rate: "1", rateDate: "2026-10-23", source: "peg" },
+          2,
+        ),
+      ),
+    ).toBe("FINANCE_AMOUNT_BELOW_BASE_UNIT");
+  });
+
+  it("posts refunds against credit notes through the settled account", () => {
+    const refund = (
+      direction: "outgoing" | "incoming",
+      settles: "payables" | "receivables",
+    ) =>
+      postingLines(
+        {
+          kind: "payment",
+          direction,
+          settles,
+          currency: "USD",
+          baseCurrency: "USD",
+          paymentAccountId: BANK,
+          allocations: [
+            {
+              amountMicros: 15_000_000n,
+              openAmountMicros: 15_000_000n,
+              openBaseMicros: 15_000_000n,
+              invoiceRate: identity,
+            },
+          ],
+        },
+        roles,
+        identity,
+        2,
+      );
+    // A supplier refunds a payable credit note: money in, payables cleared.
+    expect(shape(refund("incoming", "payables"))).toEqual([
+      [BANK, "debit", 15_000_000n, 15_000_000n, null],
+      [roles.payables, "credit", 15_000_000n, 15_000_000n, null],
+    ]);
+    // We refund a customer's receivable credit note: money out.
+    expect(shape(refund("outgoing", "receivables"))).toEqual([
+      [roles.receivables, "debit", 15_000_000n, 15_000_000n, null],
+      [BANK, "credit", 15_000_000n, 15_000_000n, null],
+    ]);
+  });
+});
+
+describe("balanceBase", () => {
+  const options = {
+    roundingAccountId: roles.rounding,
+    baseCurrency: "USD",
+    rateDate: "2026-10-23",
+    baseDecimals: 2,
+  };
+  const line = (side: "debit" | "credit", base: bigint): DraftLine => ({
+    accountId: BANK,
+    side,
+    currency: "EUR",
+    amountMicros: base,
+    fxRate: "1.5",
+    rateDate: "2026-10-23",
+    rateSource: "ecb",
+    baseAmountMicros: base,
+  });
+
+  it("absorbs up to one base unit per line and refuses more", () => {
+    const debit = line("debit", 1_000_000n);
+    // Two lines: up to 0.02 is rounding.
+    expect(
+      balanceBase([debit, line("credit", 980_000n)], [debit], options).map(
+        (l) => l.baseAmountMicros,
+      ),
+    ).toEqual([980_000n, 980_000n]);
+    // 0.03 cannot come from rounding two lines: no rounding line, an error.
+    expect(
+      code(() => balanceBase([debit, line("credit", 970_000n)], [debit], options)),
+    ).toBe("FINANCE_ENTRY_UNBALANCED");
   });
 });
 

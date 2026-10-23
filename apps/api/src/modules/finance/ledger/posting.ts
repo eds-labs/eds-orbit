@@ -51,15 +51,16 @@ export type DocumentLine = {
 
 /**
  * One invoice a payment settles, in the payment's currency (Phase 1 pays an
- * invoice in its own currency). `invoiceBaseMicros` is the invoice's base
- * amount for `invoiceTotalMicros`; the allocated part of it is pro-rated.
- * To clear an invoice exactly over several partial payments, pass its open
- * amount and open base as total and base.
+ * invoice in its own currency). `openAmountMicros` is what is still open on
+ * the invoice and `openBaseMicros` its base: the invoice's posted base minus
+ * the base already settled by earlier allocations. The allocated part of the
+ * open base is pro-rated, so the payment that clears the invoice settles
+ * exactly its remaining base.
  */
 export type PaymentAllocation = {
   amountMicros: bigint;
-  invoiceTotalMicros: bigint;
-  invoiceBaseMicros: bigint;
+  openAmountMicros: bigint;
+  openBaseMicros: bigint;
   /** The rate the invoice was posted at, recorded on the settling line. */
   invoiceRate: Rate;
 };
@@ -84,7 +85,14 @@ export type PostingInput =
   | (DocumentInput & { kind: "receipt"; paymentAccountId: string })
   | (Currencies & {
       kind: "payment";
+      /** Money leaving (credit) or entering (debit) the payment account. */
       direction: "outgoing" | "incoming";
+      /**
+       * The open-item account the allocations settle, independent of the
+       * direction: an outgoing payment of a payable invoice settles
+       * payables, and so does a refund received for a payable credit note.
+       */
+      settles: "payables" | "receivables";
       paymentAccountId: string;
       allocations: PaymentAllocation[];
     })
@@ -109,6 +117,9 @@ const sumBy = (lines: DraftLine[], side: Side) =>
     .filter((line) => line.side === side)
     .reduce((acc, line) => acc + line.baseAmountMicros, 0n);
 
+/** True when a decimal-string rate is exactly 1 ("1", "1.0", "1.000000000000"). */
+const isOne = (rate: string) => /^1(?:\.0{1,12})?$/.test(rate);
+
 const positive = (micros: bigint) => {
   if (micros <= 0n) throw new DomainError("FINANCE_AMOUNT_INVALID", 422);
   return micros;
@@ -126,6 +137,78 @@ const prorate = (base: bigint, part: bigint, total: bigint, decimals: number) =>
   return units * unit;
 };
 
+const residueLine = (
+  accountId: string,
+  side: Side,
+  micros: bigint,
+  baseCurrency: string,
+  rateDate: string,
+): DraftLine => ({
+  accountId,
+  side,
+  currency: baseCurrency,
+  amountMicros: micros,
+  fxRate: "1",
+  rateDate,
+  rateSource: "identity",
+  baseAmountMicros: micros,
+});
+
+/**
+ * Settles a base rounding residue of converted lines (the rule is described
+ * at {@link postingLines}): onto the largest of `absorbing`, else onto a
+ * `rounding` line; a residue above one base unit per line throws
+ * FINANCE_ENTRY_UNBALANCED. Exported for its tests; posting goes through
+ * `postingLines`.
+ */
+export function balanceBase(
+  lines: DraftLine[],
+  absorbing: DraftLine[],
+  options: {
+    roundingAccountId: string;
+    baseCurrency: string;
+    rateDate: string;
+    baseDecimals: number;
+  },
+): DraftLine[] {
+  const residue = sumBy(lines, "debit") - sumBy(lines, "credit");
+  if (residue === 0n) return lines;
+  const amount = abs(residue);
+  const heavier: Side = residue > 0n ? "debit" : "credit";
+  const unit = 10n ** BigInt(MICRO_DIGITS - options.baseDecimals);
+  // Half-even conversion is off by at most half a unit per line; a larger
+  // gap is an unbalanced transaction, not rounding.
+  if (amount > unit * BigInt(lines.length))
+    throw new DomainError("FINANCE_ENTRY_UNBALANCED", 422);
+  const target = absorbing.reduce<DraftLine | undefined>(
+    (best, candidate) =>
+      !best || candidate.baseAmountMicros > best.baseAmountMicros
+        ? candidate
+        : best,
+    undefined,
+  );
+  if (target) {
+    const adjusted =
+      target.side === heavier
+        ? target.baseAmountMicros - amount
+        : target.baseAmountMicros + amount;
+    if (adjusted > 0n)
+      return lines.map((l) =>
+        l === target ? { ...l, baseAmountMicros: adjusted } : l,
+      );
+  }
+  return [
+    ...lines,
+    residueLine(
+      options.roundingAccountId,
+      flip(heavier),
+      amount,
+      options.baseCurrency,
+      options.rateDate,
+    ),
+  ];
+}
+
 /**
  * Debit and credit lines for a business transaction (spec §7).
  *
@@ -137,14 +220,18 @@ const prorate = (base: bigint, part: bigint, total: bigint, decimals: number) =>
  * Base rounding: when per-line conversion leaves debits and credits apart,
  * the residue goes onto the largest expense or income line (any line for
  * an adjustment), by base amount, earlier line on ties. Only when that line
- * would drop to zero or below, or the residue exceeds one base minor unit
- * per converted line, a `rounding` account line in the base currency takes
- * it instead.
+ * would drop to zero or below, a `rounding` account line in the base
+ * currency takes it instead. A residue above one base minor unit per line
+ * cannot come from rounding and throws FINANCE_ENTRY_UNBALANCED, as does an
+ * adjustment whose debits and credits differ in its own currency. A line
+ * whose base rounds to zero throws FINANCE_AMOUNT_BELOW_BASE_UNIT.
  *
- * Payments: the settled invoices keep their posted base (pro-rated for a
- * partial allocation), the payment account gets the base at the payment's
- * rate, and the difference goes to `fx_gain_loss` on the side that
- * balances the entry (none when it is zero).
+ * Payments: the settled open items (`settles`, payables or receivables, on
+ * the side opposite the payment account) keep their open base, pro-rated
+ * for a partial allocation; the payment account gets the base at the
+ * payment's rate, and the difference goes to `fx_gain_loss` on the side
+ * that balances the entry (none when it is zero). A base-currency
+ * transaction requires a rate of exactly 1, its settled invoices too.
  */
 export function postingLines(
   input: PostingInput,
@@ -156,10 +243,8 @@ export function postingLines(
     throw new DomainError("CURRENCY_UNSUPPORTED", 422);
   if (CURRENCY_DECIMALS[input.baseCurrency] !== baseDecimals)
     throw new DomainError("CURRENCY_DECIMALS_INVALID", 422);
-  if (
-    input.currency === input.baseCurrency &&
-    convert(1_000_000n, rate.rate, MICRO_DIGITS) !== 1_000_000n
-  )
+  const inBase = input.currency === input.baseCurrency;
+  if (inBase && !isOne(rate.rate))
     throw new DomainError("FINANCE_RATE_INVALID", 422);
   const decimals = CURRENCY_DECIMALS[input.currency];
 
@@ -168,55 +253,34 @@ export function postingLines(
     side: Side,
     amountMicros: bigint,
     extra: { categoryId?: string; costCenterId?: string } = {},
-  ): DraftLine => ({
-    accountId,
-    side,
-    currency: input.currency,
-    amountMicros: positive(amountMicros),
-    fxRate: rate.rate,
-    rateDate: rate.rateDate,
-    rateSource: rate.source,
-    baseAmountMicros: convert(amountMicros, rate.rate, baseDecimals),
-    ...(extra.categoryId ? { categoryId: extra.categoryId } : {}),
-    ...(extra.costCenterId ? { costCenterId: extra.costCenterId } : {}),
-  });
-  // A base-currency line that settles a residue (fx or rounding).
-  const baseLine = (accountId: string, side: Side, micros: bigint): DraftLine => ({
-    accountId,
-    side,
-    currency: input.baseCurrency,
-    amountMicros: micros,
-    fxRate: "1",
-    rateDate: rate.rateDate,
-    rateSource: "identity",
-    baseAmountMicros: micros,
-  });
-
-  const balance = (lines: DraftLine[], absorbing: DraftLine[]) => {
-    const residue = sumBy(lines, "debit") - sumBy(lines, "credit");
-    if (residue === 0n) return lines;
-    const amount = abs(residue);
-    const heavier: Side = residue > 0n ? "debit" : "credit";
-    const unit = 10n ** BigInt(MICRO_DIGITS - baseDecimals);
-    const target = absorbing.reduce<DraftLine | undefined>(
-      (best, candidate) =>
-        !best || candidate.baseAmountMicros > best.baseAmountMicros
-          ? candidate
-          : best,
-      undefined,
-    );
-    if (target && amount <= unit * BigInt(lines.length)) {
-      const adjusted =
-        target.side === heavier
-          ? target.baseAmountMicros - amount
-          : target.baseAmountMicros + amount;
-      if (adjusted > 0n)
-        return lines.map((l) =>
-          l === target ? { ...l, baseAmountMicros: adjusted } : l,
-        );
-    }
-    return [...lines, baseLine(roles.rounding, flip(heavier), amount)];
+  ): DraftLine => {
+    const baseAmountMicros = convert(positive(amountMicros), rate.rate, baseDecimals);
+    // Too small to show in the base currency: a zero line cannot be posted.
+    if (baseAmountMicros === 0n)
+      throw new DomainError("FINANCE_AMOUNT_BELOW_BASE_UNIT", 422);
+    return {
+      accountId,
+      side,
+      currency: input.currency,
+      amountMicros,
+      fxRate: rate.rate,
+      rateDate: rate.rateDate,
+      rateSource: rate.source,
+      baseAmountMicros,
+      ...(extra.categoryId ? { categoryId: extra.categoryId } : {}),
+      ...(extra.costCenterId ? { costCenterId: extra.costCenterId } : {}),
+    };
   };
+  // A base-currency line that settles a residue (fx or rounding).
+  const baseLine = (accountId: string, side: Side, micros: bigint) =>
+    residueLine(accountId, side, micros, input.baseCurrency, rate.rateDate);
+  const balance = (lines: DraftLine[], absorbing: DraftLine[]) =>
+    balanceBase(lines, absorbing, {
+      roundingAccountId: roles.rounding,
+      baseCurrency: input.baseCurrency,
+      rateDate: rate.rateDate,
+      baseDecimals,
+    });
 
   switch (input.kind) {
     case "invoice":
@@ -272,13 +336,22 @@ export function postingLines(
         throw new DomainError("FINANCE_AMOUNT_INVALID", 422);
       const outgoing = input.direction === "outgoing";
       const settleSide: Side = outgoing ? "debit" : "credit";
+      const settles =
+        input.settles === "payables"
+          ? roles.payables
+          : input.settles === "receivables"
+            ? roles.receivables
+            : undefined;
+      if (!settles) throw new DomainError("FINANCE_SETTLES_INVALID", 422);
       const settled: DraftLine[] = input.allocations.map((a) => {
         positive(a.amountMicros);
-        positive(a.invoiceBaseMicros);
-        if (positive(a.invoiceTotalMicros) < a.amountMicros)
+        positive(a.openBaseMicros);
+        if (positive(a.openAmountMicros) < a.amountMicros)
           throw new DomainError("FINANCE_AMOUNT_INVALID", 422);
+        if (inBase && !isOne(a.invoiceRate.rate))
+          throw new DomainError("FINANCE_RATE_INVALID", 422);
         return {
-          accountId: outgoing ? roles.payables : roles.receivables,
+          accountId: settles,
           side: settleSide,
           currency: input.currency,
           amountMicros: a.amountMicros,
@@ -286,9 +359,9 @@ export function postingLines(
           rateDate: a.invoiceRate.rateDate,
           rateSource: a.invoiceRate.source,
           baseAmountMicros: prorate(
-            a.invoiceBaseMicros,
+            a.openBaseMicros,
             a.amountMicros,
-            a.invoiceTotalMicros,
+            a.openAmountMicros,
             baseDecimals,
           ),
         };
@@ -332,6 +405,12 @@ export function postingLines(
         [],
       );
     case "adjustment": {
+      // Balanced in the transaction currency; only conversion rounding may
+      // differ in base.
+      let net = 0n;
+      for (const l of input.lines)
+        net += l.side === "debit" ? l.amountMicros : -l.amountMicros;
+      if (net !== 0n) throw new DomainError("FINANCE_ENTRY_UNBALANCED", 422);
       const lines = input.lines.map((l) =>
         line(l.accountId, l.side, l.amountMicros, l),
       );

@@ -146,26 +146,32 @@ describe.skipIf(!enabled)("finance ledger posting", () => {
       "2027-000004",
       "2027-000005",
     ]);
-    // Another year starts at 1; a failed posting leaves no gap.
+    // Postings that fail after taking their number roll the number back.
+    // A line on a nonexistent account fails its FK at insert, after the
+    // number was taken (and here after the year's counter row was created).
+    const postIn2028 = (tx: DbTx, lines = cash(bank, software)) =>
+      postEntry(tx, owner, { kind: "expense", entryDate: "2028-01-02", lines });
+    const missing = cash(bank, software).map((l) =>
+      l.side === "credit" ? { ...l, accountId: randomUUID() } : l,
+    );
+    // P2003: Prisma's foreign key violation.
+    expect(await failure(run(owner, (tx) => postIn2028(tx, missing)))).toBe("P2003");
+    const first = await run(owner, (tx) => postIn2028(tx));
+    expect(first.number).toBe("2028-000001");
+    // With the counter row in place: a complete posting, then the
+    // transaction fails.
+    let taken = "";
     expect(
       await failure(
-        run(owner, (tx) =>
-          postEntry(tx, owner, {
-            kind: "expense",
-            entryDate: "2028-01-02",
-            lines: [cash(bank, software)[0]!, cash(bank, software, 1_000_000n)[1]!],
-          }),
-        ),
+        run(owner, async (tx) => {
+          taken = (await postIn2028(tx)).number;
+          throw new Error("later step failed");
+        }),
       ),
-    ).toBe("FINANCE_ENTRY_UNBALANCED");
-    const next = await run(owner, (tx) =>
-      postEntry(tx, owner, {
-        kind: "expense",
-        entryDate: "2028-01-02",
-        lines: cash(bank, software),
-      }),
-    );
-    expect(next.number).toBe("2028-000001");
+    ).toBe("later step failed");
+    expect(taken).toBe("2028-000002");
+    const next = await run(owner, (tx) => postIn2028(tx));
+    expect(next.number).toBe("2028-000002");
 
     const events = await run(owner, (tx) =>
       tx.auditEvent.findMany({
