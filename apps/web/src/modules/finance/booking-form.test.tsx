@@ -13,7 +13,10 @@ import {
 import {
   DocumentPreview,
   duplicateOpen,
+  formKey,
   mergeSaved,
+  SHOWN_START,
+  shownReducer,
   withCreated,
 } from "./document";
 import { financeText } from "./labels";
@@ -312,6 +315,51 @@ describe("finance booking form", () => {
     expect(saved.version).toBe(4);
     expect(saved.revisions).toHaveLength(1);
     expect((saved.extraction as { number: string }).number).toBe("INV-8");
+  });
+
+  it("a reload after a conflict seeds the form from the fresh document", () => {
+    const detail = (number: string, version: number) => ({
+      ...doc({ number }, { version }),
+      revisions: [],
+      invoices: [],
+    });
+    let shown = shownReducer(SHOWN_START, {
+      type: "loaded",
+      doc: detail("INV-7", 3),
+    });
+    const first = formKey(shown.doc!, shown.seed);
+    // The person's own save keeps the form (same key, new version).
+    shown = shownReducer(shown, {
+      type: "saved",
+      doc: doc({ number: "INV-7b" }, { version: 4 }),
+    });
+    expect(shown.doc!.version).toBe(4);
+    expect(formKey(shown.doc!, shown.seed)).toBe(first);
+    // A refetch without Reload (after Book) keeps it too.
+    shown = shownReducer(shown, { type: "loaded", doc: detail("INV-7b", 4) });
+    expect(formKey(shown.doc!, shown.seed)).toBe(first);
+    // Reload: the next loaded detail gets a new key and seeds a new form.
+    shown = shownReducer(shown, { type: "reload" });
+    expect(formKey(shown.doc!, shown.seed)).toBe(first);
+    shown = shownReducer(shown, { type: "loaded", doc: detail("INV-9", 6) });
+    expect(formKey(shown.doc!, shown.seed)).not.toBe(first);
+    expect(shown.reseed).toBe(false);
+    expect(initialForm(shown.doc!).number).toBe("INV-9");
+    expect(shown.doc!.version).toBe(6);
+  });
+
+  it("a completed retry reseeds the form", () => {
+    let shown = shownReducer(SHOWN_START, {
+      type: "loaded",
+      doc: { ...doc({}, { status: "failed" }), revisions: [], invoices: [] },
+    });
+    const before = formKey(shown.doc!, shown.seed);
+    shown = shownReducer(shown, {
+      type: "replaced",
+      doc: doc({ number: "NEW" }, { status: "received", version: 4 }),
+    });
+    expect(formKey(shown.doc!, shown.seed)).not.toBe(before);
+    expect(shown.doc!.status).toBe("received");
   });
 
   it("Book is a plain button, so Enter in a field does not book", () => {

@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useReducer, useRef, useState } from "react";
 import { Download, ExternalLink, RotateCcw, X } from "lucide-react";
 import { ApiError, useResource } from "@/lib/api";
 import {
@@ -229,6 +229,55 @@ export function mergeSaved(
   };
 }
 
+/**
+ * The document the detail shows and the seed of its form. The form keeps
+ * what the person typed across refetches and the person's own saves; it
+ * is seeded again from the server (a new `seed`) only after a 409 Reload
+ * (the next loaded detail) or a Retry (its answer).
+ */
+export type Shown = {
+  doc: DocumentDetail | null;
+  seed: number;
+  /** Set by Reload: the next loaded detail reseeds the form. */
+  reseed: boolean;
+};
+export type ShownAction =
+  | { type: "loaded"; doc: DocumentDetail }
+  | { type: "saved"; doc: FinanceDocument }
+  | { type: "reload" }
+  | { type: "replaced"; doc: FinanceDocument };
+
+export const SHOWN_START: Shown = { doc: null, seed: 0, reseed: false };
+
+export function shownReducer(state: Shown, action: ShownAction): Shown {
+  switch (action.type) {
+    case "loaded":
+      return {
+        doc: action.doc,
+        seed: state.reseed ? state.seed + 1 : state.seed,
+        reseed: false,
+      };
+    case "saved":
+      return state.doc
+        ? { ...state, doc: mergeSaved(state.doc, action.doc) }
+        : state;
+    case "reload":
+      return { ...state, reseed: true };
+    case "replaced":
+      return state.doc
+        ? {
+            ...state,
+            doc: mergeSaved(state.doc, action.doc),
+            seed: state.seed + 1,
+          }
+        : state;
+  }
+}
+
+/** The booking form's key: a new key mounts a form seeded from the document. */
+export const formKey = (doc: Pick<FinanceDocument, "id">, seed: number) =>
+  `${doc.id}:${seed}`;
+
 /** The listed counterparties plus those created here, each once. */
 export function withCreated(
   listed: readonly Counterparty[],
@@ -309,13 +358,14 @@ export function FinanceDocumentDetail({
   const lists = useLists(project.id);
   const [created, setCreated] = useState<Counterparty[]>([]);
   // The document shown: the loaded detail, then each action's answer. It
-  // is kept while a refetch runs, so the form (keyed by doc.id) stays.
-  const [doc, setDoc] = useState<DocumentDetail | null>(null);
+  // is kept while a refetch runs, so the form stays mounted (shownReducer).
+  const [shown, dispatch] = useReducer(shownReducer, SHOWN_START);
   const [seen, setSeen] = useState<DocumentDetail | null>(null);
   if (detail.data !== seen) {
     setSeen(detail.data);
-    if (detail.data) setDoc(detail.data);
+    if (detail.data) dispatch({ type: "loaded", doc: detail.data });
   }
+  const doc = shown.doc;
   const lock = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -332,7 +382,12 @@ export function FinanceDocumentDetail({
   async function act<T>(
     task: () => Promise<T>,
     done: Notice,
-    options: { book?: boolean; saved?: (result: T) => FinanceDocument } = {},
+    options: {
+      book?: boolean;
+      saved?: (result: T) => FinanceDocument;
+      /** The answer reseeds the form (Retry: a new extraction follows). */
+      reseed?: boolean;
+    } = {},
   ): Promise<T | undefined> {
     if (lock.current) return;
     lock.current = true;
@@ -344,8 +399,10 @@ export function FinanceDocumentDetail({
       setBookError(null);
       setNotice(done);
       if (options.saved) {
-        const saved = options.saved(result);
-        setDoc((prev) => (prev ? mergeSaved(prev, saved) : prev));
+        dispatch({
+          type: options.reseed ? "replaced" : "saved",
+          doc: options.saved(result),
+        });
       } else if (done) detail.refresh();
       if (done) onChanged();
       return result;
@@ -418,6 +475,7 @@ export function FinanceDocumentDetail({
               onClick={() => {
                 setConflict(false);
                 setBookError(null);
+                dispatch({ type: "reload" });
                 detail.refresh();
                 onChanged();
               }}
@@ -486,7 +544,7 @@ export function FinanceDocumentDetail({
               )
             ) : (
               <BookingForm
-                key={doc.id}
+                key={formKey(doc, shown.seed)}
                 t={t}
                 locale={locale}
                 doc={doc}
@@ -540,6 +598,7 @@ export function FinanceDocumentDetail({
                 onClick={() =>
                   act(() => finance.documents.retry(doc.id), "retried", {
                     saved: asDoc,
+                    reseed: true,
                   })
                 }
               >
