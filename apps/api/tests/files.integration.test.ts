@@ -433,6 +433,77 @@ describe.skipIf(!enabled)("platform files", () => {
     expect(rows).toBe(0);
   });
 
+  it("refuses to delete a retained file", async () => {
+    const file = await storeFile(owner(), {
+      moduleId: "knowledge",
+      bytes: PNG,
+      mime: "image/png",
+      retainUntil: new Date(Date.now() + 86_400_000),
+    });
+    expect(file.retainUntil).toBeInstanceOf(Date);
+    const refused = await call("owner", "DELETE", file.id);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json().error.code).toBe("FILE_RETAINED");
+    // Still readable, and the cleanup never purges it.
+    expect((await call("owner", "GET", file.id)).statusCode).toBe(200);
+    await expect(deleteFile(owner(), file.id)).rejects.toMatchObject({
+      code: "FILE_RETAINED",
+      status: 409,
+    });
+    await fileCleanup.run(owner());
+    expect(
+      bucket.objects.has(`projects/${projectId}/knowledge/${file.id}`),
+    ).toBe(true);
+  });
+
+  it("deletes after retention ends", async () => {
+    const file = await storeFile(owner(), {
+      moduleId: "knowledge",
+      bytes: PNG,
+      mime: "image/png",
+      retainUntil: new Date(Date.now() + 86_400_000),
+    });
+    await scoped(workspaceId, projectId, (tx) =>
+      tx.file.update({
+        where: { id: file.id },
+        data: { retainUntil: new Date(Date.now() - 1000) },
+      }),
+    );
+    expect((await call("owner", "DELETE", file.id)).statusCode).toBe(200);
+    expect(
+      bucket.objects.has(`projects/${projectId}/knowledge/${file.id}`),
+    ).toBe(false);
+  });
+
+  it("stores xml with a declaration", async () => {
+    const xml = Buffer.from('<?xml version="1.0"?><a/>');
+    const file = await storeFile(owner(), {
+      moduleId: "knowledge",
+      bytes: xml,
+      mime: "application/xml",
+      name: "rates",
+    });
+    expect(file).toMatchObject({ mime: "application/xml", name: "rates.xml" });
+    const bom = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), xml]);
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: bom,
+        mime: "application/xml",
+      }),
+    ).resolves.toMatchObject({ mime: "application/xml" });
+  });
+
+  it("refuses xml without a declaration", async () => {
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: Buffer.from("<a/>"),
+        mime: "application/xml",
+      }),
+    ).rejects.toMatchObject({ status: 415 });
+  });
+
   // Review findings (WP4.6 review, 2026-10-17).
   it("keeps the platform's own files (raw e-mail) to the owner", async () => {
     // Inbound mail is stored as a "platform" file (WP4.7).

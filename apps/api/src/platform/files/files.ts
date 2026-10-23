@@ -17,7 +17,10 @@ import { databaseStore } from "./db-store.ts";
  *
  * Off unless ORBIT_FILES is "true" and the bucket is configured. Deleting
  * marks the row first (no reader sees the file again), then removes the
- * object and the row; the hourly cleanup retries what failed.
+ * object and the row; the hourly cleanup retries what failed. A file with
+ * `retainUntil` in the future cannot be deleted (409 FILE_RETAINED); the
+ * cleanup only purges rows that were marked deleted, which a retained file
+ * never is.
  */
 
 export const FILES_MAX_LIMIT = 50 * 1024 * 1024;
@@ -32,6 +35,11 @@ const TYPES: Record<string, ((bytes: Uint8Array) => boolean) | null> = {
     starts(b, [0x52, 0x49, 0x46, 0x46]) &&
     starts(b.subarray(8), [0x57, 0x45, 0x42, 0x50]),
   "application/pdf": (b) => starts(b, [0x25, 0x50, 0x44, 0x46, 0x2d]),
+  "application/xml": (b) =>
+    starts(
+      b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf ? b.subarray(3) : b,
+      [0x3c, 0x3f, 0x78, 0x6d, 0x6c],
+    ),
   "text/plain": null,
   "text/csv": null,
   "message/rfc822": null,
@@ -48,6 +56,7 @@ const EXTENSIONS: Record<string, string[]> = {
   "application/pdf": [".pdf"],
   "text/plain": [".txt"],
   "text/csv": [".csv"],
+  "application/xml": [".xml"],
   "message/rfc822": [".eml"],
 };
 
@@ -122,6 +131,7 @@ type FileRow = {
   sha256: string;
   createdBy: string;
   createdAt: Date;
+  retainUntil: Date | null;
 };
 
 /** What a client may see of a file: never its object key. */
@@ -134,6 +144,7 @@ export const fileView = (row: FileRow) => ({
   sha256: row.sha256,
   createdBy: row.createdBy,
   createdAt: row.createdAt,
+  retainUntil: row.retainUntil,
 });
 
 const sha256 = (bytes: Uint8Array) =>
@@ -178,7 +189,14 @@ async function projectBytes(tx: DbTx, scope: Scope) {
  */
 export async function storeFile(
   scope: Scope,
-  input: { moduleId: string; bytes: Uint8Array; mime: string; name?: unknown },
+  input: {
+    moduleId: string;
+    bytes: Uint8Array;
+    mime: string;
+    name?: unknown;
+    /** The file cannot be deleted before this time (e.g. legal retention). */
+    retainUntil?: Date;
+  },
 ) {
   const config = requireFiles();
   // "platform" holds the platform's own files, such as raw inbound e-mail.
@@ -224,6 +242,7 @@ export async function storeFile(
           sha256: digest,
           encryption: FILE_ENCRYPTION,
           createdBy: scope.userId,
+          retainUntil: input.retainUntil ?? null,
         },
       });
       await audit(tx, scope, "file.stored", id, {
@@ -292,11 +311,16 @@ async function purge(scope: Scope, store: ObjectStore, row: FileRow) {
   return true;
 }
 
-/** Deletes a file: unreadable at once, object and row right after. */
+/**
+ * Deletes a file: unreadable at once, object and row right after. A file
+ * under retention (`retainUntil` in the future) is refused with 409.
+ */
 export async function deleteFile(scope: Scope, id: string) {
   const config = requireFiles();
   const row = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const found = await fileRow(tx, scope, id);
+    if (found.retainUntil && found.retainUntil > new Date())
+      throw new DomainError("FILE_RETAINED", 409);
     await tx.file.update({
       where: { id },
       data: { deletedAt: new Date() },

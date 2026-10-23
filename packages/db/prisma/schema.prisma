@@ -298,6 +298,8 @@ model File {
   createdBy   String
   createdAt   DateTime  @default(now()) @db.Timestamptz(3)
   deletedAt   DateTime? @db.Timestamptz(3)
+  /// Not deletable before this time (retention lock).
+  retainUntil DateTime? @db.Timestamptz(3)
 
   @@unique([projectId, id])
   @@index([workspaceId, projectId, moduleId])
