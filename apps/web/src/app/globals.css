@@ -724,6 +724,110 @@ pre {
   margin-top: 3px;
   font-size: 11px;
 }
+.metric-link {
+  color: inherit;
+  text-decoration: none;
+}
+.metric-link:hover {
+  border-color: var(--primary);
+}
+.metric[data-tone="warning"] strong,
+.metric[data-tone="warning"] small {
+  color: var(--danger);
+}
+/* Finance dashboard charts (modules/finance/charts.tsx): tokens only. */
+.finance-chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 260px;
+}
+.finance-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.finance-chart-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  border-radius: 2px;
+  background: var(--primary);
+}
+.finance-chart-legend [data-series="income"]::before {
+  background: var(--success);
+}
+.finance-chart-legend [data-series="expense"]::before {
+  background: var(--danger);
+}
+.finance-ranked {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.finance-ranked li {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) minmax(60px, 2fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.finance-ranked-name {
+  overflow-wrap: anywhere;
+}
+.finance-ranked-amount {
+  font-variant-numeric: tabular-nums;
+}
+.finance-ranked svg {
+  height: 12px;
+}
+.finance-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.finance-trend li {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) 120px auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.finance-spark svg {
+  width: 120px;
+  height: 28px;
+}
+.finance-period {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.finance-body {
+  padding: 0 var(--settings-inset, 21px) 18px;
+}
+@media (max-width: 760px) {
+  .finance-ranked li,
+  .finance-trend li {
+    grid-template-columns: 1fr auto;
+  }
+  .finance-ranked li svg,
+  .finance-trend li .finance-spark {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
 .overview-columns {
   display: grid;
   grid-template-columns: 1.6fr 1fr;

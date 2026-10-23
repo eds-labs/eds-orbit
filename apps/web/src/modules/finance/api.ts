@@ -195,6 +195,12 @@ export type FinanceExport = {
 };
 
 export type Money = string;
+export type OpenBucket = {
+  count: number;
+  totalMicros: Money;
+  payableMicros: Money;
+  receivableMicros: Money;
+};
 export type Summary = {
   baseCurrency: string;
   from: string;
@@ -205,10 +211,11 @@ export type Summary = {
     expenseMicros: Money;
     resultMicros: Money;
   }>;
-  open: Record<string, unknown> & { totalMicros: Money };
-  overdue: Record<string, unknown> & { totalMicros: Money };
+  open: OpenBucket;
+  overdue: OpenBucket;
   recurringMonthlyMicros: Money;
-  recurringMissingRate: unknown;
+  /** How many recurring items have no exchange rate to the base currency. */
+  recurringMissingRate: number;
   /** `name: null` is "Unassigned" (labels.financeReportUnassigned). */
   byCostCenter: Array<{
     id: string | null;
@@ -220,7 +227,7 @@ export type Summary = {
     id: string | null;
     name: string | null;
     other?: true;
-    months: unknown;
+    months: Array<{ month: string; expenseMicros: Money }>;
   }>;
   reviewCount: number;
 };
