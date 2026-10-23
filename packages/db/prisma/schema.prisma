@@ -14,6 +14,13 @@ model User {
   image              String?
   createdAt          DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt          DateTime          @updatedAt @db.Timestamptz(3)
+  /// Better Auth admin plugin (ADR 0012): 'user' or 'admin' (system administrator).
+  role               String            @default("user")
+  banned             Boolean           @default(false)
+  banReason          String?
+  banExpires         DateTime?         @db.Timestamptz(3)
+  /// Personal interface language ('en' or 'de'); null follows the browser.
+  locale             String?
   sessions           Session[]
   accounts           Account[]
   memberships        WorkspaceMember[]
@@ -37,6 +44,8 @@ model Session {
   ipAddress String?
   userAgent String?
   userId    String
+  /// Required by the admin plugin schema; Orbit never offers impersonation.
+  impersonatedBy String?
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   oauthAccessTokens  OauthAccessToken[]
   oauthRefreshTokens OauthRefreshToken[]
@@ -85,6 +94,7 @@ model Workspace {
   members   WorkspaceMember[]
   projects  Project[]
   mcpGrants McpGrant[]
+  invitations Invitation[]
 }
 
 model WorkspaceMember {
@@ -121,6 +131,7 @@ model Project {
   chatConversations ChatConversation[]
   agentRuns        AgentRun[]
   modules          ProjectModule[]
+  invitationGrants InvitationProjectGrant[]
 
   @@unique([workspaceId, id])
   @@index([workDueAt])
@@ -995,4 +1006,59 @@ model McpGrantEvent {
   createdAt   DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([workspaceId, createdAt])
+}
+
+/// An invitation to an organization (ADR 0012). Only the sha256 hash of the
+/// token is stored; one open invitation per address and organization.
+model Invitation {
+  id             String                   @id @default(uuid()) @db.Uuid
+  tokenHash      String                   @unique
+  email          String
+  workspaceId    String                   @db.Uuid
+  /// 'owner' or 'viewer' (organization member).
+  workspaceRole  String
+  invitedBy      String
+  locale         String?
+  expiresAt      DateTime                 @db.Timestamptz(3)
+  acceptedAt     DateTime?                @db.Timestamptz(3)
+  acceptedUserId String?
+  revokedAt      DateTime?                @db.Timestamptz(3)
+  createdAt      DateTime                 @default(now()) @db.Timestamptz(3)
+  workspace      Workspace                @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projects       InvitationProjectGrant[]
+
+  @@index([workspaceId, email])
+  @@index([email])
+}
+
+/// A project role (and module roles) an invitation grants on acceptance.
+model InvitationProjectGrant {
+  invitationId String     @db.Uuid
+  workspaceId  String     @db.Uuid
+  projectId    String     @db.Uuid
+  role         String
+  moduleRoles  Json       @default("{}")
+  invitation   Invitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  project      Project    @relation(fields: [workspaceId, projectId], references: [workspaceId, id], onDelete: Cascade)
+
+  @@id([invitationId, projectId])
+  @@index([workspaceId, projectId])
+}
+
+/// Append-only, project-independent audit of administrative actions.
+/// Identifiers and codes only, never addresses, tokens or free text.
+model SystemAuditEvent {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorId     String
+  action      String
+  targetType  String
+  targetId    String
+  workspaceId String?  @db.Uuid
+  projectId   String?  @db.Uuid
+  metadata    Json     @default("{}")
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@index([targetId, createdAt])
+  @@index([actorId, createdAt])
 }

@@ -152,6 +152,9 @@ try {
     "ProjectMemberModuleRole",
     // Public client keys (WP4.2b): resolved without a project scope.
     "PublicClientKey",
+    // Invitations (ADR 0012): control plane, never the business role.
+    "Invitation",
+    "InvitationProjectGrant",
   ];
   await migrator.query(
     `GRANT SELECT,INSERT,UPDATE,DELETE ON ${authTables.map(identifier).join(",")} TO orbit_auth`,
@@ -199,6 +202,8 @@ try {
     'GRANT SELECT,INSERT,UPDATE ON "ProjectModule" TO orbit_app',
   );
   await migrator.query('GRANT SELECT,INSERT ON "AuditEvent" TO orbit_app');
+  // System audit (ADR 0012): append-only, auth role only.
+  await migrator.query('GRANT SELECT,INSERT ON "SystemAuditEvent" TO orbit_auth');
   const owned = await migrator.query(
     "SELECT 1 FROM pg_tables WHERE schemaname='public' AND tableowner=ANY($1::text[])",
     [roles.map((r) => r.name)],
@@ -223,10 +228,15 @@ try {
     )
       throw new Error("Application role matrix verification failed");
     const authMatrix = await auth.query(
-      "SELECT current_user,has_table_privilege(current_user,'\"Entity\"','SELECT') AS business,has_table_privilege(current_user,'\"user\"','SELECT') AS auth_read",
+      "SELECT current_user,has_table_privilege(current_user,'\"Entity\"','SELECT') AS business,has_table_privilege(current_user,'\"user\"','SELECT') AS auth_read,has_table_privilege(current_user,'\"SystemAuditEvent\"','UPDATE') AS system_audit_update",
     );
     const a = authMatrix.rows[0];
-    if (a.current_user !== "orbit_auth" || a.business || !a.auth_read)
+    if (
+      a.current_user !== "orbit_auth" ||
+      a.business ||
+      !a.auth_read ||
+      a.system_audit_update
+    )
       throw new Error("Authentication role matrix verification failed");
     for (const table of ["Entity", "ProjectModule"]) {
       const unscoped = await app.query(

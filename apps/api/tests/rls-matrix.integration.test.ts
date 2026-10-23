@@ -71,6 +71,8 @@ const TENANCY_TABLES = [
 ];
 // Better Auth tables and Prisma's journal: no RLS, never granted to orbit_app.
 const AUTH_ONLY_TABLES = [
+  "Invitation",
+  "InvitationProjectGrant",
   "McpGrant",
   "McpGrantEvent",
   "account",
@@ -82,6 +84,7 @@ const AUTH_ONLY_TABLES = [
   "oauthConsent",
   "oauthRefreshToken",
   "oauthResource",
+  "SystemAuditEvent",
   "session",
   "user",
   "verification",
@@ -533,6 +536,21 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
       projectTable.update,
       projectTable.delete,
     ]).toEqual([true, false, true, false]);
+  });
+
+  it("keeps the system audit log append-only for the auth role", async () => {
+    const [grants] = await authDb.$queryRaw<
+      { select: boolean; insert: boolean; update: boolean; delete: boolean }[]
+    >`SELECT has_table_privilege(current_user, '"SystemAuditEvent"', 'SELECT') AS select,
+             has_table_privilege(current_user, '"SystemAuditEvent"', 'INSERT') AS insert,
+             has_table_privilege(current_user, '"SystemAuditEvent"', 'UPDATE') AS update,
+             has_table_privilege(current_user, '"SystemAuditEvent"', 'DELETE') AS delete`;
+    expect(grants).toEqual({
+      select: true,
+      insert: true,
+      update: false,
+      delete: false,
+    });
   });
 
   it("shows no row of any readable table without a project scope", async () => {
