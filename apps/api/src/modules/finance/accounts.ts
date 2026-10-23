@@ -102,7 +102,20 @@ export async function updateAccount(
   raw: unknown,
 ) {
   const { version, ...changes } = updateAccountInput.parse(raw);
-  await load(tx, scope, id);
+  const row = await load(tx, scope, id);
+  const changesKind =
+    (changes.currency !== undefined && changes.currency !== row.currency) ||
+    (changes.paymentAccount !== undefined &&
+      changes.paymentAccount !== row.paymentAccount);
+  if (changesKind) {
+    const where = { projectId: scope.projectId, accountId: id };
+    if (
+      (await tx.financeJournalLine.count({ where })) +
+        (await tx.financePayment.count({ where })) >
+      0
+    )
+      throw new DomainError("FINANCE_IN_USE", 409);
+  }
   const result = await tx.financeAccount.updateMany({
     where: { id, projectId: scope.projectId, version },
     data: { ...changes, version: { increment: 1 } },

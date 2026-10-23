@@ -131,6 +131,21 @@ export async function updateCategory(
 ) {
   const { version, ...changes } = updateCategoryInput.parse(raw);
   const row = await load(tx, scope, id);
+  if (
+    changes.name !== undefined &&
+    changes.name !== row.name &&
+    (await tx.financeCategory.findFirst({
+      where: {
+        projectId: scope.projectId,
+        name: changes.name,
+        kind: row.kind,
+        archivedAt: null,
+        id: { not: id },
+      },
+      select: { id: true },
+    }))
+  )
+    throw new DomainError("FINANCE_DUPLICATE", 409);
   if (changes.accountId)
     await assertAccount(tx, scope, row.kind, changes.accountId);
   if (changes.parentId)

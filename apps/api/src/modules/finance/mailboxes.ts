@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import { audit, DomainError } from "../../shared.ts";
-import { setMailboxOwner } from "../../platform/email/ownership.ts";
+import { audit, data, DomainError, entity } from "../../shared.ts";
+import { CONNECTION_KIND } from "../../platform/connections/connections.ts";
+import { mailboxOwner, setMailboxOwner } from "../../platform/email/ownership.ts";
 import type { MailboxUse } from "../../platform/modules/contributions.ts";
 
 // E-mail connections bound to finance. A binding claims the mailbox for the
@@ -83,7 +84,17 @@ export async function unbindMailbox(tx: DbTx, scope: Scope, id: string) {
     where: { id, projectId: scope.projectId },
   });
   if (!row) throw new DomainError("NOT_FOUND", 404);
-  await setMailboxOwner(tx, scope, row.emailConnectionId, null);
+  // An already switched-off binding has nothing left to release; the
+  // mailbox may belong to another module by now.
+  if (!row.active) return;
+  const connection = await entity(
+    tx,
+    scope,
+    CONNECTION_KIND,
+    row.emailConnectionId,
+  );
+  if (mailboxOwner(data(connection)) === "finance")
+    await setMailboxOwner(tx, scope, row.emailConnectionId, null);
   const documents = await tx.financeDocument.count({
     where: { projectId: scope.projectId, mailboxId: id },
   });

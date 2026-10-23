@@ -10,6 +10,8 @@ import type { Scope } from "../../../packages/schemas/src/index.ts";
 import { CONNECTION_KIND } from "../src/platform/connections/connections.ts";
 import { setMailboxOwner } from "../src/platform/email/ownership.ts";
 import { create } from "../src/shared.ts";
+import { mailboxOwner } from "../src/platform/email/ownership.ts";
+import { postEntry } from "../src/modules/finance/ledger/post.ts";
 import { systemAccounts } from "../src/modules/finance/ledger/accounts.ts";
 import { applyFinanceTemplate } from "../src/modules/finance/setup.ts";
 import {
@@ -23,8 +25,9 @@ import {
   createCategory,
   deleteCategory,
   listCategories,
+  updateCategory,
 } from "../src/modules/finance/categories.ts";
-import { createCostCenter } from "../src/modules/finance/cost-centers.ts";
+import { createCostCenter, deleteCostCenter } from "../src/modules/finance/cost-centers.ts";
 import {
   createCounterparty,
   deleteCounterparty,
@@ -393,5 +396,183 @@ describe.skipIf(!enabled)("finance master data", () => {
     );
     expect(again.id).toBe(bound.id);
     expect(again.active).toBe(true);
+  });
+
+  it("a repeated unbind never strips another module's claim", async () => {
+    const id = await mailbox(owner);
+    const bound = await run(owner, (tx) =>
+      bindMailbox(tx, owner, { emailConnectionId: id }),
+    );
+    await run(owner, async (tx) => {
+      const fileId = randomUUID();
+      const key = `projects/${owner.projectId}/finance/${fileId}`;
+      await tx.fileBlob.create({
+        data: {
+          key,
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          data: Buffer.from([1]),
+        },
+      });
+      await tx.file.create({
+        data: {
+          id: fileId,
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          moduleId: "finance",
+          key,
+          mime: "application/pdf",
+          size: 1,
+          sha256: "2".repeat(64),
+          encryption: "aes-256-gcm/v1",
+          createdBy: owner.userId,
+        },
+      });
+      await tx.financeDocument.create({
+        data: {
+          id: randomUUID(),
+          workspaceId: owner.workspaceId,
+          projectId: owner.projectId,
+          fileId,
+          sha256: "2".repeat(64),
+          source: "email",
+          mailboxId: bound.id,
+          mimeType: "application/pdf",
+        },
+      });
+    });
+    await run(owner, (tx) => unbindMailbox(tx, owner, bound.id));
+    await run(owner, (tx) => setMailboxOwner(tx, owner, id, "support"));
+    await run(owner, (tx) => unbindMailbox(tx, owner, bound.id));
+    const row = await run(owner, (tx) =>
+      tx.entity.findFirstOrThrow({ where: { id } }),
+    );
+    expect(mailboxOwner(row.data as Record<string, unknown>)).toBe("support");
+  });
+
+  it("renaming a category to a live name of its kind is refused", async () => {
+    await run(owner, async (tx) => {
+      const [a, b] = await Promise.all(
+        ["Rename A", "Rename B"].map((name) =>
+          listAccounts(tx, owner).then((accounts) =>
+            createCategory(tx, owner, {
+              name,
+              kind: "income",
+              accountId: accounts.find((x) => x.code === "4000")!.id,
+            }),
+          ),
+        ),
+      );
+      expect(
+        await failure(
+          updateCategory(tx, owner, b!.id, {
+            version: b!.version,
+            name: "Rename A",
+          }),
+        ),
+      ).toBe("FINANCE_DUPLICATE");
+      // Keeping its own name is fine.
+      await updateCategory(tx, owner, a!.id, {
+        version: a!.version,
+        name: "Rename A",
+      });
+    });
+  });
+
+  it("currency and payment flag are frozen once an account has postings", async () => {
+    await run(owner, async (tx) => {
+      const accounts = await listAccounts(tx, owner);
+      const bank = accounts.find((x) => x.code === "1000")!;
+      const revenue = accounts.find((x) => x.code === "4000")!;
+      const line = (accountId: string, side: "debit" | "credit") => ({
+        accountId,
+        side,
+        currency: "USD",
+        amountMicros: 5_000_000n,
+        fxRate: "1",
+        rateDate: "2027-03-01",
+        rateSource: "identity" as const,
+        baseAmountMicros: 5_000_000n,
+      });
+      await postEntry(tx, owner, {
+        kind: "income",
+        entryDate: "2027-03-01",
+        lines: [line(bank.id, "debit"), line(revenue.id, "credit")],
+      });
+      expect(
+        await failure(
+          updateAccount(tx, owner, bank.id, {
+            version: bank.version,
+            paymentAccount: false,
+          }),
+        ),
+      ).toBe("FINANCE_IN_USE");
+      expect(
+        await failure(
+          updateAccount(tx, owner, bank.id, {
+            version: bank.version,
+            currency: "EUR",
+          }),
+        ),
+      ).toBe("FINANCE_IN_USE");
+      // Other fields stay editable.
+      await updateAccount(tx, owner, bank.id, {
+        version: bank.version,
+        name: "Main bank",
+      });
+    });
+  });
+
+  it("refuses to delete a cost center used by an allocation or a journal line", async () => {
+    await run(owner, async (tx) => {
+      const viaAllocation = await createCostCenter(tx, owner, {
+        code: "CC-ALLOC",
+        name: "Allocated",
+      });
+      const viaLine = await createCostCenter(tx, owner, {
+        code: "CC-LINE",
+        name: "Posted",
+      });
+      const unused = await createCostCenter(tx, owner, {
+        code: "CC-FREE",
+        name: "Unused",
+      });
+      await createCounterparty(tx, owner, {
+        name: "Allocating Vendor",
+        defaultAllocation: [{ costCenterId: viaAllocation.id, bp: 10_000 }],
+      });
+      const accounts = await listAccounts(tx, owner);
+      const bank = accounts.find((x) => x.code === "1000")!;
+      const expense = accounts.find((x) => x.code === "6990")!;
+      const line = (
+        accountId: string,
+        side: "debit" | "credit",
+        costCenterId?: string,
+      ) => ({
+        accountId,
+        side,
+        currency: "USD",
+        amountMicros: 2_000_000n,
+        fxRate: "1",
+        rateDate: "2027-03-02",
+        rateSource: "identity" as const,
+        baseAmountMicros: 2_000_000n,
+        ...(costCenterId ? { costCenterId } : {}),
+      });
+      await postEntry(tx, owner, {
+        kind: "expense",
+        entryDate: "2027-03-02",
+        lines: [line(expense.id, "debit", viaLine.id), line(bank.id, "credit")],
+      });
+      expect(await failure(deleteCostCenter(tx, owner, viaAllocation.id))).toBe(
+        "FINANCE_IN_USE",
+      );
+      expect(await failure(deleteCostCenter(tx, owner, viaLine.id))).toBe(
+        "FINANCE_IN_USE",
+      );
+      expect(await failure(deleteCostCenter(tx, owner, unused.id))).toBe(
+        "succeeded",
+      );
+    });
   });
 });
