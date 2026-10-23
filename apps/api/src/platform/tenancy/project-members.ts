@@ -1,28 +1,28 @@
 import { z } from "zod";
 import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
-import type { Auth } from "./auth.ts";
 import { audit, DomainError } from "../shared.ts";
+import { moduleRole } from "./module-roles.ts";
+import { createInvitation } from "../administration/invitations.ts";
+import { administrationEnabled } from "../administration/authz.ts";
 
 export const addMemberInput = z
   .object({
-    email: z.email(),
-    name: z.string().min(1).max(100),
-    password: z.string().min(12).max(128),
+    email: z.email().max(254),
     role: z.enum(["owner", "editor", "viewer"]),
+    moduleRoles: z.record(z.string(), moduleRole.nullable()).optional(),
+    locale: z.enum(["en", "de"]).optional(),
   })
   .strict();
 
 /**
- * Adds a user to the caller's project, creating the account when the
- * address is unknown. A project owner who does not own the workspace may
- * only add people already in the workspace (or new accounts), may not grant
- * "owner" and may not change another owner's role; workspace owners may do
- * all of that. The audit is written in the project transaction before the
- * membership, so a failed audit leaves the membership unchanged, and a
- * failed membership write rolls the audit back.
+ * Adds someone to the caller's project (ADR 0012). A member of the
+ * organization joins at once; anyone else receives an invitation and sets
+ * their own password; no owner chooses a password any more. A project owner
+ * who does not own the organization may not grant or change "owner". The
+ * project audit keeps ids only, never the address.
  */
-export async function addProjectMember(auth: Auth, scope: Scope, raw: unknown) {
+export async function addProjectMember(scope: Scope, raw: unknown) {
   const input = addMemberInput.parse(raw);
   const { workspaceId, projectId } = scope;
   const ownsWorkspace = Boolean(
@@ -30,53 +30,42 @@ export async function addProjectMember(auth: Auth, scope: Scope, raw: unknown) {
       where: { workspaceId, userId: scope.userId, role: "owner" },
     }),
   );
-  // Refused before anything is created, so a refusal leaves no account behind.
   if (input.role === "owner" && !ownsWorkspace)
     throw new DomainError("WORKSPACE_OWNER_REQUIRED", 403);
-  const existing = await authDb.user.findUnique({
-    where: { email: input.email },
-    include: {
-      memberships: { where: { workspaceId } },
-      projectMemberships: { where: { projectId } },
-    },
-  });
-  const previousRole = existing?.projectMemberships[0]?.role ?? null;
-  if (
-    existing &&
-    !ownsWorkspace &&
-    (!existing.memberships.length || previousRole === "owner")
-  )
-    throw new DomainError("WORKSPACE_OWNER_REQUIRED", 403);
-  const userId =
-    existing?.id ??
-    (
-      await auth.api.signUpEmail({
-        body: {
-          email: input.email,
-          name: input.name,
-          password: input.password,
+  const email = input.email.trim().toLowerCase();
+  // Without the administration feature there is no invitation link to
+  // accept, so only organization members can be added.
+  if (!administrationEnabled()) {
+    const member = await authDb.workspaceMember.findFirst({
+      where: { workspaceId, user: { email } },
+    });
+    if (!member) throw new DomainError("INVITATIONS_DISABLED", 409);
+  }
+  const result = await createInvitation(
+    { userId: scope.userId, kind: ownsWorkspace ? "org_owner" : "project_owner" },
+    workspaceId,
+    {
+      email,
+      role: "member",
+      projects: [
+        {
+          projectId,
+          role: input.role,
+          ...(input.moduleRoles ? { moduleRoles: input.moduleRoles } : {}),
         },
-      })
-    ).user.id;
-  await scoped(workspaceId, projectId, async (tx) => {
-    // Ids only: the audit trail keeps no e-mail addresses.
-    await audit(tx, scope, "project_member.add", userId, {
-      role: input.role,
-      previousRole,
-      createdUser: !existing,
-    });
-    await authDb.$transaction(async (atx) => {
-      await atx.workspaceMember.upsert({
-        where: { workspaceId_userId: { workspaceId, userId } },
-        create: { workspaceId, userId, role: "viewer" },
-        update: {},
-      });
-      await atx.projectMember.upsert({
-        where: { projectId_userId: { projectId, userId } },
-        create: { workspaceId, projectId, userId, role: input.role },
-        update: { role: input.role },
-      });
-    });
-  });
-  return { added: true };
+      ],
+      ...(input.locale ? { locale: input.locale } : {}),
+    },
+    projectId,
+  );
+  await scoped(workspaceId, projectId, (tx) =>
+    result.status === "added"
+      ? audit(tx, scope, "project_member.add", result.userId, {
+          role: input.role,
+        })
+      : audit(tx, scope, "project_member.invite", result.invitationId, {
+          role: input.role,
+        }),
+  );
+  return result;
 }

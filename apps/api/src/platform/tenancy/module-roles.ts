@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
+import {
+  authDb,
+  scoped,
+  type DbTx,
+} from "../../../../../packages/db/src/index.ts";
 import { loadConfig } from "../../../../../packages/config/src/index.ts";
 import type { Scope } from "../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../shared.ts";
@@ -102,6 +106,43 @@ export const moduleRolesInput = z
     roles: z.record(z.string(), moduleRole.nullable()),
   })
   .strict();
+
+/**
+ * Writes module overrides for a non-owner project member inside `tx`
+ * (ADR 0012 administration and invitations). Unknown or unavailable modules
+ * are refused; null removes an override. The caller authorizes and audits.
+ */
+export async function writeModuleRoles(
+  tx: Pick<DbTx, "projectMemberModuleRole">,
+  target: { workspaceId: string; projectId: string; userId: string },
+  roles: Record<string, ModuleRole | null>,
+  changedBy: string,
+) {
+  if (!Object.keys(roles).length) return;
+  if (!moduleRolesEnabled())
+    throw new DomainError("MODULE_ROLES_DISABLED", 409);
+  const known = new Set(registeredRegistry().order.filter(moduleAvailable));
+  for (const id of Object.keys(roles))
+    if (!known.has(id)) throw new DomainError("MODULE_NOT_FOUND", 404);
+  for (const [moduleId, role] of Object.entries(roles)) {
+    if (role === null)
+      await tx.projectMemberModuleRole.deleteMany({
+        where: { projectId: target.projectId, userId: target.userId, moduleId },
+      });
+    else
+      await tx.projectMemberModuleRole.upsert({
+        where: {
+          projectId_userId_moduleId: {
+            projectId: target.projectId,
+            userId: target.userId,
+            moduleId,
+          },
+        },
+        create: { ...target, moduleId, role, changedBy },
+        update: { role, changedBy },
+      });
+  }
+}
 
 /**
  * Sets a member's module roles (project owners only, while the flag is on).

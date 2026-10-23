@@ -183,6 +183,20 @@ import {
 } from "./platform/notifications/routes.ts";
 import { notificationsEnabled } from "./platform/notifications/members.ts";
 import { registerAttentionRoutes } from "./platform/attention/routes.ts";
+import {
+  isAdministrationRoute,
+  registerAdministrationRoutes,
+} from "./platform/administration/routes.ts";
+import {
+  accountEnabled,
+  administrationEnabled,
+} from "./platform/administration/authz.ts";
+import { systemAudit } from "./platform/administration/audit.ts";
+import {
+  isAccountRoute,
+  registerAccountRoutes,
+} from "./platform/account/routes.ts";
+import { passwordResetAvailable } from "./platform/account/service.ts";
 import { EMAIL_ROUTE, registerEmailRoutes } from "./platform/email/routes.ts";
 import { emailEnabled } from "./platform/email/connection.ts";
 const object = z.record(z.string(), z.unknown());
@@ -320,6 +334,15 @@ export async function buildServer(
       !notificationsEnabled()
     )
       throw new DomainError("NOT_FOUND", 404);
+    // System administration and account self-service (ADR 0012) do not
+    // exist while their flags are off; the route pattern again.
+    if (
+      isAdministrationRoute(req.routeOptions.url ?? "") &&
+      !administrationEnabled()
+    )
+      throw new DomainError("NOT_FOUND", 404);
+    if (isAccountRoute(req.routeOptions.url ?? "") && !accountEnabled())
+      throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off. The
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
@@ -435,6 +458,10 @@ export async function buildServer(
   // What needs the member's attention in the project (UI restructure §4.1).
   registerAttentionRoutes(app, auth);
   registerTaskRoutes(app, auth);
+  // System administration, organization settings, invitations and the
+  // user's own account (ADR 0012).
+  registerAdministrationRoutes(app, auth, { runtimeHealth });
+  registerAccountRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",
@@ -458,6 +485,8 @@ export async function buildServer(
   });
   app.get("/api/setup", async () => ({
     configured: (await authDb.workspace.count()) > 0,
+    // Whether the sign-in page offers "forgot password" (ADR 0012).
+    passwordReset: accountEnabled() && passwordResetAvailable(),
   }));
   app.post("/api/setup", async (req, reply) => {
     const input = z
@@ -490,6 +519,21 @@ export async function buildServer(
             members: { create: { userId: result.user.id, role: "owner" } },
           },
         });
+        // A fresh installation's first user is its first system
+        // administrator (ADR 0012); existing ones use the CLI.
+        await tx.user.update({
+          where: { id: result.user.id },
+          data: { role: "admin" },
+        });
+        await systemAudit(
+          {
+            actorId: "system:setup",
+            action: "system_admin.bootstrap",
+            targetType: "user",
+            targetId: result.user.id,
+          },
+          tx,
+        );
       },
       { timeout: 30000 },
     );
@@ -550,9 +594,26 @@ export async function buildServer(
       },
       include: { members: { where: { userId: user.id } } },
     });
+    const account = await authDb.user.findUnique({
+      where: { id: user.id },
+      select: { role: true, locale: true },
+    });
     return {
-      user,
-      workspaces: memberships.map((x) => ({ ...x.workspace, role: x.role })),
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        image: user.image ?? null,
+        locale: account?.locale ?? null,
+      },
+      systemAdmin: administrationEnabled() && account?.role === "admin",
+      administration: administrationEnabled(),
+      account: accountEnabled(),
+      workspaces: memberships.map((x) => ({
+        ...x.workspace,
+        role: x.role,
+        canManage: administrationEnabled() && x.role === "owner",
+      })),
       projects: projects.map((p) => ({
         ...p,
         role: memberships.find(

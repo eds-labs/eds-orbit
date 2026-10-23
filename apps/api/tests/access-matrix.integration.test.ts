@@ -37,11 +37,23 @@ Object.assign(process.env, {
   // E-mail and member notifications (WP4.7); nothing is sent in test mode.
   ORBIT_EMAIL: "true",
   ORBIT_NOTIFICATIONS: "true",
+  // System administration and account self-service (ADR 0012).
+  ORBIT_ADMINISTRATION: "true",
+  ORBIT_ACCOUNT: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });
 
-const ROLES = ["anonymous", "outsider", "viewer", "editor", "owner"] as const;
+// "sysadmin" is a system administrator with no membership here (ADR 0012):
+// administration routes open, project content stays closed.
+const ROLES = [
+  "anonymous",
+  "outsider",
+  "viewer",
+  "editor",
+  "sysadmin",
+  "owner",
+] as const;
 type Role = (typeof ROLES)[number];
 
 /**
@@ -71,6 +83,12 @@ const PUBLIC_ROUTES = [
   "POST /api/public/support/{publicKey}/identify",
   "POST /api/public/support/{publicKey}/messages",
   "POST /api/public/support/{publicKey}/session",
+  // Invitation links and password reset (ADR 0012): the one-time token in
+  // the body authenticates; an empty body is a 400 for everybody.
+  "POST /api/invitations/accept",
+  "POST /api/invitations/view",
+  "POST /api/account/password-reset/confirm",
+  "POST /api/account/password-reset/request",
 ];
 // The collection name is validated before the session: an unknown one is a 400
 // for everybody and reveals nothing about the project.
@@ -183,7 +201,13 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
     const auth = makeAuth();
     const password = randomBytes(24).toString("base64url");
     const accounts: Partial<Record<Role, { id: string; email: string }>> = {};
-    for (const role of ["owner", "editor", "viewer", "outsider"] as const) {
+    for (const role of [
+      "owner",
+      "editor",
+      "viewer",
+      "outsider",
+      "sysadmin",
+    ] as const) {
       const email = `${randomUUID()}@example.invalid`;
       const created = await auth.api.signUpEmail({
         body: { email, name: `Synthetic matrix ${role}`, password },
@@ -228,7 +252,17 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
       },
     });
     workspaces.push(elsewhere.id);
-    for (const role of ["owner", "editor", "viewer", "outsider"] as const)
+    await authDb.user.update({
+      where: { id: accounts.sysadmin!.id },
+      data: { role: "admin" },
+    });
+    for (const role of [
+      "owner",
+      "editor",
+      "viewer",
+      "outsider",
+      "sysadmin",
+    ] as const)
       await signIn(role, accounts[role]!.email, password);
 
     const spec = app.swagger() as {
@@ -308,6 +342,29 @@ describe.skipIf(!enabled)("Route × role access matrix", () => {
           !["not_found", "unauthenticated"].includes(roles.outsider),
       )
       .map(([key, roles]) => `${key}: ${roles.outsider}`);
+    expect(reached).toEqual([]);
+  });
+
+  it("never lets a system administrator into project content", () => {
+    const reached = Object.entries(actual)
+      .filter(
+        ([key, roles]) =>
+          key.includes("/api/projects/{projectId}") &&
+          !PRE_AUTH_VALIDATION.includes(key) &&
+          !["not_found", "unauthenticated"].includes(roles.sysadmin),
+      )
+      .map(([key, roles]) => `${key}: ${roles.sysadmin}`);
+    expect(reached).toEqual([]);
+  });
+
+  it("opens administration routes to system administrators only", () => {
+    const reached = Object.entries(actual)
+      .filter(([key]) => key.includes(" /api/admin/"))
+      .flatMap(([key, roles]) =>
+        (["outsider", "viewer", "editor", "owner"] as const)
+          .filter((role) => roles[role] !== "not_found")
+          .map((role) => `${key} [${role}]: ${roles[role]}`),
+      );
     expect(reached).toEqual([]);
   });
 

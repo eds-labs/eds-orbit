@@ -9,7 +9,9 @@ import {
 } from "../../../packages/db/src/index.ts";
 
 const enabled = Boolean(process.env.TEST_DATABASE_URL);
-describe.skipIf(!enabled)("Adding project members (F-01)", () => {
+// New people are invited (ADR 0012); nothing is mailed in test mode.
+process.env.ORBIT_ADMINISTRATION = "true";
+describe.skipIf(!enabled)("Adding project members (F-01, ADR 0012)", () => {
   let app: Awaited<ReturnType<typeof buildServer>>;
   let workspaceId: string, otherWorkspaceId: string, projectId: string;
   const origin = process.env.APP_ORIGIN!;
@@ -50,7 +52,7 @@ describe.skipIf(!enabled)("Adding project members (F-01)", () => {
       method: "POST",
       url: `/api/projects/${projectId}/actions/add-member`,
       headers: { origin, cookie: people[who].cookie! },
-      payload: { name: "Synthetic member", password, ...payload },
+      payload,
     });
   const projectRole = async (userId: string) =>
     (
@@ -58,12 +60,17 @@ describe.skipIf(!enabled)("Adding project members (F-01)", () => {
         where: { projectId_userId: { projectId, userId } },
       })
     )?.role;
-  const audits = (resourceId: string) =>
+  const audits = (resourceId: string, action = "project_member.add") =>
     scoped(workspaceId, projectId, (tx) =>
       tx.auditEvent.findMany({
-        where: { projectId, action: "project_member.add", resourceId },
+        where: { projectId, action, resourceId },
       }),
     );
+  const invitationsFor = (address: string) =>
+    authDb.invitation.findMany({
+      where: { email: address.toLowerCase(), workspaceId },
+      include: { projects: true },
+    });
 
   beforeAll(async () => {
     app = await buildServer();
@@ -139,25 +146,26 @@ describe.skipIf(!enabled)("Adding project members (F-01)", () => {
     expect(await projectRole(people.colleague.id)).toBeUndefined();
   });
 
-  it("refuses an owner grant before creating a new account", async () => {
+  it("refuses an owner grant before inviting anyone", async () => {
     const address = email();
     const r = await addMember("projectOwner", {
       email: address,
       role: "owner",
     });
     expect(r.statusCode).toBe(403);
+    expect(await invitationsFor(address)).toEqual([]);
     expect(
       await authDb.user.findUnique({ where: { email: address } }),
     ).toBeNull();
   });
 
-  it("refuses attaching an existing user from another workspace unless workspace owner", async () => {
+  it("invites, never attaches, an existing user from another workspace", async () => {
     const r = await addMember("projectOwner", {
       email: people.outsider.email,
       role: "viewer",
     });
-    expect(r.statusCode).toBe(403);
-    expect(r.json().error.code).toBe("WORKSPACE_OWNER_REQUIRED");
+    expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ status: "invited", delivery: "link" });
     expect(await projectRole(people.outsider.id)).toBeUndefined();
     expect(
       await authDb.workspaceMember.findUnique({
@@ -166,6 +174,9 @@ describe.skipIf(!enabled)("Adding project members (F-01)", () => {
         },
       }),
     ).toBeNull();
+    const [invitation] = await invitationsFor(people.outsider.email);
+    expect(invitation).toMatchObject({ workspaceRole: "viewer" });
+    expect(invitation!.projects).toMatchObject([{ projectId, role: "viewer" }]);
   });
 
   it("refuses changing another owner's role unless workspace owner", async () => {
@@ -184,6 +195,7 @@ describe.skipIf(!enabled)("Adding project members (F-01)", () => {
       role: "editor",
     });
     expect(r.statusCode).toBe(200);
+    expect(r.json()).toMatchObject({ status: "added" });
     expect(await projectRole(people.colleague.id)).toBe("editor");
     const rows = await audits(people.colleague.id);
     expect(rows).toHaveLength(1);
@@ -191,42 +203,54 @@ describe.skipIf(!enabled)("Adding project members (F-01)", () => {
       workspaceId,
       projectId,
       actorId: people.projectOwner.id,
-      metadata: { role: "editor", previousRole: null, createdUser: false },
+      metadata: { role: "editor" },
     });
     // The audit trail identifies people by id only, never by address.
     expect(JSON.stringify(rows[0]!.metadata)).not.toContain("@");
   });
 
-  it("lets a project owner create a new account as viewer and audits it", async () => {
+  it("invites a new address instead of creating an account with a password", async () => {
     const address = email();
     const r = await addMember("projectOwner", {
       email: address,
       role: "viewer",
     });
     expect(r.statusCode).toBe(200);
-    const created = await authDb.user.findUnique({
-      where: { email: address },
-    });
-    users.push(created!.id);
-    expect(await projectRole(created!.id)).toBe("viewer");
-    expect((await audits(created!.id))[0]?.metadata).toMatchObject({
-      role: "viewer",
-      createdUser: true,
-    });
+    const body = r.json();
+    expect(body).toMatchObject({ status: "invited", delivery: "link" });
+    // The link carries the token in its fragment only.
+    expect(body.link).toMatch(/\/invite#[A-Za-z0-9_-]{40,}$/);
+    expect(
+      await authDb.user.findUnique({ where: { email: address } }),
+    ).toBeNull();
+    const [invitation] = await invitationsFor(address);
+    expect(invitation!.tokenHash).not.toContain(body.link.split("#")[1]);
+    expect(
+      await audits(invitation!.id, "project_member.invite"),
+    ).toHaveLength(1);
   });
 
-  it("lets the workspace owner attach an outside user as owner and audits it", async () => {
+  it("refuses the old password field", async () => {
+    const r = await addMember("workspaceOwner", {
+      email: email(),
+      role: "viewer",
+      password,
+    } as never);
+    expect(r.statusCode).toBe(400);
+  });
+
+  it("lets the workspace owner invite an outside user as project owner", async () => {
     const r = await addMember("workspaceOwner", {
       email: people.outsider.email,
       role: "owner",
     });
     expect(r.statusCode).toBe(200);
-    expect(await projectRole(people.outsider.id)).toBe("owner");
-    const rows = await audits(people.outsider.id);
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      actorId: people.workspaceOwner.id,
-      metadata: { role: "owner", previousRole: null, createdUser: false },
-    });
+    expect(r.json()).toMatchObject({ status: "invited" });
+    // The newer invitation replaces the project owner's open one.
+    const open = (await invitationsFor(people.outsider.email)).filter(
+      (i) => !i.revokedAt,
+    );
+    expect(open).toHaveLength(1);
+    expect(open[0]!.projects).toMatchObject([{ projectId, role: "owner" }]);
   });
 });

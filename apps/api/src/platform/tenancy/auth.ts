@@ -24,6 +24,7 @@ import {
   grantPostLogin,
 } from "../mcp-auth/grants.ts";
 import { captureResetToken } from "./reset-capture.ts";
+import { systemAudit } from "../administration/audit.ts";
 // `cimdFetch` is a test seam for the Client ID Metadata Document transport.
 export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
   const config = loadConfig();
@@ -69,6 +70,13 @@ export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
       sendResetPassword: async ({ token }) => captureResetToken(token),
       resetPasswordTokenExpiresIn: 3600,
       revokeSessionsOnPasswordReset: true,
+      onPasswordReset: async ({ user }) =>
+        systemAudit({
+          actorId: user.id,
+          action: "account.password_reset",
+          targetType: "user",
+          targetId: user.id,
+        }),
     },
     user: {
       additionalFields: {

@@ -1,30 +1,154 @@
 {
+  "DELETE /api/account/sessions/{sessionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "DELETE /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "DELETE /api/organizations/{workspaceId}/invitations/{invitationId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "DELETE /api/organizations/{workspaceId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:MEMBER_NOT_FOUND",
+    "owner": "not_found:MEMBER_NOT_FOUND"
+  },
+  "DELETE /api/organizations/{workspaceId}/projects/{projectId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:MEMBER_NOT_FOUND",
+    "owner": "not_found:MEMBER_NOT_FOUND"
   },
   "DELETE /api/projects/{projectId}/files/{fileId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "DELETE /api/projects/{projectId}/invitations/{invitationId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "DELETE /api/projects/{projectId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found:MEMBER_NOT_FOUND"
   },
   "GET /.well-known/oauth-authorization-server/api/auth": {
     "anonymous": "allowed:200",
     "outsider": "allowed:200",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "allowed:200",
     "owner": "allowed:200"
+  },
+  "GET /api/account": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/account/sessions": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/admin/audit": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/invitations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/organizations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/overview": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/projects": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/users": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/users/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:USER_NOT_FOUND",
+    "owner": "not_found"
   },
   "GET /api/google-drive/callback": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "GET /api/health/postiz": {
@@ -32,6 +156,7 @@
     "outsider": "public",
     "viewer": "public",
     "editor": "public",
+    "sysadmin": "public",
     "owner": "public"
   },
   "GET /api/health/ready": {
@@ -39,6 +164,7 @@
     "outsider": "public",
     "viewer": "public",
     "editor": "public",
+    "sysadmin": "public",
     "owner": "public"
   },
   "GET /api/mcp-connect/request": {
@@ -46,6 +172,7 @@
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "GET /api/mcp-grants": {
@@ -53,6 +180,7 @@
     "outsider": "allowed:200",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
   "GET /api/me": {
@@ -60,6 +188,7 @@
     "outsider": "allowed:200",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
   "GET /api/openapi.json": {
@@ -67,6 +196,23 @@
     "outsider": "allowed:200",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/organizations/{workspaceId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/organizations/{workspaceId}/invitations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
   "GET /api/projects": {
@@ -74,6 +220,7 @@
     "outsider": "allowed:200",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/action-requests": {
@@ -81,6 +228,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/agent-activity": {
@@ -88,6 +236,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/agent-runs": {
@@ -95,6 +244,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/agent-runs/{runId}/spans": {
@@ -102,6 +252,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/ai-budget": {
@@ -109,6 +260,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/ai-cost": {
@@ -116,6 +268,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/approvals": {
@@ -123,6 +276,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/assets": {
@@ -130,6 +284,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/assets/{assetId}/content": {
@@ -137,6 +292,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/assignment-drafts": {
@@ -144,6 +300,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/assignment-posts": {
@@ -151,6 +308,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/assignments": {
@@ -158,6 +316,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/assistant-tasks": {
@@ -165,6 +324,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/assistant-tasks/{taskId}": {
@@ -172,6 +332,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/attention": {
@@ -179,6 +340,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/calendar_blocks": {
@@ -186,6 +348,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/channel_post_sync": {
@@ -193,6 +356,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/channel_posts": {
@@ -200,6 +364,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/chat/conversations": {
@@ -207,6 +372,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/chat/conversations/{id}": {
@@ -214,6 +380,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/chat/runs/{id}": {
@@ -221,6 +388,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/chat/runs/{id}/events": {
@@ -228,6 +396,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/community_groups": {
@@ -235,6 +404,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/community_questions": {
@@ -242,6 +412,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/connector_verifications": {
@@ -249,6 +420,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/connectors": {
@@ -256,6 +428,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/content": {
@@ -263,6 +436,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/content/{id}/export": {
@@ -270,6 +444,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/dashboard": {
@@ -277,6 +452,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/documents": {
@@ -284,6 +460,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/email": {
@@ -291,6 +468,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/evidence": {
@@ -298,6 +476,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/exceptions": {
@@ -305,6 +484,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/experiments": {
@@ -312,6 +492,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/export": {
@@ -319,6 +500,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/facts": {
@@ -326,6 +508,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/files/{fileId}": {
@@ -333,6 +516,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/followup_plans": {
@@ -340,6 +524,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/google-drive": {
@@ -347,6 +532,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/google-drive/brand": {
@@ -354,6 +540,7 @@
     "outsider": "not_found",
     "viewer": "allowed:409",
     "editor": "allowed:409",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "GET /api/projects/{projectId}/google-drive/files": {
@@ -361,6 +548,7 @@
     "outsider": "not_found",
     "viewer": "allowed:409",
     "editor": "allowed:409",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "GET /api/projects/{projectId}/google-drive/files/{fileId}/content": {
@@ -368,6 +556,7 @@
     "outsider": "not_found",
     "viewer": "allowed:409",
     "editor": "allowed:409",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "GET /api/projects/{projectId}/google-drive/health": {
@@ -375,6 +564,7 @@
     "outsider": "not_found",
     "viewer": "allowed:409",
     "editor": "allowed:409",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "GET /api/projects/{projectId}/google-drive/root-candidates": {
@@ -382,6 +572,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "GET /api/projects/{projectId}/index_evaluations": {
@@ -389,6 +580,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/indexes": {
@@ -396,6 +588,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/insights": {
@@ -403,6 +596,15 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/invitations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/jobs": {
@@ -410,6 +612,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/knowledge-health": {
@@ -417,6 +620,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/knowledge-workspace": {
@@ -424,6 +628,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/knowledge/github": {
@@ -431,6 +636,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/knowledge/github/callback": {
@@ -438,6 +644,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "GET /api/projects/{projectId}/knowledge/github/repositories": {
@@ -445,6 +652,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "GET /api/projects/{projectId}/knowledge/previews/{id}": {
@@ -452,6 +660,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/knowledge/proposals/{id}/history": {
@@ -459,6 +668,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/knowledge_imports": {
@@ -466,6 +676,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/marketing-plans": {
@@ -473,6 +684,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/marketing-plans/{id}": {
@@ -480,6 +692,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/marketing-plans/{id}/export": {
@@ -487,6 +700,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/marketing-profile": {
@@ -494,6 +708,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/marketing-reports": {
@@ -501,6 +716,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/marketing-reports/{id}": {
@@ -508,6 +724,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/projects/{projectId}/matomo_schedules": {
@@ -515,6 +732,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/members": {
@@ -522,6 +740,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/members/{userId}/module-roles": {
@@ -529,6 +748,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/metrics": {
@@ -536,6 +756,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/missions": {
@@ -543,6 +764,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/modules": {
@@ -550,6 +772,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/notification-preferences": {
@@ -557,6 +780,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/notifications": {
@@ -564,6 +788,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/openai-configuration": {
@@ -571,6 +796,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/operations": {
@@ -578,6 +804,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/policies": {
@@ -585,6 +812,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/postiz_drafts": {
@@ -592,6 +820,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/postiz_queue_watch": {
@@ -599,6 +828,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/preferences": {
@@ -606,6 +836,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/public-keys": {
@@ -613,6 +844,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/publications": {
@@ -620,6 +852,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/sources": {
@@ -627,6 +860,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/support/agents": {
@@ -634,6 +868,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/contacts": {
@@ -641,6 +876,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/contacts/{contactId}": {
@@ -648,6 +884,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/contacts/{contactId}/export": {
@@ -655,6 +892,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/inboxes": {
@@ -662,6 +900,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/mailboxes": {
@@ -669,6 +908,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/settings": {
@@ -676,6 +916,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/stats": {
@@ -683,6 +924,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/stats/export": {
@@ -690,6 +932,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/summary": {
@@ -697,6 +940,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/tickets": {
@@ -704,6 +948,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/tickets/{ticketId}": {
@@ -711,6 +956,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/support/tickets/{ticketId}/customer-context": {
@@ -718,6 +964,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/telegram": {
@@ -725,6 +972,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/unknown_collection": {
@@ -732,6 +980,7 @@
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "GET /api/projects/{projectId}/work_packages": {
@@ -739,6 +988,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/public/support/{publicKey}/conversations": {
@@ -746,6 +996,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/public/support/{publicKey}/messages": {
@@ -753,6 +1004,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/public/support/{publicKey}/stream": {
@@ -760,6 +1012,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/setup": {
@@ -767,6 +1020,7 @@
     "outsider": "allowed:200",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
   "GET /api/workspaces/{workspaceId}/mcp-grants": {
@@ -774,6 +1028,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /health": {
@@ -781,6 +1036,7 @@
     "outsider": "public",
     "viewer": "public",
     "editor": "public",
+    "sysadmin": "public",
     "owner": "public"
   },
   "OPTIONS /api/public/support/{publicKey}/{*}": {
@@ -788,13 +1044,31 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "PATCH /api/account": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
   },
   "PATCH /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "PATCH /api/organizations/{workspaceId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "PATCH /api/projects/{projectId}/content/{id}": {
@@ -802,6 +1076,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "PATCH /api/projects/{projectId}/support/contacts/{contactId}": {
@@ -809,6 +1084,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "PATCH /api/projects/{projectId}/support/inboxes/{inboxId}": {
@@ -816,6 +1092,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "PATCH /api/projects/{projectId}/support/tickets/{ticketId}": {
@@ -823,13 +1100,119 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/account/email": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/account/email/confirm": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/account/password": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/account/password-reset/confirm": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/account/password-reset/request": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/account/sessions/revoke-others": {
+    "anonymous": "unauthenticated",
+    "outsider": "allowed:200",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "POST /api/admin/organizations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "not_found"
+  },
+  "POST /api/admin/users/{userId}/deactivate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:USER_NOT_FOUND",
+    "owner": "not_found"
+  },
+  "POST /api/admin/users/{userId}/password-reset": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:USER_NOT_FOUND",
+    "owner": "not_found"
+  },
+  "POST /api/admin/users/{userId}/reactivate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:USER_NOT_FOUND",
+    "owner": "not_found"
+  },
+  "POST /api/admin/users/{userId}/sessions/revoke": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found:USER_NOT_FOUND",
+    "owner": "not_found"
   },
   "POST /api/hooks/{provider}/{workspaceId}/{projectId}/{connectionId}": {
     "anonymous": "allowed:400",
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/invitations/accept": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/invitations/view": {
+    "anonymous": "allowed:400",
+    "outsider": "allowed:400",
+    "viewer": "allowed:400",
+    "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "POST /api/mcp-connect/consent": {
@@ -837,6 +1220,7 @@
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "POST /api/mcp-connect/selection": {
@@ -844,13 +1228,31 @@
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
+  },
+  "POST /api/organizations/{workspaceId}/invitations": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "POST /api/organizations/{workspaceId}/invitations/{invitationId}/resend": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "POST /api/projects": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/action-requests/{id}/decide": {
@@ -858,6 +1260,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/activate-index": {
@@ -865,6 +1268,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/adapt-content": {
@@ -872,6 +1276,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/add-member": {
@@ -879,6 +1284,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/ai-provider-configure": {
@@ -886,6 +1292,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/analyze": {
@@ -893,6 +1300,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/approve": {
@@ -900,6 +1308,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/archive-mission": {
@@ -907,6 +1316,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/archive-old-drafts": {
@@ -914,6 +1324,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:OWNER_REQUIRED",
     "editor": "forbidden:OWNER_REQUIRED",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "POST /api/projects/{projectId}/actions/asset-status": {
@@ -921,6 +1332,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/begin-index": {
@@ -928,6 +1340,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/brand-approval": {
@@ -935,6 +1348,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/build-index": {
@@ -942,6 +1356,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/calendar-block": {
@@ -949,6 +1364,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/calendar-unblock": {
@@ -956,6 +1372,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/community-import": {
@@ -963,6 +1380,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/community-link": {
@@ -970,6 +1388,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/configure-matomo-schedule": {
@@ -977,6 +1396,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/connector": {
@@ -984,6 +1404,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/connector-health": {
@@ -991,6 +1412,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/correct-metric": {
@@ -998,6 +1420,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/customer-context-connect": {
@@ -1005,6 +1428,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/projects/{projectId}/actions/customer-context-disconnect": {
@@ -1012,6 +1436,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/projects/{projectId}/actions/editorial-propose-brief": {
@@ -1019,6 +1444,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/email-connect": {
@@ -1026,6 +1452,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/email-disconnect": {
@@ -1033,6 +1460,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/embed-document": {
@@ -1040,6 +1468,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/evaluate-experiment": {
@@ -1047,6 +1476,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/evaluate-index": {
@@ -1054,6 +1484,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/import": {
@@ -1061,6 +1492,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/import-matomo": {
@@ -1068,6 +1500,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/import-metrics": {
@@ -1075,6 +1508,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-analysis-cancel": {
@@ -1082,6 +1516,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-analysis-start": {
@@ -1089,6 +1524,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-draft-preview": {
@@ -1096,6 +1532,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-draft-save": {
@@ -1103,6 +1540,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-file-read": {
@@ -1110,6 +1548,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-github-configure": {
@@ -1117,6 +1556,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-github-connect": {
@@ -1124,6 +1564,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "POST /api/projects/{projectId}/actions/knowledge-import-commit": {
@@ -1131,6 +1572,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-import-preview": {
@@ -1138,6 +1580,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-import-retry": {
@@ -1145,6 +1588,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-profile-save": {
@@ -1152,6 +1596,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/knowledge-proposal-decide": {
@@ -1159,6 +1604,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/memory-lifecycle": {
@@ -1166,6 +1612,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/openai-configure": {
@@ -1173,6 +1620,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/pause": {
@@ -1180,6 +1628,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/postiz-assign-channels": {
@@ -1187,6 +1636,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/postiz-draft-handoff": {
@@ -1194,6 +1644,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/postiz-draft-resolve": {
@@ -1201,6 +1652,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/postiz-test-execute": {
@@ -1208,6 +1660,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/postiz-test-prepare": {
@@ -1215,6 +1668,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/postiz-test-reconcile": {
@@ -1222,6 +1676,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/preference-update": {
@@ -1229,6 +1684,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/preflight": {
@@ -1236,6 +1692,7 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/project-settings": {
@@ -1243,6 +1700,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/publish": {
@@ -1250,6 +1708,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/reconcile": {
@@ -1257,6 +1716,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/render": {
@@ -1264,6 +1724,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/resolve-exception": {
@@ -1271,6 +1732,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/restore-draft-cleanup": {
@@ -1278,6 +1740,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:OWNER_REQUIRED",
     "editor": "forbidden:OWNER_REQUIRED",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/resume-live-draft-batch": {
@@ -1285,6 +1748,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/resume-paused-publications": {
@@ -1292,6 +1756,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "POST /api/projects/{projectId}/actions/retention": {
@@ -1299,6 +1764,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/retrieve": {
@@ -1306,6 +1772,7 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/retry": {
@@ -1313,6 +1780,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/review": {
@@ -1320,6 +1788,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/revoke-document": {
@@ -1327,6 +1796,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/revoke-source": {
@@ -1334,6 +1804,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/rollback-index": {
@@ -1341,6 +1812,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/run-mission": {
@@ -1348,6 +1820,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/settle-unknown-reservations": {
@@ -1355,6 +1828,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "POST /api/projects/{projectId}/actions/slack-configure": {
@@ -1362,6 +1836,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/slack-digest": {
@@ -1369,6 +1844,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "POST /api/projects/{projectId}/actions/source-audiences": {
@@ -1376,6 +1852,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/source-pause": {
@@ -1383,6 +1860,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/start-approved-live-draft-batch": {
@@ -1390,6 +1868,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/start-approved-live-draft-once": {
@@ -1397,6 +1876,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/stop-experiment": {
@@ -1404,6 +1884,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/unknown-action": {
@@ -1411,6 +1892,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/actions/withdraw-fact": {
@@ -1418,6 +1900,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/approvals": {
@@ -1425,6 +1908,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/assets": {
@@ -1432,6 +1916,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/assets/upload": {
@@ -1439,6 +1924,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/assets/{assetId}/drive-retry": {
@@ -1446,6 +1932,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "POST /api/projects/{projectId}/assignment-drafts/{id}/release": {
@@ -1453,6 +1940,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/assignments": {
@@ -1460,6 +1948,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/assignments/{id}/status": {
@@ -1467,6 +1956,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/assistant-tasks/{taskId}/cancel": {
@@ -1474,6 +1964,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/projects/{projectId}/calendar_blocks": {
@@ -1481,6 +1972,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/channel_post_sync": {
@@ -1488,6 +1980,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/channel_posts": {
@@ -1495,6 +1988,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/chat/conversations": {
@@ -1502,6 +1996,7 @@
     "outsider": "not_found",
     "viewer": "allowed:201",
     "editor": "allowed:201",
+    "sysadmin": "not_found",
     "owner": "allowed:201"
   },
   "POST /api/projects/{projectId}/chat/conversations/{id}/archive": {
@@ -1509,6 +2004,7 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/chat/conversations/{id}/messages": {
@@ -1516,6 +2012,7 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/chat/packages/{id}/attach-image": {
@@ -1523,6 +2020,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/chat/packages/{id}/cancel": {
@@ -1530,6 +2028,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/projects/{projectId}/chat/packages/{id}/unschedule": {
@@ -1537,6 +2036,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/chat/proposals/{id}/confirm": {
@@ -1544,6 +2044,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/chat/runs/{id}/cancel": {
@@ -1551,6 +2052,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/projects/{projectId}/community_groups": {
@@ -1558,6 +2060,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/community_questions": {
@@ -1565,6 +2068,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/connector_verifications": {
@@ -1572,6 +2076,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/connectors": {
@@ -1579,6 +2084,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/content": {
@@ -1586,6 +2092,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/evidence": {
@@ -1593,6 +2100,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/exceptions": {
@@ -1600,6 +2108,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/experiments": {
@@ -1607,6 +2116,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/facts": {
@@ -1614,6 +2124,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/files": {
@@ -1621,6 +2132,7 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/followup_plans": {
@@ -1628,6 +2140,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/google-drive/connect": {
@@ -1635,6 +2148,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "POST /api/projects/{projectId}/google-drive/disconnect": {
@@ -1642,6 +2156,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "POST /api/projects/{projectId}/google-drive/files/{fileId}/import": {
@@ -1649,6 +2164,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:409"
   },
   "POST /api/projects/{projectId}/google-drive/upload": {
@@ -1656,6 +2172,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/images/generate": {
@@ -1663,6 +2180,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/index_evaluations": {
@@ -1670,6 +2188,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/insights": {
@@ -1677,13 +2196,23 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
+  },
+  "POST /api/projects/{projectId}/invitations/{invitationId}/resend": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "POST /api/projects/{projectId}/jobs": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/knowledge_imports": {
@@ -1691,6 +2220,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/marketing-plans": {
@@ -1698,6 +2228,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/marketing-plans/{id}/activation": {
@@ -1705,6 +2236,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/marketing-plans/{id}/pause": {
@@ -1712,6 +2244,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/marketing-reports": {
@@ -1719,6 +2252,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/marketing-reports/{id}/acknowledge": {
@@ -1726,6 +2260,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/marketing-reports/{id}/proposal": {
@@ -1733,6 +2268,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/matomo_schedules": {
@@ -1740,6 +2276,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/metrics": {
@@ -1747,6 +2284,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/missions": {
@@ -1754,6 +2292,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/notifications/read-all": {
@@ -1761,6 +2300,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "POST /api/projects/{projectId}/notifications/{notificationId}/read": {
@@ -1768,6 +2308,7 @@
     "outsider": "not_found",
     "viewer": "allowed:200",
     "editor": "allowed:200",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "POST /api/projects/{projectId}/policies": {
@@ -1775,6 +2316,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/postiz_drafts": {
@@ -1782,6 +2324,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/postiz_queue_watch": {
@@ -1789,6 +2332,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/preferences": {
@@ -1796,6 +2340,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/public-keys": {
@@ -1803,6 +2348,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/public-keys/{keyId}/revoke": {
@@ -1810,6 +2356,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/projects/{projectId}/publications": {
@@ -1817,6 +2364,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/publications/{id}/veto": {
@@ -1824,6 +2372,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/sources": {
@@ -1831,6 +2380,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/support/contacts/{contactId}/erase": {
@@ -1838,6 +2388,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/contacts/{contactId}/merge": {
@@ -1845,6 +2396,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/inboxes": {
@@ -1852,6 +2404,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/inboxes/{inboxId}/archive": {
@@ -1859,6 +2412,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/inboxes/{inboxId}/rotate-widget-secret": {
@@ -1866,6 +2420,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/inboxes/{inboxId}/widget-key": {
@@ -1873,6 +2428,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/tickets/{ticketId}/ai-draft": {
@@ -1880,6 +2436,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/tickets/{ticketId}/merge": {
@@ -1887,6 +2444,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/tickets/{ticketId}/notes": {
@@ -1894,6 +2452,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/support/tickets/{ticketId}/replies": {
@@ -1901,6 +2460,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   },
   "POST /api/projects/{projectId}/telegram/connect": {
@@ -1908,6 +2468,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "POST /api/projects/{projectId}/telegram/disconnect": {
@@ -1915,6 +2476,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "POST /api/projects/{projectId}/unknown_collection": {
@@ -1922,6 +2484,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/projects/{projectId}/work_packages": {
@@ -1929,6 +2492,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:COLLECTION_NOT_WRITABLE",
+    "sysadmin": "not_found",
     "owner": "forbidden:COLLECTION_NOT_WRITABLE"
   },
   "POST /api/public/support/{publicKey}/conversations": {
@@ -1936,6 +2500,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/public/support/{publicKey}/handoff": {
@@ -1943,6 +2508,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/public/support/{publicKey}/identify": {
@@ -1950,6 +2516,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/public/support/{publicKey}/messages": {
@@ -1957,6 +2524,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/public/support/{publicKey}/session": {
@@ -1964,6 +2532,7 @@
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "POST /api/setup": {
@@ -1971,6 +2540,7 @@
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "POST /api/slack/{workspaceId}/{projectId}/interactions": {
@@ -1978,6 +2548,7 @@
     "outsider": "allowed:400",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "POST /api/telegram/{projectId}/{connectionId}": {
@@ -1985,6 +2556,7 @@
     "outsider": "unauthenticated",
     "viewer": "unauthenticated",
     "editor": "unauthenticated",
+    "sysadmin": "unauthenticated",
     "owner": "unauthenticated"
   },
   "POST /api/workspaces/{workspaceId}/pause": {
@@ -1992,6 +2564,31 @@
     "outsider": "forbidden:FORBIDDEN",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "forbidden:FORBIDDEN",
+    "owner": "allowed:400"
+  },
+  "PUT /api/admin/users/{userId}/system-role": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "not_found"
+  },
+  "PUT /api/organizations/{workspaceId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "allowed:400"
+  },
+  "PUT /api/organizations/{workspaceId}/projects/{projectId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/google-drive/root": {
@@ -1999,6 +2596,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/marketing-plans/{id}": {
@@ -2006,6 +2604,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/marketing-profile": {
@@ -2013,6 +2612,15 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/members/{userId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "forbidden:FORBIDDEN",
+    "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/members/{userId}/module-roles": {
@@ -2020,6 +2628,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/modules/{moduleId}": {
@@ -2027,6 +2636,7 @@
     "outsider": "not_found",
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/notification-preferences": {
@@ -2034,6 +2644,7 @@
     "outsider": "not_found",
     "viewer": "allowed:400",
     "editor": "allowed:400",
+    "sysadmin": "not_found",
     "owner": "allowed:400"
   },
   "PUT /api/projects/{projectId}/support/settings": {
@@ -2041,6 +2652,7 @@
     "outsider": "not_found",
     "viewer": "not_found:MODULE_DISABLED",
     "editor": "not_found:MODULE_DISABLED",
+    "sysadmin": "not_found",
     "owner": "not_found:MODULE_DISABLED"
   }
 }

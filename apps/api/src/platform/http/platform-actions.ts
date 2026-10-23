@@ -80,8 +80,8 @@ export const platformActions: Record<string, ActionHandler> = {
       return result;
     }),
   ),
-  "add-member": ownTransaction(({ scope, input, auth }) =>
-    addProjectMember(auth, scope, input),
+  "add-member": ownTransaction(({ scope, input }) =>
+    addProjectMember(scope, input),
   ),
   "project-settings": ownTransaction(async ({ scope, input }) => {
     const i = z

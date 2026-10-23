@@ -957,6 +957,58 @@ export async function revokeGrant(
   await cancelGrantProposals(grant, actor.userId, "mcp_grant_ended", log);
 }
 
+/**
+ * Revokes every active grant of a user (ADR 0012): on deactivation, or for
+ * one organization when the user leaves it. Authorization is the caller's
+ * (a system administrator or the organization's owner); the membership
+ * check per MCP call already refuses the user, this also ends the tokens.
+ */
+export async function revokeUserGrants(
+  input: { userId: string; actorId: string; workspaceId?: string },
+  log?: Log,
+): Promise<number> {
+  const now = new Date();
+  const grants = await authDb.$transaction(async (tx) => {
+    const active = await tx.mcpGrant.findMany({
+      where: {
+        userId: input.userId,
+        status: "active",
+        ...(input.workspaceId ? { workspaceId: input.workspaceId } : {}),
+      },
+    });
+    const revoked = [];
+    for (const grant of active) {
+      const changed = await tx.mcpGrant.updateMany({
+        where: { id: grant.id, status: "active" },
+        data: {
+          status: "revoked",
+          revokedAt: now,
+          revokedBy: input.actorId,
+          sessionId: null,
+        },
+      });
+      if (!changed.count) continue;
+      await dropStoredAuthorization(tx, grant);
+      await recordGrantEvent(
+        {
+          action: "grant.revoked",
+          userId: grant.userId,
+          clientId: grant.clientId,
+          grantId: grant.id,
+          workspaceId: grant.workspaceId,
+          detail: { by: "administration" },
+        },
+        tx,
+      );
+      revoked.push(grant);
+    }
+    return revoked;
+  });
+  for (const grant of grants)
+    await cancelGrantProposals(grant, input.actorId, "mcp_grant_ended", log);
+  return grants.length;
+}
+
 /** The scope that lets a client propose (WP-M4); removed when proposals stop. */
 const PROPOSE_SCOPE = "orbit:propose";
 
