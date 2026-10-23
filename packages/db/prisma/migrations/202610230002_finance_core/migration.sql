@@ -146,6 +146,8 @@ CREATE TABLE "FinanceDocument" (
   "flags" TEXT[] NOT NULL DEFAULT '{}',
   "duplicateOfId" UUID,
   "agentRunId" UUID,
+  -- Why a person rejected the document (kept out of the audit trail).
+  "rejectionReason" TEXT,
   "version" INTEGER NOT NULL DEFAULT 1,
   "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -397,6 +399,9 @@ CREATE TABLE "FinancePaymentAllocation" (
   "paymentId" UUID NOT NULL,
   "invoiceId" UUID NOT NULL,
   "amountMicros" BIGINT NOT NULL,
+  -- The part of the invoice's posted base this allocation settled, so the
+  -- next payment knows the open base (the last one settles it to zero).
+  "baseMicros" BIGINT NOT NULL,
   "createdAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "FinancePaymentAllocation_pkey" PRIMARY KEY ("id"),
@@ -405,7 +410,8 @@ CREATE TABLE "FinancePaymentAllocation" (
   CONSTRAINT "FinancePaymentAllocation_payment_fkey" FOREIGN KEY ("projectId", "paymentId") REFERENCES "FinancePayment"("projectId", "id") ON DELETE CASCADE,
   CONSTRAINT "FinancePaymentAllocation_invoice_fkey" FOREIGN KEY ("projectId", "invoiceId") REFERENCES "FinanceInvoice"("projectId", "id"),
   CONSTRAINT "FinancePaymentAllocation_payment_invoice_key" UNIQUE ("projectId", "paymentId", "invoiceId"),
-  CONSTRAINT "FinancePaymentAllocation_amount_check" CHECK ("amountMicros" > 0)
+  CONSTRAINT "FinancePaymentAllocation_amount_check" CHECK ("amountMicros" > 0),
+  CONSTRAINT "FinancePaymentAllocation_base_check" CHECK ("baseMicros" >= 0)
 );
 CREATE INDEX "FinancePaymentAllocation_projectId_invoiceId_idx" ON "FinancePaymentAllocation"("projectId", "invoiceId");
 

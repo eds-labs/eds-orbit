@@ -644,6 +644,7 @@ describe.skipIf(!enabled)("Row-level security matrix (business role)", () => {
         paymentId: payment.id,
         invoiceId: invoice.id,
         amountMicros: 1_000_000n,
+        baseMicros: 1_000_000n,
       },
     });
     await tx.financeFxRate.create({

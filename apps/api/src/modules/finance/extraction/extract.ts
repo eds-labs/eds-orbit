@@ -555,6 +555,8 @@ export async function runFinanceExtraction(
 
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const n = normalizeExtraction(outcome.value, settings);
+    const attempt = (doc.extraction as { extractionAttempt?: number } | null)
+      ?.extractionAttempt;
     const flags = [...n.flags, ...validateExtraction(n, settings)];
     const suggestion = await suggestBooking(tx, scope, n, keys);
     const counterpartyId = suggestion.counterpartyId ?? null;
@@ -575,6 +577,8 @@ export async function runFinanceExtraction(
       extraction: extractionJson(n, suggestion, {
         dedupe: dedupeKeys(n, counterpartyId),
         possibleDuplicateOfId: duplicate.possible ?? null,
+        // The retry counter (review.ts) outlives the extraction it retried.
+        ...(attempt ? { extractionAttempt: attempt } : {}),
       }),
     });
     if (!moved) return;

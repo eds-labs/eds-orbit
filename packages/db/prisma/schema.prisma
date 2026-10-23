@@ -615,6 +615,8 @@ model FinanceDocument {
   flags          String[] @default([])
   duplicateOfId  String?  @db.Uuid
   agentRunId     String?  @db.Uuid
+  /// Why a person rejected the document; never copied into the audit trail.
+  rejectionReason String?
   version        Int      @default(1)
   createdAt      DateTime @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(3)
@@ -794,6 +796,8 @@ model FinancePaymentAllocation {
   paymentId    String   @db.Uuid
   invoiceId    String   @db.Uuid
   amountMicros BigInt
+  /// The share of the invoice's posted base this allocation settled.
+  baseMicros   BigInt
   createdAt    DateTime @default(now()) @db.Timestamptz(3)
   updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz(3)
 

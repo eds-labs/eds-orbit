@@ -205,11 +205,12 @@ export async function handleMailReceipt(
 }
 
 /**
- * Asks the platform to archive a finance mail once finance is done with it
- * (`archiveAfter` "extracted"): its mailbox is still bound, no document of
- * the message still waits for extraction or failed it, and no accepted
- * part of this inbound mail failed. Extraction calls it after each document.
- * Returns whether the archive was requested.
+ * Asks the platform to archive a finance mail once finance is done with it:
+ * its mailbox is still bound, no document of the message still waits for
+ * extraction or failed it (with `archiveAfter` "booked", none still waits
+ * for review either), and no accepted part of this inbound mail failed.
+ * Extraction calls it after each document, review after booking and
+ * rejection. Returns whether the archive was requested.
  */
 export async function archiveMailWhenDone(
   tx: DbTx,
@@ -217,7 +218,9 @@ export async function archiveMailWhenDone(
   mail: { inboundEmailId: string; mailboxId: string; messageId: string },
 ) {
   const { settings } = await readFinanceSettings(tx, scope);
-  if (settings.archiveAfter !== "extracted") return false;
+  // A failed extraction is not finished: a person retries it.
+  const unfinished = ["received", "extracting", "failed"];
+  if (settings.archiveAfter === "booked") unfinished.push("needs_review");
   const mailbox = await tx.financeMailbox.findFirst({
     where: { id: mail.mailboxId, projectId: scope.projectId, active: true },
   });
@@ -226,8 +229,7 @@ export async function archiveMailWhenDone(
     where: {
       projectId: scope.projectId,
       messageId: mail.messageId,
-      // A failed extraction is not finished: a person retries it.
-      status: { in: ["received", "failed"] },
+      status: { in: unfinished },
     },
   });
   if (waiting) return false;
