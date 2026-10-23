@@ -40,6 +40,11 @@ export function uniqueEntryName(name: string, taken: Set<string>): string {
 function dosDateTime(date: Date): { time: number; day: number } {
   const year = date.getUTCFullYear();
   if (year < 1980) return { time: 0, day: (1 << 5) | 1 };
+  if (year > 2107)
+    return {
+      time: (23 << 11) | (59 << 5) | 29,
+      day: (127 << 9) | (12 << 5) | 31,
+    };
   return {
     time:
       (date.getUTCHours() << 11) |

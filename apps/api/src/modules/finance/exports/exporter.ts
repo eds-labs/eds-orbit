@@ -2,7 +2,11 @@ import { createHash, randomUUID } from "node:crypto";
 import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../../shared.ts";
-import { readFileWithin, storeFile } from "../../../platform/files/files.ts";
+import {
+  maxFileBytes,
+  readFile,
+  storeFile,
+} from "../../../platform/files/files.ts";
 import { isoDate } from "../common.ts";
 import { retainUntilFor } from "../intake/documents.ts";
 import { formatMicros } from "../money.ts";
@@ -28,12 +32,19 @@ export type FinanceExporter = {
     scope: Scope,
     period: ExportPeriod,
   ): Promise<{
-    bytes: Uint8Array;
+    /** Or a function that assembles them after the transaction. */
+    bytes: Uint8Array | (() => Promise<Uint8Array>);
     mime: string;
     name: string;
     rowCount: number;
   }>;
 };
+
+/** 413 EXPORT_TOO_LARGE; the message tells the user to export less. */
+const tooLarge = () =>
+  Object.assign(new DomainError("EXPORT_TOO_LARGE", 413), {
+    message: "EXPORT_TOO_LARGE: export a shorter period",
+  });
 
 // Uncompressed receipts allowed in one ZIP; keeps memory bounded.
 export const ZIP_SOURCE_LIMIT = 200 * 1024 * 1024;
@@ -338,54 +349,83 @@ async function buildDocuments(tx: DbTx, scope: Scope, period: ExportPeriod) {
   if (items.length + 1 > ZIP_MAX_ENTRIES)
     throw new DomainError("EXPORT_TOO_LARGE", 413);
 
-  // Check the sizes before reading a single file.
-  let size = 0;
+  // Names and sizes from the database only; no file is read yet.
+  const sizes = new Map<string, number>();
   for (const ids of chunks(items.map((i) => i.fileId)))
     for (const f of await tx.file.findMany({
       where: { id: { in: ids }, projectId: scope.projectId, deletedAt: null },
-      select: { size: true },
+      select: { id: true, size: true },
     }))
-      size += f.size;
-  if (size > ZIP_SOURCE_LIMIT) throw new DomainError("EXPORT_TOO_LARGE", 413);
-
+      sizes.set(f.id, f.size);
   const taken = new Set<string>(["index.csv"]);
-  const entries: ZipEntry[] = [];
-  const index = [
-    csvRow(["entry_name", "document_id", "entry_number", "total", "currency"]),
-  ];
-  let read = 0;
-  for (const item of items) {
-    const { bytes } = await readFileWithin(tx, scope, item.fileId);
-    read += bytes.byteLength;
-    if (read > ZIP_SOURCE_LIMIT) throw new DomainError("EXPORT_TOO_LARGE", 413);
+  const planned = items.map((item) => {
     const extension = EXTENSIONS[item.mime] ?? "bin";
     const base = safeNamePart(item.base).slice(
       0,
       NAME_MAX - extension.length - 1,
     );
     const name = uniqueEntryName(`${item.folder}${base}.${extension}`, taken);
-    entries.push({ name, bytes, date: at(item.date) });
-    index.push(
-      csvRow([
-        name,
-        item.documentId,
-        item.entryNumber,
-        item.total,
-        item.currency,
-      ]),
-    );
-  }
-  entries.push({
-    name: "index.csv",
-    bytes: csvFile(index),
-    date: at(period.to),
+    return { item, name, size: sizes.get(item.fileId) ?? 0 };
   });
+  assertZipFits(
+    planned.map((p) => ({ size: p.size, nameLength: p.name.length })),
+    Math.min(ZIP_SOURCE_LIMIT, maxFileBytes()),
+  );
+
+  // The files are read after the transaction (readFile opens its own).
+  const assemble = async () => {
+    const entries: ZipEntry[] = [];
+    const index = [
+      csvRow([
+        "entry_name",
+        "document_id",
+        "entry_number",
+        "total",
+        "currency",
+      ]),
+    ];
+    for (const { item, name } of planned) {
+      const { bytes } = await readFile(scope, item.fileId);
+      entries.push({ name, bytes, date: at(item.date) });
+      index.push(
+        csvRow([
+          name,
+          item.documentId,
+          item.entryNumber,
+          item.total,
+          item.currency,
+        ]),
+      );
+    }
+    entries.push({
+      name: "index.csv",
+      bytes: csvFile(index),
+      date: at(period.to),
+    });
+    return storedZip(entries);
+  };
   return {
-    bytes: storedZip(entries),
+    bytes: assemble,
     mime: "application/zip",
     name: `finance-documents_${period.from}_${period.to}.zip`,
     rowCount: items.length,
   };
+}
+
+/**
+ * 413 EXPORT_TOO_LARGE unless the sources, the ZIP headers and a bound for
+ * `index.csv` fit in `limit` bytes. Checked before any file is read.
+ */
+export function assertZipFits(
+  entries: { size: number; nameLength: number }[],
+  limit: number,
+) {
+  // Per entry: local header 30 + central header 46 + the name twice, plus
+  // an index row (name, id, number, amounts) of at most name + 160 bytes.
+  let total = 22 + 3 + 100 + 8;
+  for (const e of entries)
+    total += e.size + 76 + 2 * e.nameLength + e.nameLength + 160;
+  if (total > limit) throw tooLarge();
 }
 
 const journalExporter: FinanceExporter = {
@@ -437,9 +477,12 @@ export async function createExport(
         .retentionYears,
     }),
   );
+  const bytes =
+    typeof built.bytes === "function" ? await built.bytes() : built.bytes;
+  if (bytes.byteLength > maxFileBytes()) throw tooLarge();
   const file = await storeFile(scope, {
     moduleId: "finance",
-    bytes: built.bytes,
+    bytes,
     mime: built.mime,
     name: built.name,
     retainUntil: retainUntilFor(retainYears),
@@ -455,7 +498,7 @@ export async function createExport(
         periodStart: at(period.from),
         periodEnd: at(period.to),
         fileId: file.id,
-        sha256: createHash("sha256").update(built.bytes).digest("hex"),
+        sha256: createHash("sha256").update(bytes).digest("hex"),
         rowCount: built.rowCount,
         createdBy: input.userId,
       },

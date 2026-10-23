@@ -2,13 +2,16 @@
 // guard against spreadsheet formula injection.
 
 const BOM = new Uint8Array([0xef, 0xbb, 0xbf]);
+// Plain decimals are system-produced amounts (credit notes and reversals are
+// negative); they stay numeric for the tax advisor.
+const DECIMAL = /^-?\d+(\.\d+)?$/;
 const FORMULA_START = /^[=+\-@\t\r]/;
 
 /** One cell: formula-looking text gets a leading `'`, then RFC 4180 quoting. */
 export function csvCell(value: string | number | null): string {
   if (value === null) return "";
   let text = String(value);
-  if (FORMULA_START.test(text)) text = `'${text}`;
+  if (FORMULA_START.test(text) && !DECIMAL.test(text)) text = `'${text}`;
   return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 }
 

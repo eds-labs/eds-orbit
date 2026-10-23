@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { crc32 } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { csvFile, csvRow } from "../src/modules/finance/exports/csv.ts";
+import { assertZipFits } from "../src/modules/finance/exports/exporter.ts";
 import { storedZip } from "../src/modules/finance/exports/zip.ts";
 
 const hasUnzip = spawnSync("unzip", ["-v"]).status === 0;
@@ -15,11 +16,35 @@ describe("finance csv", () => {
       'a,"say ""hi""","x,y","line\nbreak",,5\r\n',
     );
     expect(csvRow(["=SUM(A1)", "+1", "-1", "@cmd", "\tx", "\rx", "ok-"])).toBe(
-      "'=SUM(A1),'+1,'-1,'@cmd,'\tx,\"'\rx\",ok-\r\n",
+      "'=SUM(A1),'+1,-1,'@cmd,'\tx,\"'\rx\",ok-\r\n",
     );
     expect(Array.from(csvFile([csvRow(["é"])]).subarray(0, 3))).toEqual([
       0xef, 0xbb, 0xbf,
     ]);
+  });
+});
+
+describe("finance csv amounts", () => {
+  it("keeps negative decimals numeric and guards other minus cells", () => {
+    expect(csvRow(["-12.50", "-cmd", "-1e5", "12.5"])).toBe(
+      "-12.50,'-cmd,'-1e5,12.5\r\n",
+    );
+  });
+});
+
+describe("finance zip size gate", () => {
+  it("counts sources plus headers against the limit", () => {
+    expect(() =>
+      assertZipFits([{ size: 100, nameLength: 20 }], 1000),
+    ).not.toThrow();
+    expect(() =>
+      assertZipFits([{ size: 900, nameLength: 20 }], 1000),
+    ).toThrowError(
+      expect.objectContaining({ status: 413, code: "EXPORT_TOO_LARGE" }),
+    );
+    expect(() =>
+      assertZipFits([{ size: 800, nameLength: 20 }], 1000),
+    ).toThrow();
   });
 });
 

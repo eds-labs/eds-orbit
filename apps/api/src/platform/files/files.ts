@@ -71,6 +71,9 @@ const EXTENSIONS: Record<string, string[]> = {
 
 export const allowedFileTypes = () => Object.keys(TYPES);
 
+/** The largest single file the platform stores. */
+export const maxFileBytes = () => loadConfig().FILES_MAX_BYTES;
+
 const TYPE_CHECKS = { ...TYPES, ...STORAGE_ONLY_TYPES };
 
 type FilesConfig = {
@@ -306,27 +309,6 @@ export async function readFile(scope: Scope, id: string) {
     );
     throw new DomainError("FILE_INTEGRITY", 500);
   }
-  return { file: fileView(row), bytes };
-}
-
-/**
- * Like readFile, but inside the caller's transaction (readFile opens its own
- * and would wait on the project lock the caller holds). An integrity failure
- * only throws; its audit event would roll back with the caller.
- */
-export async function readFileWithin(tx: DbTx, scope: Scope, id: string) {
-  const config = requireFiles();
-  const row = await fileRow(tx, scope, id);
-  const sealed = await config.store(scope).get(row.key);
-  if (!sealed) throw new DomainError("FILE_CONTENT_MISSING", 404);
-  let bytes: Uint8Array;
-  try {
-    bytes = decryptFile(sealed, row.id, config.keyHex);
-  } catch {
-    bytes = new Uint8Array();
-  }
-  if (!bytes.byteLength || !constantEqual(sha256(bytes), row.sha256))
-    throw new DomainError("FILE_INTEGRITY", 500);
   return { file: fileView(row), bytes };
 }
 
