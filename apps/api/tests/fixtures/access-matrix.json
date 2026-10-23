@@ -13,6 +13,48 @@
     "editor": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/projects/{projectId}/finance/accounts/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "DELETE /api/projects/{projectId}/finance/categories/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "DELETE /api/projects/{projectId}/finance/cost-centers/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "DELETE /api/projects/{projectId}/finance/counterparties/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "DELETE /api/projects/{projectId}/finance/mailboxes/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "DELETE /api/projects/{projectId}/finance/recurring/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "GET /.well-known/oauth-authorization-server/api/auth": {
     "anonymous": "allowed:200",
     "outsider": "allowed:200",
@@ -334,6 +376,153 @@
     "viewer": "not_found",
     "editor": "not_found",
     "owner": "not_found"
+  },
+  "GET /api/projects/{projectId}/finance/accounts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/categories": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/cost-centers": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/counterparties": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/documents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/documents/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/documents/{id}/file": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/entries": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/entries/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/exports": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/exports/{id}/file": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/fx-rates": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/invoices": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/invoices/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/mailboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/recurring": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/reports/costs": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/reports/year": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/setup": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "GET /api/projects/{projectId}/finance/summary": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "GET /api/projects/{projectId}/followup_plans": {
     "anonymous": "unauthenticated",
@@ -803,6 +992,48 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "allowed:400",
     "owner": "allowed:400"
+  },
+  "PATCH /api/projects/{projectId}/finance/accounts/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/finance/categories/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/finance/cost-centers/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/finance/counterparties/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/finance/documents/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "PATCH /api/projects/{projectId}/finance/recurring/{id}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "PATCH /api/projects/{projectId}/support/contacts/{contactId}": {
     "anonymous": "unauthenticated",
@@ -1623,6 +1854,167 @@
     "editor": "allowed:400",
     "owner": "allowed:400"
   },
+  "POST /api/projects/{projectId}/finance/accounts": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/accounts/{id}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/categories": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/categories/{id}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/cost-centers": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/cost-centers/{id}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/counterparties": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/documents": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/documents/{id}/book": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/documents/{id}/not-duplicate": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/documents/{id}/reject": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/documents/{id}/retry": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/entries": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/entries/{id}/reverse": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/exports": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/fx-rates": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/invoices/{id}/void": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/mailboxes": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/payments": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/payments/{id}/void": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/recurring": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/recurring/{id}/archive": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
+  "POST /api/projects/{projectId}/finance/setup": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
+  },
   "POST /api/projects/{projectId}/followup_plans": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1993,6 +2385,13 @@
     "viewer": "forbidden:FORBIDDEN",
     "editor": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
+  },
+  "PUT /api/projects/{projectId}/finance/settings": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found:MODULE_DISABLED",
+    "editor": "not_found:MODULE_DISABLED",
+    "owner": "not_found:MODULE_DISABLED"
   },
   "PUT /api/projects/{projectId}/google-drive/root": {
     "anonymous": "unauthenticated",

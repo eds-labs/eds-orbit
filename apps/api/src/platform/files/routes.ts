@@ -58,6 +58,16 @@ const extValue = (value: string) =>
     (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
   );
 
+/**
+ * A Content-Disposition value whose plain `filename` is printable ASCII and
+ * whose `filename*` carries the full name (RFC 6266, RFC 5987).
+ */
+export const contentDisposition = (
+  disposition: "attachment" | "inline",
+  name: string,
+) =>
+  `${disposition}; filename="${name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_")}"; filename*=UTF-8''${extValue(name)}`;
+
 const uploadScope = new WeakMap<object, Scope>();
 
 export async function registerFileRoutes(app: FastifyInstance, auth: Auth) {
@@ -131,13 +141,12 @@ export async function registerFileRoutes(app: FastifyInstance, auth: Auth) {
         PROJECT_READ,
       );
       const { file, bytes } = await readFile(scope, id);
-      const name = (file.name ?? "file").replace(/[^\x20-\x7e]/g, "_");
       return reply
         .header("Content-Type", file.mime)
         .header("Content-Length", String(bytes.byteLength))
         .header(
           "Content-Disposition",
-          `attachment; filename="${name}"; filename*=UTF-8''${extValue(file.name ?? "file")}`,
+          contentDisposition("attachment", file.name ?? "file"),
         )
         .header("X-Content-Type-Options", "nosniff")
         .header("Content-Security-Policy", "default-src 'none'; sandbox")

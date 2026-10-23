@@ -5,10 +5,12 @@ import { financeSwitchedOn } from "./gate.ts";
 import { FINANCE_EXTRACT, FINANCE_MAIL_RECEIPT } from "./intake/documents.ts";
 import { handleMailReceipt } from "./intake/mail.ts";
 import { financeMailboxUse } from "./mailboxes.ts";
+import { financeRoutes } from "./routes.ts";
 
 /** What the finance module plugs into the platform; later tasks add to it. */
 export const financeContributions: ModuleContributions = {
   available: financeSwitchedOn,
+  routes: financeRoutes,
   periodic: [financeFxSync],
   // Mail of a mailbox bound to finance (mailboxes.ts) reaches only finance.
   emailInbound: {
