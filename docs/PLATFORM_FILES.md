@@ -43,6 +43,8 @@ The backup container never receives `FILES_*`, and api/worker never receive `BAC
 
   A switched-off module's files answer 404 `MODULE_DISABLED`. The platform's own files (module `platform`, such as raw inbound e-mail) are the owner's only, and no member uploads into them.
 
+  **Private module files.** A module can keep its files to its own routes with the contribution `files: { privateToModule: true }` (`platform/modules/contributions.ts`). For such a module the three routes above answer 404: no download or delete by file id, no upload into it. The module serves its files through its own routes and permission checks. Finance sets it, because its originals and exports need the sensitive `finance.*` permissions.
+
   The upload checks the session, module, write access and content type before it reads the body. A file's name loses paths, control and bidi characters and ends in an extension of its type (plain text named `run.bat` is stored as `run.bat.txt`).
 
 - **Limits.**
@@ -56,7 +58,7 @@ The backup container never receives `FILES_*`, and api/worker never receive `BAC
 
   XML and ZIP are **storage-only types**: a module may store and serve them, but they are not added to the inbound-mail attachment allow-list, so Support's behaviour does not change. Downloads are always attachments with `nosniff`.
 - **Deleting.** A deleted file is unreadable at once. The object and the row follow right away. If the bucket fails, the hourly `file-cleanup` task retries.
-- **Retention.** A module may store a file with `retainUntil`. Until that time `deleteFile` answers 409 `FILE_RETAINED`, whoever calls it (the route, Support's privacy erasure or attachment cleanup), and the file stays readable; the cleanup only purges rows already marked deleted. After `retainUntil` the file deletes normally. `fileView` includes `retainUntil`. Only the finance module sets it (originals, `.eml` copies and exports; `retentionYears`, default 10), so Support files never carry a lock and Support's erasure is unaffected. A legal erasure request does not override a retention lock; finance originals would need an owner-level override (`docs/FINANCE.md`).
+- **Retention.** A module may store a file with `retainUntil`. Until that time `deleteFile` answers 409 `FILE_RETAINED`, whoever calls it (the route, Support's privacy erasure or attachment cleanup), and the file stays readable; the cleanup only purges rows already marked deleted. After `retainUntil` the file deletes normally. `fileView` includes `retainUntil`. Only the finance module sets it (originals and `.eml` copies; `retentionYears`, default 10; exports are derived and carry none), so Support files never carry a lock and Support's erasure is unaffected. A legal erasure request does not override a retention lock; finance originals would need an owner-level override (`docs/FINANCE.md`).
 
 ## Limits and follow-ups
 

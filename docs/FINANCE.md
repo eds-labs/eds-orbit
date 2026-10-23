@@ -30,6 +30,8 @@ While `ORBIT_FINANCE` is off the module is unavailable: no contribution counts, 
 
 Intake needs `ORBIT_EMAIL` (mailbox) and `ORBIT_FILES` with a files encryption key (originals). Extraction needs the AI settings of the project (`docs/MODEL_ROUTING.md`).
 
+**Storage quota.** Finance files count against `FILES_PROJECT_QUOTA_BYTES`, which is installation-wide per project (default 100 MB). Originals and `.eml` copies are retention-locked for `retentionYears` (default 10) and cannot be deleted before then, so the quota only grows. Size it before enabling finance: for example 30 mails a month with a 300 KB PDF each (about 0.6 MB per mail with its `.eml` copy) is roughly 220 MB a year, or 2.2 GB over ten years. Exact duplicates are not stored again and exports carry no lock (see "Duplicates" and "Reports and exports"). A full project answers 413 `FILES_QUOTA_EXCEEDED`; a mail whose part fails that way stays in the inbox. With the database file backend every file is in every backup; raise the quota only as `docs/PLATFORM_FILES.md` allows for the backup.
+
 ## Concepts
 
 | Concept | Meaning |
@@ -55,14 +57,14 @@ Intake needs `ORBIT_EMAIL` (mailbox) and `ORBIT_FILES` with a files encryption k
 
 | Key | Default | Meaning |
 |---|---|---|
-| `baseCurrency` | `USD` | Reporting currency; must be one of `currencies`. |
-| `currencies` | `["USD","EUR","USDC"]` | Currencies a booking may use (1–20). |
+| `baseCurrency` | `USD` | Reporting currency; must be one of `currencies`. Fixed once any journal entry exists (409 `FINANCE_BASE_CURRENCY_LOCKED`). |
+| `currencies` | `["USD","EUR","USDC"]` | Currencies a booking may use (1–20). A currency cannot be removed while open invoices, live payment accounts or active recurring items use it (409 `FINANCE_CURRENCY_IN_USE`). |
 | `usdcPeg` | `1.000000` | USDC per USD. |
 | `fxSource` | `ecb` | `ecb` or `manual`. |
 | `aiExtraction` | `off` | `on` is the owner's recorded consent to send documents to the AI provider. |
 | `aiDailyCeilingMicros` | `2000000` (USD 2) | Finance extraction spend ceiling per UTC day. |
 | `archiveAfter` | `extracted` | When a mail is moved to the archive folder: after extraction, or after booking. |
-| `retentionYears` | `10` | Retention lock on originals and exports. |
+| `retentionYears` | `10` | Retention lock on originals and `.eml` copies (not exports). |
 | `duplicateWindowDays` | `3` | Window for the "same total, no number" duplicate rule. |
 | `reviewConfidence` | `0.85` | Extraction confidence below this gets the `low_confidence` flag. |
 
@@ -88,7 +90,7 @@ upload (POST /finance/documents, raw bytes) ────────────
 
 ### From a mailbox
 
-An owner binds an e-mail connection to finance (Settings → Finance → Mailboxes). The binding sets `ownerModule = finance` on the connection, so the platform delivers that mailbox's mail **only** to finance; an unowned mailbox still broadcasts to every consumer (`docs/EMAIL_AND_NOTIFICATIONS.md`). Finance refuses a mailbox Support owns and Support refuses one finance owns (409 `EMAIL_MAILBOX_OWNED`). Support's contact erasure only touches its own inboxes, so it can never delete finance mail.
+An owner binds an e-mail connection to finance (Settings → Finance → Mailboxes). The binding sets `ownerModule = finance` on the connection, so the platform delivers that mailbox's mail **only** to finance; an unowned mailbox still broadcasts to every consumer (`docs/EMAIL_AND_NOTIFICATIONS.md`). Finance refuses a mailbox Support owns and Support refuses one finance owns (409 `EMAIL_MAILBOX_OWNED`). Support inboxes do not record an owner, so finance also refuses a mailbox a live Support inbox answers from, and the default mailbox while live unbound (pre-binding) Support e-mail inboxes route through it (409 `EMAIL_MAILBOX_IN_USE`). Finance takes inbound mail with `ownedOnly`: it gets the mail of mailboxes it owns and never the broadcast of unowned ones, so a Support mailbox creates no finance jobs. Support's contact erasure skips only mail of mailboxes another module owns, so it never deletes finance mail.
 
 The mail job parses the raw `.eml` (`postal-mime`) and creates one document per accepted attachment (PDF, PNG, JPEG, WebP, XML; at most ten per mail). A mail without an attachment becomes one document from its body, stored as the `.eml`. The `.eml` itself is also copied into a retention-locked finance file. Rules:
 
@@ -125,7 +127,7 @@ What happens per document in `received`:
 
 ## Duplicates
 
-1. **Exact:** the same SHA-256 as a live document in the project. The new document becomes `duplicate`, points at the original and is never extracted (no AI cost). Rejected and duplicate documents keep their hash and do not count as originals.
+1. **Exact:** the same SHA-256 as a live document in the project. The new document becomes `duplicate`, points at the original and is never extracted (no AI cost). Rejected and duplicate documents keep their hash and do not count as originals. Bytes the project already holds as a document (any status) are hashed in memory before storing and **not stored again**: the new row shares the earlier document's retained file, so duplicates cost no quota. Only two first copies racing each other can store the same bytes twice.
 2. **Same counterparty and invoice number** (including numbers on booked invoices): `duplicate` linked to the original.
 3. **Same counterparty, total and currency within `duplicateWindowDays` without a number:** flag `possible_duplicate`. A person must decide with "Not a duplicate" or reject it.
 
@@ -173,9 +175,9 @@ Reasons are stored on the reversal only and never in the audit trail. A manual e
 
 ## Reports and exports
 
-**Overview and reports** (`finance.read`): income, expenses and result per month, open and overdue totals, recurring monthly equivalent, cost per cost center and per category, and the review count. All in the base currency; unknown values show "—". Charts are small accessible SVG components with table fallbacks.
+**Overview and reports** (`finance.read`): income, expenses and result per month, open and overdue totals, recurring monthly equivalent, cost per cost center and per category, and the review count. A standalone credit note (one that credits no invoice) is an **open credit**: never listed as an open invoice and never overdue, reported apart (`creditsOpen` in the summary and the year overview, `credits` in `finance_open_invoices`) and subtracted from the open, payable and receivable totals. All in the base currency; unknown values show "—". Charts are small accessible SVG components with table fallbacks.
 
-**Exports** (`finance.export`, rate-limited to 10 per minute) are built from posted data, stored as a retention-locked file with a `FinanceExport` row, and downloaded through the file route:
+**Exports** (`finance.export`, rate-limited to 10 per minute) are built from posted data, stored as a file with a `FinanceExport` row, and downloaded through the finance export route. Exports are derived and can be rebuilt, so they carry **no** retention lock:
 
 | Export | Content |
 |---|---|
@@ -194,7 +196,7 @@ Four read-only tools (`R0_read`, `finance.read`, `exposure: { assistant: true, m
 | Tool | Answers |
 |---|---|
 | `finance_report` | Income, expenses or result of a period (`this_month`, `last_month`, `this_year`, `last_year`, `last_12_months`, `custom`), grouped by total, month, category or cost center, filtered by category or cost center name prefix (children included), with the monthly average and the names the filter matched. |
-| `finance_open_invoices` | Open payable and receivable invoices: totals and the 25 earliest due. |
+| `finance_open_invoices` | Open payable and receivable invoices: totals and the 25 earliest due, plus open credits (`credits`), which reduce the totals. |
 | `finance_review_queue` | How many documents need review or failed, and the 20 oldest with received date, flags and extracted counterparty name. |
 | `finance_recurring` | Active recurring costs: each with its interval, its expected amount **in its own currency** (`currency` next to it) and `monthlyBase`, the monthly equivalent in the base currency; plus the monthly total and a `missingRate` count of items that could not be converted (their `monthlyBase` is null). |
 
@@ -208,14 +210,16 @@ Attention items are computed at read time and carry counts only:
 |---|---|---|
 | `finance_review_pending` | `finance.read` | Documents in `needs_review` or `failed`. |
 | `finance_invoices_overdue` | `finance.read` | Open or partially paid invoices due before today. |
-| `finance_mail_archive_failed` | `finance.settings` (owner) | Active mailbox bindings with a `lastArchiveError`. |
-| `finance_fx_stale` | `finance.read` | `fxSource = ecb`, a configured pair needs ECB rates (USD and USDC alone do not), and the newest ECB date is older than four days or missing. |
+| `finance_mail_archive_failed` | `finance.settings` (owner) | Active mailbox bindings with a `lastArchiveError`. Opens Settings → Finance mailboxes (`/settings?section=finance-mailboxes`). |
+| `finance_fx_stale` | `finance.read` | `fxSource = ecb`, a configured pair needs ECB rates (USD and USDC alone do not), and the newest ECB date is older than four days or missing. Opens `/settings?section=finance-currencies`. |
+
+Overdue counts never include credit notes. The two settings items badge the platform's settings entry (`navKey: "settings"`).
 
 The member notification `finance_review_needed` ("A receipt needs review", no amounts, names or document words) goes once to the reviewers (owners and editors of the module; module roles apply) when a document reaches `needs_review` or `failed` after extraction, and when a **mailed** document skips AI (`ai_off`). Uploads do not notify; the uploader is the reviewer. E-mail delivery of the notice is off by default.
 
 ## Permissions
 
-All four are `sensitive: true`; viewers have no finance access by default and module roles can narrow further.
+All four are `sensitive: true`; viewers have no finance access by default and module roles can narrow further. The web shell hides finance completely (navigation, home card, settings sections) from members whose module access is `viewer` (`minAccess: "editor"` in the web manifest); a deep link shows a "No access" notice instead of 403 errors. Finance files are private to finance's routes (`files.privateToModule`): the platform `/files/:fileId` routes answer 404 for them, and no member uploads into finance through the platform route.
 
 | Permission | Default roles | Allows |
 |---|---|---|
@@ -241,7 +245,7 @@ The migration `202610230001_platform_finance_prerequisites` adds `File.retainUnt
 - Lines can be inserted only for an entry created in the same transaction; a later transaction cannot append a balanced pair to a posted entry.
 - A deferred constraint trigger checks at commit that every new entry has at least two lines and that its base-currency debits equal its credits.
 - One live account per system role; one live document per content hash.
-- Originals, the `.eml` copies and exports carry `retainUntil` (now plus `retentionYears`). `deleteFile` answers 409 `FILE_RETAINED` until then, whoever calls it, including Support's privacy erasure (only finance sets `retainUntil`, so Support files are unaffected). A legal erasure request on finance originals would need an owner-level override later.
+- Originals and the `.eml` copies carry `retainUntil` (now plus `retentionYears`); rejected originals keep theirs. Exports carry none. `deleteFile` answers 409 `FILE_RETAINED` until then, whoever calls it, including Support's privacy erasure (only finance sets `retainUntil`, so Support files are unaffected). A legal erasure request on finance originals would need an owner-level override later.
 
 ## Security, privacy and operations
 
@@ -304,6 +308,10 @@ No test calls a paid provider.
 - **Time zones:** "this month" and the attention check use UTC, not the project's time zone. Percent changes show truncated permille.
 - **Mail intake:** a mail whose first pass dies before any document exists can leave an orphan retention-locked `.eml` copy; attachment audit entries repeat on job re-runs; a persistent failed attachment keeps the mail in the inbox until a person handles it. A non-listed MIME type is refused on upload even with the right extension.
 - **Retention vs erasure:** a legal erasure request does not override `retainUntil`.
+- **Quota sizing:** `FILES_PROJECT_QUOTA_BYTES` is one value for every project of the installation (default 100 MB). The retention lock holds originals and `.eml` copies for `retentionYears`, so a finance project's usage only grows; size the quota before enabling finance (see "Switching it on").
+- **Mail while finance is off:** mail arriving at a finance-owned mailbox while finance is disabled in the project is not processed later; its jobs are not created. Unbind the mailbox before disabling finance, or forward the receipts again.
+- **Manual adjustments on open-item accounts:** a manual adjustment posting directly to payables, receivables or a payment account is not linked to an invoice, so invoice open items then differ from the account balance.
+- **Lost paid result:** if storing the result fails after a settled AI call, the document ends as `failed` (or unknown) and a person decides. It fails closed, but the paid result is lost; a retry is a new call.
 - **Archive retry:** after a failed archive (`lastArchiveError`) the mail stays in the inbox; the platform can start a new attempt, but finance has no button for it yet. Move the mail by hand.
 - **Recurring costs** are expectations only; booked invoices are not matched to them yet.
 - **DATEV** export is not available (`journal_csv` is the first exporter; the account `externalCode` field is reserved). Bank/card/wallet sync, on-chain USDC, uLiquid Desk revenue, XRechnung/ZUGFeRD parsing, monthly reports and an MCP scope are follow-ups.
