@@ -12,6 +12,7 @@ import {
 } from "./booking-form";
 import {
   DocumentPreview,
+  DuplicatePanel,
   duplicateOpen,
   formKey,
   mergeSaved,
@@ -454,5 +455,28 @@ describe("finance booking form", () => {
       "plain-old",
       "plain-new",
     ]);
+  });
+});
+
+describe("duplicate decision", () => {
+  const panel = (confirming: boolean) =>
+    renderToStaticMarkup(
+      <DuplicatePanel
+        t={financeText("en")}
+        doc={doc({}, { status: "duplicate" })}
+        originalHref={null}
+        canWrite={true}
+        pending={false}
+        onNotDuplicate={() => {}}
+        onReject={() => {}}
+        confirming={confirming}
+      />,
+    );
+
+  it("asks before rejecting a duplicate", () => {
+    expect(panel(false)).not.toContain("Reject this document as a duplicate?");
+    const asking = panel(true);
+    expect(asking).toContain("Reject this document as a duplicate?");
+    expect(asking).toContain("Cancel");
   });
 });

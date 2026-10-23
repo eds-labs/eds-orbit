@@ -313,6 +313,7 @@ export function EntryDetail({
           }
           onDone={() => done(d.voided)}
           onClose={() => setDialog(null)}
+          onStale={() => setRevision((n) => n + 1)}
         />
       )}
       {dialog?.type === "voidPayment" && entry.sourceId && (

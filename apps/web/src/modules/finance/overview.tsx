@@ -42,7 +42,8 @@ export function hasNoBookings(summary: Summary): boolean {
       (m) => micros(m.incomeMicros) === 0n && micros(m.expenseMicros) === 0n,
     ) &&
     summary.open.count === 0 &&
-    summary.overdue.count === 0
+    summary.overdue.count === 0 &&
+    (summary.creditsOpen?.count ?? 0) === 0
   );
 }
 
@@ -216,9 +217,22 @@ function Dashboard({ now }: { now: Date }) {
           amount={count(s?.open.count)}
           detail={
             s
-              ? t.openDetail
-                  .replace("{payable}", money(s.open.payableMicros))
-                  .replace("{receivable}", money(s.open.receivableMicros))
+              ? [
+                  t.openDetail
+                    .replace("{payable}", () => money(s.open.payableMicros))
+                    .replace("{receivable}", () =>
+                      money(s.open.receivableMicros),
+                    ),
+                  ...(s.creditsOpen?.count
+                    ? [
+                        t.openCredits
+                          .replace("{n}", String(s.creditsOpen.count))
+                          .replace("{amount}", () =>
+                            money(s.creditsOpen.totalMicros),
+                          ),
+                      ]
+                    : []),
+                ].join(" · ")
               : undefined
           }
         />
@@ -232,6 +246,7 @@ function Dashboard({ now }: { now: Date }) {
               : undefined
           }
           tone={s && s.overdue.count > 0 ? "warning" : undefined}
+          href={`${shell.hrefOf("finance")}/invoices?status=overdue`}
         />
         <Metric
           icon={Repeat}

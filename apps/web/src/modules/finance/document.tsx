@@ -29,6 +29,7 @@ import { useFinanceAccess } from "./access";
 import { BookingForm, draftOf, type Booking } from "./booking-form";
 import { DetailBack, useDetailFocus } from "./detail-head";
 import { financeText, type FinanceText } from "./labels";
+import { errorText } from "./lists";
 
 // The review detail (spec §9): the original beside the booking form, the
 // duplicate decision, and the actions Save draft, Book, Reject and Retry.
@@ -129,6 +130,7 @@ export function DuplicatePanel({
   pending,
   onNotDuplicate,
   onReject,
+  confirming: confirmingAtStart = false,
 }: {
   t: FinanceText;
   doc: FinanceDocument;
@@ -137,8 +139,12 @@ export function DuplicatePanel({
   pending: boolean;
   onNotDuplicate: () => void;
   onReject: () => void;
+  /** Starts with the reject confirmation open (tests). */
+  confirming?: boolean;
 }) {
   const r = t.review;
+  // Rejecting is final for the document, so it is confirmed first.
+  const [confirming, setConfirming] = useState(confirmingAtStart);
   return (
     <section className="finance-duplicate" aria-label={r.duplicateTitle}>
       <Alert kind="warning">
@@ -161,14 +167,38 @@ export function DuplicatePanel({
             >
               {r.notDuplicate}
             </Button>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={pending}
-              onClick={onReject}
-            >
-              {r.rejectDuplicate}
-            </Button>
+            {confirming ? (
+              <span className="finance-inline" role="group">
+                <span>{r.rejectDuplicateConfirm}</span>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  disabled={pending}
+                  onClick={() => {
+                    setConfirming(false);
+                    onReject();
+                  }}
+                >
+                  {r.rejectDuplicate}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setConfirming(false)}
+                >
+                  {t.manage.cancel}
+                </Button>
+              </span>
+            ) : (
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={pending}
+                onClick={() => setConfirming(true)}
+              >
+                {r.rejectDuplicate}
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -412,7 +442,7 @@ export function FinanceDocumentDetail({
       const code = e instanceof ApiError ? e.code : null;
       if (code === "VERSION_CONFLICT") setConflict(true);
       else if (options.book && code === "FX_RATE_MISSING") setBookError(code);
-      else setError(e instanceof Error ? e.message : "Request failed.");
+      else setError(errorText(e, t));
       return undefined;
     } finally {
       lock.current = false;

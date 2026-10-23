@@ -21,6 +21,7 @@ const en = {
     resultMonth: "Result this month",
     open: "Open invoices",
     openDetail: "{payable} payable, {receivable} receivable",
+    openCredits: "{n} open credits ({amount}) counted against it",
     overdue: "Overdue",
     overdueDetail: "{n} overdue",
     running: "Running costs per month",
@@ -215,6 +216,8 @@ const en = {
     duplicateOriginal: "Open the original",
     notDuplicate: "Not a duplicate",
     rejectDuplicate: "Reject as duplicate",
+    rejectDuplicateConfirm:
+      "Reject this document as a duplicate? It is kept, but can no longer be booked.",
     resolved: "Marked as not a duplicate.",
     duplicateReason: "Duplicate",
     bookBlockedDuplicate: "Resolve the duplicate question before booking.",
@@ -308,6 +311,8 @@ const en = {
     cancel: "Cancel",
     close: "Close",
     back: "Back to the list",
+    archiveConfirm:
+      "Archive {name}? It can no longer be chosen for new bookings, and it cannot be restored here.",
     working: "Working…",
     date: "Date",
     currency: "Currency",
@@ -358,7 +363,27 @@ const en = {
         "The period is not valid. A year overview covers exactly one calendar year.",
       FINANCE_DISABLED: "Finance is not enabled for this project.",
       FORBIDDEN: "You do not have permission for this.",
+      FINANCE_BASE_CURRENCY_LOCKED:
+        "The base currency cannot change once bookings exist.",
+      FINANCE_CURRENCY_IN_USE:
+        "This currency is still used by open invoices, payment accounts or recurring costs.",
+      EMAIL_MAILBOX_IN_USE:
+        "This mailbox is in use by another module, such as a Support inbox.",
+      EMAIL_MAILBOX_OWNED: "Another module already uses this mailbox.",
+      FINANCE_MAILBOX_BOUND: "This mailbox is already bound to finance.",
+      FINANCE_DUPLICATE: "An entry with this code or name already exists.",
+      VERSION_CONFLICT:
+        "This was changed by someone else in the meantime. Reload and try again.",
+      SETTINGS_VERSION_CONFLICT:
+        "The settings were changed by someone else in the meantime. Reload and try again.",
+      FX_RATE_MISSING:
+        "No exchange rate is stored for this date. Enter a rate or add one in the currency settings.",
+      FINANCE_EXTRACTION_RUNNING:
+        "The extraction is still running. Try again in a moment.",
+      FINANCE_SETUP_REQUIRED:
+        "Set up the chart of accounts first (Settings, finance accounts).",
     } as Record<string, string>,
+    requestFailed: "Request failed.",
   },
   entries: {
     title: "Bookings",
@@ -716,6 +741,9 @@ const en = {
     },
     original: "Original",
     noOpen: "Nothing was open at the end of the year.",
+    credit: "Credit",
+    creditsNote:
+      "Credits are open credit notes that credit no invoice. They reduce what is payable or receivable.",
     noDocuments: "No documents booked in this year.",
     noData: "Nothing was booked in this year.",
     amountsIn: "Amounts in {base}",
@@ -772,6 +800,7 @@ const de: typeof en = {
     resultMonth: "Ergebnis diesen Monat",
     open: "Offene Rechnungen",
     openDetail: "{payable} zu zahlen, {receivable} zu erhalten",
+    openCredits: "{n} offene Gutschriften ({amount}) verrechnet",
     overdue: "Überfällig",
     overdueDetail: "{n} überfällig",
     running: "Laufende Kosten pro Monat",
@@ -968,6 +997,8 @@ const de: typeof en = {
     duplicateOriginal: "Original öffnen",
     notDuplicate: "Kein Duplikat",
     rejectDuplicate: "Als Duplikat ablehnen",
+    rejectDuplicateConfirm:
+      "Diesen Beleg als Duplikat ablehnen? Er bleibt erhalten, lässt sich aber nicht mehr buchen.",
     resolved: "Als kein Duplikat markiert.",
     duplicateReason: "Duplikat",
     bookBlockedDuplicate: "Kläre die Duplikat-Frage, bevor du buchst.",
@@ -1066,6 +1097,8 @@ const de: typeof en = {
     cancel: "Abbrechen",
     close: "Schließen",
     back: "Zurück zur Liste",
+    archiveConfirm:
+      "{name} archivieren? Es lässt sich dann für neue Buchungen nicht mehr wählen und hier nicht wiederherstellen.",
     working: "Wird ausgeführt …",
     date: "Datum",
     currency: "Währung",
@@ -1119,7 +1152,30 @@ const de: typeof en = {
         "Der Zeitraum ist ungültig. Eine Jahresübersicht umfasst genau ein Kalenderjahr.",
       FINANCE_DISABLED: "Finanzen ist für dieses Projekt nicht aktiviert.",
       FORBIDDEN: "Dafür fehlt dir die Berechtigung.",
+      FINANCE_BASE_CURRENCY_LOCKED:
+        "Die Basiswährung lässt sich nicht mehr ändern, sobald es Buchungen gibt.",
+      FINANCE_CURRENCY_IN_USE:
+        "Diese Währung wird noch von offenen Rechnungen, Zahlungskonten oder laufenden Kosten verwendet.",
+      EMAIL_MAILBOX_IN_USE:
+        "Dieses Postfach wird von einem anderen Modul verwendet, etwa einem Support-Posteingang.",
+      EMAIL_MAILBOX_OWNED:
+        "Ein anderes Modul verwendet dieses Postfach bereits.",
+      FINANCE_MAILBOX_BOUND:
+        "Dieses Postfach ist bereits mit Finanzen verbunden.",
+      FINANCE_DUPLICATE:
+        "Ein Eintrag mit diesem Code oder Namen existiert bereits.",
+      VERSION_CONFLICT:
+        "Das wurde inzwischen von jemand anderem geändert. Lade neu und versuche es erneut.",
+      SETTINGS_VERSION_CONFLICT:
+        "Die Einstellungen wurden inzwischen von jemand anderem geändert. Lade neu und versuche es erneut.",
+      FX_RATE_MISSING:
+        "Für dieses Datum ist kein Wechselkurs gespeichert. Gib einen Kurs ein oder ergänze ihn in den Währungseinstellungen.",
+      FINANCE_EXTRACTION_RUNNING:
+        "Die Auslesung läuft noch. Versuche es gleich noch einmal.",
+      FINANCE_SETUP_REQUIRED:
+        "Richte zuerst den Kontenrahmen ein (Einstellungen, Finanzkonten).",
     },
+    requestFailed: "Anfrage fehlgeschlagen.",
   },
   entries: {
     title: "Buchungen",
@@ -1472,6 +1528,9 @@ const de: typeof en = {
     },
     original: "Original",
     noOpen: "Zum Jahresende war nichts offen.",
+    credit: "Gutschrift",
+    creditsNote:
+      "Gutschriften sind offene Gutschriften ohne Bezug auf eine Rechnung. Sie mindern, was zu zahlen oder zu erhalten ist.",
     noDocuments: "In diesem Jahr wurden keine Belege gebucht.",
     noData: "In diesem Jahr wurde nichts gebucht.",
     amountsIn: "Beträge in {base}",

@@ -351,7 +351,6 @@ export function FinanceEntries() {
                       return (
                         <tr
                           key={row.id}
-                          aria-selected={row.id === selected || undefined}
                           data-selected={row.id === selected || undefined}
                         >
                           <th scope="row">

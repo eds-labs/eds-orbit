@@ -435,8 +435,8 @@ export function FinanceRecurring() {
               </fieldset>
               {problems && problems.problems.length > 0 && (
                 <ul className="finance-problems" aria-live="polite">
-                  {problems.problems.map((p) => (
-                    <li key={p} className="finance-problem">
+                  {problems.problems.map((p, i) => (
+                    <li key={`${i}:${p}`} className="finance-problem">
                       {p}
                     </li>
                   ))}

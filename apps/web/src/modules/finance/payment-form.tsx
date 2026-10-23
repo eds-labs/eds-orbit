@@ -8,6 +8,7 @@ import {
   currencyDecimals,
   isDate,
   microsToInput,
+  rateText,
   rateValid,
 } from "./amount";
 import type { FinanceText } from "./labels";
@@ -192,7 +193,12 @@ export function paymentOf(
         invoiceId: row.invoiceId,
         amountMicros: String(amountMicros(row.allocation, currency)),
       })),
-      ...(options.fxMissing ? { rateOverride: form.rateOverride.trim() } : {}),
+      ...(options.fxMissing
+        ? {
+            rateOverride:
+              rateText(form.rateOverride) ?? form.rateOverride.trim(),
+          }
+        : {}),
     },
   };
 }
@@ -422,8 +428,8 @@ export function PaymentFormView({
 
       {problems.length > 0 && (
         <ul className="finance-problems" aria-live="polite">
-          {problems.map((message) => (
-            <li key={message} className="finance-problem">
+          {problems.map((message, i) => (
+            <li key={`${i}:${message}`} className="finance-problem">
               {message}
             </li>
           ))}

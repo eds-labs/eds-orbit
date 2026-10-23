@@ -24,6 +24,7 @@ import {
   currencyDecimals,
   isDate,
   microsToInput,
+  rateText,
   rateValid,
 } from "./amount";
 import type { FinanceText } from "./labels";
@@ -273,7 +274,11 @@ export function bookingOf(
     lines,
     ...(form.number.trim() ? { number: form.number.trim() } : {}),
     ...(form.dueDate ? { dueDate: form.dueDate } : {}),
-    ...(options.fxMissing ? { rateOverride: form.rateOverride.trim() } : {}),
+    ...(options.fxMissing
+      ? {
+          rateOverride: rateText(form.rateOverride) ?? form.rateOverride.trim(),
+        }
+      : {}),
     ...(form.kind === "credit_note" && form.creditsInvoiceId
       ? { creditsInvoiceId: form.creditsInvoiceId }
       : {}),
@@ -282,7 +287,9 @@ export function bookingOf(
           paid: {
             accountId: form.accountId,
             date,
-            ...(paidRate ? { rateOverride: paidRate } : {}),
+            ...(paidRate
+              ? { rateOverride: rateText(paidRate) ?? paidRate }
+              : {}),
           },
         }
       : {}),
@@ -846,8 +853,8 @@ export function BookingForm({
 
       {editable && problems.length > 0 && (
         <ul className="finance-problems" aria-live="polite">
-          {problems.map((p) => (
-            <li key={p} className="finance-problem">
+          {problems.map((p, i) => (
+            <li key={`${i}:${p}`} className="finance-problem">
               {p}
             </li>
           ))}

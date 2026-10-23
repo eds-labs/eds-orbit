@@ -76,7 +76,9 @@ export function ReasonForm({
 
 /**
  * Asks for a reason, then runs `run(reason)`. The dialog closes (`onDone`)
- * when it succeeds; a 409 VERSION_CONFLICT asks for a reload instead.
+ * when it succeeds; a 409 VERSION_CONFLICT asks for a reload instead, and
+ * closing the dialog after one calls `onStale`, so the page loads the
+ * current version.
  */
 export function ReasonDialog({
   t,
@@ -86,6 +88,7 @@ export function ReasonDialog({
   run,
   onDone,
   onClose,
+  onStale,
 }: {
   t: FinanceText;
   title: string;
@@ -94,8 +97,14 @@ export function ReasonDialog({
   run: (reason: string) => Promise<unknown>;
   onDone: () => void;
   onClose: () => void;
+  onStale?: () => void;
 }) {
   const [reason, setReason] = useState("");
+  const stale = useRef(false);
+  const close = () => {
+    if (stale.current) onStale?.();
+    onClose();
+  };
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lock = useRef(false);
@@ -108,6 +117,7 @@ export function ReasonDialog({
       await run(reason.trim());
       onDone();
     } catch (e) {
+      if (errorCode(e) === "VERSION_CONFLICT") stale.current = true;
       setError(
         errorCode(e) === "VERSION_CONFLICT"
           ? t.manage.conflict
@@ -119,7 +129,7 @@ export function ReasonDialog({
     }
   }
   return (
-    <Modal title={title} onClose={onClose}>
+    <Modal title={title} onClose={close}>
       <ReasonForm
         t={t}
         body={body}
@@ -129,7 +139,7 @@ export function ReasonDialog({
         error={error}
         onReason={setReason}
         onConfirm={confirm}
-        onCancel={onClose}
+        onCancel={close}
       />
     </Modal>
   );

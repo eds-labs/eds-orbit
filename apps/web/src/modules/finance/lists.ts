@@ -62,11 +62,16 @@ export function useMasterData(projectId: string) {
   };
 }
 
-/** The readable text of a failed request: a known code, else the code's words. */
+/**
+ * The readable text of a failed request: a known code, else the code's
+ * words. Also takes `useMutation`'s error, the code's words as a string.
+ */
 export function errorText(error: unknown, t: FinanceText): string {
   if (error instanceof ApiError)
     return t.manage.errors[error.code] ?? error.message;
-  return error instanceof Error ? error.message : "Request failed.";
+  if (typeof error === "string")
+    return t.manage.errors[error.replaceAll(" ", "_")] ?? error;
+  return error instanceof Error ? error.message : t.manage.requestFailed;
 }
 
 /** The code of a failed request, or null. */

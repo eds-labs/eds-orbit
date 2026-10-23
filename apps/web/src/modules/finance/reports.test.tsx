@@ -153,6 +153,7 @@ const overview = (extra: Partial<YearOverview> = {}): YearOverview => ({
       openBaseMicros: "55000000",
     },
   ],
+  creditsOpen: { count: 0, totalMicros: "0", items: [] },
   documents: [
     {
       id: "doc1",
@@ -326,5 +327,35 @@ describe("YearTables", () => {
     expect(html).toContain('href="/files/doc1"');
     expect(html).toContain("2026-0042");
     expect(html).toMatch(/<td class="finance-num">—<\/td>/);
+    expect(html).not.toContain("(Credit)");
+  });
+
+  it("lists open credits apart from the invoices, as negative amounts", () => {
+    const credit = {
+      invoiceId: "cn1",
+      number: "CN-3",
+      direction: "payable" as const,
+      counterpartyId: "cp1",
+      currency: "USD",
+      issueDate: "2026-11-01",
+      dueDate: null,
+      openMicros: "25000000",
+      openBaseMicros: "25000000",
+    };
+    const withCredit = renderToStaticMarkup(
+      <YearTables
+        t={t}
+        locale="en"
+        overview={overview({
+          creditsOpen: { count: 1, totalMicros: "25000000", items: [credit] },
+        })}
+        counterparties={new Map([["cp1", "Hosting GmbH"]])}
+        fileUrl={(id) => `/files/${id}`}
+        word={(key) => labels.en[key]}
+      />,
+    );
+    expect(withCredit).toContain("CN-3 (Credit)");
+    expect(withCredit).toContain("-$25.00");
+    expect(withCredit).toContain("Credits are open credit notes");
   });
 });

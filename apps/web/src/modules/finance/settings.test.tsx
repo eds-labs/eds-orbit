@@ -1,8 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { ApiError } from "@/lib/api";
 import { financeText } from "./labels";
+import { errorText } from "./lists";
+import { rateText } from "./amount";
 import {
   AiExtractionForm,
+  ArchiveConfirmView,
+  ceilingMicros,
   bindableMailboxes,
   LoadState,
   MailboxList,
@@ -164,5 +169,117 @@ describe("finance settings", () => {
     expect(render("1000")).not.toContain("from 0 to 1000 USD");
     expect(render("1000.01")).toContain("from 0 to 1000 USD");
     expect(render("1000.01")).toContain('disabled=""');
+  });
+});
+
+describe("finance error texts", () => {
+  const codes = [
+    "FINANCE_ACCOUNT_ARCHIVED",
+    "CURRENCY_UNSUPPORTED",
+    "FINANCE_BASE_CURRENCY_LOCKED",
+    "FINANCE_CURRENCY_IN_USE",
+    "EMAIL_MAILBOX_IN_USE",
+    "EMAIL_MAILBOX_OWNED",
+    "FINANCE_DUPLICATE",
+    "FINANCE_IN_USE",
+    "VERSION_CONFLICT",
+    "FX_RATE_MISSING",
+    "FINANCE_EXTRACTION_RUNNING",
+    "FINANCE_SETUP_REQUIRED",
+  ];
+
+  it("has words for every booking and settings code in en and de", () => {
+    for (const locale of ["en", "de"] as const)
+      for (const code of codes)
+        expect(
+          financeText(locale).manage.errors[code],
+          `${locale} ${code}`,
+        ).toBeTruthy();
+  });
+
+  it("a booking error reads as words, not a code", () => {
+    expect(
+      errorText(
+        new ApiError("FINANCE_ACCOUNT_ARCHIVED", 422),
+        financeText("en"),
+      ),
+    ).toBe("An archived account cannot be booked to.");
+    expect(errorText(null, financeText("de"))).toBe("Anfrage fehlgeschlagen.");
+  });
+
+  it("a settings save error (useMutation's message) reads as words", () => {
+    // useMutation keeps the error's message: the code with spaces.
+    const message = new ApiError("FINANCE_CURRENCY_IN_USE", 409).message;
+    expect(errorText(message, financeText("de"))).toContain(
+      "Diese Währung wird noch",
+    );
+    expect(errorText("SOMETHING ELSE", financeText("en"))).toBe(
+      "SOMETHING ELSE",
+    );
+  });
+});
+
+describe("finance settings inputs", () => {
+  it("parses the AI ceiling like a USD amount", () => {
+    expect(ceilingMicros("2")).toBe(2_000_000);
+    expect(ceilingMicros("2.5")).toBe(2_500_000);
+    expect(ceilingMicros("2,50")).toBe(2_500_000);
+    // "1,000" is never one dollar: as a USD amount it has too many
+    // decimals and is refused; grouped with decimals it is a thousand.
+    expect(ceilingMicros("1,000")).toBeNull();
+    expect(ceilingMicros("1,000.00")).toBe(1_000_000_000);
+    expect(ceilingMicros("1.000,00")).toBe(1_000_000_000);
+    expect(ceilingMicros("1,000.01")).toBeNull();
+    expect(ceilingMicros("0.001")).toBeNull();
+    expect(ceilingMicros("abc")).toBeNull();
+    expect(ceilingMicros("-1")).toBeNull();
+  });
+
+  it("marks a ceiling over the server maximum invalid", () => {
+    const html = renderToStaticMarkup(
+      <AiExtractionForm
+        t={financeText("en")}
+        enabled={false}
+        ceiling="1,000.50"
+        disabled={false}
+        pending={false}
+        error={null}
+        onToggle={() => {}}
+        onCeiling={() => {}}
+        onSubmit={() => {}}
+      />,
+    );
+    expect(html).toMatch(/<button[^>]*type="submit"[^>]*disabled=""/);
+  });
+
+  it("takes a comma as the decimal separator of a rate", () => {
+    expect(rateText("1,0850")).toBe("1.0850");
+    expect(rateText(" 1.0850 ")).toBe("1.0850");
+    expect(rateText("0")).toBeNull();
+    expect(rateText("1,000.5")).toBeNull();
+    expect(rateText("1.0.5")).toBeNull();
+  });
+});
+
+describe("archiving in settings", () => {
+  const view = (confirming: boolean) =>
+    renderToStaticMarkup(
+      <ArchiveConfirmView
+        t={financeText("en")}
+        label="Archive"
+        name="6100 Travel"
+        confirming={confirming}
+        pending={false}
+        onAsk={() => {}}
+        onConfirm={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+
+  it("asks before archiving", () => {
+    expect(view(false)).not.toContain("6100 Travel");
+    const asking = view(true);
+    expect(asking).toContain("Archive 6100 Travel?");
+    expect(asking).toContain("Cancel");
   });
 });

@@ -431,7 +431,8 @@ export function YearTables({
           <h2>{r.openTitle}</h2>
         </div>
         <div className="finance-body">
-          {overview.open.length === 0 ? (
+          {overview.open.length + (overview.creditsOpen?.items.length ?? 0) ===
+          0 ? (
             <p className="panel-note">{r.noOpen}</p>
           ) : (
             <div
@@ -456,9 +457,18 @@ export function YearTables({
                   </tr>
                 </thead>
                 <tbody>
-                  {overview.open.map((o) => (
+                  {[
+                    ...overview.open.map((o) => ({ ...o, credit: false })),
+                    ...(overview.creditsOpen?.items ?? []).map((o) => ({
+                      ...o,
+                      credit: true,
+                    })),
+                  ].map((o) => (
                     <tr key={o.invoiceId}>
-                      <th scope="row">{o.number ?? "—"}</th>
+                      <th scope="row">
+                        {o.number ?? "—"}
+                        {o.credit && <> ({r.credit})</>}
+                      </th>
                       <td>
                         {o.counterpartyId
                           ? (counterparties.get(o.counterpartyId) ?? "—")
@@ -469,14 +479,25 @@ export function YearTables({
                       </td>
                       <td>{o.dueDate ?? "—"}</td>
                       <td className="finance-num">
-                        {formatMoney(o.openMicros, o.currency, locale)}
+                        {formatMoney(
+                          o.credit ? `-${o.openMicros}` : o.openMicros,
+                          o.currency,
+                          locale,
+                        )}
                       </td>
-                      <td className="finance-num">{money(o.openBaseMicros)}</td>
+                      <td className="finance-num">
+                        {money(
+                          o.credit ? `-${o.openBaseMicros}` : o.openBaseMicros,
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          )}
+          {(overview.creditsOpen?.items.length ?? 0) > 0 && (
+            <p className="panel-note">{r.creditsNote}</p>
           )}
         </div>
       </section>

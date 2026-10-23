@@ -266,6 +266,7 @@ function InvoiceDetailPanel({
           }
           onDone={() => done(v.voidDone)}
           onClose={() => setDialog(null)}
+          onStale={detail.refresh}
         />
       )}
       {dialog?.type === "voidPayment" && (

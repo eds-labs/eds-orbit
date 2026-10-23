@@ -10,6 +10,7 @@ import {
   currencyDecimals,
   isDate,
   microsToInput,
+  rateText,
   rateValid,
 } from "./amount";
 import type { FinanceText } from "./labels";
@@ -127,7 +128,11 @@ export function manualEntryOf(
     date: form.date,
     currency: form.currency,
     ...(form.memo.trim() ? { memo: form.memo.trim() } : {}),
-    ...(options.fxMissing ? { rateOverride: form.rateOverride.trim() } : {}),
+    ...(options.fxMissing
+      ? {
+          rateOverride: rateText(form.rateOverride) ?? form.rateOverride.trim(),
+        }
+      : {}),
   };
   let body: ManualBody | null = null;
   if (form.kind === "adjustment") {
@@ -536,8 +541,8 @@ export function ManualEntryForm({
 
       {problems.length > 0 && (
         <ul className="finance-problems" aria-live="polite">
-          {problems.map((p) => (
-            <li key={p} className="finance-problem">
+          {problems.map((p, i) => (
+            <li key={`${i}:${p}`} className="finance-problem">
               {p}
             </li>
           ))}

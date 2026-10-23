@@ -94,6 +94,7 @@ const summary = (extra: Record<string, unknown> = {}) => ({
   ],
   open: { ...zeroBucket, count: 2, payableMicros: "3000000" },
   overdue: { ...zeroBucket, count: 1, totalMicros: "7000000" },
+  creditsOpen: zeroBucket,
   recurringMonthlyMicros: "9000000",
   recurringMissingRate: 0,
   byCostCenter: [{ id: null, name: null, expenseMicros: "40000000" }],
@@ -178,6 +179,9 @@ describe("FinanceOverview", () => {
     expect(html).toContain("$250.00");
     expect(html).toContain("1 overdue");
     expect(html).toContain('data-tone="warning"');
+    // The overdue tile opens the overdue invoices.
+    expect(html).toContain('href="/p/p1/finance/invoices?status=overdue"');
+    expect(html).not.toContain("open credits");
     expect(html).toContain('href="/p/p1/finance/review"');
     expect(html).toContain("Unassigned");
     expect(html).toContain("Hosting");
@@ -188,6 +192,14 @@ describe("FinanceOverview", () => {
     expect(
       requested.some((p) => p.includes("status=needs_review&limit=10")),
     ).toBe(true);
+  });
+
+  it("shows open credits in the open tile's detail", () => {
+    answers["/summary"] = summary({
+      creditsOpen: { ...zeroBucket, count: 1, totalMicros: "25000000" },
+    });
+    const html = render(<FinanceOverview />);
+    expect(html).toContain("1 open credits ($25.00) counted against it");
   });
 
   it("overview shows — for unknown values", () => {

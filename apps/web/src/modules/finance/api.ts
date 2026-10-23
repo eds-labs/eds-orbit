@@ -216,8 +216,11 @@ export type Summary = {
     expenseMicros: Money;
     resultMicros: Money;
   }>;
+  /** Open invoices, net of the open credits below. */
   open: OpenBucket;
   overdue: OpenBucket;
+  /** Standalone credit notes still open: never invoices, never overdue. */
+  creditsOpen: OpenBucket;
   recurringMonthlyMicros: Money;
   /** How many recurring items have no exchange rate to the base currency. */
   recurringMissingRate: number;
@@ -278,6 +281,8 @@ export type YearOverview = {
     expenseMicros: Money;
   }>;
   open: YearOpenItem[];
+  /** Standalone credit notes open on 31 December, apart from `open`. */
+  creditsOpen: { count: number; totalMicros: Money; items: YearOpenItem[] };
   documents: Array<{
     id: string;
     invoiceId: string;

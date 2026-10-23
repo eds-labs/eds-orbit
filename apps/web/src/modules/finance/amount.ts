@@ -79,9 +79,18 @@ export function microsToInput(micros: unknown, currency: string): string {
   return `${value < 0n ? "-" : ""}${abs / MICRO}${fraction ? `.${fraction}` : ""}`;
 }
 
-/** A positive decimal rate with up to 12 decimals. */
-export const rateValid = (text: string) =>
-  RATE.test(text.trim()) && /[1-9]/.test(text);
+/**
+ * A typed rate as the decimal text the server takes ("1,0850" becomes
+ * "1.0850"), or null unless it is positive with up to 12 decimals. A comma
+ * is the decimal separator, as in amounts; rates never have grouping.
+ */
+export function rateText(text: string): string | null {
+  const body = text.trim().replace(",", ".");
+  return RATE.test(body) && /[1-9]/.test(body) ? body : null;
+}
+
+/** A positive decimal rate with up to 12 decimals (comma or dot). */
+export const rateValid = (text: string) => rateText(text) !== null;
 
 /** A real `YYYY-MM-DD` calendar date. */
 export function isDate(value: string) {

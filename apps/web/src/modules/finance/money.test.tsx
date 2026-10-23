@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMoney, microsToUnits, unitsToMicros } from "./money";
+import { formatMoney } from "./money";
 
 describe("formatMoney", () => {
   it("formats USDC with up to six decimals", () => {
@@ -38,22 +38,5 @@ describe("formatMoney", () => {
   it("shows a dash for anything that is not whole micros", () => {
     expect(formatMoney("12.5", "EUR", "en")).toBe("—");
     expect(formatMoney("", "EUR", "en")).toBe("—");
-  });
-});
-
-describe("unit conversion", () => {
-  it("converts decimal text to micros without floats", () => {
-    expect(unitsToMicros("2")).toBe(2_000_000);
-    expect(unitsToMicros("2.5")).toBe(2_500_000);
-    expect(unitsToMicros("0.000001")).toBe(1);
-    expect(unitsToMicros("2,5")).toBe(2_500_000);
-    expect(unitsToMicros("abc")).toBeNull();
-    expect(unitsToMicros("1.0000001")).toBeNull();
-    expect(unitsToMicros("-1")).toBeNull();
-  });
-  it("shows micros as plain decimal text", () => {
-    expect(microsToUnits(2_000_000)).toBe("2");
-    expect(microsToUnits(2_500_000)).toBe("2.5");
-    expect(microsToUnits(1)).toBe("0.000001");
   });
 });

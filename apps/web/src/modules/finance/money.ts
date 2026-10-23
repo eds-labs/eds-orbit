@@ -75,21 +75,3 @@ export function formatMoney(
     currency,
   }).format(exact(text));
 }
-
-/**
- * Decimal text typed by a person ("2", "2.5", "2,5") as micros, or null when
- * it is not a non-negative amount with at most six decimals or does not fit
- * a safe integer.
- */
-export function unitsToMicros(text: string): number | null {
-  const match = /^(\d{1,12})(?:[.,](\d{1,6}))?$/.exec(text.trim());
-  if (!match) return null;
-  const micros =
-    BigInt(match[1]!) * MICRO + BigInt((match[2] ?? "").padEnd(6, "0"));
-  return micros <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(micros) : null;
-}
-
-/** Micros as plain decimal text for an input ("2.5"), without grouping. */
-export function microsToUnits(micros: number): string {
-  return decimalText(BigInt(Math.trunc(micros)), 6, 0);
-}

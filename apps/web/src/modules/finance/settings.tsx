@@ -24,7 +24,9 @@ import {
 } from "./api";
 import { useFinanceAccess } from "./access";
 import { financeText, type FinanceText } from "./labels";
-import { CURRENCIES, microsToUnits, unitsToMicros } from "./money";
+import { errorText } from "./lists";
+import { amountMicros, microsToInput, rateText } from "./amount";
+import { CURRENCIES } from "./money";
 
 // Finance's sections of the project settings (spec §9): mailboxes, accounts
 // and categories, cost centers, currencies and exchange rates, AI extraction.
@@ -33,7 +35,91 @@ import { CURRENCIES, microsToUnits, unitsToMicros } from "./money";
 
 /** The server maximum of the daily AI ceiling: 1000 USD. */
 export const MAX_CEILING_MICROS = 1_000_000_000;
+/** The AI ceiling is in USD, typed like any USD amount ("1,000.50"). */
+const CEILING_CURRENCY = "USD";
+
+/**
+ * The typed daily AI ceiling as micros, or null when it is not a USD amount
+ * up to the server maximum. Parsed like booking amounts: "1,000.00" is a
+ * thousand dollars and "1,000" (three decimals) is refused, never one.
+ */
+export function ceilingMicros(text: string): number | null {
+  const micros = amountMicros(text, CEILING_CURRENCY);
+  if (micros === null || micros > BigInt(MAX_CEILING_MICROS)) return null;
+  return Number(micros);
+}
 const DEFAULT_FOLDER = "Orbit/Processed";
+
+// ---------------------------------------------------------------- archiving
+
+/**
+ * Archive with an inline confirmation (the recurring costs' pattern): the
+ * server has no unarchive, so the step is confirmed first.
+ */
+export function ArchiveConfirmView({
+  t,
+  label,
+  name,
+  confirming,
+  pending,
+  onAsk,
+  onConfirm,
+  onCancel,
+}: {
+  t: FinanceText;
+  label: string;
+  name: string;
+  confirming: boolean;
+  pending: boolean;
+  onAsk: () => void;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  if (!confirming)
+    return (
+      <Button size="sm" variant="outline" disabled={pending} onClick={onAsk}>
+        {label}
+      </Button>
+    );
+  return (
+    <span className="finance-inline" role="group" aria-label={label}>
+      <span>{t.manage.archiveConfirm.replace("{name}", () => name)}</span>
+      <Button
+        size="sm"
+        variant="destructive"
+        disabled={pending}
+        onClick={onConfirm}
+      >
+        {label}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={onCancel}>
+        {t.manage.cancel}
+      </Button>
+    </span>
+  );
+}
+
+function ArchiveConfirm(props: {
+  t: FinanceText;
+  label: string;
+  name: string;
+  pending: boolean;
+  onArchive: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <ArchiveConfirmView
+      {...props}
+      confirming={confirming}
+      onAsk={() => setConfirming(true)}
+      onCancel={() => setConfirming(false)}
+      onConfirm={() => {
+        setConfirming(false);
+        props.onArchive();
+      }}
+    />
+  );
+}
 
 // ---------------------------------------------------------------- mailboxes
 
@@ -272,7 +358,7 @@ function Mailboxes({ t }: { t: FinanceText }) {
           />
         </LoadState>
       )}
-      {action.error && <Alert kind="error">{action.error}</Alert>}
+      {action.error && <Alert kind="error">{errorText(action.error, t)}</Alert>}
     </Panel>
   );
 }
@@ -324,14 +410,15 @@ function Accounts({ t }: { t: FinanceText }) {
                 )}
                 {a.paymentAccount && <Badge>{t.accounts.payment}</Badge>}
                 {owner && !a.role && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={action.pending}
-                    onClick={() => action.run(() => api.accounts.archive(a.id))}
-                  >
-                    {t.accounts.archive}
-                  </Button>
+                  <ArchiveConfirm
+                    t={t}
+                    label={t.accounts.archive}
+                    name={`${a.code} ${a.name}`}
+                    pending={action.pending}
+                    onArchive={() =>
+                      action.run(() => api.accounts.archive(a.id))
+                    }
+                  />
                 )}
               </li>
             ))}
@@ -414,16 +501,15 @@ function Accounts({ t }: { t: FinanceText }) {
                 <strong>{c.name}</strong>{" "}
                 <Badge>{t.accounts.kinds[c.kind] ?? c.kind}</Badge>
                 {write && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={action.pending}
-                    onClick={() =>
+                  <ArchiveConfirm
+                    t={t}
+                    label={t.accounts.archive}
+                    name={c.name}
+                    pending={action.pending}
+                    onArchive={() =>
                       action.run(() => api.categories.archive(c.id))
                     }
-                  >
-                    {t.accounts.archive}
-                  </Button>
+                  />
                 )}
               </li>
             ))}
@@ -502,7 +588,9 @@ function Accounts({ t }: { t: FinanceText }) {
             </form>
           )}
         </LoadState>
-        {action.error && <Alert kind="error">{action.error}</Alert>}
+        {action.error && (
+          <Alert kind="error">{errorText(action.error, t)}</Alert>
+        )}
       </Panel>
     </>
   );
@@ -527,16 +615,15 @@ function CostCenters({ t }: { t: FinanceText }) {
                 {c.code} {c.name}
               </strong>
               {write && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={action.pending}
-                  onClick={() =>
+                <ArchiveConfirm
+                  t={t}
+                  label={t.costCenters.archive}
+                  name={`${c.code} ${c.name}`}
+                  pending={action.pending}
+                  onArchive={() =>
                     action.run(() => api.costCenters.archive(c.id))
                   }
-                >
-                  {t.costCenters.archive}
-                </Button>
+                />
               )}
             </li>
           ))}
@@ -583,7 +670,7 @@ function CostCenters({ t }: { t: FinanceText }) {
           </form>
         )}
       </LoadState>
-      {action.error && <Alert kind="error">{action.error}</Alert>}
+      {action.error && <Alert kind="error">{errorText(action.error, t)}</Alert>}
     </Panel>
   );
 }
@@ -592,7 +679,6 @@ function CostCenters({ t }: { t: FinanceText }) {
 
 const PEG = /^\d{1,12}\.\d{1,12}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const RATE = /^\d{1,12}(\.\d{1,12})?$/;
 
 function Currencies({ t }: { t: FinanceText }) {
   const { project } = useWorkspace();
@@ -627,10 +713,8 @@ function Currencies({ t }: { t: FinanceText }) {
     setDraft({ ...draft, currencies: next });
   };
   const baseEnabled = s.currencies.includes(s.baseCurrency);
-  const manualOk =
-    DATE.test(manual.date) &&
-    RATE.test(manual.perEur) &&
-    Number(manual.perEur) > 0;
+  const manualRate = rateText(manual.perEur);
+  const manualOk = DATE.test(manual.date) && manualRate !== null;
   return (
     <>
       <Panel title={t.currencies.title}>
@@ -726,7 +810,7 @@ function Currencies({ t }: { t: FinanceText }) {
             </Button>
           )}
           {save.success && <Alert kind="success">{t.saved}</Alert>}
-          {save.error && <Alert kind="error">{save.error}</Alert>}
+          {save.error && <Alert kind="error">{errorText(save.error, t)}</Alert>}
           {!owner && <p className="panel-note">{t.ownerOnly}</p>}
         </form>
       </Panel>
@@ -736,7 +820,9 @@ function Currencies({ t }: { t: FinanceText }) {
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             rate
-              .run(() => api.fxRates.set(manual))
+              .run(() =>
+                api.fxRates.set({ ...manual, perEur: manualRate ?? "" }),
+              )
               .then((ok) => ok && setManual({ ...manual, perEur: "" }));
           }}
         >
@@ -787,7 +873,7 @@ function Currencies({ t }: { t: FinanceText }) {
           {rate.success && (
             <Alert kind="success">{t.currencies.rateSaved}</Alert>
           )}
-          {rate.error && <Alert kind="error">{rate.error}</Alert>}
+          {rate.error && <Alert kind="error">{errorText(rate.error, t)}</Alert>}
         </form>
         <h3>{t.currencies.recent}</h3>
         <LoadState resources={[rates]}>
@@ -796,7 +882,9 @@ function Currencies({ t }: { t: FinanceText }) {
               {rates.data.items.slice(0, 10).map((r) => (
                 <li key={r.id} className="settings-row">
                   {r.date.slice(0, 10)} <strong>{r.currency}</strong> {r.perEur}{" "}
-                  <Badge>{r.source}</Badge>
+                  <Badge>
+                    {t.entries.detail.sources[r.source] ?? r.source}
+                  </Badge>
                 </li>
               ))}
             </ul>
@@ -833,8 +921,8 @@ export function AiExtractionForm({
   onCeiling: (text: string) => void;
   onSubmit: () => void;
 }) {
-  const micros = unitsToMicros(ceiling);
-  const ceilingOk = micros !== null && micros <= MAX_CEILING_MICROS;
+  const micros = ceilingMicros(ceiling);
+  const ceilingOk = micros !== null;
   return (
     <form
       className="settings-form"
@@ -901,17 +989,21 @@ function AiExtraction({ t }: { t: FinanceText }) {
       <AiExtractionForm
         t={t}
         enabled={draft.enabled ?? s.aiExtraction === "on"}
-        ceiling={draft.ceiling ?? microsToUnits(s.aiDailyCeilingMicros)}
+        ceiling={
+          draft.ceiling ??
+          microsToInput(String(s.aiDailyCeilingMicros), CEILING_CURRENCY)
+        }
         disabled={!owner}
         pending={save.pending}
-        error={save.error}
+        error={save.error ? errorText(save.error, t) : null}
         onToggle={(enabled) => setDraft({ ...draft, enabled })}
         onCeiling={(ceiling) => setDraft({ ...draft, ceiling })}
         onSubmit={() => {
-          const micros = unitsToMicros(
-            draft.ceiling ?? microsToUnits(s.aiDailyCeilingMicros),
+          const micros = ceilingMicros(
+            draft.ceiling ??
+              microsToInput(String(s.aiDailyCeilingMicros), CEILING_CURRENCY),
           );
-          if (micros === null || micros > MAX_CEILING_MICROS) return;
+          if (micros === null) return;
           save
             .run(() =>
               api.settings.put(
