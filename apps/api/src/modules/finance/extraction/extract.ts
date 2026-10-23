@@ -39,6 +39,7 @@ import { listCostCenters } from "../cost-centers.ts";
 import { financeActive } from "../gate.ts";
 import { dedupeKeys, duplicateCheck } from "../intake/duplicates.ts";
 import { archiveMailWhenDone } from "../intake/mail.ts";
+import { notifyReviewNeeded } from "../notifications.ts";
 import { readFinanceSettings, type FinanceSettings } from "../settings.ts";
 import { buildInstructions, documentInput, type HintOption } from "./prompt.ts";
 import {
@@ -171,7 +172,7 @@ async function toReview(
       flags: unique([...doc.flags, outcome.flag]),
       ...(outcome.agentRunId ? { agentRunId: outcome.agentRunId } : {}),
     });
-    if (moved)
+    if (moved) {
       await audit(
         tx,
         scope,
@@ -181,6 +182,9 @@ async function toReview(
         doc.id,
         { reason: outcome.reason },
       );
+      // Intake with AI off is the normal manual path, not an exception.
+      if (outcome.flag !== "ai_off") await notifyReviewNeeded(tx, scope, doc.id);
+    }
   });
 }
 
@@ -582,6 +586,7 @@ export async function runFinanceExtraction(
       }),
     });
     if (!moved) return;
+    if (status === "needs_review") await notifyReviewNeeded(tx, scope, doc.id);
     // Content-free: counts and fixed codes only.
     await audit(tx, scope, "finance.document.extracted", doc.id, {
       flags: finalFlags.length,
