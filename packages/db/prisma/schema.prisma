@@ -1105,6 +1105,7 @@ model Connection {
   secrets             ConnectionSecret[]
   grants              ConnectionGrant[]
   counters            SpendCounter[]
+  workflows           WorkflowBinding[]
 
   @@index([workspaceId])
   @@index([projectId])
@@ -1200,4 +1201,20 @@ model KnowledgeShare {
 
   @@index([workspaceId, consumerProjectId], map: "KnowledgeShare_consumer_idx")
   @@index([workspaceId, libraryProjectId], map: "KnowledgeShare_library_idx")
+}
+
+/// A workflow of an automation connection (such as n8n) bound to a
+/// product-neutral Orbit contract (ADR 0013, WP3.7).
+model WorkflowBinding {
+  id           String     @id @default(uuid()) @db.Uuid
+  connectionId String     @db.Uuid
+  contract     String
+  workflowRef  String
+  label        String
+  createdBy    String
+  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  revokedAt    DateTime?  @db.Timestamptz(3)
+  connection   Connection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
 }

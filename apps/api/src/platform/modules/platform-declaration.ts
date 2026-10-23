@@ -21,6 +21,11 @@ export const platformDeclaration: PlatformDeclaration = {
     },
     { kind: "chat_archives", description: "Archived assistant conversations" },
     {
+      kind: "workflow_runs",
+      description: "Automation workflow runs: status and codes, no payload (ADR 0013)",
+      exported: false,
+    },
+    {
       kind: "connectors",
       description: "Encrypted provider credentials and capability states",
       exported: false,
@@ -98,6 +103,7 @@ export const platformDeclaration: PlatformDeclaration = {
     "SpendCounter",
     "AiProfile",
     "KnowledgeShare",
+    "WorkflowBinding",
     "Workspace",
     "WorkspaceMember",
     "Project",

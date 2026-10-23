@@ -98,6 +98,7 @@ const GRANTED_READ_TABLES = [
   "ConnectionGrant",
   "ConnectionSecret",
   "KnowledgeShare",
+  "WorkflowBinding",
 ];
 const COUNTER_TABLES = ["SpendCounter"];
 // Tenancy tables the business role must not touch at all.

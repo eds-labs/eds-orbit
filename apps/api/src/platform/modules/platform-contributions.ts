@@ -1,3 +1,4 @@
+import { n8nConnectionProvider } from "../automation/workflows.ts";
 import {
   anthropicConnectionProvider,
   openAiConnectionProvider,
@@ -58,6 +59,8 @@ export const platformContributions: ModuleContributions = {
       // AI provider accounts, managed centrally (ADR 0013).
       openai: openAiConnectionProvider,
       anthropic: anthropicConnectionProvider,
+      // An automation layer such as n8n (WP3.7).
+      n8n: n8nConnectionProvider,
     },
   },
   jobs: [

@@ -82,6 +82,7 @@ export function ConnectionsPanel({
   const [creating, setCreating] = useState(false);
   const [rotating, setRotating] = useState<Connection | null>(null);
   const [granting, setGranting] = useState<Connection | null>(null);
+  const [workflows, setWorkflows] = useState<Connection | null>(null);
   if (list.loading && !list.data)
     return <Loading label={de ? "Wird geladen…" : "Loading…"} />;
   if (!list.data) return <ResourceError error={list.error} retry={list.refresh} />;
@@ -168,6 +169,14 @@ export function ConnectionsPanel({
                     <Button variant="outline" size="sm" onClick={() => setGranting(c)}>
                       {de ? "Freigaben" : "Grants"}
                     </Button>
+                    {own(c) &&
+                      providers
+                        .find((p) => p.id === c.provider)
+                        ?.purposes.includes("automation") && (
+                        <Button variant="ghost" size="sm" onClick={() => setWorkflows(c)}>
+                          Workflows
+                        </Button>
+                      )}
                     {own(c) && (
                       <>
                         <Button
@@ -254,6 +263,9 @@ export function ConnectionsPanel({
                 label: de ? "API-Schlüssel oder Token" : "API key or token",
                 type: "password",
                 required: true,
+                hint: de
+                  ? "n8n und Kundenkontext: JSON mit apiKey/token und signingSecret."
+                  : "n8n and customer context: JSON with apiKey/token and signingSecret.",
               },
               {
                 name: "budget",
@@ -315,6 +327,14 @@ export function ConnectionsPanel({
             }}
           />
         </Modal>
+      )}
+      {workflows && (
+        <WorkflowsDialog
+          base={base}
+          connection={workflows}
+          locale={locale}
+          onClose={() => setWorkflows(null)}
+        />
       )}
       {granting && (
         <GrantsDialog
@@ -491,6 +511,97 @@ function GrantsDialog({
         }
       />
       )}
+    </Modal>
+  );
+}
+
+type Binding = { id: string; contract: string; workflowRef: string; label: string };
+
+/** Workflows of an automation connection bound to Orbit contracts (WP3.7). */
+function WorkflowsDialog({
+  base,
+  connection,
+  locale,
+  onClose,
+}: {
+  base: string;
+  connection: Connection;
+  locale: Locale;
+  onClose: () => void;
+}) {
+  const de = locale === "de";
+  const list = useResource<{ items: Binding[] }>(`${base}/${connection.id}/workflows`);
+  const action = useMutation(list.refresh);
+  const unbindBase = base.replace(/\/connections$/, "/connection-workflows");
+  return (
+    <Modal
+      title={`Workflows · ${connection.label}`}
+      description={
+        de
+          ? "Ein Workflow bedient einen neutralen Orbit-Vertrag; produktspezifische Logik bleibt im Workflow."
+          : "A workflow serves a neutral Orbit contract; product-specific logic stays in the workflow."
+      }
+      onClose={onClose}
+      wide
+    >
+      {action.error && <Alert kind="error">{errorText(action.error, locale)}</Alert>}
+      {list.data?.items.length ? (
+        <div className="data-list">
+          {list.data.items.map((b) => (
+            <div className="data-row" key={b.id}>
+              <div>
+                <strong>{b.label}</strong>
+                <p>
+                  {b.contract} · {b.workflowRef}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={action.pending}
+                onClick={() => void action.run(() => remove(`${unbindBase}/${b.id}`))}
+              >
+                {de ? "Entfernen" : "Remove"}
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Empty title={de ? "Noch keine Workflows." : "No workflows yet."} />
+      )}
+      <DataForm
+        fields={[
+          { name: "label", label: de ? "Bezeichnung" : "Label", required: true },
+          {
+            name: "contract",
+            label: de ? "Vertrag" : "Contract",
+            type: "select",
+            value: "automation.v1",
+            options: [
+              { value: "automation.v1", label: "automation.v1" },
+              { value: "customer_context.v1", label: "customer_context.v1" },
+            ],
+          },
+          {
+            name: "workflowRef",
+            label: de ? "Webhook-Pfad" : "Webhook path",
+            required: true,
+            placeholder: "orbit/ticket-closed",
+          },
+        ]}
+        pending={action.pending}
+        error={null}
+        submitLabel={de ? "Hinzufügen" : "Add"}
+        onSubmit={(v) =>
+          void action.run(() =>
+            post(`${base}/${connection.id}/workflows`, {
+              label: str(v, "label"),
+              contract: str(v, "contract"),
+              workflowRef: str(v, "workflowRef"),
+            }),
+          )
+        }
+      />
     </Modal>
   );
 }

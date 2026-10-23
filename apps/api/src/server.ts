@@ -375,6 +375,11 @@ export async function buildServer(
       ) &&
       !(req.method === "POST" && TELEGRAM_WEBHOOK_PATH.test(req.url)) &&
       !(req.method === "POST" && WEBHOOK_URL.test(req.url)) &&
+      // Workflow outcomes are signed with the connection's secret (WP3.7).
+      !(
+        req.method === "POST" &&
+        /^\/api\/automation\/callbacks\/[a-f0-9-]{36}\/[a-f0-9-]{36}$/.test(req.url)
+      ) &&
       // The public API checks the Origin itself, against its key (WP4.2b).
       !(req.method === "POST" && PUBLIC_URL.test(req.url)) &&
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&

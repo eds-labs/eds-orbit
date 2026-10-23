@@ -101,7 +101,12 @@ function normalizeConfig(def: ConnectionProvider, config: Record<string, unknown
   return out as Prisma.InputJsonValue;
 }
 
-async function owned(tx: DbTx, actor: ConnectionActor, id: string) {
+/** A connection the actor manages; 404 otherwise. */
+export async function owned(
+  tx: DbTx,
+  actor: ConnectionActor,
+  id: string,
+) {
   const connection = await tx.connection.findFirst({
     where: { id: z.uuid().parse(id), revokedAt: null },
   });
@@ -758,4 +763,84 @@ export async function projectConnections(workspaceId: string, projectId: string)
       modules: g.modules,
     })),
   };
+}
+
+export const workflowInput = z
+  .object({
+    contract: z.enum(["automation.v1", "customer_context.v1"]),
+    workflowRef: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9/_-]{0,199}$/),
+    label: z.string().trim().min(1).max(100),
+  })
+  .strict();
+
+/** The workflows bound to an automation connection the actor manages. */
+export async function listWorkflows(actor: ConnectionActor, connectionId: string) {
+  const connection = await authDb.$transaction((tx) => owned(tx, actor, connectionId));
+  const rows = await authDb.workflowBinding.findMany({
+    where: { connectionId: connection.id, revokedAt: null },
+    orderBy: { createdAt: "asc" },
+  });
+  return {
+    items: rows.map((b) => ({
+      id: b.id,
+      contract: b.contract,
+      workflowRef: b.workflowRef,
+      label: b.label,
+      createdAt: b.createdAt,
+    })),
+  };
+}
+
+export async function bindWorkflow(
+  actor: ConnectionActor,
+  connectionId: string,
+  raw: unknown,
+) {
+  const input = workflowInput.parse(raw);
+  return authDb.$transaction(async (tx) => {
+    const connection = await owned(tx, actor, connectionId);
+    if (!(provider(connection.provider).purposes ?? []).includes("automation"))
+      throw new DomainError("NOT_AN_AUTOMATION_CONNECTION", 409);
+    const binding = await tx.workflowBinding.create({
+      data: { connectionId: connection.id, ...input, createdBy: actor.userId },
+    });
+    await systemAudit(
+      {
+        actorId: actor.userId,
+        action: "workflow.bound",
+        targetType: "connection",
+        targetId: connection.id,
+        workspaceId: connection.workspaceId,
+        metadata: { bindingId: binding.id, contract: input.contract },
+      },
+      tx,
+    );
+    return binding;
+  });
+}
+
+export async function unbindWorkflow(actor: ConnectionActor, bindingId: string) {
+  await authDb.$transaction(async (tx) => {
+    const binding = await tx.workflowBinding.findFirst({
+      where: { id: z.uuid().parse(bindingId), revokedAt: null },
+    });
+    if (!binding) throw new DomainError("NOT_FOUND", 404);
+    const connection = await owned(tx, actor, binding.connectionId);
+    await tx.workflowBinding.update({
+      where: { id: binding.id },
+      data: { revokedAt: new Date() },
+    });
+    await systemAudit(
+      {
+        actorId: actor.userId,
+        action: "workflow.unbound",
+        targetType: "connection",
+        targetId: connection.id,
+        workspaceId: connection.workspaceId,
+        metadata: { bindingId: binding.id },
+      },
+      tx,
+    );
+  });
+  return { removed: true };
 }

@@ -17,8 +17,19 @@ import {
   rotateSecret,
   setConnectionDisabled,
   updateConnection,
+  bindWorkflow,
+  listWorkflows,
+  unbindWorkflow,
   type ConnectionActor,
 } from "./connections.ts";
+import {
+  executionStatus,
+  listRuns,
+  projectBindings,
+  receiveCallback,
+  triggerWorkflow,
+} from "../automation/workflows.ts";
+import { PROJECT_OWN } from "../tenancy/permissions.ts";
 import { aiProfile, saveAiProfile } from "./ai-profiles.ts";
 
 // Central connections (ADR 0013): system connections for administrators,
@@ -30,6 +41,8 @@ export function isConnectionRoute(url: string) {
     url.startsWith("/api/admin/connection") ||
     url.startsWith("/api/admin/ai/") ||
     url.startsWith("/api/organizations/:workspaceId/ai/") ||
+    url.startsWith("/api/projects/:projectId/workflow-") ||
+    url.startsWith("/api/automation/") ||
     url.startsWith("/api/organizations/:workspaceId/connection") ||
     url === "/api/projects/:projectId/connections"
   );
@@ -92,6 +105,14 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
     app.get(`${base}/:connectionId/usage`, async (req) =>
       connectionUsage(await actor(req), id(req, "connectionId")),
     );
+    app.get(`${base}/:connectionId/workflows`, async (req) =>
+      listWorkflows(await actor(req), id(req, "connectionId")),
+    );
+    app.post(`${base}/:connectionId/workflows`, async (req, reply) =>
+      reply
+        .code(201)
+        .send(await bindWorkflow(await actor(req), id(req, "connectionId"), req.body)),
+    );
     app.post(`${base}/:connectionId/grants`, async (req, reply) =>
       reply
         .code(201)
@@ -115,6 +136,56 @@ export function registerConnectionRoutes(app: FastifyInstance, auth: Auth) {
       return reply.code(204).send();
     },
   );
+  app.delete("/api/admin/connection-workflows/:bindingId", async (req, reply) => {
+    await unbindWorkflow(await admin(req), id(req, "bindingId"));
+    return reply.code(204).send();
+  });
+  app.delete(
+    "/api/organizations/:workspaceId/connection-workflows/:bindingId",
+    async (req, reply) => {
+      await unbindWorkflow(await owner(req), id(req, "bindingId"));
+      return reply.code(204).send();
+    },
+  );
+  // Automation workflows of a project (WP3.7): members see bindings and
+  // runs; owners trigger and read an execution's state.
+  const member = async (req: FastifyRequest, required?: typeof PROJECT_OWN) => {
+    enabled();
+    return scopeFor(auth, req, id(req, "projectId"), required);
+  };
+  app.get("/api/projects/:projectId/workflow-bindings", async (req) =>
+    projectBindings(await member(req)),
+  );
+  app.get("/api/projects/:projectId/workflow-runs", async (req) =>
+    listRuns(await member(req)),
+  );
+  app.post("/api/projects/:projectId/workflow-runs", async (req, reply) =>
+    reply.code(201).send(await triggerWorkflow(await member(req, PROJECT_OWN), req.body)),
+  );
+  app.get("/api/projects/:projectId/workflow-runs/:runId/execution", async (req) =>
+    executionStatus(await member(req, PROJECT_OWN), id(req, "runId")),
+  );
+  // Signed workflow outcomes; the raw body is what the signature covers.
+  void app.register(async (child) => {
+    child.addContentTypeParser(
+      "application/json",
+      { parseAs: "string", bodyLimit: 16 * 1024 },
+      (_req, body, done) => done(null, body),
+    );
+    child.post(
+      "/api/automation/callbacks/:projectId/:runId",
+      { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } },
+      async (req) => {
+        enabled();
+        return receiveCallback(
+          id(req, "projectId"),
+          id(req, "runId"),
+          req.headers as Record<string, unknown>,
+          typeof req.body === "string" ? req.body : "",
+        );
+      },
+    );
+  });
   // AI profiles: the system's (administrators) and an organization's (owners).
   app.get("/api/admin/ai/profile", async (req) => {
     await admin(req);

@@ -35,9 +35,15 @@ export function GrantedConnections({
   );
   const bind = useMutation(refresh);
   const items = (granted.data?.items ?? []).filter(
-    (g) => !["openai", "anthropic"].includes(g.provider),
+    (g) => !["openai", "anthropic", "n8n"].includes(g.provider),
   );
-  if (!identity.connections || !items.length) return null;
+  const runs = useResource<{ items: Run[] }>(
+    identity.connections
+      ? `/projects/${encodeURIComponent(project.id)}/workflow-runs`
+      : null,
+  );
+  const recent = runs.data?.items ?? [];
+  if (!identity.connections || (!items.length && !recent.length)) return null;
   return (
     <section className="connector">
       <div className="connector-mark">
@@ -89,7 +95,43 @@ export function GrantedConnections({
             );
           })}
         </div>
+        {recent.length > 0 && (
+          <>
+            <h3 className="field-heading">
+              {de ? "Letzte Workflow-Läufe" : "Recent workflow runs"}
+            </h3>
+            <div className="data-list">
+              {recent.slice(0, 5).map((r) => (
+                <div className="data-row" key={r.id}>
+                  <div>
+                    <strong>{r.event}</strong>
+                    <p>{r.errorCode ?? r.executionId ?? ""}</p>
+                  </div>
+                  <Badge
+                    tone={
+                      r.status === "completed" || r.status === "accepted"
+                        ? "success"
+                        : r.status === "failed" || r.status === "outcome_unknown"
+                          ? "danger"
+                          : "neutral"
+                    }
+                  >
+                    {r.status.replaceAll("_", " ")}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </section>
   );
 }
+
+type Run = {
+  id: string;
+  event: string;
+  status: string;
+  errorCode: string | null;
+  executionId: string | null;
+};
