@@ -28,6 +28,7 @@ import { financeText, type FinanceText } from "./labels";
 import { useLast, useMasterData } from "./lists";
 import { formatMoney } from "./money";
 import { payable, PaymentFormView, sameSettlement } from "./payment-form";
+import { DetailBack, useDetailFocus } from "./detail-head";
 import { ReasonDialog } from "./void-dialog";
 
 // Invoices, receipts and credit notes with what is still open (spec §9).
@@ -119,6 +120,7 @@ function InvoiceDetailPanel({
   );
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const invoice = useLast(detail.data);
+  const heading = useDetailFocus(Boolean(invoice));
   if (!invoice)
     return detail.error ? (
       <ResourceError error={detail.error} retry={detail.refresh} />
@@ -136,9 +138,12 @@ function InvoiceDetailPanel({
       className="panel finance-detail"
       aria-label={invoice.number ?? v.detail}
     >
+      <DetailBack label={t.manage.back} onBack={onClose} />
       <div className="panel-head">
         <div>
-          <h2>{invoice.number ?? v.unnumbered}</h2>
+          <h2 ref={heading} tabIndex={-1}>
+            {invoice.number ?? v.unnumbered}
+          </h2>
           <p className="finance-detail-meta">
             <Badge>{v.kinds[invoice.kind] ?? invoice.kind}</Badge>
             <Badge tone={statusTone(invoice.displayStatus)}>

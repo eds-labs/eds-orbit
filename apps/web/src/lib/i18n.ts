@@ -144,6 +144,9 @@ export const labels = {
     backHome: "Back to start",
     moduleOff: "Module turned off",
     moduleOffHint: "An owner turned this module off for the project.",
+    moduleNoAccess: "No access",
+    moduleNoAccessHint:
+      "Your role in this project does not include this module. Ask an owner if you need access.",
     askAssistantHint:
       "Your text opens in Orbit Chat; nothing is sent until you press Send.",
     askAssistantLabel: "Message for Orbit Chat",
@@ -412,6 +415,9 @@ export const labels = {
     backHome: "Zurück zum Start",
     moduleOff: "Modul ausgeschaltet",
     moduleOffHint: "Ein Owner hat dieses Modul für das Projekt ausgeschaltet.",
+    moduleNoAccess: "Kein Zugriff",
+    moduleNoAccessHint:
+      "Ihre Rolle in diesem Projekt umfasst dieses Modul nicht. Fragen Sie einen Owner, wenn Sie Zugriff brauchen.",
     askAssistantHint:
       "Dein Text öffnet sich im Orbit Chat; gesendet wird erst mit Senden.",
     askAssistantLabel: "Nachricht für den Orbit Chat",

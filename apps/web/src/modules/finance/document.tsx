@@ -27,6 +27,7 @@ import {
 } from "./api";
 import { useFinanceAccess } from "./access";
 import { BookingForm, draftOf, type Booking } from "./booking-form";
+import { DetailBack, useDetailFocus } from "./detail-head";
 import { financeText, type FinanceText } from "./labels";
 
 // The review detail (spec §9): the original beside the booking form, the
@@ -366,6 +367,7 @@ export function FinanceDocumentDetail({
     if (detail.data) dispatch({ type: "loaded", doc: detail.data });
   }
   const doc = shown.doc;
+  const heading = useDetailFocus(Boolean(doc));
   const lock = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -443,9 +445,12 @@ export function FinanceDocumentDetail({
       className="panel finance-detail"
       aria-label={doc.originalName ?? t.dashboard.unnamedReceipt}
     >
+      <DetailBack label={t.manage.back} onBack={onClose} />
       <div className="panel-head">
         <div>
-          <h2>{doc.originalName ?? t.dashboard.unnamedReceipt}</h2>
+          <h2 ref={heading} tabIndex={-1}>
+            {doc.originalName ?? t.dashboard.unnamedReceipt}
+          </h2>
           <p className="finance-detail-meta">
             <Badge tone={doc.status === "failed" ? "danger" : "neutral"}>
               {status}

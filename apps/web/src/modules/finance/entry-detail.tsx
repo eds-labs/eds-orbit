@@ -16,6 +16,7 @@ import {
 } from "./api";
 import type { FinanceText } from "./labels";
 import { formatMoney } from "./money";
+import { DetailBack, useDetailFocus } from "./detail-head";
 import { ReasonDialog } from "./void-dialog";
 
 // One journal entry (spec §9): its lines with the original amount, the rate
@@ -129,6 +130,7 @@ export function EntryDetail({
   const reviewHref = `${financeHref}/review`;
   const invoicesHref = `${financeHref}/invoices`;
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  const heading = useDetailFocus(true);
   // Bumped after a void, so the invoice section loads the invoice again.
   const [revision, setRevision] = useState(0);
   const account = (id: string) => {
@@ -154,9 +156,12 @@ export function EntryDetail({
       className="panel finance-detail"
       aria-label={fill(d.title, { number: entry.number })}
     >
+      <DetailBack label={t.manage.back} onBack={onClose} />
       <div className="panel-head">
         <div>
-          <h2>{fill(d.title, { number: entry.number })}</h2>
+          <h2 ref={heading} tabIndex={-1}>
+            {fill(d.title, { number: entry.number })}
+          </h2>
           <p className="finance-detail-meta">
             <Badge>{kind}</Badge>
             <span>{entry.entryDate.slice(0, 10)}</span>

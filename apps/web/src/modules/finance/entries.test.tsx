@@ -269,6 +269,8 @@ describe("entry detail", () => {
     expect(html).toContain("ECB");
     expect(html).toContain("$110.00");
     expect(html).toContain('<th scope="col">In USD</th>');
+    expect(html).toContain("finance-back");
+    expect(html).toMatch(/<h2 tabindex="-1">/);
   });
 
   it("links the original document and shows the reversal relations", () => {

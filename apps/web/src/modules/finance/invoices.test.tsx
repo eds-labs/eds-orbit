@@ -347,6 +347,20 @@ describe("FinanceInvoices", () => {
     expect(html).toContain("Void invoice");
     expect(html).toContain("Record payment");
     expect(invoiceFilters(new URLSearchParams("status=bogus")).status).toBe("");
+    // Narrow screens: the open detail replaces the list (class state), with
+    // a back control and a heading that takes the focus.
+    expect(html).toContain('class="finance-review finance-review-open"');
+    expect(html).toContain("finance-back");
+    expect(html).toContain("Back to the list");
+    expect(html).toMatch(/<h2 tabindex="-1">INV-1<\/h2>/);
+  });
+
+  it("keeps the list alone while no invoice is open", () => {
+    search.value = "";
+    answers["/invoices"] = { items: [invoice()] };
+    const html = render(<FinanceInvoices />);
+    expect(html).toContain('class="finance-review"');
+    expect(html).not.toContain("finance-back");
   });
 
   it("marks voided payments and offers Void payment only on live ones", () => {

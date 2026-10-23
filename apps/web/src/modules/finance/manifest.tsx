@@ -34,6 +34,8 @@ const label = (key: keyof typeof labels.en): Label => ({
 export const financeWeb: WebModule = {
   id: "finance",
   optIn: true,
+  // Finance data is sensitive (spec §8): viewers see nothing of it.
+  minAccess: "editor",
   displayName: { en: "Finance", de: "Finanzen" },
   description: {
     en: "Receipts, bookings, invoices and reports.",

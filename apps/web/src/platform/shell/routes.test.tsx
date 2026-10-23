@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Home } from "lucide-react";
 import { webRegistry } from "@/modules/registry";
 import {
+  accessReaches,
   activeNavKey,
   crumbs,
   defaultProject,
@@ -420,6 +421,31 @@ describe("Web route registry", () => {
     expect(
       moduleShown([{ id: "support", enabled: true }], "support", true),
     ).toBe(true);
+  });
+
+  it("hides a module from members below its minAccess (finance: viewers)", () => {
+    expect(accessReaches("viewer", "editor")).toBe(false);
+    expect(accessReaches("editor", "editor")).toBe(true);
+    expect(accessReaches("owner", "editor")).toBe(true);
+    expect(accessReaches("editor", "owner")).toBe(false);
+    expect(accessReaches(undefined, "editor")).toBe(true);
+    expect(accessReaches("viewer")).toBe(true);
+    const finance = webRegistry.modules.find((m) => m.id === "finance")!;
+    expect(finance.minAccess).toBe("editor");
+    const states = (access: string) => [
+      { id: "finance", enabled: true, access },
+    ];
+    for (const [access, shown] of [
+      ["viewer", false],
+      ["editor", true],
+      ["owner", true],
+    ] as const)
+      expect(
+        moduleShown(states(access), "finance", true, finance.minAccess),
+        access,
+      ).toBe(shown);
+    // Without minAccess a viewer keeps the module (platform semantics).
+    expect(moduleShown(states("viewer"), "finance", true)).toBe(true);
   });
 
   it("rejects conflicting registries", () => {

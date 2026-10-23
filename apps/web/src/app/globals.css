@@ -826,6 +826,19 @@ pre {
 .finance-review-open {
   grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
 }
+/* Back to the list: only where an open detail replaces the list. */
+.finance-back {
+  display: none;
+  justify-self: start;
+  margin: 12px 0 0 var(--settings-inset, 21px);
+}
+.finance-detail h2:focus {
+  outline: none;
+}
+.finance-detail h2:focus-visible {
+  outline: 2px solid var(--ring, var(--primary));
+  outline-offset: 2px;
+}
 .finance-queue .list-row[aria-current="true"] {
   border-color: var(--primary);
 }
@@ -976,6 +989,13 @@ pre {
   .finance-review-open,
   .finance-detail-split {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* Support's pattern: an open detail replaces the list. */
+  .finance-review-open > .finance-queue {
+    display: none;
+  }
+  .finance-back {
+    display: inline-flex;
   }
   .finance-preview iframe {
     height: 420px;
