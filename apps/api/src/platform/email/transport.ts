@@ -275,6 +275,14 @@ async function fetchSources(
   return { messages, skipped: skipped.sort((a, b) => a - b) };
 }
 
+/**
+ * The configured archive folder uses "/" between levels; the server's own
+ * hierarchy delimiter (e.g. "." on some servers) replaces it.
+ */
+export function folderPath(folder: string, delimiter: string) {
+  return delimiter === "/" ? folder : folder.split("/").join(delimiter);
+}
+
 const realFactories: MailFactories = {
   checkHost: async (host) => void (await assertPublicMailHost(host)),
   transport(account, password) {
@@ -370,6 +378,9 @@ const realFactories: MailFactories = {
             { uid: true },
           );
           if (!found || !found.length) return "missing" as const;
+          const delimiter =
+            (await c.list()).find((m) => m.path === "INBOX")?.delimiter || "/";
+          folder = folderPath(folder, delimiter);
           // An existing folder makes the create fail; the move then decides.
           await c.mailboxCreate(folder).catch(() => undefined);
           const moved = await c.messageMove(String(state.uid), folder, {

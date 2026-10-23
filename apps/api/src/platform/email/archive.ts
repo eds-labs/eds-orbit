@@ -34,6 +34,7 @@ export async function requestInboundArchive(
   inboundEmailId: string,
   folder: string,
   moduleId: string,
+  options: { retry?: boolean } = {},
 ) {
   const name = folder.trim();
   if (!name || name.length > 200 || /[\u0000-\u001f\u007f]/.test(name))
@@ -49,10 +50,16 @@ export async function requestInboundArchive(
   if (!connection || mailboxOwner(data(connection)) !== moduleId)
     throw new DomainError("EMAIL_ARCHIVE_NOT_OWNER", 403);
   if (d.archivedAt) return;
+  // A request on a row whose earlier attempt failed keeps the recorded error
+  // (the finished job would not run again, and a module must not loop). Only
+  // an explicit retry starts a new attempt, under a fresh idempotency key.
+  if (d.archiveError && !options.retry) return;
+  const attempt = d.archiveError ? Number(d.archiveAttempts ?? 0) + 1 : 0;
   await update(tx, scope, row, {
     ...d,
     archiveFolder: name,
     archiveError: null,
+    ...(attempt ? { archiveAttempts: attempt } : {}),
   });
   await audit(tx, scope, "email.archive.requested", inboundEmailId, {
     inboundEmailId,
@@ -64,7 +71,9 @@ export async function requestInboundArchive(
     scope,
     ARCHIVE_QUEUE,
     inboundEmailId,
-    `email-archive:${inboundEmailId}`,
+    attempt
+      ? `email-archive:${inboundEmailId}:${attempt}`
+      : `email-archive:${inboundEmailId}`,
   );
 }
 
@@ -93,7 +102,7 @@ export async function archiveInboundEmail(
         scope,
         String(d.connectionId),
       );
-      if (!connection) throw new Error("EMAIL_ARCHIVE_NOT_CONNECTED");
+      if (!connection) return "not_connected" as const;
       return {
         folder: String(d.archiveFolder),
         state: { uidValidity: String(d.uidValidity), uid: Number(d.uid) },
@@ -103,6 +112,10 @@ export async function archiveInboundEmail(
     },
   );
   if (!prepared) return;
+  if (prepared === "not_connected") {
+    await record({ archiveError: "NOT_CONNECTED" });
+    throw new Error("EMAIL_ARCHIVE_NOT_CONNECTED");
+  }
   let outcome: "moved" | "missing" | "uid_validity_changed";
   try {
     outcome = await mailFactories()

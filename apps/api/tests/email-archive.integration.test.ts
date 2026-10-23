@@ -18,6 +18,7 @@ import {
   requestInboundArchive,
 } from "../src/platform/email/archive.ts";
 import {
+  folderPath,
   setMailFactoriesForTests,
   MailSendError,
   type FetchedMessage,
@@ -255,5 +256,50 @@ describe.skipIf(!enabled)("inbound e-mail archive", () => {
     await archiveInboundEmail(scope, id);
     await request(id);
     expect(moves).toHaveLength(1);
+  });
+
+  it("keeps a recorded error on a repeated request and retries only on demand", async () => {
+    moveResult = "missing";
+    const id = await receive();
+    await request(id);
+    await archiveInboundEmail(scope, id);
+    await request(id);
+    expect((await inbound(id)).archiveError).toBe("MISSING");
+    expect(await run((tx) => lastArchiveError(tx, scope, connectionId))).toBe(
+      "MISSING",
+    );
+    const topics = async () =>
+      (await run((tx) => list(tx, scope, "jobs"))).filter(
+        (j) => data(j).resourceId === id && data(j).topic === "email_archive",
+      );
+    expect(await topics()).toHaveLength(1);
+    moveResult = "moved";
+    await run((tx) =>
+      requestInboundArchive(tx, scope, id, "Orbit/Processed", "finance", {
+        retry: true,
+      }),
+    );
+    expect(await topics()).toHaveLength(2);
+    await archiveInboundEmail(scope, id);
+    const row = await inbound(id);
+    expect(row.archivedAt).toEqual(expect.any(String));
+    expect(row.archiveError).toBeNull();
+  });
+
+  it("records a mailbox that is no longer connected", async () => {
+    const id = await receive();
+    await request(id);
+    await run(async (tx) => {
+      const c = await entity(tx, scope, "connectors", connectionId);
+      await update(tx, scope, c, { ...data(c), status: "configured" });
+    });
+    const error = await archiveInboundEmail(scope, id).catch((e) => e);
+    expect(error.message).toBe("EMAIL_ARCHIVE_NOT_CONNECTED");
+    expect((await inbound(id)).archiveError).toBe("NOT_CONNECTED");
+  });
+
+  it("translates the folder to the server's hierarchy delimiter", () => {
+    expect(folderPath("Orbit/Processed", "/")).toBe("Orbit/Processed");
+    expect(folderPath("Orbit/Processed", ".")).toBe("Orbit.Processed");
   });
 });
