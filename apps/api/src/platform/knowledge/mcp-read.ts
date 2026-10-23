@@ -136,12 +136,20 @@ export async function searchForModel(
         options.budget,
         undefined,
         options.trace,
+        { shared: false },
       );
     } catch (error) {
       if (!(await isPreSpendFailure(scope, error, options.budget))) throw error;
     }
   }
-  outcome ??= await knowledgeSearch(scope, { query });
+  outcome ??= await knowledgeSearch(
+    scope,
+    { query },
+    undefined,
+    undefined,
+    undefined,
+    { shared: false },
+  );
   const result = searchResult.parse(outcome.result);
   const { items, usable } = await scoped(
     scope.workspaceId,

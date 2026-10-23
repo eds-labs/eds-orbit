@@ -12,7 +12,6 @@ import {
   respond,
   type TaskClass,
 } from "../../../../../packages/ai/src/index.ts";
-import { validateEvidence } from "../../../../../packages/knowledge/src/index.ts";
 import { markTransmitted, reserve, settle } from "../../platform/ai/budget.ts";
 import { planCall } from "../../platform/ai/call-plan.ts";
 import {
@@ -28,7 +27,10 @@ import {
   startRun,
 } from "../../platform/ai/telemetry.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
-import { knowledgeSearch } from "../../platform/knowledge/search.ts";
+import {
+  knowledgeSearch,
+  validateSearchResult,
+} from "../../platform/knowledge/search.ts";
 import { audit, DomainError } from "../../shared.ts";
 import { notifyHandoff } from "./automations.ts";
 import { supportSettings, ticketEvent } from "./common.ts";
@@ -676,10 +678,9 @@ async function draft(scope: Scope, ticketId: string, run: RunOptions) {
   // has no evidence pack to check.
   if (!account || result.citations.some((c) => knowledgeIds.includes(c))) {
     if (evidenceId) {
-      const valid = await scoped(scope.workspaceId, scope.projectId, (tx) =>
-        validateEvidence(tx, scope, evidenceId),
-      );
-      if (!valid.valid) problems.push("evidence_invalid");
+      // Shared organization knowledge (ADR 0013) is checked in its library.
+      const valid = await validateSearchResult(scope, search.result as never);
+      if (!valid) problems.push("evidence_invalid");
     } else problems.push("evidence_missing");
   }
   // An account that cannot be checked must be said so, not answered.

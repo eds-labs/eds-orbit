@@ -198,6 +198,11 @@ import {
 } from "./platform/administration/connection-routes.ts";
 import { connectionsEnabled } from "./platform/connections/central.ts";
 import {
+  isShareRoute,
+  registerShareRoutes,
+} from "./platform/knowledge/share-routes.ts";
+import { sharesEnabled } from "./platform/knowledge/shares.ts";
+import {
   isAccountRoute,
   registerAccountRoutes,
 } from "./platform/account/routes.ts";
@@ -351,6 +356,8 @@ export async function buildServer(
     // Central connections (ADR 0013) exist only while their flag is on.
     if (isConnectionRoute(req.routeOptions.url ?? "") && !connectionsEnabled())
       throw new DomainError("NOT_FOUND", 404);
+    if (isShareRoute(req.routeOptions.url ?? "") && !sharesEnabled())
+      throw new DomainError("NOT_FOUND", 404);
     // Public ingress (WP4.2) does not exist while its flag is off. The
     // route pattern, not the raw URL: /api/%70ublic/... matches it too.
     if (
@@ -471,6 +478,7 @@ export async function buildServer(
   registerAdministrationRoutes(app, auth, { runtimeHealth });
   registerAccountRoutes(app, auth);
   registerConnectionRoutes(app, auth);
+  registerShareRoutes(app, auth);
   // Probes log at warn level only so they do not flood info logs.
   app.get("/health", { logLevel: "warn" }, async () => ({
     status: "ok",

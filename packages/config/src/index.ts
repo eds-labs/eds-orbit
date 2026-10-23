@@ -178,6 +178,9 @@ const baseConfigSchema = z.object({
   // (ADR 0013). Off: the routes answer 404 and the runtime ignores central
   // connections, so every project keeps using its own settings.
   ORBIT_CONNECTIONS: z.enum(["false", "true"]).default("false"),
+  // Organization knowledge libraries shared with projects (ADR 0013, E1).
+  // Off: shares are ignored and their routes answer 404.
+  ORBIT_KNOWLEDGE_SHARES: z.enum(["false", "true"]).default("false"),
   // Optional master-key ring for connection secrets: "id:hex64,id:hex64",
   // newest first. New secrets use the first key; CREDENTIAL_KEY stays
   // readable as key id "default".

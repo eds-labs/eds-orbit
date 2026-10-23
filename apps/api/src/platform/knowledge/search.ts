@@ -6,6 +6,7 @@ import {
   validateEvidence,
 } from "../../../../../packages/knowledge/src/index.ts";
 import { retrieveHybrid } from "./retrieval.ts";
+import { sharedSearch, validateShared, type SharedOrigin } from "./shares.ts";
 import { data, DomainError } from "../shared.ts";
 import type { ChatCard } from "../assistant/cards.ts";
 
@@ -31,6 +32,21 @@ export const knowledgeSearchResult = z
         indexProfile: z.string().min(1).max(160),
         indexGeneration: z.number().int().positive(),
         evidenceId: z.uuid(),
+        // Results from shared organization libraries (ADR 0013).
+        shared: z
+          .array(
+            z
+              .object({
+                shareId: z.uuid(),
+                generation: z.number().int().positive(),
+                libraryProjectId: z.uuid(),
+                libraryName: z.string(),
+                evidenceId: z.uuid(),
+              })
+              .strict(),
+          )
+          .max(3)
+          .optional(),
       })
       .strict(),
     facts: z
@@ -59,6 +75,8 @@ export async function knowledgeSearch(
   budget?: SearchBudget,
   consumer?: string,
   trace?: SearchTrace,
+  // MCP reads only the project's own knowledge (ADR 0013).
+  options: { shared?: boolean } = {},
 ): Promise<{ result: unknown; cards: ChatCard[] }> {
   const input = knowledgeSearchInput.parse(raw);
   const language = await scoped(
@@ -92,7 +110,7 @@ export async function knowledgeSearch(
     : await scoped(scope.workspaceId, scope.projectId, (tx) =>
         retrieve(tx, scope, request),
       );
-  return scoped(scope.workspaceId, scope.projectId, async (tx) => {
+  const own = await scoped(scope.workspaceId, scope.projectId, async (tx) => {
     const value = data(evidence);
     if (
       value.purpose !== "public" ||
@@ -178,4 +196,73 @@ export async function knowledgeSearch(
       cards,
     };
   });
+  // Shared organization libraries fill the remaining slots, own results first.
+  const shared =
+    options.shared === false
+      ? []
+      : await sharedSearch(scope, request, consumer ?? "assistant");
+  if (!shared.length) return own;
+  const result = own.result as {
+    status: string;
+    retrieval: Record<string, unknown>;
+    facts: unknown[];
+    passages: unknown[];
+  };
+  for (const set of shared) {
+    const origin = { library: clipped(set.origin.libraryName, 120), shareId: set.origin.shareId };
+    for (const f of set.facts)
+      if (result.facts.length < 8)
+        result.facts.push({
+          id: f.id,
+          version: f.version,
+          key: clipped(f.key, 160),
+          value: clipped(f.value, 500),
+          sourceId: f.sourceId,
+          origin,
+        });
+    for (const i of set.items)
+      if (result.passages.length < 6)
+        result.passages.push({
+          chunkId: i.chunkId ?? i.id,
+          sourceId: i.sourceId,
+          title: clipped(i.title, 160),
+          text: clipped(i.text, 700),
+          url: clipped(i.canonicalUrl, 500),
+          origin,
+        });
+    for (const [id, name] of set.sources)
+      own.cards.push({
+        kind: "source",
+        label: clipped(`${set.origin.libraryName} · ${name}`, 120),
+        href: "/knowledge",
+        status: "verified",
+        resourceId: id,
+      } as ChatCard);
+  }
+  if (result.facts.length || result.passages.length) result.status = "ready";
+  result.retrieval.shared = shared.map((s) => s.origin);
+  return own;
+}
+
+/**
+ * Whether a search result may still be used: its own evidence and every
+ * shared library it drew from (share active, same generation, library
+ * evidence valid).
+ */
+export async function validateSearchResult(
+  scope: Scope,
+  result: { retrieval?: { evidenceId?: string; shared?: SharedOrigin[] } },
+) {
+  const evidenceId = result.retrieval?.evidenceId;
+  if (!evidenceId) return false;
+  const own = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    validateEvidence(tx, scope, evidenceId),
+  );
+  // Own evidence that found nothing contributed nothing to check.
+  const nothingOwn = own.reasons.every(
+    (r) => r === "insufficient_evidence" || r === "evidence_not_public_ready",
+  );
+  if (!own.valid && !(nothingOwn && result.retrieval?.shared?.length))
+    return false;
+  return validateShared(scope, result.retrieval?.shared ?? []);
 }
