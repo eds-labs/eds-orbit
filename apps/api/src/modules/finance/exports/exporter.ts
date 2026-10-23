@@ -8,7 +8,6 @@ import {
   storeFile,
 } from "../../../platform/files/files.ts";
 import { isoDate } from "../common.ts";
-import { retainUntilFor } from "../intake/documents.ts";
 import { formatMicros } from "../money.ts";
 import { readFinanceSettings } from "../settings.ts";
 import { csvFile, csvRow } from "./csv.ts";
@@ -468,14 +467,8 @@ export async function createExport(
   if (!exporter) throw new DomainError("EXPORT_KIND_UNKNOWN", 422);
   const period = { from: input.from, to: input.to };
   validPeriod(period);
-  const { built, retainYears } = await scoped(
-    scope.workspaceId,
-    scope.projectId,
-    async (tx) => ({
-      built: await exporter.build(tx, scope, period),
-      retainYears: (await readFinanceSettings(tx, scope)).settings
-        .retentionYears,
-    }),
+  const built = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    exporter.build(tx, scope, period),
   );
   const bytes =
     typeof built.bytes === "function" ? await built.bytes() : built.bytes;
@@ -485,7 +478,8 @@ export async function createExport(
     bytes,
     mime: built.mime,
     name: built.name,
-    retainUntil: retainUntilFor(retainYears),
+    // Derived from the books and rebuilt on demand: never retention-locked
+    // (final review I4), unlike the originals it is made of.
   });
   const id = randomUUID();
   await scoped(scope.workspaceId, scope.projectId, async (tx) => {

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { scoped } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, DomainError } from "../../../shared.ts";
@@ -10,7 +10,9 @@ import { readFinanceSettings } from "../settings.ts";
 // Document intake: every original (upload or mail attachment) is stored as a
 // platform file under retention, then recorded as a FinanceDocument. An exact
 // copy of a live document (same SHA-256) becomes a `duplicate` that points at
-// the original and is never extracted.
+// the original and is never extracted. Bytes the project already holds are
+// never stored again: the new row shares the earlier document's file, so
+// duplicates cost no quota (final review I4).
 
 export const FINANCE_MAIL_RECEIPT = "finance_mail_receipt";
 export const FINANCE_EXTRACT = "finance_extract";
@@ -127,6 +129,33 @@ export async function recordDocument(
   }
 }
 
+/**
+ * The retained file of bytes the project already holds as a document (live
+ * ones first), or a newly stored one under retention. Only a race between
+ * two first copies stores the same bytes twice.
+ */
+export async function storeDocumentFile(
+  scope: Scope,
+  input: { bytes: Uint8Array; mime: string; name?: string; retainUntil: Date },
+): Promise<Stored> {
+  const sha256 = createHash("sha256").update(input.bytes).digest("hex");
+  const held = await scoped(scope.workspaceId, scope.projectId, (tx) =>
+    tx.financeDocument.findFirst({
+      where: { projectId: scope.projectId, sha256 },
+      orderBy: { createdAt: "asc" },
+      select: { fileId: true },
+    }),
+  );
+  if (held) return { id: held.fileId, sha256 };
+  return storeFile(scope, {
+    moduleId: "finance",
+    bytes: input.bytes,
+    mime: input.mime,
+    ...(input.name ? { name: input.name } : {}),
+    retainUntil: input.retainUntil,
+  });
+}
+
 /** Stores the original under retention and records it as a document. */
 export async function ingestDocument(
   scope: Scope,
@@ -138,8 +167,7 @@ export async function ingestDocument(
   const { settings } = await scoped(scope.workspaceId, scope.projectId, (tx) =>
     readFinanceSettings(tx, scope),
   );
-  const stored = await storeFile(scope, {
-    moduleId: "finance",
+  const stored = await storeDocumentFile(scope, {
     bytes: input.bytes,
     mime,
     ...(input.name ? { name: input.name } : {}),

@@ -163,7 +163,8 @@ describe.skipIf(!enabled)("finance exports", () => {
       mime: "text/csv",
       name: "finance-journal_2025-03-01_2025-03-31.csv",
     });
-    expect(file.retainUntil!.getUTCFullYear()).toBe(year + 10);
+    // Exports are derived and rebuilt on demand: never retention-locked.
+    expect(file.retainUntil).toBeNull();
     const rows = lines(bytes);
     expect(rows[0]).toBe(
       "entry_number,entry_date,kind,account_code,account_name,side,currency,amount,fx_rate,rate_date,rate_source,base_currency,base_amount,category,cost_center,counterparty,document_number,document_id,memo",

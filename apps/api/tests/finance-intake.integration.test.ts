@@ -227,6 +227,35 @@ describe.skipIf(!enabled)("finance document intake", () => {
     expect(await jobsOf(scope, "email_archive")).toHaveLength(0);
   });
 
+  it("stores a mail part the project already holds only once", async () => {
+    const { scope, connectionId } = await setup();
+    const mail = () =>
+      inbound(
+        scope,
+        connectionId,
+        unique(
+          fixture("receipt-inline-logo.eml"),
+          `<${randomUUID()}@acme.example>`,
+        ),
+      );
+    await handleMailReceipt(scope, await mail());
+    const filesOf = () =>
+      run(scope, (tx) =>
+        tx.file.findMany({
+          where: { projectId: scope.projectId, moduleId: "finance" },
+        }),
+      );
+    const before = await filesOf();
+    await handleMailReceipt(scope, await mail());
+    const docs = await documents(scope);
+    expect(docs.map((d) => d.status).sort()).toEqual(["duplicate", "received"]);
+    expect(docs[0]!.fileId).toBe(docs[1]!.fileId);
+    // Only the second mail's own retained copy is new.
+    const after = await filesOf();
+    expect(after).toHaveLength(before.length + 1);
+    expect(after.every((f) => f.retainUntil !== null)).toBe(true);
+  });
+
   it("uses the eml as document when the mail has no attachment", async () => {
     const { scope, connectionId } = await setup();
     const id = await inbound(
@@ -283,6 +312,14 @@ describe.skipIf(!enabled)("finance document intake", () => {
       status: "duplicate",
       duplicateOfId: first.id,
     });
+    // The copy is not stored again: it shares the original's locked file.
+    const rows = await documents(scope);
+    expect(new Set(rows.map((d) => d.fileId)).size).toBe(1);
+    const files = await run(scope, (tx) =>
+      tx.file.findMany({ where: { projectId: scope.projectId } }),
+    );
+    expect(files).toHaveLength(1);
+    expect(files[0]!.retainUntil).not.toBeNull();
     expect(await jobsOf(scope, "finance_extract")).toHaveLength(1);
     const audits = await run(scope, (tx) =>
       tx.auditEvent.findMany({

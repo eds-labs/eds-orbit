@@ -11,6 +11,7 @@ import { readFinanceSettings } from "../settings.ts";
 import {
   recordDocument,
   retainUntilFor,
+  storeDocumentFile,
   type IngestResult,
 } from "./documents.ts";
 
@@ -147,8 +148,7 @@ export async function handleMailReceipt(
     if (held.has(sha)) continue;
     const name = attachment.filename ?? "attachment";
     try {
-      const stored = await storeFile(scope, {
-        moduleId: "finance",
+      const stored = await storeDocumentFile(scope, {
         bytes: content,
         mime,
         name,
