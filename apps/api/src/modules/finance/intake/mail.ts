@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import PostalMime from "postal-mime";
 import { scoped } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
@@ -75,50 +76,75 @@ export async function handleMailReceipt(
       }
       if (mail.automatic) return null;
       const messageId = mail.messageId || `uid:${mail.uidValidity}:${mail.uid}`;
-      const seen = await tx.financeDocument.findFirst({
+      // Documents of an earlier (possibly interrupted) pass over this message.
+      const earlier = await tx.financeDocument.findMany({
         where: { projectId: scope.projectId, messageId },
-        select: { id: true },
+        select: { sha256: true, status: true, emailFileId: true },
       });
-      if (seen) return null;
       const { settings } = await readFinanceSettings(tx, scope);
-      return { mail, mailbox, messageId, settings };
+      return { mail, mailbox, messageId, settings, earlier };
     },
   );
   if (!prepared) return;
-  const { mail, mailbox, messageId, settings } = prepared;
+  const { mail, mailbox, messageId, settings, earlier } = prepared;
 
   const { bytes } = await readFile(scope, mail.fileId!);
   const retainUntil = retainUntilFor(settings.retentionYears);
-  // Our own retained copy of the mail, the source of every document from it.
-  const eml = await storeFile(scope, {
-    moduleId: "finance",
-    bytes,
-    mime: "message/rfc822",
-    name: "message.eml",
-    retainUntil,
-  });
-  const base = {
+  const parsed = await PostalMime.parse(bytes);
+  // Parts are idempotent by (message, content): a retry handles only what an
+  // interrupted pass did not record, and a second inbound row of the same
+  // message adds nothing but its own archive request.
+  const held = new Map(earlier.map((d) => [d.sha256, d.status]));
+  // Our own retained copy of the mail, kept across retries.
+  let emlFileId = earlier.find((d) => d.emailFileId)?.emailFileId ?? null;
+  let eml: { id: string; sha256: string } | null = null;
+  const ensureEml = async () => {
+    eml ??= await storeFile(scope, {
+      moduleId: "finance",
+      bytes,
+      mime: "message/rfc822",
+      name: "message.eml",
+      retainUntil,
+    });
+    emlFileId = eml.id;
+    return eml;
+  };
+  if (!emlFileId) await ensureEml();
+  const base = () => ({
     source: "email" as const,
     mailboxId: mailbox.id,
     inboundEmailId,
     messageId,
-    emailFileId: eml.id,
-  };
+    emailFileId: emlFileId!,
+  });
 
-  const parsed = await PostalMime.parse(bytes);
-  const results: IngestResult[] = [];
+  let handled = 0;
+  let failed = 0;
+  let skipped = 0;
   for (const attachment of parsed.attachments ?? []) {
-    if (results.length >= MAX_ATTACHMENTS) break;
+    if (handled >= MAX_ATTACHMENTS) break;
     const mime = (attachment.mimeType ?? "")
       .toLowerCase()
       .split(";")[0]!
       .trim();
-    if (!ACCEPTED.has(mime)) continue;
     const content =
       typeof attachment.content === "string"
         ? Buffer.from(attachment.content)
         : new Uint8Array(attachment.content);
-    if (attachment.contentId && content.byteLength < INLINE_MAX_BYTES) continue;
+    // A small image with a Content-ID is a signature logo, not a receipt.
+    if (
+      mime.startsWith("image/") &&
+      attachment.contentId &&
+      content.byteLength < INLINE_MAX_BYTES
+    )
+      continue;
+    if (!ACCEPTED.has(mime)) {
+      skipped++;
+      continue;
+    }
+    handled++;
+    const sha = createHash("sha256").update(content).digest("hex");
+    if (held.has(sha)) continue;
     const name = attachment.filename ?? "attachment";
     try {
       const stored = await storeFile(scope, {
@@ -128,26 +154,50 @@ export async function handleMailReceipt(
         name,
         retainUntil,
       });
-      results.push(
-        await recordDocument(scope, stored, { ...base, mime, name }),
-      );
+      const result = await recordDocument(scope, stored, {
+        ...base(),
+        mime,
+        name,
+      });
+      held.set(sha, result.status);
     } catch (error) {
-      // An attachment that fails the platform's type or size check is skipped.
+      // A failed type or size check is audited; anything else is retried.
       if (!(error instanceof DomainError) || error.status >= 500) throw error;
+      failed++;
+      await scoped(scope.workspaceId, scope.projectId, (tx) =>
+        audit(tx, scope, "finance.mail.attachment_failed", inboundEmailId, {
+          reason: error.code,
+        }),
+      );
     }
   }
-  if (!results.length)
-    results.push(
-      await recordDocument(scope, eml, {
-        ...base,
-        mime: "message/rfc822",
-        name: "message.eml",
+  if (skipped)
+    await scoped(scope.workspaceId, scope.projectId, (tx) =>
+      audit(tx, scope, "finance.mail.attachment_skipped", inboundEmailId, {
+        count: skipped,
       }),
     );
+  if (!handled) {
+    // No usable attachment: the mail itself is the document.
+    const mailSha = createHash("sha256").update(bytes).digest("hex");
+    if (!held.has(mailSha)) {
+      const stored = emlFileId
+        ? { id: emlFileId, sha256: mailSha }
+        : await ensureEml();
+      const result = await recordDocument(scope, stored, {
+        ...base(),
+        mime: "message/rfc822",
+        name: "message.eml",
+      });
+      held.set(mailSha, result.status);
+    }
+  }
 
+  // A mail with a failed part stays in the inbox for a person to see.
   if (
     settings.archiveAfter === "extracted" &&
-    !results.some((r) => r.status === "received")
+    !failed &&
+    ![...held.values()].includes("received")
   )
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
       requestInboundArchive(

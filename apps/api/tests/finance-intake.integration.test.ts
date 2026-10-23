@@ -40,8 +40,13 @@ describe.skipIf(!enabled)("finance document intake", () => {
   const workspaces: string[] = [];
   const previous: Record<string, string | undefined> = {};
   const objects = new Map<string, Uint8Array>();
+  // Set to n: the n-th next object write throws once (simulated crash).
+  let failPutIn = 0;
   const store: ObjectStore = {
-    put: async (key, body) => void objects.set(key, body),
+    put: async (key, body) => {
+      if (failPutIn && --failPutIn === 0) throw new Error("synthetic crash");
+      objects.set(key, body);
+    },
     get: async (key) => objects.get(key) ?? null,
     delete: async (key) => void objects.delete(key),
   };
@@ -132,6 +137,38 @@ describe.skipIf(!enabled)("finance document intake", () => {
         ).id,
     );
   }
+  /** A multipart mail with the given parts. */
+  const withParts = (
+    parts: { type: string; name: string; bytes: Buffer; contentId?: string }[],
+  ) =>
+    Buffer.from(
+      [
+        "From: Shop <shop@store.example>",
+        "To: receipts@company.example",
+        "Subject: Parts",
+        `Message-ID: <${randomUUID()}@store.example>`,
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "See attached.",
+        ...parts.flatMap((p) => [
+          "--b",
+          `Content-Type: ${p.type}; name="${p.name}"`,
+          `Content-Disposition: attachment; filename="${p.name}"`,
+          ...(p.contentId ? [`Content-ID: <${p.contentId}>`] : []),
+          "Content-Transfer-Encoding: base64",
+          "",
+          p.bytes.toString("base64"),
+        ]),
+        "--b--",
+        "",
+      ].join("\r\n"),
+    );
+  const pdf2 = () =>
+    Buffer.concat([fixture("invoice.pdf"), Buffer.from(`%${randomUUID()}\n`)]);
   const unique = (raw: Buffer, id: string) =>
     Buffer.from(
       raw.toString().replace(/^Message-ID: .*$/m, `Message-ID: ${id}`),
@@ -363,5 +400,144 @@ describe.skipIf(!enabled)("finance document intake", () => {
       }),
     );
     expect(audits).toHaveLength(1);
+  });
+
+  it("retries a partly processed mail without losing or repeating a part", async () => {
+    const { scope, connectionId } = await setup();
+    const id = await inbound(
+      scope,
+      connectionId,
+      withParts([
+        { type: "application/pdf", name: "a.pdf", bytes: pdf2() },
+        { type: "application/pdf", name: "b.pdf", bytes: pdf2() },
+      ]),
+    );
+    // Writes: .eml (1), part a (2), part b (3, crashes).
+    failPutIn = 3;
+    await expect(handleMailReceipt(scope, id)).rejects.toThrow(
+      "synthetic crash",
+    );
+    expect(await documents(scope)).toHaveLength(1);
+    await handleMailReceipt(scope, id);
+    const docs = await documents(scope);
+    expect(docs.map((d) => d.originalName).sort()).toEqual(["a.pdf", "b.pdf"]);
+    expect(new Set(docs.map((d) => d.emailFileId)).size).toBe(1);
+    const emls = await run(scope, (tx) =>
+      tx.file.findMany({
+        where: {
+          projectId: scope.projectId,
+          mime: "message/rfc822",
+          moduleId: "finance",
+        },
+      }),
+    );
+    expect(emls).toHaveLength(1);
+    await handleMailReceipt(scope, id);
+    expect(await documents(scope)).toHaveLength(2);
+  });
+
+  it("audits a failed accepted part and keeps the mail unarchived", async () => {
+    const { scope, connectionId } = await setup({
+      settings: { aiExtraction: "off" },
+    });
+    const id = await inbound(
+      scope,
+      connectionId,
+      withParts([
+        { type: "application/pdf", name: "ok.pdf", bytes: pdf2() },
+        {
+          type: "application/pdf",
+          name: "bad.pdf",
+          bytes: Buffer.from("not a pdf"),
+        },
+      ]),
+    );
+    await handleMailReceipt(scope, id);
+    expect(await documents(scope)).toHaveLength(1);
+    expect(await jobsOf(scope, "email_archive")).toHaveLength(0);
+    const audits = await run(scope, (tx) =>
+      tx.auditEvent.findMany({
+        where: {
+          projectId: scope.projectId,
+          action: "finance.mail.attachment_failed",
+        },
+      }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual([
+      { reason: "FILE_TYPE_NOT_ALLOWED" },
+    ]);
+  });
+
+  it("counts unaccepted parts without blocking the archive", async () => {
+    const { scope, connectionId } = await setup({
+      settings: { aiExtraction: "off" },
+    });
+    const id = await inbound(
+      scope,
+      connectionId,
+      withParts([
+        { type: "application/pdf", name: "ok.pdf", bytes: pdf2() },
+        {
+          type: "application/octet-stream",
+          name: "tool.exe",
+          bytes: Buffer.from("MZ"),
+        },
+      ]),
+    );
+    await handleMailReceipt(scope, id);
+    expect(await documents(scope)).toHaveLength(1);
+    expect(await jobsOf(scope, "email_archive")).toHaveLength(1);
+    const audits = await run(scope, (tx) =>
+      tx.auditEvent.findMany({
+        where: {
+          projectId: scope.projectId,
+          action: "finance.mail.attachment_skipped",
+        },
+      }),
+    );
+    expect(audits.map((a) => a.metadata)).toEqual([{ count: 1 }]);
+  });
+
+  it("keeps a small PDF with a Content-ID as a real attachment", async () => {
+    const { scope, connectionId } = await setup();
+    const id = await inbound(
+      scope,
+      connectionId,
+      withParts([
+        {
+          type: "application/pdf",
+          name: "i.pdf",
+          bytes: pdf2(),
+          contentId: "inv@acme",
+        },
+      ]),
+    );
+    await handleMailReceipt(scope, id);
+    const docs = await documents(scope);
+    expect(docs).toHaveLength(1);
+    expect(docs[0]).toMatchObject({ mimeType: "application/pdf" });
+  });
+
+  it("archives a second inbound row of a mail finance already holds", async () => {
+    const { scope, connectionId } = await setup({
+      settings: { aiExtraction: "off" },
+    });
+    const raw = unique(
+      fixture("receipt-inline-logo.eml"),
+      "<twice@acme.example>",
+    );
+    const fields = { messageId: "<twice@acme.example>" };
+    const first = await inbound(scope, connectionId, raw, fields);
+    const second = await inbound(scope, connectionId, raw, {
+      ...fields,
+      uid: 2,
+    });
+    await handleMailReceipt(scope, first);
+    await handleMailReceipt(scope, second);
+    expect(await documents(scope)).toHaveLength(1);
+    const archived = (await jobsOf(scope, "email_archive")).map(
+      (j) => data(j).resourceId,
+    );
+    expect(archived.sort()).toEqual([first, second].sort());
   });
 });
