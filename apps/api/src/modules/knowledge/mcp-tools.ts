@@ -16,7 +16,10 @@ import {
   withdrawFact,
 } from "../../platform/knowledge/engine.ts";
 import { enqueue } from "../../platform/jobs/enqueue.ts";
-import { source as sourceSchema } from "../../../../../packages/schemas/src/index.ts";
+import {
+  languageCode,
+  source as sourceSchema,
+} from "../../../../../packages/schemas/src/index.ts";
 
 const page = z
   .object({
@@ -32,7 +35,7 @@ const factInput = z
     valueType: z.enum(["text", "decimal", "date", "status", "url"]),
     currency: z.string().max(3).optional(),
     unit: z.string().max(100).optional(),
-    language: z.enum(["en", "de"]),
+    language: languageCode,
     validFrom: z.iso.datetime(),
     validUntil: z.iso.datetime().optional(),
     publicUse: z.boolean(),
@@ -152,7 +155,7 @@ const writes = [
         externalId: z.string().min(1).max(300),
         title: z.string().min(1).max(300),
         text: z.string().min(1).max(24000),
-        language: z.enum(["en", "de"]),
+        language: languageCode,
         mimeType: z.enum(["text/plain", "text/markdown"]),
       })
       .strict(),
@@ -174,7 +177,7 @@ const writes = [
       .object({
         sourceId: z.uuid(),
         url: z.url(),
-        language: z.enum(["en", "de"]),
+        language: languageCode,
       })
       .strict(),
     async run(tx, scope, args) {

@@ -9,7 +9,10 @@ import {
   PROJECT_WRITE,
 } from "../../../platform/tenancy/permissions.ts";
 import type { DbTx } from "../../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
+import {
+  languageCode,
+  type Scope,
+} from "../../../../../../packages/schemas/src/index.ts";
 import {
   create,
   data,
@@ -22,7 +25,7 @@ import {
 } from "../../../shared.ts";
 import { checkClaims } from "../policy/policy.ts";
 
-const language = z.enum(["en", "de"]);
+const language = languageCode;
 function editor(scope: Scope) {
   authorize(scope, PROJECT_WRITE, "EDITOR_REQUIRED");
 }

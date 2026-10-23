@@ -112,6 +112,10 @@ export const labels = {
     name: "Name",
     title: "Title",
     language: "Language",
+    brandTagline: "A self-hosted, modular work platform.",
+    defaultContentLanguage: "Default content language",
+    defaultContentLanguageHint:
+      "The project's first content language. More can be added later under Settings → Project.",
     timezone: "Timezone",
     emptyContent: "Your next idea starts here",
     contentHint: "Create a mission or write a source-backed draft.",
@@ -390,6 +394,10 @@ export const labels = {
     name: "Name",
     title: "Titel",
     language: "Sprache",
+    brandTagline: "Eine selbst gehostete, modulare Arbeitsplattform.",
+    defaultContentLanguage: "Standard-Content-Sprache",
+    defaultContentLanguageHint:
+      "Die erste Content-Sprache des Projekts. Weitere lassen sich später unter Einstellungen → Projekt ergänzen.",
     timezone: "Zeitzone",
     emptyContent: "Hier beginnt deine nächste Idee",
     contentHint: "Erstelle eine Mission oder einen Entwurf mit Belegen.",
@@ -560,6 +568,16 @@ export const labels = {
   },
 } as const;
 export type Text = (key: keyof typeof labels.en) => string;
+export type LabelKey = keyof typeof labels.en;
+
+/**
+ * The label of a key in the locale; a missing or empty translation falls
+ * back to English, then to the key itself, so a gap never renders blank.
+ */
+export function translate(locale: Locale, key: LabelKey): string {
+  const own = (labels[locale] as Partial<Record<LabelKey, string>> | undefined)?.[key];
+  return own || labels.en[key] || key;
+}
 
 /** The words of each project mode (`project.mode`), one map for every view. */
 const MODE_LABELS: Readonly<Record<string, keyof typeof labels.en>> = {

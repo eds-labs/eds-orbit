@@ -82,6 +82,7 @@ export async function runReadTool(
             name: project.name,
             timezone: project.timezone,
             language: project.language,
+            contentLanguages: project.contentLanguages,
             mode: project.mode,
             paused: project.paused,
           },

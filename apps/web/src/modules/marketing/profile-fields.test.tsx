@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brandTermsField } from "./profile-fields";
+import { brandTermsField, officialLinkCandidates } from "./profile-fields";
 
 describe("brandTerms in the profile editor (WP3.4)", () => {
   it("sends lower-case words, one per line, without duplicates", () => {
@@ -11,5 +11,68 @@ describe("brandTerms in the profile editor (WP3.4)", () => {
   it("leaves the field out when empty, keeping the built-in words", () => {
     expect(brandTermsField("")).toEqual({});
     expect(brandTermsField(" \n \n")).toEqual({});
+  });
+});
+
+describe("official target links from the project links", () => {
+  const fact = (
+    id: string,
+    value: string,
+    status = "verified",
+    publicUse = true,
+  ) => ({
+    id,
+    data: { key: id, value, status, publicUse },
+  });
+  const facts = [
+    fact("f-site", "https://orbit.example"),
+    fact("f-x", "https://x.com/orbit"),
+    fact("f-draft", "https://discord.gg/orbit", "candidate"),
+    fact("f-private", "https://t.me/orbit", "verified", false),
+    fact("f-old", "https://old.example"),
+  ];
+  const projectLinks = [
+    { label: "Website", url: "https://orbit.example" },
+    { label: "X", url: "https://x.com/orbit" },
+    { label: "Discord", url: "https://discord.gg/orbit" },
+    { label: "Telegram", url: "https://t.me/orbit" },
+  ];
+
+  it("offers project links with a public verified fact and keeps the chosen ones checked", () => {
+    const { candidates, unverified } = officialLinkCandidates(
+      projectLinks,
+      [{ label: "Homepage", url: "https://orbit.example", factId: "f-site" }],
+      facts,
+    );
+    expect(
+      candidates.map(({ label, url, factId, checked }) => [
+        label,
+        url,
+        factId,
+        checked,
+      ]),
+    ).toEqual([
+      ["Homepage", "https://orbit.example", "f-site", true],
+      ["X", "https://x.com/orbit", "f-x", false],
+    ]);
+    expect(unverified.map((l) => l.label)).toEqual(["Discord", "Telegram"]);
+    expect(new Set(candidates.map((c) => c.key)).size).toBe(candidates.length);
+  });
+
+  it("never drops a current official link that is not a project link", () => {
+    const { candidates } = officialLinkCandidates(
+      [],
+      [{ label: "Old site", url: "https://old.example", factId: "f-old" }],
+      facts,
+    );
+    expect(candidates).toEqual([
+      {
+        key: "official:0",
+        label: "Old site",
+        url: "https://old.example",
+        factId: "f-old",
+        checked: true,
+      },
+    ]);
   });
 });

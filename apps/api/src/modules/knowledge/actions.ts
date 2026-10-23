@@ -50,7 +50,7 @@ import {
 
 const retrievalRequest = (input: ActionContext["input"]) => ({
   query: z.string().min(1).max(2000).parse(input.query),
-  language: z.enum(["en", "de"]).default("en").parse(input.language),
+  language: schemas.languageCode.default("en").parse(input.language),
   purpose: z
     .enum(["public", "internal"])
     .default("public")
@@ -196,7 +196,7 @@ export const knowledgeActions: Record<string, ActionHandler> = {
           "application/pdf",
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         ]),
-        language: z.enum(["en", "de"]),
+        language: schemas.languageCode,
       })
       .strict()
       .parse(input);

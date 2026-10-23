@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AGENT_CONTENT_LANGUAGES, languageCode } from "./project-settings.js";
 export const id = z.uuid();
 export const role = z.enum(["owner", "editor", "viewer"]);
 // Generic entity routes read only these kinds. `telegram_connections` (the
@@ -91,7 +92,7 @@ export const mission = z
       .min(1)
       .max(4)
       .default(["draft", "review", "publish_test"]),
-    language: z.enum(["en", "de"]).default("en"),
+    language: languageCode.default("en"),
     channels: z.array(z.string().min(1).max(80)).min(1).max(10),
     startAt: z.iso.datetime(),
     endAt: z.iso.datetime(),
@@ -115,7 +116,7 @@ export const content = z
     title: z.string().min(1).max(200),
     body: z.string().min(1).max(40000),
     type: z.enum(["social", "blog", "newsletter", "ad", "script", "community"]),
-    language: z.enum(["en", "de"]).default("en"),
+    language: languageCode.default("en"),
     channel: z.string().min(1).max(80),
     missionId: id.optional(),
     campaignType: z.enum(["product", "presale"]).optional(),
@@ -228,7 +229,9 @@ export const visualIdentity = z
 export const marketingProfile = z
   .object({
     productName: z.string().min(1).max(300),
-    contentLanguage: z.enum(["en", "de"]),
+    // The language automatic Marketing agents write in (English or German,
+    // decision 2026-10-23); manual missions may use any project language.
+    contentLanguage: z.enum(AGENT_CONTENT_LANGUAGES),
     internalLanguage: z.enum(["en", "de"]),
     audience: z.string().min(1).max(2000),
     positioning: z.string().min(1).max(2000),
@@ -305,6 +308,7 @@ export type EntityView = {
   updatedAt: string;
 };
 
+export * from "./project-settings.js";
 export {
   marketingPlanSpec,
   marketingPlanChange,

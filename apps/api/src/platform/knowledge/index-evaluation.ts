@@ -1,7 +1,10 @@
 import { z } from "zod";
 import { authorize, PROJECT_OWN } from "../tenancy/permissions.ts";
 import { scoped, type DbTx } from "../../../../../packages/db/src/index.ts";
-import type { Scope } from "../../../../../packages/schemas/src/index.ts";
+import {
+  languageCode,
+  type Scope,
+} from "../../../../../packages/schemas/src/index.ts";
 import {
   assertIndexCorpusCurrent,
   evaluateIndexGeneration,
@@ -33,7 +36,7 @@ export const indexEvaluationRequest = z
             query: z.string().min(1).max(2000),
             expectedChunkIds: z.array(z.string()).max(100),
             forbiddenChunkIds: z.array(z.string()).max(100).default([]),
-            language: z.enum(["en", "de"]).default("en"),
+            language: languageCode.default("en"),
             purpose: z.enum(["public", "internal"]).default("public"),
             at: z.iso.datetime({ offset: true }).optional(),
           })

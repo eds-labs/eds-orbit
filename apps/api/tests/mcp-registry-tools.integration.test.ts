@@ -540,6 +540,7 @@ describe.skipIf(!enabled)(
           name: "Alpha",
           timezone: "UTC",
           language: "en",
+          contentLanguages: ["en"],
           mode: "observe",
           paused: false,
         });

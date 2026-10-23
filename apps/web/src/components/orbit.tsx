@@ -20,7 +20,7 @@ import {
   type Identity,
   type Project,
 } from "@/lib/api";
-import { labels, type Locale, type Text } from "@/lib/i18n";
+import { translate, type Locale, type Text } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { Alert, Button, Loading, Modal, Badge } from "./ui/primitives";
 import {
@@ -132,7 +132,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
     "/setup",
   );
   const identity = useResource<Identity>(setup.data?.configured ? "/me" : null);
-  const t: Text = (key) => labels[locale][key];
+  const t: Text = (key) => translate(locale, key);
   const mutation = useMutation(() => {
     setNewProject(false);
     identity.refresh();
@@ -616,6 +616,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         identity={me}
         organizationId={place.organizationId}
         t={t}
+        locale={locale}
         create={{
           onSubmit: createProject,
           pending: mutation.pending,
@@ -783,11 +784,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             onToggle={toggleGroup}
           />
           <div className="sidebar-footer">
-            <p>
-              A self-hosted
-              <br />
-              marketing workspace.
-            </p>
+            <p>{t("brandTagline")}</p>
             <span>
               EDS Orbit <span className="version">0.1 RC</span>
             </span>
@@ -930,7 +927,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
         {newProject && (
           <Modal title={t("newProject")} onClose={() => setNewProject(false)}>
             <DataForm
-              fields={projectFields(t)}
+              fields={projectFields(t, locale)}
               onSubmit={(v) => createProject(v)}
               pending={mutation.pending}
               error={mutation.error}
@@ -994,7 +991,7 @@ function Authentication({
   setLocale: (l: Locale) => void;
   onDone: () => void;
 }) {
-  const t: Text = (k) => labels[locale][k];
+  const t: Text = (k) => translate(locale, k);
   const mutation = useMutation(onDone);
   const de = locale === "de";
   const fields: FormField[] = [
@@ -1058,8 +1055,8 @@ function Authentication({
           </h1>
           <p>
             {de
-              ? "Dein Marketing-Workspace. Eigene Infrastruktur. Nachvollziehbare Entscheidungen."
-              : "Your marketing workspace. Your infrastructure. Decisions you can trace."}
+              ? "Deine modulare Arbeitsplattform. Eigene Infrastruktur. Nachvollziehbare Entscheidungen."
+              : "Your modular work platform. Your infrastructure. Decisions you can trace."}
           </p>
           <div className="auth-principles">
             <span>

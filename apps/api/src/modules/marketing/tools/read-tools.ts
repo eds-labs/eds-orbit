@@ -50,6 +50,7 @@ export const projectStatusOutput = z
         name: z.string(),
         timezone: z.string(),
         language: z.string(),
+        contentLanguages: z.array(z.string()).max(20),
         mode: z.string(),
         paused: z.boolean(),
       })

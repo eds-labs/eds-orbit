@@ -3,7 +3,7 @@ import type { DbTx } from "../../../../../packages/db/src/index.ts";
 import { extractDocument, MIME } from "../../../../../packages/knowledge/src/extract.ts";
 import { ingest, setFact } from "../../platform/knowledge/engine.ts";
 import { create, data, entity, update } from "../../shared.ts";
-import { id, type Scope } from "../../../../../packages/schemas/src/index.ts";
+import { id, languageCode, type Scope } from "../../../../../packages/schemas/src/index.ts";
 
 const sourceType = z.enum([
   "website", "gitbook", "url", "url_list", "file", "verified_facts", "historical",
@@ -11,7 +11,7 @@ const sourceType = z.enum([
 const document = z.object({
   externalId: z.string().min(1).max(300), title: z.string().min(1).max(300),
   text: z.string().max(1_000_000).optional(), base64: z.string().max(2_000_000).optional(),
-  mimeType: z.enum([MIME.txt, MIME.md, MIME.html, MIME.pdf]), language: z.enum(["en", "de"]),
+  mimeType: z.enum([MIME.txt, MIME.md, MIME.html, MIME.pdf]), language: languageCode,
   canonicalUrl: z.url().optional(), sourceUpdatedAt: z.iso.datetime().optional(), selected: z.boolean().default(true),
 }).strict();
 const factValueType = z.preprocess((value) => {
@@ -25,7 +25,7 @@ const fact = z.object({
     typeof value === "string" || typeof value === "number" || typeof value === "boolean" ? String(value) : value,
   z.string().min(1).max(1000)),
   valueType: factValueType, currency: z.string().regex(/^[A-Z]{3}$/).optional(),
-  unit: z.string().max(50).optional(), language: z.enum(["en", "de"]), market: z.string().max(100).optional(),
+  unit: z.string().max(50).optional(), language: languageCode, market: z.string().max(100).optional(),
   validFrom: z.iso.datetime(), validUntil: z.iso.datetime().optional(), publicUse: z.boolean(), modelUse: z.boolean(),
 }).strict();
 export const knowledgeImportInput = z.object({

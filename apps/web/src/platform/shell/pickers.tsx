@@ -2,7 +2,11 @@
 import Link from "next/link";
 import { ArrowRight, Building2, FolderOpen } from "lucide-react";
 import type { Identity } from "@/lib/api";
-import type { Text } from "@/lib/i18n";
+import type { Locale, Text } from "@/lib/i18n";
+import {
+  COMMON_CONTENT_LANGUAGES,
+  languageName,
+} from "@/platform/project-settings/catalog";
 import { Badge, Empty } from "@/components/ui/primitives";
 import { DataForm, type FormField, type FormValues } from "@/platform/ui/form";
 import { NotFound } from "./not-found";
@@ -51,11 +55,13 @@ export function ProjectPicker({
   identity,
   organizationId,
   t,
+  locale = "en",
   create,
 }: {
   identity: Identity;
   organizationId: string;
   t: Text;
+  locale?: Locale;
   create: {
     onSubmit: (values: FormValues, workspaceId: string) => Promise<void>;
     pending: boolean;
@@ -108,7 +114,7 @@ export function ProjectPicker({
         <div className="picker-create">
           <h2>{t("newProject")}</h2>
           <DataForm
-            fields={projectFields(t)}
+            fields={projectFields(t, locale)}
             onSubmit={(values) => create.onSubmit(values, organization.id)}
             pending={create.pending}
             error={create.error}
@@ -121,7 +127,7 @@ export function ProjectPicker({
   );
 }
 
-export function projectFields(t: Text): FormField[] {
+export function projectFields(t: Text, locale: Locale = "en"): FormField[] {
   return [
     { name: "name", label: t("name"), required: true },
     {
@@ -132,13 +138,14 @@ export function projectFields(t: Text): FormField[] {
     },
     {
       name: "language",
-      label: t("language"),
+      label: t("defaultContentLanguage"),
       type: "select",
       value: "en",
-      options: [
-        { value: "en", label: "English" },
-        { value: "de", label: "Deutsch" },
-      ],
+      options: COMMON_CONTENT_LANGUAGES.map((code) => ({
+        value: code,
+        label: `${languageName(code, locale)} (${code})`,
+      })).sort((a, b) => a.label.localeCompare(b.label, locale)),
+      hint: t("defaultContentLanguageHint"),
       required: true,
     },
   ];

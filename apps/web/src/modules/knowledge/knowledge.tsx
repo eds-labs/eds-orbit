@@ -1,4 +1,5 @@
 "use client";
+import { contentLanguageOptions } from "@/platform/project-settings/project-configuration";
 import { KnowledgeWorkspaceGate } from "./workspace";
 import { FactWithdrawal } from "./fact-withdrawal";
 import { IndexManagement } from "./index-management";
@@ -719,7 +720,7 @@ function ImportSource({
                   label: t("language"),
                   type: "select",
                   value: project.language,
-                  options: options(["en", "de"]),
+                  options: contentLanguageOptions(project, locale),
                 },
               ]
         }
@@ -1250,7 +1251,11 @@ function FactEditor({
       label: t("language"),
       type: "select",
       value: String(d?.language || project.language),
-      options: options(["en", "de"]),
+      options: contentLanguageOptions(
+        project,
+        locale,
+        d?.language ? String(d.language) : undefined,
+      ),
     },
     {
       name: "market",
@@ -1688,7 +1693,7 @@ function Inspector() {
               label: locale === "de" ? "Sprache" : "Language",
               type: "select",
               value: project.language,
-              options: options(["en", "de"]),
+              options: contentLanguageOptions(project, locale),
             },
             {
               name: "purpose",

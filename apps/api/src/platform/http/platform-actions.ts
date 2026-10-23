@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { authDb, scoped } from "../../../../../packages/db/src/index.ts";
+import { scoped } from "../../../../../packages/db/src/index.ts";
 import * as schemas from "../../../../../packages/schemas/src/index.ts";
 import {
   audit,
@@ -33,6 +33,7 @@ import { assertModuleEnabled } from "../modules/enforcement.ts";
 import { pauseProject } from "../governance/pause.ts";
 import { retention } from "../governance/retention.ts";
 import { addProjectMember } from "../tenancy/project-members.ts";
+import { updateProjectSettings } from "../tenancy/project-settings.ts";
 import { connectEmail, disconnectEmail } from "../email/connection.ts";
 import {
   connectCustomerContext,
@@ -88,18 +89,9 @@ export const platformActions: Record<string, ActionHandler> = {
   "add-member": ownTransaction(({ scope, input }) =>
     addProjectMember(scope, input),
   ),
-  "project-settings": ownTransaction(async ({ scope, input }) => {
-    const i = z
-      .object({
-        name: z.string().min(1).max(100),
-        timezone: z.string(),
-        language: z.enum(["en", "de"]),
-      })
-      .strict()
-      .parse(input);
-    new Intl.DateTimeFormat("en", { timeZone: i.timezone });
-    return authDb.project.update({ where: { id: scope.projectId }, data: i });
-  }),
+  "project-settings": ownTransaction(({ scope, input }) =>
+    updateProjectSettings(scope, input),
+  ),
   retention: sharedTransaction((tx, { scope, input }) =>
     retention(tx, scope, z.number().int().min(30).max(3650).parse(input.days)),
   ),

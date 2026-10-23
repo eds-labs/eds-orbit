@@ -162,8 +162,17 @@ export async function assertCampaignContext(
   const profileData = marketingProfile.parse(profile.data);
   if (!profileData.primaryCtas.includes(String(input.targetAction ?? "")))
     throw new DomainError("CAMPAIGN_PRIMARY_CTA_NOT_APPROVED", 409);
-  if (input.language !== profileData.contentLanguage)
-    throw new DomainError("CAMPAIGN_LANGUAGE_NOT_APPROVED", 409);
+  // A campaign is written in one of the project's content languages; the
+  // profile's own language (what assignments write in) always qualifies,
+  // so campaigns from before the language list keep passing.
+  if (input.language !== profileData.contentLanguage) {
+    const project = await tx.project.findUnique({
+      where: { id: scope.projectId },
+      select: { contentLanguages: true },
+    });
+    if (!project?.contentLanguages.includes(String(input.language)))
+      throw new DomainError("CAMPAIGN_LANGUAGE_NOT_APPROVED", 409);
+  }
   if (typeof input.targetUrl !== "string" || !input.targetUrl)
     throw new DomainError("CAMPAIGN_TARGET_URL_REQUIRED", 409);
   const link = profileData.officialLinks.find(

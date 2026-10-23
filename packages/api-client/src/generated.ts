@@ -30830,8 +30830,7 @@ export interface operations {
                     channels: string[];
                     /** @enum {string} */
                     campaignType: "product" | "presale";
-                    /** @enum {string} */
-                    language: "en" | "de";
+                    language: string;
                     profileVersion: number;
                     policy: {
                         /** Format: uuid */
@@ -31166,8 +31165,7 @@ export interface operations {
                         channels: string[];
                         /** @enum {string} */
                         campaignType: "product" | "presale";
-                        /** @enum {string} */
-                        language: "en" | "de";
+                        language: string;
                         profileVersion: number;
                         policy: {
                             /** Format: uuid */
@@ -32305,8 +32303,7 @@ export interface operations {
                         channels: string[];
                         /** @enum {string} */
                         campaignType: "product" | "presale";
-                        /** @enum {string} */
-                        language: "en" | "de";
+                        language: string;
                         profileVersion: number;
                         policy: {
                             /** Format: uuid */

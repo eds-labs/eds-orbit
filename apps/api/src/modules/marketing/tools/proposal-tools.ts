@@ -16,7 +16,9 @@ const mission = z
     audience: z.string(),
     product: z.string().nullable(),
     allowedTopics: z.array(z.string()).nullable(),
-    language: z.enum(["en", "de"]),
+    // A project content language; the prompt names the choice and the
+    // mission schema checks the tag (kept short for the tool budget).
+    language: z.string(),
     channels: z
       .array(z.string())
       .min(1)

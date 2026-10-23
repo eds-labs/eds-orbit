@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { languageCode } from "./project-settings.js";
 const ref = z
   .object({ id: z.uuid(), version: z.number().int().positive() })
   .strict();
@@ -16,7 +17,7 @@ export const marketingPlanSpec = z
       .max(5)
       .refine(unique, "Duplicate channels"),
     campaignType: z.enum(["product", "presale"]),
-    language: z.enum(["en", "de"]),
+    language: languageCode,
     profileVersion: z.number().int().positive(),
     policy: ref,
     pillars: z

@@ -6487,3 +6487,213 @@ a.support-row {
 .admin-stack-spaced {
   margin-top: 20px;
 }
+
+/* Project-wide settings: content languages and profile links (Settings → Project). */
+.panel-title-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  color: var(--primary);
+}
+.project-config-panel .panel-body > * + * {
+  margin-top: 14px;
+}
+.project-config-panel .panel-note {
+  padding: 0;
+}
+/* A role or state badge next to a long panel description keeps its width. */
+.settings-content .panel-head > .badge {
+  flex-shrink: 0;
+}
+.language-chips,
+.profile-link-list,
+.link-edit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.language-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.language-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--muted);
+  font-size: 13px;
+  color: #173149;
+}
+.language-chip code,
+.language-edit-row code {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.project-config-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.language-edit-list {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.language-edit-list legend {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #23415a;
+}
+.language-edit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 40px;
+  padding: 2px 4px 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.language-edit-row label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  cursor: pointer;
+}
+.language-edit-row input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+.language-add {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+.inline-input {
+  display: flex;
+  gap: 8px;
+}
+.link-group h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted-foreground);
+}
+.link-group + .link-group {
+  margin-top: 16px;
+}
+.profile-link-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.profile-link-list li:last-child {
+  border-bottom: 0;
+}
+.profile-link-list li > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.profile-link-list small {
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+.profile-link-list a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 60%;
+  font-size: 13px;
+  color: var(--primary);
+}
+.profile-link-list a svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.profile-link-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+/* Rows follow the editor's own width (the settings column varies with the
+   sidebar), not the viewport: type and name side by side, the address below,
+   all four in one line when there is room, stacked when narrow. */
+.project-config-editor {
+  container-type: inline-size;
+}
+.link-edit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.link-url-field {
+  grid-column: 1 / -1;
+}
+.link-row-actions {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+.link-error {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--danger);
+}
+@container (min-width: 760px) {
+  .link-edit-row {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 2fr) auto;
+  }
+  .link-url-field,
+  .link-row-actions {
+    grid-column: auto;
+  }
+}
+@container (max-width: 420px) {
+  .link-edit-row,
+  .language-add {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 760px) {
+  .profile-link-list li {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .profile-link-list a {
+    max-width: 100%;
+  }
+}

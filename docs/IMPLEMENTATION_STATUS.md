@@ -1,5 +1,15 @@
 # Implementation status
 
+## Project configuration: content languages, profile links, i18n (2026-10-23, local; not pushed)
+
+Branch `claude/eds-orbit-config-i18n-a781a4`, plan and decisions in `plans/project-configuration-i18n.md` (Mario 2026-10-23: one project-wide link list that Marketing picks fact-backed target links from; any language tag for project, knowledge, missions and content, automatic agents stay English/German; local delivery, ask before pushing).
+
+- Migration `202610250001_project_languages_and_links` (additive): `Project.contentLanguages` and `Project.links`, filled from `language`, the Marketing profile language and its official links. The profile and its version are untouched, so no pending content or assignment is invalidated. Checked against seeded data both as a bypassing migrator and as a non-bypassing owner (RLS lifted only inside the migration's transaction, then forced again).
+- Owner action `project-settings` takes languages, default and links; the old `language`-only payload still works; content-free audit `project_settings.update`. No new route or permission (access matrix unchanged).
+- Settings → Project: content languages (multi-select, free default, other codes), profile links (19 types incl. Instagram, Facebook, TikTok, YouTube, Threads, Bluesky, Pinterest, Discord, App Store, Google Play, custom; host validation; clearly not publishing channels). Marketing profile localized, target links from project links with a public verified fact. Knowledge/Marketing forms offer project languages. English fallback for missing UI labels. Modular wording replaces "self-hosted marketing workspace".
+
+Risk: medium (schema migration, campaign language rule, assistant prompt/tool schema). Evidence: full suite 3,567 passed / 7 skipped / 0 failed (329 files); new tests in `packages/schemas/src/project-settings.test.ts`, `apps/api/tests/project-settings.{unit,integration}.test.ts`, `apps/web/src/platform/project-settings/project-configuration.test.tsx`, `apps/web/src/modules/marketing/profile-fields.test.tsx`; intended updates of the assistant characterization snapshot (one prompt sentence, `propose_campaign.language` without the en/de enum) and the MCP `project_status` expectation; root and web typecheck, source and boundary checks, Next production build (webpack), OpenAPI regenerated (plan spec language), browser check desktop and mobile (375 px) in German and English. A push to `main` deploys and runs the migration.
+
 ## Integration: finance module with global administration and central connections (2026-10-23, local; not pushed)
 
 Branch `claude/orbit-global-admin-6a9484` merges the finance module at `bd04ecb`, which is also the current `main` (pushed separately), so the branch is a fast-forward of `main`. Before the merge, administration and connections took ADR 0013 and 0014 (the finance module keeps ADR 0012). Their migrations were renamed to `202610240001`–`202610240003`, so they run after the finance migrations `202610230001`/`202610230002`; they had run only in local test databases.

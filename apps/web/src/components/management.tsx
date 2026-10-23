@@ -8,6 +8,13 @@ import {
 } from "./project-administration";
 import { useSearchParams } from "next/navigation";
 import {
+  ContentLanguagesPanel,
+  ProfileLinksPanel,
+  languagesOf,
+} from "@/platform/project-settings/project-configuration";
+import { languageName } from "@/platform/project-settings/catalog";
+import { projectSettingsText } from "@/platform/project-settings/texts";
+import {
   collectSettingsTabs,
   groupSettings,
   platformSettingsTabs,
@@ -479,6 +486,17 @@ export function ProjectSettings() {
   const connectedApps = appsAvailable || appsSeen;
   const d = dashboard.data;
   const de = locale === "de";
+  const pt = projectSettingsText(locale);
+  const roleText = (role?: string) =>
+    pt(
+      role === "owner"
+        ? "roleOwner"
+        : role === "editor"
+          ? "roleEditor"
+          : role === "viewer"
+            ? "roleViewer"
+            : "roleMember",
+    );
   const shell = useContext(ShellContext);
   const setupLinks = shell?.setupLinks ?? [];
   // Module sections (WP2.3b). Their hooks run on every render in registry
@@ -546,22 +564,32 @@ export function ProjectSettings() {
             <div className="settings-grid">
               <section className="panel">
                 <div className="panel-head">
-                  <h2>{t("project")}</h2>
-                  <Badge>{project.role || "member"}</Badge>
+                  <div>
+                    <h2>{pt("projectHeading")}</h2>
+                    <p>{pt("projectHint")}</p>
+                  </div>
+                  <Badge>{roleText(project.role)}</Badge>
                 </div>
                 <dl className="detail-grid">
-                  <dt>{t("name")}</dt>
+                  <dt>{pt("name")}</dt>
                   <dd>{project.name}</dd>
-                  <dt>{t("timezone")}</dt>
+                  <dt>{pt("timezone")}</dt>
                   <dd>{project.timezone}</dd>
-                  <dt>Content language</dt>
-                  <dd>{project.language.toUpperCase()}</dd>
-                  <dt>Signed in as</dt>
+                  <dt>{pt("defaultLanguage")}</dt>
+                  <dd>
+                    {languageName(project.language, locale)}
+                    <small>
+                      {languagesOf(project)
+                        .map((code) => languageName(code, locale))
+                        .join(" · ")}
+                    </small>
+                  </dd>
+                  <dt>{pt("signedInAs")}</dt>
                   <dd>
                     {identity.user.name}
                     <small>{identity.user.email}</small>
                   </dd>
-                  <dt>Mode</dt>
+                  <dt>{pt("mode")}</dt>
                   <dd>
                     <Status value={d?.project.mode || project.mode} />
                   </dd>
@@ -572,16 +600,14 @@ export function ProjectSettings() {
                     download
                   >
                     <Download data-icon="inline-start" />
-                    {t("export")} project
+                    {pt("exportProject")}
                   </a>
                 </Button>
               </section>
               <section className="panel">
                 <div className="panel-head">
                   <h2>
-                    {locale === "de"
-                      ? "Autopilot-Bereitschaft"
-                      : "Autopilot readiness"}
+                    {de ? "Autopilot-Bereitschaft" : "Autopilot readiness"}
                   </h2>
                   {d && <Status value={d.readiness.state} />}
                 </div>
@@ -597,8 +623,12 @@ export function ProjectSettings() {
                 ) : (
                   <p className="panel-note">
                     {dashboard.loading
-                      ? "Checking…"
-                      : "Readiness is scoped to verified capabilities."}
+                      ? de
+                        ? "Wird geprüft…"
+                        : "Checking…"
+                      : de
+                        ? "Die Bereitschaft richtet sich nach verifizierten Fähigkeiten."
+                        : "Readiness is scoped to verified capabilities."}
                   </p>
                 )}
                 {d?.readiness.capabilities && (
@@ -625,22 +655,40 @@ export function ProjectSettings() {
                 <div className="setup-links">
                   <AppLink href="/knowledge">
                     <BookOpenIcon />
-                    Add source rights and verified facts
+                    {de
+                      ? "Quellenrechte und verifizierte Fakten ergänzen"
+                      : "Add source rights and verified facts"}
                   </AppLink>
                   <AppLink href="/connectors">
                     <Link2 />
-                    Verify connector capabilities
+                    {de
+                      ? "Verbindungen und ihre Fähigkeiten prüfen"
+                      : "Verify connector capabilities"}
                   </AppLink>
                   {setupLinks.map((Link, index) => (
                     <Link key={index} />
                   ))}
                   <button onClick={() => setOpenAi(true)} disabled={!isOwner}>
                     <Brain />
-                    Configure OpenAI
+                    {de ? "OpenAI konfigurieren" : "Configure OpenAI"}
                   </button>
                 </div>
               </section>
             </div>
+          )}
+          {tab === "project" && (
+            <ContentLanguagesPanel
+              project={project}
+              isOwner={isOwner}
+              locale={locale}
+            />
+          )}
+          {tab === "project" && (
+            <ProfileLinksPanel
+              project={project}
+              isOwner={isOwner}
+              locale={locale}
+            />
           )}
           {tab === "project" && <ProjectAdministration />}
           {tab === "members" && <ProjectMembers />}

@@ -8,7 +8,12 @@ export type Project = {
   workspaceId: string;
   name: string;
   timezone: string;
-  language: "en" | "de";
+  /** The default content language (a language tag), one of contentLanguages. */
+  language: string;
+  /** The project's content languages; absent from an API before 2026-10-25. */
+  contentLanguages?: string[];
+  /** Public profile links [{type,label,url}]; not publishing channels. */
+  links?: unknown;
   mode: string;
   paused: boolean;
   generation: number;

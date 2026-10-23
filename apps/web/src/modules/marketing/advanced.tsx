@@ -21,7 +21,13 @@ import {
 import { DataForm, str, type FormField } from "@/platform/ui/form";
 import { useWorkspace } from "@/components/workspace-context";
 import { useCollection } from "@/platform/ui/collection";
-import { brandTermsField } from "./profile-fields";
+import { brandTermsField, officialLinkCandidates } from "./profile-fields";
+import {
+  AGENT_CONTENT_LANGUAGES,
+  languageName,
+  projectLinksOf,
+} from "@/platform/project-settings/catalog";
+import { languagesOf } from "@/platform/project-settings/project-configuration";
 
 type MarketingProfileView = {
   id: string;
@@ -45,8 +51,180 @@ async function fileBase64(file: File) {
   return btoa(binary);
 }
 
+// The Marketing profile's wording (de/en); missing German falls back to English.
+const PROFILE_TEXT = {
+  heading: { en: "Marketing profile", de: "Marketing-Profil" },
+  intro: {
+    en: "Versioned positioning, strategy, brand voice, official target links and campaign guardrails of the Marketing module. Project-wide languages and profile links are under Settings → Project.",
+    de: "Versionierte Positionierung, Strategie, Markenstimme, offizielle Ziel-Links und Kampagnenregeln des Marketing-Moduls. Projektweite Sprachen und Profil-Links stehen unter Einstellungen → Projekt.",
+  },
+  notConfigured: { en: "Not configured", de: "Nicht eingerichtet" },
+  version: { en: "Profile v", de: "Profil v" },
+  telegramNote: {
+    en: "Telegram is a preference only. It is not a verified notification or approval integration until a connector capability test succeeds.",
+    de: "Telegram ist nur eine Präferenz. Es ist keine verifizierte Benachrichtigungs- oder Freigabe-Integration, bis ein Fähigkeitstest der Verbindung erfolgreich war.",
+  },
+  summaryProfile: { en: "Profile", de: "Profil" },
+  summaryStrategy: { en: "Strategy", de: "Strategie" },
+  summaryStrategyText: {
+    en: "Separate product and presale campaigns. Owner selects target, window, channels, volume and sources.",
+    de: "Getrennte Produkt- und Presale-Kampagnen. Der Owner wählt Ziel, Zeitraum, Kanäle, Umfang und Quellen.",
+  },
+  summaryBrand: { en: "Brand & voice", de: "Marke & Stimme" },
+  summaryLinks: { en: "Official target links", de: "Offizielle Ziel-Links" },
+  summaryLanguage: {
+    en: "Agent content language",
+    de: "Content-Sprache der Agenten",
+  },
+  summarySources: { en: "Sources & assets", de: "Quellen & Assets" },
+  sourcesAssets: {
+    en: "{sources} referenced sources · {assets} approved assets",
+    de: "{sources} referenzierte Quellen · {assets} freigegebene Assets",
+  },
+  summaryRules: { en: "Campaign rules", de: "Kampagnenregeln" },
+  summaryRulesText: {
+    en: "One campaign type and one primary CTA. Evidence and an approved asset are required before publication.",
+    de: "Ein Kampagnentyp und ein primärer CTA. Vor der Veröffentlichung sind Belege und ein freigegebenes Asset nötig.",
+  },
+  summaryNotifications: {
+    en: "Automation / notifications",
+    de: "Automatisierung / Benachrichtigungen",
+  },
+  preferenceOnly: {
+    en: "{value} preference only; Telegram is not verified.",
+    de: "{value} nur als Präferenz; Telegram ist nicht verifiziert.",
+  },
+  edit: { en: "Edit marketing profile", de: "Marketing-Profil bearbeiten" },
+  configure: {
+    en: "Set up marketing profile",
+    de: "Marketing-Profil einrichten",
+  },
+  modalDescription: {
+    en: "Saving creates a new version and sends dependent drafts and schedules back to review.",
+    de: "Speichern erzeugt eine neue Version und schickt abhängige Entwürfe und Planungen zurück in die Prüfung.",
+  },
+  submit: { en: "Save profile version", de: "Profilversion speichern" },
+  product: { en: "Product", de: "Produkt" },
+  audience: { en: "Audience", de: "Zielgruppe" },
+  positioning: { en: "Positioning", de: "Positionierung" },
+  productStrategy: {
+    en: "Product marketing strategy",
+    de: "Produkt-Marketingstrategie",
+  },
+  presaleStrategy: {
+    en: "Presale marketing strategy",
+    de: "Presale-Marketingstrategie",
+  },
+  voice: {
+    en: "Brand voice (one rule per line)",
+    de: "Markenstimme (eine Regel pro Zeile)",
+  },
+  primaryColor: { en: "Primary brand color", de: "Primäre Markenfarbe" },
+  secondaryColor: { en: "Secondary brand color", de: "Sekundäre Markenfarbe" },
+  accentColor: { en: "Accent color", de: "Akzentfarbe" },
+  backgroundColor: { en: "Background color", de: "Hintergrundfarbe" },
+  surfaceColor: { en: "Surface color", de: "Flächenfarbe" },
+  textColor: { en: "Text color", de: "Textfarbe" },
+  headingFont: { en: "Heading font preset", de: "Schrift für Überschriften" },
+  bodyFont: { en: "Body font preset", de: "Schrift für Fließtext" },
+  logo: { en: "Default approved logo", de: "Freigegebenes Standardlogo" },
+  logoHint: {
+    en: "Upload and approve additional logo variants in the asset library.",
+    de: "Weitere Logovarianten in der Asset-Bibliothek hochladen und freigeben.",
+  },
+  approvedLogo: { en: "Approved logo", de: "Freigegebenes Logo" },
+  designRules: {
+    en: "Visual brand rules (one per line)",
+    de: "Visuelle Markenregeln (eine pro Zeile)",
+  },
+  designRulesHint: {
+    en: "Only rules confirmed by the brand owner belong here.",
+    de: "Hier gehören nur Regeln hin, die die Markenverantwortlichen bestätigt haben.",
+  },
+  guardrails: {
+    en: "Content guardrails (one rule per line)",
+    de: "Inhaltliche Leitplanken (eine Regel pro Zeile)",
+  },
+  primaryCtas: {
+    en: "Approved primary CTAs (one per line)",
+    de: "Freigegebene primäre CTAs (einer pro Zeile)",
+  },
+  brandTerms: {
+    en: "Product words in fact sentences (one per line)",
+    de: "Produktwörter in Faktensätzen (eines pro Zeile)",
+  },
+  brandTermsHint: {
+    en: "Lower-case words of the product name that a fact sentence may contain, such as the brand. Empty keeps the built-in default words. Saving the profile invalidates pending packages.",
+    de: "Kleingeschriebene Wörter des Produktnamens, die ein Faktensatz enthalten darf, etwa die Marke. Leer behält die eingebauten Standardwörter. Speichern macht offene Pakete ungültig.",
+  },
+  channelPriority: {
+    en: "Channel priority (one per line)",
+    de: "Kanalpriorität (einer pro Zeile)",
+  },
+  contentLanguage: {
+    en: "Content language of automatic agents",
+    de: "Content-Sprache automatischer Agenten",
+  },
+  contentLanguageHint: {
+    en: "Assignments and agent drafts are written in this language (English or German). Manual campaigns may use every project content language.",
+    de: "Aufträge und Agenten-Entwürfe werden in dieser Sprache geschrieben (Englisch oder Deutsch). Manuelle Kampagnen können jede Content-Sprache des Projekts nutzen.",
+  },
+  languageNotInProject: {
+    en: "The profile's agent language ({code}) is not one of the project's content languages. Assignments keep writing in it; add it under Settings → Project or choose another one here.",
+    de: "Die Agentensprache des Profils ({code}) gehört nicht zu den Content-Sprachen des Projekts. Aufträge schreiben weiter darin; füge sie unter Einstellungen → Projekt hinzu oder wähle hier eine andere.",
+  },
+  internalLanguage: {
+    en: "Internal work language",
+    de: "Interne Arbeitssprache",
+  },
+  notificationPreference: {
+    en: "Notification preference",
+    de: "Benachrichtigungspräferenz",
+  },
+  telegramPreference: {
+    en: "Telegram · preference only until verified",
+    de: "Telegram · nur Präferenz bis zur Verifizierung",
+  },
+  slackPreference: {
+    en: "Slack · preference only until verified",
+    de: "Slack · nur Präferenz bis zur Verifizierung",
+  },
+  none: { en: "None", de: "Keine" },
+  officialLinksHeading: {
+    en: "Official target links (at least one)",
+    de: "Offizielle Ziel-Links (mindestens einer)",
+  },
+  officialLinkHint: {
+    en: "Posts may link only to these addresses. Each is backed by a public, verified fact with the exact address.",
+    de: "Posts dürfen nur auf diese Adressen verlinken. Jede ist durch einen öffentlichen, verifizierten Fakt mit genau dieser Adresse belegt.",
+  },
+  noCandidates: {
+    en: "No project profile link has a public, verified fact with its exact address yet. Add links under Settings → Project and verify them as facts in Knowledge.",
+    de: "Noch kein Profil-Link des Projekts hat einen öffentlichen, verifizierten Fakt mit genau seiner Adresse. Füge Links unter Einstellungen → Projekt hinzu und verifiziere sie als Fakten im Wissen.",
+  },
+  unverifiedLinks: {
+    en: "Not selectable until a public, verified fact states their exact address: {links}",
+    de: "Nicht wählbar, bis ein öffentlicher, verifizierter Fakt genau ihre Adresse nennt: {links}",
+  },
+  oneLinkRequired: {
+    en: "Choose at least one official target link.",
+    de: "Wähle mindestens einen offiziellen Ziel-Link.",
+  },
+} satisfies Record<string, { en: string; de: string }>;
+type ProfileTextKey = keyof typeof PROFILE_TEXT;
+function profileText(locale: string) {
+  return (key: ProfileTextKey, vars: Record<string, string | number> = {}) => {
+    const entry: { en: string; de?: string } = PROFILE_TEXT[key];
+    const template = (locale === "de" && entry.de) || entry.en;
+    return template.replace(/\{(\w+)\}/g, (_, name: string) =>
+      String(vars[name] ?? `{${name}}`),
+    );
+  };
+}
+
 export function MarketingProfileConfiguration() {
-  const { project, isOwner, refresh } = useWorkspace();
+  const { project, isOwner, refresh, locale } = useWorkspace();
+  const p = profileText(locale);
   const facts = useCollection("facts");
   const sources = useCollection("sources");
   const assets = useCollection("assets");
@@ -58,8 +236,27 @@ export function MarketingProfileConfiguration() {
     refresh();
   });
   const [editing, setEditing] = useState(false);
+  const [linkError, setLinkError] = useState(false);
   const current = profile.data?.data;
   const visual = current?.visualIdentity || {};
+  const projectLanguages = languagesOf(project);
+  const agentLanguages = AGENT_CONTENT_LANGUAGES.filter(
+    (code) =>
+      projectLanguages.includes(code) || current?.contentLanguage === code,
+  );
+  const agentLanguage: string =
+    current?.contentLanguage ||
+    (agentLanguages as readonly string[]).find((c) => c === project.language) ||
+    agentLanguages[0] ||
+    "en";
+  const languageMissing =
+    Boolean(current?.contentLanguage) &&
+    !projectLanguages.includes(String(current?.contentLanguage));
+  const { candidates, unverified } = officialLinkCandidates(
+    projectLinksOf(project.links),
+    Array.isArray(current?.officialLinks) ? current.officialLinks : [],
+    facts.data?.items || [],
+  );
   const logoOptions = libraryAssets(assets.data?.items)
     .filter(
       (asset) =>
@@ -69,259 +266,208 @@ export function MarketingProfileConfiguration() {
     )
     .map((asset) => ({
       value: asset.id,
-      label: value(asset, "name", value(asset, "brandName", "Approved logo")),
+      label: value(asset, "name", value(asset, "brandName", p("approvedLogo"))),
     }));
-  const factOptions = (facts.data?.items || [])
-    .filter(
-      (fact) =>
-        fact.data.status === "verified" && fact.data.publicUse !== false,
-    )
-    .map((fact) => ({
-      value: fact.id,
-      label: `${value(fact, "key")}: ${value(fact, "value")}`,
-    }));
-  const link = (label: string, key: string, required = false): FormField => ({
-    name: key,
-    label,
-    type: "select",
-    required,
-    value: current?.officialLinks?.find((item: any) => item.label === label)
-      ?.factId,
-    options: factOptions,
-    hint: "Only a public, verified fact containing the exact official URL can be selected.",
+  const color = (name: string, fallback: string): FormField => ({
+    name,
+    label: p(name as ProfileTextKey),
+    required: true,
+    value: visual[name] || fallback,
+    placeholder: fallback,
   });
+  const fonts = ["Inter", "DejaVu Sans", "Arial", "system-ui"].map((font) => ({
+    value: font,
+    label: font,
+  }));
   const form: FormField[] = [
     {
       name: "productName",
-      label: "Product",
+      label: p("product"),
       required: true,
       value: current?.productName || project.name,
     },
     {
       name: "audience",
-      label: "Audience",
+      label: p("audience"),
       type: "textarea",
       required: true,
       value: current?.audience,
     },
     {
       name: "positioning",
-      label: "Positioning",
+      label: p("positioning"),
       type: "textarea",
       required: true,
       value: current?.positioning,
     },
     {
       name: "productStrategy",
-      label: "Product marketing strategy",
+      label: p("productStrategy"),
       type: "textarea",
       required: true,
       value: current?.productStrategy,
     },
     {
       name: "presaleStrategy",
-      label: "Presale marketing strategy",
+      label: p("presaleStrategy"),
       type: "textarea",
       required: true,
       value: current?.presaleStrategy,
     },
     {
       name: "voice",
-      label: "Brand voice (one rule per line)",
+      label: p("voice"),
       type: "textarea",
       required: true,
       value: profileLines(current?.voice),
     },
-    {
-      name: "primaryColor",
-      label: "Primary brand color",
-      required: true,
-      value: visual.primaryColor || "#0969FF",
-      placeholder: "#0969FF",
-    },
-    {
-      name: "secondaryColor",
-      label: "Secondary brand color",
-      required: true,
-      value: visual.secondaryColor || "#254D66",
-      placeholder: "#254D66",
-    },
-    {
-      name: "accentColor",
-      label: "Accent color",
-      required: true,
-      value: visual.accentColor || "#45C2FF",
-      placeholder: "#45C2FF",
-    },
-    {
-      name: "backgroundColor",
-      label: "Background color",
-      required: true,
-      value: visual.backgroundColor || "#F6FBFF",
-      placeholder: "#F6FBFF",
-    },
-    {
-      name: "surfaceColor",
-      label: "Surface color",
-      required: true,
-      value: visual.surfaceColor || "#FFFFFF",
-      placeholder: "#FFFFFF",
-    },
-    {
-      name: "textColor",
-      label: "Text color",
-      required: true,
-      value: visual.textColor || "#071522",
-      placeholder: "#071522",
-    },
+    color("primaryColor", "#0969FF"),
+    color("secondaryColor", "#254D66"),
+    color("accentColor", "#45C2FF"),
+    color("backgroundColor", "#F6FBFF"),
+    color("surfaceColor", "#FFFFFF"),
+    color("textColor", "#071522"),
     {
       name: "headingFont",
-      label: "Heading font preset",
+      label: p("headingFont"),
       type: "select",
       value: visual.headingFont || "Inter",
-      options: ["Inter", "DejaVu Sans", "Arial", "system-ui"].map((font) => ({
-        value: font,
-        label: font,
-      })),
+      options: fonts,
     },
     {
       name: "bodyFont",
-      label: "Body font preset",
+      label: p("bodyFont"),
       type: "select",
       value: visual.bodyFont || "Inter",
-      options: ["Inter", "DejaVu Sans", "Arial", "system-ui"].map((font) => ({
-        value: font,
-        label: font,
-      })),
+      options: fonts,
     },
     {
       name: "logoAssetId",
-      label: "Default approved logo",
+      label: p("logo"),
       type: "select",
       value: visual.logoAssetId || "",
       options: logoOptions,
-      hint: "Upload and approve additional logo variants in the asset library.",
+      hint: p("logoHint"),
     },
     {
       name: "designRules",
-      label: "Visual brand rules (one per line)",
+      label: p("designRules"),
       type: "textarea",
       value: profileLines(visual.designRules),
-      hint: "Only rules confirmed by the brand owner belong here.",
+      hint: p("designRulesHint"),
     },
     {
       name: "guardrails",
-      label: "Content guardrails (one rule per line)",
+      label: p("guardrails"),
       type: "textarea",
       required: true,
       value: profileLines(current?.guardrails),
     },
     {
       name: "primaryCtas",
-      label: "Approved primary CTAs (one per line)",
+      label: p("primaryCtas"),
       type: "textarea",
       required: true,
       value: profileLines(current?.primaryCtas),
     },
     {
       name: "brandTerms",
-      label: "Product words in fact sentences (one per line)",
+      label: p("brandTerms"),
       type: "textarea",
       value: profileLines(current?.brandTerms),
-      hint: "Lower-case words of the product name that a fact sentence may contain, such as the brand. Empty keeps the built-in words (uliquid, uliq, desk). Saving the profile invalidates pending packages.",
+      hint: p("brandTermsHint"),
     },
     {
       name: "channelPriority",
-      label: "Channel priority (one per line)",
+      label: p("channelPriority"),
       type: "textarea",
       required: true,
       value: profileLines(current?.channelPriority),
     },
     {
+      name: "contentLanguage",
+      label: p("contentLanguage"),
+      type: "select",
+      value: agentLanguage,
+      options: (agentLanguages.length
+        ? agentLanguages
+        : AGENT_CONTENT_LANGUAGES
+      ).map((code) => ({ value: code, label: languageName(code, locale) })),
+      hint: p("contentLanguageHint"),
+    },
+    {
       name: "internalLanguage",
-      label: "Internal work language",
+      label: p("internalLanguage"),
       type: "select",
       value: current?.internalLanguage || "de",
       options: [
-        { value: "en", label: "English" },
-        { value: "de", label: "Deutsch" },
+        { value: "en", label: languageName("en", locale) },
+        { value: "de", label: languageName("de", locale) },
       ],
     },
     {
       name: "notificationPreference",
-      label: "Notification preference",
+      label: p("notificationPreference"),
       type: "select",
       value: current?.notificationPreference || "telegram",
       options: [
-        {
-          value: "telegram",
-          label: "Telegram · preference only until verified",
-        },
-        { value: "slack", label: "Slack · preference only until verified" },
-        { value: "none", label: "None" },
+        { value: "telegram", label: p("telegramPreference") },
+        { value: "slack", label: p("slackPreference") },
+        { value: "none", label: p("none") },
       ],
     },
-    link("Website", "websiteFactId", true),
-    link("Web app", "webAppFactId", true),
-    link("Beta registration", "registrationFactId", true),
-    link("Getting Started", "docsFactId", true),
-    link("X", "xFactId"),
-    link("Telegram announcements", "telegramAnnouncementsFactId"),
-    link("Telegram community", "telegramCommunityFactId"),
-    link("LinkedIn", "linkedinFactId"),
-  ];
-  const labels: Array<[string, string]> = [
-    ["Website", "websiteFactId"],
-    ["Web app", "webAppFactId"],
-    ["Beta registration", "registrationFactId"],
-    ["Getting Started", "docsFactId"],
-    ["X", "xFactId"],
-    ["Telegram announcements", "telegramAnnouncementsFactId"],
-    ["Telegram community", "telegramCommunityFactId"],
-    ["LinkedIn", "linkedinFactId"],
+    ...candidates.map((link, index): FormField => ({
+      name: link.key,
+      label: `${link.label} · ${link.url}`,
+      type: "checkbox",
+      value: link.checked,
+      ...(index === 0
+        ? { heading: p("officialLinksHeading"), hint: p("officialLinkHint") }
+        : {}),
+    })),
   ];
   return (
     <section className="panel administration-panel">
       <div className="panel-head">
         <div>
-          <h2>Project configuration</h2>
-          <p>
-            Versioned profile, strategy, official links, brand voice and
-            campaign guardrails.
-          </p>
+          <h2>{p("heading")}</h2>
+          <p>{p("intro")}</p>
         </div>
         <Badge tone={current ? "success" : "warning"}>
-          {current ? `Profile v${profile.data?.version}` : "Not configured"}
+          {current
+            ? `${p("version")}${profile.data?.version}`
+            : p("notConfigured")}
         </Badge>
       </div>
-      <Alert>
-        Telegram is a preference only. It is not a verified notification or
-        approval integration until a connector capability test succeeds.
-      </Alert>
+      <Alert>{p("telegramNote")}</Alert>
+      {languageMissing && (
+        <Alert kind="warning">
+          {p("languageNotInProject", {
+            code: String(current?.contentLanguage),
+          })}
+        </Alert>
+      )}
       {current && (
         <div className="detail-grid">
           <div>
-            <strong>Profile</strong>
+            <strong>{p("summaryProfile")}</strong>
             <p>
               {String(current.productName)} · {String(current.audience)}
             </p>
           </div>
           <div>
-            <strong>Strategy</strong>
-            <p>
-              Separate product and presale campaigns. Owner selects target,
-              window, channels, volume and sources.
-            </p>
+            <strong>{p("summaryStrategy")}</strong>
+            <p>{p("summaryStrategyText")}</p>
           </div>
           <div>
-            <strong>Brand &amp; voice</strong>
+            <strong>{p("summaryBrand")}</strong>
             <p>
               {(current.voice || []).join(" · ")} ·{" "}
               {visual.primaryColor || "#0969FF"}
             </p>
           </div>
           <div>
-            <strong>Official links</strong>
+            <strong>{p("summaryLinks")}</strong>
             <p>
               {(current.officialLinks || [])
                 .map((item: any) => item.label)
@@ -329,68 +475,85 @@ export function MarketingProfileConfiguration() {
             </p>
           </div>
           <div>
-            <strong>Sources &amp; assets</strong>
+            <strong>{p("summaryLanguage")}</strong>
+            <p>{languageName(String(current.contentLanguage), locale)}</p>
+          </div>
+          <div>
+            <strong>{p("summarySources")}</strong>
             <p>
-              {sources.data?.items.length || 0} referenced sources ·{" "}
-              {
-                libraryAssets(assets.data?.items).filter(
+              {p("sourcesAssets", {
+                sources: sources.data?.items.length || 0,
+                assets: libraryAssets(assets.data?.items).filter(
                   (asset) => asset.data.assetStatus === "approved",
-                ).length
-              }{" "}
-              approved assets
+                ).length,
+              })}
             </p>
           </div>
           <div>
-            <strong>Campaign rules</strong>
-            <p>
-              One campaign type and one primary CTA. Evidence and an approved
-              asset are required before publication.
-            </p>
+            <strong>{p("summaryRules")}</strong>
+            <p>{p("summaryRulesText")}</p>
           </div>
           <div>
-            <strong>Automation / notifications</strong>
+            <strong>{p("summaryNotifications")}</strong>
             <p>
-              {String(current.notificationPreference)} preference only; Telegram
-              is not verified.
+              {p("preferenceOnly", {
+                value: String(current.notificationPreference),
+              })}
             </p>
           </div>
         </div>
       )}
       {isOwner && (
         <Button variant="outline" onClick={() => setEditing(true)}>
-          {current ? "Edit project configuration" : "Configure project"}
+          {current ? p("edit") : p("configure")}
         </Button>
       )}
       {editing && (
         <Modal
-          title="Project configuration"
-          description="Saving creates a new version and sends dependent drafts and schedules back to review."
-          onClose={() => setEditing(false)}
+          title={p("heading")}
+          description={p("modalDescription")}
+          onClose={() => {
+            setEditing(false);
+            setLinkError(false);
+          }}
           wide
         >
+          {!candidates.length && (
+            <Alert kind="warning">{p("noCandidates")}</Alert>
+          )}
+          {unverified.length > 0 && (
+            <Alert>
+              {p("unverifiedLinks", {
+                links: unverified.map((l) => l.label).join(", "),
+              })}
+            </Alert>
+          )}
+          {linkError && <Alert kind="error">{p("oneLinkRequired")}</Alert>}
           <DataForm
             fields={form}
             pending={mutation.pending}
             error={mutation.error}
-            submitLabel="Save configuration version"
-            onCancel={() => setEditing(false)}
-            onSubmit={(v) =>
-              mutation
-                .run(async () => {
-                  const officialLinks = labels.flatMap(([label, key]) => {
-                    const factId = str(v, key);
-                    if (!factId) return [];
-                    const fact = (facts.data?.items || []).find(
-                      (item) => item.id === factId,
-                    );
-                    const url = String(fact?.data.value ?? "");
-                    return [{ label, factId, url }];
-                  });
-                  return api(`/projects/${project.id}/marketing-profile`, {
+            submitLabel={p("submit")}
+            onCancel={() => {
+              setEditing(false);
+              setLinkError(false);
+            }}
+            onSubmit={(v) => {
+              const officialLinks = candidates
+                .filter((link) => v[link.key] === true)
+                .map(({ label, factId, url }) => ({ label, factId, url }));
+              if (!officialLinks.length) {
+                setLinkError(true);
+                return;
+              }
+              setLinkError(false);
+              return mutation
+                .run(async () =>
+                  api(`/projects/${project.id}/marketing-profile`, {
                     method: "PUT",
                     body: JSON.stringify({
                       productName: str(v, "productName"),
-                      contentLanguage: project.language,
+                      contentLanguage: str(v, "contentLanguage"),
                       internalLanguage: str(v, "internalLanguage"),
                       audience: str(v, "audience"),
                       positioning: str(v, "positioning"),
@@ -419,12 +582,12 @@ export function MarketingProfileConfiguration() {
                       },
                       assetPolicy: "approved_only",
                     }),
-                  });
-                })
+                  }),
+                )
                 .then((result) => {
                   if (result) setEditing(false);
-                })
-            }
+                });
+            }}
           />
         </Modal>
       )}

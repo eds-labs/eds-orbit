@@ -1,4 +1,5 @@
 "use client";
+import { contentLanguageOptions } from "@/platform/project-settings/project-configuration";
 import { AppLink } from "@/platform/ui/app-link";
 import { openExceptions, pausedPosts } from "./approval-lists";
 import { CalendarBlocks, calendarBlockConflicts } from "./calendar-blocks";
@@ -524,7 +525,7 @@ export function MissionEditor({
       label: t("language"),
       type: "select",
       value: initial?.language || project.language,
-      options: options(["en", "de"]),
+      options: contentLanguageOptions(project, locale, initial?.language),
     },
     {
       name: "contentType",
@@ -775,7 +776,7 @@ export function ContentEditor({
   entity?: Entity;
   onClose: () => void;
 }) {
-  const { project, t, refresh } = useWorkspace();
+  const { project, t, locale, refresh } = useWorkspace();
   const evidence = useCollection("evidence"),
     facts = useCollection("facts"),
     missions = useCollection("missions"),
@@ -837,7 +838,11 @@ export function ContentEditor({
       label: t("language"),
       type: "select",
       value: String(d?.language || project.language),
-      options: options(["en", "de"]),
+      options: contentLanguageOptions(
+        project,
+        locale,
+        d?.language ? String(d.language) : undefined,
+      ),
     },
     {
       name: "channel",

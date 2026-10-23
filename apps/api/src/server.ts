@@ -144,7 +144,7 @@ const factSchema = z
       .regex(/^[A-Z]{3}$/)
       .optional(),
     unit: z.string().max(50).optional(),
-    language: z.enum(["en", "de"]),
+    language: schemas.languageCode,
     market: z.string().max(100).optional(),
     sourceId: schemas.id,
     validFrom: z.iso.datetime(),
@@ -671,7 +671,7 @@ export async function buildServer(
       .object({
         name: z.string().min(1).max(100),
         timezone: z.string().default("UTC"),
-        language: z.enum(["en", "de"]).default("en"),
+        language: schemas.languageCode.default("en"),
         workspaceId: schemas.id.optional(),
       })
       .strict()
@@ -694,6 +694,7 @@ export async function buildServer(
         name: input.name,
         timezone: input.timezone,
         language: input.language,
+        contentLanguages: [input.language],
         workspaceId: member.workspaceId,
         members: {
           create: {

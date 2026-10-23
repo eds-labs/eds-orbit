@@ -116,7 +116,12 @@ model Project {
   workspaceId      String              @db.Uuid
   name             String
   timezone         String              @default("UTC")
+  /// The default content language; one of contentLanguages.
   language         String              @default("en")
+  /// The project's content languages (language tags), the default among them.
+  contentLanguages String[]            @default(["en"])
+  /// Public profile links [{type,label,url}] (packages/schemas project-settings); not publishing channels.
+  links            Json                @default("[]")
   mode             String              @default("observe")
   /// 'project', or 'library' for an organization knowledge library (ADR 0014).
   kind             String              @default("project")
