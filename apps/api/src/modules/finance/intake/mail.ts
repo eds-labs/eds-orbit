@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import PostalMime from "postal-mime";
-import { scoped } from "../../../../../../packages/db/src/index.ts";
+import { scoped, type DbTx } from "../../../../../../packages/db/src/index.ts";
 import type { Scope } from "../../../../../../packages/schemas/src/index.ts";
 import { audit, data, DomainError } from "../../../shared.ts";
 import { requestInboundArchive } from "../../../platform/email/archive.ts";
@@ -194,18 +194,57 @@ export async function handleMailReceipt(
   }
 
   // A mail with a failed part stays in the inbox for a person to see.
-  if (
-    settings.archiveAfter === "extracted" &&
-    !failed &&
-    ![...held.values()].includes("received")
-  )
+  if (!failed)
     await scoped(scope.workspaceId, scope.projectId, (tx) =>
-      requestInboundArchive(
-        tx,
-        scope,
+      archiveMailWhenDone(tx, scope, {
         inboundEmailId,
-        mailbox.archiveFolder,
-        "finance",
-      ),
+        mailboxId: mailbox.id,
+        messageId,
+      }),
     );
+}
+
+/**
+ * Asks the platform to archive a finance mail once finance is done with it
+ * (`archiveAfter` "extracted"): its mailbox is still bound, no document of
+ * the message still waits for extraction or failed it, and no accepted
+ * part of this inbound mail failed. Extraction calls it after each document.
+ * Returns whether the archive was requested.
+ */
+export async function archiveMailWhenDone(
+  tx: DbTx,
+  scope: Scope,
+  mail: { inboundEmailId: string; mailboxId: string; messageId: string },
+) {
+  const { settings } = await readFinanceSettings(tx, scope);
+  if (settings.archiveAfter !== "extracted") return false;
+  const mailbox = await tx.financeMailbox.findFirst({
+    where: { id: mail.mailboxId, projectId: scope.projectId, active: true },
+  });
+  if (!mailbox) return false;
+  const waiting = await tx.financeDocument.count({
+    where: {
+      projectId: scope.projectId,
+      messageId: mail.messageId,
+      // A failed extraction is not finished: a person retries it.
+      status: { in: ["received", "failed"] },
+    },
+  });
+  if (waiting) return false;
+  const failed = await tx.auditEvent.count({
+    where: {
+      projectId: scope.projectId,
+      action: "finance.mail.attachment_failed",
+      resourceId: mail.inboundEmailId,
+    },
+  });
+  if (failed) return false;
+  await requestInboundArchive(
+    tx,
+    scope,
+    mail.inboundEmailId,
+    mailbox.archiveFolder,
+    "finance",
+  );
+  return true;
 }

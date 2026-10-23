@@ -1,6 +1,6 @@
 import type { ModuleContributions } from "../../platform/modules/contributions.ts";
-import { DomainError } from "../../shared.ts";
 import { financeFxSync } from "./fx.ts";
+import { runFinanceExtraction } from "./extraction/extract.ts";
 import { financeSwitchedOn } from "./gate.ts";
 import { FINANCE_EXTRACT, FINANCE_MAIL_RECEIPT } from "./intake/documents.ts";
 import { handleMailReceipt } from "./intake/mail.ts";
@@ -20,12 +20,15 @@ export const financeContributions: ModuleContributions = {
       queueClass: FINANCE_MAIL_RECEIPT,
       handler: ({ scope, job }) => handleMailReceipt(scope, job.resourceId),
     },
+    // A paid call: an attempt that sent it is never repeated (extract.ts).
     {
       queueClass: FINANCE_EXTRACT,
-      // Replaced by the extraction handler; the code is permanent (NOT_).
-      handler: async () => {
-        throw new DomainError("FINANCE_EXTRACTION_NOT_IMPLEMENTED", 501);
-      },
+      leaseMs: 180_000,
+      handler: ({ scope, job, jobId }) =>
+        runFinanceExtraction(scope, {
+          documentId: job.resourceId,
+          attemptKey: jobId,
+        }),
     },
   ],
 };

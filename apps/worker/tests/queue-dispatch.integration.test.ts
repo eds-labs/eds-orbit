@@ -169,7 +169,7 @@ describe.skipIf(!enabled)(
         },
         finance_extract: {
           status: "blocked_dependency",
-          error: "FINANCE_EXTRACTION_NOT_IMPLEMENTED",
+          error: "FINANCE_DOCUMENT_NOT_FOUND",
           attempts: 1,
         },
       });
