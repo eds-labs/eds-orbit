@@ -1,5 +1,22 @@
 # Implementation status
 
+## Central connections — cutover, migration, MCP administration, n8n (2026-10-23, local; not deployed, flags off)
+
+WP3.4–3.7 of `docs/plans/CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md`:
+- **3.4 Cutover:** Postiz, Matomo and customer context can use a granted central connection through `connectionAccess` and `connector-attach` (per provider, `ORBIT_CONNECTIONS_CUTOVER`).
+- **3.5 Migration:** `scripts/connections-migrate.ts` with a read-only inventory using keyed fingerprints, consolidation with a dry run, and rollback.
+- **3.6 MCP administration:** clients with disable, all grants, revocation.
+- **3.7 n8n:** connection, `WorkflowBinding` (migration `202610230003`), signed triggers and callbacks, runs without payload.
+
+Mailboxes, Slack, GitHub and Drive are not cut over (see plan).
+
+Risk: high. Evidence:
+- 14 new integration scenarios (cutover 3, migration 3, MCP administration 3, automation 5);
+- access matrix with 17 new routes and no existing cell changed;
+- full suite 3,212 passed, 2 failed and 7 skipped in 294 files. Both failures were this change's own registry expectations (export kinds, provider order); after the fix they pass (19/19).
+
+Lint, boundaries, root and web typechecks, the web tests (431), the Next production build, the Compose check, the secrets scan and `git diff --check` passed. Rollout: `docs/deployment/ADMINISTRATION_ROLLOUT.md`.
+
 ## Central connections, AI profiles and shared knowledge — phase 3 core (2026-10-23, local; not deployed, flags off)
 
 ADR 0013 (accepted; decisions E1–E4) and `docs/plans/CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md`. Built: WP3.0 hooks, 3.1 connection core (tables, row-level security for use only with an active project grant, versioned secrets with key ring, resolver), 3.2 administration and organization connection APIs and UI, 3.3 AI profiles (system, organization, project override), granted provider keys and grant/organization/connection budgets on locked counters, 3.8 organization knowledge libraries shared with projects (Support and assistant; origin-checked validation). Flags `ORBIT_CONNECTIONS` and `ORBIT_KNOWLEDGE_SHARES` default off. Not built yet: 3.4 provider cutovers (Postiz, Matomo, customer context/n8n, GitHub, Drive, Slack, mailboxes), 3.5 migration tooling, 3.6 MCP administration, 3.7 n8n bindings, 3.9 core clean-up, 3.10 external MCP client.

@@ -487,6 +487,12 @@ Scope: `platform/connections/{central,secrets}.ts`, `platform/administration/{co
   - Shared results reach Support and the assistant only; marketing and MCP keep project knowledge.
 - **Audit:** connection, grant, secret rotation, check, disable, AI profile and share events in `SystemAuditEvent`, ids and codes only (tested: no key material).
 
+Part 2 (WP3.4–3.7):
+- **Cutover:** a bound project connection holds no key; `connectionAccess` reads the central secret only through the project's grant.
+- **Migration:** fingerprints are keyed HMACs, never keys. Consolidation stays inside one organization and binds only projects with the same key; a rollback restores each project's own key.
+- **MCP administration:** a client disable revokes every grant and its stored authorization. Administrators see grants as metadata only.
+- **n8n:** triggers are signed and product-neutral, and a callback must carry a fresh signature from the connection's current secret (±300 s; a finished run is final). Neither direction keeps a payload or a key, and a revoked grant fails closed in both directions.
+
 Residual and open:
 - `lastUsedAt` is not maintained;
 - library search is lexical;

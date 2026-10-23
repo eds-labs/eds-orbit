@@ -399,3 +399,42 @@ Built on Mario's go-ahead ("Jetzt, Kern zuerst"): WP3.0, 3.1, 3.2 (generic list,
 - `apps/api/tests/connections.integration.test.ts` (9 scenarios): secrets never returned; budget required for paid organization grants; foreign organizations refused; row-level security per project; the AI runtime uses the granted key; route version changes; concurrent organization budget; rotation only after the provider accepts; disable and revoke cascade; administrators cannot manage an organization's own connection.
 - `apps/api/tests/knowledge-shares.integration.test.ts` (5 scenarios): isolation without a share, cross-organization and non-owner refusal, results with origin only for the consumer and module (not marketing, not MCP), invalidation on share change and on library source revocation, immediate end on revoke.
 - RLS matrix (new table classes); access matrix (33 new routes, no existing cell changed); the provider/registry and AI regression suites; a browser check of the administration and organization pages.
+
+## Implementation status, part 2 (2026-10-23, WP3.4–3.7, local; flags off)
+
+Built on Mario's go-ahead ("continue with 3.4 … 3.7, everything behind flags, no push").
+
+- **3.4 Provider cutovers:**
+  - `connectionAccess(tx, scope, connection)` (`platform/connections/connections.ts`) gives a provider call its key and base URL. A project connection bound to a central one (`centralConnectionId`) reads the central secret in the project transaction, so it works only while the project holds a grant. One with its own key works as before.
+  - Switched over: every Postiz site (publisher, reconcile, drafts, write verification, queue watch, channel sync, analytics tools), Matomo imports, customer context lookups (Support) and the generic health check.
+  - New owner action `connector-attach` binds a granted connection; the project keeps channels, site and verification state on its own connection.
+  - Per provider behind `ORBIT_CONNECTIONS_CUTOVER` (for example `postiz,matomo,customer_context`).
+  - Postiz, Matomo and customer context may now be system or organization connections. UI: the "Granted connections" card in the project connectors page.
+- **3.5 Migration tooling** (`platform/connections/migration.ts`, `scripts/connections-migrate.ts`):
+  - a read-only inventory with keyed fingerprints (HMAC with the master key, no key printed) and shared-key candidates per organization;
+  - `plan` and `apply --yes` consolidate projects with the same key into one organization connection, granted and bound per project, never across organizations;
+  - `rollback --yes` unbinds every project that kept its own key, revokes the grants and disables the connection.
+  - Projects keep their own keys, so a rollback is always possible.
+- **3.6 MCP administration:** Administration → MCP shows:
+  - the gateway's state;
+  - the OAuth clients, with a disable action that sets `disabled` and revokes every grant with its stored tokens;
+  - all active grants as metadata, with revocation (`revokeGrantByAdministration`).
+- **3.7 n8n:**
+  - **Connection and bindings:** provider `n8n` (system or organization), with the secret as JSON `{apiKey, signingSecret}`; the check reads one workflow page. `WorkflowBinding` (migration `202610230003_workflow_bindings`, row-level security through the connection's grant) binds a workflow path to `automation.v1` or `customer_context.v1`.
+  - **Triggers:** an owner (or later a module) triggers a run with a signed request (HMAC with timestamp, request id, run id, callback URL), only from a project with an `automation` grant, and only in live mode with external writes; otherwise the run is a test receipt.
+  - **Callbacks:** `POST /api/automation/callbacks/:projectId/:runId` checks the signature against the connection's current secret; a revoked grant fails closed, and replays change nothing.
+  - **Data kept:** runs store status and codes only, never a payload; the execution status is read from n8n's API on demand.
+  - UI: a workflows dialog on automation connections, and recent runs on the project connectors page.
+
+**Not cut over, by decision or for later:**
+- Mailboxes stay project connections, because they are tied to an address.
+- Slack stays per project because of its channel mandate.
+- GitHub and Google Drive use their own entity kinds and OAuth flows; they need their own cutover.
+- The customer context support inbox binding is unchanged (it binds a project connection, which can now be a bound central one).
+
+**Evidence:**
+- `connection-cutover.integration.test.ts` (3): bind without a stored key, own keys unchanged, fail closed without cutover or after revocation;
+- `connection-migration.integration.test.ts` (3): fingerprints without keys, same-key binding only within the organization, rollback;
+- `mcp-admin.integration.test.ts` (3);
+- `automation-workflows.integration.test.ts` (5): binding only for granted projects, test mode, signed neutral request without secrets or kept payload, signed single-use callbacks, revocation;
+- access matrix: 17 new routes, no existing cell changed; the callback is public and signature-authenticated.

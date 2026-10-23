@@ -20,8 +20,8 @@
 | CI04 Secrets write-only, rotated after a provider check, never audited | `connections/secrets.ts`; integration test | PASS_TEST |
 | CI05 Central AI profiles under project overrides; route version changes stop in-flight runs | `ai/central-ai.ts`; integration test | PASS_TEST |
 | CI06 Organization knowledge only through explicit shares, with origin and invalidation | `knowledge/shares.ts`; `knowledge-shares.integration.test.ts` | PASS_TEST |
-| CI07 Existing project connections cut over to central connections with rollback | plan WP3.4/3.5 | NOT_STARTED |
-| CI08 Central MCP administration and n8n bindings | plan WP3.6/3.7 | NOT_STARTED |
+| CI07 Existing project connections cut over to central connections with rollback | `connectionAccess`, `connector-attach`, `connections-migrate.ts`; cutover and migration tests | PASS_TEST (Postiz, Matomo, customer context; mailboxes/Slack/GitHub/Drive not cut over) |
+| CI08 Central MCP administration and n8n bindings | `administration/mcp.ts`, `automation/workflows.ts`; MCP admin and automation tests | PASS_TEST |
 
 ## n8n integration layer — customer context phase 1 (2026-10-21)
 

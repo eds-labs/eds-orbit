@@ -36,3 +36,22 @@ ADR 0012, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches pr
   6. Separately, `ORBIT_KNOWLEDGE_SHARES=true`, a library and one share for Support.
 - **Key ring:** optional `CREDENTIAL_KEYS` for rotating the master key; `CREDENTIAL_KEY` stays readable as `default`.
 - **Rollback:** set the flags off. Projects then use only their own settings and the environment again, and shares are ignored; the new tables stay. Reverting the code is safe because the migration is additive.
+
+### Phase 3 part 2: cutover, migration, MCP administration, n8n
+
+- Migration `202610230003_workflow_bindings` is additive.
+- **Cutover (each provider separately, approval):**
+  1. Set `ORBIT_CONNECTIONS_CUTOVER=postiz`.
+  2. Run the inventory: `node_modules/.bin/tsx scripts/connections-migrate.ts inventory --workspace <id>`. It is read-only.
+  3. Show the plan to Mario.
+  4. Run `apply --yes`.
+  5. Check one draft and one queue check per bound project.
+  - Rollback: `connections-migrate.ts rollback --connection <id> --yes`, or remove the provider from `ORBIT_CONNECTIONS_CUTOVER`; adopted projects then use their kept keys again.
+- **MCP:** Administration → MCP is available to administrators with `ORBIT_ADMINISTRATION=true`. Disabling a client revokes its grants at once.
+- **n8n:**
+  1. Create the connection with the JSON secret.
+  2. Add a binding.
+  3. Grant `automation` to one project.
+  4. Run one test trigger in test mode.
+  - Live triggers need `EXECUTION_MODE=live` and `ENABLE_EXTERNAL_WRITES=true`.
+  - The n8n workflow must verify `X-Orbit-Signature`, and signs its callback with the same secret.
