@@ -91,7 +91,7 @@ export function SetupPrompt({
   );
 }
 
-/** The review queue, one level below the finance root (registered in a later page). */
+/** The review queue, one level below the finance root (view `finance.review`). */
 export function useReviewHref() {
   return `${useShell().hrefOf("finance")}/review`;
 }

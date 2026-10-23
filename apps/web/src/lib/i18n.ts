@@ -7,6 +7,8 @@ export const labels = {
     financeReportUnassigned: "Unassigned",
     // The member notification of a document that needs review (server text).
     financeReviewNeeded: "A receipt needs review",
+    // The finance review page in the navigation.
+    financeReviewNav: "Review",
     tickets: "Tickets",
     contacts: "Contacts",
     statistics: "Statistics",
@@ -268,6 +270,8 @@ export const labels = {
     financeReportUnassigned: "Nicht zugeordnet",
     // The member notification of a document that needs review (server text).
     financeReviewNeeded: "Ein Beleg muss geprüft werden",
+    // The finance review page in the navigation.
+    financeReviewNav: "Prüfen",
     tickets: "Tickets",
     contacts: "Kontakte",
     statistics: "Statistik",

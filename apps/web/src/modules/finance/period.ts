@@ -3,7 +3,6 @@
 
 export type Period = "12m" | "year" | "lastYear";
 export const PERIODS: readonly Period[] = ["12m", "year", "lastYear"];
-const RECEIPT_LIMIT = 10;
 
 /** The period named in the URL; anything unknown is the default. */
 export function periodOf(value: string | null): Period {
