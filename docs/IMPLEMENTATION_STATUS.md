@@ -1,5 +1,16 @@
 # Implementation status
 
+## Live: finance, global administration and central connections (2026-10-23)
+
+- **Deploy:** `main` at `d20b587`, Coolify deployment `pz2aqs8syjum7hlre5fl38ew`, finished 14:59:52 UTC.
+- **Earlier failures:** three deployments (14:27, 14:42, 14:44) failed in the image's `runtime-base` `apt-get` step with exit 100. The cause was on the server (disk/apt); Mario fixed it there and no code changed.
+- **Verified:**
+  - readiness ok (database, worker);
+  - new code live (`/api/setup` has `passwordReset`, the anonymous finance route answers 401);
+  - administration, account, connection and share routes answer 404 before authentication, so their flags are off;
+  - the migrations are inferred from `migrate` completing before api and worker start, not read from the database.
+- **First system administrator:** granted by Mario on 2026-10-23 with `scripts/system-admin.ts grant` in the api container (user `78f3cf78-9021-432a-b8ea-315cb1eaf5a1`, audited as `system:cli`); `list` shows exactly this administrator.
+- **Next, each separately approved:** `ORBIT_ADMINISTRATION`, `ORBIT_ACCOUNT`, optional system SMTP.
 ## Knowledge indexing and RAG search repair (2026-10-23, local; not pushed)
 
 Branch `claude/knowledge-indexing-repair`, root cause and operations in `plans/knowledge-indexing-repair.md`. FamilyPlan's 12 imported documents (84 chunks) could not be found, for two reasons. First, their source is classified `authority: generated`, which every retrieval excludes. Second, MCP `search`/`fetch` required `publicUse`, and the source is internal. `embedded: 0` is expected (`knowledge_add_document` never buys embeddings; full-text retrieval works without them). Latent defects found and fixed: any source settings change (rights, pause/resume) left stored documents on the old generation and permanently unsearchable, and manual sources expired after 7 days unnoticed.
