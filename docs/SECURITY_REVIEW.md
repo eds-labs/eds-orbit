@@ -467,6 +467,32 @@ Scope: `apps/api/src/platform/administration/`, `apps/api/src/platform/account/`
 
 Findings fixed during implementation: none open. Residual: the per-address reset limit is per API instance; the invitation view tells the token holder whether the address has an account (needed to choose the form). Independent review pending.
 
+## Central connections, AI profiles and shared knowledge (ADR 0013, prepared 2026-10-23; local only)
+
+Scope: `platform/connections/{central,secrets}.ts`, `platform/administration/{connections,connection-routes,ai-profiles}.ts`, `platform/ai/{central-ai,connection-providers}.ts`, `platform/ai/budget.ts`, `platform/knowledge/{shares,share-routes,search}.ts`, migration `202610230002_central_connections`. Threat model: one secret used by many projects and organizations, cross-tenant use of a key or of knowledge, and spend across projects.
+
+- **Use needs a grant, enforced by the database.** `orbit_app` may SELECT a connection or its active secret only inside a project transaction with an active project grant (`connection_use`, `secret_use`, `grant_use`). Without a project scope it sees nothing (RLS matrix). Tested: another project of the same organization and a project of another organization read zero rows.
+- **Management is split by owner.** System connections belong to system administrators. Organization connections belong to their owners; administrators see metadata and may disable them, but cannot rotate or grant them. Owners cannot grant system connections beyond their organization grant, its purposes or its modules. A forged id answers 404.
+- **Secrets:**
+  - AES-256-GCM through a key ring (`CREDENTIAL_KEYS`, `keyId` per secret).
+  - Never returned, logged or audited.
+  - Rotation checks the new secret with the provider first, and the old one is retired in the same transaction.
+  - Provider checks list models only: no paid call, and the provider's error text is never stored.
+- **Budgets (E2):** a system key for a paid purpose reaches an organization only with a monthly budget. Grant, organization and connection counters are locked in a fixed order inside the reserving transaction; tested with concurrent reservations from two projects. Unknown outcomes keep counting. The existing mandate, provider budget, fallback and rate-card checks run unchanged before them.
+- **Precedence:** a project's own AI settings and keys keep winning, so no project silently switches to a shared key it already had its own for. Every change to a profile or a granted key changes the route version and stops in-flight runs before their next paid call.
+- **Shared knowledge (E1):**
+  - The library is searched in its own project transaction; knowledge RLS is unchanged.
+  - Shares are visible only to the consumer and the library.
+  - Results carry their origin and are valid only while the share keeps its generation and the library evidence stays valid.
+  - Shared results reach Support and the assistant only; marketing and MCP keep project knowledge.
+- **Audit:** connection, grant, secret rotation, check, disable, AI profile and share events in `SystemAuditEvent`, ids and codes only (tested: no key material).
+
+Residual and open:
+- `lastUsedAt` is not maintained;
+- library search is lexical;
+- the legacy project connections are still read as before until each provider's cutover (3.4);
+- independent review pending.
+
 ## Primary implementation references
 
 [Mammoth ZIP reader](https://raw.githubusercontent.com/mwilliamson/mammoth.js/master/lib/zipfile.js), [JSZip central-directory reader](https://raw.githubusercontent.com/Stuk/jszip/main/lib/zipEntries.js), [Sharp output API](https://sharp.pixelplumbing.com/api-output/), [Sharp installation requirements](https://sharp.pixelplumbing.com/install/), [Postiz group deletion](https://docs.postiz.com/public-api/posts/delete), and [Postiz status listing](https://docs.postiz.com/public-api/posts/list).

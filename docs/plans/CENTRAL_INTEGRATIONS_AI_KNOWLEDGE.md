@@ -378,3 +378,24 @@ A failure marks the evidence invalid, as today.
   - document that `orbit_auth` gets no grant on project business tables (the library is reached through shares, not admin reads);
   - keep the admin project list free of a module column (`ProjectModule` stays a business table).
 - **Phases 4 and 5 shift by one:** project lifecycle is now phase 4. Global settings is phase 5; its AI and budget items move into this phase 3, and phase 5 keeps branding, locale, registration policy, session policy, maintenance and versions. Archiving a project must also revoke its connection grants and knowledge shares, and stop its workflow bindings.
+
+## Implementation status (2026-10-23, core work packages, local; flags off)
+
+Built on Mario's go-ahead ("Jetzt, Kern zuerst"): WP3.0, 3.1, 3.2 (generic list, form and grant UI), 3.3 and 3.8. Next: 3.4 provider cutovers, 3.5 migration tooling, 3.6 MCP administration, 3.7 n8n, 3.9 clean-up.
+
+- **3.0/3.1:** migration `202610230002_central_connections` with `Connection`, `ConnectionSecret`, `ConnectionGrant`, `SpendCounter`, `AiProfile`, `KnowledgeShare`, `Project.kind`, reservation attribution columns and `AgentRun.routeVersionKey` (reserved; route versions stay integers, see below). Row-level security and grants as in §2. Resolver `platform/connections/central.ts`, key ring `platform/connections/secrets.ts` (`CREDENTIAL_KEYS`), management service `platform/administration/connections.ts`, provider metadata (`scopes`, `purposes`, `label`) on connection providers. OpenAI and Anthropic are registered as central providers. The legacy project `connector` action offers only project-scoped providers.
+- **3.2:** routes `/api/admin/connections…`, `/api/organizations/:id/connections…`, `/api/projects/:id/connections`. UI: Administration → Integrations, organization settings → Connections, with one shared panel and grant dialog.
+- **3.3:** `platform/ai/central-ai.ts`. Field precedence: project `openai_configuration`, then organization profile, then system profile, then environment. Keys: the project's own key first, then a granted connection, then the existing environment rule. The route version is a hash of the profile versions and granted keys; it stays an integer, so every existing comparison works unchanged. Grant, organization and connection budgets are enforced in `reserve` on locked counters and settled in `settle` and in the "settle unknown" action. UI: Administration → AI & knowledge and the organization AI profile.
+- **3.8:** library projects (`Project.kind = 'library'`) and shares. Routes `/api/organizations/:id/knowledge-libraries|knowledge-shares…` and `/api/projects/:id/knowledge-shares`. `knowledgeSearch` adds shared results; `validateSearchResult` re-checks them, and Support drafts use it. UI: the shared knowledge panel in the organization settings.
+
+**Deviations from the plan, by design for this first cut:**
+- Embeddings use the text key, as they always have; a separate `embedding` purpose is not offered.
+- Library search is lexical; hybrid search over a library would charge the library's own budget and needs a decision.
+- Shared results serve the Support and assistant modules only, which validate knowledge when they use it. Marketing and the MCP search keep project knowledge until an invalidation fan-out into consumer projects exists (follow-up to 3.8).
+- `ConnectionGrant.lastUsedAt` is not maintained yet: the business role cannot write grants, and sparse updates through the control plane come with 3.4.
+- `AgentRun.routeVersionKey` is reserved but unused (see 3.3).
+
+**Evidence:**
+- `apps/api/tests/connections.integration.test.ts` (9 scenarios): secrets never returned; budget required for paid organization grants; foreign organizations refused; row-level security per project; the AI runtime uses the granted key; route version changes; concurrent organization budget; rotation only after the provider accepts; disable and revoke cascade; administrators cannot manage an organization's own connection.
+- `apps/api/tests/knowledge-shares.integration.test.ts` (5 scenarios): isolation without a share, cross-organization and non-owner refusal, results with origin only for the consumer and module (not marketing, not MCP), invalidation on share change and on library source revocation, immediate end on revoke.
+- RLS matrix (new table classes); access matrix (33 new routes, no existing cell changed); the provider/registry and AI regression suites; a browser check of the administration and organization pages.

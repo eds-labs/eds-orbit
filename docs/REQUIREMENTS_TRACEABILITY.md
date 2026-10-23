@@ -14,6 +14,14 @@
 | GA08 Profile, language, password change, sessions, reset by mail (1 h, single use, sessions end), e-mail change with confirmation | `platform/account/`; integration test | PASS_TEST |
 | GA09 No plaintext password in mail or UI; reset and invitation tokens stored hashed | `system-mail.ts`; `verification.storeIdentifier`; integration test | PASS_TEST |
 | GA10 Production activation (migration, flags, SMTP, first administrator) | `docs/deployment/ADMINISTRATION_ROLLOUT.md` | NOT_STARTED (needs approval) |
+| CI01 A connection is usable only with an active project grant (API, worker, MCP via row-level security) | migration `202610230002`; `connections.integration.test.ts`; RLS matrix | PASS_TEST |
+| CI02 System keys reach an organization only by administrator grant with budget; owners hand on within it | `administration/connections.ts`; integration test | PASS_TEST |
+| CI03 Organization and project budgets hold across projects under concurrency; attribution per grant | `ai/central-ai.ts`, `ai/budget.ts`; integration test | PASS_TEST |
+| CI04 Secrets write-only, rotated after a provider check, never audited | `connections/secrets.ts`; integration test | PASS_TEST |
+| CI05 Central AI profiles under project overrides; route version changes stop in-flight runs | `ai/central-ai.ts`; integration test | PASS_TEST |
+| CI06 Organization knowledge only through explicit shares, with origin and invalidation | `knowledge/shares.ts`; `knowledge-shares.integration.test.ts` | PASS_TEST |
+| CI07 Existing project connections cut over to central connections with rollback | plan WP3.4/3.5 | NOT_STARTED |
+| CI08 Central MCP administration and n8n bindings | plan WP3.6/3.7 | NOT_STARTED |
 
 ## n8n integration layer — customer context phase 1 (2026-10-21)
 

@@ -23,3 +23,16 @@ ADR 0012, plan `docs/plans/GLOBAL_ADMINISTRATION.md`. Every step that touches pr
 - Flags off: every administration, invitation and account route answers 404 and the menu entries disappear; data stays.
 - Code: revert the release commits. The migration is additive; the old code ignores the new columns and tables. Dropping them is only safe before the first administrative action (see the migration header).
 - Lockout: `scripts/system-admin.ts grant` restores an administrator; `UPDATE "user" SET banned=false …` reactivates a user (both by an operator with database access, audited by hand).
+
+## Phase 3 core: central connections, AI profiles, shared knowledge (ADR 0013)
+
+- **Migration** `202610230002_central_connections` is additive: new control-plane tables with row-level security, `Project.kind` (default `project`), and nullable attribution columns on `BudgetReservation` and `AgentRun`. With `ORBIT_CONNECTIONS=false` and `ORBIT_KNOWLEDGE_SHARES=false`, runtime behaviour is unchanged. The only visible difference is that the legacy project "connector" action no longer offers the AI providers, which it never configured anyway.
+- **Order (each step needs approval):**
+  1. Deploy.
+  2. `ORBIT_CONNECTIONS=true` (with administration on).
+  3. Create a system OpenAI/Anthropic connection: a new key Mario provides, or the current environment key only by his explicit decision.
+  4. Grant it to one organization with a budget, then to one project without its own key.
+  5. Check a paid run's attribution and counters.
+  6. Separately, `ORBIT_KNOWLEDGE_SHARES=true`, a library and one share for Support.
+- **Key ring:** optional `CREDENTIAL_KEYS` for rotating the master key; `CREDENTIAL_KEY` stays readable as `default`.
+- **Rollback:** set the flags off. Projects then use only their own settings and the environment again, and shares are ignored; the new tables stay. Reverting the code is safe because the migration is additive.
