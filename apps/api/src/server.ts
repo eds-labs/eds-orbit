@@ -626,6 +626,8 @@ export async function buildServer(
       systemAdmin: administrationEnabled() && account?.role === "admin",
       administration: administrationEnabled(),
       account: accountEnabled(),
+      connections: connectionsEnabled(),
+      knowledgeShares: sharesEnabled(),
       workspaces: memberships.map((x) => ({
         ...x.workspace,
         role: x.role,

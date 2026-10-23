@@ -7,7 +7,9 @@ import {
   FolderKanban,
   KeyRound,
   Mail,
+  Plug,
   ShieldCheck,
+  Sparkles,
   Users,
 } from "lucide-react";
 import { post, put, useMutation, useResource } from "@/lib/api";
@@ -31,6 +33,8 @@ import {
   type Invitation,
 } from "./organization-manager";
 import { at, errorText, orgRoleLabel, projectRoleLabel } from "./texts";
+import { ConnectionsPanel } from "./connections-ui";
+import { AiProfileEditor } from "./ai-knowledge-ui";
 
 // The system administration (/admin, ADR 0012): installation-wide metadata
 // about users, organizations, projects and invitations, and the actions on
@@ -51,6 +55,8 @@ type UserRow = {
 
 const NAV = [
   { section: "", icon: Activity, en: "Overview", de: "Übersicht" },
+  { section: "integrations", icon: Plug, en: "Integrations", de: "Integrationen", connections: true },
+  { section: "ai", icon: Sparkles, en: "AI & knowledge", de: "KI & Wissen", connections: true },
   { section: "users", icon: Users, en: "Users", de: "Benutzer" },
   { section: "invitations", icon: Mail, en: "Invitations", de: "Einladungen" },
   {
@@ -71,13 +77,17 @@ export function AdminArea({
   id,
   locale,
   currentUserId,
+  connections = false,
 }: {
   section: string;
   id?: string;
   locale: Locale;
   currentUserId: string;
+  /** Central connections and AI profiles exist (ORBIT_CONNECTIONS). */
+  connections?: boolean;
 }) {
   const de = locale === "de";
+  const nav = NAV.filter((n) => connections || !("connections" in n));
   return (
     <div className="admin-layout">
       <nav className="settings-nav" aria-label={de ? "Administration" : "Administration"}>
@@ -86,7 +96,7 @@ export function AdminArea({
             {de ? "Administration" : "Administration"}
           </p>
           <ul>
-            {NAV.map((n) => (
+            {nav.map((n) => (
               <li key={n.section}>
                 <Link
                   className="settings-nav-link"
@@ -108,7 +118,7 @@ export function AdminArea({
           value={section}
           onChange={(e) => window.location.assign(adminHref(e.target.value))}
         >
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <option key={n.section} value={n.section}>
               {n[locale]}
             </option>
@@ -117,6 +127,20 @@ export function AdminArea({
       </div>
       <div className="settings-content">
         {section === "" && <Overview locale={locale} />}
+        {section === "integrations" && connections && <Integrations locale={locale} />}
+        {section === "ai" && connections && (
+          <>
+            <PageHead
+              title={de ? "KI & Wissen" : "AI & knowledge"}
+              description={
+                de
+                  ? "Systemweite KI-Standards. Anbieter-Schlüssel und ihre Budgets verwaltest du unter Integrationen; gemeinsames Wissen in den Organisationen."
+                  : "System-wide AI defaults. Provider keys and their budgets live under Integrations; shared knowledge in the organizations."
+              }
+            />
+            <AiProfileEditor path="/admin/ai/profile" locale={locale} scopeLabel="System" />
+          </>
+        )}
         {section === "users" &&
           (id ? (
             <UserDetail id={id} locale={locale} currentUserId={currentUserId} />
@@ -137,6 +161,29 @@ export function AdminArea({
         {section === "audit" && <Audit locale={locale} />}
       </div>
     </div>
+  );
+}
+
+function Integrations({ locale }: { locale: Locale }) {
+  const de = locale === "de";
+  const orgs = useResource<Page<{ id: string; name: string }>>("/admin/organizations");
+  return (
+    <>
+      <PageHead
+        title={de ? "Integrationen" : "Integrations"}
+        description={
+          de
+            ? "Zentrale Verbindungen wie KI-Anbieter. Infrastruktur-Geheimnisse (Datenbank, Speicher, System-E-Mail) bleiben in der Umgebung und erscheinen nur als Status in der Übersicht."
+            : "Central connections such as AI providers. Infrastructure secrets (database, storage, system e-mail) stay in the environment and appear only as status on the overview."
+        }
+      />
+      <ConnectionsPanel
+        base="/admin/connections"
+        mode="admin"
+        locale={locale}
+        targets={orgs.data?.items ?? []}
+      />
+    </>
   );
 }
 

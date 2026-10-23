@@ -7,6 +7,22 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/admin/connection-grants/{grantId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "DELETE /api/admin/connections/{connectionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "DELETE /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -15,7 +31,31 @@
     "sysadmin": "not_found",
     "owner": "not_found"
   },
+  "DELETE /api/organizations/{workspaceId}/connection-grants/{grantId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "DELETE /api/organizations/{workspaceId}/connections/{connectionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "DELETE /api/organizations/{workspaceId}/invitations/{invitationId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "DELETE /api/organizations/{workspaceId}/knowledge-shares/{shareId}": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found",
@@ -87,12 +127,36 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/admin/ai/profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
   "GET /api/admin/audit": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
     "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/connections": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
+  "GET /api/admin/connections/{connectionId}/usage": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "not_found"
   },
   "GET /api/admin/invitations": {
@@ -207,12 +271,44 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "GET /api/organizations/{workspaceId}/ai/profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/organizations/{workspaceId}/connections": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/organizations/{workspaceId}/connections/{connectionId}/usage": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "GET /api/organizations/{workspaceId}/invitations": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "not_found",
     "editor": "not_found",
     "sysadmin": "allowed:200",
+    "owner": "allowed:200"
+  },
+  "GET /api/organizations/{workspaceId}/knowledge-shares": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
     "owner": "allowed:200"
   },
   "GET /api/projects": {
@@ -408,6 +504,14 @@
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/community_questions": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/connections": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "allowed:200",
@@ -616,6 +720,14 @@
     "owner": "allowed:200"
   },
   "GET /api/projects/{projectId}/knowledge-health": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "allowed:200",
+    "editor": "allowed:200",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
+  },
+  "GET /api/projects/{projectId}/knowledge-shares": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
     "viewer": "allowed:200",
@@ -1055,6 +1167,14 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "PATCH /api/admin/connections/{connectionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
   "PATCH /api/mcp-grants/{grantId}": {
     "anonymous": "unauthenticated",
     "outsider": "allowed:400",
@@ -1070,6 +1190,22 @@
     "editor": "not_found",
     "sysadmin": "allowed:400",
     "owner": "allowed:400"
+  },
+  "PATCH /api/organizations/{workspaceId}/connections/{connectionId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "PATCH /api/organizations/{workspaceId}/knowledge-shares/{shareId}": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
   },
   "PATCH /api/projects/{projectId}/content/{id}": {
     "anonymous": "unauthenticated",
@@ -1151,6 +1287,54 @@
     "sysadmin": "allowed:200",
     "owner": "allowed:200"
   },
+  "POST /api/admin/connections": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "not_found"
+  },
+  "POST /api/admin/connections/{connectionId}/check": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/admin/connections/{connectionId}/disable": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/admin/connections/{connectionId}/enable": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/admin/connections/{connectionId}/grants": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/admin/connections/{connectionId}/secret": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:400",
+    "owner": "not_found"
+  },
   "POST /api/admin/organizations": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1231,6 +1415,54 @@
     "sysadmin": "allowed:400",
     "owner": "allowed:400"
   },
+  "POST /api/organizations/{workspaceId}/connections": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/organizations/{workspaceId}/connections/{connectionId}/check": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/organizations/{workspaceId}/connections/{connectionId}/disable": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/organizations/{workspaceId}/connections/{connectionId}/enable": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/organizations/{workspaceId}/connections/{connectionId}/grants": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "not_found"
+  },
+  "POST /api/organizations/{workspaceId}/connections/{connectionId}/secret": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
   "POST /api/organizations/{workspaceId}/invitations": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -1246,6 +1478,22 @@
     "editor": "not_found",
     "sysadmin": "not_found",
     "owner": "not_found"
+  },
+  "POST /api/organizations/{workspaceId}/knowledge-libraries": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
+  },
+  "POST /api/organizations/{workspaceId}/knowledge-shares": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:400"
   },
   "POST /api/projects": {
     "anonymous": "unauthenticated",
@@ -2567,6 +2815,14 @@
     "sysadmin": "forbidden:FORBIDDEN",
     "owner": "allowed:400"
   },
+  "PUT /api/admin/ai/profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "allowed:200",
+    "owner": "not_found"
+  },
   "PUT /api/admin/users/{userId}/system-role": {
     "anonymous": "unauthenticated",
     "outsider": "not_found",
@@ -2574,6 +2830,14 @@
     "editor": "not_found",
     "sysadmin": "allowed:400",
     "owner": "not_found"
+  },
+  "PUT /api/organizations/{workspaceId}/ai/profile": {
+    "anonymous": "unauthenticated",
+    "outsider": "not_found",
+    "viewer": "not_found",
+    "editor": "not_found",
+    "sysadmin": "not_found",
+    "owner": "allowed:200"
   },
   "PUT /api/organizations/{workspaceId}/members/{userId}": {
     "anonymous": "unauthenticated",

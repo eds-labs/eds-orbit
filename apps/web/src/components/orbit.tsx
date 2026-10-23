@@ -89,6 +89,7 @@ import { NotFound } from "@/platform/shell/not-found";
 import { UserMenu } from "@/platform/shell/user-menu";
 import { AdminArea } from "@/platform/administration/admin-area";
 import { OrganizationManager } from "@/platform/administration/organization-manager";
+import { OrganizationIntegrations } from "@/platform/administration/organization-integrations";
 import {
   OrganizationPicker,
   ProjectPicker,
@@ -566,6 +567,7 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
             id={place.id}
             locale={locale}
             currentUserId={me.user.id}
+            connections={Boolean(me.connections)}
           />,
           true,
         )
@@ -583,6 +585,11 @@ export function Orbit({ registry }: { registry: WebRegistry }) {
               ← {t("chooseProject")}
             </Link>
             <OrganizationManager
+              organizationId={place.organizationId}
+              locale={locale}
+            />
+            <OrganizationIntegrations
+              identity={me}
               organizationId={place.organizationId}
               locale={locale}
             />

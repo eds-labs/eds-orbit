@@ -42,6 +42,8 @@ const RESERVED = new Set(["o", "p", "api", "admin"]);
 const PLATFORM_GROUPS = ["top", "project"];
 /** The pages of the system administration (/admin/<section>). */
 export const ADMIN_SECTIONS = new Set([
+  "integrations",
+  "ai",
   "users",
   "invitations",
   "organizations",

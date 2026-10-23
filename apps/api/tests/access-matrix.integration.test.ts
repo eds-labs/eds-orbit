@@ -40,6 +40,9 @@ Object.assign(process.env, {
   // System administration and account self-service (ADR 0012).
   ORBIT_ADMINISTRATION: "true",
   ORBIT_ACCOUNT: "true",
+  // Central connections, AI profiles and knowledge shares (ADR 0013).
+  ORBIT_CONNECTIONS: "true",
+  ORBIT_KNOWLEDGE_SHARES: "true",
   EXECUTION_MODE: "test",
   ENABLE_EXTERNAL_WRITES: "false",
 });

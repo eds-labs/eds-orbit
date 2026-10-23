@@ -6056,3 +6056,6 @@ a.support-row {
     min-width: 0;
   }
 }
+.admin-stack-spaced {
+  margin-top: 20px;
+}

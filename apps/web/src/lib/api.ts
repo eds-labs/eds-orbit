@@ -30,6 +30,10 @@ export type Identity = {
   account?: boolean;
   /** Whether administration and invitations exist (ORBIT_ADMINISTRATION). */
   administration?: boolean;
+  /** Central connections and AI profiles (ORBIT_CONNECTIONS, ADR 0013). */
+  connections?: boolean;
+  /** Organization knowledge libraries (ORBIT_KNOWLEDGE_SHARES). */
+  knowledgeShares?: boolean;
 };
 export type Dashboard = {
   project: Project;
