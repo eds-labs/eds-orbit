@@ -23,7 +23,9 @@ describe("administration boundary (metadata only)", () => {
       for (const [, names, path] of imports) {
         if (path!.endsWith("packages/db/src/index.ts"))
           expect(names).not.toMatch(/\b(db|scoped|userScoped)\b/);
-        expect(path).not.toMatch(/\/modules\//);
+        // Product modules live in src/modules; the platform module registry
+        // (platform/modules) is allowed.
+        expect(path).not.toMatch(/^(\.\.\/){2,}modules\//);
       }
       expect(source).not.toMatch(/\bscoped\(/);
     });

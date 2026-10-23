@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { authDb, Prisma } from "../../../../../packages/db/src/index.ts";
 import { DomainError } from "../shared.ts";
+import {
+  moduleAvailable,
+  registeredRegistry,
+} from "../modules/contributions.ts";
 
 // Read side of the system administration (ADR 0012). Metadata only: users,
 // organizations, projects, memberships and invitations from the control
@@ -276,7 +280,18 @@ export async function organizationDetail(workspaceId: string) {
       })),
     })),
     invitations,
+    // What module roles can name in this installation.
+    modules: assignableModules(),
   };
+}
+
+/** The installation's available modules, for module-role choices. */
+export function assignableModules() {
+  const registry = registeredRegistry();
+  return registry.order.filter(moduleAvailable).map((id) => ({
+    id,
+    name: registry.modules.find((m) => m.id === id)!.displayName,
+  }));
 }
 
 /** Open (not accepted, not revoked) invitations, expired ones included. */
