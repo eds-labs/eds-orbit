@@ -209,6 +209,29 @@ describe.skipIf(!enabled)("mailbox owner routing", () => {
     ]);
   });
 
+  it("keeps the owner when the mailbox is saved again", async () => {
+    const id = await addMailbox("resaved");
+    await fetchInbound(scope);
+    await run((tx) => setMailboxOwner(tx, scope, id, "support"));
+    await run((tx) => connectEmail(tx, scope, account("resaved")));
+    const row = await run((tx) => entity(tx, scope, "connectors", id));
+    expect(mailboxOwner(data(row))).toBe("support");
+    // The re-save needs a new login check, as before.
+    const checked = await registeredConnectionProvider("email")!.check!(
+      { ...data(row) },
+      account("resaved").password,
+    );
+    await run(async (tx) => {
+      const current = await entity(tx, scope, "connectors", id);
+      await update(tx, scope, current, { ...data(current), ...checked });
+    });
+    deliver("resaved@desk.example", mime("resaved@desk.example"));
+    await fetchInbound(scope);
+    expect(await jobsFor("resaved@desk.example")).toEqual([
+      "support_email_inbound",
+    ]);
+  });
+
   it("refuses a second owner", async () => {
     const id = await addMailbox("claimed");
     await run((tx) => setMailboxOwner(tx, scope, id, "finance-fixture"));

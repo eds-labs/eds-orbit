@@ -226,7 +226,8 @@ export async function eraseContact(scope: Scope, contactId: string) {
         (v): v is string => Boolean(v),
       );
       // Only mail of Support's own inbox mailboxes (or mail that names no
-      // mailbox); other mailboxes' mail belongs to their owners.
+      // mailbox, which is legacy-only); other mailboxes' mail belongs to
+      // their owners.
       const supportMailboxes = (
         await tx.supportInbox.findMany({
           where: {
