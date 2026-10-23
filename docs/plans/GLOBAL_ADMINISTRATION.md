@@ -240,9 +240,11 @@ Tasks 8–11 are written sequentially in this session, since the shared service 
 - The old initial-password path is gone from the API and the UI.
 - Every administrative action is audited without content. All tests and checks are green.
 
-## 10. Phase 3 and 4 (prepared, not implemented)
+## 10. Later phases (prepared, not implemented)
 
-**Phase 3: project lifecycle.**
+Updated order (Mario, 2026-10-23): 1 admin foundation, 2 users and permissions, **3 central connections and AI infrastructure** ([plan](CENTRAL_INTEGRATIONS_AI_KNOWLEDGE.md), [ADR 0013](../adr/0013-central-connections-ai-knowledge.md)), 4 project archiving and deletion, 5 extended global settings. The AI provider, model and budget items below moved from global settings into phase 3; the project lifecycle and settings sections keep their content under the new numbers.
+
+**Phase 4: project lifecycle** (also revokes the project's connection grants and knowledge shares and stops its workflow bindings).
 - Add `Project.archivedAt`, `archivedBy` and `deletionScheduledAt`.
 - Archiving reuses `pauseProject()` with a generation bump, the module hooks and the worker claim block (a new code `PROJECT_ARCHIVED`). It also:
   - revokes the project's MCP grant scopes,
@@ -253,7 +255,7 @@ Tasks 8–11 are written sequentially in this session, since the shared service 
 - Restore clears the archive and stays paused until an owner resumes the project.
 - Final deletion is allowed only after a deletion delay (default 30 days, set per installation in phase 4). It requires typing the project name, a password step-up, a recent export or backup check (the `orbit-backup` status plus an optional project export), and an audit entry in `SystemAuditEvent`, because the project's own audit rows are deleted with the project. Deletion runs as a worker job that removes files and blobs, embeddings and outbox entries, then the project row.
 
-**Phase 4: global settings.**
+**Phase 5: global settings** (AI providers, models and budgets are handled in phase 3).
 - New `SystemSetting(key, value JSON, version, updatedBy)` table owned by `orbit_auth`. Resolution order: code default, then system setting, then project override, where a project setting exists. Areas:
   - branding and system name, default language and timezone
   - system mail status (env only, read-only in the UI)
