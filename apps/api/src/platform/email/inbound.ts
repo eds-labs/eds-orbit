@@ -18,6 +18,7 @@ import {
   INBOUND_STATE_KIND,
 } from "./connection.ts";
 import { connectionVerified } from "../connections/connections.ts";
+import { mailboxOwner } from "./ownership.ts";
 import { EMAIL_KIND, INBOUND_KIND, ORBIT_MESSAGE_ID } from "./send.ts";
 import {
   mailFactories,
@@ -406,8 +407,13 @@ async function fetchMailbox(scope: Scope, connection: Connection) {
         // Bounces and echoes are the platform's; the rest goes to modules.
         if (!bounceOf.length && !echo) {
           const enabled = await enabledModules(tx, scope);
+          // An owned mailbox feeds only its owner module (ownership.ts).
+          const mailboxOwned = mailboxOwner(data(connection));
           for (const { owner, queueClass } of registeredEmailInbound())
-            if (ownerEnabled(owner, enabled))
+            if (
+              (!mailboxOwned || owner === mailboxOwned) &&
+              ownerEnabled(owner, enabled)
+            )
               await enqueue(
                 tx,
                 scope,

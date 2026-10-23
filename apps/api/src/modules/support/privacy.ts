@@ -225,15 +225,33 @@ export async function eraseContact(scope: Scope, contactId: string) {
       const addresses = [contact.email, contact.claimedEmail].filter(
         (v): v is string => Boolean(v),
       );
+      // Only mail of Support's own inbox mailboxes (or mail that names no
+      // mailbox); other mailboxes' mail belongs to their owners.
+      const supportMailboxes = (
+        await tx.supportInbox.findMany({
+          where: {
+            projectId: scope.projectId,
+            emailConnectionId: { not: null },
+          },
+          select: { emailConnectionId: true },
+        })
+      ).map((i) => i.emailConnectionId as string);
       const unlinked = addresses.length
-        ? await tx.entity.findMany({
-            where: {
-              projectId: scope.projectId,
-              kind: INBOUND_KIND,
-              OR: addresses.map((a) => ({
-                data: { path: ["from"], equals: a },
-              })),
-            },
+        ? (
+            await tx.entity.findMany({
+              where: {
+                projectId: scope.projectId,
+                kind: INBOUND_KIND,
+                OR: addresses.map((a) => ({
+                  data: { path: ["from"], equals: a },
+                })),
+              },
+            })
+          ).filter((r) => {
+            const mailbox = data(r).connectionId;
+            return (
+              typeof mailbox !== "string" || supportMailboxes.includes(mailbox)
+            );
           })
         : [];
       await tx.entity.deleteMany({

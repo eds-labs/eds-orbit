@@ -19,6 +19,7 @@ import {
   emailMailboxes,
   verifiedEmailConnection,
 } from "../../platform/email/connection.ts";
+import { assertMailboxUnowned } from "../../platform/email/ownership.ts";
 import { connectionVerified } from "../../platform/connections/connections.ts";
 import { customerContextConnections } from "../../platform/customer-context/connection.ts";
 import type { MailboxUse } from "../../platform/modules/contributions.ts";
@@ -142,6 +143,7 @@ async function mailboxFields(
       : await verifiedEmailConnection(tx, scope, id)
     : null;
   if (!connection) throw new DomainError("INBOX_MAILBOX_INVALID", 400);
+  await assertMailboxUnowned(tx, scope, connection.id, "support");
   const address = String(data(connection).fromAddress);
   if (
     row.emailAddress &&
