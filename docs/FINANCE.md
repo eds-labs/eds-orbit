@@ -144,8 +144,8 @@ A person reviews the draft in the Review page (original preview, editable fields
 | Outgoing payment | payables | payment account |
 | Incoming payment | payment account | receivables |
 | Refund of a credit note | settles in the opposite direction | |
-| Contribution (Einlage) | payment account | owner contributions |
-| Withdrawal (Entnahme) | owner draws | payment account |
+| Contribution | payment account | owner contributions |
+| Withdrawal | owner draws | payment account |
 | Transfer | target payment account | source payment account |
 | Adjustment | free lines, must balance in their currency | |
 
@@ -196,9 +196,9 @@ Four read-only tools (`R0_read`, `finance.read`, `exposure: { assistant: true, m
 | `finance_report` | Income, expenses or result of a period (`this_month`, `last_month`, `this_year`, `last_year`, `last_12_months`, `custom`), grouped by total, month, category or cost center, filtered by category or cost center name prefix (children included), with the monthly average and the names the filter matched. |
 | `finance_open_invoices` | Open payable and receivable invoices: totals and the 25 earliest due. |
 | `finance_review_queue` | How many documents need review or failed, and the 20 oldest with received date, flags and extracted counterparty name. |
-| `finance_recurring` | Active recurring costs with the monthly equivalent and the monthly total. |
+| `finance_recurring` | Active recurring costs: each with its interval, its expected amount **in its own currency** (`currency` next to it) and `monthlyBase`, the monthly equivalent in the base currency; plus the monthly total and a `missingRate` count of items that could not be converted (their `monthlyBase` is null). |
 
-**Never returned:** document text, file names, e-mail content, ids of files, raw amounts in other currencies than the base. Money is a decimal string in base-currency units next to `baseCurrency` and the period. Names and numbers can come from documents, so they are control-character-stripped, clipped and labelled untrusted in the tool description. MCP exposure is off; an MCP scope for finance is a follow-up with its own review.
+**Never returned:** document text, file names, e-mail content, ids of files, amounts of the books in other currencies than the base. Money is a decimal string in base-currency units next to `baseCurrency` and the period; the one exception is `finance_recurring`, whose `expectedAmount` is in the item's own currency (with `currency`), next to the base-currency `monthlyBase`. Names and numbers can come from documents, so they are control-character-stripped, clipped and labelled untrusted in the tool description. MCP exposure is off; an MCP scope for finance is a follow-up with its own review.
 
 ## Attention items and notifications
 
@@ -262,7 +262,7 @@ Owner runbook for the first production activation. **None of these steps has bee
 3. **Choose the finance project and enable the module.** Create or pick the Orbit project (for example "EDS Labs Finance"). As owner open Settings → Modules and enable **Finance**.
 4. **Create the default chart.** Open Finance; the setup screen offers "Create default chart". It is idempotent. Rename accounts and categories if wanted.
 5. **Set currencies and FX.** Settings → Finance → Currencies & FX: confirm the base currency (default USD), the currencies (USD, EUR, USDC), the USDC peg and the FX source (`ecb`, or `manual` if no feed is wanted). With `ecb` the first sync runs within a day; booking in EUR before that needs a manual rate.
-6. **Add the mailbox connection.** Connectors → E-mail mailboxes → Add mailbox for `payment@eds-labs.io`: IMAP and SMTP host, port and TLS mode, user name, and an app password. The owner enters the password; it is encrypted and never shown again. Run **Check login**; the connection must become `read_verified`. Hosts must be public DNS names.
+6. **Add the mailbox connection.** In the project sidebar open **Connectors** (German: Verbindungen), find the **E-mail mailboxes** section and use **Add mailbox** for `payment@eds-labs.io`: IMAP and SMTP host, port and TLS mode, user name, and an app password. The owner enters the password; it is encrypted and never shown again. Run **Check login**; the connection must become `read_verified`. Hosts must be public DNS names.
 7. **Bind the mailbox.** Settings → Finance → Mailboxes: bind the connection and set the archive folder (default `Orbit/Processed`). The IMAP account needs permission to **create folders and move messages**; otherwise the archive fails and shows as `lastArchiveError`. From now on that mailbox's mail goes to finance only (not to Support). Choose `archiveAfter` (after extraction, or after booking).
 8. **Add cost centers and categories as data.** Settings → Finance: cost centers uLiquid, FamilyPlan, EDS Orbit and General; add or adjust categories (the template has eight). These are data, not code.
 9. **Optional: AI extraction.** Check that the active policy's spend mandate (window, daily, monthly and per-run limits) covers the finance spend, and that a `finance_extraction` route is saved or the standard tier is acceptable (Settings → AI). Then Settings → Finance → AI extraction: switch on (this is the consent) and set the daily ceiling (default USD 2). Without it every document goes straight to review.
@@ -321,4 +321,4 @@ Copied from spec §15 and updated. None blocks the code; all block production us
 - **Retention override policy** for a legal erasure request on finance originals.
 - **DATEV details** (consultant and client number, SKR03/04) once the export is wanted.
 - **Production activation** in this order: deploy approval, flag, enable module, setup, currencies and FX, mailbox connection and "Check login", bind mailbox, cost centers and categories, AI consent, verification.
-- **Not yet done:** the whole-branch review and the full verification run (`IMPLEMENTATION_STATUS.md`, Task 24), a visual browser check of the finance pages on desktop and on a phone (the chart styles were only tested in markup), and removal of the e2e database `orbit_test_e2e_finance_wt061`.
+- **Not yet done:** the whole-branch review and the full verification run (`IMPLEMENTATION_STATUS.md`, Task 24), a visual browser check of the finance pages on desktop and on a phone (the chart styles were only tested in markup).
