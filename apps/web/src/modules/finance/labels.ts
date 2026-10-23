@@ -123,8 +123,9 @@ const en = {
       "When on, receipts and invoices you upload or receive are sent to the configured AI provider to read their fields. This runs under the project's spend mandate and budget, and requests use store: false, so the provider is asked not to keep them. Every document still waits for your review before it is booked.",
     ceiling: "Daily ceiling (USD)",
     ceilingHint:
-      "Extraction pauses for the day once its cost reaches this amount. 0 stops extraction.",
-    ceilingInvalid: "Enter an amount in USD, for example 2 or 1.50.",
+      "Extraction pauses for the day once its cost reaches this amount (at most 1000). 0 stops extraction.",
+    ceilingInvalid:
+      "Enter an amount from 0 to 1000 USD, for example 2 or 1.50.",
     off: "Off",
     on: "On",
   },
@@ -250,8 +251,9 @@ const de: typeof en = {
       "Wenn aktiv, werden hochgeladene oder empfangene Belege und Rechnungen an den konfigurierten KI-Anbieter gesendet, um ihre Felder zu lesen. Das läuft unter dem Ausgabenmandat und Budget des Projekts, die Anfragen nutzen store: false, der Anbieter wird also gebeten, sie nicht zu speichern. Jeder Beleg wartet weiterhin auf deine Prüfung, bevor er gebucht wird.",
     ceiling: "Tageslimit (USD)",
     ceilingHint:
-      "Das Auslesen pausiert für den Tag, sobald die Kosten diesen Betrag erreichen. 0 stoppt das Auslesen.",
-    ceilingInvalid: "Gib einen Betrag in USD ein, zum Beispiel 2 oder 1,50.",
+      "Das Auslesen pausiert für den Tag, sobald die Kosten diesen Betrag erreichen (höchstens 1000). 0 stoppt das Auslesen.",
+    ceilingInvalid:
+      "Gib einen Betrag von 0 bis 1000 USD ein, zum Beispiel 2 oder 1,50.",
     off: "Aus",
     on: "An",
   },

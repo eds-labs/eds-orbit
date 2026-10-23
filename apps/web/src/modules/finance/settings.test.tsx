@@ -4,6 +4,7 @@ import { financeText } from "./labels";
 import {
   AiExtractionForm,
   bindableMailboxes,
+  LoadState,
   MailboxList,
   type EmailMailbox,
 } from "./settings";
@@ -84,7 +85,7 @@ describe("finance settings", () => {
     expect(html).toContain("c@example.com");
     expect(html).not.toContain("stray@example.com");
     // A mailbox another module owns cannot be bound.
-    expect(html).toContain("support");
+    expect(html).toContain("Used by support");
     expect(html.match(/Bind to finance/g)).toHaveLength(1);
   });
 
@@ -115,5 +116,53 @@ describe("finance settings", () => {
     expect(html).toContain("Orbit/Processed");
     expect(html).toContain("Das Postfach hat die Anmeldung abgelehnt");
     expect(html).toContain("Lösen");
+  });
+
+  it("a failed read shows the error with a retry, a pending one a skeleton", () => {
+    const failed = renderToStaticMarkup(
+      <LoadState
+        resources={[
+          { loading: false, error: new Error("Request failed"), refresh() {} },
+        ]}
+      >
+        <p>content</p>
+      </LoadState>,
+    );
+    expect(failed).toContain("Request failed");
+    expect(failed).toContain("Try again");
+    expect(failed).not.toContain("content");
+    const loading = renderToStaticMarkup(
+      <LoadState resources={[{ loading: true, error: null, refresh() {} }]}>
+        <p>content</p>
+      </LoadState>,
+    );
+    expect(loading).toContain("skeleton");
+    expect(loading).not.toContain("content");
+    const ready = renderToStaticMarkup(
+      <LoadState resources={[{ loading: false, error: null, refresh() {} }]}>
+        <p>content</p>
+      </LoadState>,
+    );
+    expect(ready).toContain("content");
+  });
+
+  it("refuses an AI ceiling above the server maximum of 1000 USD", () => {
+    const render = (ceiling: string) =>
+      renderToStaticMarkup(
+        <AiExtractionForm
+          t={financeText("en")}
+          enabled={false}
+          ceiling={ceiling}
+          disabled={false}
+          pending={false}
+          error={null}
+          onToggle={() => {}}
+          onCeiling={() => {}}
+          onSubmit={() => {}}
+        />,
+      );
+    expect(render("1000")).not.toContain("from 0 to 1000 USD");
+    expect(render("1000.01")).toContain("from 0 to 1000 USD");
+    expect(render("1000.01")).toContain('disabled=""');
   });
 });

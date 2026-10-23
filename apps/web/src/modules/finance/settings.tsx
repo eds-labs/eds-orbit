@@ -1,10 +1,16 @@
 "use client";
 import { useState, type FormEvent, type ReactNode } from "react";
-import { collectionPath, useMutation, useResource, when } from "@/lib/api";
-import { Alert, Badge, Button, Input } from "@/components/ui/primitives";
+import { collectionPath, useMutation, useResource } from "@/lib/api";
+import {
+  Alert,
+  Badge,
+  Button,
+  Input,
+  Skeleton,
+} from "@/components/ui/primitives";
 import { useWorkspace } from "@/components/workspace-context";
-import { useShell } from "@/platform/shell/shell-context";
 import type { SettingsSection } from "@/platform/shell/types";
+import { ResourceError } from "@/platform/ui/collection";
 import {
   financeApi,
   financePath,
@@ -16,6 +22,7 @@ import {
   type MailboxBinding,
   type SettingsResponse,
 } from "./api";
+import { useFinanceAccess } from "./access";
 import { financeText, type FinanceText } from "./labels";
 import { CURRENCIES, microsToUnits, unitsToMicros } from "./money";
 
@@ -24,20 +31,9 @@ import { CURRENCIES, microsToUnits, unitsToMicros } from "./money";
 // Owner-only controls (finance.settings) are disabled for other members as the
 // advertised module access says; the API stays the authority.
 
+/** The server maximum of the daily AI ceiling: 1000 USD. */
+export const MAX_CEILING_MICROS = 1_000_000_000;
 const DEFAULT_FOLDER = "Orbit/Processed";
-
-/**
- * What the member may do here: `owner` manages settings, `editor` also
- * writes categories and cost centers. The module role the server advertises
- * wins; without it the project role decides.
- */
-export function useFinanceAccess() {
-  const { isOwner, canEdit } = useWorkspace();
-  const access = useShell().modules.find((m) => m.id === "finance")?.access;
-  const owner = access ? access === "owner" : isOwner;
-  const write = access ? ["owner", "editor"].includes(access) : canEdit;
-  return { owner, write };
-}
 
 // ---------------------------------------------------------------- mailboxes
 
@@ -108,7 +104,7 @@ function MailboxRow({
   const [folder, setFolder] = useState(DEFAULT_FOLDER);
   const { binding } = row;
   return (
-    <li className="support-inbox-row">
+    <li className="settings-row">
       <strong>{String(row.mailbox.connection.data.fromAddress ?? id)}</strong>{" "}
       {binding && <Badge tone="success">{t.mailboxes.bound}</Badge>}
       {row.owner && (
@@ -139,7 +135,7 @@ function MailboxRow({
         </Button>
       )}
       {canManage && !binding && !row.owner && (
-        <span className="support-inbox-actions">
+        <span className="settings-row-actions">
           <label>
             <span>{t.mailboxes.archiveFolder}</span>
             <Input
@@ -178,7 +174,7 @@ export function MailboxList({
 }) {
   if (!rows.length) return <p className="panel-note">{t.mailboxes.none}</p>;
   return (
-    <ul className="support-rows">
+    <ul className="settings-rows">
       {rows.map((row) => (
         <MailboxRow
           key={row.mailbox.connection.id}
@@ -216,6 +212,27 @@ function Panel({
   );
 }
 
+type Loadable = {
+  loading: boolean;
+  error: Error | null;
+  refresh: () => void;
+};
+
+/** A section's read states: skeleton while loading, the error with retry on failure. */
+export function LoadState({
+  resources,
+  children,
+}: {
+  resources: readonly Loadable[];
+  children: ReactNode;
+}) {
+  const failed = resources.find((r) => r.error);
+  if (failed)
+    return <ResourceError error={failed.error} retry={failed.refresh} />;
+  if (resources.some((r) => r.loading)) return <Skeleton />;
+  return <>{children}</>;
+}
+
 function Mailboxes({ t }: { t: FinanceText }) {
   const { project } = useWorkspace();
   const { owner } = useFinanceAccess();
@@ -237,21 +254,23 @@ function Mailboxes({ t }: { t: FinanceText }) {
       {!owner ? (
         <p className="panel-note">{t.mailboxes.ownerOnlyList}</p>
       ) : (
-        <MailboxList
-          t={t}
-          rows={bindableMailboxes(
-            email.data?.mailboxes ?? [],
-            bindings.data?.items ?? [],
-          )}
-          canManage={owner}
-          pending={action.pending}
-          onBind={(emailConnectionId, archiveFolder) =>
-            action.run(() =>
-              api.mailboxes.bind({ emailConnectionId, archiveFolder }),
-            )
-          }
-          onUnbind={(id) => action.run(() => api.mailboxes.unbind(id))}
-        />
+        <LoadState resources={[email, bindings]}>
+          <MailboxList
+            t={t}
+            rows={bindableMailboxes(
+              email.data?.mailboxes ?? [],
+              bindings.data?.items ?? [],
+            )}
+            canManage={owner}
+            pending={action.pending}
+            onBind={(emailConnectionId, archiveFolder) =>
+              action.run(() =>
+                api.mailboxes.bind({ emailConnectionId, archiveFolder }),
+              )
+            }
+            onUnbind={(id) => action.run(() => api.mailboxes.unbind(id))}
+          />
+        </LoadState>
       )}
       {action.error && <Alert kind="error">{action.error}</Alert>}
     </Panel>
@@ -290,40 +309,36 @@ function Accounts({ t }: { t: FinanceText }) {
   return (
     <>
       <Panel title={t.accounts.accounts}>
-        <ul className="support-rows">
-          {list.map((a) => (
-            <li key={a.id} className="support-inbox-row">
-              <strong>
-                {a.code} {a.name}
-              </strong>{" "}
-              <Badge>{t.accounts.types[a.type] ?? a.type}</Badge>
-              {a.role && (
-                <Badge tone="blue">
-                  {t.roles[a.role] ?? t.accounts.system}
-                </Badge>
-              )}
-              {a.paymentAccount && <Badge>{t.accounts.payment}</Badge>}
-              {owner && !a.role && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={action.pending}
-                  onClick={() => action.run(() => api.accounts.archive(a.id))}
-                >
-                  {t.accounts.archive}
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-        {!list.length && !accounts.loading && (
-          <p className="panel-note">{t.accounts.none}</p>
-        )}
-        <fieldset disabled={!owner} className="support-form">
-          <legend>{t.accounts.add}</legend>
-          {!owner && <p className="panel-note">{t.accounts.accountsOwner}</p>}
+        <LoadState resources={[accounts]}>
+          <ul className="settings-rows">
+            {list.map((a) => (
+              <li key={a.id} className="settings-row">
+                <strong>
+                  {a.code} {a.name}
+                </strong>{" "}
+                <Badge>{t.accounts.types[a.type] ?? a.type}</Badge>
+                {a.role && (
+                  <Badge tone="blue">
+                    {t.roles[a.role] ?? t.accounts.system}
+                  </Badge>
+                )}
+                {a.paymentAccount && <Badge>{t.accounts.payment}</Badge>}
+                {owner && !a.role && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={action.pending}
+                    onClick={() => action.run(() => api.accounts.archive(a.id))}
+                  >
+                    {t.accounts.archive}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {!list.length && <p className="panel-note">{t.accounts.none}</p>}
           <form
-            className="support-form"
+            className="settings-form"
             onSubmit={(e: FormEvent) => {
               e.preventDefault();
               action
@@ -339,144 +354,154 @@ function Accounts({ t }: { t: FinanceText }) {
                 );
             }}
           >
-            <label>
-              <span>{t.accounts.code}</span>
-              <Input
-                required
-                maxLength={20}
-                value={account.code}
-                onChange={(e) =>
-                  setAccount({ ...account, code: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              <span>{t.accounts.name}</span>
-              <Input
-                required
-                maxLength={120}
-                value={account.name}
-                onChange={(e) =>
-                  setAccount({ ...account, name: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              <span>{t.accounts.type}</span>
-              <select
-                className="input"
-                value={account.type}
-                onChange={(e) =>
-                  setAccount({ ...account, type: e.target.value })
-                }
-              >
-                {Object.entries(t.accounts.types).map(([key, text]) => (
-                  <option key={key} value={key}>
-                    {text}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <fieldset disabled={!owner}>
+              <legend>{t.accounts.add}</legend>
+              {!owner && (
+                <p className="panel-note">{t.accounts.accountsOwner}</p>
+              )}
+              <label>
+                <span>{t.accounts.code}</span>
+                <Input
+                  required
+                  maxLength={20}
+                  value={account.code}
+                  onChange={(e) =>
+                    setAccount({ ...account, code: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>{t.accounts.name}</span>
+                <Input
+                  required
+                  maxLength={120}
+                  value={account.name}
+                  onChange={(e) =>
+                    setAccount({ ...account, name: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>{t.accounts.type}</span>
+                <select
+                  className="input"
+                  value={account.type}
+                  onChange={(e) =>
+                    setAccount({ ...account, type: e.target.value })
+                  }
+                >
+                  {Object.entries(t.accounts.types).map(([key, text]) => (
+                    <option key={key} value={key}>
+                      {text}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </fieldset>
             {owner && (
               <Button type="submit" disabled={action.pending}>
                 {t.accounts.add}
               </Button>
             )}
           </form>
-        </fieldset>
+        </LoadState>
       </Panel>
       <Panel title={t.accounts.categories}>
-        <ul className="support-rows">
-          {(categories.data?.items ?? []).map((c) => (
-            <li key={c.id} className="support-inbox-row">
-              <strong>{c.name}</strong>{" "}
-              <Badge>{t.accounts.kinds[c.kind] ?? c.kind}</Badge>
-              {write && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={action.pending}
-                  onClick={() => action.run(() => api.categories.archive(c.id))}
+        <LoadState resources={[categories, accounts]}>
+          <ul className="settings-rows">
+            {(categories.data?.items ?? []).map((c) => (
+              <li key={c.id} className="settings-row">
+                <strong>{c.name}</strong>{" "}
+                <Badge>{t.accounts.kinds[c.kind] ?? c.kind}</Badge>
+                {write && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={action.pending}
+                    onClick={() =>
+                      action.run(() => api.categories.archive(c.id))
+                    }
+                  >
+                    {t.accounts.archive}
+                  </Button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {!categories.data?.items.length && (
+            <p className="panel-note">{t.accounts.none}</p>
+          )}
+          {write && (
+            <form
+              className="settings-form"
+              onSubmit={(e: FormEvent) => {
+                e.preventDefault();
+                action
+                  .run(() =>
+                    api.categories.create({
+                      name: category.name.trim(),
+                      kind: category.kind as Category["kind"],
+                      accountId: category.accountId,
+                    }),
+                  )
+                  .then((ok) => ok && setCategory({ ...category, name: "" }));
+              }}
+            >
+              <label>
+                <span>{t.accounts.name}</span>
+                <Input
+                  required
+                  maxLength={120}
+                  value={category.name}
+                  onChange={(e) =>
+                    setCategory({ ...category, name: e.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>{t.accounts.kind}</span>
+                <select
+                  className="input"
+                  value={category.kind}
+                  onChange={(e) =>
+                    setCategory({
+                      ...category,
+                      kind: e.target.value,
+                      accountId: "",
+                    })
+                  }
                 >
-                  {t.accounts.archive}
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
-        {!categories.data?.items.length && !categories.loading && (
-          <p className="panel-note">{t.accounts.none}</p>
-        )}
-        {write && (
-          <form
-            className="support-form"
-            onSubmit={(e: FormEvent) => {
-              e.preventDefault();
-              action
-                .run(() =>
-                  api.categories.create({
-                    name: category.name.trim(),
-                    kind: category.kind as Category["kind"],
-                    accountId: category.accountId,
-                  }),
-                )
-                .then((ok) => ok && setCategory({ ...category, name: "" }));
-            }}
-          >
-            <label>
-              <span>{t.accounts.name}</span>
-              <Input
-                required
-                maxLength={120}
-                value={category.name}
-                onChange={(e) =>
-                  setCategory({ ...category, name: e.target.value })
-                }
-              />
-            </label>
-            <label>
-              <span>{t.accounts.kind}</span>
-              <select
-                className="input"
-                value={category.kind}
-                onChange={(e) =>
-                  setCategory({
-                    ...category,
-                    kind: e.target.value,
-                    accountId: "",
-                  })
-                }
-              >
-                {Object.entries(t.accounts.kinds).map(([key, text]) => (
-                  <option key={key} value={key}>
-                    {text}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span>{t.accounts.accounts}</span>
-              <select
-                className="input"
-                required
-                value={category.accountId}
-                onChange={(e) =>
-                  setCategory({ ...category, accountId: e.target.value })
-                }
-              >
-                <option value="" />
-                {postable.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.code} {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <Button type="submit" disabled={action.pending}>
-              {t.accounts.addCategory}
-            </Button>
-          </form>
-        )}
+                  {Object.entries(t.accounts.kinds).map(([key, text]) => (
+                    <option key={key} value={key}>
+                      {text}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{t.accounts.accounts}</span>
+                <select
+                  className="input"
+                  required
+                  value={category.accountId}
+                  onChange={(e) =>
+                    setCategory({ ...category, accountId: e.target.value })
+                  }
+                >
+                  <option value="" />
+                  {postable.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.code} {a.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button type="submit" disabled={action.pending}>
+                {t.accounts.addCategory}
+              </Button>
+            </form>
+          )}
+        </LoadState>
         {action.error && <Alert kind="error">{action.error}</Alert>}
       </Panel>
     </>
@@ -494,66 +519,70 @@ function CostCenters({ t }: { t: FinanceText }) {
   const [form, setForm] = useState({ code: "", name: "" });
   return (
     <Panel title={t.costCenters.title} hint={t.costCenters.hint}>
-      <ul className="support-rows">
-        {(centers.data?.items ?? []).map((c) => (
-          <li key={c.id} className="support-inbox-row">
-            <strong>
-              {c.code} {c.name}
-            </strong>
-            {write && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={action.pending}
-                onClick={() => action.run(() => api.costCenters.archive(c.id))}
-              >
-                {t.costCenters.archive}
-              </Button>
-            )}
-          </li>
-        ))}
-      </ul>
-      {!centers.data?.items.length && !centers.loading && (
-        <p className="panel-note">{t.costCenters.none}</p>
-      )}
-      {write && (
-        <form
-          className="support-form"
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault();
-            action
-              .run(() =>
-                api.costCenters.create({
-                  code: form.code.trim(),
-                  name: form.name.trim(),
-                }),
-              )
-              .then((ok) => ok && setForm({ code: "", name: "" }));
-          }}
-        >
-          <label>
-            <span>{t.costCenters.code}</span>
-            <Input
-              required
-              maxLength={20}
-              value={form.code}
-              onChange={(e) => setForm({ ...form, code: e.target.value })}
-            />
-          </label>
-          <label>
-            <span>{t.costCenters.name}</span>
-            <Input
-              required
-              maxLength={120}
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-            />
-          </label>
-          <Button type="submit" disabled={action.pending}>
-            {t.costCenters.add}
-          </Button>
-        </form>
-      )}
+      <LoadState resources={[centers]}>
+        <ul className="settings-rows">
+          {(centers.data?.items ?? []).map((c) => (
+            <li key={c.id} className="settings-row">
+              <strong>
+                {c.code} {c.name}
+              </strong>
+              {write && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={action.pending}
+                  onClick={() =>
+                    action.run(() => api.costCenters.archive(c.id))
+                  }
+                >
+                  {t.costCenters.archive}
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {!centers.data?.items.length && (
+          <p className="panel-note">{t.costCenters.none}</p>
+        )}
+        {write && (
+          <form
+            className="settings-form"
+            onSubmit={(e: FormEvent) => {
+              e.preventDefault();
+              action
+                .run(() =>
+                  api.costCenters.create({
+                    code: form.code.trim(),
+                    name: form.name.trim(),
+                  }),
+                )
+                .then((ok) => ok && setForm({ code: "", name: "" }));
+            }}
+          >
+            <label>
+              <span>{t.costCenters.code}</span>
+              <Input
+                required
+                maxLength={20}
+                value={form.code}
+                onChange={(e) => setForm({ ...form, code: e.target.value })}
+              />
+            </label>
+            <label>
+              <span>{t.costCenters.name}</span>
+              <Input
+                required
+                maxLength={120}
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </label>
+            <Button type="submit" disabled={action.pending}>
+              {t.costCenters.add}
+            </Button>
+          </form>
+        )}
+      </LoadState>
       {action.error && <Alert kind="error">{action.error}</Alert>}
     </Panel>
   );
@@ -566,7 +595,7 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const RATE = /^\d{1,12}(\.\d{1,12})?$/;
 
 function Currencies({ t }: { t: FinanceText }) {
-  const { project, locale } = useWorkspace();
+  const { project } = useWorkspace();
   const { owner } = useFinanceAccess();
   const api = financeApi(project.id);
   const current = useResource<SettingsResponse>(
@@ -583,7 +612,12 @@ function Currencies({ t }: { t: FinanceText }) {
     currency: "USD",
     perEur: "",
   });
-  if (!current.data) return null;
+  if (!current.data)
+    return (
+      <Panel title={t.currencies.title}>
+        <LoadState resources={[current]}>{null}</LoadState>
+      </Panel>
+    );
   const s = { ...current.data.settings, ...draft };
   const pegOk = PEG.test(s.usdcPeg);
   const toggle = (code: string) => {
@@ -601,7 +635,7 @@ function Currencies({ t }: { t: FinanceText }) {
     <>
       <Panel title={t.currencies.title}>
         <form
-          className="support-form"
+          className="settings-form"
           onSubmit={(e: FormEvent) => {
             e.preventDefault();
             save
@@ -622,7 +656,7 @@ function Currencies({ t }: { t: FinanceText }) {
           <fieldset disabled={!owner}>
             <legend>{t.currencies.enabled}</legend>
             {CURRENCIES.map((code) => (
-              <label key={code} className="support-check">
+              <label key={code} className="settings-check">
                 <input
                   type="checkbox"
                   checked={s.currencies.includes(code)}
@@ -697,16 +731,16 @@ function Currencies({ t }: { t: FinanceText }) {
         </form>
       </Panel>
       <Panel title={t.currencies.manualTitle} hint={t.currencies.manualHint}>
-        <fieldset disabled={!owner} className="support-form">
-          <form
-            className="support-form"
-            onSubmit={(e: FormEvent) => {
-              e.preventDefault();
-              rate
-                .run(() => api.fxRates.set(manual))
-                .then((ok) => ok && setManual({ ...manual, perEur: "" }));
-            }}
-          >
+        <form
+          className="settings-form"
+          onSubmit={(e: FormEvent) => {
+            e.preventDefault();
+            rate
+              .run(() => api.fxRates.set(manual))
+              .then((ok) => ok && setManual({ ...manual, perEur: "" }));
+          }}
+        >
+          <fieldset disabled={!owner}>
             <label>
               <span>{t.currencies.date}</span>
               <Input
@@ -741,38 +775,35 @@ function Currencies({ t }: { t: FinanceText }) {
                 }
               />
             </label>
-            {owner && (
-              <Button type="submit" disabled={rate.pending || !manualOk}>
-                {t.currencies.setRate}
-              </Button>
-            )}
-            {!manualOk && manual.perEur !== "" && (
-              <p className="panel-note">{t.currencies.rateInvalid}</p>
-            )}
-            {rate.success && (
-              <Alert kind="success">{t.currencies.rateSaved}</Alert>
-            )}
-            {rate.error && <Alert kind="error">{rate.error}</Alert>}
-          </form>
-        </fieldset>
+          </fieldset>
+          {owner && (
+            <Button type="submit" disabled={rate.pending || !manualOk}>
+              {t.currencies.setRate}
+            </Button>
+          )}
+          {!manualOk && manual.perEur !== "" && (
+            <p className="panel-note">{t.currencies.rateInvalid}</p>
+          )}
+          {rate.success && (
+            <Alert kind="success">{t.currencies.rateSaved}</Alert>
+          )}
+          {rate.error && <Alert kind="error">{rate.error}</Alert>}
+        </form>
         <h3>{t.currencies.recent}</h3>
-        {rates.data?.items.length ? (
-          <ul className="support-rows">
-            {rates.data.items.slice(0, 10).map((r) => (
-              <li key={r.id} className="support-inbox-row">
-                {
-                  when(`${r.date.slice(0, 10)}T12:00:00Z`, locale, "UTC").split(
-                    ",",
-                  )[0]
-                }{" "}
-                <strong>{r.currency}</strong> {r.perEur}{" "}
-                <Badge>{r.source}</Badge>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="panel-note">{t.currencies.noRates}</p>
-        )}
+        <LoadState resources={[rates]}>
+          {rates.data?.items.length ? (
+            <ul className="settings-rows">
+              {rates.data.items.slice(0, 10).map((r) => (
+                <li key={r.id} className="settings-row">
+                  {r.date.slice(0, 10)} <strong>{r.currency}</strong> {r.perEur}{" "}
+                  <Badge>{r.source}</Badge>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="panel-note">{t.currencies.noRates}</p>
+          )}
+        </LoadState>
       </Panel>
     </>
   );
@@ -802,10 +833,11 @@ export function AiExtractionForm({
   onCeiling: (text: string) => void;
   onSubmit: () => void;
 }) {
-  const ceilingOk = unitsToMicros(ceiling) !== null;
+  const micros = unitsToMicros(ceiling);
+  const ceilingOk = micros !== null && micros <= MAX_CEILING_MICROS;
   return (
     <form
-      className="support-form"
+      className="settings-form"
       onSubmit={(e) => {
         e.preventDefault();
         onSubmit();
@@ -813,7 +845,7 @@ export function AiExtractionForm({
     >
       <fieldset disabled={disabled}>
         <legend>{t.ai.consent}</legend>
-        <label className="support-check">
+        <label className="settings-check">
           <input
             type="checkbox"
             checked={enabled}
@@ -857,7 +889,12 @@ function AiExtraction({ t }: { t: FinanceText }) {
   const [draft, setDraft] = useState<{ enabled?: boolean; ceiling?: string }>(
     {},
   );
-  if (!current.data) return null;
+  if (!current.data)
+    return (
+      <Panel title={t.ai.title}>
+        <LoadState resources={[current]}>{null}</LoadState>
+      </Panel>
+    );
   const s = current.data.settings;
   return (
     <Panel title={t.ai.title}>
@@ -874,7 +911,7 @@ function AiExtraction({ t }: { t: FinanceText }) {
           const micros = unitsToMicros(
             draft.ceiling ?? microsToUnits(s.aiDailyCeilingMicros),
           );
-          if (micros === null) return;
+          if (micros === null || micros > MAX_CEILING_MICROS) return;
           save
             .run(() =>
               api.settings.put(

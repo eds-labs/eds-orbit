@@ -1882,6 +1882,7 @@ td:first-child {
 .settings-content .panel-note,
 .settings-content .data-row,
 .settings-content .support-inbox-row,
+.settings-content .settings-row,
 .settings-content .brand-approval {
   padding-left: var(--settings-inset);
   padding-right: var(--settings-inset);
@@ -1919,41 +1920,51 @@ td:first-child {
   padding: 24px var(--settings-inset) 32px;
 }
 /* Support: inbox rows and the rules form (support/settings.tsx). */
-.settings-content .support-rows:last-child {
+.settings-content .support-rows:last-child,
+.settings-content .settings-rows:last-child {
   padding-bottom: 12px;
 }
-.support-inbox-actions {
+.support-inbox-actions,
+.settings-row-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
 }
-.settings-content .support-form {
+.settings-content .support-form,
+.settings-content .settings-form {
   max-width: 720px;
   padding: 0 var(--settings-inset) 21px;
 }
 .support-form label:not(.support-check) > span,
-.support-form fieldset > legend {
+.settings-form label:not(.settings-check) > span,
+.support-form fieldset > legend,
+.settings-form fieldset > legend {
   font-size: 12px;
   font-weight: 600;
   color: #23415a;
 }
-.support-form fieldset > legend {
+.support-form fieldset > legend,
+.settings-form fieldset > legend {
   margin-bottom: 4px;
   padding: 0;
 }
-.support-form label.support-check {
+.support-form label.support-check,
+.settings-form label.settings-check {
   min-height: 32px;
   font-size: 13px;
 }
 .support-form > .button,
+.settings-form > .button,
 .support-tag-editor > .button {
   justify-self: start;
 }
-.modal-body .support-form {
+.modal-body .support-form,
+.modal-body .settings-form {
   padding: 0;
 }
-.modal-body .support-form > .button {
+.modal-body .support-form > .button,
+.modal-body .settings-form > .button {
   justify-self: end;
 }
 .support-sla-table {
@@ -1976,7 +1987,8 @@ td:first-child {
 .settings-content .support-sla-table td {
   padding: 8px 12px;
 }
-.support-form label > .input[type="number"] {
+.support-form label > .input[type="number"],
+.settings-form label > .input[type="number"] {
   max-width: 220px;
 }
 .support-sla-table tbody th {
@@ -2050,21 +2062,27 @@ td:first-child {
   .settings-content select {
     font-size: 16px;
   }
-  .settings-content .support-inbox-actions {
+  .settings-content .support-inbox-actions,
+  .settings-content .settings-row-actions {
     flex: 1 1 100%;
     margin-left: 0;
   }
-  .settings-content .support-inbox-actions > .button {
+  .settings-content .support-inbox-actions > .button,
+  .settings-content .settings-row-actions > .button {
     flex: 1 1 calc(50% - 4px);
   }
   .support-form > .button,
-  .modal-body .support-form > .button {
+  .settings-form > .button,
+  .modal-body .support-form > .button,
+  .modal-body .settings-form > .button {
     justify-self: stretch;
   }
-  .support-form label.support-check {
+  .support-form label.support-check,
+  .settings-form label.settings-check {
     min-height: 44px;
   }
-  .support-form label > .input[type="number"] {
+  .support-form label > .input[type="number"],
+  .settings-form label > .input[type="number"] {
     max-width: none;
   }
   .settings-content .support-tag-editor {
@@ -5010,7 +5028,8 @@ svg.agent-graph {
   gap: 6px;
   flex: 1 1 200px;
 }
-.support-rows {
+.support-rows,
+.settings-rows {
   list-style: none;
   display: grid;
   gap: 6px;
@@ -5069,24 +5088,28 @@ a.support-row {
   align-items: end;
 }
 .support-controls label,
-.support-form label {
+.support-form label,
+.settings-form label {
   display: grid;
   gap: 4px;
   font-size: 13px;
 }
-.support-form label.support-check {
+.support-form label.support-check,
+.settings-form label.settings-check {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.support-form fieldset {
+.support-form fieldset,
+.settings-form fieldset {
   display: grid;
   gap: 6px;
   border: 0;
   margin: 0;
   padding: 0;
 }
-.support-form label small {
+.support-form label small,
+.settings-form label small {
   color: var(--muted-foreground);
 }
 .support-tags {
@@ -5263,7 +5286,8 @@ a.support-row {
 .support-back {
   display: none;
 }
-.support-form {
+.support-form,
+.settings-form {
   display: grid;
   /* minmax(0, 1fr): wide children (the SLA table) never push past the panel. */
   grid-template-columns: minmax(0, 1fr);
@@ -5297,7 +5321,8 @@ a.support-row {
   font-size: 12px;
   color: var(--muted-foreground);
 }
-.support-inbox-row {
+.support-inbox-row,
+.settings-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -5842,7 +5867,13 @@ a.support-row {
   }
 }
 
-.marketing-plans-page .page-actions { flex-wrap: wrap; }
+.marketing-plans-page .page-actions {
+  flex-wrap: wrap;
+}
 @media (max-width: 760px) {
-  .marketing-plans-page .page-actions > .button { flex: 1 0 100%; width: 100%; white-space: normal; }
+  .marketing-plans-page .page-actions > .button {
+    flex: 1 0 100%;
+    width: 100%;
+    white-space: normal;
+  }
 }

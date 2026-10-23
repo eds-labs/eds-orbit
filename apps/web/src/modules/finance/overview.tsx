@@ -6,7 +6,7 @@ import { PageHead, ResourceError } from "@/platform/ui/collection";
 import { useMutation } from "@/lib/api";
 import { financeApi, financePath, type SetupStatus } from "./api";
 import { financeText, type FinanceText } from "./labels";
-import { useFinanceAccess } from "./settings";
+import { useFinanceAccess } from "./access";
 
 /**
  * The setup screen: shown while a system account is missing, with the
