@@ -167,6 +167,28 @@ const baseConfigSchema = z.object({
   // E-mail over SMTP/IMAP and member notifications (WP4.7); off until the
   // security review. Sending also needs EXECUTION_MODE=live and external writes.
   ORBIT_EMAIL: z.enum(["false", "true"]).default("false"),
+  // System administration, organization settings and invitations
+  // (ADR 0012). Off returns 404 for /api/admin, /api/organizations and
+  // /api/invitations.
+  ORBIT_ADMINISTRATION: z.enum(["false", "true"]).default("false"),
+  // Account self-service: profile, password, sessions, password reset and
+  // e-mail change (ADR 0012). Off returns 404 for /api/account.
+  ORBIT_ACCOUNT: z.enum(["false", "true"]).default("false"),
+  // System authentication mail (invitations, password reset), independent of
+  // any project mailbox (ADR 0012, amends Q-16). Unset host or sender means
+  // "not configured": administrators then copy links by hand. Sending also
+  // needs EXECUTION_MODE=live and external writes.
+  ORBIT_SYSTEM_SMTP_HOST: unset(z.string().min(1).max(253).optional()),
+  ORBIT_SYSTEM_SMTP_PORT: unset(
+    z.coerce.number().int().min(1).max(65535).default(587),
+  ),
+  ORBIT_SYSTEM_SMTP_TLS: unset(
+    z.enum(["implicit", "starttls"]).default("starttls"),
+  ),
+  ORBIT_SYSTEM_SMTP_USER: unset(z.string().min(1).optional()),
+  ORBIT_SYSTEM_SMTP_PASSWORD: unset(z.string().min(1).optional()),
+  ORBIT_SYSTEM_SMTP_FROM: unset(z.email().optional()),
+  ORBIT_SYSTEM_SMTP_FROM_NAME: unset(z.string().min(1).max(100).default("Orbit")),
   // In-app member notifications and their preferences (WP4.7).
   ORBIT_NOTIFICATIONS: z.enum(["false", "true"]).default("false"),
   // Real-time fan-out (WP4.3 Part B): writers publish committed changes over

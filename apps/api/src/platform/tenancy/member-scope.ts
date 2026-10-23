@@ -4,9 +4,16 @@ import { moduleRolesEnabled } from "./module-roles.ts";
 
 /**
  * A user's current access to a project: workspace owners act as project
- * owners, everyone else needs a project membership. Null without access.
+ * owners, everyone else needs a project membership. Null without access,
+ * and always null for a deactivated user (ADR 0012): this one check covers
+ * API requests, the worker's actor checks and the MCP principal.
  */
 export async function projectMembership(projectId: string, userId: string) {
+  const active = await authDb.user.findFirst({
+    where: { id: userId, banned: false },
+    select: { id: true },
+  });
+  if (!active) return null;
   const project = await authDb.project.findFirst({
     where: {
       id: projectId,

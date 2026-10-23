@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
+import { admin } from "better-auth/plugins";
 import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyRequest } from "fastify";
 import { authDb } from "../../../../../packages/db/src/index.ts";
@@ -22,6 +23,7 @@ import {
   grantHookDeps,
   grantPostLogin,
 } from "../mcp-auth/grants.ts";
+import { captureResetToken } from "./reset-capture.ts";
 // `cimdFetch` is a test seam for the Client ID Metadata Document transport.
 export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
   const config = loadConfig();
@@ -34,15 +36,20 @@ export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
     trustedOrigins: [config.APP_ORIGIN],
     // jwt() would otherwise expose a session JWT at GET /api/auth/token.
     disabledPaths: ["/token"],
-    plugins: oauth
-      ? [
-          ...mcpAuthPlugins(config, {
+    // The admin plugin supplies the system administrator role and the ban
+    // state (ADR 0012): banned users cannot sign in or get a session. Its
+    // HTTP routes stay unreachable (server.ts allowlist); Orbit's own admin
+    // routes call it server-side.
+    plugins: [
+      admin({ defaultRole: "user", adminRoles: ["admin"] }),
+      ...(oauth
+        ? mcpAuthPlugins(config, {
             ...mcpAuthDeps(options),
             ...grantPostLogin(),
             clientEvents: grantClientDeps(),
-          }),
-        ]
-      : [],
+          })
+        : []),
+    ],
     // Global hooks exist only for the OAuth server; flag off keeps none.
     ...(oauth ? { hooks: mcpAuthHooks(config, grantHookDeps()) } : {}),
     // The provider reports a refused authorization (such as an unregistered
@@ -57,6 +64,24 @@ export function makeAuth(options: { cimdFetch?: typeof fetch } = {}) {
       minPasswordLength: 12,
       maxPasswordLength: 128,
       autoSignIn: false,
+      // Reset tokens are handed to the Orbit route that asked for them
+      // (reset-capture.ts), which mails them or shows the link once.
+      sendResetPassword: async ({ token }) => captureResetToken(token),
+      resetPasswordTokenExpiresIn: 3600,
+      revokeSessionsOnPasswordReset: true,
+    },
+    user: {
+      additionalFields: {
+        // Written only by PATCH /api/account, never by Better Auth input.
+        locale: { type: "string", required: false, input: false },
+      },
+    },
+    // Reset tokens are stored hashed; other flows keep their format.
+    verification: {
+      storeIdentifier: {
+        default: "plain",
+        overrides: { "reset-password:": "hashed" },
+      },
     },
     session: {
       expiresIn: 8 * 3600,
@@ -96,6 +121,9 @@ export async function sessionFor(auth: Auth, req: FastifyRequest) {
   const cookies = headers?.getSetCookie() ?? [];
   if (cookies.length) renewedCookies.set(req, cookies);
   if (!session) throw new DomainError("UNAUTHENTICATED", 401);
+  // A deactivated user's sessions are deleted; this also refuses any left.
+  if ((session.user as { banned?: boolean | null }).banned)
+    throw new DomainError("UNAUTHENTICATED", 401);
   return session;
 }
 export async function userFor(auth: Auth, req: FastifyRequest) {
