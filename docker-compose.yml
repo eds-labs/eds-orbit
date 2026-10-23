@@ -58,6 +58,8 @@ x-api-environment: &api-environment
   ORBIT_PUBLIC_INGRESS: ${ORBIT_PUBLIC_INGRESS:-false}
   # Support module (WP5.1): off until the pilot is approved.
   ORBIT_SUPPORT: ${ORBIT_SUPPORT:-false}
+  # Finance module: off until its rollout is approved.
+  ORBIT_FINANCE: ${ORBIT_FINANCE:-false}
   # Customer context from external products (ADR 0011); per-inbox binding.
   ORBIT_CUSTOMER_CONTEXT: ${ORBIT_CUSTOMER_CONTEXT:-false}
   # Platform files (WP4.6): an own R2 bucket and token, never the backup ones.
