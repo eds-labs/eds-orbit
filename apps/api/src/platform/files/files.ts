@@ -49,6 +49,8 @@ const STORAGE_ONLY_TYPES: Record<string, (bytes: Uint8Array) => boolean> = {
       b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf ? b.subarray(3) : b,
       [0x3c, 0x3f, 0x78, 0x6d, 0x6c],
     ),
+  // Generated bundles (e.g. finance receipt exports): local file header.
+  "application/zip": (b) => starts(b, [0x50, 0x4b, 0x03, 0x04]),
 };
 const starts = (bytes: Uint8Array, signature: number[]) =>
   signature.every((value, i) => bytes[i] === value);
@@ -63,6 +65,7 @@ const EXTENSIONS: Record<string, string[]> = {
   "text/plain": [".txt"],
   "text/csv": [".csv"],
   "application/xml": [".xml"],
+  "application/zip": [".zip"],
   "message/rfc822": [".eml"],
 };
 
@@ -303,6 +306,27 @@ export async function readFile(scope: Scope, id: string) {
     );
     throw new DomainError("FILE_INTEGRITY", 500);
   }
+  return { file: fileView(row), bytes };
+}
+
+/**
+ * Like readFile, but inside the caller's transaction (readFile opens its own
+ * and would wait on the project lock the caller holds). An integrity failure
+ * only throws; its audit event would roll back with the caller.
+ */
+export async function readFileWithin(tx: DbTx, scope: Scope, id: string) {
+  const config = requireFiles();
+  const row = await fileRow(tx, scope, id);
+  const sealed = await config.store(scope).get(row.key);
+  if (!sealed) throw new DomainError("FILE_CONTENT_MISSING", 404);
+  let bytes: Uint8Array;
+  try {
+    bytes = decryptFile(sealed, row.id, config.keyHex);
+  } catch {
+    bytes = new Uint8Array();
+  }
+  if (!bytes.byteLength || !constantEqual(sha256(bytes), row.sha256))
+    throw new DomainError("FILE_INTEGRITY", 500);
   return { file: fileView(row), bytes };
 }
 

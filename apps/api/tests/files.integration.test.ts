@@ -507,6 +507,26 @@ describe.skipIf(!enabled)("platform files", () => {
     ).resolves.toMatchObject({ mime: "application/xml" });
   });
 
+  it("stores zip bundles but keeps them out of e-mail attachment types", async () => {
+    expect(allowedFileTypes()).not.toContain("application/zip");
+    const zip = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0, 0, 0, 0]);
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: zip,
+        mime: "application/zip",
+        name: "bundle",
+      }),
+    ).resolves.toMatchObject({ mime: "application/zip", name: "bundle.zip" });
+    await expect(
+      storeFile(owner(), {
+        moduleId: "knowledge",
+        bytes: Buffer.from("not a zip"),
+        mime: "application/zip",
+      }),
+    ).rejects.toMatchObject({ status: 415 });
+  });
+
   it("refuses xml without a declaration", async () => {
     await expect(
       storeFile(owner(), {
