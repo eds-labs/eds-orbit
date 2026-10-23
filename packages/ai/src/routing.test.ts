@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  defaultOutputTokens,
   escalationEligible,
+  legacyTier,
   modelRouteSchema,
+  taskRoutesSchema,
   resolveRoute,
   taskClasses,
 } from "./routing.ts";
@@ -92,6 +95,7 @@ describe("resolveRoute", () => {
       "agent_review",
       "support_triage",
       "support_draft",
+      "finance_extraction",
     ]);
   });
   it("rejects unverified models", () => {
@@ -104,6 +108,18 @@ describe("resolveRoute", () => {
         taskRoutes: { draft_social: { model: "x", maxOutputTokens: 1000 } },
       }),
     ).toThrow("MODEL_CAPABILITY_NOT_VERIFIED");
+  });
+});
+
+describe("finance_extraction", () => {
+  it("routes finance_extraction", () => {
+    expect(
+      taskRoutesSchema.parse({
+        finance_extraction: { model: "m", maxOutputTokens: 4000 },
+      }),
+    ).toEqual({ finance_extraction: { model: "m", maxOutputTokens: 4000 } });
+    expect(defaultOutputTokens.finance_extraction).toBe(4000);
+    expect(legacyTier.finance_extraction).toBe(legacyTier.support_triage);
   });
 });
 

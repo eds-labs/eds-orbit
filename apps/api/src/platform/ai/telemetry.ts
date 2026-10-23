@@ -16,7 +16,9 @@ export type RunKind =
   // Support AI: triage or a draft reply of one ticket (WP5.6).
   | "support"
   // A tool call from an outside MCP client through the gateway (Track M).
-  | "mcp";
+  | "mcp"
+  // Finance extraction of a receipt document.
+  | "finance";
 /** What a run or span needs from a scope: where it belongs. */
 export type RunScope = Pick<Scope, "workspaceId" | "projectId">;
 export type SpanInput = {

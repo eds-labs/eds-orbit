@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeCost, DEFAULT_WEB_SEARCH_INPUT_TOKENS_PER_CALL, DEFAULT_WEB_SEARCH_MICROS_PER_CALL, estimateCost, normalizeResponsesUsage, rateStatus, webSearchFee, webSearchInputTokens } from "./cost.ts";
+import { attachmentInputTokens, pdfPageCount, computeCost, DEFAULT_WEB_SEARCH_INPUT_TOKENS_PER_CALL, DEFAULT_WEB_SEARCH_MICROS_PER_CALL, estimateCost, normalizeResponsesUsage, rateStatus, webSearchFee, webSearchInputTokens } from "./cost.ts";
 
 const verifiedAt = new Date().toISOString();
 const runtime = (rate: Record<string, unknown>) => ({
@@ -130,5 +130,23 @@ describe("webSearchInputTokens", () => {
     expect(webSearchInputTokens("m", 2, runtime({ ...base, webSearchInputTokensPerCall: 20_000 }))).toBe(40_000);
     expect(webSearchInputTokens("other", 1, runtime(base))).toBe(8_000);
     expect(() => webSearchInputTokens("m", -1, runtime(base))).toThrow("WEB_SEARCH_COUNT_INVALID");
+  });
+});
+
+describe("attachments", () => {
+  it("estimates 3000 tokens per pdf page and 1600 per image", () => {
+    expect(
+      attachmentInputTokens([
+        { kind: "pdf", pages: 2 },
+        { kind: "image" },
+      ]),
+    ).toBe(7600);
+    expect(attachmentInputTokens([])).toBe(0);
+  });
+  it("counts pdf pages", () => {
+    const pdf =
+      "%PDF-1.4 1 0 obj << /Type /Pages /Count 2 >> endobj 2 0 obj << /Type /Page >> endobj 3 0 obj << /Type/Page /Parent 1 0 R >> endobj";
+    expect(pdfPageCount(new TextEncoder().encode(pdf))).toBe(2);
+    expect(pdfPageCount(new TextEncoder().encode("%PDF-1.4"))).toBe(1);
   });
 });

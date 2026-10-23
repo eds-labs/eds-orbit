@@ -667,3 +667,67 @@ describe("rejected Anthropic requests", () => {
     expect(isRejectedRequest(status(code))).toBe(false),
   );
 });
+
+describe("file and image input", () => {
+  const user = (...parts: unknown[]) => [
+    {
+      role: "user",
+      content: [{ type: "input_text", text: "Extract." }, ...parts],
+    },
+  ];
+  it("maps input_file pdf to a document block", () => {
+    expect(
+      toAnthropicMessages(
+        user({
+          type: "input_file",
+          filename: "a.pdf",
+          file_data: "data:application/pdf;base64,QUJD",
+        }),
+      ),
+    ).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Extract." },
+          {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "QUJD",
+            },
+          },
+        ],
+      },
+    ]);
+  });
+  it("maps input_image to an image block", () => {
+    expect(
+      toAnthropicMessages(
+        user({ type: "input_image", image_url: "data:image/png;base64,QUJD" }),
+      )[0]?.content,
+    ).toEqual([
+      { type: "text", text: "Extract." },
+      {
+        type: "image",
+        source: { type: "base64", media_type: "image/png", data: "QUJD" },
+      },
+    ]);
+  });
+  it("rejects a non-pdf input_file", () => {
+    expect(() =>
+      toAnthropicMessages(
+        user({
+          type: "input_file",
+          filename: "a.txt",
+          file_data: "data:text/plain;base64,QUJD",
+        }),
+      ),
+    ).toThrow("AI_INPUT_UNSUPPORTED");
+    expect(() =>
+      toAnthropicMessages(
+        user({ type: "input_image", image_url: "https://example.com/a.png" }),
+      ),
+    ).toThrow("AI_INPUT_UNSUPPORTED");
+  });
+});
