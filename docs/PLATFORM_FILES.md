@@ -51,9 +51,12 @@ The backup container never receives `FILES_*`, and api/worker never receive `BAC
   - Types:
     - images (PNG, JPEG, GIF, WebP) and PDF, each checked by its file signature;
     - plain text, CSV and `message/rfc822`;
-    - XML (`application/xml`, `.xml`), which must start with an `<?xml` declaration (an optional UTF-8 BOM is allowed).
+    - XML (`application/xml`, `.xml`), which must start with an `<?xml` declaration (an optional UTF-8 BOM is allowed);
+    - ZIP (`application/zip`), which must start with a local file header (`PK\x03\x04`); finance stores its receipt exports this way.
+
+  XML and ZIP are **storage-only types**: a module may store and serve them, but they are not added to the inbound-mail attachment allow-list, so Support's behaviour does not change. Downloads are always attachments with `nosniff`.
 - **Deleting.** A deleted file is unreadable at once. The object and the row follow right away. If the bucket fails, the hourly `file-cleanup` task retries.
-- **Retention.** A module may store a file with `retainUntil`. Until that time `deleteFile` answers 409 `FILE_RETAINED`, whoever calls it (the route, Support's privacy erasure or attachment cleanup), and the file stays readable; the cleanup only purges rows already marked deleted. After `retainUntil` the file deletes normally. `fileView` includes `retainUntil`.
+- **Retention.** A module may store a file with `retainUntil`. Until that time `deleteFile` answers 409 `FILE_RETAINED`, whoever calls it (the route, Support's privacy erasure or attachment cleanup), and the file stays readable; the cleanup only purges rows already marked deleted. After `retainUntil` the file deletes normally. `fileView` includes `retainUntil`. Only the finance module sets it (originals, `.eml` copies and exports; `retentionYears`, default 10), so Support files never carry a lock and Support's erasure is unaffected. A legal erasure request does not override a retention lock; finance originals would need an owner-level override (`docs/FINANCE.md`).
 
 ## Limits and follow-ups
 

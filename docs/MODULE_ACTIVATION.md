@@ -94,6 +94,20 @@ A module plugs in through its manifest (`ServerModule`) and its contributions (`
 
 Writes to the generic collection route stay per-kind code; a module writes through its own actions and routes. Tests add modules with `registerTestModules()`; production never calls it.
 
+## Finance (opt-in, 2026-10-23, local; flag off)
+
+Finance (`docs/FINANCE.md`) follows the Support pattern: `defaultEnabled: false`, a flag and an explicit project row.
+
+| Layer | Rule |
+|---|---|
+| Installation | `ORBIT_FINANCE=true` (default `false`). While off, the module is unavailable: contributions do not count even with `ORBIT_MODULES` off, projects do not list it, owners cannot enable it, routes answer 404. |
+| Project | An owner enables it in Settings → Modules, which writes an `enabled = true` row. While `ORBIT_MODULES` is off the platform counts every module as enabled **except** off-by-default modules, which count only with this row. |
+| Member | `finance.read`, `.write`, `.export` (owner, editor) and `.settings` (owner), all sensitive; module roles may narrow them (`none` hides the module). |
+| Disabled project | 404 `FINANCE_DISABLED` (or `MODULE_DISABLED` while module switching is on), after the membership check. The upload route checks membership, module, permission and content type before reading the body. |
+| Jobs, tools, attention | The `finance_mail_receipt` and `finance_extract` jobs, the FX periodic task, the four assistant tools and the attention items are contributions and obey the same activation. |
+
+Switching finance off deletes nothing. A mailbox bound to finance keeps its owner claim, so its mail waits unprocessed until the module is on again or the mailbox is unbound.
+
 ## Module roles per member (WP4.5)
 
 With `ORBIT_MODULE_ROLES=true`, a project owner can give a non-owner member a role in a single module:
