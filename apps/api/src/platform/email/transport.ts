@@ -80,6 +80,15 @@ export interface MailboxReader {
     messages: FetchedMessage[];
     skipped: number[];
   }>;
+  /**
+   * Moves one INBOX message into `folder` (created when missing). The only
+   * method that opens the INBOX read-write. "missing": the UID is gone;
+   * "uid_validity_changed": the UID no longer names the same message.
+   */
+  move(
+    state: { uidValidity: string; uid: number },
+    folder: string,
+  ): Promise<"moved" | "missing" | "uid_validity_changed">;
 }
 
 export type MailFactories = {
@@ -350,6 +359,23 @@ const realFactories: MailFactories = {
             uidValidity,
             ...(await fetchSources(c, batch, limits.maxBytes)),
           };
+        }),
+      move: (state, folder) =>
+        session(async (c) => {
+          const box = await c.mailboxOpen("INBOX");
+          if (String(box.uidValidity) !== state.uidValidity)
+            return "uid_validity_changed" as const;
+          const found = await c.search(
+            { uid: String(state.uid) },
+            { uid: true },
+          );
+          if (!found || !found.length) return "missing" as const;
+          // An existing folder makes the create fail; the move then decides.
+          await c.mailboxCreate(folder).catch(() => undefined);
+          const moved = await c.messageMove(String(state.uid), folder, {
+            uid: true,
+          });
+          return moved ? ("moved" as const) : ("missing" as const);
         }),
     };
   },

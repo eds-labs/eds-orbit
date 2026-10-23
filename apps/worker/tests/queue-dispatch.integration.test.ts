@@ -26,6 +26,7 @@ const QUEUES = [
   "analytics",
   "reconciliation",
   "slack_notification",
+  "email_archive",
 ] as const;
 
 describe.skipIf(!enabled)(
@@ -134,6 +135,11 @@ describe.skipIf(!enabled)(
           attempts: 1,
         },
         slack_notification: {
+          status: "blocked_dependency",
+          error: "NOT_FOUND",
+          attempts: 1,
+        },
+        email_archive: {
           status: "blocked_dependency",
           error: "NOT_FOUND",
           attempts: 1,

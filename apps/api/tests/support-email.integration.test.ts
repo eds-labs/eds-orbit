@@ -192,6 +192,7 @@ describe.skipIf(!enabled)("support e-mail channel", () => {
           messages: mailbox.filter((m) => uids.includes(m.uid)),
           skipped: [],
         }),
+        move: async () => "moved" as const,
         fetchNew: async (state, limits) => ({
           uidValidity: "1",
           messages: mailbox

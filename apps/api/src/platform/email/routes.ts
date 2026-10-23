@@ -12,6 +12,7 @@ import {
   liveSending,
 } from "./connection.ts";
 import { INBOUND_STATE_KIND } from "./inbound.ts";
+import { lastArchiveError } from "./archive.ts";
 
 // The owner's view of the project's mailboxes (WP4.7): each connection
 // without its password, its receiving state, whether it is the default
@@ -48,6 +49,7 @@ export function registerEmailRoutes(app: FastifyInstance, auth: Auth) {
           default: row.id === fallback?.id,
           inUse,
           inbound: inboundOf(row.id),
+          lastArchiveError: await lastArchiveError(tx, scope, row.id),
         });
       }
       const shown = fallback ?? mailboxes[0]?.connection ?? null;

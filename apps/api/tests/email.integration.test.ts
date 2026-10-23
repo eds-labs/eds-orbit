@@ -131,6 +131,7 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
             .map((m) => m.uid),
         };
       },
+      move: async () => "moved" as const,
       fetchNew: async (state, limits) => {
         const from =
           inbox.uidValidity === state.uidValidity ? state.lastUid : 0;
@@ -758,6 +759,7 @@ describe.skipIf(!enabled)("e-mail over SMTP and IMAP", () => {
         verify: async () => void logins++,
         scan: async () => ({ uidValidity: "1", top: 0, unseen: [] }),
         fetchUids: async () => ({ messages: [], skipped: [] }),
+        move: async () => "moved" as const,
         fetchNew: async () => ({ uidValidity: "1", messages: [], skipped: [] }),
       }),
     });

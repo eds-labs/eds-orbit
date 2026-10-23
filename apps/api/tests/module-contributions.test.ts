@@ -73,6 +73,7 @@ describe("module contributions", () => {
         "agent",
         "analytics",
         "chat",
+        "email_archive",
         "email_send",
         "embedding",
         "generation",
