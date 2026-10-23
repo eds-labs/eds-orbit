@@ -4,7 +4,7 @@ import { DomainError } from "../../shared.ts";
 import { isoDate } from "./common.ts";
 import { rateFor } from "./fx.ts";
 import { invoiceStatusView } from "./invoices.ts";
-import { invoiceBalance } from "./payments.ts";
+import { invoiceBalances } from "./payments.ts";
 import { CURRENCY_DECIMALS, convert } from "./money.ts";
 import { monthlyEquivalent } from "./recurring.ts";
 import { readFinanceSettings } from "./settings.ts";
@@ -153,24 +153,34 @@ function prefixMatch<T extends { name: string }>(
   );
 }
 
-/** Open invoices as of now, in base: status open/partially_paid with something left. */
-async function openItems(tx: DbTx, scope: Scope) {
+/**
+ * Open invoices in base with something left. Without `asOf`, today's state:
+ * status open/partially_paid. With `asOf` (ISO date): every non-void
+ * invoice issued on or before it, less payments dated and credit notes
+ * issued on or before it. Voids carry no date, so a payment voided after
+ * `asOf` counts as never made, and an invoice voided later is excluded.
+ */
+async function openItems(tx: DbTx, scope: Scope, asOf?: string) {
   const invoices = await tx.financeInvoice.findMany({
-    where: {
-      projectId: scope.projectId,
-      status: { in: ["open", "partially_paid"] },
-    },
+    where: asOf
+      ? {
+          projectId: scope.projectId,
+          status: { not: "void" },
+          issueDate: { lte: new Date(`${asOf}T00:00:00.000Z`) },
+        }
+      : {
+          projectId: scope.projectId,
+          status: { in: ["open", "partially_paid"] },
+        },
     orderBy: [{ dueDate: "asc" }, { issueDate: "asc" }],
   });
-  const items = [];
-  for (const invoice of invoices) {
-    // The helper honours credits and voided payments; its base is the
-    // invoice's posted open-item base less what earlier payments settled.
-    const balance = await invoiceBalance(tx, scope, invoice);
-    if (balance.openAmountMicros <= 0n) continue;
-    items.push({ invoice, balance });
-  }
-  return items;
+  // The batch helper honours credits and voided payments; its base is the
+  // invoice's posted open-item base less what earlier payments settled.
+  const balances = await invoiceBalances(tx, scope, invoices, asOf);
+  return invoices.flatMap((invoice) => {
+    const balance = balances.get(invoice.id)!;
+    return balance.openAmountMicros > 0n ? [{ invoice, balance }] : [];
+  });
 }
 
 export async function financeSummary(tx: DbTx, scope: Scope, raw: Range) {
@@ -244,7 +254,8 @@ export async function financeSummary(tx: DbTx, scope: Scope, raw: Range) {
       );
       recurringMonthlyMicros += convert(monthly, rate.rate, baseDecimals);
     } catch (error) {
-      if (!(error instanceof DomainError)) throw error;
+      if (!(error instanceof DomainError && error.code === "FX_RATE_MISSING"))
+        throw error;
       recurringMissingRate += 1;
     }
   }
@@ -481,19 +492,20 @@ export async function yearOverview(tx: DbTx, scope: Scope, year: number) {
     if (s.type === "expense") add(byCenter, s.costCenterId, s.amount);
   }
 
-  // Open items use today's status; a historical "as of 31 Dec" would need
-  // the payment dates replayed, which the tax advisor's overview does not.
-  const open = (await openItems(tx, scope)).map(({ invoice, balance }) => ({
-    invoiceId: invoice.id,
-    number: invoice.number,
-    direction: invoice.direction,
-    counterpartyId: invoice.counterpartyId,
-    currency: invoice.currency,
-    issueDate: invoice.issueDate.toISOString().slice(0, 10),
-    dueDate: invoice.dueDate?.toISOString().slice(0, 10) ?? null,
-    openMicros: str(balance.openAmountMicros),
-    openBaseMicros: str(balance.openBaseMicros),
-  }));
+  // Open items at 31 Dec of the year (see openItems for the void caveat).
+  const open = (await openItems(tx, scope, range.to)).map(
+    ({ invoice, balance }) => ({
+      invoiceId: invoice.id,
+      number: invoice.number,
+      direction: invoice.direction,
+      counterpartyId: invoice.counterpartyId,
+      currency: invoice.currency,
+      issueDate: invoice.issueDate.toISOString().slice(0, 10),
+      dueDate: invoice.dueDate?.toISOString().slice(0, 10) ?? null,
+      openMicros: str(balance.openAmountMicros),
+      openBaseMicros: str(balance.openBaseMicros),
+    }),
+  );
 
   const invoices = await tx.financeInvoice.findMany({
     where: {

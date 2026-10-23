@@ -63,36 +63,13 @@ type InvoiceRow = {
  * invoice and arrives for a receivable one. A credit note inverts it, so
  * the only payment it takes is a refund.
  */
-export const settlingDirection = (invoice: { kind: string; direction: string }) =>
+export const settlingDirection = (invoice: {
+  kind: string;
+  direction: string;
+}) =>
   (invoice.direction === "payable") !== (invoice.kind === "credit_note")
     ? "outgoing"
     : "incoming";
-
-/**
- * The open-item line of an invoice's posting: the only line without a
- * category in the invoice currency carrying its total (payables or
- * receivables; the payment account for a receipt).
- */
-async function openItemLine(
-  tx: DbTx,
-  scope: Pick<Scope, "projectId">,
-  invoice: Pick<InvoiceRow, "entryId" | "currency" | "totalMicros">,
-) {
-  const line = invoice.entryId
-    ? (
-        await tx.financeJournalLine.findMany({
-          where: {
-            projectId: scope.projectId,
-            entryId: invoice.entryId,
-            categoryId: null,
-            currency: invoice.currency,
-          },
-        })
-      ).find((l) => l.amountMicros === invoice.totalMicros)
-    : undefined;
-  if (!line) throw new DomainError("FINANCE_INVOICE_POSTING_INVALID", 409);
-  return line;
-}
 
 /** Allocations to an invoice whose payment is not voided. */
 export async function liveAllocations(
@@ -119,52 +96,132 @@ export async function liveAllocations(
   return allocations.filter((a) => live.has(a.paymentId));
 }
 
+type Balance = Omit<PaymentAllocation, "amountMicros">;
+
 /**
- * What is still open on an invoice, in its currency and in base: the total
- * less live payment allocations and less the live credit notes crediting
- * it (their totals, and their posted open-item base). A credit note that
- * credits an invoice is applied to it in full, so nothing of it is open.
+ * What is still open on several invoices, in their currencies and in base:
+ * the total less live payment allocations and less the live credit notes
+ * crediting each (their totals, and their posted open-item base). A credit
+ * note that credits an invoice is applied to it in full, so nothing of it
+ * is open. With `asOf` (ISO date) only payments dated and credit notes
+ * issued on or before it count. Voids carry no date, so a payment voided
+ * after `asOf` is treated as never having existed ("live now").
+ * A few `IN (...)` queries for the whole batch.
  */
+export async function invoiceBalances(
+  tx: DbTx,
+  scope: Pick<Scope, "projectId">,
+  invoices: InvoiceRow[],
+  asOf?: string,
+): Promise<Map<string, Balance>> {
+  const result = new Map<string, Balance>();
+  if (invoices.length === 0) return result;
+  const cutoff = asOf ? new Date(`${asOf}T00:00:00.000Z`) : undefined;
+  const ids = invoices.map((i) => i.id);
+  const plain = invoices.filter((i) => i.kind !== "credit_note");
+
+  const credits = plain.length
+    ? await tx.financeInvoice.findMany({
+        where: {
+          projectId: scope.projectId,
+          creditsInvoiceId: { in: plain.map((i) => i.id) },
+          kind: "credit_note",
+          status: { not: "void" },
+          ...(cutoff ? { issueDate: { lte: cutoff } } : {}),
+        },
+      })
+    : [];
+  const allocations = await tx.financePaymentAllocation.findMany({
+    where: { projectId: scope.projectId, invoiceId: { in: ids } },
+  });
+  const livePayments = allocations.length
+    ? new Set(
+        (
+          await tx.financePayment.findMany({
+            where: {
+              projectId: scope.projectId,
+              id: { in: [...new Set(allocations.map((a) => a.paymentId))] },
+              voidedAt: null,
+              ...(cutoff ? { date: { lte: cutoff } } : {}),
+            },
+            select: { id: true },
+          })
+        ).map((p) => p.id),
+      )
+    : new Set<string>();
+
+  const entryIds = [...invoices, ...credits].flatMap((i) =>
+    i.entryId ? [i.entryId] : [],
+  );
+  const lines = entryIds.length
+    ? await tx.financeJournalLine.findMany({
+        where: {
+          projectId: scope.projectId,
+          entryId: { in: entryIds },
+          categoryId: null,
+        },
+      })
+    : [];
+  const counterOf = (
+    invoice: Pick<InvoiceRow, "entryId" | "currency" | "totalMicros">,
+  ) => {
+    const line = invoice.entryId
+      ? lines.find(
+          (l) =>
+            l.entryId === invoice.entryId &&
+            l.currency === invoice.currency &&
+            l.amountMicros === invoice.totalMicros,
+        )
+      : undefined;
+    if (!line) throw new DomainError("FINANCE_INVOICE_POSTING_INVALID", 409);
+    return line;
+  };
+
+  for (const invoice of invoices) {
+    const counter = counterOf(invoice);
+    const invoiceRate: Rate = {
+      rate: counter.fxRate.toFixed(),
+      rateDate: counter.rateDate.toISOString().slice(0, 10),
+      source: counter.rateSource as RateSource,
+    };
+    if (invoice.kind === "credit_note" && invoice.creditsInvoiceId) {
+      result.set(invoice.id, {
+        openAmountMicros: 0n,
+        openBaseMicros: 0n,
+        invoiceRate,
+      });
+      continue;
+    }
+    let openAmountMicros = invoice.totalMicros;
+    let openBaseMicros = counter.baseAmountMicros;
+    for (const a of allocations)
+      if (a.invoiceId === invoice.id && livePayments.has(a.paymentId)) {
+        openAmountMicros -= a.amountMicros;
+        openBaseMicros -= a.baseMicros;
+      }
+    if (invoice.kind !== "credit_note")
+      for (const credit of credits)
+        if (credit.creditsInvoiceId === invoice.id) {
+          openAmountMicros -= credit.totalMicros;
+          openBaseMicros -= counterOf(credit).baseAmountMicros;
+        }
+    result.set(invoice.id, { openAmountMicros, openBaseMicros, invoiceRate });
+  }
+  return result;
+}
+
+/** What is still open on one invoice; see `invoiceBalances`. */
 export async function invoiceBalance(
   tx: DbTx,
   scope: Pick<Scope, "projectId">,
   invoice: InvoiceRow,
-): Promise<Omit<PaymentAllocation, "amountMicros">> {
-  const counter = await openItemLine(tx, scope, invoice);
-  const invoiceRate: Rate = {
-    rate: counter.fxRate.toFixed(),
-    rateDate: counter.rateDate.toISOString().slice(0, 10),
-    source: counter.rateSource as RateSource,
-  };
-  if (invoice.kind === "credit_note" && invoice.creditsInvoiceId)
-    return { openAmountMicros: 0n, openBaseMicros: 0n, invoiceRate };
-  const allocated = await liveAllocations(tx, scope, invoice.id);
-  const credits =
-    invoice.kind === "credit_note"
-      ? []
-      : await tx.financeInvoice.findMany({
-          where: {
-            projectId: scope.projectId,
-            creditsInvoiceId: invoice.id,
-            kind: "credit_note",
-            status: { not: "void" },
-          },
-        });
-  let openAmountMicros = invoice.totalMicros;
-  let openBaseMicros = counter.baseAmountMicros;
-  for (const a of allocated) {
-    openAmountMicros -= a.amountMicros;
-    openBaseMicros -= a.baseMicros;
-  }
-  for (const credit of credits) {
-    openAmountMicros -= credit.totalMicros;
-    openBaseMicros -= (await openItemLine(tx, scope, credit)).baseAmountMicros;
-  }
-  return { openAmountMicros, openBaseMicros, invoiceRate };
+): Promise<Balance> {
+  return (await invoiceBalances(tx, scope, [invoice])).get(invoice.id)!;
 }
 
 const CLOSE_SOURCE = "invoice_close";
-const flip = (side: "debit" | "credit") => (side === "debit" ? "credit" : "debit");
+const flip = (side: "debit" | "credit") =>
+  side === "debit" ? "credit" : "debit";
 const laterOf = (a: string, b: string) => (a > b ? a : b);
 const day = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -238,7 +295,11 @@ export async function refreshInvoiceStatus(
       baseCurrency: settings.baseCurrency,
       lines: [
         { accountId: openItem, side, amountMicros: micros },
-        { accountId: roles.fx_gain_loss, side: flip(side), amountMicros: micros },
+        {
+          accountId: roles.fx_gain_loss,
+          side: flip(side),
+          amountMicros: micros,
+        },
       ],
     },
     roles,
@@ -302,7 +363,8 @@ export async function recordPayment(
   const sides = new Set(invoices.map((i) => i.direction));
   if (sides.size !== 1)
     throw new DomainError("FINANCE_PAYMENT_DIRECTION_INVALID", 422);
-  const settles = invoices[0]!.direction === "payable" ? "payables" : "receivables";
+  const settles =
+    invoices[0]!.direction === "payable" ? "payables" : "receivables";
 
   const allocations: PaymentAllocation[] = [];
   for (const a of input.allocations) {
@@ -491,7 +553,11 @@ export async function voidPayment(
     laterOf(today, day(payment.date)),
   );
   const updated = await tx.financePayment.updateMany({
-    where: { projectId: scope.projectId, id: paymentId, version: payment.version },
+    where: {
+      projectId: scope.projectId,
+      id: paymentId,
+      version: payment.version,
+    },
     data: { voidedAt: new Date(), version: { increment: 1 } },
   });
   if (updated.count !== 1) throw new DomainError("VERSION_CONFLICT", 409);

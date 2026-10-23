@@ -21,7 +21,7 @@ import {
 } from "../src/modules/finance/invoices.ts";
 import { reverseEntry } from "../src/modules/finance/ledger/reversal.ts";
 import { postManualEntry } from "../src/modules/finance/manual-entries.ts";
-import { recordPayment } from "../src/modules/finance/payments.ts";
+import { recordPayment, voidPayment } from "../src/modules/finance/payments.ts";
 import { createRecurring } from "../src/modules/finance/recurring.ts";
 import {
   costReport,
@@ -340,40 +340,57 @@ describe.skipIf(!enabled)("finance reports", () => {
     expect(summary.byCostCenter).toEqual([]);
   });
 
-  it("open, overdue and recurring figures in base", async () => {
-    const invoice = (number: string, dueDate: string) =>
-      run((tx) =>
-        createInvoice(tx, scope(), {
-          kind: "invoice",
-          direction: "payable",
-          counterpartyId,
-          number,
-          issueDate: "2025-08-01",
-          dueDate,
-          currency: "USD",
-          lines: [
-            {
-              description: "x",
-              amount: "100.00",
-              tax: "0.00",
-              categoryId: software,
-              allocation: [],
-            },
-          ],
-        } as BookingRequest as never),
-      );
-    const past = await invoice("OPEN-PAST", "2025-08-15");
-    await invoice("OPEN-FUTURE", "2999-01-01");
-    await run((tx) =>
+  const bookInvoice = (number: string, over: Record<string, unknown> = {}) =>
+    run((tx) =>
+      createInvoice(tx, scope(), {
+        kind: "invoice",
+        direction: "payable",
+        counterpartyId,
+        number,
+        issueDate: "2025-08-01",
+        dueDate: "2025-08-15",
+        currency: "USD",
+        lines: [
+          {
+            description: "x",
+            amount: "100.00",
+            tax: "0.00",
+            categoryId: software,
+            allocation: [],
+          },
+        ],
+        ...over,
+      } as BookingRequest as never),
+    );
+  const pay = (invoiceId: string, date: string, amountMicros: bigint) =>
+    run((tx) =>
       recordPayment(tx, scope(), {
         direction: "outgoing",
         accountId: accounts.bank!,
-        date: "2025-08-20",
+        date,
         currency: "USD",
-        amountMicros: 30_000_000n,
-        allocations: [{ invoiceId: past.invoiceId, amountMicros: 30_000_000n }],
+        amountMicros,
+        allocations: [{ invoiceId, amountMicros }],
       }),
     );
+  const position = async () => {
+    const s = await run((tx) =>
+      financeSummary(tx, scope(), { from: "2025-08-01", to: "2025-08-31" }),
+    );
+    return {
+      open: BigInt(s.open.totalMicros),
+      openCount: s.open.count,
+      overdue: BigInt(s.overdue.totalMicros),
+      overdueCount: s.overdue.count,
+      summary: s,
+    };
+  };
+
+  it("open and overdue figures in base, recurring at today's rate", async () => {
+    const before = await position();
+    const past = await bookInvoice("OPEN-PAST");
+    await bookInvoice("OPEN-FUTURE", { dueDate: "2999-01-01" });
+    await pay(past.invoiceId, "2025-08-20", 30_000_000n);
     await run(async (tx) => {
       await createRecurring(tx, scope(), {
         name: "Plan",
@@ -390,20 +407,77 @@ describe.skipIf(!enabled)("finance reports", () => {
         nextDueDate: "2999-01-01",
       });
     });
-    const summary = await run((tx) =>
-      financeSummary(tx, scope(), { from: "2025-08-01", to: "2025-08-31" }),
+    const after = await position();
+    expect(after.openCount - before.openCount).toBe(2);
+    expect(after.open - before.open).toBe(170_000_000n);
+    expect(after.overdueCount - before.overdueCount).toBe(1);
+    expect(after.overdue - before.overdue).toBe(70_000_000n);
+    expect(
+      BigInt(after.summary.recurringMonthlyMicros) -
+        BigInt(before.summary.recurringMonthlyMicros),
+    ).toBe(10_000_000n);
+    expect(
+      after.summary.recurringMissingRate - before.summary.recurringMissingRate,
+    ).toBe(1);
+  });
+
+  it("open figures honour credit notes and voided payments", async () => {
+    const before = await position();
+    const target = await bookInvoice("OPEN-CREDIT");
+    await bookInvoice("CN-1", {
+      kind: "credit_note",
+      creditsInvoiceId: target.invoiceId,
+      lines: [
+        {
+          description: "credit",
+          amount: "20.00",
+          tax: "0.00",
+          categoryId: software,
+          allocation: [],
+        },
+      ],
+    });
+    let now = await position();
+    expect(now.open - before.open).toBe(80_000_000n);
+    expect(now.overdue - before.overdue).toBe(80_000_000n);
+    expect(now.openCount - before.openCount).toBe(1);
+    const payment = await pay(target.invoiceId, "2025-08-20", 30_000_000n);
+    now = await position();
+    expect(now.open - before.open).toBe(50_000_000n);
+    await run((tx) =>
+      voidPayment(tx, scope(), payment.paymentId, { reason: "Bounced" }),
     );
-    expect(summary.open).toMatchObject({
-      count: 3,
-      totalMicros: "270000000",
-      payableMicros: "270000000",
+    now = await position();
+    expect(now.open - before.open).toBe(80_000_000n);
+    expect(now.overdue - before.overdue).toBe(80_000_000n);
+  });
+
+  it("year overview open items are as of 31 December", async () => {
+    const partial = await bookInvoice("ASOF-PARTIAL", {
+      issueDate: "2030-11-01",
+      dueDate: "2030-12-01",
     });
-    expect(summary.overdue).toMatchObject({
-      count: 2,
-      totalMicros: "170000000",
+    await pay(partial.invoiceId, "2030-12-01", 30_000_000n);
+    const paidLater = await bookInvoice("ASOF-LATE", {
+      issueDate: "2030-11-02",
+      dueDate: "2030-12-02",
     });
-    expect(summary.recurringMonthlyMicros).toBe("10000000");
-    expect(summary.recurringMissingRate).toBe(1);
+    await pay(paidLater.invoiceId, "2031-01-15", 100_000_000n);
+    await bookInvoice("ASOF-NEXT", {
+      issueDate: "2031-02-01",
+      dueDate: "2031-03-01",
+    });
+    const open = (await run((tx) => yearOverview(tx, scope(), 2030))).open;
+    expect(open.map((o) => [o.number, o.openMicros, o.openBaseMicros])).toEqual(
+      expect.arrayContaining([
+        ["ASOF-PARTIAL", "70000000", "70000000"],
+        ["ASOF-LATE", "100000000", "100000000"],
+      ]),
+    );
+    expect(open.some((o) => o.number === "ASOF-NEXT")).toBe(false);
+    const next = (await run((tx) => yearOverview(tx, scope(), 2031))).open;
+    expect(next.some((o) => o.number === "ASOF-LATE")).toBe(false);
+    expect(next.some((o) => o.number === "ASOF-NEXT")).toBe(true);
   });
 
   it("year overview lists categories, cost centers and booked documents", async () => {
