@@ -160,8 +160,8 @@ export function OrganizationManager({
             <h2>{d.organization.name}</h2>
             <p>
               {de
-                ? `${d.members.length} Mitglieder · ${d.projects.length} Projekte`
-                : `${d.members.length} members · ${d.projects.length} projects`}
+                ? `${d.members.length} ${d.members.length === 1 ? "Mitglied" : "Mitglieder"} · ${d.projects.length} ${d.projects.length === 1 ? "Projekt" : "Projekte"}`
+                : `${d.members.length} ${d.members.length === 1 ? "member" : "members"} · ${d.projects.length} ${d.projects.length === 1 ? "project" : "projects"}`}
             </p>
           </div>
           <div className="panel-actions">

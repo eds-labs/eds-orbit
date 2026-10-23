@@ -12,10 +12,18 @@ import { errorText, orgRoleLabel, projectRoleLabel } from "@/platform/administra
 // fragment, which never reaches a server log; the page reads it once and
 // removes it from the address bar.
 
+// The token read from this page load's fragment: an effect that runs twice
+// (React's development checks) finds the fragment already removed.
+let captured: { path: string; token: string } | null = null;
+
 function useFragmentToken() {
   const [token, setToken] = useState<string | null | undefined>(undefined);
   useEffect(() => {
-    const value = window.location.hash.slice(1);
+    const path = window.location.pathname;
+    const value =
+      window.location.hash.slice(1) ||
+      (captured?.path === path ? captured.token : "");
+    captured = value ? { path, token: value } : null;
     setToken(/^[A-Za-z0-9_-]{20,200}$/.test(value) ? value : null);
     if (value)
       window.history.replaceState(

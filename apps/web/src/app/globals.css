@@ -5871,6 +5871,8 @@ a.support-row {
 }
 .account-page {
   max-width: 760px;
+  width: 100%;
+  margin: 0 auto;
 }
 .panel-body {
   padding: 0 21px 21px;
@@ -6041,5 +6043,16 @@ a.support-row {
   }
   .admin-filters {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* The avatar is the account menu now, so it stays on phones. */
+  .topbar-actions .user-menu > .avatar {
+    display: grid;
+  }
+  .user-menu-panel {
+    position: fixed;
+    top: 56px;
+    right: 16px;
+    left: 16px;
+    min-width: 0;
   }
 }
