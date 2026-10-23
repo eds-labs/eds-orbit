@@ -92,6 +92,9 @@ const PUBLIC_ROUTES = [
   "POST /api/invitations/view",
   "POST /api/account/password-reset/confirm",
   "POST /api/account/password-reset/request",
+  // Workflow outcomes (ADR 0013, WP3.7): the connection's signature
+  // authenticates; an unknown run answers 404 for everybody.
+  "POST /api/automation/callbacks/{projectId}/{runId}",
 ];
 // The collection name is validated before the session: an unknown one is a 400
 // for everybody and reveals nothing about the project.
