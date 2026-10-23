@@ -35,6 +35,12 @@ FamilyPlan (project `118371ad-…`) imported 12 Markdown documents through the M
   - `source-reindex` runs the idempotent backfill.
 - **Admin UI:** Knowledge → Sources shows a state badge per source. The inspector shows counts, search mode, last import, jobs, blockers and the last error, plus *Reindex* and *Source settings* for owners.
 
+- **Full-text ranking (follow-up commit):** passages that contain every term still rank first. Partial matches then rank by how much of the question they cover, each term weighted by its rarity among the project's chunks (inverse document frequency). In production, the FamilyPlan question about location sharing had put overview passages that repeat the product name ahead of the "Standorte" passage. The quality metrics of the deterministic knowledge evals are unchanged.
+
+## Production result (2026-10-23)
+
+Deployed `db4ecaaf` at 18:22 UTC. The FamilyPlan source was set to `official` with an 8760 h freshness window: generation 2, all 12 documents and 84 chunks re-attached, state `ready`, full-text search. All five content questions returned passages from the expected documents, and the same question from the uLiquid project returned no FamilyPlan content.
+
 ## Operations
 
 - **FamilyPlan restore, after deploy, owner:** Knowledge → Sources → *FamilyPlan – Kuratierte Projektwissensbasis 2026-10* → *Source settings*: authority `official`, freshness window `8760`. This is one action: generation 2, all 12 documents re-attached, no new import and no duplicates. The API equivalent is `POST /api/projects/{id}/actions/source-settings {sourceId, authority, maxAgeHours}`.

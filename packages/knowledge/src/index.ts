@@ -761,8 +761,15 @@ export async function retrieve(tx: DbTx, s: Scope, input: RetrieveInput) {
   // into a match of nearly everything.
   const strict = Prisma.sql`websearch_to_tsquery(${config}::regconfig,${input.query})`;
   const loose = Prisma.sql`(CASE WHEN strpos(${strict}::text,'!')>0 THEN ${strict} ELSE replace(${strict}::text,' & ',' | ')::tsquery END)`;
+  // Partial matches rank by how much of the query they cover, each term
+  // weighted by its rarity among the project's chunks (inverse document
+  // frequency): a passage with the rare words of a question outranks an
+  // overview that repeats a word found in nearly every passage, such as the
+  // product name.
+  const terms = Prisma.sql`WITH ql AS (SELECT DISTINCT l FROM unnest(tsvector_to_array(to_tsvector(${config}::regconfig,${input.query}))) AS l), qn AS (SELECT count(*)::float AS n FROM "KnowledgeChunk" k WHERE k."workspaceId"=${s.workspaceId}::uuid AND k."projectId"=${s.projectId}::uuid), qw AS (SELECT ql.l, ln(1+(SELECT n FROM qn)/(1+(SELECT count(*) FROM "KnowledgeChunk" k WHERE k."workspaceId"=${s.workspaceId}::uuid AND k."projectId"=${s.projectId}::uuid AND k."searchVector" @@ quote_literal(ql.l)::tsquery))) AS w FROM ql), qt AS (SELECT sum(w) AS w FROM qw)`;
+  const coverage = Prisma.sql`COALESCE((SELECT sum(qw.w) FROM qw WHERE c."searchVector" @@ quote_literal(qw.l)::tsquery)/NULLIF((SELECT w FROM qt),0),0)`;
   const lexical = await tx.$queryRaw<Candidate[]>(
-    Prisma.sql`SELECT ${columns},(CASE WHEN c."searchVector" @@ ${strict} THEN 1 ELSE 0 END)+ts_rank_cd(c."searchVector",${loose})+ts_rank_cd(c."identifierVector",websearch_to_tsquery('simple',${input.query})) AS rank ${eligible} AND (c."searchVector" @@ ${strict} OR c."searchVector" @@ ${loose} OR c."identifierVector" @@ websearch_to_tsquery('simple',${input.query}) OR position(lower(${input.query}) in lower(c.text))>0) ORDER BY CASE s.data->>'authority' WHEN 'official' THEN 0 WHEN 'website' THEN 1 ELSE 2 END,rank DESC,c.id LIMIT ${LIMITS.candidates}`,
+    Prisma.sql`${terms} SELECT ${columns},(CASE WHEN c."searchVector" @@ ${strict} THEN 1 ELSE 0 END)+${coverage}+0.1*ts_rank_cd(c."searchVector",${loose})+ts_rank_cd(c."identifierVector",websearch_to_tsquery('simple',${input.query})) AS rank ${eligible} AND (c."searchVector" @@ ${strict} OR c."searchVector" @@ ${loose} OR c."identifierVector" @@ websearch_to_tsquery('simple',${input.query}) OR position(lower(${input.query}) in lower(c.text))>0) ORDER BY CASE s.data->>'authority' WHEN 'official' THEN 0 WHEN 'website' THEN 1 ELSE 2 END,rank DESC,c.id LIMIT ${LIMITS.candidates}`,
   );
   let semantic: Candidate[] = [];
   if (input.queryVector) {

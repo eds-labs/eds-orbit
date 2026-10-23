@@ -188,6 +188,41 @@ describe.skipIf(!enabled)("Knowledge indexing and retrieval", () => {
     });
   });
 
+  it("answers a natural-language question with the specific passage, not the overview that repeats the product name", async () => {
+    const sourceId = await source(scope);
+    for (const [name, text] of [
+      [
+        "00_START.md",
+        "Rangwortprodukt Rangwortprodukt Rangwortprodukt: Überblick über Rangwortprodukt, Familien und Rangwortprodukt im Alltag.",
+      ],
+      [
+        "01_PRODUKT.md",
+        "Rangwortprodukt organisiert Familien. Rangwortprodukt ist eine App.",
+      ],
+      [
+        "02_MARKETING.md",
+        "Rangwortprodukt spricht Eltern an. Rangwortprodukt wirbt ruhig.",
+      ],
+      [
+        "03_ARCHITEKTUR.md",
+        "Rangwortprodukt nutzt ein gemeinsames Backend für Rangwortprodukt.",
+      ],
+    ] as const)
+      await add(scope, sourceId, name, name, text);
+    const specific = await add(
+      scope,
+      sourceId,
+      "05_DATENSCHUTZ.md",
+      "Standorte",
+      "Die Ortungsfreigabewort ist freiwillig, pro Profil widerrufbar, und Kinder behalten ihre Rechte.",
+    );
+    const found = await hits(
+      scope,
+      "Wie funktioniert die freiwillige Ortungsfreigabewort bei Rangwortprodukt und welche Rechte haben Kinder?",
+    );
+    expect(found[0]!.documentVersionId).toBe(specific.versionId);
+  });
+
   it("replaces an updated document without duplicate chunks", async () => {
     const sourceId = await source(scope);
     const first = await add(
