@@ -51,10 +51,11 @@ registerModules();
  * built-in modules', and switching it off removes every one of them.
  */
 describe("a third module through the contracts alone", () => {
-  it("registers next to knowledge, marketing and support, never in production", () => {
-    // Dependency order, ties alphabetical: support and tasks need nothing,
-    // marketing needs knowledge.
+  it("registers next to the static modules, never in production", () => {
+    // Dependency order, ties alphabetical: finance, support and tasks need
+    // nothing, marketing needs knowledge.
     expect(registeredRegistry().order).toEqual([
+      "finance",
       "knowledge",
       "support",
       "tasks",
@@ -80,6 +81,7 @@ describe("a third module through the contracts alone", () => {
       "knowledge",
       "marketing",
       "support",
+      "finance",
     ]);
     expect(moduleRegistry().modules.map((m) => m.id)).toContain("tasks");
   });

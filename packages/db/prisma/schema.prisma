@@ -503,6 +503,335 @@ model SupportTicketEvent {
   @@index([projectId, ticketId, createdAt])
 }
 
+// Finance module (spec 2026-10-23 §4). Relations live in SQL as composite
+// same-project foreign keys; the models declare none, like Support. Amounts
+// are BigInt micros, rates Decimal(24,12). The journal is append-only.
+
+model FinanceAccount {
+  id             String    @id @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  code           String
+  name           String
+  type           String
+  role           String?
+  paymentAccount Boolean   @default(false)
+  currency       String?
+  externalCode   String?
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt     DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, code])
+}
+
+model FinanceCategory {
+  id          String    @id @db.Uuid
+  workspaceId String    @db.Uuid
+  projectId   String    @db.Uuid
+  name        String
+  kind        String
+  parentId    String?   @db.Uuid
+  accountId   String    @db.Uuid
+  version     Int       @default(1)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt  DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+}
+
+model FinanceCostCenter {
+  id             String    @id @db.Uuid
+  workspaceId    String    @db.Uuid
+  projectId      String    @db.Uuid
+  code           String
+  name           String
+  orbitProjectId String?   @db.Uuid
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+  archivedAt     DateTime? @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, code])
+}
+
+model FinanceCounterparty {
+  id                String   @id @db.Uuid
+  workspaceId       String   @db.Uuid
+  projectId         String   @db.Uuid
+  name              String
+  normalizedName    String
+  taxId             String?
+  emailDomains      String[] @default([])
+  defaultCategoryId String?  @db.Uuid
+  defaultAllocation Json?
+  version           Int      @default(1)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, normalizedName])
+}
+
+model FinanceMailbox {
+  id                String   @id @db.Uuid
+  workspaceId       String   @db.Uuid
+  projectId         String   @db.Uuid
+  /// The `connectors` entity with provider "email"; one binding per connection.
+  emailConnectionId String   @db.Uuid
+  archiveFolder     String   @default("Orbit/Processed")
+  active            Boolean  @default(true)
+  version           Int      @default(1)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, emailConnectionId])
+}
+
+/// One original. One live row per (projectId, sha256) by a partial unique
+/// index in SQL; rejected and duplicate rows keep the hash.
+model FinanceDocument {
+  id             String   @id @db.Uuid
+  workspaceId    String   @db.Uuid
+  projectId      String   @db.Uuid
+  fileId         String   @db.Uuid
+  sha256         String
+  source         String
+  mailboxId      String?  @db.Uuid
+  inboundEmailId String?  @db.Uuid
+  messageId      String?
+  emailFileId    String?  @db.Uuid
+  originalName   String?
+  mimeType       String
+  status         String   @default("received")
+  docType        String   @default("unknown")
+  extraction     Json?
+  confidence     Float?
+  flags          String[] @default([])
+  duplicateOfId  String?  @db.Uuid
+  agentRunId     String?  @db.Uuid
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, status])
+  @@index([projectId, messageId])
+}
+
+model FinanceDocumentRevision {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  documentId  String   @db.Uuid
+  version     Int
+  actorUserId String?
+  changes     Json
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, documentId, version])
+}
+
+/// The next journal number per project and year.
+model FinanceEntryCounter {
+  workspaceId String @db.Uuid
+  projectId   String @db.Uuid
+  year        Int
+  next        Int    @default(1)
+
+  @@id([projectId, year])
+}
+
+/// A posted entry. Database triggers allow only setting reversedById once
+/// and check at commit that its lines balance in the base currency.
+model FinanceJournalEntry {
+  id           String   @id @db.Uuid
+  workspaceId  String   @db.Uuid
+  projectId    String   @db.Uuid
+  number       String
+  entryDate    DateTime @db.Date
+  kind         String
+  status       String   @default("posted")
+  memo         String?
+  documentId   String?  @db.Uuid
+  sourceType   String?
+  sourceId     String?  @db.Uuid
+  reversalOfId String?  @db.Uuid
+  reversedById String?  @db.Uuid
+  postedBy     String
+  postedAt     DateTime @default(now()) @db.Timestamptz(3)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, number])
+  @@unique([projectId, reversalOfId])
+  @@index([projectId, entryDate])
+  @@index([projectId, documentId])
+}
+
+/// A posted line; never updated (database trigger).
+model FinanceJournalLine {
+  id               String   @id @db.Uuid
+  workspaceId      String   @db.Uuid
+  projectId        String   @db.Uuid
+  entryId          String   @db.Uuid
+  accountId        String   @db.Uuid
+  side             String
+  currency         String
+  amountMicros     BigInt
+  fxRate           Decimal  @db.Decimal(24, 12)
+  rateDate         DateTime @db.Date
+  rateSource       String
+  baseAmountMicros BigInt
+  categoryId       String?  @db.Uuid
+  costCenterId     String?  @db.Uuid
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, entryId])
+  @@index([projectId, accountId])
+}
+
+model FinanceRecurring {
+  id                   String   @id @db.Uuid
+  workspaceId          String   @db.Uuid
+  projectId            String   @db.Uuid
+  name                 String
+  counterpartyId       String?  @db.Uuid
+  categoryId           String?  @db.Uuid
+  allocation           Json?
+  interval             String
+  expectedAmountMicros BigInt
+  currency             String
+  nextDueDate          DateTime @db.Date
+  active               Boolean  @default(true)
+  match                Json?
+  version              Int      @default(1)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+}
+
+model FinanceInvoice {
+  id               String    @id @db.Uuid
+  workspaceId      String    @db.Uuid
+  projectId        String    @db.Uuid
+  kind             String
+  direction        String
+  counterpartyId   String?   @db.Uuid
+  number           String?
+  issueDate        DateTime  @db.Date
+  dueDate          DateTime? @db.Date
+  currency         String
+  netMicros        BigInt
+  taxMicros        BigInt
+  totalMicros      BigInt
+  status           String    @default("open")
+  documentId       String?   @db.Uuid
+  creditsInvoiceId String?   @db.Uuid
+  recurringId      String?   @db.Uuid
+  entryId          String?   @db.Uuid
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, counterpartyId, number])
+  @@index([projectId, status, dueDate])
+}
+
+model FinanceInvoiceLine {
+  id           String   @id @db.Uuid
+  workspaceId  String   @db.Uuid
+  projectId    String   @db.Uuid
+  invoiceId    String   @db.Uuid
+  position     Int      @default(0)
+  description  String
+  quantity     Decimal  @default(1) @db.Decimal(24, 12)
+  amountMicros BigInt
+  taxMicros    BigInt   @default(0)
+  categoryId   String?  @db.Uuid
+  allocation   Json?
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, invoiceId])
+}
+
+model FinancePayment {
+  id             String   @id @db.Uuid
+  workspaceId    String   @db.Uuid
+  projectId      String   @db.Uuid
+  date           DateTime @db.Date
+  direction      String
+  accountId      String   @db.Uuid
+  currency       String
+  amountMicros   BigInt
+  reference      String?
+  counterpartyId String?  @db.Uuid
+  entryId        String?  @db.Uuid
+  version        Int      @default(1)
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@index([projectId, date])
+}
+
+model FinancePaymentAllocation {
+  id           String   @id @db.Uuid
+  workspaceId  String   @db.Uuid
+  projectId    String   @db.Uuid
+  paymentId    String   @db.Uuid
+  invoiceId    String   @db.Uuid
+  amountMicros BigInt
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, paymentId, invoiceId])
+  @@index([projectId, invoiceId])
+}
+
+model FinanceFxRate {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  date        DateTime @db.Date
+  currency    String
+  perEur      Decimal  @db.Decimal(24, 12)
+  source      String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+  @@unique([projectId, date, currency, source])
+}
+
+model FinanceExport {
+  id          String   @id @db.Uuid
+  workspaceId String   @db.Uuid
+  projectId   String   @db.Uuid
+  kind        String
+  periodStart DateTime @db.Date
+  periodEnd   DateTime @db.Date
+  fileId      String   @db.Uuid
+  sha256      String
+  rowCount    Int
+  createdBy   String
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([projectId, id])
+}
+
 /// A member's role in one module (WP4.5): editor, viewer or none.
 model ProjectMemberModuleRole {
   workspaceId String        @db.Uuid
